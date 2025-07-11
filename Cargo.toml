@@ -1,0 +1,38 @@
+[package]
+name = "portfoliodb"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# gRPC
+tonic = "0.10"
+prost = "0.12"
+prost-types = "0.12"
+tonic-reflection = "0.10"
+futures = "0.3"
+
+# CLI
+clap = { version = "4.0", features = ["derive"] }
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Database
+sea-orm = { version = "0.12", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
+
+[build-dependencies]
+tonic-build = "0.10" 

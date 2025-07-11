@@ -1,3 +1,6 @@
+# Load environment variables for proto submodule
+GIT_SUBMODULE_FLAGS ?=
+
 .PHONY: build clean proto proto-clean clean-all
 
 # Default target
@@ -10,12 +13,14 @@ clean:
 
 # Clean everything including source proto files
 clean-all: clean
+	@echo "Cleaning proto submodule..."
+	@git $(GIT_SUBMODULE_FLAGS) submodule deinit -f proto/service 2>/dev/null || true
 	@rm -rf proto/service
 
 # Proto management
 proto: proto/service/portfoliodb.proto
 
 proto/service/portfoliodb.proto:
-	@echo "Proto repository not found, checking out https://github.com/leedenison/portfoliodb-proto"
+	@echo "Initializing and updating proto submodule..."
 	@mkdir -p proto
-	@git clone https://github.com/leedenison/portfoliodb-proto proto/service
+	@git $(GIT_SUBMODULE_FLAGS) submodule update --init --recursive proto/service

@@ -33,6 +33,3 @@ pids
 
 # dotenv environment variables file
 .env
-
-# Proto files (fetched from external repo)
-proto/service/ 

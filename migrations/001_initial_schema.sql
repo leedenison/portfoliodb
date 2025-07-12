@@ -16,7 +16,8 @@ CREATE TABLE symbols (
     domain VARCHAR(100) NOT NULL,
     symbol VARCHAR(100) NOT NULL,
     exchange VARCHAR(100) NOT NULL,
-    UNIQUE(instrument_id, domain, symbol, exchange)
+    description VARCHAR(500) NOT NULL DEFAULT '',
+    UNIQUE(instrument_id, domain, symbol, exchange, description)
 );
 
 -- Create derivatives table (for options, futures, etc.)
@@ -62,7 +63,7 @@ CREATE INDEX idx_transactions_instrument_date ON transactions(instrument_id, tra
 CREATE INDEX idx_transactions_settled_date ON transactions(settled_date);
 CREATE INDEX idx_prices_instrument_date ON prices(instrument_id, price_date);
 DROP INDEX IF EXISTS idx_symbols_lookup;
-CREATE INDEX idx_symbols_lookup ON symbols(domain, symbol, exchange);
+CREATE INDEX idx_symbols_lookup ON symbols(domain, symbol, exchange, description);
 CREATE INDEX idx_derivatives_underlying ON derivatives(underlying_instrument_id);
 
 -- Create unique constraints to prevent concurrent updates

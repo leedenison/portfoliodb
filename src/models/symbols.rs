@@ -9,6 +9,7 @@ pub struct Model {
     pub domain: String,
     pub symbol: String,
     pub exchange: String,
+    pub description: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -27,4 +28,4 @@ impl Related<super::instruments::Entity> for Entity {
     }
 }
 
-impl ActiveModelBehavior for ActiveModel {} 
+impl ActiveModelBehavior for ActiveModel {}

@@ -1,7 +1,5 @@
 use clap::Parser;
 use tonic::transport::Server;
-use tonic_reflection::server::Builder as ReflectionBuilder;
-use tonic_reflection::pb::FILE_DESCRIPTOR_SET;
 use tracing::{info, Level};
 
 use portfoliodb::portfolio_db_server::PortfolioDbServer;
@@ -34,14 +32,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create and start the server
     let service = PortfolioDBService::new(args.database_url.clone());
     
-    // Configure reflection service
-    let reflection_service = ReflectionBuilder::configure()
-        .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET)
-        .build()?;
-    
     Server::builder()
         .add_service(PortfolioDbServer::new(service))
-        .add_service(reflection_service)
         .serve(addr)
         .await?;
     

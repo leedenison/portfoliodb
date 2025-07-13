@@ -4,19 +4,19 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 -- Create instruments table (regular PostgreSQL table)
 CREATE TABLE instruments (
     id BIGSERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    type VARCHAR(50) NOT NULL, -- STK, MF, BOND, etc.
-    currency VARCHAR(3) -- ISO 4217 currency code (e.g., USD, EUR, GBP), now nullable
+    name TEXT NOT NULL,
+    type TEXT NOT NULL, -- STK, MF, BOND, etc.
+    currency TEXT -- ISO 4217 currency code (e.g., USD, EUR, GBP), now nullable
 );
 
 -- Create symbols table (one-to-many relationship)
 CREATE TABLE symbols (
     id BIGSERIAL PRIMARY KEY,
     instrument_id BIGINT NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
-    domain VARCHAR(100) NOT NULL,
-    symbol VARCHAR(100) NOT NULL,
-    exchange VARCHAR(100) NOT NULL,
-    description VARCHAR(500) NOT NULL DEFAULT '',
+    domain TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    exchange TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
     UNIQUE(instrument_id, domain, symbol, exchange, description)
 );
 
@@ -26,31 +26,35 @@ CREATE TABLE derivatives (
     instrument_id BIGINT NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
     underlying_instrument_id BIGINT NOT NULL REFERENCES instruments(id),
     expiration_date TIMESTAMPTZ NOT NULL,
-    put_call VARCHAR(4) NOT NULL CHECK (put_call IN ('PUT', 'CALL')),
+    put_call TEXT NOT NULL CHECK (put_call IN ('PUT', 'CALL')),
     strike_price DOUBLE PRECISION NOT NULL,
     multiplier DOUBLE PRECISION NOT NULL DEFAULT 1.0,
     UNIQUE(instrument_id)
 );
 
 -- Create transactions hypertable (TimescaleDB timeseries)
+-- Note: For TimescaleDB hypertables with primary keys, the partitioning column must be included
 CREATE TABLE transactions (
-    id BIGSERIAL PRIMARY KEY,
-    account_id VARCHAR(255) NOT NULL,
+    id BIGSERIAL,
+    account_id TEXT NOT NULL,
     instrument_id BIGINT NOT NULL REFERENCES instruments(id),
     units DOUBLE PRECISION NOT NULL,
     unit_price DOUBLE PRECISION,
-    currency VARCHAR(3) NOT NULL, -- ISO 4217 currency code (e.g., USD, EUR, GBP)
+    currency TEXT NOT NULL, -- ISO 4217 currency code (e.g., USD, EUR, GBP)
     trade_date TIMESTAMPTZ NOT NULL,
     settled_date TIMESTAMPTZ,
-    tx_type VARCHAR(20) NOT NULL -- BUY, SELL, DIVIDEND, etc.
+    tx_type TEXT NOT NULL, -- BUY, SELL, DIVIDEND, etc.
+    PRIMARY KEY (id, trade_date)
 );
 
 -- Create prices hypertable (TimescaleDB timeseries)
+-- Note: For TimescaleDB hypertables with primary keys, the partitioning column must be included
 CREATE TABLE prices (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGSERIAL,
     instrument_id BIGINT NOT NULL REFERENCES instruments(id),
     price DOUBLE PRECISION NOT NULL,
-    price_date TIMESTAMPTZ NOT NULL
+    price_date TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (id, price_date)
 );
 
 -- Convert to hypertables with 1-day chunking
@@ -62,10 +66,8 @@ CREATE INDEX idx_transactions_account_date ON transactions(account_id, trade_dat
 CREATE INDEX idx_transactions_instrument_date ON transactions(instrument_id, trade_date);
 CREATE INDEX idx_transactions_settled_date ON transactions(settled_date);
 CREATE INDEX idx_prices_instrument_date ON prices(instrument_id, price_date);
-DROP INDEX IF EXISTS idx_symbols_lookup;
 CREATE INDEX idx_symbols_lookup ON symbols(domain, symbol, exchange, description);
 CREATE INDEX idx_derivatives_underlying ON derivatives(underlying_instrument_id);
 
 -- Create unique constraints to prevent concurrent updates
 CREATE UNIQUE INDEX idx_transactions_account_instrument_trade_date ON transactions(account_id, instrument_id, trade_date);
-CREATE UNIQUE INDEX idx_prices_instrument_date ON prices(instrument_id, price_date);

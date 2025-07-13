@@ -106,7 +106,7 @@ impl DatabaseManager {
 
         // Delete instruments being merged
         // These should not differ in other metadata, but if they do we have no way
-        // to reconcile them anyway
+        // to reconcile them anyway so we just delete them.
         self.delete_instruments(src_instrument_ids.clone(), txn).await?;
 
         // Add all unique symbols to the merged instrument
@@ -141,7 +141,6 @@ impl DatabaseManager {
             .map(|s| (s.domain.clone(), s.symbol.clone(), s.exchange.clone(), s.description.clone()))
             .collect();
         
-        // Single query to find all matching symbols and their instruments
         let matching = Symbols::find()
             .filter(Expr::tuple([
                 Expr::col(SymCol::Domain).into(),

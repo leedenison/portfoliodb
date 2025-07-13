@@ -74,7 +74,7 @@ async fn test_delete_instruments() {
                     vec![
                         Identifier {
                             dbid: 2002,
-                            instrument_dbid: 0,
+                            instrument_dbid: 1005,
                             id: "".to_string(),
                             domain: "OCC".to_string(),
                             symbol: "AAPL240816C00195000".to_string(),

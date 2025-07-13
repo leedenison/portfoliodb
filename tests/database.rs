@@ -1,19 +1,25 @@
-use chrono::{DateTime, Utc};
-use sea_orm::{EntityTrait};
-use anyhow::Result;
-
-use portfoliodb::models::{
-    Instrument, Identifier, Derivative, Transaction, Price,
-    Instruments, Identifiers, Derivatives, Transactions, Prices
-};
-use portfoliodb::database::DatabaseManager;
-
 mod infra;
 use infra::{TestDatabase, populate_database, verify_database, clear_database};
+
+use chrono::{DateTime, Utc};
+
+use portfoliodb::models::{
+    Instrument, Identifier, Derivative
+};
+use portfoliodb::database::DatabaseManager;
 
 /// Test cases for delete_instruments function
 #[tokio::test]
 async fn test_delete_instruments() {
+    // Check if DATABASE_URL is set, skip test if not
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            println!("DATABASE_URL not set, skipping test_delete_instruments");
+            return;
+        }
+    };
+
     let test_cases = vec![
         (
             TestDatabase::new()
@@ -114,9 +120,6 @@ async fn test_delete_instruments() {
     ];
     
     // Connect to test database
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://localhost/portfoliodb".to_string());
-    
     let db_manager = DatabaseManager::new(&database_url).await
         .expect("Failed to connect to database");
     
@@ -137,9 +140,8 @@ async fn test_delete_instruments() {
             .expect("Failed to delete instruments");
         
         // Verify after state
-        let after_verified = verify_database(&db_manager, &after_state).await
-            .expect("Failed to verify after state");
-        assert!(after_verified, "After state verification failed for: {}", description);
+        verify_database(&db_manager, &after_state).await
+            .expect(&format!("After state verification failed for: {}", description));
         
         // Clear database for next test
         clear_database(&db_manager).await

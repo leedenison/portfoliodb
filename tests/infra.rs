@@ -1,5 +1,3 @@
-use chrono::{DateTime, Utc};
-use sea_orm::{EntityTrait};
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -8,6 +6,7 @@ use portfoliodb::models::{
     Instruments, Identifiers, Derivatives, Transactions, Prices
 };
 use portfoliodb::database::DatabaseManager;
+use sea_orm::EntityTrait;
 
 /// TestDatabase struct for declaratively specifying test database contents
 #[derive(Debug, Clone)]

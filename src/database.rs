@@ -396,8 +396,6 @@ impl DatabaseManager {
         Ok(())
     }
 
-
-
     /// Creates a new symbol in the database.
     /// 
     /// # Arguments
@@ -414,23 +412,6 @@ impl DatabaseManager {
             .exec(&*self.conn)
             .await?;
         Ok(result.last_insert_id)
-    }
-
-    /// Deletes a symbol by its id.
-    /// 
-    /// # Arguments
-    /// * `id` - The id of the symbol to delete
-    /// 
-    /// # Returns
-    /// * `Result<()>` - Success or error
-    /// 
-    /// # Errors
-    /// * `anyhow::Error` - If the database operation fails
-    pub async fn delete_symbol(&self, id: i64) -> Result<()> {
-        Symbols::delete_by_id(id)
-            .exec(&*self.conn)
-            .await?;
-        Ok(())
     }
 
     /// Creates a new instrument in the database.
@@ -505,23 +486,6 @@ impl DatabaseManager {
         Ok(result.last_insert_id)
     }
 
-    /// Deletes a derivative by its id.
-    /// 
-    /// # Arguments
-    /// * `id` - The id of the derivative to delete
-    /// 
-    /// # Returns
-    /// * `Result<()>` - Success or error
-    /// 
-    /// # Errors
-    /// * `anyhow::Error` - If the database operation fails
-    pub async fn delete_derivative(&self, id: i64) -> Result<()> {
-        Derivatives::delete_by_id(id)
-            .exec(&*self.conn)
-            .await?;
-        Ok(())
-    }
-
     /// Creates a new transaction in the database.
     /// 
     /// # Arguments
@@ -540,23 +504,6 @@ impl DatabaseManager {
         Ok(result.last_insert_id)
     }
 
-    /// Deletes a transaction by its id.
-    /// 
-    /// # Arguments
-    /// * `id` - The id of the transaction to delete
-    /// 
-    /// # Returns
-    /// * `Result<()>` - Success or error
-    /// 
-    /// # Errors
-    /// * `anyhow::Error` - If the database operation fails
-    pub async fn delete_transaction(&self, id: i64) -> Result<()> {
-        Transactions::delete_by_id(id)
-            .exec(&*self.conn)
-            .await?;
-        Ok(())
-    }
-
     /// Creates a new price in the database.
     /// 
     /// # Arguments
@@ -573,22 +520,5 @@ impl DatabaseManager {
             .exec(&*self.conn)
             .await?;
         Ok(result.last_insert_id)
-    }
-
-    /// Deletes a price by its id.
-    /// 
-    /// # Arguments
-    /// * `id` - The id of the price to delete
-    /// 
-    /// # Returns
-    /// * `Result<()>` - Success or error
-    /// 
-    /// # Errors
-    /// * `anyhow::Error` - If the database operation fails
-    pub async fn delete_price(&self, id: i64) -> Result<()> {
-        Prices::delete_by_id(id)
-            .exec(&*self.conn)
-            .await?;
-        Ok(())
     }
 }

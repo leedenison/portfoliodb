@@ -4,7 +4,7 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "instruments")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: i64,
+    pub dbid: i64,
     pub name: String,
     pub r#type: String,           // Using raw identifier for 'type'
     pub currency: Option<String>, // ISO 4217 currency code (e.g., USD, EUR, GBP) - nullable
@@ -12,8 +12,8 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::symbols::Entity")]
-    Symbols,
+    #[sea_orm(has_many = "super::identifiers::Entity")]
+    Identifiers,
     #[sea_orm(has_one = "super::derivatives::Entity")]
     Derivatives,
     #[sea_orm(has_many = "super::transactions::Entity")]

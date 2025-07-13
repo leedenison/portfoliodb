@@ -5,9 +5,9 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "derivatives")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: i64,
-    pub instrument_id: i64,
-    pub underlying_instrument_id: i64,
+    pub dbid: i64,
+    pub instrument_dbid: i64,
+    pub underlying_dbid: i64,
     pub expiration_date: DateTime<Utc>,
     pub put_call: String,
     pub strike_price: f64,
@@ -18,14 +18,14 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::instruments::Entity",
-        from = "Column::InstrumentId",
-        to = "super::instruments::Column::Id"
+        from = "Column::InstrumentDbid",
+        to = "super::instruments::Column::Dbid"
     )]
     Instrument,
     #[sea_orm(
         belongs_to = "super::instruments::Entity",
-        from = "Column::UnderlyingInstrumentId",
-        to = "super::instruments::Column::Id"
+        from = "Column::UnderlyingDbid",
+        to = "super::instruments::Column::Dbid"
     )]
     Underlying,
 }

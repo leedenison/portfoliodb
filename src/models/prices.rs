@@ -5,8 +5,8 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "prices")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: i64,
-    pub instrument_id: i64,
+    pub dbid: i64,
+    pub instrument_dbid: i64,
     pub price: f64,
     pub price_date: DateTime<Utc>,
 }
@@ -15,8 +15,8 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::instruments::Entity",
-        from = "Column::InstrumentId",
-        to = "super::instruments::Column::Id"
+        from = "Column::InstrumentDbid",
+        to = "super::instruments::Column::Dbid"
     )]
     Instrument,
 }

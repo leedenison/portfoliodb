@@ -2,11 +2,12 @@ use sea_orm::entity::prelude::*;
 use sea_orm::ActiveValue::Set;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "symbols")]
+#[sea_orm(table_name = "identifiers")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: i64,
-    pub instrument_id: i64,
+    pub dbid: i64,
+    pub instrument_dbid: i64,
+    pub id: String,
     pub domain: String,
     pub symbol: String,
     pub exchange: String,
@@ -14,9 +15,10 @@ pub struct Model {
 }
 
 impl Model {
-    /// Convert the symbol to a tuple of (domain, symbol, exchange, description)
-    pub fn to_tuple(&self) -> (String, String, String, String) {
+    /// Convert the identifier to a tuple of (id, domain, symbol, exchange, description)
+    pub fn to_tuple(&self) -> (String, String, String, String, String) {
         (
+            self.id.clone(),
             self.domain.clone(),
             self.symbol.clone(),
             self.exchange.clone(),
@@ -29,8 +31,8 @@ impl Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::instruments::Entity",
-        from = "Column::InstrumentId",
-        to = "super::instruments::Column::Id"
+        from = "Column::InstrumentDbid",
+        to = "super::instruments::Column::Dbid"
     )]
     Instrument,
 }
@@ -43,15 +45,16 @@ impl Related<super::instruments::Entity> for Entity {
 
 impl ActiveModelBehavior for ActiveModel {}
 
-impl From<((String, String, String, String), i64)> for ActiveModel {
+impl From<((String, String, String, String, String), i64)> for ActiveModel {
     fn from(
-        ((domain, symbol, exchange, description), instrument_id): (
-            (String, String, String, String),
+        ((id, domain, symbol, exchange, description), instrument_dbid): (
+            (String, String, String, String, String),
             i64,
         ),
     ) -> Self {
         Self {
-            instrument_id: Set(instrument_id),
+            instrument_dbid: Set(instrument_dbid),
+            id: Set(id),
             domain: Set(domain),
             symbol: Set(symbol),
             exchange: Set(exchange),

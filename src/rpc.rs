@@ -92,7 +92,7 @@ impl PortfolioDb for PortfolioDBService {
     /// * `request` - Contains date range and list of account IDs to query
     /// 
     /// # Returns
-    /// * List of holdings with account_id, instrument_id, quantity, and date information
+    /// * List of holdings with account_id, instrument_dbid, quantity, and date information
     async fn get_holdings(
         &self,
         _request: Request<GetHoldingsRequest>,
@@ -141,7 +141,7 @@ impl PortfolioDb for PortfolioDBService {
     /// * `request` - Contains date range and list of instrument IDs to query
     /// 
     /// # Returns
-    /// * List of prices with instrument_id, price, currency, and date information
+    /// * List of prices with instrument_dbid, price, currency, and date information
     async fn get_prices(
         &self,
         _request: Request<GetPricesRequest>,
@@ -160,7 +160,7 @@ impl PortfolioDb for PortfolioDBService {
     /// Updates or creates instrument metadata.
     /// 
     /// This operation can be used to add new instruments or update existing instrument
-    /// information including symbols, type, currency, and derivative details.
+    /// information including identifiers, type, currency, and derivative details.
     /// 
     /// # Arguments
     /// * `request` - Contains the instrument data to update or create

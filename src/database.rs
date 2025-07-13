@@ -1,10 +1,11 @@
-use sea_orm::{Database, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait, DatabaseTransaction, ColumnTrait, IntoActiveModel};
+use sea_orm::{Database, DatabaseConnection, EntityTrait, QueryFilter, DatabaseTransaction, ColumnTrait, IntoActiveModel};
 use sea_orm::prelude::Expr;
 use anyhow::Result;
 use tracing::info;
 use std::sync::Arc;
 use std::collections::HashSet;
 
+use crate::transaction::LocalTxn;
 use crate::portfolio_db::{Tx, DateRange};
 use crate::models::{Instruments, Symbols, Transactions, Prices, Derivatives, Symbol, Instrument, Derivative, Transaction, Price};
 use crate::models::symbols::Column as SymCol;
@@ -83,53 +84,38 @@ impl DatabaseManager {
             return Ok(None);
         }
 
-        let mut l_opt_txn = None;
-        let lr_txn: &DatabaseTransaction = match txn {
-            Some(txn) => txn,
-            None => {
-                l_opt_txn = Some(self.conn.begin().await?);
-                l_opt_txn.as_ref().unwrap()
-            }
-        };
+        let mut l_txn = LocalTxn::new(&self.conn, txn).await?;
 
         // Find all instruments that have exact matches to the supplied symbols
-        let instrument_ids = self.find_instruments(symbols, Some(lr_txn)).await?;
+        let instrument_ids = self.find_instruments(symbols, Some(l_txn.txn())).await?;
         if instrument_ids.is_empty() {
-            if l_opt_txn.is_some() {
-                l_opt_txn.unwrap().commit().await?;
-            }
+            l_txn.commit_if_owned().await?;
             return Ok(None);
         }
         
         // First instrument becomes the merged instrument
         let tgt_instrument_id = instrument_ids[0]; 
         if instrument_ids.len() == 1 {
-            // No merging needed
-            if l_opt_txn.is_some() {
-                l_opt_txn.unwrap().commit().await?;
-            }
+            l_txn.commit_if_owned().await?;
             return Ok(Some(tgt_instrument_id));
         }
 
         let src_instrument_ids: Vec<i64> = instrument_ids[1..].to_vec();
 
-        self.move_txs_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, Some(lr_txn)).await?;
-        self.move_prices_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, Some(lr_txn)).await?;
-        self.move_derivatives_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, Some(lr_txn)).await?;
+        self.move_txs_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, Some(l_txn.txn())).await?;
+        self.move_prices_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, Some(l_txn.txn())).await?;
+        self.move_derivatives_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, Some(l_txn.txn())).await?;
 
         // Collect all unique symbols
-        let unique_symbols = self.unique_symbols(symbols, src_instrument_ids.clone(), Some(lr_txn)).await?;
+        let unique_symbols = self.unique_symbols(symbols, src_instrument_ids.clone(), Some(l_txn.txn())).await?;
 
         // Delete instruments being merged
-        self.delete_instruments(src_instrument_ids.clone(), Some(lr_txn)).await?;
+        self.delete_instruments(src_instrument_ids.clone(), Some(l_txn.txn())).await?;
 
         // Add all unique symbols to the merged instrument
-        self.add_symbols(unique_symbols, tgt_instrument_id, Some(lr_txn)).await?;
+        self.add_symbols(unique_symbols, tgt_instrument_id, Some(l_txn.txn())).await?;
 
-        if l_opt_txn.is_some() {
-            l_opt_txn.unwrap().commit().await?;
-        }
-
+        l_txn.commit_if_owned().await?;
         Ok(Some(tgt_instrument_id))
     }
 
@@ -153,14 +139,7 @@ impl DatabaseManager {
             return Ok(Vec::new());
         }
 
-        let mut l_opt_txn = None;
-        let lr_txn: &DatabaseTransaction = match txn {
-            Some(txn) => txn,
-            None => {
-                l_opt_txn = Some(self.conn.begin().await?);
-                l_opt_txn.as_ref().unwrap()
-            }
-        };
+        let mut l_txn = LocalTxn::new(&self.conn, txn).await?;
 
         // Build the symbol tuples for the IN clause
         let symbol_tuples: Vec<(String, String, String, String)> = symbols
@@ -176,7 +155,7 @@ impl DatabaseManager {
                 Expr::col(SymCol::Description).into(),
             ]).in_tuples(symbol_tuples))
             .find_also_related(Instruments)
-            .all(lr_txn)
+            .all(l_txn.txn())
             .await?;
 
         // Extract unique instrument IDs from the matching results
@@ -187,10 +166,7 @@ impl DatabaseManager {
             .into_iter()
             .collect();
 
-        if l_opt_txn.is_some() {
-            l_opt_txn.unwrap().commit().await?;
-        }
-
+        l_txn.commit_if_owned().await?;
         Ok(instrument_ids)
     }
 
@@ -214,14 +190,7 @@ impl DatabaseManager {
         src_instrument_ids: Vec<i64>,
         txn: Option<&DatabaseTransaction>,
     ) -> Result<HashSet<(String, String, String, String)>> {
-        let mut l_opt_txn = None;
-        let lr_txn: &DatabaseTransaction = match txn {
-            Some(txn) => txn,
-            None => {
-                l_opt_txn = Some(self.conn.begin().await?);
-                l_opt_txn.as_ref().unwrap()
-            }
-        };
+        let mut l_txn = LocalTxn::new(&self.conn, txn).await?;
         let mut unique_symbols = HashSet::new();
         
         // Add symbols from the input
@@ -235,15 +204,12 @@ impl DatabaseManager {
         }
 
         // Add existing symbols from instruments being merged
-        let existing_symbols = self.find_symbols_by_instruments(src_instrument_ids, Some(lr_txn)).await?;
+        let existing_symbols = self.find_symbols_by_instruments(src_instrument_ids, Some(l_txn.txn())).await?;
         for symbol in existing_symbols {
             unique_symbols.insert(symbol.to_tuple());
         }
 
-        if l_opt_txn.is_some() {
-            l_opt_txn.unwrap().commit().await?;
-        }
-
+        l_txn.commit_if_owned().await?;
         Ok(unique_symbols)
     }
 
@@ -269,14 +235,7 @@ impl DatabaseManager {
             return Ok(());
         }
 
-        let mut l_opt_txn = None;
-        let lr_txn: &DatabaseTransaction = match txn {
-            Some(txn) => txn,
-            None => {
-                l_opt_txn = Some(self.conn.begin().await?);
-                l_opt_txn.as_ref().unwrap()
-            }
-        };
+        let mut l_txn = LocalTxn::new(&self.conn, txn).await?;
 
         let symbol_models: Vec<crate::models::symbols::ActiveModel> = symbols
             .into_iter()
@@ -284,13 +243,10 @@ impl DatabaseManager {
             .collect();
 
         Symbols::insert_many(symbol_models)
-            .exec(lr_txn)
+            .exec(l_txn.txn())
             .await?;
 
-        if l_opt_txn.is_some() {
-            l_opt_txn.unwrap().commit().await?;
-        }
-
+        l_txn.commit_if_owned().await?;
         Ok(())
     }
 
@@ -314,24 +270,14 @@ impl DatabaseManager {
             return Ok(Vec::new());
         }
 
-        let mut l_opt_txn = None;
-        let lr_txn: &DatabaseTransaction = match txn {
-            Some(txn) => txn,
-            None => {
-                l_opt_txn = Some(self.conn.begin().await?);
-                l_opt_txn.as_ref().unwrap()
-            }
-        };
+        let mut l_txn = LocalTxn::new(&self.conn, txn).await?;
 
         let symbols = Symbols::find()
             .filter(SymCol::InstrumentId.is_in(instrument_ids))
-            .all(lr_txn)
+            .all(l_txn.txn())
             .await?;
 
-        if l_opt_txn.is_some() {
-            l_opt_txn.unwrap().commit().await?;
-        }
-
+        l_txn.commit_if_owned().await?;
         Ok(symbols)
     }
 
@@ -361,26 +307,16 @@ impl DatabaseManager {
             return Ok(());
         }
 
-        let mut l_opt_txn = None;
-        let lr_txn: &DatabaseTransaction = match txn {
-            Some(txn) => txn,
-            None => {
-                l_opt_txn = Some(self.conn.begin().await?);
-                l_opt_txn.as_ref().unwrap()
-            }
-        };
+        let mut l_txn = LocalTxn::new(&self.conn, txn).await?;
 
         // Move all transactions from source instruments to target instrument
         Transactions::update_many()
             .col_expr(TxCol::InstrumentId, Expr::val(tgt_instrument_id).into())
             .filter(TxCol::InstrumentId.is_in(src_instrument_ids))
-            .exec(lr_txn)
+            .exec(l_txn.txn())
             .await?;
 
-        if l_opt_txn.is_some() {
-            l_opt_txn.unwrap().commit().await?;
-        }
-
+        l_txn.commit_if_owned().await?;
         Ok(())
     }
 
@@ -409,26 +345,16 @@ impl DatabaseManager {
             return Ok(());
         }
 
-        let mut l_opt_txn = None;
-        let lr_txn: &DatabaseTransaction = match txn {
-            Some(txn) => txn,
-            None => {
-                l_opt_txn = Some(self.conn.begin().await?);
-                l_opt_txn.as_ref().unwrap()
-            }
-        };
+        let mut l_txn = LocalTxn::new(&self.conn, txn).await?;
 
         // Move all prices from source instruments to target instrument
         Prices::update_many()
             .col_expr(PriceCol::InstrumentId, Expr::val(tgt_instrument_id).into())
             .filter(PriceCol::InstrumentId.is_in(src_instrument_ids))
-            .exec(lr_txn)
+            .exec(l_txn.txn())
             .await?;
 
-        if l_opt_txn.is_some() {
-            l_opt_txn.unwrap().commit().await?;
-        }
-
+        l_txn.commit_if_owned().await?;
         Ok(())
     }
 
@@ -457,26 +383,16 @@ impl DatabaseManager {
             return Ok(());
         }
 
-        let mut l_opt_txn = None;
-        let lr_txn: &DatabaseTransaction = match txn {
-            Some(txn) => txn,
-            None => {
-                l_opt_txn = Some(self.conn.begin().await?);
-                l_opt_txn.as_ref().unwrap()
-            }
-        };
+        let mut l_txn = LocalTxn::new(&self.conn, txn).await?;
 
         // Move all derivatives that reference source instruments to target instrument
         Derivatives::update_many()
             .col_expr(DerivativeCol::UnderlyingInstrumentId, Expr::val(tgt_instrument_id).into())
             .filter(DerivativeCol::UnderlyingInstrumentId.is_in(src_instrument_ids))
-            .exec(lr_txn)
+            .exec(l_txn.txn())
             .await?;
 
-        if l_opt_txn.is_some() {
-            l_opt_txn.unwrap().commit().await?;
-        }
-
+        l_txn.commit_if_owned().await?;
         Ok(())
     }
 
@@ -558,26 +474,16 @@ impl DatabaseManager {
             return Ok(());
         }
         
-        let mut l_opt_txn = None;
-        let lr_txn: &DatabaseTransaction = match txn {
-            Some(txn) => txn,
-            None => {
-                l_opt_txn = Some(self.conn.begin().await?);
-                l_opt_txn.as_ref().unwrap()
-            }
-        };
+        let mut l_txn = LocalTxn::new(&self.conn, txn).await?;
 
         // Delete the instruments themselves
         for instrument_id in instrument_ids {
             Instruments::delete_by_id(instrument_id)
-                .exec(lr_txn)
+                .exec(l_txn.txn())
                 .await?;
         }
 
-        if l_opt_txn.is_some() {
-            l_opt_txn.unwrap().commit().await?;
-        }
-
+        l_txn.commit_if_owned().await?;
         Ok(())
     }
 

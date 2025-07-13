@@ -8,7 +8,7 @@ use crate::portfolio_db_server::PortfolioDb;
 use crate::{
     Error, ErrorCode, GetHoldingsRequest, GetHoldingsResponse, GetPricesRequest, GetPricesResponse,
     UpdateInstrumentRequest, UpdateInstrumentResponse, UpdatePricesRequest, UpdatePricesResponse,
-    UpdateTxsRequest, UpdateTxsResponse, Symbol
+    UpdateTxsRequest, UpdateTxsResponse
 };
 use crate::database::DatabaseManager;
 

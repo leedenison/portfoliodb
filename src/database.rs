@@ -1,11 +1,12 @@
-use sea_orm::{Database, DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, TransactionTrait, ActiveModelTrait, Set, DatabaseTransaction, Query, Expr, OnConflict};
+use sea_orm::{Database, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait, DatabaseTransaction, ColumnTrait};
+use sea_orm::prelude::Expr;
 use anyhow::Result;
 use tracing::info;
 use std::sync::Arc;
 use std::collections::HashSet;
 
 use crate::portfolio_db::{Tx, DateRange};
-use crate::models::{Instruments, Symbols, Transactions, Prices, Derivatives, Instrument, Symbol};
+use crate::models::{Instruments, Symbols, Transactions, Prices, Derivatives, Symbol};
 use crate::models::symbols::Column as SymCol;
 use crate::models::transactions::Column as TxCol;
 use crate::models::prices::Column as PriceCol;
@@ -96,17 +97,17 @@ impl DatabaseManager {
 
         let src_instrument_ids: Vec<i64> = instrument_ids[1..].to_vec();
 
-        self.move_txs_to_instrument(&src_instrument_ids, tgt_instrument_id, txn).await?;
-        self.move_prices_to_instrument(&src_instrument_ids, tgt_instrument_id, txn).await?;
-        self.move_derivatives_to_instrument(&src_instrument_ids, tgt_instrument_id, txn).await?;
+        self.move_txs_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, txn).await?;
+        self.move_prices_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, txn).await?;
+        self.move_derivatives_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, txn).await?;
 
         // Collect all unique symbols
-        let unique_symbols = self.unique_symbols(symbols, &src_instrument_ids, txn).await?;
+        let unique_symbols = self.unique_symbols(symbols, src_instrument_ids.clone(), txn).await?;
 
         // Delete instruments being merged
         // These should not differ in other metadata, but if they do we have no way
         // to reconcile them anyway
-        self.delete_instruments(&src_instrument_ids, txn).await?;
+        self.delete_instruments(src_instrument_ids.clone(), txn).await?;
 
         // Add all unique symbols to the merged instrument
         self.add_symbols(unique_symbols, tgt_instrument_id, txn).await?;
@@ -143,10 +144,10 @@ impl DatabaseManager {
         // Single query to find all matching symbols and their instruments
         let matching = Symbols::find()
             .filter(Expr::tuple([
-                Expr::col(SymCol::Domain),
-                Expr::col(SymCol::Symbol),
-                Expr::col(SymCol::Exchange),
-                Expr::col(SymCol::Description),
+                Expr::col(SymCol::Domain).into(),
+                Expr::col(SymCol::Symbol).into(),
+                Expr::col(SymCol::Exchange).into(),
+                Expr::col(SymCol::Description).into(),
             ]).in_tuples(symbol_tuples))
             .find_also_related(Instruments)
             .all(txn)
@@ -180,7 +181,7 @@ impl DatabaseManager {
     async fn unique_symbols(
         &self,
         symbols: &[Symbol],
-        src_instrument_ids: &[i64],
+        src_instrument_ids: Vec<i64>,
         txn: &DatabaseTransaction,
     ) -> Result<HashSet<(String, String, String, String)>> {
         let mut unique_symbols = HashSet::new();
@@ -232,16 +233,6 @@ impl DatabaseManager {
             .collect();
 
         Symbols::insert_many(symbol_models)
-            .on_conflict(
-                OnConflict::columns([
-                    SymCol::InstrumentId,
-                    SymCol::Domain,
-                    SymCol::Symbol,
-                    SymCol::Exchange,
-                    SymCol::Description,
-                ])
-                .do_nothing()
-            )
             .exec(txn)
             .await?;
 
@@ -261,7 +252,7 @@ impl DatabaseManager {
     /// * `anyhow::Error` - If the database query fails
     async fn find_symbols_by_instruments(
         &self,
-        instrument_ids: &[i64],
+        instrument_ids: Vec<i64>,
         txn: &DatabaseTransaction,
     ) -> Result<Vec<Symbol>> {
         if instrument_ids.is_empty() {
@@ -269,7 +260,7 @@ impl DatabaseManager {
         }
 
         let symbols = Symbols::find()
-            .filter(SymCol::InstrumentId.in_tuples(instrument_ids))
+            .filter(SymCol::InstrumentId.is_in(instrument_ids))
             .all(txn)
             .await?;
 
@@ -293,7 +284,7 @@ impl DatabaseManager {
     /// * `anyhow::Error` - If any database operation fails
     async fn delete_instruments(
         &self,
-        instrument_ids: &[i64],
+        instrument_ids: Vec<i64>,
         txn: &DatabaseTransaction,
     ) -> Result<()> {
         if instrument_ids.is_empty() {
@@ -301,13 +292,13 @@ impl DatabaseManager {
         }
 
         Symbols::delete_many()
-            .filter(SymCol::InstrumentId.in_tuples(instrument_ids))
+            .filter(SymCol::InstrumentId.is_in(instrument_ids.clone()))
             .exec(txn)
             .await?;
 
         // Delete the instruments themselves
         for instrument_id in instrument_ids {
-            Instruments::delete_by_id(*instrument_id)
+            Instruments::delete_by_id(instrument_id)
                 .exec(txn)
                 .await?;
         }
@@ -332,7 +323,7 @@ impl DatabaseManager {
     /// * `anyhow::Error` - If any database operation fails
     async fn move_txs_to_instrument(
         &self,
-        src_instrument_ids: &[i64],
+        src_instrument_ids: Vec<i64>,
         tgt_instrument_id: i64,
         txn: &DatabaseTransaction,
     ) -> Result<()> {
@@ -342,8 +333,8 @@ impl DatabaseManager {
 
         // Move all transactions from source instruments to target instrument
         Transactions::update_many()
-            .col_expr(TxCol::InstrumentId, Set(tgt_instrument_id))
-            .filter(TxCol::InstrumentId.in_tuples(src_instrument_ids))
+            .col_expr(TxCol::InstrumentId, Expr::val(tgt_instrument_id).into())
+            .filter(TxCol::InstrumentId.is_in(src_instrument_ids))
             .exec(txn)
             .await?;
 
@@ -367,7 +358,7 @@ impl DatabaseManager {
     /// * `anyhow::Error` - If any database operation fails
     async fn move_prices_to_instrument(
         &self,
-        src_instrument_ids: &[i64],
+        src_instrument_ids: Vec<i64>,
         tgt_instrument_id: i64,
         txn: &DatabaseTransaction,
     ) -> Result<()> {
@@ -377,8 +368,8 @@ impl DatabaseManager {
 
         // Move all prices from source instruments to target instrument
         Prices::update_many()
-            .col_expr(PriceCol::InstrumentId, Set(tgt_instrument_id))
-            .filter(PriceCol::InstrumentId.in_tuples(src_instrument_ids))
+            .col_expr(PriceCol::InstrumentId, Expr::val(tgt_instrument_id).into())
+            .filter(PriceCol::InstrumentId.is_in(src_instrument_ids))
             .exec(txn)
             .await?;
 
@@ -402,7 +393,7 @@ impl DatabaseManager {
     /// * `anyhow::Error` - If any database operation fails
     async fn move_derivatives_to_instrument(
         &self,
-        src_instrument_ids: &[i64],
+        src_instrument_ids: Vec<i64>,
         tgt_instrument_id: i64,
         txn: &DatabaseTransaction,
     ) -> Result<()> {
@@ -412,8 +403,8 @@ impl DatabaseManager {
 
         // Move all derivatives that reference source instruments to target instrument
         Derivatives::update_many()
-            .col_expr(DerivativeCol::UnderlyingInstrumentId, Set(tgt_instrument_id))
-            .filter(DerivativeCol::UnderlyingInstrumentId.in_tuples(src_instrument_ids))
+            .col_expr(DerivativeCol::UnderlyingInstrumentId, Expr::val(tgt_instrument_id).into())
+            .filter(DerivativeCol::UnderlyingInstrumentId.is_in(src_instrument_ids))
             .exec(txn)
             .await?;
 

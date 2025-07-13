@@ -1,4 +1,5 @@
 use sea_orm::entity::prelude::*;
+use sea_orm::ActiveValue::Set;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "symbols")]

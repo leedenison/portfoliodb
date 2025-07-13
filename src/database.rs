@@ -26,6 +26,11 @@ impl DatabaseManager {
         })
     }
 
+    /// Get a reference to the database connection
+    pub fn connection(&self) -> &DatabaseConnection {
+        &self.conn
+    }
+
 
 
     /// Updates transactions for a specific account within a given time period.
@@ -393,7 +398,7 @@ impl DatabaseManager {
     /// Creates a new identifier in the database.
     /// 
     /// # Arguments
-    /// * `identifier` - Identifier model without id field populated
+    /// * `identifier` - Identifier model with dbid field populated
     /// 
     /// # Returns
     /// * `Result<i64>` - The id of the created identifier
@@ -411,7 +416,7 @@ impl DatabaseManager {
     /// Creates a new instrument in the database.
     /// 
     /// # Arguments
-    /// * `instrument` - Instrument model without id field populated
+    /// * `instrument` - Instrument model with dbid field populated
     /// 
     /// # Returns
     /// * `Result<i64>` - The id of the created instrument
@@ -425,7 +430,61 @@ impl DatabaseManager {
             .await?;
         Ok(result.last_insert_id)
     }
-  
+
+    /// Creates a new derivative in the database.
+    /// 
+    /// # Arguments
+    /// * `derivative` - Derivative model with dbid field populated
+    /// 
+    /// # Returns
+    /// * `Result<i64>` - The id of the created derivative
+    /// 
+    /// # Errors
+    /// * `anyhow::Error` - If the database operation fails
+    pub async fn create_derivative(&self, derivative: Derivative) -> Result<i64> {
+        let active_model = derivative.into_active_model();
+        let result = Derivatives::insert(active_model)
+            .exec(&*self.conn)
+            .await?;
+        Ok(result.last_insert_id)
+    }
+
+    /// Creates a new transaction in the database.
+    /// 
+    /// # Arguments
+    /// * `transaction` - Transaction model with dbid field populated
+    /// 
+    /// # Returns
+    /// * `Result<i64>` - The id of the created transaction
+    /// 
+    /// # Errors
+    /// * `anyhow::Error` - If the database operation fails
+    pub async fn create_transaction(&self, transaction: Transaction) -> Result<i64> {
+        let active_model = transaction.into_active_model();
+        let result = Transactions::insert(active_model)
+            .exec(&*self.conn)
+            .await?;
+        Ok(result.last_insert_id)
+    }
+
+    /// Creates a new price in the database.
+    /// 
+    /// # Arguments
+    /// * `price` - Price model with dbid field populated
+    /// 
+    /// # Returns
+    /// * `Result<i64>` - The id of the created price
+    /// 
+    /// # Errors
+    /// * `anyhow::Error` - If the database operation fails
+    pub async fn create_price(&self, price: Price) -> Result<i64> {
+        let active_model = price.into_active_model();
+        let result = Prices::insert(active_model)
+            .exec(&*self.conn)
+            .await?;
+        Ok(result.last_insert_id)
+    }
+
     /// Deletes instruments and their associated identifiers.
     /// Identifiers or Derivative metadata owned by this instrument
     /// are assumed to be deleted by ON DELETE CASCADE.
@@ -439,7 +498,7 @@ impl DatabaseManager {
     /// 
     /// # Errors
     /// * `anyhow::Error` - If any database operation fails
-    async fn delete_instruments(
+    pub async fn delete_instruments(
         &self,
         instr_dbids: Vec<i64>,
         txn: Option<&DatabaseTransaction>,
@@ -459,59 +518,5 @@ impl DatabaseManager {
 
         l_txn.commit_if_owned().await?;
         Ok(())
-    }
-
-    /// Creates a new derivative in the database.
-    /// 
-    /// # Arguments
-    /// * `derivative` - Derivative model without id field populated
-    /// 
-    /// # Returns
-    /// * `Result<i64>` - The id of the created derivative
-    /// 
-    /// # Errors
-    /// * `anyhow::Error` - If the database operation fails
-    pub async fn create_derivative(&self, derivative: Derivative) -> Result<i64> {
-        let active_model = derivative.into_active_model();
-        let result = Derivatives::insert(active_model)
-            .exec(&*self.conn)
-            .await?;
-        Ok(result.last_insert_id)
-    }
-
-    /// Creates a new transaction in the database.
-    /// 
-    /// # Arguments
-    /// * `transaction` - Transaction model without id field populated
-    /// 
-    /// # Returns
-    /// * `Result<i64>` - The id of the created transaction
-    /// 
-    /// # Errors
-    /// * `anyhow::Error` - If the database operation fails
-    pub async fn create_transaction(&self, transaction: Transaction) -> Result<i64> {
-        let active_model = transaction.into_active_model();
-        let result = Transactions::insert(active_model)
-            .exec(&*self.conn)
-            .await?;
-        Ok(result.last_insert_id)
-    }
-
-    /// Creates a new price in the database.
-    /// 
-    /// # Arguments
-    /// * `price` - Price model without id field populated
-    /// 
-    /// # Returns
-    /// * `Result<i64>` - The id of the created price
-    /// 
-    /// # Errors
-    /// * `anyhow::Error` - If the database operation fails
-    pub async fn create_price(&self, price: Price) -> Result<i64> {
-        let active_model = price.into_active_model();
-        let result = Prices::insert(active_model)
-            .exec(&*self.conn)
-            .await?;
-        Ok(result.last_insert_id)
     }
 }

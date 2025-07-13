@@ -153,6 +153,16 @@ pub async fn verify_database(
         actual_instruments.len()
     );
     
+    // Verify that expected instrument dbids exist in database
+    let expected_instrument_dbids: Vec<i64> = expected.instruments.iter()
+        .map(|(instrument, _, _)| instrument.dbid)
+        .collect();
+    let actual_instrument_dbids: Vec<i64> = actual_instruments.iter()
+        .map(|instrument| instrument.dbid)
+        .collect();
+    
+    verify_dbids_exist(&expected_instrument_dbids, &actual_instrument_dbids, "instrument");
+    
     // Verify identifiers
     let actual_identifiers = Identifiers::find().all(conn).await?;
     let expected_identifier_count: usize = expected.instruments.iter()
@@ -165,6 +175,16 @@ pub async fn verify_database(
         expected_identifier_count,
         actual_identifiers.len()
     );
+    
+    // Verify that expected identifier dbids exist in database
+    let expected_identifier_dbids: Vec<i64> = expected.instruments.iter()
+        .flat_map(|(_, identifiers, _)| identifiers.iter().map(|identifier| identifier.dbid))
+        .collect();
+    let actual_identifier_dbids: Vec<i64> = actual_identifiers.iter()
+        .map(|identifier| identifier.dbid)
+        .collect();
+    
+    verify_dbids_exist(&expected_identifier_dbids, &actual_identifier_dbids, "identifier");
     
     // Verify derivatives
     let actual_derivatives = Derivatives::find().all(conn).await?;
@@ -179,6 +199,16 @@ pub async fn verify_database(
         actual_derivatives.len()
     );
     
+    // Verify that expected derivative dbids exist in database
+    let expected_derivative_dbids: Vec<i64> = expected.instruments.iter()
+        .filter_map(|(_, _, derivative)| derivative.as_ref().map(|d| d.dbid))
+        .collect();
+    let actual_derivative_dbids: Vec<i64> = actual_derivatives.iter()
+        .map(|derivative| derivative.dbid)
+        .collect();
+    
+    verify_dbids_exist(&expected_derivative_dbids, &actual_derivative_dbids, "derivative");
+    
     // Verify transactions
     let actual_transactions = Transactions::find().all(conn).await?;
     assert_eq!(
@@ -189,6 +219,16 @@ pub async fn verify_database(
         actual_transactions.len()
     );
     
+    // Verify that expected transaction dbids exist in database
+    let expected_transaction_dbids: Vec<i64> = expected.transactions.iter()
+        .map(|transaction| transaction.dbid)
+        .collect();
+    let actual_transaction_dbids: Vec<i64> = actual_transactions.iter()
+        .map(|transaction| transaction.dbid)
+        .collect();
+    
+    verify_dbids_exist(&expected_transaction_dbids, &actual_transaction_dbids, "transaction");
+    
     // Verify prices
     let actual_prices = Prices::find().all(conn).await?;
     assert_eq!(
@@ -198,6 +238,16 @@ pub async fn verify_database(
         expected.prices.len(),
         actual_prices.len()
     );
+    
+    // Verify that expected price dbids exist in database
+    let expected_price_dbids: Vec<i64> = expected.prices.iter()
+        .map(|price| price.dbid)
+        .collect();
+    let actual_price_dbids: Vec<i64> = actual_prices.iter()
+        .map(|price| price.dbid)
+        .collect();
+    
+    verify_dbids_exist(&expected_price_dbids, &actual_price_dbids, "price");
     
     Ok(())
 }
@@ -215,3 +265,15 @@ pub async fn clear_database(db_manager: &DatabaseManager) -> Result<()> {
     
     Ok(())
 } 
+
+/// Helper function to verify that expected dbids exist in actual dbids
+fn verify_dbids_exist(expected_dbids: &[i64], actual_dbids: &[i64], entity_type: &str) {
+    for expected_dbid in expected_dbids {
+        assert!(
+            actual_dbids.contains(expected_dbid),
+            "Expected {} dbid {} not found in database",
+            entity_type,
+            expected_dbid
+        );
+    }
+}

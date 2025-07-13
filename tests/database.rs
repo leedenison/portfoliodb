@@ -37,6 +37,7 @@ async fn test_delete_instruments() {
                     None,
                 ),
             TestDatabase::new(),
+            vec![1001], // Delete the single instrument
             "Delete single instrument with identifiers"
         ),
         (
@@ -47,7 +48,17 @@ async fn test_delete_instruments() {
                         r#type: "STK".to_string(),
                         currency: Some("USD".to_string()),
                     },
-                    vec![],
+                    vec![
+                        Identifier {
+                            dbid: 2001,
+                            instrument_dbid: 0,
+                            id: "".to_string(),
+                            domain: "GOOGLEFINANCE".to_string(),
+                            symbol: "AAPL".to_string(),
+                            exchange: "NASDAQ".to_string(),
+                            description: "".to_string(),
+                        }
+                    ],
                     None,
                 )
                 .add_instrument(
@@ -56,7 +67,17 @@ async fn test_delete_instruments() {
                         r#type: "OPT".to_string(),
                         currency: Some("USD".to_string()),
                     },
-                    vec![],
+                    vec![
+                        Identifier {
+                            dbid: 2002,
+                            instrument_dbid: 0,
+                            id: "".to_string(),
+                            domain: "OCC".to_string(),
+                            symbol: "AAPL240816C00195000".to_string(),
+                            exchange: "AMEX".to_string(),
+                            description: "".to_string(),
+                        }
+                    ],
                     Some(Derivative {
                         dbid: 5001,
                         instrument_dbid: 1005,
@@ -70,13 +91,24 @@ async fn test_delete_instruments() {
             TestDatabase::new()
                 .add_instrument(
                     Instrument {
-                        dbid: 1006,
+                        dbid: 1004,
                         r#type: "STK".to_string(),
                         currency: Some("USD".to_string()),
                     },
-                    vec![],
+                    vec![
+                        Identifier {
+                            dbid: 2001,
+                            instrument_dbid: 0,
+                            id: "".to_string(),
+                            domain: "GOOGLEFINANCE".to_string(),
+                            symbol: "AAPL".to_string(),
+                            exchange: "NASDAQ".to_string(),
+                            description: "".to_string(),
+                        }
+                    ],
                     None,
                 ),
+            vec![1005], // Delete only the option instrument
             "Delete instrument with derivative (option deleted, underlying remains)"
         ),
     ];
@@ -89,7 +121,7 @@ async fn test_delete_instruments() {
         .expect("Failed to connect to database");
     
     // Run each test case
-    for (before_state, after_state, description) in test_cases {
+    for (before_state, after_state, instr_dbids_to_delete, description) in test_cases {
         println!("Running test: {}", description);
         
         // Clear database before test
@@ -100,27 +132,8 @@ async fn test_delete_instruments() {
         populate_database(&db_manager, &before_state).await
             .expect("Failed to populate database with before state");
         
-        // Get all instruments from the database to find their actual IDs
-        let conn = db_manager.connection();
-        let actual_instruments = Instruments::find().all(conn).await
-            .expect("Failed to get instruments from database");
-        
-        // Get instrument IDs to delete (all instruments in before state)
-        // For test case 4, we need to delete only the second instrument (the option)
-        let instr_dbids: Vec<i64> = if description.contains("derivative") {
-            // For derivative test, only delete the second instrument (the option)
-            if actual_instruments.len() >= 2 {
-                vec![actual_instruments[1].dbid]
-            } else {
-                actual_instruments.iter().map(|instrument| instrument.dbid).collect()
-            }
-        } else {
-            // For other tests, delete all instruments
-            actual_instruments.iter().map(|instrument| instrument.dbid).collect()
-        };
-        
-        // Call delete_instruments function
-        db_manager.delete_instruments(instr_dbids, None).await
+        // Call delete_instruments function with the specified IDs
+        db_manager.delete_instruments(instr_dbids_to_delete, None).await
             .expect("Failed to delete instruments");
         
         // Verify after state

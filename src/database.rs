@@ -1,4 +1,4 @@
-use sea_orm::{Database, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait, DatabaseTransaction, ColumnTrait};
+use sea_orm::{Database, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait, DatabaseTransaction, ColumnTrait, IntoActiveModel};
 use sea_orm::prelude::Expr;
 use anyhow::Result;
 use tracing::info;
@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::collections::HashSet;
 
 use crate::portfolio_db::{Tx, DateRange};
-use crate::models::{Instruments, Symbols, Transactions, Prices, Derivatives, Symbol};
+use crate::models::{Instruments, Symbols, Transactions, Prices, Derivatives, Symbol, Instrument, Derivative, Transaction, Price};
 use crate::models::symbols::Column as SymCol;
 use crate::models::transactions::Column as TxCol;
 use crate::models::prices::Column as PriceCol;
@@ -24,6 +24,8 @@ impl DatabaseManager {
             conn: Arc::new(conn)
         })
     }
+
+
 
     /// Updates transactions for a specific account within a given time period.
     /// This operation replaces all existing transactions in the specified period with the provided
@@ -63,12 +65,12 @@ impl DatabaseManager {
     /// 
     /// If no instruments are found then Ok(None) is returned.
     /// 
-    /// All updates are performed within the provided transaction. The caller
-    /// is responsible for committing or rolling back the transaction.
+    /// If no transaction is provided, a new transaction will be created and committed.
+    /// If a transaction is provided, the caller is responsible for committing or rolling back.
     /// 
     /// # Arguments
     /// * `symbols` - Slice of Symbols to merge
-    /// * `txn` - Database transaction to use for all operations
+    /// * `txn` - Optional database transaction to use for all operations
     /// 
     /// # Returns
     /// * `Result<Option<i64>>` - The id of the merged instrument if found,
@@ -76,41 +78,57 @@ impl DatabaseManager {
     /// 
     /// # Errors
     /// * `anyhow::Error` - If any database operation fails.
-    pub async fn merge_instruments_with_txn(&self, symbols: &[Symbol], txn: &DatabaseTransaction) -> Result<Option<i64>> {
+    pub async fn merge_instruments(&self, symbols: &[Symbol], txn: Option<&DatabaseTransaction>) -> Result<Option<i64>> {
         if symbols.is_empty() {
             return Ok(None);
         }
 
+        let mut l_opt_txn = None;
+        let lr_txn: &DatabaseTransaction = match txn {
+            Some(txn) => txn,
+            None => {
+                l_opt_txn = Some(self.conn.begin().await?);
+                l_opt_txn.as_ref().unwrap()
+            }
+        };
+
         // Find all instruments that have exact matches to the supplied symbols
-        let instrument_ids = self.find_instruments(symbols, txn).await?;
+        let instrument_ids = self.find_instruments(symbols, Some(lr_txn)).await?;
         if instrument_ids.is_empty() {
+            if l_opt_txn.is_some() {
+                l_opt_txn.unwrap().commit().await?;
+            }
             return Ok(None);
         }
         
         // First instrument becomes the merged instrument
         let tgt_instrument_id = instrument_ids[0]; 
-
         if instrument_ids.len() == 1 {
             // No merging needed
+            if l_opt_txn.is_some() {
+                l_opt_txn.unwrap().commit().await?;
+            }
             return Ok(Some(tgt_instrument_id));
         }
 
         let src_instrument_ids: Vec<i64> = instrument_ids[1..].to_vec();
 
-        self.move_txs_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, txn).await?;
-        self.move_prices_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, txn).await?;
-        self.move_derivatives_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, txn).await?;
+        self.move_txs_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, Some(lr_txn)).await?;
+        self.move_prices_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, Some(lr_txn)).await?;
+        self.move_derivatives_to_instrument(src_instrument_ids.clone(), tgt_instrument_id, Some(lr_txn)).await?;
 
         // Collect all unique symbols
-        let unique_symbols = self.unique_symbols(symbols, src_instrument_ids.clone(), txn).await?;
+        let unique_symbols = self.unique_symbols(symbols, src_instrument_ids.clone(), Some(lr_txn)).await?;
 
         // Delete instruments being merged
-        // These should not differ in other metadata, but if they do we have no way
-        // to reconcile them anyway so we just delete them.
-        self.delete_instruments(src_instrument_ids.clone(), txn).await?;
+        self.delete_instruments(src_instrument_ids.clone(), Some(lr_txn)).await?;
 
         // Add all unique symbols to the merged instrument
-        self.add_symbols(unique_symbols, tgt_instrument_id, txn).await?;
+        self.add_symbols(unique_symbols, tgt_instrument_id, Some(lr_txn)).await?;
+
+        if l_opt_txn.is_some() {
+            l_opt_txn.unwrap().commit().await?;
+        }
 
         Ok(Some(tgt_instrument_id))
     }
@@ -129,11 +147,20 @@ impl DatabaseManager {
     async fn find_instruments(
         &self,
         symbols: &[Symbol],
-        txn: &DatabaseTransaction,
+        txn: Option<&DatabaseTransaction>,
     ) -> Result<Vec<i64>> {
         if symbols.is_empty() {
             return Ok(Vec::new());
         }
+
+        let mut l_opt_txn = None;
+        let lr_txn: &DatabaseTransaction = match txn {
+            Some(txn) => txn,
+            None => {
+                l_opt_txn = Some(self.conn.begin().await?);
+                l_opt_txn.as_ref().unwrap()
+            }
+        };
 
         // Build the symbol tuples for the IN clause
         let symbol_tuples: Vec<(String, String, String, String)> = symbols
@@ -149,7 +176,7 @@ impl DatabaseManager {
                 Expr::col(SymCol::Description).into(),
             ]).in_tuples(symbol_tuples))
             .find_also_related(Instruments)
-            .all(txn)
+            .all(lr_txn)
             .await?;
 
         // Extract unique instrument IDs from the matching results
@@ -159,6 +186,10 @@ impl DatabaseManager {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
+
+        if l_opt_txn.is_some() {
+            l_opt_txn.unwrap().commit().await?;
+        }
 
         Ok(instrument_ids)
     }
@@ -181,8 +212,16 @@ impl DatabaseManager {
         &self,
         symbols: &[Symbol],
         src_instrument_ids: Vec<i64>,
-        txn: &DatabaseTransaction,
+        txn: Option<&DatabaseTransaction>,
     ) -> Result<HashSet<(String, String, String, String)>> {
+        let mut l_opt_txn = None;
+        let lr_txn: &DatabaseTransaction = match txn {
+            Some(txn) => txn,
+            None => {
+                l_opt_txn = Some(self.conn.begin().await?);
+                l_opt_txn.as_ref().unwrap()
+            }
+        };
         let mut unique_symbols = HashSet::new();
         
         // Add symbols from the input
@@ -196,9 +235,13 @@ impl DatabaseManager {
         }
 
         // Add existing symbols from instruments being merged
-        let existing_symbols = self.find_symbols_by_instruments(src_instrument_ids, txn).await?;
+        let existing_symbols = self.find_symbols_by_instruments(src_instrument_ids, Some(lr_txn)).await?;
         for symbol in existing_symbols {
             unique_symbols.insert(symbol.to_tuple());
+        }
+
+        if l_opt_txn.is_some() {
+            l_opt_txn.unwrap().commit().await?;
         }
 
         Ok(unique_symbols)
@@ -220,11 +263,20 @@ impl DatabaseManager {
         &self,
         symbols: HashSet<(String, String, String, String)>,
         instrument_id: i64,
-        txn: &DatabaseTransaction,
+        txn: Option<&DatabaseTransaction>,
     ) -> Result<()> {
         if symbols.is_empty() {
             return Ok(());
         }
+
+        let mut l_opt_txn = None;
+        let lr_txn: &DatabaseTransaction = match txn {
+            Some(txn) => txn,
+            None => {
+                l_opt_txn = Some(self.conn.begin().await?);
+                l_opt_txn.as_ref().unwrap()
+            }
+        };
 
         let symbol_models: Vec<crate::models::symbols::ActiveModel> = symbols
             .into_iter()
@@ -232,8 +284,12 @@ impl DatabaseManager {
             .collect();
 
         Symbols::insert_many(symbol_models)
-            .exec(txn)
+            .exec(lr_txn)
             .await?;
+
+        if l_opt_txn.is_some() {
+            l_opt_txn.unwrap().commit().await?;
+        }
 
         Ok(())
     }
@@ -252,58 +308,33 @@ impl DatabaseManager {
     async fn find_symbols_by_instruments(
         &self,
         instrument_ids: Vec<i64>,
-        txn: &DatabaseTransaction,
+        txn: Option<&DatabaseTransaction>,
     ) -> Result<Vec<Symbol>> {
         if instrument_ids.is_empty() {
             return Ok(Vec::new());
         }
 
+        let mut l_opt_txn = None;
+        let lr_txn: &DatabaseTransaction = match txn {
+            Some(txn) => txn,
+            None => {
+                l_opt_txn = Some(self.conn.begin().await?);
+                l_opt_txn.as_ref().unwrap()
+            }
+        };
+
         let symbols = Symbols::find()
             .filter(SymCol::InstrumentId.is_in(instrument_ids))
-            .all(txn)
+            .all(lr_txn)
             .await?;
+
+        if l_opt_txn.is_some() {
+            l_opt_txn.unwrap().commit().await?;
+        }
 
         Ok(symbols)
     }
 
-    /// Deletes instruments and their associated symbols.
-    /// 
-    /// First deletes all symbols associated with the instruments, then deletes
-    /// the instruments themselves. Does not delete associated transactions, prices
-    /// or derivative references.
-    /// 
-    /// # Arguments
-    /// * `instrument_ids` - Vector of instrument IDs to delete
-    /// * `txn` - Database transaction to use for the operations
-    /// 
-    /// # Returns
-    /// * `Result<()>` - Success or error
-    /// 
-    /// # Errors
-    /// * `anyhow::Error` - If any database operation fails
-    async fn delete_instruments(
-        &self,
-        instrument_ids: Vec<i64>,
-        txn: &DatabaseTransaction,
-    ) -> Result<()> {
-        if instrument_ids.is_empty() {
-            return Ok(());
-        }
-
-        Symbols::delete_many()
-            .filter(SymCol::InstrumentId.is_in(instrument_ids.clone()))
-            .exec(txn)
-            .await?;
-
-        // Delete the instruments themselves
-        for instrument_id in instrument_ids {
-            Instruments::delete_by_id(instrument_id)
-                .exec(txn)
-                .await?;
-        }
-
-        Ok(())
-    }
 
     /// Moves all transactions from source instruments to a target instrument.
     /// 
@@ -324,18 +355,31 @@ impl DatabaseManager {
         &self,
         src_instrument_ids: Vec<i64>,
         tgt_instrument_id: i64,
-        txn: &DatabaseTransaction,
+        txn: Option<&DatabaseTransaction>,
     ) -> Result<()> {
         if src_instrument_ids.is_empty() {
             return Ok(());
         }
 
+        let mut l_opt_txn = None;
+        let lr_txn: &DatabaseTransaction = match txn {
+            Some(txn) => txn,
+            None => {
+                l_opt_txn = Some(self.conn.begin().await?);
+                l_opt_txn.as_ref().unwrap()
+            }
+        };
+
         // Move all transactions from source instruments to target instrument
         Transactions::update_many()
             .col_expr(TxCol::InstrumentId, Expr::val(tgt_instrument_id).into())
             .filter(TxCol::InstrumentId.is_in(src_instrument_ids))
-            .exec(txn)
+            .exec(lr_txn)
             .await?;
+
+        if l_opt_txn.is_some() {
+            l_opt_txn.unwrap().commit().await?;
+        }
 
         Ok(())
     }
@@ -359,18 +403,31 @@ impl DatabaseManager {
         &self,
         src_instrument_ids: Vec<i64>,
         tgt_instrument_id: i64,
-        txn: &DatabaseTransaction,
+        txn: Option<&DatabaseTransaction>,
     ) -> Result<()> {
         if src_instrument_ids.is_empty() {
             return Ok(());
         }
 
+        let mut l_opt_txn = None;
+        let lr_txn: &DatabaseTransaction = match txn {
+            Some(txn) => txn,
+            None => {
+                l_opt_txn = Some(self.conn.begin().await?);
+                l_opt_txn.as_ref().unwrap()
+            }
+        };
+
         // Move all prices from source instruments to target instrument
         Prices::update_many()
             .col_expr(PriceCol::InstrumentId, Expr::val(tgt_instrument_id).into())
             .filter(PriceCol::InstrumentId.is_in(src_instrument_ids))
-            .exec(txn)
+            .exec(lr_txn)
             .await?;
+
+        if l_opt_txn.is_some() {
+            l_opt_txn.unwrap().commit().await?;
+        }
 
         Ok(())
     }
@@ -394,37 +451,238 @@ impl DatabaseManager {
         &self,
         src_instrument_ids: Vec<i64>,
         tgt_instrument_id: i64,
-        txn: &DatabaseTransaction,
+        txn: Option<&DatabaseTransaction>,
     ) -> Result<()> {
         if src_instrument_ids.is_empty() {
             return Ok(());
         }
 
+        let mut l_opt_txn = None;
+        let lr_txn: &DatabaseTransaction = match txn {
+            Some(txn) => txn,
+            None => {
+                l_opt_txn = Some(self.conn.begin().await?);
+                l_opt_txn.as_ref().unwrap()
+            }
+        };
+
         // Move all derivatives that reference source instruments to target instrument
         Derivatives::update_many()
             .col_expr(DerivativeCol::UnderlyingInstrumentId, Expr::val(tgt_instrument_id).into())
             .filter(DerivativeCol::UnderlyingInstrumentId.is_in(src_instrument_ids))
-            .exec(txn)
+            .exec(lr_txn)
             .await?;
+
+        if l_opt_txn.is_some() {
+            l_opt_txn.unwrap().commit().await?;
+        }
 
         Ok(())
     }
 
-    /// Convenience method that wraps `merge_instruments_with_txn` in a transaction and commits it.
+
+
+    /// Creates a new symbol in the database.
     /// 
     /// # Arguments
-    /// * `symbols` - Slice of Symbols to merge
+    /// * `symbol` - Symbol model without id field populated
     /// 
     /// # Returns
-    /// * `Result<Option<i64>>` - The id of the merged instrument if found,
-    /// otherwise None.
+    /// * `Result<i64>` - The id of the created symbol
     /// 
     /// # Errors
-    /// * `anyhow::Error` - If any database operation fails or the transaction fails to commit.
-    pub async fn merge_instruments(&self, symbols: &[Symbol]) -> Result<Option<i64>> {
-        let txn = self.conn.begin().await?;
-        let result = self.merge_instruments_with_txn(symbols, &txn).await?;
-        txn.commit().await?;
-        Ok(result)
+    /// * `anyhow::Error` - If the database operation fails
+    pub async fn create_symbol(&self, symbol: Symbol) -> Result<i64> {
+        let active_model = symbol.into_active_model();
+        let result = Symbols::insert(active_model)
+            .exec(&*self.conn)
+            .await?;
+        Ok(result.last_insert_id)
+    }
+
+    /// Deletes a symbol by its id.
+    /// 
+    /// # Arguments
+    /// * `id` - The id of the symbol to delete
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error
+    /// 
+    /// # Errors
+    /// * `anyhow::Error` - If the database operation fails
+    pub async fn delete_symbol(&self, id: i64) -> Result<()> {
+        Symbols::delete_by_id(id)
+            .exec(&*self.conn)
+            .await?;
+        Ok(())
+    }
+
+    /// Creates a new instrument in the database.
+    /// 
+    /// # Arguments
+    /// * `instrument` - Instrument model without id field populated
+    /// 
+    /// # Returns
+    /// * `Result<i64>` - The id of the created instrument
+    /// 
+    /// # Errors
+    /// * `anyhow::Error` - If the database operation fails
+    pub async fn create_instrument(&self, instrument: Instrument) -> Result<i64> {
+        let active_model = instrument.into_active_model();
+        let result = Instruments::insert(active_model)
+            .exec(&*self.conn)
+            .await?;
+        Ok(result.last_insert_id)
+    }
+  
+    /// Deletes instruments and their associated symbols.
+    /// 
+    /// Symbols or Derivative metadata owned by this instrument
+    /// are assumed to be deleted by ON DELETE CASCADE.
+    /// 
+    /// # Arguments
+    /// * `instrument_ids` - Vector of instrument IDs to delete
+    /// * `txn` - Database transaction to use for the operations
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error
+    /// 
+    /// # Errors
+    /// * `anyhow::Error` - If any database operation fails
+    async fn delete_instruments(
+        &self,
+        instrument_ids: Vec<i64>,
+        txn: Option<&DatabaseTransaction>,
+    ) -> Result<()> {
+        if instrument_ids.is_empty() {
+            return Ok(());
+        }
+        
+        let mut l_opt_txn = None;
+        let lr_txn: &DatabaseTransaction = match txn {
+            Some(txn) => txn,
+            None => {
+                l_opt_txn = Some(self.conn.begin().await?);
+                l_opt_txn.as_ref().unwrap()
+            }
+        };
+
+        // Delete the instruments themselves
+        for instrument_id in instrument_ids {
+            Instruments::delete_by_id(instrument_id)
+                .exec(lr_txn)
+                .await?;
+        }
+
+        if l_opt_txn.is_some() {
+            l_opt_txn.unwrap().commit().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Creates a new derivative in the database.
+    /// 
+    /// # Arguments
+    /// * `derivative` - Derivative model without id field populated
+    /// 
+    /// # Returns
+    /// * `Result<i64>` - The id of the created derivative
+    /// 
+    /// # Errors
+    /// * `anyhow::Error` - If the database operation fails
+    pub async fn create_derivative(&self, derivative: Derivative) -> Result<i64> {
+        let active_model = derivative.into_active_model();
+        let result = Derivatives::insert(active_model)
+            .exec(&*self.conn)
+            .await?;
+        Ok(result.last_insert_id)
+    }
+
+    /// Deletes a derivative by its id.
+    /// 
+    /// # Arguments
+    /// * `id` - The id of the derivative to delete
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error
+    /// 
+    /// # Errors
+    /// * `anyhow::Error` - If the database operation fails
+    pub async fn delete_derivative(&self, id: i64) -> Result<()> {
+        Derivatives::delete_by_id(id)
+            .exec(&*self.conn)
+            .await?;
+        Ok(())
+    }
+
+    /// Creates a new transaction in the database.
+    /// 
+    /// # Arguments
+    /// * `transaction` - Transaction model without id field populated
+    /// 
+    /// # Returns
+    /// * `Result<i64>` - The id of the created transaction
+    /// 
+    /// # Errors
+    /// * `anyhow::Error` - If the database operation fails
+    pub async fn create_transaction(&self, transaction: Transaction) -> Result<i64> {
+        let active_model = transaction.into_active_model();
+        let result = Transactions::insert(active_model)
+            .exec(&*self.conn)
+            .await?;
+        Ok(result.last_insert_id)
+    }
+
+    /// Deletes a transaction by its id.
+    /// 
+    /// # Arguments
+    /// * `id` - The id of the transaction to delete
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error
+    /// 
+    /// # Errors
+    /// * `anyhow::Error` - If the database operation fails
+    pub async fn delete_transaction(&self, id: i64) -> Result<()> {
+        Transactions::delete_by_id(id)
+            .exec(&*self.conn)
+            .await?;
+        Ok(())
+    }
+
+    /// Creates a new price in the database.
+    /// 
+    /// # Arguments
+    /// * `price` - Price model without id field populated
+    /// 
+    /// # Returns
+    /// * `Result<i64>` - The id of the created price
+    /// 
+    /// # Errors
+    /// * `anyhow::Error` - If the database operation fails
+    pub async fn create_price(&self, price: Price) -> Result<i64> {
+        let active_model = price.into_active_model();
+        let result = Prices::insert(active_model)
+            .exec(&*self.conn)
+            .await?;
+        Ok(result.last_insert_id)
+    }
+
+    /// Deletes a price by its id.
+    /// 
+    /// # Arguments
+    /// * `id` - The id of the price to delete
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error
+    /// 
+    /// # Errors
+    /// * `anyhow::Error` - If the database operation fails
+    pub async fn delete_price(&self, id: i64) -> Result<()> {
+        Prices::delete_by_id(id)
+            .exec(&*self.conn)
+            .await?;
+        Ok(())
     }
 }

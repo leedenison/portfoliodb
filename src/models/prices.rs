@@ -1,5 +1,5 @@
-use sea_orm::entity::prelude::*;
 use chrono::{DateTime, Utc};
+use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "prices")]
@@ -27,4 +27,4 @@ impl Related<super::instruments::Entity> for Entity {
     }
 }
 
-impl ActiveModelBehavior for ActiveModel {} 
+impl ActiveModelBehavior for ActiveModel {}

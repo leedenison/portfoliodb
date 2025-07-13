@@ -8,6 +8,103 @@ use portfoliodb::models::symbols::Model as Symbol;
 use portfoliodb::models::instruments::Column as InstrumentCol;
 use portfoliodb::models::symbols::Column as SymCol;
 
+#[tokio::test]
+async fn test_delete_instruments() -> Result<()> {
+    // Get database URL from environment or use default
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://portfoliodb:portfoliodb_test_password@localhost:5432/portfoliodb_test".to_string());
+
+    let test_db = TestDatabase::new(&database_url).await?;
+    
+    // Clean up any existing data
+    test_db.cleanup().await?;
+
+    // Create test data within a transaction
+    let txn = test_db.conn.begin().await?;
+    
+    // Create test instruments
+    let instrument_ids = test_db.create_test_instruments(&txn).await?;
+    assert!(!instrument_ids.is_empty(), "Should have created test instruments");
+
+    // Create associated symbols
+    test_db.create_test_symbols(&instrument_ids, &txn).await?;
+    
+    // Create associated transactions
+    test_db.create_test_transactions(&instrument_ids, &txn).await?;
+    
+    // Create associated prices
+    test_db.create_test_prices(&instrument_ids, &txn).await?;
+    
+    // Create associated derivatives
+    test_db.create_test_derivatives(&instrument_ids, &txn).await?;
+
+    // Commit the transaction to make the data visible
+    txn.commit().await?;
+
+    // Verify data was created
+    assert!(test_db.verify_instruments_exist(&instrument_ids).await?, "Instruments should exist");
+    assert!(test_db.verify_symbols_exist(&instrument_ids).await?, "Symbols should exist");
+
+    // Test the delete_instruments functionality
+    // We'll test the private method through the public merge_instruments method
+    // by creating a scenario where we merge instruments (which internally calls delete_instruments)
+    
+    // First, let's get the symbols from the database that we created
+    let existing_symbols = Symbols::find()
+        .filter(SymCol::InstrumentId.is_in(instrument_ids.clone()))
+        .all(&*test_db.conn)
+        .await?;
+    
+    assert!(!existing_symbols.is_empty(), "Should have existing symbols");
+
+    // Merge instruments (this will internally call delete_instruments for some instruments)
+    let merged_instrument_id = test_db.db_manager.merge_instruments(&existing_symbols).await?;
+    assert!(merged_instrument_id.is_some(), "Should have merged instruments");
+
+    // Verify that some instruments were deleted (the ones that were merged)
+    // The first instrument should remain, others should be deleted
+    let remaining_instruments = vec![instrument_ids[0]];
+    let deleted_instruments = vec![instrument_ids[1], instrument_ids[2]];
+
+    assert!(test_db.verify_instruments_exist(&remaining_instruments).await?, "Remaining instrument should exist");
+    assert!(test_db.verify_instruments_deleted(&deleted_instruments).await?, "Deleted instruments should not exist");
+
+    // Verify that symbols for deleted instruments are also deleted
+    assert!(test_db.verify_symbols_deleted(&deleted_instruments).await?, "Symbols for deleted instruments should be deleted");
+
+    // Verify that symbols for remaining instrument still exist
+    assert!(test_db.verify_symbols_exist(&remaining_instruments).await?, "Symbols for remaining instrument should exist");
+
+    // Clean up test data
+    test_db.cleanup().await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_delete_instruments_empty_list() -> Result<()> {
+    // Get database URL from environment or use default
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://portfoliodb:portfoliodb_test_password@localhost:5432/portfoliodb_test".to_string());
+
+    let test_db = TestDatabase::new(&database_url).await?;
+    
+    // Clean up any existing data
+    test_db.cleanup().await?;
+
+    // Test that delete_instruments handles empty list gracefully
+    // This is tested through the merge_instruments method with empty symbols
+    let empty_symbols: Vec<Symbol> = vec![];
+    
+    let result = test_db.db_manager.merge_instruments(&empty_symbols).await?;
+    assert!(result.is_none(), "Should return None for empty symbols");
+
+    // Clean up test data
+    test_db.cleanup().await?;
+
+    Ok(())
+} 
+
 /// Test database setup and cleanup utilities
 pub struct TestDatabase {
     pub db_manager: DatabaseManager,
@@ -92,7 +189,7 @@ impl TestDatabase {
         instrument_ids: &[i64],
         txn: &DatabaseTransaction,
     ) -> Result<()> {
-        for (i, instrument_id) in instrument_ids.iter().enumerate() {
+        for (_i, instrument_id) in instrument_ids.iter().enumerate() {
             Transactions::insert(
                 portfoliodb::models::transactions::ActiveModel {
                     instrument_id: sea_orm::ActiveValue::Set(*instrument_id),
@@ -119,7 +216,7 @@ impl TestDatabase {
         instrument_ids: &[i64],
         txn: &DatabaseTransaction,
     ) -> Result<()> {
-        for (i, instrument_id) in instrument_ids.iter().enumerate() {
+        for (_i, instrument_id) in instrument_ids.iter().enumerate() {
             Prices::insert(
                 portfoliodb::models::prices::ActiveModel {
                     instrument_id: sea_orm::ActiveValue::Set(*instrument_id),
@@ -141,7 +238,7 @@ impl TestDatabase {
         instrument_ids: &[i64],
         txn: &DatabaseTransaction,
     ) -> Result<()> {
-        for (i, instrument_id) in instrument_ids.iter().enumerate() {
+        for (_i, instrument_id) in instrument_ids.iter().enumerate() {
             Derivatives::insert(
                 portfoliodb::models::derivatives::ActiveModel {
                     instrument_id: sea_orm::ActiveValue::Set(*instrument_id),
@@ -215,97 +312,3 @@ impl TestDatabase {
         Ok(count == 0)
     }
 }
-
-#[tokio::test]
-async fn test_delete_instruments() -> Result<()> {
-    // Get database URL from environment or use default
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://portfoliodb:portfoliodb_test_password@localhost:5432/portfoliodb_test".to_string());
-
-    let test_db = TestDatabase::new(&database_url).await?;
-    
-    // Clean up any existing data
-    test_db.cleanup().await?;
-
-    // Create test data within a transaction
-    let txn = test_db.conn.begin().await?;
-    
-    // Create test instruments
-    let instrument_ids = test_db.create_test_instruments(&txn).await?;
-    assert!(!instrument_ids.is_empty(), "Should have created test instruments");
-
-    // Create associated symbols
-    test_db.create_test_symbols(&instrument_ids, &txn).await?;
-    
-    // Create associated transactions
-    test_db.create_test_transactions(&instrument_ids, &txn).await?;
-    
-    // Create associated prices
-    test_db.create_test_prices(&instrument_ids, &txn).await?;
-    
-    // Create associated derivatives
-    test_db.create_test_derivatives(&instrument_ids, &txn).await?;
-
-    // Verify data was created
-    assert!(test_db.verify_instruments_exist(&instrument_ids).await?, "Instruments should exist");
-    assert!(test_db.verify_symbols_exist(&instrument_ids).await?, "Symbols should exist");
-
-    // Test the delete_instruments functionality
-    // We'll test the private method through the public merge_instruments method
-    // by creating a scenario where we merge instruments (which internally calls delete_instruments)
-    
-    // First, let's get the symbols from the database that we created
-    let existing_symbols = Symbols::find()
-        .filter(SymCol::InstrumentId.is_in(instrument_ids.clone()))
-        .all(&*test_db.conn)
-        .await?;
-    
-    assert!(!existing_symbols.is_empty(), "Should have existing symbols");
-
-    // Merge instruments (this will internally call delete_instruments for some instruments)
-    let merged_instrument_id = test_db.db_manager.merge_instruments(&existing_symbols).await?;
-    assert!(merged_instrument_id.is_some(), "Should have merged instruments");
-
-    // Verify that some instruments were deleted (the ones that were merged)
-    // The first instrument should remain, others should be deleted
-    let remaining_instruments = vec![instrument_ids[0]];
-    let deleted_instruments = vec![instrument_ids[1], instrument_ids[2]];
-
-    assert!(test_db.verify_instruments_exist(&remaining_instruments).await?, "Remaining instrument should exist");
-    assert!(test_db.verify_instruments_deleted(&deleted_instruments).await?, "Deleted instruments should not exist");
-
-    // Verify that symbols for deleted instruments are also deleted
-    assert!(test_db.verify_symbols_deleted(&deleted_instruments).await?, "Symbols for deleted instruments should be deleted");
-
-    // Verify that symbols for remaining instrument still exist
-    assert!(test_db.verify_symbols_exist(&remaining_instruments).await?, "Symbols for remaining instrument should exist");
-
-    // Clean up test data
-    test_db.cleanup().await?;
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_delete_instruments_empty_list() -> Result<()> {
-    // Get database URL from environment or use default
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://portfoliodb:portfoliodb_test_password@localhost:5432/portfoliodb_test".to_string());
-
-    let test_db = TestDatabase::new(&database_url).await?;
-    
-    // Clean up any existing data
-    test_db.cleanup().await?;
-
-    // Test that delete_instruments handles empty list gracefully
-    // This is tested through the merge_instruments method with empty symbols
-    let empty_symbols: Vec<Symbol> = vec![];
-    
-    let result = test_db.db_manager.merge_instruments(&empty_symbols).await?;
-    assert!(result.is_none(), "Should return None for empty symbols");
-
-    // Clean up test data
-    test_db.cleanup().await?;
-
-    Ok(())
-} 

@@ -6,7 +6,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
     pub name: String,
-    pub r#type: String, // Using raw identifier for 'type'
+    pub r#type: String,           // Using raw identifier for 'type'
     pub currency: Option<String>, // ISO 4217 currency code (e.g., USD, EUR, GBP) - nullable
 }
 
@@ -22,4 +22,4 @@ pub enum Relation {
     Prices,
 }
 
-impl ActiveModelBehavior for ActiveModel {} 
+impl ActiveModelBehavior for ActiveModel {}

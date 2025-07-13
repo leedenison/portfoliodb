@@ -61,7 +61,7 @@ pub async fn populate_database(
     for (instrument, identifiers, derivative) in &test_db.instruments {
         // Require explicit dbid
         if instrument.dbid == 0 {
-            return Err(anyhow::anyhow!("Explicit dbid required for instrument: {}", instrument.name));
+            return Err(anyhow::anyhow!("Explicit dbid required for instrument with dbid 0"));
         }
         
         let instrument_dbid = db_manager.create_instrument(instrument.clone()).await?;

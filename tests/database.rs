@@ -20,7 +20,6 @@ async fn test_delete_instruments() {
                 .add_instrument(
                     Instrument {
                         dbid: 1001,
-                        name: "AAPL".to_string(),
                         r#type: "STK".to_string(),
                         currency: Some("USD".to_string()),
                     },
@@ -45,7 +44,6 @@ async fn test_delete_instruments() {
                 .add_instrument(
                     Instrument {
                         dbid: 1004,
-                        name: "AAPL".to_string(),
                         r#type: "STK".to_string(),
                         currency: Some("USD".to_string()),
                     },
@@ -55,7 +53,6 @@ async fn test_delete_instruments() {
                 .add_instrument(
                     Instrument {
                         dbid: 1005,
-                        name: "AAPL Call Option".to_string(),
                         r#type: "OPT".to_string(),
                         currency: Some("USD".to_string()),
                     },
@@ -74,7 +71,6 @@ async fn test_delete_instruments() {
                 .add_instrument(
                     Instrument {
                         dbid: 1006,
-                        name: "AAPL".to_string(),
                         r#type: "STK".to_string(),
                         currency: Some("USD".to_string()),
                     },

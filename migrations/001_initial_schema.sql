@@ -4,7 +4,6 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 -- Create instruments table (regular PostgreSQL table)
 CREATE TABLE instruments (
     dbid BIGSERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
     type TEXT NOT NULL, -- STK, MF, BOND, etc.
     currency TEXT -- ISO 4217 currency code (e.g., USD, EUR, GBP), now nullable
 );

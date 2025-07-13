@@ -1,11 +1,15 @@
-use sea_orm::{Database, DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, TransactionTrait, ActiveModelTrait, Set, DatabaseTransaction, Query, Expr};
+use sea_orm::{Database, DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, TransactionTrait, ActiveModelTrait, Set, DatabaseTransaction, Query, Expr, OnConflict};
 use anyhow::Result;
 use tracing::info;
 use std::sync::Arc;
 use std::collections::HashSet;
 
-use crate::portfolio_db::{Tx, DateRange, Symbol};
-use crate::models::{Instruments, Symbols, Transactions, Prices, Derivatives, Instrument, Symbol as SymbolModel};
+use crate::portfolio_db::{Tx, DateRange};
+use crate::models::{Instruments, Symbols, Transactions, Prices, Derivatives, Instrument, Symbol};
+use crate::models::symbols::Column as SymCol;
+use crate::models::transactions::Column as TxCol;
+use crate::models::prices::Column as PriceCol;
+use crate::models::derivatives::Column as DerivativeCol;
 
 #[derive(Clone)]
 pub struct DatabaseManager {
@@ -78,7 +82,6 @@ impl DatabaseManager {
 
         // Find all instruments that have exact matches to the supplied symbols
         let instrument_ids = self.find_instruments(symbols, txn).await?;
-
         if instrument_ids.is_empty() {
             return Ok(None);
         }
@@ -97,22 +100,21 @@ impl DatabaseManager {
         self.move_prices_to_instrument(&instruments_to_merge, merged_instrument_id, txn).await?;
         self.move_derivatives_to_instrument(&instruments_to_merge, merged_instrument_id, txn).await?;
 
-        // Collect all unique symbol models
-        let unique_symbol_models = self.unique_symbol_models(symbols, &instruments_to_merge, merged_instrument_id, txn).await?;
+        // Collect all unique symbols
+        let unique_symbols = self.unique_symbols(symbols, &instruments_to_merge, txn).await?;
 
         // Delete instruments being merged
+        // These should not differ in other metadata, but if they do we have no way
+        // to reconcile them anyway
         self.delete_instruments(&instruments_to_merge, txn).await?;
 
-        // Add all unique symbol models to the merged instrument
-        self.add_symbol_models(unique_symbol_models, txn).await?;
+        // Add all unique symbols to the merged instrument
+        self.add_symbols(unique_symbols, merged_instrument_id, txn).await?;
 
         Ok(Some(merged_instrument_id))
     }
 
     /// Finds all instruments that have exact matches to the supplied symbols.
-    /// 
-    /// Uses a single efficient query with an IN clause to find all matching
-    /// symbols and their associated instruments, then extracts unique instrument IDs.
     /// 
     /// # Arguments
     /// * `symbols` - Slice of Symbols to search for
@@ -132,8 +134,8 @@ impl DatabaseManager {
             return Ok(Vec::new());
         }
 
-        // Build the symbol combinations for the IN clause
-        let symbol_combinations: Vec<(String, String, String, String)> = symbols
+        // Build the symbol tuples for the IN clause
+        let symbol_tuples: Vec<(String, String, String, String)> = symbols
             .iter()
             .map(|s| (s.domain.clone(), s.symbol.clone(), s.exchange.clone(), s.description.clone()))
             .collect();
@@ -141,11 +143,11 @@ impl DatabaseManager {
         // Single query to find all matching symbols and their instruments
         let matching = Symbols::find()
             .filter(Expr::tuple([
-                Expr::col(crate::models::symbols::Column::Domain),
-                Expr::col(crate::models::symbols::Column::Symbol),
-                Expr::col(crate::models::symbols::Column::Exchange),
-                Expr::col(crate::models::symbols::Column::Description),
-            ]).in_tuples(symbol_combinations))
+                Expr::col(SymCol::Domain),
+                Expr::col(SymCol::Symbol),
+                Expr::col(SymCol::Exchange),
+                Expr::col(SymCol::Description),
+            ]).in_tuples(symbol_tuples))
             .find_also_related(Instruments)
             .all(txn)
             .await?;
@@ -161,68 +163,52 @@ impl DatabaseManager {
         Ok(instrument_ids)
     }
 
-    /// Creates a HashSet of unique symbol ActiveModels from input symbols and existing instruments.
+    /// Creates a HashSet of unique symbol tuples from input symbols and existing instruments.
     /// 
-    /// Combines symbols from the input with existing symbols from instruments being merged,
-    /// creating ActiveModels for the target instrument. Handles deduplication automatically.
+    /// Deduplicates any symbols that already exist in the database.
     /// 
     /// # Arguments
     /// * `symbols` - Slice of Symbols from input
-    /// * `instruments_to_merge` - Vector of instrument IDs to get existing symbols from
-    /// * `target_instrument_id` - Instrument ID to associate the symbols with
+    /// * `src_instrument_ids` - Slice of instrument IDs to get existing symbols from
     /// * `txn` - Database transaction to use for queries
     /// 
     /// # Returns
-    /// * `Result<HashSet<crate::models::symbols::ActiveModel>>` - Set of unique symbol ActiveModels
+    /// * `Result<HashSet<(String, String, String, String)>>` - Set of unique symbol tuples
     /// 
     /// # Errors
     /// * `anyhow::Error` - If the database query fails
-    async fn unique_symbol_models(
+    async fn unique_symbols(
         &self,
         symbols: &[Symbol],
-        instruments_to_merge: &[i64],
-        target_instrument_id: i64,
+        src_instrument_ids: &[i64],
         txn: &DatabaseTransaction,
-    ) -> Result<HashSet<crate::models::symbols::ActiveModel>> {
-        let mut unique_symbol_models = HashSet::new();
+    ) -> Result<HashSet<(String, String, String, String)>> {
+        let mut unique_symbols = HashSet::new();
         
         // Add symbols from the input
         for symbol in symbols {
-            let model = crate::models::symbols::ActiveModel {
-                instrument_id: Set(target_instrument_id),
-                domain: Set(symbol.domain.clone()),
-                symbol: Set(symbol.symbol.clone()),
-                exchange: Set(symbol.exchange.clone()),
-                description: Set(symbol.description.clone()),
-                ..Default::default()
-            };
-            unique_symbol_models.insert(model);
+            unique_symbols.insert((
+                symbol.domain.clone(),
+                symbol.symbol.clone(),
+                symbol.exchange.clone(),
+                symbol.description.clone(),
+            ));
         }
 
         // Add existing symbols from instruments being merged
-        let existing_symbols = self.find_symbols_by_instruments(instruments_to_merge, txn).await?;
-        for (domain, symbol, exchange, description) in existing_symbols {
-            let model = crate::models::symbols::ActiveModel {
-                instrument_id: Set(target_instrument_id),
-                domain: Set(domain),
-                symbol: Set(symbol),
-                exchange: Set(exchange),
-                description: Set(description),
-                ..Default::default()
-            };
-            unique_symbol_models.insert(model);
+        let existing_symbols = self.find_symbols_by_instruments(src_instrument_ids, txn).await?;
+        for symbol in existing_symbols {
+            unique_symbols.insert(symbol.to_tuple());
         }
 
-        Ok(unique_symbol_models)
+        Ok(unique_symbols)
     }
 
-    /// Adds symbol models to the database using bulk insert with conflict handling.
-    /// 
-    /// Uses ON CONFLICT DO NOTHING to handle cases where symbols already exist,
-    /// preventing duplicate key violations.
+    /// Adds symbols to the database using bulk insert with conflict handling.
     /// 
     /// # Arguments
-    /// * `symbol_models` - HashSet of unique symbol ActiveModels to insert
+    /// * `symbols` - HashSet of unique symbol tuples (domain, symbol, exchange, description)
+    /// * `instrument_id` - Instrument ID to associate the symbols with
     /// * `txn` - Database transaction to use for the operation
     /// 
     /// # Returns
@@ -230,23 +216,29 @@ impl DatabaseManager {
     /// 
     /// # Errors
     /// * `anyhow::Error` - If the database operation fails
-    async fn add_symbol_models(
+    async fn add_symbols(
         &self,
-        symbol_models: HashSet<crate::models::symbols::ActiveModel>,
+        symbols: HashSet<(String, String, String, String)>,
+        instrument_id: i64,
         txn: &DatabaseTransaction,
     ) -> Result<()> {
-        if symbol_models.is_empty() {
+        if symbols.is_empty() {
             return Ok(());
         }
 
-        Symbols::insert_many(symbol_models.into_iter().collect())
+        let symbol_models: Vec<crate::models::symbols::ActiveModel> = symbols
+            .into_iter()
+            .map(|symbol| (symbol, instrument_id).into())
+            .collect();
+
+        Symbols::insert_many(symbol_models)
             .on_conflict(
                 OnConflict::columns([
-                    crate::models::symbols::Column::InstrumentId,
-                    crate::models::symbols::Column::Domain,
-                    crate::models::symbols::Column::Symbol,
-                    crate::models::symbols::Column::Exchange,
-                    crate::models::symbols::Column::Description,
+                    SymCol::InstrumentId,
+                    SymCol::Domain,
+                    SymCol::Symbol,
+                    SymCol::Exchange,
+                    SymCol::Description,
                 ])
                 .do_nothing()
             )
@@ -256,16 +248,14 @@ impl DatabaseManager {
         Ok(())
     }
 
-    /// Finds all symbols for the specified instrument IDs using a single efficient query.
-    /// 
-    /// Uses an IN clause to fetch all symbols in one database query.
+    /// Finds all symbols for the specified instrument IDs.
     /// 
     /// # Arguments
     /// * `instrument_ids` - Vector of instrument IDs to fetch symbols for
     /// * `txn` - Database transaction to use for the query
     /// 
     /// # Returns
-    /// * `Result<Vec<(String, String, String, String)>>` - Vector of symbol tuples (domain, symbol, exchange, description)
+    /// * `Result<Vec<Symbol>>` - Vector of Symbols
     /// 
     /// # Errors
     /// * `anyhow::Error` - If the database query fails
@@ -273,24 +263,17 @@ impl DatabaseManager {
         &self,
         instrument_ids: &[i64],
         txn: &DatabaseTransaction,
-    ) -> Result<Vec<(String, String, String, String)>> {
+    ) -> Result<Vec<Symbol>> {
         if instrument_ids.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Single query to find all symbols for the specified instruments
         let symbols = Symbols::find()
-            .filter(crate::models::symbols::Column::InstrumentId.in_tuples(instrument_ids))
+            .filter(SymCol::InstrumentId.in_tuples(instrument_ids))
             .all(txn)
             .await?;
 
-        // Convert to tuples
-        let symbol_tuples: Vec<(String, String, String, String)> = symbols
-            .into_iter()
-            .map(|s| (s.domain, s.symbol, s.exchange, s.description))
-            .collect();
-
-        Ok(symbol_tuples)
+        Ok(symbols)
     }
 
     /// Deletes instruments and their associated symbols.
@@ -317,9 +300,8 @@ impl DatabaseManager {
             return Ok(());
         }
 
-        // Delete symbols from instruments being deleted
         Symbols::delete_many()
-            .filter(crate::models::symbols::Column::InstrumentId.in_tuples(instrument_ids))
+            .filter(SymCol::InstrumentId.in_tuples(instrument_ids))
             .exec(txn)
             .await?;
 
@@ -360,8 +342,8 @@ impl DatabaseManager {
 
         // Move all transactions from source instruments to target instrument
         Transactions::update_many()
-            .col_expr(crate::models::transactions::Column::InstrumentId, Set(target_instrument_id))
-            .filter(crate::models::transactions::Column::InstrumentId.in_tuples(source_instrument_ids))
+            .col_expr(TxCol::InstrumentId, Set(target_instrument_id))
+            .filter(TxCol::InstrumentId.in_tuples(source_instrument_ids))
             .exec(txn)
             .await?;
 
@@ -395,8 +377,8 @@ impl DatabaseManager {
 
         // Move all prices from source instruments to target instrument
         Prices::update_many()
-            .col_expr(crate::models::prices::Column::InstrumentId, Set(target_instrument_id))
-            .filter(crate::models::prices::Column::InstrumentId.in_tuples(source_instrument_ids))
+            .col_expr(PriceCol::InstrumentId, Set(target_instrument_id))
+            .filter(PriceCol::InstrumentId.in_tuples(source_instrument_ids))
             .exec(txn)
             .await?;
 
@@ -430,8 +412,8 @@ impl DatabaseManager {
 
         // Move all derivatives that reference source instruments to target instrument
         Derivatives::update_many()
-            .col_expr(crate::models::derivatives::Column::UnderlyingInstrumentId, Set(target_instrument_id))
-            .filter(crate::models::derivatives::Column::UnderlyingInstrumentId.in_tuples(source_instrument_ids))
+            .col_expr(DerivativeCol::UnderlyingInstrumentId, Set(target_instrument_id))
+            .filter(DerivativeCol::UnderlyingInstrumentId.in_tuples(source_instrument_ids))
             .exec(txn)
             .await?;
 

@@ -87,31 +87,31 @@ impl DatabaseManager {
         }
         
         // First instrument becomes the merged instrument
-        let merged_instrument_id = instrument_ids[0]; 
+        let tgt_instrument_id = instrument_ids[0]; 
 
         if instrument_ids.len() == 1 {
             // No merging needed
-            return Ok(Some(merged_instrument_id));
+            return Ok(Some(tgt_instrument_id));
         }
 
-        let instruments_to_merge: Vec<i64> = instrument_ids[1..].to_vec();
+        let src_instrument_ids: Vec<i64> = instrument_ids[1..].to_vec();
 
-        self.move_txs_to_instrument(&instruments_to_merge, merged_instrument_id, txn).await?;
-        self.move_prices_to_instrument(&instruments_to_merge, merged_instrument_id, txn).await?;
-        self.move_derivatives_to_instrument(&instruments_to_merge, merged_instrument_id, txn).await?;
+        self.move_txs_to_instrument(&src_instrument_ids, tgt_instrument_id, txn).await?;
+        self.move_prices_to_instrument(&src_instrument_ids, tgt_instrument_id, txn).await?;
+        self.move_derivatives_to_instrument(&src_instrument_ids, tgt_instrument_id, txn).await?;
 
         // Collect all unique symbols
-        let unique_symbols = self.unique_symbols(symbols, &instruments_to_merge, txn).await?;
+        let unique_symbols = self.unique_symbols(symbols, &src_instrument_ids, txn).await?;
 
         // Delete instruments being merged
         // These should not differ in other metadata, but if they do we have no way
         // to reconcile them anyway
-        self.delete_instruments(&instruments_to_merge, txn).await?;
+        self.delete_instruments(&src_instrument_ids, txn).await?;
 
         // Add all unique symbols to the merged instrument
-        self.add_symbols(unique_symbols, merged_instrument_id, txn).await?;
+        self.add_symbols(unique_symbols, tgt_instrument_id, txn).await?;
 
-        Ok(Some(merged_instrument_id))
+        Ok(Some(tgt_instrument_id))
     }
 
     /// Finds all instruments that have exact matches to the supplied symbols.
@@ -321,8 +321,8 @@ impl DatabaseManager {
     /// instruments to point to the target instrument.
     /// 
     /// # Arguments
-    /// * `source_instrument_ids` - Vector of instrument IDs to move transactions from
-    /// * `target_instrument_id` - Instrument ID to move transactions to
+    /// * `src_instrument_ids` - Vector of instrument IDs to move transactions from
+    /// * `tgt_instrument_id` - Instrument ID to move transactions to
     /// * `txn` - Database transaction to use for the operations
     /// 
     /// # Returns
@@ -332,18 +332,18 @@ impl DatabaseManager {
     /// * `anyhow::Error` - If any database operation fails
     async fn move_txs_to_instrument(
         &self,
-        source_instrument_ids: &[i64],
-        target_instrument_id: i64,
+        src_instrument_ids: &[i64],
+        tgt_instrument_id: i64,
         txn: &DatabaseTransaction,
     ) -> Result<()> {
-        if source_instrument_ids.is_empty() {
+        if src_instrument_ids.is_empty() {
             return Ok(());
         }
 
         // Move all transactions from source instruments to target instrument
         Transactions::update_many()
-            .col_expr(TxCol::InstrumentId, Set(target_instrument_id))
-            .filter(TxCol::InstrumentId.in_tuples(source_instrument_ids))
+            .col_expr(TxCol::InstrumentId, Set(tgt_instrument_id))
+            .filter(TxCol::InstrumentId.in_tuples(src_instrument_ids))
             .exec(txn)
             .await?;
 
@@ -356,8 +356,8 @@ impl DatabaseManager {
     /// instruments to point to the target instrument.
     /// 
     /// # Arguments
-    /// * `source_instrument_ids` - Vector of instrument IDs to move prices from
-    /// * `target_instrument_id` - Instrument ID to move prices to
+    /// * `src_instrument_ids` - Vector of instrument IDs to move prices from
+    /// * `tgt_instrument_id` - Instrument ID to move prices to
     /// * `txn` - Database transaction to use for the operations
     /// 
     /// # Returns
@@ -367,18 +367,18 @@ impl DatabaseManager {
     /// * `anyhow::Error` - If any database operation fails
     async fn move_prices_to_instrument(
         &self,
-        source_instrument_ids: &[i64],
-        target_instrument_id: i64,
+        src_instrument_ids: &[i64],
+        tgt_instrument_id: i64,
         txn: &DatabaseTransaction,
     ) -> Result<()> {
-        if source_instrument_ids.is_empty() {
+        if src_instrument_ids.is_empty() {
             return Ok(());
         }
 
         // Move all prices from source instruments to target instrument
         Prices::update_many()
-            .col_expr(PriceCol::InstrumentId, Set(target_instrument_id))
-            .filter(PriceCol::InstrumentId.in_tuples(source_instrument_ids))
+            .col_expr(PriceCol::InstrumentId, Set(tgt_instrument_id))
+            .filter(PriceCol::InstrumentId.in_tuples(src_instrument_ids))
             .exec(txn)
             .await?;
 
@@ -391,8 +391,8 @@ impl DatabaseManager {
     /// instruments to point to the target instrument.
     /// 
     /// # Arguments
-    /// * `source_instrument_ids` - Vector of instrument IDs that derivatives currently reference
-    /// * `target_instrument_id` - Instrument ID to update derivatives to reference
+    /// * `src_instrument_ids` - Vector of instrument IDs that derivatives currently reference
+    /// * `tgt_instrument_id` - Instrument ID to update derivatives to reference
     /// * `txn` - Database transaction to use for the operations
     /// 
     /// # Returns
@@ -402,18 +402,18 @@ impl DatabaseManager {
     /// * `anyhow::Error` - If any database operation fails
     async fn move_derivatives_to_instrument(
         &self,
-        source_instrument_ids: &[i64],
-        target_instrument_id: i64,
+        src_instrument_ids: &[i64],
+        tgt_instrument_id: i64,
         txn: &DatabaseTransaction,
     ) -> Result<()> {
-        if source_instrument_ids.is_empty() {
+        if src_instrument_ids.is_empty() {
             return Ok(());
         }
 
         // Move all derivatives that reference source instruments to target instrument
         Derivatives::update_many()
-            .col_expr(DerivativeCol::UnderlyingInstrumentId, Set(target_instrument_id))
-            .filter(DerivativeCol::UnderlyingInstrumentId.in_tuples(source_instrument_ids))
+            .col_expr(DerivativeCol::UnderlyingInstrumentId, Set(tgt_instrument_id))
+            .filter(DerivativeCol::UnderlyingInstrumentId.in_tuples(src_instrument_ids))
             .exec(txn)
             .await?;
 

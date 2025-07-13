@@ -8,10 +8,8 @@ use portfoliodb::models::{
 };
 use portfoliodb::database::DatabaseManager;
 
-/// Test cases for delete_instruments function
 #[tokio::test]
 async fn test_delete_instruments() {
-    // Check if DATABASE_URL is set, skip test if not
     let database_url = match std::env::var("DATABASE_URL") {
         Ok(url) => url,
         Err(_) => {
@@ -32,7 +30,7 @@ async fn test_delete_instruments() {
                     vec![
                         Identifier {
                             dbid: 2001,
-                            instrument_dbid: 0,
+                            instrument_dbid: 1001,
                             id: "".to_string(),
                             domain: "GOOGLEFINANCE".to_string(),
                             symbol: "AAPL".to_string(),
@@ -43,7 +41,7 @@ async fn test_delete_instruments() {
                     None,
                 ),
             TestDatabase::new(),
-            vec![1001], // Delete the single instrument
+            vec![1001],
             "Delete single instrument with identifiers"
         ),
         (
@@ -57,7 +55,7 @@ async fn test_delete_instruments() {
                     vec![
                         Identifier {
                             dbid: 2001,
-                            instrument_dbid: 0,
+                            instrument_dbid: 1004,
                             id: "".to_string(),
                             domain: "GOOGLEFINANCE".to_string(),
                             symbol: "AAPL".to_string(),
@@ -104,7 +102,7 @@ async fn test_delete_instruments() {
                     vec![
                         Identifier {
                             dbid: 2001,
-                            instrument_dbid: 0,
+                            instrument_dbid: 1004,
                             id: "".to_string(),
                             domain: "GOOGLEFINANCE".to_string(),
                             symbol: "AAPL".to_string(),
@@ -114,36 +112,29 @@ async fn test_delete_instruments() {
                     ],
                     None,
                 ),
-            vec![1005], // Delete only the option instrument
+            vec![1005],
             "Delete instrument with derivative (option deleted, underlying remains)"
         ),
     ];
     
-    // Connect to test database
     let db_manager = DatabaseManager::new(&database_url).await
         .expect("Failed to connect to database");
     
-    // Run each test case
     for (before_state, after_state, instr_dbids_to_delete, description) in test_cases {
         println!("Running test: {}", description);
         
-        // Clear database before test
         clear_database(&db_manager).await
             .expect("Failed to clear database");
         
-        // Populate with before state
         populate_database(&db_manager, &before_state).await
             .expect("Failed to populate database with before state");
         
-        // Call delete_instruments function with the specified IDs
         db_manager.delete_instruments(instr_dbids_to_delete, None).await
             .expect("Failed to delete instruments");
         
-        // Verify after state
         verify_database(&db_manager, &after_state).await
             .expect(&format!("After state verification failed for: {}", description));
         
-        // Clear database for next test
         clear_database(&db_manager).await
             .expect("Failed to clear database after test");
         

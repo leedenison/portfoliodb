@@ -2,7 +2,6 @@ use clap::Parser;
 use tonic::transport::Server;
 use tower_http::cors::{CorsLayer, AllowOrigin};
 use http::header::{ACCEPT, CONTENT_TYPE, ORIGIN, AUTHORIZATION, USER_AGENT, HeaderName};
-use http::Method;
 use tracing::{Level, info};
 use std::time::Duration;
 

@@ -5,9 +5,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .out_dir(&out_dir)
         .protoc_arg("--experimental_allow_proto3_optional")
+        .extern_path(".google.protobuf.Timestamp", "pbjson_types::Timestamp")
+        .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
         .compile_protos(
-            &["proto/service/portfoliodb.proto"], // Path to your .proto file
-            &["proto"],                           // Include paths (protoc -I argument)
+            &["proto/service/portfoliodb.proto"],
+            &["proto"], // Include paths (protoc -I argument)
         )?;
 
     println!("cargo:rerun-if-changed=proto/service/portfoliodb.proto");

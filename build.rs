@@ -5,7 +5,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .out_dir(&out_dir)
         .protoc_arg("--experimental_allow_proto3_optional")
-        .compile(
+        .compile_protos(
             &["proto/service/portfoliodb.proto"], // Path to your .proto file
             &["proto"],                           // Include paths (protoc -I argument)
         )?;

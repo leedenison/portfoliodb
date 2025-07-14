@@ -1,9 +1,9 @@
 use clap::Parser;
 use tonic::transport::Server;
-use tracing::{info, Level};
+use tower_http::cors::{Any, CorsLayer};
+use tracing::{Level, info};
 
 use portfoliodb::portfolio_db_server::PortfolioDbServer;
-use portfoliodb::rpc::PortfolioDBService;
 
 #[derive(Parser)]
 #[command(name = "portfoliodb")]
@@ -20,22 +20,27 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     let args = Args::parse();
     let addr = format!("[::]:{}", args.port).parse()?;
-    
+
     info!("Starting PortfolioDB server on port {}", args.port);
-    
-    // Create and start the server
-    let service = PortfolioDBService::new(args.database_url.clone());
-    
+
     Server::builder()
-        .add_service(PortfolioDbServer::new(service))
+        .layer(tonic_web::GrpcWebLayer::new())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any)
+                .allow_credentials(true),
+        )
+        .add_service(PortfolioDbServer::new(portfoliodb::rpc::Service::new(
+            args.database_url.clone(),
+        )))
         .serve(addr)
         .await?;
-    
+
     Ok(())
-} 
+}

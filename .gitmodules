@@ -1,0 +1,3 @@
+[submodule "proto/service"]
+	path = proto/service
+	url = /home/lee/Projects/PortfolioDB/repos/portfoliodb-proto.git/

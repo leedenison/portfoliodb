@@ -3,7 +3,6 @@ pub mod canonical_instr_descs;
 pub mod canonical_instr_ids;
 pub mod canonical_instr_symbols;
 pub mod derivatives;
-pub mod identifier;
 pub mod instruments;
 pub mod prices;
 pub mod transactions;
@@ -25,9 +24,6 @@ pub use user_instr_descs::Entity as UserInstrDescs;
 pub use user_instr_ids::Entity as UserInstrIds;
 pub use user_instr_symbols::Entity as UserInstrSymbols;
 pub use users::Entity as Users;
-
-// Re-export the new Identifier type
-pub use identifier::Identifier;
 
 // Re-export all models
 pub use brokers::Model as Broker;

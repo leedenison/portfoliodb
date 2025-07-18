@@ -8,8 +8,9 @@ use crate::database::DatabaseManager;
 use crate::portfolio_db_server::PortfolioDb;
 use crate::{
     Error, ErrorCode, GetHoldingsRequest, GetHoldingsResponse, GetPricesRequest, GetPricesResponse,
-    UpdateInstrumentRequest, UpdateInstrumentResponse, UpdatePricesRequest, UpdatePricesResponse,
-    UpdateTxsRequest, UpdateTxsResponse,
+    UpdateInstrumentsRequest, UpdateInstrumentsResponse, DeleteInstrumentRequest, DeleteInstrumentResponse,
+    UpdateBrokerRequest, UpdateBrokerResponse, DeleteBrokerRequest, DeleteBrokerResponse,
+    UpdatePricesRequest, UpdatePricesResponse, UpdateTxsRequest, UpdateTxsResponse,
 };
 
 #[derive(Default)]
@@ -171,13 +172,83 @@ impl PortfolioDb for Service {
     ///
     /// # Returns
     /// * Success response with OK error code, or error response with details
-    async fn update_instrument(
+    async fn update_instruments(
         &self,
-        _request: Request<UpdateInstrumentRequest>,
-    ) -> Result<Response<UpdateInstrumentResponse>, Status> {
+        _request: Request<UpdateInstrumentsRequest>,
+    ) -> Result<Response<UpdateInstrumentsResponse>, Status> {
         // Stub implementation
-        info!("UpdateInstrument called");
-        Ok(Response::new(UpdateInstrumentResponse {
+        info!("UpdateInstruments called");
+        Ok(Response::new(UpdateInstrumentsResponse {
+            error: Some(Error {
+                code: ErrorCode::Ok as i32,
+                message: "Stub implementation".to_string(),
+            }),
+        }))
+    }
+
+    /// Deletes a single instrument by ID.
+    ///
+    /// This operation removes the specified instrument from the database.
+    ///
+    /// # Arguments
+    /// * `request` - Contains the instrument ID to delete
+    ///
+    /// # Returns
+    /// * Success response with OK error code, or error response with details
+    async fn delete_instrument(
+        &self,
+        _request: Request<DeleteInstrumentRequest>,
+    ) -> Result<Response<DeleteInstrumentResponse>, Status> {
+        // Stub implementation
+        info!("DeleteInstrument called");
+        Ok(Response::new(DeleteInstrumentResponse {
+            error: Some(Error {
+                code: ErrorCode::Ok as i32,
+                message: "Stub implementation".to_string(),
+            }),
+        }))
+    }
+
+    /// Updates or creates broker metadata.
+    ///
+    /// This operation can be used to add new brokers or update existing broker
+    /// information including key and name.
+    ///
+    /// # Arguments
+    /// * `request` - Contains the broker data to update or create
+    ///
+    /// # Returns
+    /// * Success response with OK error code, or error response with details
+    async fn update_broker(
+        &self,
+        _request: Request<UpdateBrokerRequest>,
+    ) -> Result<Response<UpdateBrokerResponse>, Status> {
+        // Stub implementation
+        info!("UpdateBroker called");
+        Ok(Response::new(UpdateBrokerResponse {
+            error: Some(Error {
+                code: ErrorCode::Ok as i32,
+                message: "Stub implementation".to_string(),
+            }),
+        }))
+    }
+
+    /// Deletes a single broker by ID.
+    ///
+    /// This operation removes the specified broker from the database.
+    ///
+    /// # Arguments
+    /// * `request` - Contains the broker ID to delete
+    ///
+    /// # Returns
+    /// * Success response with OK error code, or error response with details
+    async fn delete_broker(
+        &self,
+        _request: Request<DeleteBrokerRequest>,
+    ) -> Result<Response<DeleteBrokerResponse>, Status> {
+        // Stub implementation
+        info!("DeleteBroker called");
+        Ok(Response::new(DeleteBrokerResponse {
             error: Some(Error {
                 code: ErrorCode::Ok as i32,
                 message: "Stub implementation".to_string(),

@@ -1,13 +1,10 @@
 use anyhow::Result;
 use sea_orm::{
-    Database, DatabaseConnection, DatabaseTransaction,
+    Database, DatabaseConnection,
 };
 use std::sync::Arc;
 use tracing::info;
 
-use crate::models::{
-    Identifier,
-};
 use crate::portfolio_db::{DateRange, Tx};
 
 #[derive(Clone)]

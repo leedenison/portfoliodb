@@ -4,7 +4,7 @@ use infra::{TestDatabase, clear_database, populate_database, verify_database};
 use chrono::{DateTime, Utc};
 
 use portfoliodb::database::DatabaseManager;
-use portfoliodb::models::{Derivative, Instrument, Identifier};
+use portfoliodb::models::{Derivative, Instrument};
 
 #[tokio::test]
 async fn test_delete_instruments() {

@@ -1,3 +1,4 @@
 [submodule "proto/service"]
 	path = proto/service
 	url = git@github.com:leedenison/portfoliodb-proto.git
+  branch = main

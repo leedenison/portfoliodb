@@ -154,12 +154,5 @@ SELECT create_hypertable('transactions', 'trade_date', chunk_time_interval => IN
 SELECT create_hypertable('prices', 'price_date', chunk_time_interval => INTERVAL '1 day');
 
 -- Create indexes for performance
-CREATE INDEX idx_transactions_account_date ON transactions(account_id, trade_date);
-CREATE INDEX idx_transactions_instrument_date ON transactions(instrument_dbid, trade_date);
-CREATE INDEX idx_transactions_settled_date ON transactions(settled_date);
+CREATE INDEX idx_transactions_account_date ON transactions(user_dbid, account_id, instrument_dbid, trade_date);
 CREATE INDEX idx_prices_instrument_date ON prices(instrument_dbid, price_date);
-CREATE INDEX idx_identifiers_lookup ON identifiers(domain, symbol, exchange, description);
-CREATE INDEX idx_derivatives_underlying ON derivatives(underlying_dbid);
-
--- Create unique constraints to prevent concurrent updates
-CREATE UNIQUE INDEX idx_transactions_account_instrument_trade_date ON transactions(account_id, instrument_dbid, trade_date);

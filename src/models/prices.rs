@@ -9,6 +9,7 @@ pub struct Model {
     pub instrument_dbid: i64,
     pub price: f64,
     pub price_date: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

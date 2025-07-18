@@ -2,16 +2,13 @@ use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "derivatives")]
+#[sea_orm(table_name = "canonical_instr_ids")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub dbid: i64,
     pub instrument_dbid: i64,
-    pub underlying_dbid: i64,
-    pub expiration_date: DateTime<Utc>,
-    pub put_call: String,
-    pub strike_price: f64,
-    pub multiplier: f64,
+    pub domain: String,
+    pub id: String,
     pub created_at: DateTime<Utc>,
 }
 
@@ -23,12 +20,6 @@ pub enum Relation {
         to = "super::instruments::Column::Dbid"
     )]
     Instrument,
-    #[sea_orm(
-        belongs_to = "super::instruments::Entity",
-        from = "Column::UnderlyingDbid",
-        to = "super::instruments::Column::Dbid"
-    )]
-    Underlying,
 }
 
 impl Related<super::instruments::Entity> for Entity {

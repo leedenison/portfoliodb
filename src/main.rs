@@ -21,7 +21,6 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     let args = Args::parse();
@@ -30,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting PortfolioDB server on port {}", args.port);
 
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::mirror_request()) // or specify a static origin if needed
+        .allow_origin(AllowOrigin::mirror_request())
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::OPTIONS])
         .allow_headers([
             ACCEPT,
@@ -38,7 +37,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ORIGIN,
             AUTHORIZATION,
             USER_AGENT,
-            // gRPC-Web specific headers
             HeaderName::from_static("x-grpc-web"),
             HeaderName::from_static("grpc-timeout"),
             HeaderName::from_static("x-auth-request-user"),

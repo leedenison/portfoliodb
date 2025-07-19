@@ -26,6 +26,7 @@ CREATE TABLE instruments (
 );
 
 -- Stores broker descriptions used to identify instruments
+CREATE TABLE instrument_descriptions (
     dbid BIGSERIAL PRIMARY KEY,
     -- instrument_dbid: one-to-many
     instrument_dbid BIGINT NOT NULL REFERENCES instruments(dbid) ON DELETE CASCADE,
@@ -41,6 +42,7 @@ CREATE TABLE instruments (
 );
 
 -- Stores ISIN, CUSIP, SEDOL, etc identifiers for instruments
+CREATE TABLE instrument_identifiers (
     dbid BIGSERIAL PRIMARY KEY,
     -- instrument_dbid: one-to-many
     instrument_dbid BIGINT NOT NULL REFERENCES instruments(dbid) ON DELETE CASCADE,

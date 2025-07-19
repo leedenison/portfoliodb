@@ -1,11 +1,12 @@
 use anyhow::Result;
 use sea_orm::{
-    Database, DatabaseConnection,
+    Database, DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait,
 };
 use std::sync::Arc;
 use tracing::info;
 
 use crate::portfolio_db::{DateRange, Tx};
+use crate::models::Users;
 
 #[derive(Clone)]
 pub struct DatabaseManager {
@@ -23,6 +24,16 @@ impl DatabaseManager {
     /// Get a reference to the database connection
     pub fn connection(&self) -> &DatabaseConnection {
         &self.conn
+    }
+
+    /// Look up a user by email and return their database ID
+    pub async fn get_user_id_by_email(&self, email: &str) -> Result<Option<i64>> {
+        let user = Users::find()
+            .filter(<Users as sea_orm::EntityTrait>::Column::Email.eq(email))
+            .one(self.connection())
+            .await?;
+
+        Ok(user.map(|user| user.dbid))
     }
 
     /// Updates transactions for a specific account within a given time period.

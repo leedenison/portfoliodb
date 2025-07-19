@@ -140,7 +140,7 @@ impl PortfolioDb for Service {
     /// Retrieves price timeseries data for specified instruments within a date range.
     ///
     /// Returns a dense timeseries of prices for each instrument in the requested period.
-    /// Each price entry corresponds to a consecutive day starting from the start_date.
+    /// Each price entry corresponds to a consecutive day starting from the start.
     ///
     /// # Arguments
     /// * `request` - Contains date range and list of instrument IDs to query
@@ -164,14 +164,11 @@ impl PortfolioDb for Service {
 
     /// Updates or creates instrument metadata.
     ///
-    /// This operation can be used to add new instruments or update existing instrument
-    /// information including identifiers, type, currency, and derivative details.
-    ///
     /// # Arguments
-    /// * `request` - Contains the instrument data to update or create
+    /// * `request` - Instrument data to update or create
     ///
     /// # Returns
-    /// * Success response with OK error code, or error response with details
+    /// * Success or error response
     async fn update_instruments(
         &self,
         _request: Request<UpdateInstrumentsRequest>,
@@ -186,15 +183,13 @@ impl PortfolioDb for Service {
         }))
     }
 
-    /// Deletes a single instrument by ID.
-    ///
-    /// This operation removes the specified instrument from the database.
+    /// Deletes an instrument by ID.
     ///
     /// # Arguments
-    /// * `request` - Contains the instrument ID to delete
+    /// * `request` - Instrument ID to delete
     ///
     /// # Returns
-    /// * Success response with OK error code, or error response with details
+    /// * Success or error response
     async fn delete_instrument(
         &self,
         _request: Request<DeleteInstrumentRequest>,
@@ -211,14 +206,11 @@ impl PortfolioDb for Service {
 
     /// Updates or creates broker metadata.
     ///
-    /// This operation can be used to add new brokers or update existing broker
-    /// information including key and name.
-    ///
     /// # Arguments
-    /// * `request` - Contains the broker data to update or create
+    /// * `request` - Broker data to update or create
     ///
     /// # Returns
-    /// * Success response with OK error code, or error response with details
+    /// * Success or error response
     async fn update_broker(
         &self,
         _request: Request<UpdateBrokerRequest>,
@@ -233,15 +225,13 @@ impl PortfolioDb for Service {
         }))
     }
 
-    /// Deletes a single broker by ID.
-    ///
-    /// This operation removes the specified broker from the database.
+    /// Deletes a broker by ID.
     ///
     /// # Arguments
-    /// * `request` - Contains the broker ID to delete
+    /// * `request` - Broker ID to delete
     ///
     /// # Returns
-    /// * Success response with OK error code, or error response with details
+    /// * Success or error response
     async fn delete_broker(
         &self,
         _request: Request<DeleteBrokerRequest>,

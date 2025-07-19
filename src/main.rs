@@ -6,6 +6,7 @@ use tracing::{Level, info};
 use std::time::Duration;
 
 use portfoliodb::portfolio_db_server::PortfolioDbServer;
+use portfoliodb::auth::AuthLayer;
 
 #[derive(Parser)]
 #[command(name = "portfoliodb")]
@@ -46,10 +47,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_credentials(true)
         .max_age(Duration::from_secs(600));
 
+    // Create authentication layer
+    let auth_layer = AuthLayer::new(args.database_url.clone());
+
     Server::builder()
         .accept_http1(true)
-        .layer(tonic_web::GrpcWebLayer::new())
+        .layer(auth_layer)
         .layer(cors)
+        .layer(tonic_web::GrpcWebLayer::new())
         .add_service(PortfolioDbServer::new(portfoliodb::rpc::Service::new(
             args.database_url.clone(),
         )))

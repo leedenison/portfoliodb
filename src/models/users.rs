@@ -12,15 +12,6 @@ pub struct Model {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(has_many = "super::user_instr_descs::Entity")]
-    UserInstrDescs,
-    #[sea_orm(has_many = "super::user_instr_ids::Entity")]
-    UserInstrIds,
-    #[sea_orm(has_many = "super::user_instr_symbols::Entity")]
-    UserInstrSymbols,
-    #[sea_orm(has_many = "super::transactions::Entity")]
-    Transactions,
-}
+pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}

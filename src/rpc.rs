@@ -91,7 +91,7 @@ impl PortfolioDb for Service {
     ///
     /// Returns a dense timeseries of holdings for each account-instrument pair
     /// in the requested period. Each holding entry corresponds to a consecutive day starting
-    /// from the start_date.
+    /// from the start.
     ///
     /// # Arguments
     /// * `request` - Contains date range and list of account IDs to query

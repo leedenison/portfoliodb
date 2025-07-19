@@ -26,80 +26,48 @@ CREATE TABLE instruments (
 );
 
 -- Stores broker descriptions used to identify instruments
-CREATE TABLE canonical_instr_descs (
     dbid BIGSERIAL PRIMARY KEY,
     -- instrument_dbid: one-to-many
     instrument_dbid BIGINT NOT NULL REFERENCES instruments(dbid) ON DELETE CASCADE,
-    -- broker_dbid: one-to-many
-    broker_dbid BIGINT NOT NULL REFERENCES brokers(dbid) ON DELETE CASCADE,
-    description TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(broker_dbid, description)
-);
-
--- Stores user contributed broker descriptions used to identify instruments
-CREATE TABLE user_instr_descs (
-    dbid BIGSERIAL PRIMARY KEY,
-    -- instrument_dbid: one-to-many 
-    instrument_dbid BIGINT NOT NULL REFERENCES instruments(dbid) ON DELETE CASCADE,
     -- user_dbid: one-to-many
-    user_dbid BIGINT NOT NULL REFERENCES users(dbid) ON DELETE CASCADE,
+    user_dbid BIGINT NOT NULL,
     -- broker_dbid: one-to-many
     broker_dbid BIGINT NOT NULL REFERENCES brokers(dbid) ON DELETE CASCADE,
     description TEXT NOT NULL,
+    canonical BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(broker_dbid, description),
     UNIQUE(user_dbid, broker_dbid, description)
 );
 
 -- Stores ISIN, CUSIP, SEDOL, etc identifiers for instruments
-CREATE TABLE canonical_instr_ids (
-    dbid BIGSERIAL PRIMARY KEY,
-    -- instrument_dbid: one-to-one
-    instrument_dbid BIGINT NOT NULL REFERENCES instruments(dbid) ON DELETE CASCADE,
-    domain TEXT NOT NULL,
-    id TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(domain, id)
-);
-
--- Stores user contributed ISIN, CUSIP, SEDOL, etc identifiers for instruments
-CREATE TABLE user_instr_ids (
     dbid BIGSERIAL PRIMARY KEY,
     -- instrument_dbid: one-to-many
     instrument_dbid BIGINT NOT NULL REFERENCES instruments(dbid) ON DELETE CASCADE,
     -- user_dbid: one-to-many
-    user_dbid BIGINT NOT NULL REFERENCES users(dbid) ON DELETE CASCADE,
+    user_dbid BIGINT NOT NULL,
     domain TEXT NOT NULL,
     id TEXT NOT NULL,
+    canonical BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(domain, id),
     UNIQUE(user_dbid, domain, id)
 );
 
--- Stores (exchange, symbol, currency) triplets used to identify instruments
-CREATE TABLE canonical_instr_symbols (
-    dbid BIGSERIAL PRIMARY KEY,
-    -- instrument_dbid: one-to-many
-    instrument_dbid BIGINT NOT NULL REFERENCES instruments(dbid) ON DELETE CASCADE,
-    domain TEXT NOT NULL,
-    exchange TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    currency TEXT NOT NULL, -- ISO 4217 currency code
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(domain, exchange, symbol)
-);
-
--- Stores user contributed (exchange, symbol, currency) triplets used to identify instruments
-CREATE TABLE user_instr_symbols (
+-- Stores (exchange, symbol, currency) triplets used to identify instruments (canonical and user-contributed)
+CREATE TABLE instrument_symbols (
     dbid BIGSERIAL PRIMARY KEY,
     -- instrument_dbid: one-to-many
     instrument_dbid BIGINT NOT NULL REFERENCES instruments(dbid) ON DELETE CASCADE,
     -- user_dbid: one-to-many
-    user_dbid BIGINT NOT NULL REFERENCES users(dbid) ON DELETE CASCADE,
+    user_dbid BIGINT NOT NULL,
     domain TEXT NOT NULL,
     exchange TEXT NOT NULL,
     symbol TEXT NOT NULL,
     currency TEXT NOT NULL, -- ISO 4217 currency code
+    canonical BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(domain, exchange, symbol),
     UNIQUE(user_dbid, domain, exchange, symbol)
 );
 
@@ -122,8 +90,8 @@ CREATE TABLE derivatives (
 -- Note: For TimescaleDB hypertables with primary keys, the partitioning column must be included
 CREATE TABLE transactions (
     dbid BIGSERIAL,
-    -- user_dbid: one-to-many
-    user_dbid BIGINT NOT NULL REFERENCES users(dbid) ON DELETE CASCADE,
+    -- user_dbid: one-to-many (no foreign key constraint to allow separable users table)
+    user_dbid BIGINT NOT NULL,
     -- instrument_dbid: one-to-many
     instrument_dbid BIGINT NOT NULL REFERENCES instruments(dbid),
     account_id TEXT NOT NULL,

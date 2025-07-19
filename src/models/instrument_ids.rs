@@ -2,13 +2,15 @@ use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "canonical_instr_ids")]
+#[sea_orm(table_name = "instrument_ids")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub dbid: i64,
     pub instrument_dbid: i64,
+    pub user_dbid: Option<i64>,
     pub domain: String,
     pub id: String,
+    pub canonical: bool,
     pub created_at: DateTime<Utc>,
 }
 

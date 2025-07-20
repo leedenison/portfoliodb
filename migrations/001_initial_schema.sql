@@ -46,31 +46,23 @@ CREATE TABLE instrument_identifiers (
     dbid BIGSERIAL PRIMARY KEY,
     -- instrument_dbid: one-to-many
     instrument_dbid BIGINT NOT NULL REFERENCES instruments(dbid) ON DELETE CASCADE,
-    -- user_dbid: one-to-many
-    user_dbid BIGINT NOT NULL,
     domain TEXT NOT NULL,
     id TEXT NOT NULL,
-    canonical BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(domain, id),
-    UNIQUE(user_dbid, domain, id)
+    UNIQUE(domain, id)
 );
 
--- Stores (exchange, symbol, currency) triplets used to identify instruments (canonical and user-contributed)
+-- Stores (exchange, symbol, currency) triplets used to identify instruments
 CREATE TABLE instrument_symbols (
     dbid BIGSERIAL PRIMARY KEY,
     -- instrument_dbid: one-to-many
     instrument_dbid BIGINT NOT NULL REFERENCES instruments(dbid) ON DELETE CASCADE,
-    -- user_dbid: one-to-many
-    user_dbid BIGINT NOT NULL,
     domain TEXT NOT NULL,
     exchange TEXT NOT NULL,
     symbol TEXT NOT NULL,
     currency TEXT NOT NULL, -- ISO 4217 currency code
-    canonical BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(domain, exchange, symbol),
-    UNIQUE(user_dbid, domain, exchange, symbol)
+    UNIQUE(domain, exchange, symbol)
 );
 
 -- Create derivatives table (for options, futures, etc.)

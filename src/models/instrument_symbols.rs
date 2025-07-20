@@ -7,12 +7,10 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub dbid: i64,
     pub instrument_dbid: i64,
-    pub user_dbid: Option<i64>,
     pub domain: String,
     pub exchange: String,
     pub symbol: String,
     pub currency: String,
-    pub canonical: bool,
     pub created_at: DateTime<Utc>,
 }
 

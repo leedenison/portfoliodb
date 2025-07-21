@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-use portfoliodb::database::DatabaseManager;
+use portfoliodb::db::DatabaseManager;
 use portfoliodb::models::{Derivative, Instrument};
 
 #[tokio::test]

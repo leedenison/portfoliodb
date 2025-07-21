@@ -9,8 +9,9 @@ use tonic::body::Body;
 use http::{Response, StatusCode, HeaderValue};
 use tower::Service;
 use tower::Layer;
+use std::collections::HashMap;
 
-use crate::database::DatabaseManager;
+use crate::db::DatabaseManager;
 
 #[derive(Clone)]
 pub struct AuthMiddleware<S> {
@@ -65,7 +66,15 @@ where
 
             match db_manager.get_user_id_by_email(&email).await {
                 Ok(Some(user_id)) => {
-                    req.extensions_mut().insert(user_id);
+                    let extensions = req.extensions_mut();
+                    let map = extensions.get_mut::<HashMap<String, i64>>();
+                    if let Some(map) = map {
+                        map.insert("user_id".to_string(), user_id);
+                    } else {
+                        let mut map = HashMap::new();
+                        map.insert("user_id".to_string(), user_id);
+                        extensions.insert(map);
+                    }
                 }
                 Ok(None) => {
                     return Ok(grpc_error_response(Status::permission_denied(

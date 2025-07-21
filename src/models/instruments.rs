@@ -12,18 +12,30 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::instrument_descriptions::Entity")]
-    InstrumentDescriptions,
     #[sea_orm(has_many = "super::instrument_ids::Entity")]
     InstrumentIds,
-    #[sea_orm(has_many = "super::instrument_symbols::Entity")]
-    InstrumentSymbols,
+    #[sea_orm(has_many = "super::symbols::Entity")]
+    Symbols,
     #[sea_orm(has_one = "super::derivatives::Entity")]
     Derivatives,
-    #[sea_orm(has_many = "super::transactions::Entity")]
-    Transactions,
-    #[sea_orm(has_many = "super::prices::Entity")]
-    Prices,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl Related<super::instrument_ids::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::InstrumentIds.def()
+    }
+}
+
+impl Related<super::symbols::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Symbols.def()
+    }
+}
+
+impl Related<super::derivatives::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Derivatives.def()
+    }
+}

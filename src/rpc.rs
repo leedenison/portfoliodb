@@ -1,17 +1,33 @@
 use anyhow::Result;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 use tracing::info;
+use chrono::{DateTime, Utc};
+use pbjson_types::Timestamp;
 
-use crate::database::DatabaseManager;
+use crate::db::DatabaseManager;
 use crate::portfolio_db_server::PortfolioDb;
 use crate::{
     Error, ErrorCode, GetHoldingsRequest, GetHoldingsResponse, GetPricesRequest, GetPricesResponse,
-    UpdateInstrumentsRequest, UpdateInstrumentsResponse, DeleteInstrumentRequest, DeleteInstrumentResponse,
     UpdateBrokerRequest, UpdateBrokerResponse, DeleteBrokerRequest, DeleteBrokerResponse,
     UpdatePricesRequest, UpdatePricesResponse, UpdateTxsRequest, UpdateTxsResponse,
 };
+use crate::portfolio_db::Tx;
+
+/// Converts a protobuf Timestamp to a chrono DateTime<Utc>
+/// 
+/// # Arguments
+/// * `timestamp` - Protobuf timestamp
+/// 
+/// # Returns
+/// * `Ok(DateTime<Utc>)` if conversion is successful
+/// * `Err(Status)` if timestamp is invalid
+fn timestamp_to_datetime(timestamp: &Timestamp) -> Result<DateTime<Utc>, Status> {
+    DateTime::from_timestamp(timestamp.seconds, timestamp.nanos as u32)
+        .ok_or_else(|| Status::invalid_argument("Invalid timestamp"))
+}
 
 #[derive(Default)]
 pub struct Service {
@@ -40,6 +56,22 @@ impl Service {
 
         Ok(db_guard.as_ref().unwrap().clone())
     }
+    
+    /// Extracts the authenticated user ID from a request's extensions.
+    /// 
+    /// # Arguments
+    /// * `request` - The tonic request containing user authentication data
+    /// 
+    /// # Returns
+    /// * `Ok(i64)` - The user ID if found and authenticated
+    /// * `Err(Status)` - Unauthenticated error if user ID is not found
+    fn get_authenticated_user<T>(&self, request: &Request<T>) -> Result<i64, Status> {
+        request.extensions().get::<HashMap<String, i64>>()
+            .ok_or_else(|| Status::unauthenticated("User ID not found"))?
+            .get("user_id")
+            .copied()
+            .ok_or_else(|| Status::unauthenticated("User ID not found"))
+    }
 }
 
 #[tonic::async_trait]
@@ -59,25 +91,50 @@ impl PortfolioDb for Service {
         &self,
         request: Request<UpdateTxsRequest>,
     ) -> Result<Response<UpdateTxsResponse>, Status> {
-        let request_data = request.into_inner();
+        let user_id = self.get_authenticated_user(&request)?;
+        let req = request.into_inner();
 
-        info!(
-            "UpdateTxs called with {} transactions",
-            request_data.txs.len()
-        );
+        let UpdateTxsRequest { period, txs } = req;
 
-        // Get database manager
+        let period = period
+            .ok_or_else(|| Status::invalid_argument("Period is required"))?;
+        let period_start = timestamp_to_datetime(period.start.as_ref()
+            .ok_or_else(|| Status::invalid_argument("Start timestamp is required"))?)?;
+        let period_end = timestamp_to_datetime(period.end.as_ref()
+            .ok_or_else(|| Status::invalid_argument("End timestamp is required"))?)?;
+
         let db = self.db().await?;
 
-        // Get the period from the request
-        let period = request_data
-            .period
-            .ok_or_else(|| Status::invalid_argument("Period is required"))?;
+        let batch_dbid = db.create_batch(
+            Some(user_id),
+            "txs_timeseries",
+            period_start,
+            period_end,
+            None
+        ).await
+        .map_err(|e| Status::internal(format!("Failed to create batch: {}", e)))?;
 
-        // Update transactions in database
-        db.update_txs(&period, &request_data.txs)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to update transactions: {}", e)))?;
+        let total_records = db.stage_transactions(
+            batch_dbid,
+            txs,
+            None
+        ).await
+        .map_err(|e| {
+            let msg = format!("Failed to stage transactions: {}", e);
+            let _ = db.update_batch_status(batch_dbid, "failed", Some(&msg), None);
+            msg
+        })?;
+
+        db.update_batch_total_records(
+            batch_dbid,
+            total_records as i32,
+            None
+        ).await
+        .map_err(|e| Status::internal(format!("Failed to update batch total records: {}", e)))?;
+
+        if let Err(e) = db.update_batch_status(batch_dbid, "processing", None, None).await {
+            tracing::warn!("Failed to update batch status to processing: {}", e);
+        }
 
         Ok(Response::new(UpdateTxsResponse {
             error: Some(Error {
@@ -97,7 +154,7 @@ impl PortfolioDb for Service {
     /// * `request` - Contains date range and list of account IDs to query
     ///
     /// # Returns
-    /// * List of holdings with account_id, instrument_dbid, quantity, and date information
+    /// * List of holdings with account_id, symbol_dbid, symbol_description_dbid, quantity, and date information
     async fn get_holdings(
         &self,
         _request: Request<GetHoldingsRequest>,
@@ -155,48 +212,6 @@ impl PortfolioDb for Service {
         info!("GetPrices called");
         Ok(Response::new(GetPricesResponse {
             prices: vec![],
-            error: Some(Error {
-                code: ErrorCode::Ok as i32,
-                message: "Stub implementation".to_string(),
-            }),
-        }))
-    }
-
-    /// Updates or creates instrument metadata.
-    ///
-    /// # Arguments
-    /// * `request` - Instrument data to update or create
-    ///
-    /// # Returns
-    /// * Success or error response
-    async fn update_instruments(
-        &self,
-        _request: Request<UpdateInstrumentsRequest>,
-    ) -> Result<Response<UpdateInstrumentsResponse>, Status> {
-        // Stub implementation
-        info!("UpdateInstruments called");
-        Ok(Response::new(UpdateInstrumentsResponse {
-            error: Some(Error {
-                code: ErrorCode::Ok as i32,
-                message: "Stub implementation".to_string(),
-            }),
-        }))
-    }
-
-    /// Deletes an instrument by ID.
-    ///
-    /// # Arguments
-    /// * `request` - Instrument ID to delete
-    ///
-    /// # Returns
-    /// * Success or error response
-    async fn delete_instrument(
-        &self,
-        _request: Request<DeleteInstrumentRequest>,
-    ) -> Result<Response<DeleteInstrumentResponse>, Status> {
-        // Stub implementation
-        info!("DeleteInstrument called");
-        Ok(Response::new(DeleteInstrumentResponse {
             error: Some(Error {
                 code: ErrorCode::Ok as i32,
                 message: "Stub implementation".to_string(),

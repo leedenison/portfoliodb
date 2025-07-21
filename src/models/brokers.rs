@@ -5,7 +5,6 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "brokers")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub dbid: i64,
     pub key: String,
     pub name: String,
     pub created_at: DateTime<Utc>,
@@ -13,8 +12,14 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::instrument_descriptions::Entity")]
-    InstrumentDescriptions,
+    #[sea_orm(has_many = "super::symbol_descriptions::Entity")]
+    SymbolDescriptions,
+}
+
+impl Related<super::symbol_descriptions::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::SymbolDescriptions.def()
+    }
 }
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -2,13 +2,13 @@ use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "instrument_descriptions")]
+#[sea_orm(table_name = "symbol_descriptions")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub dbid: i64,
-    pub instrument_dbid: i64,
-    pub user_dbid: Option<i64>,
-    pub broker_dbid: i64,
+    pub symbol_dbid: Option<i64>,
+    pub user_dbid: i64,
+    pub broker_key: String,
     pub description: String,
     pub canonical: bool,
     pub created_at: DateTime<Utc>,
@@ -17,22 +17,24 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::instruments::Entity",
-        from = "Column::InstrumentDbid",
-        to = "super::instruments::Column::Dbid"
+        belongs_to = "super::symbols::Entity",
+        from = "Column::SymbolDbid",
+        to = "super::symbols::Column::Dbid"
     )]
-    Instrument,
+    Symbol,
     #[sea_orm(
         belongs_to = "super::brokers::Entity",
-        from = "Column::BrokerDbid",
-        to = "super::brokers::Column::Dbid"
+        from = "Column::BrokerKey",
+        to = "super::brokers::Column::Key"
     )]
     Broker,
+    #[sea_orm(has_many = "super::transactions::Entity")]
+    Transactions,
 }
 
-impl Related<super::instruments::Entity> for Entity {
+impl Related<super::symbols::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Instrument.def()
+        Relation::Symbol.def()
     }
 }
 
@@ -43,3 +45,5 @@ impl Related<super::brokers::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl Entity {}

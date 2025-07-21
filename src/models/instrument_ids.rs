@@ -29,3 +29,5 @@ impl Related<super::instruments::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl Entity {}

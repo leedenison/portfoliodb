@@ -3,9 +3,8 @@ pub mod portfolio_db {
 }
 
 pub mod auth;
-pub mod database;
+pub mod db;
 pub mod models;
 pub mod rpc;
-pub mod transaction;
 
 pub use portfolio_db::*;

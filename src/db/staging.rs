@@ -61,7 +61,7 @@ impl DatabaseManager {
     /// # Returns
     /// * `Ok(record_count)` - Number of records successfully inserted
     /// * `Err` if a database error occurs
-    pub async fn stage_transactions(
+    pub async fn stage_txs(
         &self,
         batch_dbid: i64,
         transactions: impl IntoIterator<Item = Tx>,

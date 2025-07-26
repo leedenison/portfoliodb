@@ -14,7 +14,6 @@ use crate::{
     UpdateBrokerRequest, UpdateBrokerResponse, DeleteBrokerRequest, DeleteBrokerResponse,
     UpdatePricesRequest, UpdatePricesResponse, UpdateTxsRequest, UpdateTxsResponse,
 };
-use crate::portfolio_db::Tx;
 
 /// Converts a protobuf Timestamp to a chrono DateTime<Utc>
 /// 
@@ -114,22 +113,14 @@ impl PortfolioDb for Service {
         ).await
         .map_err(|e| Status::internal(format!("Failed to create batch: {}", e)))?;
 
-        let total_records = db.stage_transactions(
-            batch_dbid,
-            txs,
-            None
-        ).await
+        let total_records = db.stage_txs(batch_dbid, txs, None).await
         .map_err(|e| {
             let msg = format!("Failed to stage transactions: {}", e);
             let _ = db.update_batch_status(batch_dbid, "failed", Some(&msg), None);
-            msg
+            Status::internal(msg)
         })?;
 
-        db.update_batch_total_records(
-            batch_dbid,
-            total_records as i32,
-            None
-        ).await
+        db.update_batch_total_records(batch_dbid, total_records as i32, None).await
         .map_err(|e| Status::internal(format!("Failed to update batch total records: {}", e)))?;
 
         if let Err(e) = db.update_batch_status(batch_dbid, "processing", None, None).await {

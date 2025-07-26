@@ -14,8 +14,6 @@ CREATE TABLE staging_batches (
     error_message TEXT
 );
 
--- Removed staging_references table
-
 CREATE TABLE staging_txs (
     batch_dbid BIGINT NOT NULL REFERENCES staging_batches(batch_dbid) ON DELETE CASCADE,
     broker_key TEXT,

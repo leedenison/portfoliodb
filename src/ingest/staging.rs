@@ -1,11 +1,13 @@
 use anyhow::Result;
-use sea_orm::{ActiveModelTrait, Set, DatabaseTransaction, ConnectionTrait};
-use sea_query::{InsertStatement, UpdateStatement};
+use sea_orm::{ActiveModelTrait, Set, DatabaseTransaction, ConnectionTrait, EntityTrait};
+use sea_query::{UpdateStatement};
 use chrono::{DateTime, Utc};
-use crate::models::BatchActiveModel;
-use super::database::DatabaseManager;
-use super::transaction::LocalTxn;
-use crate::portfolio_db::{Tx, Price, SymbolDescription, Symbol};
+use crate::ingest::models::{BatchActiveModel, StagingTxActiveModel, StagingPriceActiveModel};
+use crate::ingest::models::staging_txs;
+use crate::ingest::models::staging_prices;
+use crate::db::DatabaseManager;
+use crate::db::LocalTxn;
+use crate::portfolio_db::{Tx, Price};
 
 impl DatabaseManager {
     /// Creates a new batch for ingestion and returns the batch_dbid.
@@ -51,7 +53,7 @@ impl DatabaseManager {
         Ok(result.batch_dbid)
     }
 
-    /// Bulk inserts Tx data into staging_txs table using SeaQuery.
+    /// Bulk inserts Tx data into staging_txs table using SeaORM ActiveModel.
     /// 
     /// # Arguments
     /// * `transactions` - Iterator over Tx protobuf types
@@ -69,87 +71,13 @@ impl DatabaseManager {
     ) -> Result<usize> {
         let mut local_txn = LocalTxn::new(self.connection(), txn).await?;
 
-        let mut insert_stmt = InsertStatement::new();
-        insert_stmt.into_table("staging_txs");
-        insert_stmt.columns([
-            "batch_dbid",
-            "broker_key",
-            "description", 
-            "domain",
-            "exchange",
-            "symbol",
-            "symbol_currency",
-            "currency",
-            "account_id",
-            "units",
-            "unit_price",
-            "trade_date",
-            "settled_date",
-            "tx_type"
-        ]);
-
         let mut record_count = 0;
+        let mut active_models = Vec::new();
+        
         for tx in transactions {
             record_count += 1;
-            
-            let Tx { 
-                description, 
-                symbol, 
-                account_id, 
-                units, 
-                unit_price, 
-                currency: tx_currency, 
-                trade_date, 
-                settled_date, 
-                tx_type, 
-                .. 
-            } = tx;
-            
-            let (broker_key, desc) = match description {
-                Some(SymbolDescription { id: _, broker_key, description: desc }) => (broker_key, desc),
-                None => (String::new(), String::new()),
-            };
-            
-            let (domain, exchange, sym, sym_currency) = match symbol {
-                Some(Symbol { id: _, domain, exchange, symbol: sym, currency }) => (
-                    domain,
-                    exchange,
-                    sym,
-                    currency
-                ),
-                None => (
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new()
-                ),
-            };
-            
-            let trade_date = trade_date.as_ref()
-                .map(|ts| DateTime::from_timestamp(ts.seconds, ts.nanos as u32).unwrap_or_default())
-                .unwrap_or_default();
-            
-            let settled_date = settled_date.as_ref()
-                .map(|ts| DateTime::from_timestamp(ts.seconds, ts.nanos as u32).unwrap_or_default());
-            
-            let tx_type = format!("{:?}", tx_type);
-
-            insert_stmt.values_panic([
-                batch_dbid.into(),
-                broker_key.into(),
-                desc.into(),
-                domain.into(),
-                exchange.into(),
-                sym.into(),
-                sym_currency.into(),
-                tx_currency.into(),
-                account_id.into(),
-                units.into(),
-                unit_price.into(),
-                trade_date.into(),
-                settled_date.into(),
-                tx_type.into(),
-            ]);
+            let active_model = StagingTxActiveModel::from(tx).with_batch_dbid(batch_dbid);
+            active_models.push(active_model);
         }
         
         if record_count == 0 {
@@ -157,14 +85,16 @@ impl DatabaseManager {
             return Ok(0);
         }
 
-        let query = insert_stmt.to_string(Self::query_builder());
-        local_txn.txn().execute_unprepared(&query).await?;
+        staging_txs::Entity::insert_many(active_models)
+            .exec(local_txn.txn())
+            .await?;
+            
         local_txn.commit_if_owned().await?;
         
         Ok(record_count)
     }
 
-    /// Bulk inserts Price data into staging_prices table using SeaQuery.
+    /// Bulk inserts Price data into staging_prices table using SeaORM ActiveModel.
     /// 
     /// # Arguments
     /// * `prices` - Iterator over Price protobuf types
@@ -182,52 +112,13 @@ impl DatabaseManager {
     ) -> Result<usize> {
         let mut local_txn = LocalTxn::new(self.connection(), txn).await?;
 
-        let mut insert_stmt = InsertStatement::new();
-        insert_stmt.into_table("staging_prices");
-        insert_stmt.columns([
-            "batch_dbid",
-            "domain",
-            "exchange",
-            "symbol",
-            "currency",
-            "price",
-            "date_as_of"
-        ]);
-
         let mut record_count = 0;
+        let mut active_models = Vec::new();
+        
         for price in prices {
             record_count += 1;
-            
-            let Price { symbol, price: price_value, date_as_of } = price;
-            
-            let (domain, exchange, sym, currency) = match symbol {
-                Some(Symbol { id: _, domain, exchange, symbol: sym, currency }) => (
-                    domain,
-                    exchange,
-                    sym,
-                    currency
-                ),
-                None => (
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new()
-                ),
-            };
-            
-            let date_as_of = date_as_of.as_ref()
-                .map(|ts| DateTime::from_timestamp(ts.seconds, ts.nanos as u32).unwrap_or_default())
-                .unwrap_or_default();
-
-            insert_stmt.values_panic([
-                batch_dbid.into(),
-                domain.into(),
-                exchange.into(),
-                sym.into(),
-                currency.into(),
-                price_value.into(),
-                date_as_of.into(),
-            ]);
+            let active_model = StagingPriceActiveModel::from(price).with_batch_dbid(batch_dbid);
+            active_models.push(active_model);
         }
         
         if record_count == 0 {
@@ -235,8 +126,10 @@ impl DatabaseManager {
             return Ok(0);
         }
 
-        let query = insert_stmt.to_string(Self::query_builder());
-        local_txn.txn().execute_unprepared(&query).await?;
+        staging_prices::Entity::insert_many(active_models)
+            .exec(local_txn.txn())
+            .await?;
+            
         local_txn.commit_if_owned().await?;
         
         Ok(record_count)

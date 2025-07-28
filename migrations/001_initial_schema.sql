@@ -73,14 +73,14 @@ CREATE TABLE derivatives (
     expiration_date TIMESTAMPTZ NOT NULL,
     put_call TEXT NOT NULL CHECK (put_call IN ('PUT', 'CALL')),
     strike_price DOUBLE PRECISION NOT NULL,
-    multiplier DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+    multiplier DOUBLE PRECISION NOT NULL DEFAULT 100.0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(instrument_dbid)
 );
 
 -- Create transactions hypertable (TimescaleDB timeseries)
 -- Note: For TimescaleDB hypertables with primary keys, the partitioning column must be included
-CREATE TABLE transactions (
+CREATE TABLE txs (
     dbid BIGSERIAL,
     -- user_dbid: one-to-many (no foreign key constraint to allow separable users table)
     user_dbid BIGINT NOT NULL,
@@ -94,7 +94,7 @@ CREATE TABLE transactions (
     currency TEXT NOT NULL, -- ISO 4217 currency code (e.g., USD, EUR, GBP)
     trade_date TIMESTAMPTZ NOT NULL,
     settled_date TIMESTAMPTZ,
-    tx_type TEXT NOT NULL, -- BUY, SELL, DIVIDEND, etc.
+    tx_type TEXT NOT NULL CHECK (tx_type IN ('OTHER', 'BUY', 'SELL', 'DIVIDEND', 'INTEREST', 'REINVEST', 'TRANSFER_IN', 'TRANSFER_OUT')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (dbid, trade_date)
 );

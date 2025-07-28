@@ -15,28 +15,30 @@ CREATE TABLE staging_batches (
 );
 
 CREATE TABLE staging_txs (
+    id BIGSERIAL PRIMARY KEY,
     batch_dbid BIGINT NOT NULL REFERENCES staging_batches(batch_dbid) ON DELETE CASCADE,
-    broker_key TEXT,
-    description TEXT,
-    domain TEXT,
-    exchange TEXT,
-    symbol TEXT,
-    symbol_currency TEXT,
-    currency TEXT,
-    account_id TEXT,
+    broker_key TEXT NOT NULL,
+    description TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    exchange TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    symbol_currency TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    account_id TEXT NOT NULL,
     units DOUBLE PRECISION NOT NULL,
-    unit_price DOUBLE PRECISION,
+    unit_price DOUBLE PRECISION NOT NULL,
     trade_date TIMESTAMPTZ NOT NULL,
     settled_date TIMESTAMPTZ,
     tx_type TEXT NOT NULL
 );
 
 CREATE TABLE staging_prices (
+    id BIGSERIAL PRIMARY KEY,
     batch_dbid BIGINT NOT NULL REFERENCES staging_batches(batch_dbid) ON DELETE CASCADE,
-    domain TEXT,
-    exchange TEXT,
-    symbol TEXT,
-    currency TEXT,
+    domain TEXT NOT NULL,
+    exchange TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    currency TEXT NOT NULL,
     price DOUBLE PRECISION NOT NULL,
     date_as_of TIMESTAMPTZ NOT NULL
 );

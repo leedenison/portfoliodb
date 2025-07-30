@@ -11,6 +11,26 @@ fn base_config() -> tonic_build::Builder {
         .protoc_arg("--experimental_allow_proto3_optional")
         .extern_path(".google.protobuf.Timestamp", "pbjson_types::Timestamp")
         .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .field_attribute(
+            ".portfoliodb.Tx.tx_type",
+            "#[serde(with = \"crate::prost_tx_type\")]",
+        )
+        .field_attribute(
+            ".portfoliodb.Instrument.instrument_type",
+            "#[serde(with = \"crate::prost_instrument_type\")]",
+        )
+        .field_attribute(
+            ".portfoliodb.Derivative.derivative_type",
+            "#[serde(with = \"crate::prost_derivative_type\")]",
+        )
+        .field_attribute(
+            ".portfoliodb.Derivative.put_call",
+            "#[serde(with = \"crate::prost_put_call\")]",
+        )
+        .field_attribute(
+            ".portfoliodb.Error.code",
+            "#[serde(with = \"crate::prost_error_code\")]",
+        )
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

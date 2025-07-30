@@ -2,8 +2,9 @@ use crate::portfolio_db::{Price, Symbol};
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 use sea_orm::{NotSet, Set};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "staging_prices")]
 pub struct Model {
     #[sea_orm(primary_key)]

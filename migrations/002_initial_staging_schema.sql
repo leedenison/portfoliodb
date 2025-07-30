@@ -26,7 +26,7 @@ CREATE TABLE staging_txs (
     currency TEXT NOT NULL,
     account_id TEXT NOT NULL,
     units DOUBLE PRECISION NOT NULL,
-    unit_price DOUBLE PRECISION NOT NULL,
+    unit_price DOUBLE PRECISION,
     trade_date TIMESTAMPTZ NOT NULL,
     settled_date TIMESTAMPTZ,
     tx_type TEXT NOT NULL

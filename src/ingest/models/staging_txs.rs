@@ -2,8 +2,9 @@ use crate::portfolio_db::{Symbol, SymbolDescription, Tx};
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 use sea_orm::{NotSet, Set};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "staging_txs")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -93,7 +94,7 @@ impl From<Tx> for ActiveModel {
             .as_ref()
             .map(|ts| DateTime::from_timestamp(ts.seconds, ts.nanos as u32).unwrap_or_default());
 
-        let tx_type = format!("{:?}", tx_type);
+        let tx_type = crate::prost_tx_type::from_i32(tx_type);
 
         ActiveModel {
             id: NotSet,

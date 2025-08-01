@@ -2,8 +2,8 @@
 CREATE TABLE staging_batches (
     batch_dbid BIGSERIAL PRIMARY KEY,
     user_dbid BIGINT,
-    batch_type TEXT NOT NULL CHECK (batch_type IN ('txs_timeseries', 'prices_timeseries')),
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+    batch_type TEXT NOT NULL CHECK (batch_type IN ('TXS_TIMESERIES', 'PRICES_TIMESERIES')),
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
     period_start TIMESTAMPTZ NOT NULL,
     period_end TIMESTAMPTZ NOT NULL,
     total_records INTEGER NOT NULL DEFAULT 0,

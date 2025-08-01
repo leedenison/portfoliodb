@@ -29,7 +29,7 @@ mod tests {
         expected_staging_txs_json: Value,
     }
 
-    #[cfg(feature = "database")]
+    #[cfg(feature = "test_class_database")]
     #[tokio::test]
     async fn test_stage_txs() {
         let db = db().await.expect("Failed to connect to database");

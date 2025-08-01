@@ -9,6 +9,7 @@ use pbjson_types::Timestamp;
 
 use crate::db::DatabaseManager;
 use crate::portfolio_db_server::PortfolioDb;
+use crate::models::{Symbol, SymbolDescription};
 use crate::{
     Error, ErrorCode, GetHoldingsRequest, GetHoldingsResponse, GetPricesRequest, GetPricesResponse,
     UpdateBrokerRequest, UpdateBrokerResponse, DeleteBrokerRequest, DeleteBrokerResponse,
@@ -26,6 +27,37 @@ use crate::{
 fn timestamp_to_datetime(timestamp: &Timestamp) -> Result<DateTime<Utc>, Status> {
     DateTime::from_timestamp(timestamp.seconds, timestamp.nanos as u32)
         .ok_or_else(|| Status::invalid_argument("Invalid timestamp"))
+}
+
+/// Validates a DateRange period, ensuring timestamps are not default values and period_end is after period_start
+/// 
+/// # Arguments
+/// * `period` - The DateRange to validate
+/// 
+/// # Returns
+/// * `Ok((DateTime<Utc>, DateTime<Utc>))` - Tuple of (period_start, period_end) if validation passes
+/// * `Err(Status)` - Error with details if validation fails
+fn validate_period(period: &crate::DateRange) -> Result<(DateTime<Utc>, DateTime<Utc>), Status> {
+    let period_start = timestamp_to_datetime(period.start.as_ref()
+        .ok_or_else(|| Status::invalid_argument("Start timestamp is required"))?)?;
+    let period_end = timestamp_to_datetime(period.end.as_ref()
+        .ok_or_else(|| Status::invalid_argument("End timestamp is required"))?)?;
+
+    // Validate that timestamps are not default values (Unix epoch)
+    let default_timestamp = DateTime::from_timestamp(0, 0).unwrap();
+    if period_start == default_timestamp {
+        return Err(Status::invalid_argument("Period start cannot be the default timestamp (Unix epoch)"));
+    }
+    if period_end == default_timestamp {
+        return Err(Status::invalid_argument("Period end cannot be the default timestamp (Unix epoch)"));
+    }
+
+    // Validate that period_end is after period_start
+    if period_end <= period_start {
+        return Err(Status::invalid_argument("Period end must be after period start"));
+    }
+
+    Ok((period_start, period_end))
 }
 
 #[derive(Default)]
@@ -97,16 +129,13 @@ impl PortfolioDb for Service {
 
         let period = period
             .ok_or_else(|| Status::invalid_argument("Period is required"))?;
-        let period_start = timestamp_to_datetime(period.start.as_ref()
-            .ok_or_else(|| Status::invalid_argument("Start timestamp is required"))?)?;
-        let period_end = timestamp_to_datetime(period.end.as_ref()
-            .ok_or_else(|| Status::invalid_argument("End timestamp is required"))?)?;
+        let (period_start, period_end) = validate_period(&period)?;
 
         let db = self.db().await?;
 
         let batch_dbid = db.create_batch(
             Some(user_id),
-            "txs_timeseries",
+            "TXS_TIMESERIES",
             period_start,
             period_end,
             None
@@ -116,16 +145,19 @@ impl PortfolioDb for Service {
         let total_records = db.stage_txs(batch_dbid, txs, None).await
         .map_err(|e| {
             let msg = format!("Failed to stage transactions: {}", e);
-            let _ = db.update_batch_status(batch_dbid, "failed", Some(&msg), None);
+            db.update_batch_status(batch_dbid, "FAILED", Some(&msg), None);
             Status::internal(msg)
         })?;
 
         db.update_batch_total_records(batch_dbid, total_records as i32, None).await
         .map_err(|e| Status::internal(format!("Failed to update batch total records: {}", e)))?;
 
-        if let Err(e) = db.update_batch_status(batch_dbid, "processing", None, None).await {
-            tracing::warn!("Failed to update batch status to processing: {}", e);
+        if let Err(e) = db.update_batch_status(batch_dbid, "PROCESSING", None, None).await {
+            tracing::warn!("Failed to update batch status to PROCESSING: {}", e);
         }
+
+        let identifiers = disambiguate_instruments(batch_dbid, None).await
+        .map_err(|e| Status::internal(format!("Failed to disambiguate instruments: {}", e)))?;
 
         Ok(Response::new(UpdateTxsResponse {
             error: Some(Error {
@@ -173,10 +205,20 @@ impl PortfolioDb for Service {
     /// * Success response with OK error code, or error response with details
     async fn update_prices(
         &self,
-        _request: Request<UpdatePricesRequest>,
+        request: Request<UpdatePricesRequest>,
     ) -> Result<Response<UpdatePricesResponse>, Status> {
-        // Stub implementation
-        info!("UpdatePrices called");
+        let user_id = self.get_authenticated_user(&request)?;
+        let req = request.into_inner();
+
+        let UpdatePricesRequest { period, prices } = req;
+
+        let period = period
+            .ok_or_else(|| Status::invalid_argument("Period is required"))?;
+        let (period_start, period_end) = validate_period(&period)?;
+
+        // TODO: Implement actual price update logic
+        info!("UpdatePrices called with period: {} to {}", period_start, period_end);
+        
         Ok(Response::new(UpdatePricesResponse {
             error: Some(Error {
                 code: ErrorCode::Ok as i32,
@@ -251,4 +293,50 @@ impl PortfolioDb for Service {
             }),
         }))
     }
+}
+
+/// Stub implementation of disambiguate_instruments when the "disambiguate" feature is enabled.
+/// 
+/// This function is responsible for resolving instrument ambiguities in the staging data.
+/// 
+/// # Arguments
+/// * `batch_dbid` - The batch ID to process
+/// * `user_id` - Optional user ID for filtering
+/// 
+/// # Returns
+/// * `Ok(HashMap<(SymbolDescription, Symbol), i64>)` - Mapping of instrument pairs to their resolved IDs
+/// * `Err(anyhow::Error)` - Error if disambiguation fails
+#[cfg(feature = "disambiguate")]
+async fn disambiguate_instruments(
+    batch_dbid: i64,
+    user_id: Option<i64>,
+) -> Result<HashMap<(SymbolDescription, Symbol), i64>, anyhow::Error> {
+    // TODO: Implement actual disambiguation logic
+    tracing::info!("Disambiguating instruments for batch {} (user: {:?})", batch_dbid, user_id);
+    
+    // Return empty HashMap as stub implementation
+    Ok(HashMap::new())
+}
+
+/// Stub implementation of disambiguate_instruments when the "disambiguate" feature is disabled.
+/// 
+/// This function is responsible for resolving instrument ambiguities in the staging data.
+/// 
+/// # Arguments
+/// * `batch_dbid` - The batch ID to process
+/// * `user_id` - Optional user ID for filtering
+/// 
+/// # Returns
+/// * `Ok(HashMap<(SymbolDescription, Symbol), i64>)` - Mapping of instrument pairs to their resolved IDs
+/// * `Err(anyhow::Error)` - Error if disambiguation fails
+#[cfg(not(feature = "disambiguate"))]
+async fn disambiguate_instruments(
+    batch_dbid: i64,
+    user_id: Option<i64>,
+) -> Result<HashMap<(SymbolDescription, Symbol), i64>, anyhow::Error> {
+    // Stub implementation when disambiguation feature is disabled
+    tracing::info!("Disambiguation feature disabled - skipping instrument disambiguation for batch {} (user: {:?})", batch_dbid, user_id);
+    
+    // Return empty HashMap as stub implementation
+    Ok(HashMap::new())
 }

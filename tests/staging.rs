@@ -1,4 +1,6 @@
 use portfoliodb::db::DatabaseManager;
+use portfoliodb::db::api::DataStore;
+use portfoliodb::db::ingest::api::IngestStore;
 use portfoliodb::db::ingest::models::staging_txs;
 use portfoliodb::portfolio_db::Tx;
 use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
@@ -95,14 +97,14 @@ mod tests {
             // Create a batch for this test case
             let batch_dbid = db.create_batch(
                 Some(1), // user_dbid
-                "txs_timeseries",
+                "TXS_TIMESERIES",
                 chrono::DateTime::from_timestamp(1640995200, 0).unwrap(), // period_start
                 chrono::DateTime::from_timestamp(1641081600, 0).unwrap(), // period_end
                 None
             ).await.expect("Failed to create batch");
 
             // Stage the transactions
-            let record_count = db.stage_txs(batch_dbid, input_txs.clone(), None)
+            let record_count = db.stage_txs(batch_dbid, Box::new(input_txs.clone().into_iter()), None)
                 .await.expect("Failed to stage transactions");
 
             // Verify the record count

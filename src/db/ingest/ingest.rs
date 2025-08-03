@@ -36,7 +36,7 @@ impl IngestStore for DatabaseManager {
         let batch = BatchActiveModel {
             user_dbid: Set(user_dbid),
             batch_type: Set(batch_type.to_string()),
-            status: Set("pending".to_string()),
+            status: Set("PENDING".to_string()),
             period_start: Set(period_start),
             period_end: Set(period_end),
             total_records: Set(0),

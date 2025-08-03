@@ -2,7 +2,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio::sync::Mutex;
 use tonic::Status;
 use http::Request;
 use tonic::body::Body;
@@ -11,21 +10,19 @@ use tower::Service;
 use tower::Layer;
 use std::collections::HashMap;
 
-use crate::db::DatabaseManager;
+use crate::db::api::DataStore;
 
 #[derive(Clone)]
 pub struct AuthMiddleware<S> {
     inner: S,
-    database_url: String,
-    db: Arc<Mutex<Option<DatabaseManager>>>,
+    db: Arc<dyn DataStore + Send + Sync>,
 }
 
 impl<S> AuthMiddleware<S> {
-    pub fn new(inner: S, database_url: String) -> Self {
+    pub fn new(inner: S, db: Arc<dyn DataStore + Send + Sync>) -> Self {
         Self {
             inner,
-            database_url,
-            db: Arc::new(Mutex::new(None)),
+            db,
         }
     }
 }
@@ -45,8 +42,7 @@ where
 
     fn call(&mut self, mut req: Request<Body>) -> Self::Future {
         let mut inner = self.inner.clone();
-        let db_url = self.database_url.clone();
-        let db_handle = self.db.clone();
+        let db = self.db.clone();
 
         Box::pin(async move {
             let email: Option<String> = req.headers()
@@ -59,12 +55,7 @@ where
                 None => return Ok(grpc_error_response(Status::unauthenticated("Missing or invalid email header"))),
             };
 
-            let db_manager = match get_db_manager(&db_handle, &db_url).await {
-                Ok(db) => db,
-                Err(status) => return Ok(grpc_error_response(status)),
-            };
-
-            match db_manager.get_user_id_by_email(&email).await {
+            match db.get_user_id_by_email(&email).await {
                 Ok(Some(user_id)) => {
                     let extensions = req.extensions_mut();
                     let map = extensions.get_mut::<HashMap<String, i64>>();
@@ -94,12 +85,12 @@ where
 // Optional helper for easier service composition
 #[derive(Clone)]
 pub struct AuthLayer {
-    database_url: String,
+    db: Arc<dyn DataStore + Send + Sync>,
 }
 
 impl AuthLayer {
-    pub fn new(database_url: String) -> Self {
-        Self { database_url }
+    pub fn new(db: Arc<dyn DataStore + Send + Sync>) -> Self {
+        Self { db }
     }
 }
 
@@ -107,24 +98,11 @@ impl<S> Layer<S> for AuthLayer {
     type Service = AuthMiddleware<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        AuthMiddleware::new(inner, self.database_url.clone())
+        AuthMiddleware::new(inner, self.db.clone())
     }
 }
 
-async fn get_db_manager(
-    db_handle: &Arc<Mutex<Option<DatabaseManager>>>,
-    database_url: &str,
-) -> Result<DatabaseManager, Status> {
-    let mut db_guard = db_handle.lock().await;
-    if db_guard.is_none() {
-        let db_result = DatabaseManager::new(database_url).await;
-        match db_result {
-            Ok(db) => *db_guard = Some(db),
-            Err(e) => return Err(Status::internal(format!("DB init failed: {}", e))),
-        }
-    }
-    Ok(db_guard.as_ref().unwrap().clone())
-}
+
 
 fn grpc_error_response(status: Status) -> Response<Body> {
     let mut response = Response::new(Body::empty());

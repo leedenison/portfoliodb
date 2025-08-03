@@ -1,15 +1,16 @@
 use anyhow::Result;
-use sea_orm::{ActiveModelTrait, Set, DatabaseTransaction, ConnectionTrait, EntityTrait};
-use sea_query::{UpdateStatement};
+use sea_orm::{ActiveModelTrait, Set, DatabaseTransaction, ColumnTrait, EntityTrait, QueryFilter};
 use chrono::{DateTime, Utc};
-use crate::db::ingest::models::{BatchActiveModel, StagingTxActiveModel, StagingPriceActiveModel};
-use crate::db::ingest::models::staging_txs;
-use crate::db::ingest::models::staging_prices;
+use crate::db::ingest::models::{BatchActiveModel, StagingTxActiveModel, StagingPriceActiveModel, Batches};
+use crate::db::ingest::models::{batches, staging_txs, staging_prices};
 use crate::db::DatabaseManager;
 use crate::db::LocalTxn;
+use crate::db::ingest::api::IngestStore;
+use crate::db::api::DataStore;
 use crate::portfolio_db::{Tx, Price};
 
-impl DatabaseManager {
+#[async_trait::async_trait]
+impl IngestStore for DatabaseManager {
     /// Creates a new batch for ingestion and returns the batch_dbid.
     /// 
     /// # Arguments
@@ -22,7 +23,7 @@ impl DatabaseManager {
     /// # Returns
     /// * `Ok(batch_dbid)` if the batch was created successfully
     /// * `Err` if a database error occurs
-    pub async fn create_batch(
+    async fn create_batch(
         &self,
         user_dbid: Option<i64>,
         batch_type: &str,
@@ -63,10 +64,10 @@ impl DatabaseManager {
     /// # Returns
     /// * `Ok(record_count)` - Number of records successfully inserted
     /// * `Err` if a database error occurs
-    pub async fn stage_txs(
+    async fn stage_txs(
         &self,
         batch_dbid: i64,
-        transactions: impl IntoIterator<Item = Tx>,
+        transactions: Box<dyn Iterator<Item = Tx> + Send>,
         txn: Option<&DatabaseTransaction>,
     ) -> Result<usize> {
         let mut local_txn = LocalTxn::new(self.connection(), txn).await?;
@@ -104,10 +105,10 @@ impl DatabaseManager {
     /// # Returns
     /// * `Ok(record_count)` - Number of records successfully inserted
     /// * `Err` if a database error occurs
-    pub async fn stage_prices(
+    async fn stage_prices(
         &self,
         batch_dbid: i64,
-        prices: impl IntoIterator<Item = Price>,
+        prices: Box<dyn Iterator<Item = Price> + Send>,
         txn: Option<&DatabaseTransaction>,
     ) -> Result<usize> {
         let mut local_txn = LocalTxn::new(self.connection(), txn).await?;
@@ -135,7 +136,7 @@ impl DatabaseManager {
         Ok(record_count)
     }
 
-    /// Updates the total record count for a batch using SeaQuery.
+    /// Updates the total record count for a batch.
     /// 
     /// # Arguments
     /// * `batch_dbid` - The batch database ID to update
@@ -145,7 +146,7 @@ impl DatabaseManager {
     /// # Returns
     /// * `Ok(())` if the batch was updated successfully
     /// * `Err` if a database error occurs
-    pub async fn update_batch_total_records(
+    async fn update_batch_total_records(
         &self,
         batch_dbid: i64,
         total_records: i32,
@@ -153,19 +154,22 @@ impl DatabaseManager {
     ) -> Result<()> {
         let mut local_txn = LocalTxn::new(self.connection(), txn).await?;
 
-        let mut update_stmt = UpdateStatement::new();
-        update_stmt.table("staging_batches");
-        update_stmt.value("total_records", total_records);
-        update_stmt.and_where(sea_query::Expr::col("batch_dbid").eq(batch_dbid));
+        let result = Batches::update_many()
+            .col_expr(batches::Column::TotalRecords, total_records.into())
+            .filter(batches::Column::BatchDbid.eq(batch_dbid))
+            .exec(local_txn.txn())
+            .await?;
 
-        let query = update_stmt.to_string(Self::query_builder());
-        local_txn.txn().execute_unprepared(&query).await?;
+        if result.rows_affected == 0 {
+            return Err(anyhow::anyhow!("Batch with id {} not found", batch_dbid));
+        }
+
         local_txn.commit_if_owned().await?;
         
         Ok(())
     }
 
-    /// Updates the status of a batch using SeaQuery.
+    /// Updates the status of a batch.
     /// 
     /// # Arguments
     /// * `batch_dbid` - The batch database ID to update
@@ -176,7 +180,7 @@ impl DatabaseManager {
     /// # Returns
     /// * `Ok(())` if the batch was updated successfully
     /// * `Err` if a database error occurs
-    pub async fn update_batch_status(
+    async fn update_batch_status(
         &self,
         batch_dbid: i64,
         status: &str,
@@ -185,18 +189,22 @@ impl DatabaseManager {
     ) -> Result<()> {
         let mut local_txn = LocalTxn::new(self.connection(), txn).await?;
 
-        let mut update_stmt = UpdateStatement::new();
-        update_stmt.table("staging_batches");
-        update_stmt.value("status", status);
-        
-        if let Some(msg) = error_message {
-            update_stmt.value("error_message", msg);
-        }
-        
-        update_stmt.and_where(sea_query::Expr::col("batch_dbid").eq(batch_dbid));
+        // Build the update query
+        let mut update_query = Batches::update_many()
+            .col_expr(batches::Column::Status, status.into())
+            .filter(batches::Column::BatchDbid.eq(batch_dbid));
 
-        let query = update_stmt.to_string(Self::query_builder());
-        local_txn.txn().execute_unprepared(&query).await?;
+        // Add error_message if provided
+        if let Some(msg) = error_message {
+            update_query = update_query.col_expr(batches::Column::ErrorMessage, msg.into());
+        }
+
+        let result = update_query.exec(local_txn.txn()).await?;
+
+        if result.rows_affected == 0 {
+            return Err(anyhow::anyhow!("Batch with id {} not found", batch_dbid));
+        }
+
         local_txn.commit_if_owned().await?;
         
         Ok(())

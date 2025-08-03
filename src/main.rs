@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use portfoliodb::portfolio_db_server::PortfolioDbServer;
 use portfoliodb::auth::AuthLayer;
+use portfoliodb::db::DatabaseManager;
 
 #[derive(Parser)]
 #[command(name = "portfoliodb")]
@@ -29,6 +30,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting PortfolioDB server on port {}", args.port);
 
+    // Create database manager
+    let db_manager = DatabaseManager::new(&args.database_url).await?;
+    let db_arc = std::sync::Arc::new(db_manager);
+
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::mirror_request())
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::OPTIONS])
@@ -48,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_age(Duration::from_secs(600));
 
     // Create authentication layer
-    let auth_layer = AuthLayer::new(args.database_url.clone());
+    let auth_layer = AuthLayer::new(db_arc.clone());
 
     Server::builder()
         .accept_http1(true)
@@ -56,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(cors)
         .layer(tonic_web::GrpcWebLayer::new())
         .add_service(PortfolioDbServer::new(portfoliodb::rpc::Service::new(
-            args.database_url.clone(),
+            db_arc.clone(),
         )))
         .serve(addr)
         .await?;

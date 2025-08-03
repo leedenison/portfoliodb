@@ -37,6 +37,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Error handling
 anyhow = "1.0"
 thiserror = "1.0"
+async-trait = "0.1"
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }

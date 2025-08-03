@@ -1,13 +1,12 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 use tracing::info;
 use chrono::{DateTime, Utc};
 use pbjson_types::Timestamp;
 
-use crate::db::DatabaseManager;
+use crate::db::api::DataStore;
 use crate::portfolio_db_server::PortfolioDb;
 use crate::db::models::{Symbol, SymbolDescription};
 use crate::{
@@ -60,35 +59,15 @@ fn validate_period(period: &crate::DateRange) -> Result<(DateTime<Utc>, DateTime
     Ok((period_start, period_end))
 }
 
-#[derive(Default)]
 pub struct Service {
-    db: Arc<Mutex<Option<DatabaseManager>>>,
-    database_url: String,
+    db: Arc<dyn DataStore + Send + Sync>,
 }
 
 impl Service {
-    pub fn new(database_url: String) -> Self {
-        Self {
-            db: Arc::new(Mutex::new(None)),
-            database_url,
-        }
-
+    pub fn new(db: Arc<dyn DataStore + Send + Sync>) -> Self {
+        Self { db }
     }
 
-    async fn db(&self) -> Result<DatabaseManager, Status> {
-        let mut db_guard = self.db.lock().await;
-
-        if db_guard.is_none() {
-            *db_guard = Some(
-                DatabaseManager::new(&self.database_url)
-                    .await
-                    .map_err(|e| Status::internal(format!("Database connection failed: {}", e)))?,
-            );
-        }
-
-        Ok(db_guard.as_ref().unwrap().clone())
-    }
-    
     /// Extracts the authenticated user ID from a request's extensions.
     /// 
     /// # Arguments
@@ -132,9 +111,7 @@ impl PortfolioDb for Service {
             .ok_or_else(|| Status::invalid_argument("Period is required"))?;
         let (period_start, period_end) = validate_period(&period)?;
 
-        let db = self.db().await?;
-
-        let batch_dbid = db.create_batch(
+        let batch_dbid = self.db.create_batch(
             Some(user_id),
             "TXS_TIMESERIES",
             period_start,
@@ -143,17 +120,17 @@ impl PortfolioDb for Service {
         ).await
         .map_err(|e| Status::internal(format!("Failed to create batch: {}", e)))?;
 
-        let total_records = db.stage_txs(batch_dbid, txs, None).await
+        let total_records = self.db.stage_txs(batch_dbid, Box::new(txs.into_iter()), None).await
         .map_err(|e| {
             let msg = format!("Failed to stage transactions: {}", e);
-            db.update_batch_status(batch_dbid, "FAILED", Some(&msg), None);
+            let _ = self.db.update_batch_status(batch_dbid, "FAILED", Some(&msg), None);
             Status::internal(msg)
         })?;
 
-        db.update_batch_total_records(batch_dbid, total_records as i32, None).await
+        self.db.update_batch_total_records(batch_dbid, total_records as i32, None).await
         .map_err(|e| Status::internal(format!("Failed to update batch total records: {}", e)))?;
 
-        if let Err(e) = db.update_batch_status(batch_dbid, "PROCESSING", None, None).await {
+        if let Err(e) = self.db.update_batch_status(batch_dbid, "PROCESSING", None, None).await {
             tracing::warn!("Failed to update batch status to PROCESSING: {}", e);
         }
 

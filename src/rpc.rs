@@ -295,16 +295,17 @@ impl PortfolioDb for Service {
     }
 }
 
-/// Stub implementation of disambiguate_instruments when the "disambiguate" feature is enabled.
-/// 
-/// This function is responsible for resolving instrument ambiguities in the staging data.
+/// Resolves broker symbol descriptions and corresponding symbol hints to the instrument dbid 
+/// in the database.  If the instrument dbid is not found, the symbol description and symbol hint
+/// are used to look up the instrument using any configured disambiguation services, and the instrument
+/// is created if it does not exist.
 /// 
 /// # Arguments
 /// * `batch_dbid` - The batch ID to process
-/// * `user_id` - Optional user ID for filtering
+/// * `user_id` - Optional user ID for filtering user owned mappings
 /// 
 /// # Returns
-/// * `Ok(HashMap<(SymbolDescription, Symbol), i64>)` - Mapping of instrument pairs to their resolved IDs
+/// * `Ok(HashMap<(SymbolDescription, Symbol), i64>)` - Map of symbol description and symbol hint to instrument dbid
 /// * `Err(anyhow::Error)` - Error if disambiguation fails
 #[cfg(feature = "disambiguate")]
 async fn disambiguate_instruments(
@@ -318,16 +319,15 @@ async fn disambiguate_instruments(
     Ok(HashMap::new())
 }
 
-/// Stub implementation of disambiguate_instruments when the "disambiguate" feature is disabled.
-/// 
-/// This function is responsible for resolving instrument ambiguities in the staging data.
+/// Resolves broker symbol descriptions and corresponding symbol hints to the instrument dbid 
+/// in the database.  If no intrument dbid is found, a new instrument is created.
 /// 
 /// # Arguments
 /// * `batch_dbid` - The batch ID to process
-/// * `user_id` - Optional user ID for filtering
+/// * `user_id` - Optional user ID for filtering user owned mappings
 /// 
 /// # Returns
-/// * `Ok(HashMap<(SymbolDescription, Symbol), i64>)` - Mapping of instrument pairs to their resolved IDs
+/// * `Ok(HashMap<(SymbolDescription, Symbol), i64>)` - Map of symbol description and symbol hint to instrument dbid
 /// * `Err(anyhow::Error)` - Error if disambiguation fails
 #[cfg(not(feature = "disambiguate"))]
 async fn disambiguate_instruments(

@@ -41,7 +41,7 @@ CREATE TABLE staging_prices (
     currency TEXT NOT NULL,
     price DOUBLE PRECISION NOT NULL,
     date_as_of TIMESTAMPTZ NOT NULL
-);
+);  
 
 -- Create a function to clean up old staging batches
 CREATE OR REPLACE FUNCTION delete_stale_staging_batches()

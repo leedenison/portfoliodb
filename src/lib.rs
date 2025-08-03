@@ -4,8 +4,6 @@ pub mod portfolio_db {
 
 pub mod auth;
 pub mod db;
-pub mod ingest;
-pub mod models;
 pub mod proto;
 pub mod rpc;
 

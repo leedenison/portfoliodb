@@ -9,7 +9,7 @@ use pbjson_types::Timestamp;
 
 use crate::db::DatabaseManager;
 use crate::portfolio_db_server::PortfolioDb;
-use crate::models::{Symbol, SymbolDescription};
+use crate::db::models::{Symbol, SymbolDescription};
 use crate::{
     Error, ErrorCode, GetHoldingsRequest, GetHoldingsResponse, GetPricesRequest, GetPricesResponse,
     UpdateBrokerRequest, UpdateBrokerResponse, DeleteBrokerRequest, DeleteBrokerResponse,
@@ -72,6 +72,7 @@ impl Service {
             db: Arc::new(Mutex::new(None)),
             database_url,
         }
+
     }
 
     async fn db(&self) -> Result<DatabaseManager, Status> {
@@ -340,3 +341,4 @@ async fn disambiguate_instruments(
     // Return empty HashMap as stub implementation
     Ok(HashMap::new())
 }
+

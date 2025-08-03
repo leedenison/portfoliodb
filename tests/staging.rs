@@ -1,5 +1,5 @@
 use portfoliodb::db::DatabaseManager;
-use portfoliodb::ingest::models::staging_txs;
+use portfoliodb::db::ingest::models::staging_txs;
 use portfoliodb::portfolio_db::Tx;
 use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
 use serde_json::{json, Value};

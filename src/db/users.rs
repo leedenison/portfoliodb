@@ -1,6 +1,6 @@
 use anyhow::Result;
 use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
-use crate::models::{users, Users};
+use crate::db::models::{users, Users};
 use super::database::DatabaseManager;
 
 impl DatabaseManager {

@@ -20,14 +20,14 @@ pub trait UserStore {
 
 use crate::db::models::{users, Users};
 use super::database::DatabaseManager;
-use crate::db::api::DataStore;
 
 #[async_trait::async_trait]
 impl UserStore for DatabaseManager {
     async fn get_user_id_by_email(&self, email: &str) -> Result<Option<i64>> {
+        let db = self.connection();
         let user = Users::find()
             .filter(users::Column::Email.eq(email))
-            .one(self.connection())
+            .one(db.as_ref())
             .await?;
 
         Ok(user.map(|user| user.dbid))

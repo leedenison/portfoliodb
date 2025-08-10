@@ -102,8 +102,6 @@ impl<S> Layer<S> for AuthLayer {
     }
 }
 
-
-
 fn grpc_error_response(status: Status) -> Response<Body> {
     let mut response = Response::new(Body::empty());
 

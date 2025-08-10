@@ -6,7 +6,7 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub batch_dbid: i64,
-    pub user_dbid: Option<i64>,
+    pub user_dbid: i64,
     pub batch_type: String,
     pub status: String,
     pub period_start: DateTime<Utc>,
@@ -20,6 +20,11 @@ pub struct Model {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+pub enum Relation {
+    #[sea_orm(has_many = "super::staging_txs::Entity")]
+    StagingTxs,
+    #[sea_orm(has_many = "super::staging_prices::Entity")]
+    StagingPrices,
+}
 
 impl ActiveModelBehavior for ActiveModel {}

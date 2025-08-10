@@ -25,12 +25,12 @@ pub enum Relation {
         from = "Column::BatchDbid",
         to = "super::batches::Column::BatchDbid"
     )]
-    Batches,
+    Batch,
 }
 
 impl Related<super::batches::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Batches.def()
+        Relation::Batch.def()
     }
 }
 

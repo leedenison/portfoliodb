@@ -1,71 +1,78 @@
-use anyhow::Result;
-use std::collections::HashMap;
-use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::info;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::portfolio_db::{
+    portfolio_db_server::PortfolioDb, Error, ErrorCode, GetHoldingsRequest, GetHoldingsResponse,
+    GetPricesRequest, GetPricesResponse, UpdateBrokerRequest, UpdateBrokerResponse,
+    UpdatePricesRequest, UpdatePricesResponse, UpdateTxsRequest, UpdateTxsResponse,
+    DeleteBrokerRequest, DeleteBrokerResponse, SymbolDescription, Tx,
+};
+use crate::db::api::DataStore;
+use crate::db::ingest::models::staging_txs;
+use crate::db::ingest::models::StagingTx;
+use crate::db::models;
+use crate::db::executor::{DatabaseExecutor, Executor};
 use chrono::{DateTime, Utc};
 use pbjson_types::Timestamp;
-
-use crate::db::api::DataStore;
-use crate::portfolio_db_server::PortfolioDb;
-use crate::db::models::{Symbol, SymbolDescription};
-use crate::{
-    Error, ErrorCode, GetHoldingsRequest, GetHoldingsResponse, GetPricesRequest, GetPricesResponse,
-    UpdateBrokerRequest, UpdateBrokerResponse, DeleteBrokerRequest, DeleteBrokerResponse,
-    UpdatePricesRequest, UpdatePricesResponse, UpdateTxsRequest, UpdateTxsResponse,
-};
-
-/// Converts a protobuf Timestamp to a chrono DateTime<Utc>
-/// 
-/// # Arguments
-/// * `timestamp` - Protobuf timestamp
-/// 
-/// # Returns
-/// * `Ok(DateTime<Utc>)` if conversion is successful
-/// * `Err(Status)` if timestamp is invalid
-fn timestamp_to_datetime(timestamp: &Timestamp) -> Result<DateTime<Utc>, Status> {
-    DateTime::from_timestamp(timestamp.seconds, timestamp.nanos as u32)
-        .ok_or_else(|| Status::invalid_argument("Invalid timestamp"))
-}
-
-/// Validates a DateRange period, ensuring timestamps are not default values and period_end is after period_start
-/// 
-/// # Arguments
-/// * `period` - The DateRange to validate
-/// 
-/// # Returns
-/// * `Ok((DateTime<Utc>, DateTime<Utc>))` - Tuple of (period_start, period_end) if validation passes
-/// * `Err(Status)` - Error with details if validation fails
-fn validate_period(period: &crate::DateRange) -> Result<(DateTime<Utc>, DateTime<Utc>), Status> {
-    let period_start = timestamp_to_datetime(period.start.as_ref()
-        .ok_or_else(|| Status::invalid_argument("Start timestamp is required"))?)?;
-    let period_end = timestamp_to_datetime(period.end.as_ref()
-        .ok_or_else(|| Status::invalid_argument("End timestamp is required"))?)?;
-
-    // Validate that timestamps are not default values (Unix epoch)
-    let default_timestamp = DateTime::from_timestamp(0, 0).unwrap();
-    if period_start == default_timestamp {
-        return Err(Status::invalid_argument("Period start cannot be the default timestamp (Unix epoch)"));
-    }
-    if period_end == default_timestamp {
-        return Err(Status::invalid_argument("Period end cannot be the default timestamp (Unix epoch)"));
-    }
-
-    // Validate that period_end is after period_start
-    if period_end <= period_start {
-        return Err(Status::invalid_argument("Period end must be after period start"));
-    }
-
-    Ok((period_start, period_end))
-}
 
 pub struct Service {
     db: Arc<dyn DataStore + Send + Sync>,
 }
 
+pub struct DisambiguatedIds {
+    symbol_descriptions: HashMap<String, SymbolDescription>,
+    symbols:  HashMap<(String, String, String), models::Symbol>,
+}
+
 impl Service {
     pub fn new(db: Arc<dyn DataStore + Send + Sync>) -> Self {
         Self { db }
+    }
+
+    /// Converts a protobuf Timestamp to a chrono DateTime<Utc>
+    /// 
+    /// # Arguments
+    /// * `timestamp` - Protobuf timestamp
+    /// 
+    /// # Returns
+    /// * `Ok(DateTime<Utc>)` if conversion is successful
+    /// * `Err(Status)` if timestamp is invalid
+    fn timestamp_to_datetime(timestamp: &Timestamp) -> Result<DateTime<Utc>, Status> {
+        DateTime::from_timestamp(timestamp.seconds, timestamp.nanos as u32)
+            .ok_or_else(|| Status::invalid_argument("Invalid timestamp"))
+    }
+
+    /// Validates a DateRange period, ensuring timestamps are not default values and period_end is after period_start
+    /// 
+    /// # Arguments
+    /// * `period` - The DateRange to validate
+    /// 
+    /// # Returns
+    /// * `Ok((DateTime<Utc>, DateTime<Utc>))` - Tuple of (period_start, period_end) if validation passes
+    /// * `Err(Status)` - Error with details if validation fails
+    fn validate_period(period: &crate::DateRange) -> Result<(DateTime<Utc>, DateTime<Utc>), Status> {
+        let period_start = Self::timestamp_to_datetime(period.start.as_ref()
+            .ok_or_else(|| Status::invalid_argument("Start timestamp is required"))?)?;
+        let period_end = Self::timestamp_to_datetime(period.end.as_ref()
+            .ok_or_else(|| Status::invalid_argument("End timestamp is required"))?)?;
+
+        // Validate that timestamps are not default values (Unix epoch)
+        let default_timestamp = DateTime::from_timestamp(0, 0).unwrap();
+        if period_start == default_timestamp {
+            return Err(Status::invalid_argument("Period start cannot be the default timestamp (Unix epoch)"));
+        }
+        if period_end == default_timestamp {
+            return Err(Status::invalid_argument("Period end cannot be the default timestamp (Unix epoch)"));
+        }
+
+        // Validate that period_end is after period_start
+        if period_end <= period_start {
+            return Err(Status::invalid_argument("Period end must be after period start"));
+        }
+
+        Ok((period_start, period_end))
     }
 
     /// Extracts the authenticated user ID from a request's extensions.
@@ -83,10 +90,137 @@ impl Service {
             .copied()
             .ok_or_else(|| Status::unauthenticated("User ID not found"))
     }
+
+    /// Stages transactions into a batch for processing.
+    /// 
+    /// # Arguments
+    /// * `user_id` - The user ID for the batch
+    /// * `txs` - Vector of transactions to stage
+    /// * `period_start` - Start of the period
+    /// * `period_end` - End of the period
+    /// 
+    /// # Returns
+    /// * `Ok(i64)` - The batch ID if successful
+    /// * `Err(Status)` - Error with details if staging fails
+    async fn stage_txs(
+        &self,
+        exec: &mut DatabaseExecutor,
+        user_id: i64,
+        period_start: DateTime<Utc>,
+        period_end: DateTime<Utc>,
+        txs: Vec<Tx>,
+    ) -> Result<i64, Status> {
+        let batch_dbid = self.db.create_batch(
+            exec,
+            user_id,
+            "TXS_TIMESERIES",
+            period_start,
+            period_end
+        ).await
+        .map_err(|e| Status::internal(format!("Failed to create batch: {}", e)))?;
+
+        let total_records = self.db.stage_txs(exec, batch_dbid, Box::new(txs.into_iter())).await
+        .map_err(|e| {
+            let msg = format!("Failed to stage transactions: {}", e);
+            let _ = self.db.update_batch_status(exec, batch_dbid, "FAILED", Some(&msg));
+            Status::internal(msg)
+        })?;
+
+        self.db.update_batch_total_records(exec, batch_dbid, total_records as i32).await
+        .map_err(|e| Status::internal(format!("Failed to update batch total records: {}", e)))?;
+
+        if let Err(e) = self.db.update_batch_status(exec, batch_dbid, "PROCESSING", None).await {
+            tracing::warn!("Failed to update batch status to PROCESSING: {}", e);
+        }
+
+        Ok(batch_dbid)
+    }
+
+    /// Resolves broker symbol descriptions and corresponding symbol hints to the symbol dbid 
+    /// in the database.  If the symbol dbid is not found, the symbol description and symbol hint
+    /// are used to look up the symbol using any configured disambiguation services, and the symbol
+    /// is created with a new instrument if it does not exist.
+    /// 
+    /// # Arguments
+    /// * `batch_dbid` - The batch ID to process
+    /// * `user_id` - Optional user ID for filtering user owned mappings
+    /// 
+    /// # Returns
+    /// * `Ok(())` - Success if disambiguation is successful
+    /// * `Err(anyhow::Error)` - Error if disambiguation fails
+    #[cfg(feature = "disambiguate")]
+    async fn disambiguate_ids(
+        &self,  
+        exec: &mut DatabaseExecutor,
+        batch_dbid: i64,
+        user_id: i64,
+    ) -> Result<DisambiguatedIds, anyhow::Error> {
+        // Stub implementation when disambiguation feature is enabled
+        tracing::info!("Disambiguation feature enabled - skipping symbol disambiguation for batch {} (user: {})", batch_dbid, user_id);
+        Ok(DisambiguatedIds {
+            symbol_descriptions: HashMap::new(),
+            symbols: HashMap::new(),
+        })
+    }
+
+    /// Resolves broker symbol descriptions and corresponding symbol hints to the symbol dbid 
+    /// in the database.  If no symbol dbid is found, a new symbol with a new instrument is created.
+    /// 
+    /// # Arguments
+    /// * `batch_dbid` - The batch ID to process
+    /// * `user_id` - Optional user ID for filtering user owned mappings
+    /// 
+    /// # Returns
+    /// * `Ok(())` - Success if disambiguation is successful
+    /// * `Err(anyhow::Error)` - Error if disambiguation fails
+    #[cfg(not(feature = "disambiguate"))]
+    async fn disambiguate_ids(
+        &self,
+        exec: &mut DatabaseExecutor,
+        batch_dbid: i64,
+        user_id: i64,
+    ) -> Result<DisambiguatedIds, anyhow::Error> {
+        let mut result = DisambiguatedIds {
+            symbol_descriptions: HashMap::new(),
+            symbols: HashMap::new(),
+        };
+
+        let staged_symbols_with_existing = staging_txs::Entity::all_complete_symbols_with_existing(exec, batch_dbid).await?;
+        let mut new_symbols_to_create = Vec::new();
+
+        for (staged_tx, existing_symbol) in staged_symbols_with_existing {
+            let StagingTx { domain, exchange, symbol, symbol_currency: currency, .. } = staged_tx;
+
+            if let Some(existing_symbol) = existing_symbol {
+                result.symbols.insert((domain, exchange, symbol), existing_symbol);
+            } else {
+                new_symbols_to_create.push((domain, exchange, symbol, currency));
+            }
+        }
+
+        // Step 3: create new symbols and instruments for any symbols that do not exist in the database
+
+        // Step 4: add mappings from domain, exchange, and symbol to the Symbol struct in result
+
+        // Step 5: select all non-empty symbol descriptions with corresponding symbol hints from
+        //         staged transactions and join them to symbol descriptions that exist in the database
+
+        // Step 6: create new symbol descriptions for any symbol descriptions that do not
+        //         exist in the database.  If the symbol description is associated with a complete 
+        //         symbol (ie. has non-empty domain, exchange, and symbol) in step 5, ensure that the
+        //         symbol_dbid for new symbol descriptions is looked up from the mapping in step 4
+
+        // Step 7: add mappings from symbol description dbid to SymbolDescription struct in result
+
+        // Stub implementation when disambiguation feature is disabled
+        tracing::info!("Disambiguation feature disabled - skipping symbol disambiguation for batch {} (user: {})", batch_dbid, user_id);
+        Ok(result)
+    }
 }
 
 #[tonic::async_trait]
 impl PortfolioDb for Service {
+    
     /// Updates transactions for a specific account within a given time period.
     ///
     /// This operation replaces all existing transactions in the specified period with the provided
@@ -109,33 +243,22 @@ impl PortfolioDb for Service {
 
         let period = period
             .ok_or_else(|| Status::invalid_argument("Period is required"))?;
-        let (period_start, period_end) = validate_period(&period)?;
+        let (period_start, period_end) = Self::validate_period(&period)?;
 
-        let batch_dbid = self.db.create_batch(
-            Some(user_id),
-            "TXS_TIMESERIES",
-            period_start,
-            period_end,
-            None
-        ).await
-        .map_err(|e| Status::internal(format!("Failed to create batch: {}", e)))?;
+        let mut conn_exec = self.db.executor();
+        let batch_dbid = self.stage_txs(&mut conn_exec, user_id, period_start, period_end, txs).await?;
 
-        let total_records = self.db.stage_txs(batch_dbid, Box::new(txs.into_iter()), None).await
-        .map_err(|e| {
-            let msg = format!("Failed to stage transactions: {}", e);
-            let _ = self.db.update_batch_status(batch_dbid, "FAILED", Some(&msg), None);
-            Status::internal(msg)
-        })?;
+        self.db.validate_txs(&mut conn_exec, batch_dbid).await
+            .map_err(|e| Status::internal(format!("Invalid transactions in batch {}: {}", batch_dbid, e)))?;
+        
+        let mut tx_exec = self.db.begin().await
+            .map_err(|e| Status::internal(format!("Failed to begin transaction: {}", e)))?;
 
-        self.db.update_batch_total_records(batch_dbid, total_records as i32, None).await
-        .map_err(|e| Status::internal(format!("Failed to update batch total records: {}", e)))?;
+        let _disambiguated_ids = self.disambiguate_ids(&mut tx_exec, batch_dbid, user_id).await
+            .map_err(|e| Status::internal(format!("Failed to disambiguate symbols: {}", e)))?;
 
-        if let Err(e) = self.db.update_batch_status(batch_dbid, "PROCESSING", None, None).await {
-            tracing::warn!("Failed to update batch status to PROCESSING: {}", e);
-        }
-
-        let identifiers = disambiguate_instruments(batch_dbid, None).await
-        .map_err(|e| Status::internal(format!("Failed to disambiguate instruments: {}", e)))?;
+        tx_exec.commit().await
+            .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
 
         Ok(Response::new(UpdateTxsResponse {
             error: Some(Error {
@@ -188,11 +311,11 @@ impl PortfolioDb for Service {
         let user_id = self.get_authenticated_user(&request)?;
         let req = request.into_inner();
 
-        let UpdatePricesRequest { period, prices } = req;
+        let UpdatePricesRequest { period, prices: _ } = req;
 
         let period = period
             .ok_or_else(|| Status::invalid_argument("Period is required"))?;
-        let (period_start, period_end) = validate_period(&period)?;
+        let (period_start, period_end) = Self::validate_period(&period)?;
 
         // TODO: Implement actual price update logic
         info!("UpdatePrices called with period: {} to {}", period_start, period_end);
@@ -271,51 +394,5 @@ impl PortfolioDb for Service {
             }),
         }))
     }
-}
-
-/// Resolves broker symbol descriptions and corresponding symbol hints to the instrument dbid 
-/// in the database.  If the instrument dbid is not found, the symbol description and symbol hint
-/// are used to look up the instrument using any configured disambiguation services, and the instrument
-/// is created if it does not exist.
-/// 
-/// # Arguments
-/// * `batch_dbid` - The batch ID to process
-/// * `user_id` - Optional user ID for filtering user owned mappings
-/// 
-/// # Returns
-/// * `Ok(HashMap<(SymbolDescription, Symbol), i64>)` - Map of symbol description and symbol hint to instrument dbid
-/// * `Err(anyhow::Error)` - Error if disambiguation fails
-#[cfg(feature = "disambiguate")]
-async fn disambiguate_instruments(
-    batch_dbid: i64,
-    user_id: Option<i64>,
-) -> Result<HashMap<(SymbolDescription, Symbol), i64>, anyhow::Error> {
-    // TODO: Implement actual disambiguation logic
-    tracing::info!("Disambiguating instruments for batch {} (user: {:?})", batch_dbid, user_id);
-    
-    // Return empty HashMap as stub implementation
-    Ok(HashMap::new())
-}
-
-/// Resolves broker symbol descriptions and corresponding symbol hints to the instrument dbid 
-/// in the database.  If no intrument dbid is found, a new instrument is created.
-/// 
-/// # Arguments
-/// * `batch_dbid` - The batch ID to process
-/// * `user_id` - Optional user ID for filtering user owned mappings
-/// 
-/// # Returns
-/// * `Ok(HashMap<(SymbolDescription, Symbol), i64>)` - Map of symbol description and symbol hint to instrument dbid
-/// * `Err(anyhow::Error)` - Error if disambiguation fails
-#[cfg(not(feature = "disambiguate"))]
-async fn disambiguate_instruments(
-    batch_dbid: i64,
-    user_id: Option<i64>,
-) -> Result<HashMap<(SymbolDescription, Symbol), i64>, anyhow::Error> {
-    // Stub implementation when disambiguation feature is disabled
-    tracing::info!("Disambiguation feature disabled - skipping instrument disambiguation for batch {} (user: {:?})", batch_dbid, user_id);
-    
-    // Return empty HashMap as stub implementation
-    Ok(HashMap::new())
 }
 

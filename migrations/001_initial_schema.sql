@@ -30,6 +30,7 @@ CREATE TABLE instrument_identifiers (
     instrument_dbid BIGINT NOT NULL REFERENCES instruments(dbid) ON DELETE CASCADE,
     domain TEXT NOT NULL,
     id TEXT NOT NULL,
+    disambiguated BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(domain, id)
 );
@@ -43,6 +44,7 @@ CREATE TABLE symbols (
     exchange TEXT NOT NULL,
     symbol TEXT NOT NULL,
     currency TEXT NOT NULL, -- ISO 4217 currency code
+    disambiguated BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(domain, exchange, symbol)
 );
@@ -57,7 +59,7 @@ CREATE TABLE symbol_descriptions (
     -- broker_key: one-to-many
     broker_key TEXT NOT NULL REFERENCES brokers(key) ON DELETE CASCADE,
     description TEXT NOT NULL,
-    canonical BOOLEAN NOT NULL DEFAULT FALSE,
+    disambiguated BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(broker_key, description),
     UNIQUE(user_dbid, broker_key, description)

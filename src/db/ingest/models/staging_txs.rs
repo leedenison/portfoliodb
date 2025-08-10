@@ -1,8 +1,11 @@
 use crate::portfolio_db::{Symbol, SymbolDescription, Tx};
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
-use sea_orm::{NotSet, Set};
+use sea_orm::{NotSet, Set, Select, Condition};
 use serde::{Deserialize, Serialize};
+use anyhow::Result;
+use crate::db::executor::{DatabaseExecutor, DatabaseExecutor::Conn, DatabaseExecutor::Tx as TxExec};
+use crate::db::models;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "staging_txs")]
@@ -25,23 +28,145 @@ pub struct Model {
     pub tx_type: String,
 }
 
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+#[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    #[sea_orm(
-        belongs_to = "super::batches::Entity",
-        from = "Column::BatchDbid",
-        to = "super::batches::Column::BatchDbid"
-    )]
-    Batches,
+    Batch,
+    Symbol,
+}
+
+impl RelationTrait for Relation {
+    fn def(&self) -> RelationDef {
+        match self {
+            Self::Batch => Entity::belongs_to(super::batches::Entity)
+                .from(Column::BatchDbid)
+                .to(super::batches::Column::BatchDbid)
+                .into(),
+            Self::Symbol => Entity::belongs_to(models::Symbols)
+                .from(Column::Domain)
+                .to(models::symbols::Column::Domain)
+                .from(Column::Exchange)
+                .to(models::symbols::Column::Exchange)
+                .from(Column::Symbol)
+                .to(models::symbols::Column::Symbol)
+                .into(),
+        }
+    }
 }
 
 impl Related<super::batches::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Batches.def()
+        Relation::Batch.def()
+    }
+}
+
+impl Related<models::Symbols> for Entity {
+    fn to() -> RelationDef {
+        Relation::Symbol.def()
     }
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl Entity {
+    /// Returns the query for finding invalid staged transactions.
+    /// 
+    /// Invalid transactions are those with empty description and incomplete symbol.
+    /// 
+    /// # Arguments
+    /// * `batch_dbid` - The batch database ID to filter by
+    /// 
+    /// # Returns
+    /// * `Select<Entity>` - The query builder for invalid transactions
+    pub fn find_invalid_txs(batch_dbid: i64) -> Select<Entity> {
+        Entity::find()
+            .filter(Column::BatchDbid.eq(batch_dbid))
+            .filter(
+                Condition::all()
+                    .add(Condition::any()
+                        .add(Column::BrokerKey.eq(""))
+                        .add(Column::Description.eq("")))
+                    .add(Condition::any()
+                        .add(Column::Domain.eq(""))
+                        .add(Column::Exchange.eq(""))
+                        .add(Column::Symbol.eq("")))
+            )
+    }
+
+    /// Returns all invalid staged transactions for a given batch
+    /// 
+    /// # Arguments
+    /// * `exec` - Database executor
+    /// * `batch_dbid` - The batch database ID to filter by
+    /// 
+    /// # Returns
+    /// * `Ok(Vec<Model>)` - Vector of invalid transaction models
+    /// * `Err` if a database error occurs
+    pub async fn all_invalid_txs(
+        exec: &mut DatabaseExecutor,
+        batch_dbid: i64,
+    ) -> Result<Vec<Model>> {
+        let stmt = Self::find_invalid_txs(batch_dbid);
+        let result = match exec {
+            Conn { db, .. } => stmt.all(db.as_ref()).await,
+            TxExec { tx, .. } => stmt.all(tx).await,
+        };
+        
+        result.map_err(|e| anyhow::anyhow!("Failed to fetch invalid transactions: {}", e))
+    }
+
+    /// Returns count of invalid staged transactions for a given batch
+    /// 
+    /// # Arguments
+    /// * `exec` - Database executor
+    /// * `batch_dbid` - The batch database ID to filter by
+    /// 
+    /// # Returns
+    /// * `Ok(u64)` - Count of invalid transactions
+    /// * `Err` if a database error occurs
+    pub async fn count_invalid_txs(
+        exec: &mut DatabaseExecutor,
+        batch_dbid: i64,
+    ) -> Result<u64> {
+        let stmt = Self::find_invalid_txs(batch_dbid);
+        let result = match exec {
+            Conn { db, .. } => stmt.count(db.as_ref()).await,
+            TxExec { tx, .. } => stmt.count(tx).await,
+        };
+        
+        result.map_err(|e| anyhow::anyhow!("Failed to count invalid transactions: {}", e))
+    }
+
+    /// Returns all complete symbols from staged transactions with their corresponding existing symbols
+    /// 
+    /// This performs a left join to find staged transactions with complete symbol information
+    /// (non-empty domain, exchange, and symbol) and their corresponding symbols in the database.
+    /// 
+    /// # Arguments
+    /// * `exec` - Database executor
+    /// * `batch_dbid` - The batch database ID to filter by
+    /// 
+    /// # Returns
+    /// * `Ok(Vec<(Model, Option<Symbol>)>)` - Vector of staged transactions with optional existing symbols
+    /// * `Err` if a database error occurs
+    pub async fn all_complete_symbols_with_existing(
+        exec: &mut DatabaseExecutor,
+        batch_dbid: i64,
+    ) -> Result<Vec<(Model, Option<models::Symbol>)>> {
+        let stmt = Entity::find()
+            .filter(Column::BatchDbid.eq(batch_dbid))
+            .filter(Column::Domain.ne(""))
+            .filter(Column::Exchange.ne(""))
+            .filter(Column::Symbol.ne(""))
+            .find_also_related(models::Symbols);
+
+        let result = match exec {
+            Conn { db, .. } => stmt.all(db.as_ref()).await,
+            TxExec { tx, .. } => stmt.all(tx).await,
+        };
+        
+        result.map_err(|e| anyhow::anyhow!("Failed to fetch complete symbols with existing: {}", e))
+    }
+}
 
 impl ActiveModel {
     pub fn with_batch_dbid(mut self, batch_dbid: i64) -> Self {

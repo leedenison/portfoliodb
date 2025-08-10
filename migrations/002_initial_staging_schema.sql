@@ -1,7 +1,7 @@
 -- Staging metadata table to track ingestion batches
 CREATE TABLE staging_batches (
     batch_dbid BIGSERIAL PRIMARY KEY,
-    user_dbid BIGINT,
+    user_dbid BIGINT NOT NULL,
     batch_type TEXT NOT NULL CHECK (batch_type IN ('TXS_TIMESERIES', 'PRICES_TIMESERIES')),
     status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
     period_start TIMESTAMPTZ NOT NULL,

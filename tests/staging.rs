@@ -6,6 +6,7 @@ use portfoliodb::portfolio_db::Tx;
 use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
 use serde_json::{json, Value};
 use std::env;
+use portfoliodb::db::executor::{DatabaseExecutor::Conn, DatabaseExecutor::Tx as TxExec};
 
 #[cfg(test)]
 mod tests {
@@ -87,24 +88,25 @@ mod tests {
         ];
 
         // Run each test case
-        for (i, test_case) in test_cases.iter().enumerate() {
-            println!("Running test case {}: {}", i + 1, test_case.name);
+        for test_case in test_cases.iter() {
+            print!("test tests::test_stage_txs: {} ... ", test_case.name);
 
             // Deserialize input transactions from JSON
             let input_txs: Vec<Tx> = serde_json::from_value(test_case.input_txs_json.clone())
                 .expect("Failed to deserialize input transactions");
 
             // Create a batch for this test case
+            let mut exec = db.executor();
             let batch_dbid = db.create_batch(
-                Some(1), // user_dbid
+                &mut exec,
+                1, // user_dbid
                 "TXS_TIMESERIES",
                 chrono::DateTime::from_timestamp(1640995200, 0).unwrap(), // period_start
-                chrono::DateTime::from_timestamp(1641081600, 0).unwrap(), // period_end
-                None
+                chrono::DateTime::from_timestamp(1641081600, 0).unwrap() // period_end
             ).await.expect("Failed to create batch");
 
             // Stage the transactions
-            let record_count = db.stage_txs(batch_dbid, Box::new(input_txs.clone().into_iter()), None)
+            let record_count = db.stage_txs(&mut exec, batch_dbid, Box::new(input_txs.clone().into_iter()))
                 .await.expect("Failed to stage transactions");
 
             // Verify the record count
@@ -112,10 +114,20 @@ mod tests {
                 "Record count mismatch for test case: {}", test_case.name);
 
             // Query the database to get the actual staged transactions
-            let actual_staging_txs = staging_txs::Entity::find()
-                .filter(staging_txs::Column::BatchDbid.eq(batch_dbid))
-                .all(db.connection())
-                .await.expect("Failed to query staging transactions");
+            let actual_staging_txs = match &mut exec {
+                Conn { db, .. } => {
+                    staging_txs::Entity::find()
+                        .filter(staging_txs::Column::BatchDbid.eq(batch_dbid))
+                        .all(db)
+                        .await.expect("Failed to query staging transactions")
+                }
+                TxExec { tx, .. } => {
+                    staging_txs::Entity::find()
+                        .filter(staging_txs::Column::BatchDbid.eq(batch_dbid))
+                        .all(tx)
+                        .await.expect("Failed to query staging transactions")
+                }
+            };
 
             // Deserialize expected staging transactions from JSON
             let mut expected_staging_txs: Vec<staging_txs::Model> = serde_json::from_value(test_case.expected_staging_txs_json.clone())
@@ -138,9 +150,7 @@ mod tests {
                     "Staging transaction mismatch for test case: {}", test_case.name);
             }
 
-            println!("Test case {} passed: {}", i + 1, test_case.name);
+            println!("ok");
         }
-
-        println!("All test cases passed!");
     }
 }

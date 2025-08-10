@@ -15,24 +15,34 @@ pub struct Model {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+#[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    #[sea_orm(
-        belongs_to = "super::instruments::Entity",
-        from = "Column::InstrumentDbid",
-        to = "super::instruments::Column::Dbid"
-    )]
+    // This derivative's own instrument row (1:1)
     Instrument,
-    #[sea_orm(
-        belongs_to = "super::instruments::Entity",
-        from = "Column::UnderlyingDbid",
-        to = "super::instruments::Column::Dbid"
-    )]
+    // Underlying instrument this derivative refers to (1:N from Instrument's POV)
     Underlying,
 }
 
-impl Related<super::instruments::Entity> for Entity {
-    fn to() -> RelationDef {
+impl sea_orm::RelationTrait for Relation {
+    fn def(&self) -> sea_orm::RelationDef {
+        match self {
+            // derivative.instrument_dbid -> instrument.dbid
+            Self::Instrument => Entity::belongs_to(super::instruments::Entity)
+                .from(Column::InstrumentDbid)
+                .to(super::instruments::Column::Dbid)
+                .into(),
+
+            // derivative.underlying_dbid -> instrument.dbid
+            Self::Underlying => Entity::belongs_to(super::instruments::Entity)
+                .from(Column::UnderlyingDbid)
+                .to(super::instruments::Column::Dbid)
+                .into(),
+        }
+    }
+}
+
+impl sea_orm::Related<super::instruments::Entity> for Entity {
+    fn to() -> sea_orm::RelationDef {
         Relation::Instrument.def()
     }
 }

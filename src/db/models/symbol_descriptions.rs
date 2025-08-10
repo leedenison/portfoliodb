@@ -10,7 +10,7 @@ pub struct Model {
     pub user_dbid: i64,
     pub broker_key: String,
     pub description: String,
-    pub canonical: bool,
+    pub disambiguated: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -41,6 +41,12 @@ impl Related<super::symbols::Entity> for Entity {
 impl Related<super::brokers::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Broker.def()
+    }
+}
+
+impl Related<super::transactions::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Transactions.def()
     }
 }
 

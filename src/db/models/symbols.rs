@@ -11,6 +11,7 @@ pub struct Model {
     pub exchange: String,
     pub symbol: String,
     pub currency: String,
+    pub disambiguated: bool,
     pub created_at: DateTime<Utc>,
 }
 

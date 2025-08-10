@@ -10,32 +10,60 @@ pub struct Model {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+#[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::instrument_ids::Entity")]
     InstrumentIds,
-    #[sea_orm(has_many = "super::symbols::Entity")]
     Symbols,
-    #[sea_orm(has_one = "super::derivatives::Entity")]
+    IsDerivative,
     Derivatives,
 }
 
-impl ActiveModelBehavior for ActiveModel {}
+impl sea_orm::RelationTrait for Relation {
+    fn def(&self) -> sea_orm::RelationDef {
+        match self {
+            // instrument.dbid -> instrument_identifiers.instrument_dbid
+            Self::InstrumentIds => Entity::has_many(super::instrument_ids::Entity)
+                .from(Column::Dbid)
+                .to(super::instrument_ids::Column::InstrumentDbid)
+                .into(),
 
-impl Related<super::instrument_ids::Entity> for Entity {
-    fn to() -> RelationDef {
+            // instrument.dbid -> symbols.instrument_dbid
+            Self::Symbols => Entity::has_many(super::symbols::Entity)
+                .from(Column::Dbid)
+                .to(super::symbols::Column::InstrumentDbid)
+                .into(),
+
+            // instrument.dbid -> derivative.instrument_dbid
+            Self::IsDerivative => Entity::has_one(super::derivatives::Entity)
+                .from(Column::Dbid)
+                .to(super::derivatives::Column::InstrumentDbid)
+                .into(),
+
+            // instrument.dbid -> derivative.underlying_dbid
+            Self::Derivatives => Entity::has_many(super::derivatives::Entity)
+                .from(Column::Dbid)
+                .to(super::derivatives::Column::UnderlyingDbid)
+                .into(),
+        }
+    }
+}
+
+impl sea_orm::Related<super::derivatives::Entity> for Entity {
+    fn to() -> sea_orm::RelationDef {
+        Relation::IsDerivative.def()
+    }
+}
+
+impl sea_orm::Related<super::instrument_ids::Entity> for Entity {
+    fn to() -> sea_orm::RelationDef {
         Relation::InstrumentIds.def()
     }
 }
 
-impl Related<super::symbols::Entity> for Entity {
-    fn to() -> RelationDef {
+impl sea_orm::Related<super::symbols::Entity> for Entity {
+    fn to() -> sea_orm::RelationDef {
         Relation::Symbols.def()
     }
 }
 
-impl Related<super::derivatives::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Derivatives.def()
-    }
-}
+impl ActiveModelBehavior for ActiveModel {}

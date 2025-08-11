@@ -2,6 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use crate::portfolio_db::{Tx, Price};
 use crate::db::executor::DatabaseExecutor;
+use crate::db::models;
 
 /// Trait defining the ingest operations for PortfolioDB.
 /// This trait abstracts the ingest operations and allows for easier testing
@@ -113,4 +114,21 @@ pub trait IngestStore {
         exec: &mut DatabaseExecutor,
         batch_dbid: i64,
     ) -> Result<()>;
+
+    /// Creates new symbols and instruments for the given symbol data.
+    /// 
+    /// # Arguments
+    /// * `exec` - Database executor
+    /// * `new_symbols` - Vector of tuples containing (domain, exchange, symbol, currency, instrument_type)
+    /// * `disambiguated` - Whether the symbols are disambiguated
+    ///
+    /// # Returns
+    /// * `Ok(Vec<models::Symbol>)` - Vector of created symbols with dbids filled in
+    /// * `Err` if a database error occurs
+    async fn create_symbols_and_instruments(
+        &self,
+        exec: &mut DatabaseExecutor,
+        new_symbols: Vec<(String, String, String, String, Option<String>)>,
+        disambiguated: bool,
+    ) -> Result<Vec<models::Symbol>>;
 } 

@@ -194,13 +194,19 @@ impl Service {
             if let Some(existing_symbol) = existing_symbol {
                 result.symbols.insert((domain, exchange, symbol), existing_symbol);
             } else {
-                new_symbols_to_create.push((domain, exchange, symbol, currency));
+                new_symbols_to_create.push((domain, exchange, symbol, currency, None));
             }
         }
 
         // Step 3: create new symbols and instruments for any symbols that do not exist in the database
-
-        // Step 4: add mappings from domain, exchange, and symbol to the Symbol struct in result
+        if !new_symbols_to_create.is_empty() {
+            let created_symbols = self.db.create_symbols_and_instruments(exec, new_symbols_to_create, false).await?;
+            
+            // Step 4: add mappings from domain, exchange, and symbol to the Symbol struct in result
+            for symbol in created_symbols {
+                result.symbols.insert((symbol.domain.clone(), symbol.exchange.clone(), symbol.symbol.clone()), symbol);
+            }
+        }
 
         // Step 5: select all non-empty symbol descriptions with corresponding symbol hints from
         //         staged transactions and join them to symbol descriptions that exist in the database

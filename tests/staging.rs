@@ -114,17 +114,16 @@ mod tests {
                 "Record count mismatch for test case: {}", test_case.name);
 
             // Query the database to get the actual staged transactions
+            let stmt = staging_txs::Entity::find()
+                .filter(staging_txs::Column::BatchDbid.eq(batch_dbid));
+
             let actual_staging_txs = match &mut exec {
                 Conn { db, .. } => {
-                    staging_txs::Entity::find()
-                        .filter(staging_txs::Column::BatchDbid.eq(batch_dbid))
-                        .all(db)
+                    stmt.all(db.as_ref())
                         .await.expect("Failed to query staging transactions")
                 }
                 TxExec { tx, .. } => {
-                    staging_txs::Entity::find()
-                        .filter(staging_txs::Column::BatchDbid.eq(batch_dbid))
-                        .all(tx)
+                    stmt.all(tx)
                         .await.expect("Failed to query staging transactions")
                 }
             };

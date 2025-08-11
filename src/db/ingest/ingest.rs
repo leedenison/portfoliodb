@@ -6,7 +6,9 @@ use crate::db::ingest::models::{batches, staging_txs, staging_prices};
 use crate::db::DatabaseManager;
 use crate::db::ingest::api::IngestStore;
 use crate::portfolio_db::{Tx, Price};
-use crate::db::executor::{DatabaseExecutor, DatabaseExecutor::Conn, DatabaseExecutor::Tx as TxExec};
+use crate::db::executor::{DatabaseExecutor, DatabaseExecutor::Conn, DatabaseExecutor::Tx as TxExec, Executor};
+use crate::db::models::{SymbolActiveModel, InstrumentActiveModel};
+use crate::db::models;
 
 #[async_trait::async_trait]
 impl IngestStore for DatabaseManager {
@@ -238,5 +240,54 @@ impl IngestStore for DatabaseManager {
         }
         
         Ok(())
+    }
+
+    /// Creates new symbols and instruments for the given symbol data.
+    /// 
+    /// # Arguments
+    /// * `exec` - Database executor
+    /// * `new_symbols` - Vector of tuples containing (domain, exchange, symbol, currency)
+    /// * `disambiguated` - Whether the symbols are disambiguated
+    ///
+    /// # Returns
+    /// * `Ok(Vec<models::Symbol>)` - Vector of created symbols with dbids filled in
+    /// * `Err` if a database error occurs
+    async fn create_symbols_and_instruments(
+        &self,
+        exec: &mut DatabaseExecutor,
+        new_symbols: Vec<(String, String, String, String, Option<String>)>,
+        disambiguated: bool,
+    ) -> Result<Vec<models::Symbol>> {
+        let mut created_symbols = Vec::new();
+        let mut tx = exec.begin().await?;
+        
+        for (domain, exchange, symbol, currency, instrument_type) in new_symbols {
+            // Create a new instrument first
+            let instrument = InstrumentActiveModel {
+                r#type: Set(instrument_type.unwrap_or("UNKNOWN".to_string())),
+                created_at: Set(Utc::now()),
+                ..Default::default()
+            };
+            
+            let instrument_result = instrument.insert(tx).await?;
+            
+            // Create the symbol linked to the instrument
+            let symbol_model = SymbolActiveModel {
+                instrument_dbid: Set(instrument_result.dbid),
+                domain: Set(domain.clone()),
+                exchange: Set(exchange.clone()),
+                symbol: Set(symbol.clone()),
+                currency: Set(currency.clone()),
+                disambiguated: Set(disambiguated),
+                created_at: Set(Utc::now()),
+                ..Default::default()
+            };
+            
+            let symbol_result = symbol_model.insert(tx).await?;
+            created_symbols.push(symbol_result);
+        }
+
+        exec.commit().await?;
+        Ok(created_symbols)
     }
 } 

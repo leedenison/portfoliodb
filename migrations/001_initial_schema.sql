@@ -18,8 +18,8 @@ CREATE TABLE brokers (
 
 -- Create instruments table (regular PostgreSQL table)
 CREATE TABLE instruments (
-    dbid BIGSERIAL PRIMARY KEY,
-    type TEXT NOT NULL, -- STK, MF, BOND, etc.
+    dbid BIGSERIAL PRIMARY KEY, 
+    type TEXT NOT NULL CHECK (type IN ('UNKNOWN', 'STK', 'MF', 'BOND', 'CD', 'OPT', 'FUT', 'MFOPT', 'CASH', 'MMF', 'IET', 'FIXED', 'MISC')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

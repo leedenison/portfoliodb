@@ -10,15 +10,17 @@ use crate::portfolio_db::{
     DeleteBrokerRequest, DeleteBrokerResponse, SymbolDescription, Tx,
 };
 use crate::db::api::DataStore;
+use crate::db::DatabaseManager;
 use crate::db::ingest::models::staging_txs;
 use crate::db::ingest::models::StagingTx;
+use crate::db::ingest::api::IngestStore;
 use crate::db::models;
-use crate::db::executor::{DatabaseExecutor, Executor};
+use sea_orm::DatabaseTransaction;
 use chrono::{DateTime, Utc};
 use pbjson_types::Timestamp;
 
 pub struct Service {
-    db: Arc<dyn DataStore + Send + Sync>,
+    db_mgr: Arc<dyn DataStore + Send + Sync>,
 }
 
 pub struct DisambiguatedIds {
@@ -28,7 +30,11 @@ pub struct DisambiguatedIds {
 
 impl Service {
     pub fn new(db: Arc<dyn DataStore + Send + Sync>) -> Self {
-        Self { db }
+        Self { db_mgr: db }
+    }
+
+    fn db(&self) -> Arc<dyn DataStore + Send + Sync> {
+        self.db_mgr.clone()
     }
 
     /// Converts a protobuf Timestamp to a chrono DateTime<Utc>
@@ -104,14 +110,12 @@ impl Service {
     /// * `Err(Status)` - Error with details if staging fails
     async fn stage_txs(
         &self,
-        exec: &mut DatabaseExecutor,
         user_id: i64,
         period_start: DateTime<Utc>,
         period_end: DateTime<Utc>,
         txs: Vec<Tx>,
     ) -> Result<i64, Status> {
-        let batch_dbid = self.db.create_batch(
-            exec,
+        let batch_dbid = self.db().create_batch(
             user_id,
             "TXS_TIMESERIES",
             period_start,
@@ -119,20 +123,20 @@ impl Service {
         ).await
         .map_err(|e| Status::internal(format!("Failed to create batch: {}", e)))?;
 
-        let total_records = self.db.stage_txs(exec, batch_dbid, Box::new(txs.into_iter())).await
+        let total_records = self.db().stage_txs(batch_dbid, Box::new(txs.into_iter())).await
         .map_err(|e| {
             let msg = format!("Failed to stage transactions: {}", e);
-            let _ = self.db.update_batch_status(exec, batch_dbid, "FAILED", Some(&msg));
+            let _ = self.db().update_batch_status(batch_dbid, "FAILED", Some(&msg));
             Status::internal(msg)
         })?;
 
-        self.db.update_batch_total_records(exec, batch_dbid, total_records as i32).await
+        self.db().update_batch_total_records(batch_dbid, total_records as i32).await
         .map_err(|e| Status::internal(format!("Failed to update batch total records: {}", e)))?;
 
-        if let Err(e) = self.db.update_batch_status(exec, batch_dbid, "PROCESSING", None).await {
+        if let Err(e) = self.db().update_batch_status(batch_dbid, "PROCESSING", None).await {
             tracing::warn!("Failed to update batch status to PROCESSING: {}", e);
         }
-
+        
         Ok(batch_dbid)
     }
 
@@ -151,7 +155,6 @@ impl Service {
     #[cfg(feature = "disambiguate")]
     async fn disambiguate_ids(
         &self,  
-        exec: &mut DatabaseExecutor,
         batch_dbid: i64,
         user_id: i64,
     ) -> Result<DisambiguatedIds, anyhow::Error> {
@@ -176,7 +179,7 @@ impl Service {
     #[cfg(not(feature = "disambiguate"))]
     async fn disambiguate_ids(
         &self,
-        exec: &mut DatabaseExecutor,
+        tx: &DatabaseManager<DatabaseTransaction>,
         batch_dbid: i64,
         user_id: i64,
     ) -> Result<DisambiguatedIds, anyhow::Error> {
@@ -185,9 +188,12 @@ impl Service {
             symbols: HashMap::new(),
         };
 
-        let staged_symbols_with_existing = staging_txs::Entity::all_complete_symbols_with_existing(exec, batch_dbid).await?;
+        let staged_symbols_with_existing = staging_txs::Entity::all_complete_symbols_with_existing(
+            tx.executor(), 
+            batch_dbid).await?;
         let mut new_symbols_to_create = Vec::new();
 
+        // Find existing symbols
         for (staged_tx, existing_symbol) in staged_symbols_with_existing {
             let StagingTx { domain, exchange, symbol, symbol_currency: currency, .. } = staged_tx;
 
@@ -198,11 +204,10 @@ impl Service {
             }
         }
 
-        // Step 3: create new symbols and instruments for any symbols that do not exist in the database
+        // Create new symbols and instruments
         if !new_symbols_to_create.is_empty() {
-            let created_symbols = self.db.create_symbols_and_instruments(exec, new_symbols_to_create, false).await?;
+            let created_symbols = tx.create_symbols_and_instruments(new_symbols_to_create, false).await?;
             
-            // Step 4: add mappings from domain, exchange, and symbol to the Symbol struct in result
             for symbol in created_symbols {
                 result.symbols.insert((symbol.domain.clone(), symbol.exchange.clone(), symbol.symbol.clone()), symbol);
             }
@@ -251,19 +256,18 @@ impl PortfolioDb for Service {
             .ok_or_else(|| Status::invalid_argument("Period is required"))?;
         let (period_start, period_end) = Self::validate_period(&period)?;
 
-        let mut conn_exec = self.db.executor();
-        let batch_dbid = self.stage_txs(&mut conn_exec, user_id, period_start, period_end, txs).await?;
+        let batch_dbid = self.stage_txs(user_id, period_start, period_end, txs).await?;
 
-        self.db.validate_txs(&mut conn_exec, batch_dbid).await
+        self.db().validate_txs(batch_dbid).await
             .map_err(|e| Status::internal(format!("Invalid transactions in batch {}: {}", batch_dbid, e)))?;
         
-        let mut tx_exec = self.db.begin().await
+        let tx = self.db().with_tx().await
             .map_err(|e| Status::internal(format!("Failed to begin transaction: {}", e)))?;
 
-        let _disambiguated_ids = self.disambiguate_ids(&mut tx_exec, batch_dbid, user_id).await
+        let disambiguated_ids = self.disambiguate_ids(&tx, batch_dbid, user_id).await
             .map_err(|e| Status::internal(format!("Failed to disambiguate symbols: {}", e)))?;
 
-        tx_exec.commit().await
+        tx.commit().await
             .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
 
         Ok(Response::new(UpdateTxsResponse {

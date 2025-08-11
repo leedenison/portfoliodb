@@ -4,7 +4,6 @@ use sea_orm::entity::prelude::*;
 use sea_orm::{NotSet, Set, Select, Condition};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
-use crate::db::executor::{DatabaseExecutor, DatabaseExecutor::Conn, DatabaseExecutor::Tx as TxExec};
 use crate::db::models;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
@@ -101,17 +100,15 @@ impl Entity {
     /// # Returns
     /// * `Ok(Vec<Model>)` - Vector of invalid transaction models
     /// * `Err` if a database error occurs
-    pub async fn all_invalid_txs(
-        exec: &mut DatabaseExecutor,
+    pub async fn all_invalid_txs<E>(
+        exec: &E,
         batch_dbid: i64,
-    ) -> Result<Vec<Model>> {
-        let stmt = Self::find_invalid_txs(batch_dbid);
-        let result = match exec {
-            Conn { db, .. } => stmt.all(db.as_ref()).await,
-            TxExec { tx, .. } => stmt.all(tx).await,
-        };
-        
-        result.map_err(|e| anyhow::anyhow!("Failed to fetch invalid transactions: {}", e))
+    ) -> Result<Vec<Model>>
+    where
+        E: sea_orm::ConnectionTrait,
+    {
+        Self::find_invalid_txs(batch_dbid).all(exec).await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch invalid transactions: {}", e))
     }
 
     /// Returns count of invalid staged transactions for a given batch
@@ -123,17 +120,15 @@ impl Entity {
     /// # Returns
     /// * `Ok(u64)` - Count of invalid transactions
     /// * `Err` if a database error occurs
-    pub async fn count_invalid_txs(
-        exec: &mut DatabaseExecutor,
+    pub async fn count_invalid_txs<E>(
+        exec: &E,
         batch_dbid: i64,
-    ) -> Result<u64> {
-        let stmt = Self::find_invalid_txs(batch_dbid);
-        let result = match exec {
-            Conn { db, .. } => stmt.count(db.as_ref()).await,
-            TxExec { tx, .. } => stmt.count(tx).await,
-        };
-        
-        result.map_err(|e| anyhow::anyhow!("Failed to count invalid transactions: {}", e))
+    ) -> Result<u64>
+    where
+        E: sea_orm::ConnectionTrait,
+    {
+        Self::find_invalid_txs(batch_dbid).count(exec).await
+            .map_err(|e| anyhow::anyhow!("Failed to count invalid transactions: {}", e))
     }
 
     /// Returns all complete symbols from staged transactions with their corresponding existing symbols
@@ -148,23 +143,21 @@ impl Entity {
     /// # Returns
     /// * `Ok(Vec<(Model, Option<Symbol>)>)` - Vector of staged transactions with optional existing symbols
     /// * `Err` if a database error occurs
-    pub async fn all_complete_symbols_with_existing(
-        exec: &mut DatabaseExecutor,
+    pub async fn all_complete_symbols_with_existing<E>(
+        exec: &E,
         batch_dbid: i64,
-    ) -> Result<Vec<(Model, Option<models::Symbol>)>> {
-        let stmt = Entity::find()
+    ) -> Result<Vec<(Model, Option<models::Symbol>)>>
+    where
+        E: sea_orm::ConnectionTrait,
+    {
+        Entity::find()
             .filter(Column::BatchDbid.eq(batch_dbid))
             .filter(Column::Domain.ne(""))
             .filter(Column::Exchange.ne(""))
             .filter(Column::Symbol.ne(""))
-            .find_also_related(models::Symbols);
-
-        let result = match exec {
-            Conn { db, .. } => stmt.all(db.as_ref()).await,
-            TxExec { tx, .. } => stmt.all(tx).await,
-        };
-        
-        result.map_err(|e| anyhow::anyhow!("Failed to fetch complete symbols with existing: {}", e))
+            .find_also_related(models::Symbols)
+            .all(exec).await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch complete symbols with existing: {}", e))
     }
 }
 

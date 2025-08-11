@@ -1,12 +1,11 @@
-use anyhow::Result;
-
+use crate::db::database::DatabaseManager;
 use crate::db::ingest::api::IngestStore;
 use crate::db::users::UserStore;
-use crate::db::executor::DatabaseExecutor;
+use anyhow::Result;
+use sea_orm::DatabaseTransaction;
 
 /// Trait defining the complete data store operations for PortfolioDB.
 #[async_trait::async_trait]
 pub trait DataStore: IngestStore + UserStore {
-    fn executor(&self) -> DatabaseExecutor;
-    async fn begin(&self) -> Result<DatabaseExecutor>;
-} 
+    async fn with_tx(&self) -> Result<DatabaseManager<DatabaseTransaction>>;
+}

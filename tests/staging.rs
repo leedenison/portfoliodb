@@ -1,12 +1,10 @@
 use portfoliodb::db::DatabaseManager;
-use portfoliodb::db::api::DataStore;
 use portfoliodb::db::ingest::api::IngestStore;
 use portfoliodb::db::ingest::models::staging_txs;
 use portfoliodb::portfolio_db::Tx;
-use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
+use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, DatabaseConnection};
 use serde_json::{json, Value};
 use std::env;
-use portfoliodb::db::executor::{DatabaseExecutor::Conn, DatabaseExecutor::Tx as TxExec};
 
 #[cfg(test)]
 mod tests {
@@ -17,7 +15,7 @@ mod tests {
     /// # Returns
     /// * `Ok(DatabaseManager)` if the database connection was established successfully
     /// * `Err` if DATABASE_URL is not set or if the connection fails
-    async fn db() -> anyhow::Result<DatabaseManager> {
+    async fn db() -> anyhow::Result<DatabaseManager<DatabaseConnection>> {
         let database_url = env::var("DATABASE_URL")
             .map_err(|_| anyhow::anyhow!("DATABASE_URL environment variable is not set"))?;
         
@@ -96,9 +94,7 @@ mod tests {
                 .expect("Failed to deserialize input transactions");
 
             // Create a batch for this test case
-            let mut exec = db.executor();
             let batch_dbid = db.create_batch(
-                &mut exec,
                 1, // user_dbid
                 "TXS_TIMESERIES",
                 chrono::DateTime::from_timestamp(1640995200, 0).unwrap(), // period_start
@@ -106,7 +102,7 @@ mod tests {
             ).await.expect("Failed to create batch");
 
             // Stage the transactions
-            let record_count = db.stage_txs(&mut exec, batch_dbid, Box::new(input_txs.clone().into_iter()))
+            let record_count = db.stage_txs(batch_dbid, Box::new(input_txs.clone().into_iter()))
                 .await.expect("Failed to stage transactions");
 
             // Verify the record count
@@ -114,19 +110,10 @@ mod tests {
                 "Record count mismatch for test case: {}", test_case.name);
 
             // Query the database to get the actual staged transactions
-            let stmt = staging_txs::Entity::find()
-                .filter(staging_txs::Column::BatchDbid.eq(batch_dbid));
-
-            let actual_staging_txs = match &mut exec {
-                Conn { db, .. } => {
-                    stmt.all(db.as_ref())
-                        .await.expect("Failed to query staging transactions")
-                }
-                TxExec { tx, .. } => {
-                    stmt.all(tx)
-                        .await.expect("Failed to query staging transactions")
-                }
-            };
+            let actual_staging_txs = staging_txs::Entity::find()
+                .filter(staging_txs::Column::BatchDbid.eq(batch_dbid))
+                .all(db.executor())
+                .await.expect("Failed to query staging transactions");
 
             // Deserialize expected staging transactions from JSON
             let mut expected_staging_txs: Vec<staging_txs::Model> = serde_json::from_value(test_case.expected_staging_txs_json.clone())

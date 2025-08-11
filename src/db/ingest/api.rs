@@ -1,7 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use crate::portfolio_db::{Tx, Price};
-use crate::db::executor::DatabaseExecutor;
 use crate::db::models;
 
 /// Trait defining the ingest operations for PortfolioDB.
@@ -12,7 +11,6 @@ pub trait IngestStore {
     /// Creates a new batch for ingestion and returns the batch_dbid.
     /// 
     /// # Arguments
-    /// * `exec` - Database executor
     /// * `user_dbid` - Optional user database ID
     /// * `batch_type` - Type of batch ('txs_timeseries' or 'prices_timeseries')
     /// * `period_start` - Start of the period for this batch
@@ -23,7 +21,6 @@ pub trait IngestStore {
     /// * `Err` if a database error occurs
     async fn create_batch(
         &self,
-        exec: &mut DatabaseExecutor,
         user_dbid: i64,
         batch_type: &str,
         period_start: DateTime<Utc>,
@@ -33,7 +30,6 @@ pub trait IngestStore {
     /// Bulk inserts Tx data into staging_txs table using SeaORM ActiveModel.
     /// 
     /// # Arguments
-    /// * `exec` - Database executor
     /// * `batch_dbid` - The batch database ID to associate with the transactions
     /// * `transactions` - Iterator over Tx protobuf types
     ///
@@ -42,7 +38,6 @@ pub trait IngestStore {
     /// * `Err` if a database error occurs
     async fn stage_txs(
         &self,
-        exec: &mut DatabaseExecutor,
         batch_dbid: i64,
         transactions: Box<dyn Iterator<Item = Tx> + Send>,
     ) -> Result<usize>;
@@ -50,7 +45,6 @@ pub trait IngestStore {
     /// Bulk inserts Price data into staging_prices table using SeaORM ActiveModel.
     /// 
     /// # Arguments
-    /// * `exec` - Database executor
     /// * `batch_dbid` - The batch database ID to associate with the prices
     /// * `prices` - Iterator over Price protobuf types
     ///
@@ -59,7 +53,6 @@ pub trait IngestStore {
     /// * `Err` if a database error occurs
     async fn stage_prices(
         &self,
-        exec: &mut DatabaseExecutor,
         batch_dbid: i64,
         prices: Box<dyn Iterator<Item = Price> + Send>,
     ) -> Result<usize>;
@@ -67,7 +60,6 @@ pub trait IngestStore {
     /// Updates the total_records field of a batch.
     /// 
     /// # Arguments
-    /// * `exec` - Database executor
     /// * `batch_dbid` - The batch database ID to update
     /// * `total_records` - The total number of records in the batch
     ///
@@ -76,7 +68,6 @@ pub trait IngestStore {
     /// * `Err` if a database error occurs
     async fn update_batch_total_records(
         &self,
-        exec: &mut DatabaseExecutor,
         batch_dbid: i64,
         total_records: i32,
     ) -> Result<()>;
@@ -84,7 +75,6 @@ pub trait IngestStore {
     /// Updates the status and error_message fields of a batch.
     /// 
     /// # Arguments
-    /// * `exec` - Database executor
     /// * `batch_dbid` - The batch database ID to update
     /// * `status` - The new status for the batch
     /// * `error_message` - Optional error message
@@ -94,7 +84,6 @@ pub trait IngestStore {
     /// * `Err` if a database error occurs
     async fn update_batch_status(
         &self,
-        exec: &mut DatabaseExecutor,
         batch_dbid: i64,
         status: &str,
         error_message: Option<&str>,
@@ -103,7 +92,6 @@ pub trait IngestStore {
     /// Validates staged transactions and updates batch status if validation fails.
     /// 
     /// # Arguments
-    /// * `exec` - Database executor
     /// * `batch_dbid` - The batch database ID to validate
     ///
     /// # Returns
@@ -111,14 +99,12 @@ pub trait IngestStore {
     /// * `Err` if validation fails or a database error occurs
     async fn validate_txs(
         &self,
-        exec: &mut DatabaseExecutor,
         batch_dbid: i64,
     ) -> Result<()>;
 
     /// Creates new symbols and instruments for the given symbol data.
     /// 
     /// # Arguments
-    /// * `exec` - Database executor
     /// * `new_symbols` - Vector of tuples containing (domain, exchange, symbol, currency, instrument_type)
     /// * `disambiguated` - Whether the symbols are disambiguated
     ///
@@ -127,7 +113,6 @@ pub trait IngestStore {
     /// * `Err` if a database error occurs
     async fn create_symbols_and_instruments(
         &self,
-        exec: &mut DatabaseExecutor,
         new_symbols: Vec<(String, String, String, String, Option<String>)>,
         disambiguated: bool,
     ) -> Result<Vec<models::Symbol>>;

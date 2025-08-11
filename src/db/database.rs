@@ -1,39 +1,59 @@
 use anyhow::Result;
-use sea_orm::{
-    Database, DatabaseConnection, TransactionTrait,
-};
-use std::sync::Arc;
-use super::api::DataStore;
-use super::executor::DatabaseExecutor;
+use sea_orm::{Database, DatabaseConnection, DatabaseTransaction, ConnectionTrait, TransactionTrait};
+use crate::db::api::DataStore;
 
 #[derive(Clone)]
-pub struct DatabaseManager {
-    conn: Arc<DatabaseConnection>,
+pub struct DatabaseManager<E> {
+    exec: E,
 }
 
-impl DatabaseManager {
-    pub async fn new(database_url: &str) -> Result<Self> {
-        let conn = Database::connect(database_url).await?;
-        Ok(Self {
-            conn: Arc::new(conn),
-        })
+impl DatabaseManager<DatabaseConnection> {
+    pub async fn new(url: &str) -> Result<Self> {
+        let conn = Database::connect(url).await?;
+        Ok(Self { exec: conn })
     }
 
-    /// Returns a clone of the underlying database connection.
-    /// This is used for simple operations that don't need transaction control.
-    pub fn connection(&self) -> Arc<DatabaseConnection> {
-        Arc::clone(&self.conn)
+    pub async fn begin(&self) -> Result<DatabaseTransaction> {
+        let tx = self.exec.begin().await?;
+        Ok(tx)
     }
 }
 
 #[async_trait::async_trait]
-impl DataStore for DatabaseManager {
-    fn executor(&self) -> DatabaseExecutor {
-        DatabaseExecutor::from_db(Arc::clone(&self.conn))
+impl DataStore for DatabaseManager<DatabaseConnection> {
+    async fn with_tx(&self) -> Result<DatabaseManager<DatabaseTransaction>> {
+        let tx = self.exec.begin().await?;
+        Ok(DatabaseManager { exec: tx })
+    }
+}
+
+impl DatabaseManager<DatabaseTransaction> {    
+    pub async fn begin(&self) -> Result<DatabaseTransaction> {
+        let tx = self.exec.begin().await?;
+        Ok(tx)
     }
 
-    async fn begin(&self) -> Result<DatabaseExecutor> {
-        let tx = self.conn.begin().await.map_err(|e| anyhow::anyhow!("Failed to begin transaction: {}", e))?;
-        Ok(DatabaseExecutor::from_tx(tx))
+    pub async fn commit(self) -> Result<()> {
+        self.exec.commit().await?;
+        Ok(())
     }
+
+    pub async fn rollback(self) -> Result<()> {
+        self.exec.rollback().await?;
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl DataStore for DatabaseManager<DatabaseTransaction> {
+    async fn with_tx(&self) -> Result<DatabaseManager<DatabaseTransaction>> {
+        Err(anyhow::anyhow!("Attempted to enter a transaction context from within an existing transaction context"))
+    }
+}
+
+impl<E> DatabaseManager<E> 
+where
+    E: ConnectionTrait + TransactionTrait,
+{
+    pub fn executor(&self) -> &E { &self.exec }
 }

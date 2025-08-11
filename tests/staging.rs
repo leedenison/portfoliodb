@@ -112,7 +112,7 @@ mod tests {
             // Query the database to get the actual staged transactions
             let actual_staging_txs = staging_txs::Entity::find()
                 .filter(staging_txs::Column::BatchDbid.eq(batch_dbid))
-                .all(db.executor())
+                .all(db.exec())
                 .await.expect("Failed to query staging transactions");
 
             // Deserialize expected staging transactions from JSON

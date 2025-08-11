@@ -189,7 +189,7 @@ impl Service {
         };
 
         let staged_symbols_with_existing = staging_txs::Entity::all_complete_symbols_with_existing(
-            tx.executor(), 
+            tx.exec(), 
             batch_dbid).await?;
         let mut new_symbols_to_create = Vec::new();
 

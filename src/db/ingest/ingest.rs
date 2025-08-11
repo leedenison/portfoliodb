@@ -47,7 +47,7 @@ where
             ..Default::default()
         };
 
-        let result = batch.insert(self.executor()).await?;
+        let result = batch.insert(self.exec()).await?;
         Ok(result.batch_dbid)
     }
 
@@ -79,7 +79,7 @@ where
         }
 
         staging_txs::Entity::insert_many(active_models)
-            .exec(self.executor())
+            .exec(self.exec())
             .await?;
         
         Ok(record_count)
@@ -113,7 +113,7 @@ where
         }
 
         staging_prices::Entity::insert_many(active_models)
-            .exec(self.executor())
+            .exec(self.exec())
             .await?;
         
         Ok(record_count)
@@ -136,7 +136,7 @@ where
         let result = Batches::update_many()
             .col_expr(batches::Column::TotalRecords, total_records.into())
             .filter(batches::Column::BatchDbid.eq(batch_dbid))
-            .exec(self.executor())
+            .exec(self.exec())
             .await?;
 
         if result.rows_affected == 0 {
@@ -174,7 +174,7 @@ where
             update_query = update_query.col_expr(batches::Column::ProcessedAt, Utc::now().into());
         }
 
-        let result = update_query.exec(self.executor()).await?;
+        let result = update_query.exec(self.exec()).await?;
 
         if result.rows_affected == 0 {
             return Err(anyhow::anyhow!("Batch with id {} not found", batch_dbid));
@@ -195,11 +195,10 @@ where
         &self,
         batch_dbid: i64,
     ) -> Result<()> {
-        let exec = self.executor();
-        let invalid_count = staging_txs::Entity::count_invalid_txs(exec, batch_dbid).await?;
+        let invalid_count = staging_txs::Entity::count_invalid_txs(self.exec(), batch_dbid).await?;
         
         if invalid_count > 0 {
-            let invalid_txs = staging_txs::Entity::all_invalid_txs(exec, batch_dbid).await?;
+            let invalid_txs = staging_txs::Entity::all_invalid_txs(self.exec(), batch_dbid).await?;
             
             let mut error_lines = Vec::new();
             for tx in invalid_txs {
@@ -239,8 +238,7 @@ where
         disambiguated: bool,
     ) -> Result<Vec<models::Symbol>> {
         let mut created_symbols = Vec::new();
-        let exec = self.executor();
-        let tx = exec.begin().await?;
+        let tx = self.exec().begin().await?;
 
         for (domain, exchange, symbol, currency, instrument_type) in new_symbols {
             let instrument = InstrumentActiveModel {

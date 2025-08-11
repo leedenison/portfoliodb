@@ -29,7 +29,7 @@ where
     async fn get_user_id_by_email(&self, email: &str) -> Result<Option<i64>> {
         let user = Users::find()
             .filter(users::Column::Email.eq(email))
-            .one(self.executor())
+            .one(self.exec())
             .await?;
 
         Ok(user.map(|user| user.dbid))

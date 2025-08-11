@@ -55,5 +55,5 @@ impl<E> DatabaseManager<E>
 where
     E: ConnectionTrait + TransactionTrait,
 {
-    pub fn executor(&self) -> &E { &self.exec }
+    pub fn exec(&self) -> &E { &self.exec }
 }

@@ -156,11 +156,11 @@ where
     /// # Returns
     /// * `Ok(())` if the batch was updated successfully
     /// * `Err` if a database error occurs
-    async fn update_batch_status(
-        &self,
+    async fn update_batch_status<'a>(
+        &'a self,
         batch_dbid: i64,
-        status: &str,
-        error_message: Option<&str>,
+        status: &'a str,
+        error_message: Option<&'a str>,
     ) -> Result<()> {
         let mut update_query = Batches::update_many()
             .col_expr(batches::Column::Status, status.into())

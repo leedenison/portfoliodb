@@ -82,11 +82,11 @@ pub trait IngestStore {
     /// # Returns
     /// * `Ok(())` if the batch was updated successfully
     /// * `Err` if a database error occurs
-    async fn update_batch_status(
-        &self,
+    async fn update_batch_status<'a>(
+        &'a self,
         batch_dbid: i64,
-        status: &str,
-        error_message: Option<&str>,
+        status: &'a str,
+        error_message: Option<&'a str>,
     ) -> Result<()>;
 
     /// Validates staged transactions and updates batch status if validation fails.

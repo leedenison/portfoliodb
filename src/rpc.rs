@@ -215,6 +215,13 @@ impl Service {
 
         // Step 5: select all non-empty symbol descriptions with corresponding symbol hints from
         //         staged transactions and join them to symbol descriptions that exist in the database
+        let staged_symbol_descriptions = staging_txs::Entity::all_complete_symbol_desc_with_existing(
+            tx.exec(),
+            batch_dbid).await?;
+        let mut new_symbol_descriptions_to_create: Vec<(String, String, String, Option<i64>)> = Vec::new();
+        
+        // Find existing symbol descriptions
+        
 
         // Step 6: create new symbol descriptions for any symbol descriptions that do not
         //         exist in the database.  If the symbol description is associated with a complete 
@@ -403,6 +410,88 @@ impl PortfolioDb for Service {
                 message: "Stub implementation".to_string(),
             }),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::mocks::MockDataStoreMock;
+    use mockall::predicate::*;
+    use serde_json::json;
+
+    fn create_sample_tx() -> Tx {
+        let tx_json = json!({
+            "account_id": "account1",
+            "description": {
+                "id": "desc1",
+                "broker_key": "test_broker",
+                "description": "Test Description"
+            },
+            "symbol": {
+                "id": "sym1",
+                "domain": "NASDAQ",
+                "exchange": "NASDAQ",
+                "symbol": "AAPL",
+                "currency": "USD"
+            },
+            "units": 10.0,
+            "unit_price": 150.0,
+            "currency": "USD",
+            "trade_date": "2022-01-01T00:00:00Z",
+            "settled_date": "2022-01-02T00:00:00Z",
+            "tx_type": "BUY"
+        });
+
+        serde_json::from_value(tx_json).expect("Failed to deserialize transaction from JSON")
+    }
+
+    #[tokio::test]
+    async fn test_stage_txs_success() {
+        let user_id = 1;
+        let period_start = DateTime::from_timestamp(1640995200, 0).unwrap();
+        let period_end = DateTime::from_timestamp(1641081600, 0).unwrap();
+        let txs = vec![create_sample_tx()];
+        let expected_batch_id = 1;
+        let expected_record_count = 1;
+
+        let mut mock = MockDataStoreMock::new();
+
+        mock.expect_create_batch()
+            .times(1)
+            .with(
+                eq(user_id),
+                eq("TXS_TIMESERIES"),
+                eq(period_start),
+                eq(period_end)
+            )
+            .returning(move |_, _, _, _| Ok(expected_batch_id));
+
+        mock.expect_stage_txs()
+            .times(1)
+            .with(eq(expected_batch_id), always())
+            .returning(move |_, _| Ok(expected_record_count));
+
+        mock.expect_update_batch_total_records()
+            .times(1)
+            .with(eq(expected_batch_id), eq(expected_record_count as i32))
+            .returning(|_, _| Ok(()));
+
+        mock.expect_update_batch_status()
+            .times(1)
+            .with(eq(expected_batch_id), eq("PROCESSING"), always())
+            .returning(|_, _, _| Ok(()));
+
+        let service = Service::new(Arc::new(mock));
+
+        // Call stage_txs
+        let result = service.stage_txs(user_id, period_start, period_end, txs).await;
+
+        // Verify the result
+        assert!(result.is_ok(), "Expected stage_txs to succeed");
+        let batch_id = result.unwrap();
+        assert_eq!(batch_id, expected_batch_id, "Expected batch ID {} but got {}", expected_batch_id, batch_id);
+        println!("✓ Test passed: stage_txs success case");
     }
 }
 

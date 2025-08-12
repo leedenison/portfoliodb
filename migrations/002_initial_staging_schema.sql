@@ -29,7 +29,8 @@ CREATE TABLE staging_txs (
     unit_price DOUBLE PRECISION,
     trade_date TIMESTAMPTZ NOT NULL,
     settled_date TIMESTAMPTZ,
-    tx_type TEXT NOT NULL
+    tx_type TEXT NOT NULL,
+    instrument_type TEXT
 );
 
 CREATE TABLE staging_prices (

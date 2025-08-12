@@ -1,7 +1,7 @@
 use crate::portfolio_db::{Symbol, SymbolDescription, Tx};
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
-use sea_orm::{NotSet, Set, Select, Condition};
+use sea_orm::{NotSet, Set, Select, Condition, ConnectionTrait};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use crate::db::models;
@@ -25,12 +25,14 @@ pub struct Model {
     pub trade_date: DateTime<Utc>,
     pub settled_date: Option<DateTime<Utc>>,
     pub tx_type: String,
+    pub instrument_type: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
     Batch,
     Symbol,
+    SymbolDescription,
 }
 
 impl RelationTrait for Relation {
@@ -48,6 +50,12 @@ impl RelationTrait for Relation {
                 .from(Column::Symbol)
                 .to(models::symbols::Column::Symbol)
                 .into(),
+            Self::SymbolDescription => Entity::belongs_to(models::SymbolDescriptions)
+                .from(Column::BrokerKey)
+                .to(models::symbol_descriptions::Column::BrokerKey)
+                .from(Column::Description)
+                .to(models::symbol_descriptions::Column::Description)
+                .into(),
         }
     }
 }
@@ -61,6 +69,12 @@ impl Related<super::batches::Entity> for Entity {
 impl Related<models::Symbols> for Entity {
     fn to() -> RelationDef {
         Relation::Symbol.def()
+    }
+}
+
+impl Related<models::SymbolDescriptions> for Entity {
+    fn to() -> RelationDef {
+        Relation::SymbolDescription.def()
     }
 }
 
@@ -105,7 +119,7 @@ impl Entity {
         batch_dbid: i64,
     ) -> Result<Vec<Model>>
     where
-        E: sea_orm::ConnectionTrait,
+        E: ConnectionTrait,
     {
         Self::find_invalid_txs(batch_dbid).all(exec).await
             .map_err(|e| anyhow::anyhow!("Failed to fetch invalid transactions: {}", e))
@@ -125,7 +139,7 @@ impl Entity {
         batch_dbid: i64,
     ) -> Result<u64>
     where
-        E: sea_orm::ConnectionTrait,
+        E: ConnectionTrait,
     {
         Self::find_invalid_txs(batch_dbid).count(exec).await
             .map_err(|e| anyhow::anyhow!("Failed to count invalid transactions: {}", e))
@@ -148,7 +162,7 @@ impl Entity {
         batch_dbid: i64,
     ) -> Result<Vec<(Model, Option<models::Symbol>)>>
     where
-        E: sea_orm::ConnectionTrait,
+        E: ConnectionTrait,
     {
         Entity::find()
             .filter(Column::BatchDbid.eq(batch_dbid))
@@ -158,6 +172,22 @@ impl Entity {
             .find_also_related(models::Symbols)
             .all(exec).await
             .map_err(|e| anyhow::anyhow!("Failed to fetch complete symbols with existing: {}", e))
+    }
+
+    pub async fn all_complete_symbol_desc_with_existing<E>(
+        exec: &E,
+        batch_dbid: i64,
+    ) -> Result<Vec<(Model, Option<models::SymbolDescription>)>>
+    where
+        E: ConnectionTrait,
+    {
+        Entity::find()
+            .filter(Column::BatchDbid.eq(batch_dbid))
+            .filter(Column::BrokerKey.ne(""))
+            .filter(Column::Description.ne(""))
+            .find_also_related(models::SymbolDescriptions)
+            .all(exec).await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch complete symbol descriptions with existing: {}", e))
     }
 }
 
@@ -230,6 +260,7 @@ impl From<Tx> for ActiveModel {
             trade_date: Set(trade_date),
             settled_date: Set(settled_date),
             tx_type: Set(tx_type),
+            instrument_type: Set(None),
         }
     }
 }

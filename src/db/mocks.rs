@@ -7,7 +7,7 @@ use crate::db::api::DataStore;
 use crate::db::ingest::api::IngestStore;
 use crate::db::users::UserStore;
 use crate::db::DatabaseManager;
-use crate::portfolio_db::Tx;
+use crate::portfolio_db::{Instrument, Tx};
 
 // Create a mock for the DataStore trait using mockall
 mock! {
@@ -24,6 +24,7 @@ mock! {
             &self,
             user_dbid: i64,
             batch_type: &str,
+            broker_key: &str,
             period_start: DateTime<Utc>,
             period_end: DateTime<Utc>,
         ) -> Result<i64>;
@@ -32,6 +33,12 @@ mock! {
             &self,
             batch_dbid: i64,
             transactions: Box<dyn Iterator<Item = Tx> + Send>,
+        ) -> Result<usize>;
+
+        async fn stage_instruments(
+            &self,
+            batch_dbid: i64,
+            instruments: Box<dyn Iterator<Item = Instrument> + Send>,
         ) -> Result<usize>;
 
         async fn update_batch_total_records(

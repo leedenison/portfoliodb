@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use crate::portfolio_db::Tx;
+use crate::portfolio_db::{Tx, Instrument};
 
 /// Trait defining the ingest operations for PortfolioDB.
 /// This trait abstracts the ingest operations and allows for easier testing
@@ -41,6 +41,21 @@ pub trait IngestStore {
         &self,
         batch_dbid: i64,
         transactions: Box<dyn Iterator<Item = Tx> + Send>,
+    ) -> Result<usize>;
+
+    /// Bulk inserts Instrument data into staging_instruments and staging_identifiers tables.
+    /// 
+    /// # Arguments
+    /// * `batch_dbid` - The batch database ID to associate with the instruments
+    /// * `instruments` - Iterator over Instrument protobuf types
+    ///
+    /// # Returns
+    /// * `Ok(record_count)` - Total number of records (identifiers + instruments) successfully inserted
+    /// * `Err` if a database error occurs
+    async fn stage_instruments(
+        &self,
+        batch_dbid: i64,
+        instruments: Box<dyn Iterator<Item = Instrument> + Send>,
     ) -> Result<usize>;
 
     /// Updates the total_records field of a batch.

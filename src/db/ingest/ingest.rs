@@ -1,11 +1,11 @@
 use anyhow::Result;
 use sea_orm::{ActiveModelTrait, Set, ColumnTrait, EntityTrait, QueryFilter};
 use chrono::{DateTime, Utc};
-use crate::db::ingest::models::{BatchActiveModel, StagingTxActiveModel, Batches};
-use crate::db::ingest::models::{batches, staging_txs};
+use crate::db::ingest::models::{BatchActiveModel, StagingTxActiveModel, StagingInstrumentActiveModel, StagingIdentifierActiveModel, Batches};
+use crate::db::ingest::models::{batches, staging_txs, staging_instruments, staging_identifiers};
 use crate::db::DatabaseManager;
 use crate::db::ingest::api::IngestStore;
-use crate::portfolio_db::{Tx};
+use crate::portfolio_db::{Tx, Instrument};
 
 #[async_trait::async_trait]
 impl<E> IngestStore for DatabaseManager<E>
@@ -79,11 +79,59 @@ where
             return Ok(0);
         }
 
-        staging_txs::Entity::insert_many(active_models)
-            .exec(self.exec())
-            .await?;
+        if !active_models.is_empty() {
+            staging_txs::Entity::insert_many(active_models)
+                .exec(self.exec())
+                .await?;
+        }
         
         Ok(record_count)
+    }
+
+    /// Bulk inserts Instrument data into staging_instruments and staging_identifiers tables.
+    /// 
+    /// # Arguments
+    /// * `batch_dbid` - The batch database ID to associate with the instruments
+    /// * `instruments` - Iterator over Instrument protobuf types
+    ///
+    /// # Returns
+    /// * `Ok(record_count)` - Total number of records (identifiers + instruments) successfully inserted
+    /// * `Err` if a database error occurs
+    async fn stage_instruments(
+        &self,
+        batch_dbid: i64,
+        instruments: Box<dyn Iterator<Item = Instrument> + Send>,
+    ) -> Result<usize> {
+        let mut count = 0;
+        let mut identifiers = Vec::new();
+        let mut models = Vec::new();
+        
+        for instrument in instruments {
+            count += 1;
+            
+            let model = StagingInstrumentActiveModel::from(instrument.clone()).with_batch_dbid(batch_dbid);
+            models.push(model);
+
+            for identifier in instrument.identifiers {
+                count += 1;
+                let identifier_model = StagingIdentifierActiveModel::from(identifier).with_batch_dbid(batch_dbid);
+                identifiers.push(identifier_model);
+            }
+        }
+        
+        if !identifiers.is_empty() {
+            staging_identifiers::Entity::insert_many(identifiers)
+                .exec(self.exec())
+                .await?;
+        }
+        
+        if !models.is_empty() {
+            staging_instruments::Entity::insert_many(models)
+                .exec(self.exec())
+                .await?;
+        }
+        
+        Ok(count)
     }
 
     /// Updates the total_records field of a batch.

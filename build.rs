@@ -16,16 +16,16 @@ fn base_config() -> tonic_build::Builder {
             "#[serde(with = \"crate::prost_tx_type\")]",
         )
         .field_attribute(
-            ".portfoliodb.Instrument.instrument_type",
+            ".portfoliodb.Instrument.type",
             "#[serde(with = \"crate::prost_instrument_type\")]",
         )
         .field_attribute(
-            ".portfoliodb.Derivative.derivative_type",
-            "#[serde(with = \"crate::prost_derivative_type\")]",
+            ".portfoliodb.Option.put_call",
+            "#[serde(with = \"crate::prost_put_call\")]",
         )
         .field_attribute(
-            ".portfoliodb.Derivative.put_call",
-            "#[serde(with = \"crate::prost_put_call\")]",
+            ".portfoliodb.Option.style",
+            "#[serde(with = \"crate::prost_option_style\")]",
         )
         .field_attribute(
             ".portfoliodb.Error.code",
@@ -60,6 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ".portfoliodb.Instrument",
             ".portfoliodb.Identifier",
             ".portfoliodb.Derivative",
+            ".portfoliodb.Option",
             ".portfoliodb.Broker",
         ],
         "#[serde(default)]",

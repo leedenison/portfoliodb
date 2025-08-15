@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::portfolio_db::{
-    portfolio_db_server::PortfolioDb, Error, ErrorCode, UpdateTxsRequest, UpdateTxsResponse, Tx,
+    portfolio_db_server::PortfolioDb, Error, ErrorCode, UpdateTxsRequest, UpdateTxsResponse, Tx, Instrument,
 };
 use crate::db::api::DataStore;
 use crate::db::DatabaseManager;
@@ -89,13 +89,15 @@ impl Service {
             .ok_or_else(|| Status::unauthenticated("User ID not found"))
     }
 
-    /// Stages transactions into a batch for processing.
+    /// Stages transactions and instruments into a batch for processing.
     /// 
     /// # Arguments
     /// * `user_id` - The user ID for the batch
-    /// * `txs` - Vector of transactions to stage
+    /// * `broker_key` - The broker key for the batch
     /// * `period_start` - Start of the period
     /// * `period_end` - End of the period
+    /// * `txs` - Vector of transactions to stage
+    /// * `instruments` - Vector of instruments to stage
     /// 
     /// # Returns
     /// * `Ok(i64)` - The batch ID if successful
@@ -107,6 +109,7 @@ impl Service {
         period_start: DateTime<Utc>,
         period_end: DateTime<Utc>,
         txs: Vec<Tx>,
+        instruments: Vec<Instrument>,
     ) -> Result<i64, Status> {
         let batch_dbid = self.db().create_batch(
             user_id,
@@ -117,7 +120,16 @@ impl Service {
         ).await
         .map_err(|e| Status::internal(format!("Failed to create batch: {}", e)))?;
 
-        let total_records = self.db().stage_txs(batch_dbid, Box::new(txs.into_iter())).await
+        let mut total_records = 0;
+
+        total_records = self.db().stage_instruments(batch_dbid, Box::new(instruments.into_iter())).await
+        .map_err(|e| {
+            let msg = format!("Failed to stage instruments: {}", e);
+            let _ = self.db().update_batch_status(batch_dbid, "FAILED", Some(&msg));
+            Status::internal(msg)
+        })?;
+
+        total_records += self.db().stage_txs(batch_dbid, Box::new(txs.into_iter())).await
         .map_err(|e| {
             let msg = format!("Failed to stage transactions: {}", e);
             let _ = self.db().update_batch_status(batch_dbid, "FAILED", Some(&msg));
@@ -209,7 +221,7 @@ impl PortfolioDb for Service {
         let user_id = self.get_authenticated_user(&request)?;
         let req = request.into_inner();
 
-        let UpdateTxsRequest { period, txs, broker, instruments: _ } = req;
+        let UpdateTxsRequest { period, txs, broker, instruments } = req;
 
         let period = period
             .ok_or_else(|| Status::invalid_argument("Period is required"))?;
@@ -219,7 +231,7 @@ impl PortfolioDb for Service {
             .ok_or_else(|| Status::invalid_argument("Broker is required"))?
             .key;
 
-        let batch_dbid = self.stage_txs(user_id, broker_key, period_start, period_end, txs).await?;
+        let batch_dbid = self.stage_txs(user_id, broker_key, period_start, period_end, txs, instruments).await?;
         
         let tx = self.db().with_tx().await
             .map_err(|e| Status::internal(format!("Failed to begin transaction: {}", e)))?;
@@ -243,34 +255,67 @@ impl PortfolioDb for Service {
 mod tests {
     use super::*;
     use crate::db::mocks::MockDataStoreMock;
-    use mockall::predicate::*;
+    use mockall::predicate::{eq, always};
     use serde_json::json;
 
-    fn create_sample_tx() -> Tx {
-        let tx_json = json!({
+    fn test_tx() -> Tx {
+        serde_json::from_value(json!({
             "account_id": "account1",
-            "description": {
-                "id": "desc1",
-                "broker_key": "test_broker",
-                "description": "Test Description"
-            },
-            "symbol": {
-                "id": "sym1",
+            "identifier": {
+                "namespace": "NASDAQ",
                 "domain": "NASDAQ",
-                "exchange": "NASDAQ",
-                "symbol": "AAPL",
-                "currency": "USD"
+                "identifier": "AAPL"
             },
             "units": 10.0,
             "unit_price": 150.0,
             "currency": "USD",
             "trade_date": "2022-01-01T00:00:00Z",
             "settled_date": "2022-01-02T00:00:00Z",
-            "tx_type": "BUY",
-            "instrument_type": "STK"
-        });
+            "tx_type": "BUY"
+        })).expect("Failed to deserialize transaction from JSON")
+    }
 
-        serde_json::from_value(tx_json).expect("Failed to deserialize transaction from JSON")
+    fn test_stock() -> Instrument {
+        serde_json::from_value(json!({
+            "identifiers": [
+                {
+                    "namespace": "NASDAQ",
+                    "domain": "NASDAQ",
+                    "identifier": "AAPL"
+                }
+            ],
+            "currency": "USD",
+            "status": "ACTIVE",
+            "listing_mic": "NASDAQ",
+            "type": "STK"
+        })).expect("Failed to deserialize stock from JSON")
+    }
+
+    fn test_option() -> Instrument {
+        serde_json::from_value(json!({
+            "identifiers": [
+                {
+                    "namespace": "OCC",
+                    "identifier": "AAPL250919C00150000"
+                }
+            ],
+            "currency": "USD",
+            "status": "ACTIVE",
+            "listing_mic": "NASDAQ",
+            "type": "OPT",
+            "derivative": {
+                "underlying": {
+                    "namespace": "NASDAQ",
+                    "domain": "NASDAQ",
+                    "identifier": "AAPL"
+                },
+                "option": {
+                    "option_style": "AMERICAN",
+                    "strike_price": 150.0,
+                    "expiration_date": "2022-01-01T00:00:00Z"
+                }
+            }
+        })).expect("Failed to deserialize option from JSON")
     }
 
     #[tokio::test]
@@ -278,9 +323,12 @@ mod tests {
         let user_id = 1;
         let period_start = DateTime::from_timestamp(1640995200, 0).unwrap();
         let period_end = DateTime::from_timestamp(1641081600, 0).unwrap();
-        let txs = vec![create_sample_tx()];
+        let txs = vec![test_tx()];
+        let instruments = vec![test_stock(), test_option()];
         let expected_batch_id = 1;
-        let expected_record_count = 1;
+        let expected_instrument_records = 4;
+        let expected_tx_records = 1;
+        let expected_total_records = expected_instrument_records + expected_tx_records;
 
         let mut mock = MockDataStoreMock::new();
 
@@ -295,14 +343,27 @@ mod tests {
             )
             .returning(move |_, _, _, _, _| Ok(expected_batch_id));
 
+        mock.expect_stage_instruments()
+            .times(1)
+            .with(eq(expected_batch_id), always())
+            .returning(move |_, instruments| {
+                let instruments_vec: Vec<Instrument> = instruments.collect();
+                assert_eq!(instruments_vec.len(), 2, "Expected 2 instruments to be staged");
+                Ok(expected_instrument_records)
+            });
+
         mock.expect_stage_txs()
             .times(1)
             .with(eq(expected_batch_id), always())
-            .returning(move |_, _| Ok(expected_record_count));
+            .returning(move |_, txs| {
+                let txs_vec: Vec<Tx> = txs.collect();
+                assert_eq!(txs_vec.len(), 1, "Expected 1 transaction to be staged");
+                Ok(expected_tx_records)
+            });
 
         mock.expect_update_batch_total_records()
             .times(1)
-            .with(eq(expected_batch_id), eq(expected_record_count as i32))
+            .with(eq(expected_batch_id), eq(expected_total_records as i32))
             .returning(|_, _| Ok(()));
 
         mock.expect_update_batch_status()
@@ -313,7 +374,7 @@ mod tests {
         let service = Service::new(Arc::new(mock));
 
         // Call stage_txs
-        let result = service.stage_txs(user_id, "test_broker".to_string(), period_start, period_end, txs).await;
+        let result = service.stage_txs(user_id, "test_broker".to_string(), period_start, period_end, txs, instruments).await;
 
         // Verify the result
         assert!(result.is_ok(), "Expected stage_txs to succeed");

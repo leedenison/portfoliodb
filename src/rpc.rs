@@ -1,19 +1,12 @@
 use tonic::{Request, Response, Status};
-use tracing::info;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::portfolio_db::{
-    portfolio_db_server::PortfolioDb, Error, ErrorCode, GetHoldingsRequest, GetHoldingsResponse,
-    GetPricesRequest, GetPricesResponse, UpdateBrokerRequest, UpdateBrokerResponse,
-    UpdatePricesRequest, UpdatePricesResponse, UpdateTxsRequest, UpdateTxsResponse,
-    DeleteBrokerRequest, DeleteBrokerResponse, SymbolDescription, Tx,
+    portfolio_db_server::PortfolioDb, Error, ErrorCode, UpdateTxsRequest, UpdateTxsResponse, Tx,
 };
 use crate::db::api::DataStore;
 use crate::db::DatabaseManager;
-use crate::db::ingest::models::staging_txs;
-use crate::db::ingest::models::StagingTx;
-use crate::db::ingest::api::IngestStore;
 use crate::db::models;
 use sea_orm::DatabaseTransaction;
 use chrono::{DateTime, Utc};
@@ -24,8 +17,7 @@ pub struct Service {
 }
 
 pub struct DisambiguatedIds {
-    symbol_descriptions: HashMap<String, SymbolDescription>,
-    symbols:  HashMap<(String, String, String), models::Symbol>,
+    identifiers: HashMap<(String, String, String), models::Identifier>,
 }
 
 impl Service {
@@ -111,6 +103,7 @@ impl Service {
     async fn stage_txs(
         &self,
         user_id: i64,
+        broker_key: String,
         period_start: DateTime<Utc>,
         period_end: DateTime<Utc>,
         txs: Vec<Tx>,
@@ -118,6 +111,7 @@ impl Service {
         let batch_dbid = self.db().create_batch(
             user_id,
             "TXS_TIMESERIES",
+            broker_key.as_str(),
             period_start,
             period_end
         ).await
@@ -159,15 +153,14 @@ impl Service {
         user_id: i64,
     ) -> Result<DisambiguatedIds, anyhow::Error> {
         // Stub implementation when disambiguation feature is enabled
-        tracing::info!("Disambiguation feature enabled - skipping symbol disambiguation for batch {} (user: {})", batch_dbid, user_id);
+        tracing::info!("Disambiguation feature enabled - skipping identifier disambiguation for batch {} (user: {})", batch_dbid, user_id);
         Ok(DisambiguatedIds {
-            symbol_descriptions: HashMap::new(),
-            symbols: HashMap::new(),
+            identifiers: HashMap::new(),
         })
     }
 
-    /// Resolves broker symbol descriptions and corresponding symbol hints to the symbol dbid 
-    /// in the database.  If no symbol dbid is found, a new symbol with a new instrument is created.
+    /// Resolves identifiers to the identifier dbid in the database.  
+    /// If no identifier dbid is found, a new identifier with a new instrument is created.
     /// 
     /// # Arguments
     /// * `batch_dbid` - The batch ID to process
@@ -184,54 +177,13 @@ impl Service {
         user_id: i64,
     ) -> Result<DisambiguatedIds, anyhow::Error> {
         let mut result = DisambiguatedIds {
-            symbol_descriptions: HashMap::new(),
-            symbols: HashMap::new(),
+            identifiers: HashMap::new(),
         };
 
-        let staged_symbols_with_existing = staging_txs::Entity::all_complete_symbols_with_existing(
-            tx.exec(), 
-            batch_dbid).await?;
-        let mut new_symbols_to_create = Vec::new();
-
-        // Find existing symbols
-        for (staged_tx, existing_symbol) in staged_symbols_with_existing {
-            let StagingTx { domain, exchange, symbol, symbol_currency: currency, .. } = staged_tx;
-
-            if let Some(existing_symbol) = existing_symbol {
-                result.symbols.insert((domain, exchange, symbol), existing_symbol);
-            } else {
-                new_symbols_to_create.push((domain, exchange, symbol, currency, None));
-            }
-        }
-
-        // Create new symbols and instruments
-        if !new_symbols_to_create.is_empty() {
-            let created_symbols = tx.create_symbols_and_instruments(new_symbols_to_create, false).await?;
-            
-            for symbol in created_symbols {
-                result.symbols.insert((symbol.domain.clone(), symbol.exchange.clone(), symbol.symbol.clone()), symbol);
-            }
-        }
-
-        // Step 5: select all non-empty symbol descriptions with corresponding symbol hints from
-        //         staged transactions and join them to symbol descriptions that exist in the database
-        let staged_symbol_descriptions = staging_txs::Entity::all_complete_symbol_desc_with_existing(
-            tx.exec(),
-            batch_dbid).await?;
-        let mut new_symbol_descriptions_to_create: Vec<(String, String, String, Option<i64>)> = Vec::new();
         
-        // Find existing symbol descriptions
-        
-
-        // Step 6: create new symbol descriptions for any symbol descriptions that do not
-        //         exist in the database.  If the symbol description is associated with a complete 
-        //         symbol (ie. has non-empty domain, exchange, and symbol) in step 5, ensure that the
-        //         symbol_dbid for new symbol descriptions is looked up from the mapping in step 4
-
-        // Step 7: add mappings from symbol description dbid to SymbolDescription struct in result
 
         // Stub implementation when disambiguation feature is disabled
-        tracing::info!("Disambiguation feature disabled - skipping symbol disambiguation for batch {} (user: {})", batch_dbid, user_id);
+        tracing::info!("Disambiguation feature disabled - skipping identifier disambiguation for batch {} (user: {})", batch_dbid, user_id);
         Ok(result)
     }
 }
@@ -257,22 +209,23 @@ impl PortfolioDb for Service {
         let user_id = self.get_authenticated_user(&request)?;
         let req = request.into_inner();
 
-        let UpdateTxsRequest { period, txs } = req;
+        let UpdateTxsRequest { period, txs, broker, instruments: _ } = req;
 
         let period = period
             .ok_or_else(|| Status::invalid_argument("Period is required"))?;
         let (period_start, period_end) = Self::validate_period(&period)?;
 
-        let batch_dbid = self.stage_txs(user_id, period_start, period_end, txs).await?;
+        let broker_key = broker
+            .ok_or_else(|| Status::invalid_argument("Broker is required"))?
+            .key;
 
-        self.db().validate_txs(batch_dbid).await
-            .map_err(|e| Status::internal(format!("Invalid transactions in batch {}: {}", batch_dbid, e)))?;
+        let batch_dbid = self.stage_txs(user_id, broker_key, period_start, period_end, txs).await?;
         
         let tx = self.db().with_tx().await
             .map_err(|e| Status::internal(format!("Failed to begin transaction: {}", e)))?;
 
         let disambiguated_ids = self.disambiguate_ids(&tx, batch_dbid, user_id).await
-            .map_err(|e| Status::internal(format!("Failed to disambiguate symbols: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to disambiguate identifiers: {}", e)))?;
 
         tx.commit().await
             .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
@@ -281,133 +234,6 @@ impl PortfolioDb for Service {
             error: Some(Error {
                 code: ErrorCode::Ok as i32,
                 message: String::new(),
-            }),
-        }))
-    }
-
-    /// Retrieves holdings timeseries data for specified accounts within a date range.
-    ///
-    /// Returns a dense timeseries of holdings for each account-instrument pair
-    /// in the requested period. Each holding entry corresponds to a consecutive day starting
-    /// from the start.
-    ///
-    /// # Arguments
-    /// * `request` - Contains date range and list of account IDs to query
-    ///
-    /// # Returns
-    /// * List of holdings with account_id, symbol_dbid, symbol_description_dbid, quantity, and date information
-    async fn get_holdings(
-        &self,
-        _request: Request<GetHoldingsRequest>,
-    ) -> Result<Response<GetHoldingsResponse>, Status> {
-        // Stub implementation
-        info!("GetHoldings called");
-        Ok(Response::new(GetHoldingsResponse {
-            holdings: vec![],
-            error: Some(Error {
-                code: ErrorCode::Ok as i32,
-                message: "Stub implementation".to_string(),
-            }),
-        }))
-    }
-
-    /// Updates price data for instruments within a given time period.
-    ///
-    /// This operation replaces all existing prices in the specified period with the provided
-    /// prices. If the prices list is empty, this effectively deletes all prices in the period.
-    ///
-    /// # Arguments
-    /// * `request` - Contains date range and list of prices to update
-    ///
-    /// # Returns
-    /// * Success response with OK error code, or error response with details
-    async fn update_prices(
-        &self,
-        request: Request<UpdatePricesRequest>,
-    ) -> Result<Response<UpdatePricesResponse>, Status> {
-        let user_id = self.get_authenticated_user(&request)?;
-        let req = request.into_inner();
-
-        let UpdatePricesRequest { period, prices: _ } = req;
-
-        let period = period
-            .ok_or_else(|| Status::invalid_argument("Period is required"))?;
-        let (period_start, period_end) = Self::validate_period(&period)?;
-
-        // TODO: Implement actual price update logic
-        info!("UpdatePrices called with period: {} to {}", period_start, period_end);
-        
-        Ok(Response::new(UpdatePricesResponse {
-            error: Some(Error {
-                code: ErrorCode::Ok as i32,
-                message: "Stub implementation".to_string(),
-            }),
-        }))
-    }
-
-    /// Retrieves price timeseries data for specified instruments within a date range.
-    ///
-    /// Returns a dense timeseries of prices for each instrument in the requested period.
-    /// Each price entry corresponds to a consecutive day starting from the start.
-    ///
-    /// # Arguments
-    /// * `request` - Contains date range and list of instrument IDs to query
-    ///
-    /// # Returns
-    /// * List of prices with instrument_dbid, price, currency, and date information
-    async fn get_prices(
-        &self,
-        _request: Request<GetPricesRequest>,
-    ) -> Result<Response<GetPricesResponse>, Status> {
-        // Stub implementation
-        info!("GetPrices called");
-        Ok(Response::new(GetPricesResponse {
-            prices: vec![],
-            error: Some(Error {
-                code: ErrorCode::Ok as i32,
-                message: "Stub implementation".to_string(),
-            }),
-        }))
-    }
-
-    /// Updates or creates broker metadata.
-    ///
-    /// # Arguments
-    /// * `request` - Broker data to update or create
-    ///
-    /// # Returns
-    /// * Success or error response
-    async fn update_broker(
-        &self,
-        _request: Request<UpdateBrokerRequest>,
-    ) -> Result<Response<UpdateBrokerResponse>, Status> {
-        // Stub implementation
-        info!("UpdateBroker called");
-        Ok(Response::new(UpdateBrokerResponse {
-            error: Some(Error {
-                code: ErrorCode::Ok as i32,
-                message: "Stub implementation".to_string(),
-            }),
-        }))
-    }
-
-    /// Deletes a broker by ID.
-    ///
-    /// # Arguments
-    /// * `request` - Broker ID to delete
-    ///
-    /// # Returns
-    /// * Success or error response
-    async fn delete_broker(
-        &self,
-        _request: Request<DeleteBrokerRequest>,
-    ) -> Result<Response<DeleteBrokerResponse>, Status> {
-        // Stub implementation
-        info!("DeleteBroker called");
-        Ok(Response::new(DeleteBrokerResponse {
-            error: Some(Error {
-                code: ErrorCode::Ok as i32,
-                message: "Stub implementation".to_string(),
             }),
         }))
     }
@@ -440,7 +266,8 @@ mod tests {
             "currency": "USD",
             "trade_date": "2022-01-01T00:00:00Z",
             "settled_date": "2022-01-02T00:00:00Z",
-            "tx_type": "BUY"
+            "tx_type": "BUY",
+            "instrument_type": "STK"
         });
 
         serde_json::from_value(tx_json).expect("Failed to deserialize transaction from JSON")
@@ -462,10 +289,11 @@ mod tests {
             .with(
                 eq(user_id),
                 eq("TXS_TIMESERIES"),
+                eq("test_broker"),
                 eq(period_start),
                 eq(period_end)
             )
-            .returning(move |_, _, _, _| Ok(expected_batch_id));
+            .returning(move |_, _, _, _, _| Ok(expected_batch_id));
 
         mock.expect_stage_txs()
             .times(1)
@@ -485,7 +313,7 @@ mod tests {
         let service = Service::new(Arc::new(mock));
 
         // Call stage_txs
-        let result = service.stage_txs(user_id, period_start, period_end, txs).await;
+        let result = service.stage_txs(user_id, "test_broker".to_string(), period_start, period_end, txs).await;
 
         // Verify the result
         assert!(result.is_ok(), "Expected stage_txs to succeed");

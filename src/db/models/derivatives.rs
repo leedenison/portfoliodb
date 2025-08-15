@@ -8,10 +8,7 @@ pub struct Model {
     pub dbid: i64,
     pub instrument_dbid: i64,
     pub underlying_dbid: i64,
-    pub expiration_date: DateTime<Utc>,
-    pub put_call: String,
-    pub strike_price: f64,
-    pub multiplier: f64,
+    pub r#type: String, // Using raw identifier for 'type'
     pub created_at: DateTime<Utc>,
 }
 
@@ -21,6 +18,8 @@ pub enum Relation {
     Instrument,
     // Underlying instrument this derivative refers to (1:N from Instrument's POV)
     Underlying,
+    // One-to-one relationship with option_derivatives
+    OptionDerivative,
 }
 
 impl sea_orm::RelationTrait for Relation {
@@ -37,6 +36,12 @@ impl sea_orm::RelationTrait for Relation {
                 .from(Column::UnderlyingDbid)
                 .to(super::instruments::Column::Dbid)
                 .into(),
+
+            // derivative.dbid -> option_derivatives.derivative_dbid (1:1)
+            Self::OptionDerivative => Entity::has_one(super::option_derivatives::Entity)
+                .from(Column::Dbid)
+                .to(super::option_derivatives::Column::DerivativeDbid)
+                .into(),
         }
     }
 }
@@ -44,6 +49,12 @@ impl sea_orm::RelationTrait for Relation {
 impl sea_orm::Related<super::instruments::Entity> for Entity {
     fn to() -> sea_orm::RelationDef {
         Relation::Instrument.def()
+    }
+}
+
+impl sea_orm::Related<super::option_derivatives::Entity> for Entity {
+    fn to() -> sea_orm::RelationDef {
+        Relation::OptionDerivative.def()
     }
 }
 

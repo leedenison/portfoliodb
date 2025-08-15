@@ -5,7 +5,6 @@ use sea_orm::DatabaseTransaction;
 
 use crate::db::api::DataStore;
 use crate::db::ingest::api::IngestStore;
-use crate::db::models;
 use crate::db::users::UserStore;
 use crate::db::DatabaseManager;
 use crate::portfolio_db::Tx;
@@ -35,12 +34,6 @@ mock! {
             transactions: Box<dyn Iterator<Item = Tx> + Send>,
         ) -> Result<usize>;
 
-        async fn stage_prices(
-            &self,
-            batch_dbid: i64,
-            prices: Box<dyn Iterator<Item = crate::portfolio_db::Price> + Send>,
-        ) -> Result<usize>;
-
         async fn update_batch_total_records(
             &self,
             batch_dbid: i64,
@@ -53,17 +46,6 @@ mock! {
             status: &'a str,
             error_message: Option<&'a str>,
         ) -> Result<()>;
-
-        async fn validate_txs(
-            &self,
-            batch_dbid: i64,
-        ) -> Result<()>;
-
-        async fn create_symbols_and_instruments(
-            &self,
-            new_symbols: Vec<(String, String, String, String, Option<String>)>,
-            disambiguated: bool,
-        ) -> Result<Vec<models::Symbol>>;
     }
 
     #[async_trait::async_trait]

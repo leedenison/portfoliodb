@@ -56,11 +56,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &descriptor,
         &[
             ".portfoliodb.Tx",
-            ".portfoliodb.Symbol",
-            ".portfoliodb.SymbolDescription",
             ".portfoliodb.Price",
             ".portfoliodb.Instrument",
-            ".portfoliodb.InstrumentId",
+            ".portfoliodb.Identifier",
             ".portfoliodb.Derivative",
             ".portfoliodb.Broker",
         ],

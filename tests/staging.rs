@@ -43,17 +43,11 @@ mod tests {
                     {
                         "id": "tx1",
                         "account_id": "account1",
-                        "description": {
-                            "id": "desc1",
-                            "broker_key": "broker1",
-                            "description": "Apple Inc"
-                        },
-                        "symbol": {
+                        "identifier": {
                             "id": "sym1",
+                            "namespace": "NASDAQ",
                             "domain": "NASDAQ",
-                            "exchange": "NASDAQ",
-                            "symbol": "AAPL",
-                            "currency": "USD"
+                            "identifier": "AAPL"
                         },
                         "units": 10.0,
                         "unit_price": 150.0,
@@ -67,14 +61,11 @@ mod tests {
                     {
                         "id": 1,
                         "batch_dbid": 1,
-                        "broker_key": "broker1",
-                        "description": "Apple Inc",
-                        "domain": "NASDAQ",
-                        "exchange": "NASDAQ",
-                        "symbol": "AAPL",
-                        "symbol_currency": "USD",
-                        "currency": "USD",
+                        "instrument_namespace": "NASDAQ",
+                        "instrument_domain": "NASDAQ",
+                        "instrument_identifier": "AAPL",
                         "account_id": "account1",
+                        "currency": "USD",
                         "units": 10.0,
                         "unit_price": 150.0,
                         "trade_date": "2022-01-01T00:00:00Z",
@@ -97,6 +88,7 @@ mod tests {
             let batch_dbid = db.create_batch(
                 1, // user_dbid
                 "TXS_TIMESERIES",
+                "broker1", // broker_key
                 chrono::DateTime::from_timestamp(1640995200, 0).unwrap(), // period_start
                 chrono::DateTime::from_timestamp(1641081600, 0).unwrap() // period_end
             ).await.expect("Failed to create batch");

@@ -4,6 +4,7 @@ CREATE TABLE staging_batches (
     user_dbid BIGINT NOT NULL,
     batch_type TEXT NOT NULL CHECK (batch_type IN ('TXS_TIMESERIES', 'PRICES_TIMESERIES')),
     status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
+    broker_key TEXT NOT NULL,
     period_start TIMESTAMPTZ NOT NULL,
     period_end TIMESTAMPTZ NOT NULL,
     total_records INTEGER NOT NULL DEFAULT 0,
@@ -14,35 +15,47 @@ CREATE TABLE staging_batches (
     error_message TEXT
 );
 
+CREATE TABLE staging_identifiers (
+    id BIGSERIAL PRIMARY KEY,
+    batch_dbid BIGINT NOT NULL REFERENCES staging_batches(batch_dbid) ON DELETE CASCADE,
+    namespace TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    identifier TEXT NOT NULL
+);
+
+CREATE TABLE staging_instruments (
+    id BIGSERIAL PRIMARY KEY,
+    batch_dbid BIGINT NOT NULL REFERENCES staging_batches(batch_dbid) ON DELETE CASCADE,
+    type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    listing_mic TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    -- derivative fields
+    underlying_namespace TEXT NOT NULL,
+    underlying_domain TEXT NOT NULL,
+    underlying_identifier TEXT NOT NULL,
+    derivative_type TEXT NOT NULL,
+    -- option fields
+    option_expiration_date TIMESTAMPTZ,
+    option_put_call TEXT NOT NULL,
+    option_strike_price DOUBLE PRECISION,
+    option_style TEXT NOT NULL
+);
+
 CREATE TABLE staging_txs (
     id BIGSERIAL PRIMARY KEY,
     batch_dbid BIGINT NOT NULL REFERENCES staging_batches(batch_dbid) ON DELETE CASCADE,
-    broker_key TEXT NOT NULL,
-    description TEXT NOT NULL,
-    domain TEXT NOT NULL,
-    exchange TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    symbol_currency TEXT NOT NULL,
-    currency TEXT NOT NULL,
+    instrument_namespace TEXT NOT NULL,
+    instrument_domain TEXT NOT NULL,
+    instrument_identifier TEXT NOT NULL,
     account_id TEXT NOT NULL,
+    currency TEXT NOT NULL,
     units DOUBLE PRECISION NOT NULL,
     unit_price DOUBLE PRECISION,
     trade_date TIMESTAMPTZ NOT NULL,
     settled_date TIMESTAMPTZ,
-    tx_type TEXT NOT NULL,
-    instrument_type TEXT
+    tx_type TEXT NOT NULL
 );
-
-CREATE TABLE staging_prices (
-    id BIGSERIAL PRIMARY KEY,
-    batch_dbid BIGINT NOT NULL REFERENCES staging_batches(batch_dbid) ON DELETE CASCADE,
-    domain TEXT NOT NULL,
-    exchange TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    currency TEXT NOT NULL,
-    price DOUBLE PRECISION NOT NULL,
-    date_as_of TIMESTAMPTZ NOT NULL
-);  
 
 -- Create a function to clean up old staging batches
 CREATE OR REPLACE FUNCTION delete_stale_staging_batches()

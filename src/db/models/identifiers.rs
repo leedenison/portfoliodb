@@ -2,16 +2,19 @@ use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "symbols")]
+#[sea_orm(table_name = "identifiers")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub dbid: i64,
-    pub instrument_dbid: i64,
-    pub domain: String,
-    pub exchange: String,
-    pub symbol: String,
-    pub currency: String,
-    pub disambiguated: bool,
+    pub instrument_dbid: Option<i64>,
+    pub user_dbid: Option<i64>,
+    pub namespace: String,
+    pub domain: Option<String>,
+    pub id: String,
+    pub source: String,
+    pub authoritative: bool,
+    pub valid_from: Option<DateTime<Utc>>,
+    pub valid_to: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -23,10 +26,6 @@ pub enum Relation {
         to = "super::instruments::Column::Dbid"
     )]
     Instrument,
-    #[sea_orm(has_many = "super::symbol_descriptions::Entity")]
-    SymbolDescriptions,
-    #[sea_orm(has_many = "super::transactions::Entity")]
-    Transactions,
 }
 
 impl Related<super::instruments::Entity> for Entity {
@@ -35,18 +34,4 @@ impl Related<super::instruments::Entity> for Entity {
     }
 }
 
-impl Related<super::symbol_descriptions::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::SymbolDescriptions.def()
-    }
-}
-
-impl Related<super::transactions::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Transactions.def()
-    }
-}
-
 impl ActiveModelBehavior for ActiveModel {}
-
-impl Entity {}

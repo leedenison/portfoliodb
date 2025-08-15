@@ -9,6 +9,7 @@ pub struct Model {
     pub user_dbid: i64,
     pub batch_type: String,
     pub status: String,
+    pub broker_key: String,
     pub period_start: DateTime<Utc>,
     pub period_end: DateTime<Utc>,
     pub total_records: i32,
@@ -23,8 +24,10 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(has_many = "super::staging_txs::Entity")]
     StagingTxs,
-    #[sea_orm(has_many = "super::staging_prices::Entity")]
-    StagingPrices,
+    #[sea_orm(has_many = "super::staging_instruments::Entity")]
+    StagingInstruments,
+    #[sea_orm(has_many = "super::staging_identifiers::Entity")]
+    StagingIdentifiers,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

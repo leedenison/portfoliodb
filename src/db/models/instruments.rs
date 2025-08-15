@@ -7,30 +7,28 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub dbid: i64,
     pub r#type: String, // Using raw identifier for 'type'
+    pub status: String,
+    pub listing_mic: String,
+    pub currency: String,
     pub created_at: DateTime<Utc>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    InstrumentIds,
-    Symbols,
+    Identifiers,
     IsDerivative,
     Derivatives,
+    Transactions,
+    Prices,
 }
 
 impl sea_orm::RelationTrait for Relation {
     fn def(&self) -> sea_orm::RelationDef {
         match self {
-            // instrument.dbid -> instrument_identifiers.instrument_dbid
-            Self::InstrumentIds => Entity::has_many(super::instrument_ids::Entity)
+            // instrument.dbid -> identifiers.instrument_dbid
+            Self::Identifiers => Entity::has_many(super::identifiers::Entity)
                 .from(Column::Dbid)
-                .to(super::instrument_ids::Column::InstrumentDbid)
-                .into(),
-
-            // instrument.dbid -> symbols.instrument_dbid
-            Self::Symbols => Entity::has_many(super::symbols::Entity)
-                .from(Column::Dbid)
-                .to(super::symbols::Column::InstrumentDbid)
+                .to(super::identifiers::Column::InstrumentDbid)
                 .into(),
 
             // instrument.dbid -> derivative.instrument_dbid
@@ -44,6 +42,18 @@ impl sea_orm::RelationTrait for Relation {
                 .from(Column::Dbid)
                 .to(super::derivatives::Column::UnderlyingDbid)
                 .into(),
+
+            // instrument.dbid -> transactions.instrument_dbid
+            Self::Transactions => Entity::has_many(super::transactions::Entity)
+                .from(Column::Dbid)
+                .to(super::transactions::Column::InstrumentDbid)
+                .into(),
+
+            // instrument.dbid -> prices.instrument_dbid
+            Self::Prices => Entity::has_many(super::prices::Entity)
+                .from(Column::Dbid)
+                .to(super::prices::Column::InstrumentDbid)
+                .into(),
         }
     }
 }
@@ -54,15 +64,21 @@ impl sea_orm::Related<super::derivatives::Entity> for Entity {
     }
 }
 
-impl sea_orm::Related<super::instrument_ids::Entity> for Entity {
+impl sea_orm::Related<super::identifiers::Entity> for Entity {
     fn to() -> sea_orm::RelationDef {
-        Relation::InstrumentIds.def()
+        Relation::Identifiers.def()
     }
 }
 
-impl sea_orm::Related<super::symbols::Entity> for Entity {
+impl sea_orm::Related<super::transactions::Entity> for Entity {
     fn to() -> sea_orm::RelationDef {
-        Relation::Symbols.def()
+        Relation::Transactions.def()
+    }
+}
+
+impl sea_orm::Related<super::prices::Entity> for Entity {
+    fn to() -> sea_orm::RelationDef {
+        Relation::Prices.def()
     }
 }
 

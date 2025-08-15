@@ -1,7 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use crate::portfolio_db::{Tx, Price};
-use crate::db::models;
+use crate::portfolio_db::Tx;
 
 /// Trait defining the ingest operations for PortfolioDB.
 /// This trait abstracts the ingest operations and allows for easier testing
@@ -13,6 +12,7 @@ pub trait IngestStore {
     /// # Arguments
     /// * `user_dbid` - Optional user database ID
     /// * `batch_type` - Type of batch ('txs_timeseries' or 'prices_timeseries')
+    /// * `broker_key` - The broker key for this batch
     /// * `period_start` - Start of the period for this batch
     /// * `period_end` - End of the period for this batch
     ///
@@ -23,6 +23,7 @@ pub trait IngestStore {
         &self,
         user_dbid: i64,
         batch_type: &str,
+        broker_key: &str,
         period_start: DateTime<Utc>,
         period_end: DateTime<Utc>,
     ) -> Result<i64>;
@@ -40,21 +41,6 @@ pub trait IngestStore {
         &self,
         batch_dbid: i64,
         transactions: Box<dyn Iterator<Item = Tx> + Send>,
-    ) -> Result<usize>;
-
-    /// Bulk inserts Price data into staging_prices table using SeaORM ActiveModel.
-    /// 
-    /// # Arguments
-    /// * `batch_dbid` - The batch database ID to associate with the prices
-    /// * `prices` - Iterator over Price protobuf types
-    ///
-    /// # Returns
-    /// * `Ok(record_count)` - Number of records successfully inserted
-    /// * `Err` if a database error occurs
-    async fn stage_prices(
-        &self,
-        batch_dbid: i64,
-        prices: Box<dyn Iterator<Item = Price> + Send>,
     ) -> Result<usize>;
 
     /// Updates the total_records field of a batch.
@@ -88,32 +74,4 @@ pub trait IngestStore {
         status: &'a str,
         error_message: Option<&'a str>,
     ) -> Result<()>;
-
-    /// Validates staged transactions and updates batch status if validation fails.
-    /// 
-    /// # Arguments
-    /// * `batch_dbid` - The batch database ID to validate
-    ///
-    /// # Returns
-    /// * `Ok(())` if all transactions are valid
-    /// * `Err` if validation fails or a database error occurs
-    async fn validate_txs(
-        &self,
-        batch_dbid: i64,
-    ) -> Result<()>;
-
-    /// Creates new symbols and instruments for the given symbol data.
-    /// 
-    /// # Arguments
-    /// * `new_symbols` - Vector of tuples containing (domain, exchange, symbol, currency, instrument_type)
-    /// * `disambiguated` - Whether the symbols are disambiguated
-    ///
-    /// # Returns
-    /// * `Ok(Vec<models::Symbol>)` - Vector of created symbols with dbids filled in
-    /// * `Err` if a database error occurs
-    async fn create_symbols_and_instruments(
-        &self,
-        new_symbols: Vec<(String, String, String, String, Option<String>)>,
-        disambiguated: bool,
-    ) -> Result<Vec<models::Symbol>>;
 } 

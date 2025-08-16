@@ -5,7 +5,7 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "staging_batches")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub batch_dbid: i64,
+    pub dbid: i64,
     pub user_dbid: i64,
     pub batch_type: String,
     pub status: String,

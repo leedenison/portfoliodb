@@ -1,7 +1,7 @@
 use portfoliodb::db::DatabaseManager;
 use portfoliodb::db::ingest::api::IngestStore;
-use portfoliodb::db::ingest::models::staging_txs;
-use portfoliodb::portfolio_db::Tx;
+use portfoliodb::db::ingest::models::{staging_txs, staging_instruments, staging_identifiers};
+use portfoliodb::portfolio_db::{Tx, Instrument, InstrumentType, Identifier, Derivative, Option as ProtoOption, PutCall, OptionStyle};
 use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, DatabaseConnection};
 use serde_json::{json, Value};
 use std::env;
@@ -22,12 +22,11 @@ mod tests {
         DatabaseManager::new(&database_url).await
     }
 
-    /// Test case structure for stage_txs tests
     #[derive(Debug)]
-    struct TestCase {
+    struct StageTxsTestCase {
         name: String,
-        input_txs_json: Value,
-        expected_staging_txs_json: Value,
+        input: Value,
+        expected: Value,
     }
 
     #[cfg(feature = "test_class_database")]
@@ -37,11 +36,10 @@ mod tests {
 
         // Define test cases
         let test_cases = vec![
-            TestCase {
+            StageTxsTestCase {
                 name: "Basic buy transaction".to_string(),
-                input_txs_json: json!([
+                input: json!([
                     {
-                        "id": "tx1",
                         "account_id": "account1",
                         "identifier": {
                             "id": "sym1",
@@ -57,9 +55,8 @@ mod tests {
                         "tx_type": "BUY"
                     }
                 ]),
-                expected_staging_txs_json: json!([
+                expected: json!([
                     {
-                        "id": 1,
                         "batch_dbid": 1,
                         "instrument_namespace": "NASDAQ",
                         "instrument_domain": "NASDAQ",
@@ -77,11 +74,12 @@ mod tests {
         ];
 
         // Run each test case
-        for test_case in test_cases.iter() {
-            print!("test tests::test_stage_txs: {} ... ", test_case.name);
+        for test_case in test_cases.into_iter() {
+            let StageTxsTestCase { name, input, expected } = test_case;
+            print!("test tests::test_stage_txs: {} ... ", name);
 
             // Deserialize input transactions from JSON
-            let input_txs: Vec<Tx> = serde_json::from_value(test_case.input_txs_json.clone())
+            let input_txs: Vec<Tx> = serde_json::from_value(input)
                 .expect("Failed to deserialize input transactions");
 
             // Create a batch for this test case
@@ -99,7 +97,7 @@ mod tests {
 
             // Verify the record count
             assert_eq!(record_count, input_txs.len(), 
-                "Record count mismatch for test case: {}", test_case.name);
+                "Record count mismatch for test case: {}", name);
 
             // Query the database to get the actual staged transactions
             let actual_staging_txs = staging_txs::Entity::find()
@@ -108,24 +106,249 @@ mod tests {
                 .await.expect("Failed to query staging transactions");
 
             // Deserialize expected staging transactions from JSON
-            let mut expected_staging_txs: Vec<staging_txs::Model> = serde_json::from_value(test_case.expected_staging_txs_json.clone())
+            let mut expected_staging_txs: Vec<staging_txs::Model> = serde_json::from_value(expected)
                 .expect("Failed to deserialize expected staging transactions");
 
             // Update the expected models with the actual batch_dbid and id values
             for (i, expected) in expected_staging_txs.iter_mut().enumerate() {
                 expected.batch_dbid = batch_dbid;
                 if let Some(actual) = actual_staging_txs.get(i) {
-                    expected.id = actual.id;
+                    expected.dbid = actual.dbid;
                 }
             }
 
             // Compare actual vs expected using PartialEq
             assert_eq!(actual_staging_txs.len(), expected_staging_txs.len(),
-                "Number of staged transactions mismatch for test case: {}", test_case.name);
+                "Number of staged transactions mismatch for test case: {}", name);
 
             for (actual, expected) in actual_staging_txs.iter().zip(expected_staging_txs.iter()) {
                 assert_eq!(actual, expected, 
-                    "Staging transaction mismatch for test case: {}", test_case.name);
+                    "Staging transaction mismatch for test case: {}", name);
+            }
+
+            println!("ok");
+        }
+    }
+
+    #[derive(Debug)]
+    struct InstrumentTestCase {
+        name: String,
+        input: Value,
+        expected_instruments: Value,
+        expected_identifiers: Value,
+    }
+
+    #[cfg(feature = "test_class_database")]
+    #[tokio::test]
+    async fn test_stage_instruments() {
+        let db = db().await.expect("Failed to connect to database");
+
+        // Define test cases
+        let test_cases = vec![
+            InstrumentTestCase {
+                name: "Basic stock instrument".to_string(),
+                input: json!([
+                    {
+                        "id": "inst1",
+                        "type": "STK",
+                        "identifiers": [
+                            {
+                                "id": "id1",
+                                "namespace": "NASDAQ",
+                                "domain": "NASDAQ",
+                                "identifier": "AAPL"
+                            },
+                            {
+                                "id": "id2",
+                                "namespace": "YAHOO",
+                                "domain": "YAHOO",
+                                "identifier": "AAPL"
+                            }
+                        ],
+                        "listing_mic": "XNAS",
+                        "currency": "USD",
+                        "derivative": null
+                    }
+                ]),
+                expected_instruments: json!([
+                    {
+                        "batch_dbid": 1,
+                        "type_": "STK",
+                        "status": "ACTIVE",
+                        "listing_mic": "XNAS",
+                        "currency": "USD",
+                        "underlying_namespace": "",
+                        "underlying_domain": "",
+                        "underlying_identifier": "",
+                        "derivative_type": "",
+                        "option_expiration_date": null,
+                        "option_put_call": "",
+                        "option_strike_price": null,
+                        "option_style": ""
+                    }
+                ]),
+                expected_identifiers: json!([
+                    {
+                        "batch_dbid": 1,
+                        "instrument_dbid": 1,
+                        "namespace": "NASDAQ",
+                        "domain": "NASDAQ",
+                        "identifier": "AAPL"
+                    },
+                    {
+                        "batch_dbid": 1,
+                        "instrument_dbid": 1,
+                        "namespace": "YAHOO",
+                        "domain": "YAHOO",
+                        "identifier": "AAPL"
+                    }
+                ]),
+            },
+            InstrumentTestCase {
+                name: "Option instrument".to_string(),
+                input: json!([
+                    {
+                        "id": "inst2",
+                        "type": "OPT",
+                        "identifiers": [
+                            {
+                                "id": "id3",
+                                "namespace": "CBOE",
+                                "domain": "CBOE",
+                                "identifier": "AAPL240119C00150000"
+                            }
+                        ],
+                        "listing_mic": "XCBO",
+                        "currency": "USD",
+                        "derivative": {
+                            "underlying_id": {
+                                "id": "id4",
+                                "namespace": "NASDAQ",
+                                "domain": "NASDAQ",
+                                "identifier": "AAPL"
+                            },
+                            "option": {
+                                "expiration_date": "2024-01-19T00:00:00Z",
+                                "put_call": "CALL",
+                                "strike_price": 150.0,
+                                "mult": 100.0,
+                                "style": "AMERICAN"
+                            }
+                        }
+                    }
+                ]),
+                expected_instruments: json!([
+                    {
+                        "batch_dbid": 1,
+                        "type_": "OPT",
+                        "status": "ACTIVE",
+                        "listing_mic": "XCBO",
+                        "currency": "USD",
+                        "underlying_namespace": "NASDAQ",
+                        "underlying_domain": "NASDAQ",
+                        "underlying_identifier": "AAPL",
+                        "derivative_type": "OPTION",
+                        "option_expiration_date": "2024-01-19T00:00:00Z",
+                        "option_put_call": "CALL",
+                        "option_strike_price": 150.0,
+                        "option_style": "AMERICAN"
+                    }
+                ]),
+                expected_identifiers: json!([
+                    {
+                        "batch_dbid": 1,
+                        "instrument_dbid": 1,
+                        "namespace": "CBOE",
+                        "domain": "CBOE",
+                        "identifier": "AAPL240119C00150000"
+                    }
+                ]),
+            },
+        ];
+
+        // Run each test case
+        for test_case in test_cases.into_iter() {
+            let InstrumentTestCase { name, input, expected_instruments, expected_identifiers } = test_case;
+            print!("test tests::test_stage_instruments: {} ... ", name);
+
+            // Deserialize input instruments from JSON
+            let input_instruments: Vec<Instrument> = serde_json::from_value(input)
+                .expect("Failed to deserialize input instruments");
+
+            // Create a batch for this test case
+            let batch_dbid = db.create_batch(
+                1, // user_dbid
+                "TXS_TIMESERIES",
+                "broker1", // broker_key
+                chrono::DateTime::from_timestamp(1640995200, 0).unwrap(), // period_start
+                chrono::DateTime::from_timestamp(1641081600, 0).unwrap() // period_end
+            ).await.expect("Failed to create batch");
+
+            // Stage the instruments
+            let record_count = db.stage_instruments(batch_dbid, Box::new(input_instruments.clone().into_iter()))
+                .await.expect("Failed to stage instruments");
+
+            // Calculate expected record count (instruments + identifiers)
+            let expected_count = input_instruments.iter()
+                .map(|inst| 1 + inst.identifiers.len())
+                .sum::<usize>();
+
+            // Verify the record count
+            assert_eq!(record_count, expected_count, 
+                "Record count mismatch for test case: {}", name);
+
+            // Query the database to get the actual staged instruments
+            let actual_staging_instruments = staging_instruments::Entity::find()
+                .filter(staging_instruments::Column::BatchDbid.eq(batch_dbid))
+                .all(db.exec())
+                .await.expect("Failed to query staging instruments");
+
+            // Query the database to get the actual staged identifiers
+            let actual_staging_identifiers = staging_identifiers::Entity::find()
+                .filter(staging_identifiers::Column::BatchDbid.eq(batch_dbid))
+                .all(db.exec())
+                .await.expect("Failed to query staging identifiers");
+
+            // Deserialize expected staging instruments from JSON
+            let mut expected_staging_instruments: Vec<staging_instruments::Model> = serde_json::from_value(expected_instruments)
+                .expect("Failed to deserialize expected staging instruments");
+
+            // Deserialize expected staging identifiers from JSON
+            let mut expected_staging_identifiers: Vec<staging_identifiers::Model> = serde_json::from_value(expected_identifiers)
+                .expect("Failed to deserialize expected staging identifiers");
+
+            // Update the expected models with the actual batch_dbid and dbid values
+            for (i, expected) in expected_staging_instruments.iter_mut().enumerate() {
+                expected.batch_dbid = batch_dbid;
+                if let Some(actual) = actual_staging_instruments.get(i) {
+                    expected.dbid = actual.dbid;
+                }
+            }
+
+            for (i, expected) in expected_staging_identifiers.iter_mut().enumerate() {
+                expected.batch_dbid = batch_dbid;
+                if let Some(actual) = actual_staging_identifiers.get(i) {
+                    expected.dbid = actual.dbid;
+                    expected.instrument_dbid = actual.instrument_dbid;
+                }
+            }
+
+            // Compare actual vs expected instruments using PartialEq
+            assert_eq!(actual_staging_instruments.len(), expected_staging_instruments.len(),
+                "Number of staged instruments mismatch for test case: {}", name);
+
+            for (actual, expected) in actual_staging_instruments.iter().zip(expected_staging_instruments.iter()) {
+                assert_eq!(actual, expected, 
+                    "Staging instrument mismatch for test case: {}", name);
+            }
+
+            // Compare actual vs expected identifiers using PartialEq
+            assert_eq!(actual_staging_identifiers.len(), expected_staging_identifiers.len(),
+                "Number of staged identifiers mismatch for test case: {}", name);
+
+            for (actual, expected) in actual_staging_identifiers.iter().zip(expected_staging_identifiers.iter()) {
+                assert_eq!(actual, expected, 
+                    "Staging identifier mismatch for test case: {}", name);
             }
 
             println!("ok");

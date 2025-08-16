@@ -6,6 +6,7 @@ use crate::portfolio_db::{
     portfolio_db_server::PortfolioDb, Error, ErrorCode, UpdateTxsRequest, UpdateTxsResponse, Tx, Instrument,
 };
 use crate::db::api::DataStore;
+use crate::db::ingest::api::IngestStore;
 use crate::db::DatabaseManager;
 use crate::db::models;
 use sea_orm::DatabaseTransaction;
@@ -102,7 +103,7 @@ impl Service {
     /// # Returns
     /// * `Ok(i64)` - The batch ID if successful
     /// * `Err(Status)` - Error with details if staging fails
-    async fn stage_txs(
+    async fn stage_txs_batch(
         &self,
         user_id: i64,
         broker_key: String,
@@ -122,19 +123,25 @@ impl Service {
 
         let mut total_records = 0;
 
-        total_records = self.db().stage_instruments(batch_dbid, Box::new(instruments.into_iter())).await
+        let tx = self.db().with_tx().await
+            .map_err(|e| Status::internal(format!("Failed to begin transaction: {}", e)))?;
+
+        total_records = tx.stage_instruments(batch_dbid, Box::new(instruments.into_iter())).await
         .map_err(|e| {
             let msg = format!("Failed to stage instruments: {}", e);
             let _ = self.db().update_batch_status(batch_dbid, "FAILED", Some(&msg));
             Status::internal(msg)
         })?;
 
-        total_records += self.db().stage_txs(batch_dbid, Box::new(txs.into_iter())).await
+        total_records += tx.stage_txs(batch_dbid, Box::new(txs.into_iter())).await
         .map_err(|e| {
             let msg = format!("Failed to stage transactions: {}", e);
             let _ = self.db().update_batch_status(batch_dbid, "FAILED", Some(&msg));
             Status::internal(msg)
         })?;
+
+        tx.commit().await
+            .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
 
         self.db().update_batch_total_records(batch_dbid, total_records as i32).await
         .map_err(|e| Status::internal(format!("Failed to update batch total records: {}", e)))?;
@@ -231,7 +238,13 @@ impl PortfolioDb for Service {
             .ok_or_else(|| Status::invalid_argument("Broker is required"))?
             .key;
 
-        let batch_dbid = self.stage_txs(user_id, broker_key, period_start, period_end, txs, instruments).await?;
+        let batch_dbid = self.stage_txs_batch(
+            user_id,
+            broker_key,
+            period_start,
+            period_end,
+            txs,
+            instruments).await?;
         
         let tx = self.db().with_tx().await
             .map_err(|e| Status::internal(format!("Failed to begin transaction: {}", e)))?;
@@ -373,10 +386,14 @@ mod tests {
 
         let service = Service::new(Arc::new(mock));
 
-        // Call stage_txs
-        let result = service.stage_txs(user_id, "test_broker".to_string(), period_start, period_end, txs, instruments).await;
+        let result = service.stage_txs_batch(
+            user_id,
+            "test_broker".to_string(),
+            period_start,
+            period_end,
+            txs,
+            instruments).await;
 
-        // Verify the result
         assert!(result.is_ok(), "Expected stage_txs to succeed");
         let batch_id = result.unwrap();
         assert_eq!(batch_id, expected_batch_id, "Expected batch ID {} but got {}", expected_batch_id, batch_id);

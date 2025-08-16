@@ -1,6 +1,6 @@
 -- Staging metadata table to track ingestion batches
 CREATE TABLE staging_batches (
-    batch_dbid BIGSERIAL PRIMARY KEY,
+    dbid BIGSERIAL PRIMARY KEY,
     user_dbid BIGINT NOT NULL,
     batch_type TEXT NOT NULL CHECK (batch_type IN ('TXS_TIMESERIES', 'PRICES_TIMESERIES')),
     status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
@@ -15,17 +15,9 @@ CREATE TABLE staging_batches (
     error_message TEXT
 );
 
-CREATE TABLE staging_identifiers (
-    id BIGSERIAL PRIMARY KEY,
-    batch_dbid BIGINT NOT NULL REFERENCES staging_batches(batch_dbid) ON DELETE CASCADE,
-    namespace TEXT NOT NULL,
-    domain TEXT NOT NULL,
-    identifier TEXT NOT NULL
-);
-
 CREATE TABLE staging_instruments (
-    id BIGSERIAL PRIMARY KEY,
-    batch_dbid BIGINT NOT NULL REFERENCES staging_batches(batch_dbid) ON DELETE CASCADE,
+    dbid BIGSERIAL PRIMARY KEY,
+    batch_dbid BIGINT NOT NULL REFERENCES staging_batches(dbid) ON DELETE CASCADE,
     type TEXT NOT NULL,
     status TEXT NOT NULL,
     listing_mic TEXT NOT NULL,
@@ -42,9 +34,18 @@ CREATE TABLE staging_instruments (
     option_style TEXT NOT NULL
 );
 
+CREATE TABLE staging_identifiers (
+    dbid BIGSERIAL PRIMARY KEY,
+    batch_dbid BIGINT NOT NULL REFERENCES staging_batches(dbid) ON DELETE CASCADE,
+    instrument_dbid BIGINT NOT NULL REFERENCES staging_instruments(dbid) ON DELETE CASCADE,
+    namespace TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    identifier TEXT NOT NULL
+);
+
 CREATE TABLE staging_txs (
-    id BIGSERIAL PRIMARY KEY,
-    batch_dbid BIGINT NOT NULL REFERENCES staging_batches(batch_dbid) ON DELETE CASCADE,
+    dbid BIGSERIAL PRIMARY KEY,
+    batch_dbid BIGINT NOT NULL REFERENCES staging_batches(dbid) ON DELETE CASCADE,
     instrument_namespace TEXT NOT NULL,
     instrument_domain TEXT NOT NULL,
     instrument_identifier TEXT NOT NULL,

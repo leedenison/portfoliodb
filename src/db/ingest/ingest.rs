@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sea_orm::{ActiveModelTrait, Set, ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ActiveModelTrait, Set, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
 use chrono::{DateTime, Utc};
 use crate::db::ingest::models::{BatchActiveModel, StagingTxActiveModel, StagingInstrumentActiveModel, StagingIdentifierActiveModel, Batches};
 use crate::db::ingest::models::{batches, staging_txs, staging_instruments, staging_identifiers};
@@ -49,7 +49,7 @@ where
         };
 
         let result = batch.insert(self.exec()).await?;
-        Ok(result.batch_dbid)
+        Ok(result.dbid)
     }
 
     /// Bulk inserts Tx data into staging_txs table using SeaORM ActiveModel.
@@ -102,35 +102,54 @@ where
         batch_dbid: i64,
         instruments: Box<dyn Iterator<Item = Instrument> + Send>,
     ) -> Result<usize> {
+        let tx = self.exec().begin().await?;
         let mut count = 0;
-        let mut identifiers = Vec::new();
-        let mut models = Vec::new();
+        let mut inst_id_models = Vec::new();
+        let mut inst_models = Vec::new();
         
         for instrument in instruments {
             count += 1;
             
-            let model = StagingInstrumentActiveModel::from(instrument.clone()).with_batch_dbid(batch_dbid);
-            models.push(model);
+            let inst_model = StagingInstrumentActiveModel::from(instrument.clone()).with_batch_dbid(batch_dbid);
+            inst_models.push(inst_model);
 
+            let mut id_models = Vec::new();
             for identifier in instrument.identifiers {
                 count += 1;
-                let identifier_model = StagingIdentifierActiveModel::from(identifier).with_batch_dbid(batch_dbid);
-                identifiers.push(identifier_model);
+                let id_model = StagingIdentifierActiveModel::from(identifier).with_batch_dbid(batch_dbid);
+                id_models.push(id_model);
+            }
+            inst_id_models.push(id_models);
+        }
+                
+        if !inst_models.is_empty() {
+            let instruments = staging_instruments::Entity::insert_many(inst_models)
+                .exec_with_returning_many(&tx)
+                .await?;
+
+            if !inst_id_models.is_empty() {
+                if instruments.len() != inst_id_models.len() {
+                    return Err(anyhow::anyhow!(
+                        "Failed to insert instruments: incorrect number ids returned: {}: expected: {}",
+                        instruments.len(),
+                        inst_id_models.len()));
+                }
+
+                let mut insert_id_models = Vec::new();
+                for (i, id_models) in inst_id_models.iter().enumerate() {
+                    for mut id_model in id_models.clone() {
+                        id_model.instrument_dbid = Set(instruments[i].dbid);
+                        insert_id_models.push(id_model);
+                    }
+                }
+
+                staging_identifiers::Entity::insert_many(insert_id_models)
+                    .exec(&tx)
+                    .await?;
             }
         }
         
-        if !identifiers.is_empty() {
-            staging_identifiers::Entity::insert_many(identifiers)
-                .exec(self.exec())
-                .await?;
-        }
-        
-        if !models.is_empty() {
-            staging_instruments::Entity::insert_many(models)
-                .exec(self.exec())
-                .await?;
-        }
-        
+        tx.commit().await?;
         Ok(count)
     }
 
@@ -150,7 +169,7 @@ where
     ) -> Result<()> {
         let result = Batches::update_many()
             .col_expr(batches::Column::TotalRecords, total_records.into())
-            .filter(batches::Column::BatchDbid.eq(batch_dbid))
+            .filter(batches::Column::Dbid.eq(batch_dbid))
             .exec(self.exec())
             .await?;
 
@@ -179,7 +198,7 @@ where
     ) -> Result<()> {
         let mut update_query = Batches::update_many()
             .col_expr(batches::Column::Status, status.into())
-            .filter(batches::Column::BatchDbid.eq(batch_dbid));
+            .filter(batches::Column::Dbid.eq(batch_dbid));
 
         if let Some(msg) = error_message {
             update_query = update_query.col_expr(batches::Column::ErrorMessage, msg.into());

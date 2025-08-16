@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 #[sea_orm(table_name = "staging_txs")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: i64,
+    #[serde(default)]
+    pub dbid: i64,
     pub batch_dbid: i64,
     pub instrument_namespace: String,
     pub instrument_domain: String,
@@ -34,7 +35,7 @@ impl RelationTrait for Relation {
         match self {
             Self::Batch => Entity::belongs_to(super::batches::Entity)
                 .from(Column::BatchDbid)
-                .to(super::batches::Column::BatchDbid)
+                .to(super::batches::Column::Dbid)
                 .into(),
         }
     }
@@ -88,7 +89,7 @@ impl From<Tx> for ActiveModel {
         let tx_type = prost_tx_type::from_i32(tx_type as i32);
 
         ActiveModel {
-            id: NotSet,
+            dbid: NotSet,
             batch_dbid: Set(0),
             instrument_namespace: Set(namespace),
             instrument_domain: Set(domain),

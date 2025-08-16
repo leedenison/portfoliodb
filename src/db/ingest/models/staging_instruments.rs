@@ -1,7 +1,10 @@
 use crate::portfolio_db::{Derivative, Identifier, Instrument};
 use crate::{prost_instrument_type, prost_option_style, prost_put_call};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
+use sea_orm::ConnectionTrait;
+use sea_orm::QueryTrait;
 use sea_orm::{NotSet, Set};
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +12,8 @@ use serde::{Deserialize, Serialize};
 #[sea_orm(table_name = "staging_instruments")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: i64,
+    #[serde(default)]
+    pub dbid: i64,
     pub batch_dbid: i64,
     pub type_: String,
     pub status: String,
@@ -37,7 +41,7 @@ impl RelationTrait for Relation {
         match self {
             Self::Batch => Entity::belongs_to(super::batches::Entity)
                 .from(Column::BatchDbid)
-                .to(super::batches::Column::BatchDbid)
+                .to(super::batches::Column::Dbid)
                 .into(),
         }
     }
@@ -49,9 +53,9 @@ impl Related<super::batches::Entity> for Entity {
     }
 }
 
-impl ActiveModelBehavior for ActiveModel {}
-
 impl Entity {}
+
+impl ActiveModelBehavior for ActiveModel {}
 
 impl ActiveModel {
     pub fn with_batch_dbid(mut self, batch_dbid: i64) -> Self {
@@ -146,7 +150,7 @@ impl From<Instrument> for ActiveModel {
         let instrument_type = prost_instrument_type::from_i32(r#type as i32);
 
         ActiveModel {
-            id: NotSet,
+            dbid: NotSet,
             batch_dbid: Set(0),
             type_: Set(instrument_type),
             status: Set("ACTIVE".to_string()),

@@ -27,10 +27,6 @@ fn base_config() -> tonic_build::Builder {
             ".portfoliodb.Option.style",
             "#[serde(with = \"crate::prost_option_style\")]",
         )
-        .field_attribute(
-            ".portfoliodb.Error.code",
-            "#[serde(with = \"crate::prost_error_code\")]",
-        )
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

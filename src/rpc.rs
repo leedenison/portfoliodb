@@ -1,9 +1,10 @@
 use tonic::{Request, Response, Status};
 use std::collections::HashMap;
 use std::sync::Arc;
+use anyhow::Result;
 
 use crate::portfolio_db::{
-    portfolio_db_server::PortfolioDb, Error, ErrorCode, UpdateTxsRequest, UpdateTxsResponse, Tx, Instrument,
+    portfolio_db_server::PortfolioDb, UpdateTxsRequest, UpdateTxsResponse, Tx, Instrument,
 };
 use crate::db::api::DataStore;
 use crate::db::ingest::api::IngestStore;
@@ -30,19 +31,6 @@ impl Service {
         self.db_mgr.clone()
     }
 
-    /// Converts a protobuf Timestamp to a chrono DateTime<Utc>
-    /// 
-    /// # Arguments
-    /// * `timestamp` - Protobuf timestamp
-    /// 
-    /// # Returns
-    /// * `Ok(DateTime<Utc>)` if conversion is successful
-    /// * `Err(Status)` if timestamp is invalid
-    fn timestamp_to_datetime(timestamp: &Timestamp) -> Result<DateTime<Utc>, Status> {
-        DateTime::from_timestamp(timestamp.seconds, timestamp.nanos as u32)
-            .ok_or_else(|| Status::invalid_argument("Invalid timestamp"))
-    }
-
     /// Validates a DateRange period, ensuring timestamps are not default values and period_end is after period_start
     /// 
     /// # Arguments
@@ -51,27 +39,32 @@ impl Service {
     /// # Returns
     /// * `Ok((DateTime<Utc>, DateTime<Utc>))` - Tuple of (period_start, period_end) if validation passes
     /// * `Err(Status)` - Error with details if validation fails
-    fn validate_period(period: &crate::DateRange) -> Result<(DateTime<Utc>, DateTime<Utc>), Status> {
-        let period_start = Self::timestamp_to_datetime(period.start.as_ref()
-            .ok_or_else(|| Status::invalid_argument("Start timestamp is required"))?)?;
-        let period_end = Self::timestamp_to_datetime(period.end.as_ref()
-            .ok_or_else(|| Status::invalid_argument("End timestamp is required"))?)?;
+    fn validate_period(period: &crate::DateRange) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
+        let start_ts = period.start.as_ref()
+            .ok_or_else(|| "Start timestamp is required".to_string())?;
+        let start_dt = DateTime::from_timestamp(start_ts.seconds, start_ts.nanos as u32)
+            .ok_or_else(|| "Invalid start timestamp".to_string())?;
+        
+        let end_ts = period.end.as_ref()
+            .ok_or_else(|| "End timestamp is required".to_string())?;
+        let end_dt = DateTime::from_timestamp(end_ts.seconds, end_ts.nanos as u32)
+            .ok_or_else(|| "Invalid end timestamp".to_string())?;
 
         // Validate that timestamps are not default values (Unix epoch)
         let default_timestamp = DateTime::from_timestamp(0, 0).unwrap();
-        if period_start == default_timestamp {
-            return Err(Status::invalid_argument("Period start cannot be the default timestamp (Unix epoch)"));
+        if start_dt == default_timestamp {
+            return Err("Period start cannot be the default timestamp (Unix epoch)".to_string());
         }
-        if period_end == default_timestamp {
-            return Err(Status::invalid_argument("Period end cannot be the default timestamp (Unix epoch)"));
+        if end_dt == default_timestamp {
+            return Err("Period end cannot be the default timestamp (Unix epoch)".to_string());
         }
 
         // Validate that period_end is after period_start
-        if period_end <= period_start {
-            return Err(Status::invalid_argument("Period end must be after period start"));
+        if end_dt <= start_dt {
+            return Err("Period end must be after period start".to_string());
         }
 
-        Ok((period_start, period_end))
+        Ok((start_dt, end_dt))
     }
 
     /// Extracts the authenticated user ID from a request's extensions.
@@ -82,7 +75,7 @@ impl Service {
     /// # Returns
     /// * `Ok(i64)` - The user ID if found and authenticated
     /// * `Err(Status)` - Unauthenticated error if user ID is not found
-    fn get_authenticated_user<T>(&self, request: &Request<T>) -> Result<i64, Status> {
+    fn get_authenticated_user<T>(&self, request: &Request<T>) -> Result<i64> {
         request.extensions().get::<HashMap<String, i64>>()
             .ok_or_else(|| Status::unauthenticated("User ID not found"))?
             .get("user_id")
@@ -111,44 +104,31 @@ impl Service {
         period_end: DateTime<Utc>,
         txs: Vec<Tx>,
         instruments: Vec<Instrument>,
-    ) -> Result<i64, Status> {
+    ) -> Result<i64> {
         let batch_dbid = self.db().create_batch(
             user_id,
             "TXS_TIMESERIES",
             broker_key.as_str(),
             period_start,
             period_end
-        ).await
-        .map_err(|e| Status::internal(format!("Failed to create batch: {}", e)))?;
+        ).await?;
 
-        let mut total_records = 0;
-
-        let tx = self.db().with_tx().await
-            .map_err(|e| Status::internal(format!("Failed to begin transaction: {}", e)))?;
-
-        total_records = tx.stage_instruments(batch_dbid, Box::new(instruments.into_iter())).await
-        .map_err(|e| {
-            let msg = format!("Failed to stage instruments: {}", e);
-            let _ = self.db().update_batch_status(batch_dbid, "FAILED", Some(&msg));
-            Status::internal(msg)
-        })?;
-
-        total_records += tx.stage_txs(batch_dbid, Box::new(txs.into_iter())).await
-        .map_err(|e| {
-            let msg = format!("Failed to stage transactions: {}", e);
-            let _ = self.db().update_batch_status(batch_dbid, "FAILED", Some(&msg));
-            Status::internal(msg)
-        })?;
-
-        tx.commit().await
-            .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
-
-        self.db().update_batch_total_records(batch_dbid, total_records as i32).await
-        .map_err(|e| Status::internal(format!("Failed to update batch total records: {}", e)))?;
-
-        if let Err(e) = self.db().update_batch_status(batch_dbid, "PROCESSING", None).await {
-            tracing::warn!("Failed to update batch status to PROCESSING: {}", e);
-        }
+        let tx = self.db().with_tx().await?;
+        let total_records = match {
+            let mut total_records = tx.stage_instruments(batch_dbid, Box::new(instruments.into_iter())).await?;
+            total_records += tx.stage_txs(batch_dbid, Box::new(txs.into_iter())).await?;
+            Ok::<usize, anyhow::Error>(total_records)
+        } {
+            Ok(total_records) => total_records,
+            Err(e) => {
+                let _ = self.db().update_batch_status(batch_dbid, "FAILED", Some(&e.to_string()));
+                return Err(e)
+            }
+        };
+        tx.commit().await?;
+        
+        self.db().update_batch_total_records(batch_dbid, total_records as i32).await?;
+        self.db().update_batch_status(batch_dbid, "PROCESSING", None).await?;
         
         Ok(batch_dbid)
     }
@@ -170,7 +150,7 @@ impl Service {
         &self,  
         batch_dbid: i64,
         user_id: i64,
-    ) -> Result<DisambiguatedIds, anyhow::Error> {
+    ) -> Result<DisambiguatedIds> {
         // Stub implementation when disambiguation feature is enabled
         tracing::info!("Disambiguation feature enabled - skipping identifier disambiguation for batch {} (user: {})", batch_dbid, user_id);
         Ok(DisambiguatedIds {
@@ -194,7 +174,7 @@ impl Service {
         tx: &DatabaseManager<DatabaseTransaction>,
         batch_dbid: i64,
         user_id: i64,
-    ) -> Result<DisambiguatedIds, anyhow::Error> {
+    ) -> Result<DisambiguatedIds> {
         let mut result = DisambiguatedIds {
             identifiers: HashMap::new(),
         };
@@ -224,7 +204,7 @@ impl PortfolioDb for Service {
     async fn update_txs(
         &self,
         request: Request<UpdateTxsRequest>,
-    ) -> Result<Response<UpdateTxsResponse>, Status> {
+    ) -> std::result::Result<Response<UpdateTxsResponse>, Status> {
         let user_id = self.get_authenticated_user(&request)?;
         let req = request.into_inner();
 
@@ -232,7 +212,8 @@ impl PortfolioDb for Service {
 
         let period = period
             .ok_or_else(|| Status::invalid_argument("Period is required"))?;
-        let (period_start, period_end) = Self::validate_period(&period)?;
+        let (period_start, period_end) = Self::validate_period(&period)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
         let broker_key = broker
             .ok_or_else(|| Status::invalid_argument("Broker is required"))?
@@ -244,23 +225,17 @@ impl PortfolioDb for Service {
             period_start,
             period_end,
             txs,
-            instruments).await?;
+            instruments).await
+            .map_err(|e| Status::internal(format!("Failed to stage transactions: {}", e)))?;
         
-        let tx = self.db().with_tx().await
-            .map_err(|e| Status::internal(format!("Failed to begin transaction: {}", e)))?;
+        let tx = self.db().with_tx().await.map_err(|e| Status::internal(e.to_string()))?;
 
         let disambiguated_ids = self.disambiguate_ids(&tx, batch_dbid, user_id).await
             .map_err(|e| Status::internal(format!("Failed to disambiguate identifiers: {}", e)))?;
 
-        tx.commit().await
-            .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
+        tx.commit().await.map_err(|e| Status::internal(e.to_string()))?;
 
-        Ok(Response::new(UpdateTxsResponse {
-            error: Some(Error {
-                code: ErrorCode::Ok as i32,
-                message: String::new(),
-            }),
-        }))
+        Ok(Response::new(UpdateTxsResponse {}))
     }
 }
 

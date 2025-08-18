@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use sea_orm::{ActiveModelTrait, Set, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
 use chrono::{DateTime, Utc};
 use crate::db::ingest::models::{BatchActiveModel, StagingTxActiveModel, StagingInstrumentActiveModel, StagingIdentifierActiveModel, Batches};
@@ -129,7 +129,7 @@ where
 
             if !inst_id_models.is_empty() {
                 if instruments.len() != inst_id_models.len() {
-                    return Err(anyhow::anyhow!(
+                    return Err(anyhow!(
                         "Failed to insert instruments: incorrect number ids returned: {}: expected: {}",
                         instruments.len(),
                         inst_id_models.len()));
@@ -174,7 +174,7 @@ where
             .await?;
 
         if result.rows_affected == 0 {
-            return Err(anyhow::anyhow!("Batch with id {} not found", batch_dbid));
+            return Err(anyhow!("Batch with id {} not found", batch_dbid));
         }
 
         Ok(())
@@ -211,7 +211,7 @@ where
         let result = update_query.exec(self.exec()).await?;
 
         if result.rows_affected == 0 {
-            return Err(anyhow::anyhow!("Batch with id {} not found", batch_dbid));
+            return Err(anyhow!("Batch with id {} not found", batch_dbid));
         }
 
         Ok(())

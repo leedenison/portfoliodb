@@ -5,6 +5,7 @@ pub mod portfolio_db {
 pub mod auth;
 pub mod db;
 pub mod errors;
+pub mod id_resolvers;
 pub mod proto;
 pub mod rpc;
 

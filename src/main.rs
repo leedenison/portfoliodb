@@ -8,6 +8,8 @@ use std::time::Duration;
 use portfoliodb::portfolio_db_server::PortfolioDbServer;
 use portfoliodb::auth::AuthLayer;
 use portfoliodb::db::DatabaseManager;
+use portfoliodb::id_resolvers::{OpenfigiResolver, SimpleResolver};
+
 use sea_orm::DatabaseConnection;
 
 #[derive(Parser)]
@@ -34,6 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_mgr = DatabaseManager::<DatabaseConnection>::new(&args.database_url).await?;
     let db = std::sync::Arc::new(db_mgr);
 
+    let id_resolver = Box::new(SimpleResolver::new(db.clone(), Box::new(OpenfigiResolver::new())));
+    
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::mirror_request())
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::OPTIONS])
@@ -60,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(auth_layer)
         .layer(cors)
         .layer(tonic_web::GrpcWebLayer::new())
-        .add_service(PortfolioDbServer::new(portfoliodb::rpc::Service::new(db)))
+        .add_service(PortfolioDbServer::new(portfoliodb::rpc::Service::new(db, id_resolver)))
         .serve(addr)
         .await?;
 

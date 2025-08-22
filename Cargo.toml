@@ -5,7 +5,6 @@ edition = "2024"
 
 [features]
 test_class_database = []
-disambiguate = []
 
 [dependencies]
 # gRPC

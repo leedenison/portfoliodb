@@ -2,30 +2,30 @@ use tonic::{Request, Response, Status};
 use std::collections::HashMap;
 use std::sync::Arc;
 use anyhow::{Result, anyhow, bail};
+use crate::id_resolvers::StagingResolver;
 
 use crate::portfolio_db::{
     portfolio_db_server::PortfolioDb, UpdateTxsRequest, UpdateTxsResponse, Tx, Instrument,
 };
 use crate::db::api::DataStore;
 use crate::db::ingest::api::IngestStore;
-use crate::db::DatabaseManager;
-use crate::db::models;
 use crate::errors::Errors;
-use sea_orm::{DatabaseTransaction};
 use chrono::{DateTime, Utc};
-use pbjson_types::Timestamp;
 
 pub struct Service {
     db_mgr: Arc<dyn DataStore + Send + Sync>,
-}
-
-pub struct DisambiguatedIds {
-    identifiers: HashMap<(String, String, String), models::Identifier>,
+    id_resolver: Box<dyn StagingResolver + Send + Sync>,
 }
 
 impl Service {
-    pub fn new(db: Arc<dyn DataStore + Send + Sync>) -> Self {
-        Self { db_mgr: db }
+    pub fn new(
+        db: Arc<dyn DataStore + Send + Sync>,
+        id_resolver: Box<dyn StagingResolver + Send + Sync>,
+    ) -> Self {
+        Self {
+            db_mgr: db,
+            id_resolver,
+        }
     }
 
     fn db(&self) -> Arc<dyn DataStore + Send + Sync> {
@@ -116,7 +116,10 @@ impl Service {
 
         let tx = self.db().with_tx().await?;
         let total_records = match {
-            let mut total_records = tx.stage_instruments(batch_dbid, Box::new(instruments.into_iter())).await?;
+            let mut total_records = tx.stage_instruments(
+                batch_dbid,
+                "USER".to_string(),
+                Box::new(instruments.into_iter())).await?;
             total_records += tx.stage_txs(batch_dbid, Box::new(txs.into_iter())).await?;
             Ok::<usize, anyhow::Error>(total_records)
         } {
@@ -132,59 +135,6 @@ impl Service {
         self.db().update_batch_status(batch_dbid, "PROCESSING", None).await?;
         
         Ok(batch_dbid)
-    }
-
-    /// Resolves broker symbol descriptions and corresponding symbol hints to the symbol dbid 
-    /// in the database.  If the symbol dbid is not found, the symbol description and symbol hint
-    /// are used to look up the symbol using any configured disambiguation services, and the symbol
-    /// is created with a new instrument if it does not exist.
-    /// 
-    /// # Arguments
-    /// * `batch_dbid` - The batch ID to process
-    /// * `user_id` - Optional user ID for filtering user owned mappings
-    /// 
-    /// # Returns
-    /// * `Ok(())` - Success if disambiguation is successful
-    /// * `Err(anyhow::Error)` - Error if disambiguation fails
-    #[cfg(feature = "disambiguate")]
-    async fn disambiguate_ids(
-        &self,  
-        batch_dbid: i64,
-        user_id: i64,
-    ) -> Result<DisambiguatedIds> {
-        // Stub implementation when disambiguation feature is enabled
-        tracing::info!("Disambiguation feature enabled - skipping identifier disambiguation for batch {} (user: {})", batch_dbid, user_id);
-        Ok(DisambiguatedIds {
-            identifiers: HashMap::new(),
-        })
-    }
-
-    /// Resolves identifiers to the identifier dbid in the database.  
-    /// If no identifier dbid is found, a new identifier with a new instrument is created.
-    /// 
-    /// # Arguments
-    /// * `batch_dbid` - The batch ID to process
-    /// * `user_id` - Optional user ID for filtering user owned mappings
-    /// 
-    /// # Returns
-    /// * `Ok(())` - Success if disambiguation is successful
-    /// * `Err(anyhow::Error)` - Error if disambiguation fails
-    #[cfg(not(feature = "disambiguate"))]
-    async fn disambiguate_ids(
-        &self,
-        tx: &DatabaseManager<DatabaseTransaction>,
-        batch_dbid: i64,
-        user_id: i64,
-    ) -> Result<DisambiguatedIds> {
-        let mut result = DisambiguatedIds {
-            identifiers: HashMap::new(),
-        };
-
-        
-
-        // Stub implementation when disambiguation feature is disabled
-        tracing::info!("Disambiguation feature disabled - skipping identifier disambiguation for batch {} (user: {})", batch_dbid, user_id);
-        Ok(result)
     }
 }
 
@@ -231,12 +181,8 @@ impl PortfolioDb for Service {
             instruments).await
             .map_err(|e| Errors::internal(e.context("Failed to stage transactions")))?;
         
-        let tx = self.db().with_tx().await.map_err(Errors::internal)?;
-
-        let disambiguated_ids = self.disambiguate_ids(&tx, batch_dbid, user_id).await
-            .map_err(|e| Errors::internal(e.context("Failed to disambiguate identifiers")))?;
-
-        tx.commit().await.map_err(Errors::internal)?;
+        self.id_resolver.resolve(batch_dbid).await
+            .map_err(|e| Errors::internal(e.context("Failed to resolve identifiers")))?;
 
         Ok(Response::new(UpdateTxsResponse {}))
     }
@@ -245,7 +191,8 @@ impl PortfolioDb for Service {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::mocks::MockDataStoreMock;
+    use crate::db::mocks::MockStore;
+    use crate::id_resolvers::MockStagingResolver;
     use mockall::predicate::{eq, always};
     use serde_json::json;
 
@@ -310,7 +257,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_stage_txs_success() {
+    async fn test_stage_txs_batch_success() {
         let user_id = 1;
         let period_start = DateTime::from_timestamp(1640995200, 0).unwrap();
         let period_end = DateTime::from_timestamp(1641081600, 0).unwrap();
@@ -321,7 +268,7 @@ mod tests {
         let expected_tx_records = 1;
         let expected_total_records = expected_instrument_records + expected_tx_records;
 
-        let mut mock = MockDataStoreMock::new();
+        let mut mock = MockStore::new();
 
         mock.expect_create_batch()
             .times(1)
@@ -334,10 +281,14 @@ mod tests {
             )
             .returning(move |_, _, _, _, _| Ok(expected_batch_id));
 
+        mock.expect_with_tx()
+            .times(1)
+            .returning(move || Ok());
+
         mock.expect_stage_instruments()
             .times(1)
-            .with(eq(expected_batch_id), always())
-            .returning(move |_, instruments| {
+            .with(eq(expected_batch_id), always(), always())
+            .returning(move |_, _, instruments| {
                 let instruments_vec: Vec<Instrument> = instruments.collect();
                 assert_eq!(instruments_vec.len(), 2, "Expected 2 instruments to be staged");
                 Ok(expected_instrument_records)
@@ -362,7 +313,7 @@ mod tests {
             .with(eq(expected_batch_id), eq("PROCESSING"), always())
             .returning(|_, _, _| Ok(()));
 
-        let service = Service::new(Arc::new(mock));
+        let service = Service::new(Arc::new(mock), Box::new(MockStagingResolver::new()));
 
         let result = service.stage_txs_batch(
             user_id,
@@ -375,7 +326,7 @@ mod tests {
         assert!(result.is_ok(), "Expected stage_txs to succeed");
         let batch_id = result.unwrap();
         assert_eq!(batch_id, expected_batch_id, "Expected batch ID {} but got {}", expected_batch_id, batch_id);
-        println!("✓ Test passed: stage_txs success case");
+        println!("✓ Test passed: stage_txs_batch success case");
     }
 }
 

@@ -11,15 +11,15 @@ use crate::portfolio_db::{Instrument, Tx};
 
 // Create a mock for the DataStore trait using mockall
 mock! {
-    pub DataStoreMock {}
+    pub Store {}
 
     #[async_trait::async_trait]
-    impl DataStore for DataStoreMock {
+    impl DataStore for Store {
         async fn with_tx(&self) -> Result<DatabaseManager<DatabaseTransaction>>;
     }
 
     #[async_trait::async_trait]
-    impl IngestStore for DataStoreMock {
+    impl IngestStore for Store {
         async fn create_batch(
             &self,
             user_dbid: i64,
@@ -38,8 +38,14 @@ mock! {
         async fn stage_instruments(
             &self,
             batch_dbid: i64,
+            source: String,
             instruments: Box<dyn Iterator<Item = Instrument> + Send>,
         ) -> Result<usize>;
+
+        async fn unresolved_identifiers(
+            &self,
+            batch_dbid: i64,
+        ) -> Result<Vec<crate::db::ingest::models::StagingIdentifier>>;
 
         async fn update_batch_total_records(
             &self,
@@ -56,7 +62,7 @@ mock! {
     }
 
     #[async_trait::async_trait]
-    impl UserStore for DataStoreMock {
+    impl UserStore for Store {
         async fn get_user_id_by_email(&self, email: &str) -> Result<Option<i64>>;
     }
 }

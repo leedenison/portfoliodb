@@ -1,7 +1,15 @@
 use anyhow::{Result, anyhow};
-use sea_orm::{ActiveModelTrait, Set, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
+use sea_orm::{ActiveModelTrait, Set, ColumnTrait, EntityTrait, QueryFilter};
 use chrono::{DateTime, Utc};
-use crate::db::ingest::models::{BatchActiveModel, StagingTxActiveModel, StagingInstrumentActiveModel, StagingIdentifierActiveModel, Batches};
+use crate::db::ingest::models::{
+    BatchActiveModel,
+    StagingTxActiveModel,
+    StagingInstrumentActiveModel,
+    StagingIdentifierActiveModel,
+    Batches,
+    StagingIdentifiers,
+    StagingIdentifier,
+};
 use crate::db::ingest::models::{batches, staging_txs, staging_instruments, staging_identifiers};
 use crate::db::DatabaseManager;
 use crate::db::ingest::api::IngestStore;
@@ -50,107 +58,6 @@ where
 
         let result = batch.insert(self.exec()).await?;
         Ok(result.dbid)
-    }
-
-    /// Bulk inserts Tx data into staging_txs table using SeaORM ActiveModel.
-    /// 
-    /// # Arguments
-    /// * `batch_dbid` - The batch database ID to associate with the transactions
-    /// * `transactions` - Iterator over Tx protobuf types
-    ///
-    /// # Returns
-    /// * `Ok(record_count)` - Number of records successfully inserted
-    /// * `Err` if a database error occurs
-    async fn stage_txs(
-        &self,
-        batch_dbid: i64,
-        transactions: Box<dyn Iterator<Item = Tx> + Send>,
-    ) -> Result<usize> {
-        let mut record_count = 0;
-        let mut active_models = Vec::new();
-        
-        for tx in transactions {
-            record_count += 1;
-            let active_model = StagingTxActiveModel::from(tx).with_batch_dbid(batch_dbid);
-            active_models.push(active_model);
-        }
-        
-        if record_count == 0 {
-            return Ok(0);
-        }
-
-        if !active_models.is_empty() {
-            staging_txs::Entity::insert_many(active_models)
-                .exec(self.exec())
-                .await?;
-        }
-        
-        Ok(record_count)
-    }
-
-    /// Bulk inserts Instrument data into staging_instruments and staging_identifiers tables.
-    /// 
-    /// # Arguments
-    /// * `batch_dbid` - The batch database ID to associate with the instruments
-    /// * `instruments` - Iterator over Instrument protobuf types
-    ///
-    /// # Returns
-    /// * `Ok(record_count)` - Total number of records (identifiers + instruments) successfully inserted
-    /// * `Err` if a database error occurs
-    async fn stage_instruments(
-        &self,
-        batch_dbid: i64,
-        instruments: Box<dyn Iterator<Item = Instrument> + Send>,
-    ) -> Result<usize> {
-        let tx = self.exec().begin().await?;
-        let mut count = 0;
-        let mut inst_id_models = Vec::new();
-        let mut inst_models = Vec::new();
-        
-        for instrument in instruments {
-            count += 1;
-            
-            let inst_model = StagingInstrumentActiveModel::from(instrument.clone()).with_batch_dbid(batch_dbid);
-            inst_models.push(inst_model);
-
-            let mut id_models = Vec::new();
-            for identifier in instrument.identifiers {
-                count += 1;
-                let id_model = StagingIdentifierActiveModel::from(identifier).with_batch_dbid(batch_dbid);
-                id_models.push(id_model);
-            }
-            inst_id_models.push(id_models);
-        }
-                
-        if !inst_models.is_empty() {
-            let instruments = staging_instruments::Entity::insert_many(inst_models)
-                .exec_with_returning_many(&tx)
-                .await?;
-
-            if !inst_id_models.is_empty() {
-                if instruments.len() != inst_id_models.len() {
-                    return Err(anyhow!(
-                        "Failed to insert instruments: incorrect number ids returned: {}: expected: {}",
-                        instruments.len(),
-                        inst_id_models.len()));
-                }
-
-                let mut insert_id_models = Vec::new();
-                for (i, id_models) in inst_id_models.iter().enumerate() {
-                    for mut id_model in id_models.clone() {
-                        id_model.instrument_dbid = Set(instruments[i].dbid);
-                        insert_id_models.push(id_model);
-                    }
-                }
-
-                staging_identifiers::Entity::insert_many(insert_id_models)
-                    .exec(&tx)
-                    .await?;
-            }
-        }
-        
-        tx.commit().await?;
-        Ok(count)
     }
 
     /// Updates the total_records field of a batch.
@@ -215,5 +122,126 @@ where
         }
 
         Ok(())
+    }
+    
+    /// Bulk inserts Tx data into staging_txs table using SeaORM ActiveModel.
+    /// 
+    /// # Arguments
+    /// * `batch_dbid` - The batch database ID to associate with the transactions
+    /// * `transactions` - Iterator over Tx protobuf types
+    ///
+    /// # Returns
+    /// * `Ok(record_count)` - Number of records successfully inserted
+    /// * `Err` if a database error occurs
+    async fn stage_txs(
+        &self,
+        batch_dbid: i64,
+        transactions: Box<dyn Iterator<Item = Tx> + Send>,
+    ) -> Result<usize> {
+        let mut record_count = 0;
+        let mut active_models = Vec::new();
+        
+        for tx in transactions {
+            record_count += 1;
+            let active_model = StagingTxActiveModel::from(tx).with_batch_dbid(batch_dbid);
+            active_models.push(active_model);
+        }
+        
+        if record_count == 0 {
+            return Ok(0);
+        }
+
+        if !active_models.is_empty() {
+            staging_txs::Entity::insert_many(active_models)
+                .exec(self.exec())
+                .await?;
+        }
+        
+        Ok(record_count)
+    }
+
+    /// Bulk inserts Instrument data into staging_instruments and staging_identifiers tables.
+    /// 
+    /// # Arguments
+    /// * `batch_dbid` - The batch database ID to associate with the instruments
+    /// * `instruments` - Iterator over Instrument protobuf types
+    ///
+    /// # Returns
+    /// * `Ok(record_count)` - Total number of records (identifiers + instruments) successfully inserted
+    /// * `Err` if a database error occurs
+    async fn stage_instruments(
+        &self,
+        batch_dbid: i64,
+        source: String,
+        instruments: Box<dyn Iterator<Item = Instrument> + Send>,
+    ) -> Result<usize> {
+        let tx = self.exec().begin().await?;
+        let mut count = 0;
+        let mut inst_id_models = Vec::new();
+        let mut inst_models = Vec::new();
+        
+        for instrument in instruments {
+            count += 1;
+            
+            let inst_model = StagingInstrumentActiveModel::from(instrument.clone())
+                .with_batch_dbid(batch_dbid);
+            inst_models.push(inst_model);
+
+            let mut id_models = Vec::new();
+            for identifier in instrument.identifiers {
+                count += 1;
+                let id_model = StagingIdentifierActiveModel::from(identifier)
+                    .with_batch_dbid(batch_dbid)
+                    .with_source(source.clone());
+                id_models.push(id_model);
+            }
+            inst_id_models.push(id_models);
+        }
+                
+        if !inst_models.is_empty() {
+            let instruments = staging_instruments::Entity::insert_many(inst_models)
+                .exec_with_returning_many(&tx)
+                .await?;
+
+            if !inst_id_models.is_empty() {
+                if instruments.len() != inst_id_models.len() {
+                    return Err(anyhow!(
+                        "Failed to insert instruments: incorrect number ids returned: {}: expected: {}",
+                        instruments.len(),
+                        inst_id_models.len()));
+                }
+
+                let mut insert_id_models = Vec::new();
+                for (i, id_models) in inst_id_models.iter().enumerate() {
+                    for mut id_model in id_models.clone() {
+                        id_model.instrument_dbid = Set(instruments[i].dbid);
+                        insert_id_models.push(id_model);
+                    }
+                }
+
+                staging_identifiers::Entity::insert_many(insert_id_models)
+                    .exec(&tx)
+                    .await?;
+            }
+        }
+        
+        tx.commit().await?;
+        Ok(count)
+    }
+
+    /// Returns all unresolved identifiers for a batch.
+    /// 
+    /// # Arguments
+    /// * `batch_dbid` - The batch database ID to get unresolved identifiers for
+    ///
+    /// # Returns
+    /// * `Ok(identifiers)` - Vector of unresolved identifiers
+    /// * `Err` if a database error occurs
+    async fn unresolved_identifiers(
+        &self,
+        batch_dbid: i64,
+    ) -> Result<Vec<StagingIdentifier>> {
+        let identifiers = StagingIdentifiers::all_new(self.exec(), batch_dbid).await?;
+        Ok(identifiers)
     }
 } 

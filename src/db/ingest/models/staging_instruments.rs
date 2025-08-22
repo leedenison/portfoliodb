@@ -3,8 +3,6 @@ use crate::{prost_instrument_type, prost_option_style, prost_put_call};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
-use sea_orm::ConnectionTrait;
-use sea_orm::QueryTrait;
 use sea_orm::{NotSet, Set};
 use serde::{Deserialize, Serialize};
 

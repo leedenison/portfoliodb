@@ -1,4 +1,3 @@
--- Staging metadata table to track ingestion batches
 CREATE TABLE staging_batches (
     dbid BIGSERIAL PRIMARY KEY,
     user_dbid BIGINT NOT NULL,
@@ -17,6 +16,7 @@ CREATE TABLE staging_batches (
 
 CREATE TABLE staging_instruments (
     dbid BIGSERIAL PRIMARY KEY,
+    source TEXT NOT NULL,
     batch_dbid BIGINT NOT NULL REFERENCES staging_batches(dbid) ON DELETE CASCADE,
     type TEXT NOT NULL,
     status TEXT NOT NULL,
@@ -36,6 +36,7 @@ CREATE TABLE staging_instruments (
 
 CREATE TABLE staging_identifiers (
     dbid BIGSERIAL PRIMARY KEY,
+    source TEXT NOT NULL,
     batch_dbid BIGINT NOT NULL REFERENCES staging_batches(dbid) ON DELETE CASCADE,
     instrument_dbid BIGINT NOT NULL REFERENCES staging_instruments(dbid) ON DELETE CASCADE,
     namespace TEXT NOT NULL,
@@ -58,7 +59,6 @@ CREATE TABLE staging_txs (
     tx_type TEXT NOT NULL
 );
 
--- Create a function to clean up old staging batches
 CREATE OR REPLACE FUNCTION delete_stale_staging_batches()
 RETURNS void AS $$
 BEGIN

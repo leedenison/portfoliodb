@@ -7,20 +7,30 @@ use crate::id_resolvers::StagingResolver;
 use crate::portfolio_db::{
     portfolio_db_server::PortfolioDb, UpdateTxsRequest, UpdateTxsResponse, Tx, Instrument,
 };
-use crate::db::api::DataStore;
+
+use crate::db::store::TransactionalStore;
 use crate::db::ingest::api::IngestStore;
+use crate::db::users::UserStore;
 use crate::errors::Errors;
 use chrono::{DateTime, Utc};
 
-pub struct Service {
-    db_mgr: Arc<dyn DataStore + Send + Sync>,
-    id_resolver: Box<dyn StagingResolver + Send + Sync>,
+pub struct Service<D, R>
+where
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+    R: StagingResolver + Send + Sync,
+{
+    db_mgr: Arc<D>,
+    id_resolver: R,
 }
 
-impl Service {
+impl<D, R> Service<D, R>
+where
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+    R: StagingResolver + Send + Sync,
+{
     pub fn new(
-        db: Arc<dyn DataStore + Send + Sync>,
-        id_resolver: Box<dyn StagingResolver + Send + Sync>,
+        db: Arc<D>,
+        id_resolver: R,
     ) -> Self {
         Self {
             db_mgr: db,
@@ -28,7 +38,7 @@ impl Service {
         }
     }
 
-    fn db(&self) -> Arc<dyn DataStore + Send + Sync> {
+    fn db(&self) -> Arc<D> {
         self.db_mgr.clone()
     }
 
@@ -114,7 +124,7 @@ impl Service {
             period_end
         ).await?;
 
-        let tx = self.db().with_tx().await?;
+        let tx = self.db().begin().await?;
         let total_records = match {
             let mut total_records = tx.stage_instruments(
                 batch_dbid,
@@ -139,7 +149,11 @@ impl Service {
 }
 
 #[tonic::async_trait]
-impl PortfolioDb for Service {
+impl<D, R> PortfolioDb for Service<D, R>
+where
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+    R: StagingResolver + Send + Sync,
+{
     
     /// Updates transactions for a specific account within a given time period.
     ///

@@ -1,10 +1,7 @@
-pub mod api;
-pub mod database;
 pub mod ingest;
-#[cfg(test)]
-pub mod mocks;
 pub mod models;
+pub mod store;
 pub mod users;
 
-pub use api::DataStore;
-pub use database::DatabaseManager;
+pub use store::DataStore;
+pub use store::TransactionalStore;

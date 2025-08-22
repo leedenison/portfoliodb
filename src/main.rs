@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_mgr = DatabaseManager::<DatabaseConnection>::new(&args.database_url).await?;
     let db = std::sync::Arc::new(db_mgr);
 
-    let id_resolver = Box::new(SimpleResolver::new(db.clone(), Box::new(OpenfigiResolver::new())));
+    let id_resolver = SimpleResolver::new(db.clone(), OpenfigiResolver::new());
     
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::mirror_request())

@@ -1,4 +1,6 @@
-use crate::db::api::DataStore;
+use crate::db::store::TransactionalStore;
+use crate::db::ingest::api::IngestStore;
+use crate::db::users::UserStore;
 use crate::portfolio_db::{Identifier, Instrument};
 use anyhow::Result;
 use std::sync::Arc;
@@ -26,29 +28,38 @@ pub trait StagingResolver {
     async fn resolve(&self, batch_dbid: i64) -> Result<()>;
 }
 
-pub struct SimpleResolver {
-    db_mgr: Arc<dyn DataStore + Send + Sync>,
-    id_resolver: Box<dyn IdResolver + Send + Sync>,
+pub struct SimpleResolver<D, R>
+where
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+    R: IdResolver + Send + Sync,
+{
+    db_mgr: Arc<D>,
+    id_resolver: R,
 }
 
-impl SimpleResolver {
-    pub fn new(
-        db_mgr: Arc<dyn DataStore + Send + Sync>,
-        id_resolver: Box<dyn IdResolver + Send + Sync>,
-    ) -> Self {
+impl<D, R> SimpleResolver<D, R>
+where
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+    R: IdResolver + Send + Sync,
+{
+    pub fn new(db_mgr: Arc<D>, id_resolver: R) -> Self {
         Self {
             db_mgr,
             id_resolver,
         }
     }
 
-    fn db(&self) -> Arc<dyn DataStore + Send + Sync> {
+    fn db(&self) -> Arc<D> {
         self.db_mgr.clone()
     }
 }
 
 #[async_trait::async_trait]
-impl StagingResolver for SimpleResolver {
+impl<D, R> StagingResolver for SimpleResolver<D, R>
+where
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+    R: IdResolver + Send + Sync,
+{
     /// Resolves identifiers in the supplied batch.
     ///
     /// Uses a single source to resolve identifiers and instruments.

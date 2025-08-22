@@ -1,9 +1,9 @@
 use anyhow::Result;
-use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, TransactionTrait};
+use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, TransactionTrait, ConnectionTrait};
 
-/// Trait defining the user operations for PortfolioDB.
-/// This trait abstracts the user operations and allows for easier testing
-/// by enabling mock implementations.
+use crate::db::models::{users, Users};
+use crate::db::store::DataStore;
+
 #[async_trait::async_trait]
 pub trait UserStore {
     /// Retrieves a user's database ID by their email address.
@@ -18,13 +18,10 @@ pub trait UserStore {
     async fn get_user_id_by_email(&self, email: &str) -> Result<Option<i64>>;
 }
 
-use crate::db::models::{users, Users};
-use super::database::DatabaseManager;
-
 #[async_trait::async_trait]
-impl<E> UserStore for DatabaseManager<E>
+impl<E> UserStore for DataStore<E>
 where
-    E: sea_orm::ConnectionTrait + TransactionTrait + Send + Sync,
+    E: ConnectionTrait + TransactionTrait + Send + Sync,
 {
     async fn get_user_id_by_email(&self, email: &str) -> Result<Option<i64>> {
         let user = Users::find()

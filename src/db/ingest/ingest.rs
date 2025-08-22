@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use sea_orm::{ActiveModelTrait, Set, ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{TransactionTrait, ConnectionTrait};
 use chrono::{DateTime, Utc};
 use crate::db::ingest::models::{
     BatchActiveModel,
@@ -11,14 +12,14 @@ use crate::db::ingest::models::{
     StagingIdentifier,
 };
 use crate::db::ingest::models::{batches, staging_txs, staging_instruments, staging_identifiers};
-use crate::db::DatabaseManager;
+use crate::db::store::DataStore;
 use crate::db::ingest::api::IngestStore;
 use crate::portfolio_db::{Tx, Instrument};
 
 #[async_trait::async_trait]
-impl<E> IngestStore for DatabaseManager<E>
+impl<E> IngestStore for DataStore<E>
 where
-    E: sea_orm::ConnectionTrait + sea_orm::TransactionTrait + Send + Sync,
+    E: ConnectionTrait + TransactionTrait + Send + Sync,
 {
     /// Creates a new batch for ingestion and returns the batch_dbid.
     /// 

@@ -10,16 +10,24 @@ use tower::Service;
 use tower::Layer;
 use std::collections::HashMap;
 
-use crate::db::api::DataStore;
+use crate::db::store::TransactionalStore;
+use crate::db::ingest::api::IngestStore;
+use crate::db::users::UserStore;
 
 #[derive(Clone)]
-pub struct AuthMiddleware<S> {
+pub struct AuthMiddleware<S, D>
+where
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+{
     inner: S,
-    db: Arc<dyn DataStore + Send + Sync>,
+    db: Arc<D>,
 }
 
-impl<S> AuthMiddleware<S> {
-    pub fn new(inner: S, db: Arc<dyn DataStore + Send + Sync>) -> Self {
+impl<S, D> AuthMiddleware<S, D>
+where
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+{
+    pub fn new(inner: S, db: Arc<D>) -> Self {
         Self {
             inner,
             db,
@@ -27,9 +35,10 @@ impl<S> AuthMiddleware<S> {
     }
 }
 
-impl<S> Service<Request<Body>> for AuthMiddleware<S>
+impl<S, D> Service<Request<Body>> for AuthMiddleware<S, D>
 where
     S: Service<Request<Body>, Response = Response<Body>> + Clone + Send + 'static,
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
     S::Future: Send + 'static,
 {
     type Response = Response<Body>;
@@ -82,20 +91,28 @@ where
     }
 }
 
-// Optional helper for easier service composition
 #[derive(Clone)]
-pub struct AuthLayer {
-    db: Arc<dyn DataStore + Send + Sync>,
+pub struct AuthLayer<D>
+where
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+{
+    db: Arc<D>,
 }
 
-impl AuthLayer {
-    pub fn new(db: Arc<dyn DataStore + Send + Sync>) -> Self {
+impl<D> AuthLayer<D>
+where
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+{
+    pub fn new(db: Arc<D>) -> Self {
         Self { db }
     }
 }
 
-impl<S> Layer<S> for AuthLayer {
-    type Service = AuthMiddleware<S>;
+impl<S, D> Layer<S> for AuthLayer<D>
+where
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+{
+    type Service = AuthMiddleware<S, D>;
 
     fn layer(&self, inner: S) -> Self::Service {
         AuthMiddleware::new(inner, self.db.clone())

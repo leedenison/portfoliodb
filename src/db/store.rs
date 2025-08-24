@@ -10,7 +10,6 @@ pub trait TransactionalStore {
     async fn rollback(self) -> Result<()>;
 }
 
-#[derive(Clone)]
 pub struct DataStore<E> {
     exec: E,
 }

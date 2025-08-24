@@ -2,6 +2,7 @@ use crate::portfolio_db::{Identifier, Instrument};
 use crate::id_resolvers::IdResolver;
 use anyhow::Result;
 
+#[derive(Clone)]
 pub struct OpenfigiResolver {}
 
 impl OpenfigiResolver {

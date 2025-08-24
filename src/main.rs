@@ -4,10 +4,11 @@ use tower_http::cors::{CorsLayer, AllowOrigin};
 use http::header::{ACCEPT, CONTENT_TYPE, ORIGIN, AUTHORIZATION, USER_AGENT, HeaderName};
 use tracing::{Level, info};
 use std::time::Duration;
+use std::sync::Arc;
 
 use portfoliodb::portfolio_db_server::PortfolioDbServer;
 use portfoliodb::auth::AuthLayer;
-use portfoliodb::db::DatabaseManager;
+use portfoliodb::db::store::DataStore;
 use portfoliodb::id_resolvers::{OpenfigiResolver, SimpleResolver};
 
 use sea_orm::DatabaseConnection;
@@ -32,11 +33,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = format!("[::]:{}", args.port).parse()?;
 
     info!("Starting PortfolioDB server on port {}", args.port);
-
-    let db_mgr = DatabaseManager::<DatabaseConnection>::new(&args.database_url).await?;
-    let db = std::sync::Arc::new(db_mgr);
-
-    let id_resolver = SimpleResolver::new(db.clone(), OpenfigiResolver::new());
     
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::mirror_request())
@@ -56,15 +52,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_credentials(true)
         .max_age(Duration::from_secs(600));
 
-    // Create authentication layer
+    let db_mgr = DataStore::<DatabaseConnection>::new(&args.database_url).await?;
+    let db = Arc::new(db_mgr);
+
     let auth_layer = AuthLayer::new(db.clone());
+    
+    let id_resolver = SimpleResolver::new(db.clone(), OpenfigiResolver::new());
+    let service = portfoliodb::rpc::Service::new(db, id_resolver);
 
     Server::builder()
         .accept_http1(true)
         .layer(auth_layer)
         .layer(cors)
         .layer(tonic_web::GrpcWebLayer::new())
-        .add_service(PortfolioDbServer::new(portfoliodb::rpc::Service::new(db, id_resolver)))
+        .add_service(PortfolioDbServer::new(service))
         .serve(addr)
         .await?;
 

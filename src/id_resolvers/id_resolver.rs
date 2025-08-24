@@ -28,6 +28,7 @@ pub trait StagingResolver {
     async fn resolve(&self, batch_dbid: i64) -> Result<()>;
 }
 
+#[derive(Clone)]
 pub struct SimpleResolver<D, R>
 where
     D: TransactionalStore + IngestStore + UserStore + Send + Sync,

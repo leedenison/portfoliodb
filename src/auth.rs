@@ -1,6 +1,5 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 use tonic::Status;
 use http::Request;
@@ -9,36 +8,50 @@ use http::{Response, StatusCode, HeaderValue};
 use tower::Service;
 use tower::Layer;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
-use crate::db::store::TransactionalStore;
-use crate::db::ingest::api::IngestStore;
 use crate::db::users::UserStore;
 
-#[derive(Clone)]
-pub struct AuthMiddleware<S, D>
+pub struct AuthMiddleware<S, D, E>
 where
-    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+    D: AsRef<E>,
+    E: UserStore,
 {
     inner: S,
-    db: Arc<D>,
+    db: D,
+    _marker: PhantomData<E>,
 }
 
-impl<S, D> AuthMiddleware<S, D>
+impl<S, D, E> AuthMiddleware<S, D, E>
 where
-    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+    D: AsRef<E>,
+    E: UserStore,
 {
-    pub fn new(inner: S, db: Arc<D>) -> Self {
+    pub fn new(inner: S, db: D) -> Self {
         Self {
             inner,
             db,
+            _marker: PhantomData,
         }
     }
 }
 
-impl<S, D> Service<Request<Body>> for AuthMiddleware<S, D>
+impl<S, D, E> Clone for AuthMiddleware<S, D, E>
+where
+    S: Clone,
+    D: AsRef<E> + Clone,
+    E: UserStore,
+{
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone(), db: self.db.clone(), _marker: PhantomData }
+    }
+}
+
+impl<S, D, E> Service<Request<Body>> for AuthMiddleware<S, D, E>
 where
     S: Service<Request<Body>, Response = Response<Body>> + Clone + Send + 'static,
-    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+    D: AsRef<E> + Send + Sync + Clone + 'static,
+    E: UserStore + Sized,
     S::Future: Send + 'static,
 {
     type Response = Response<Body>;
@@ -64,7 +77,7 @@ where
                 None => return Ok(grpc_error_response(Status::unauthenticated("Missing or invalid email header"))),
             };
 
-            match db.get_user_id_by_email(&email).await {
+            match db.as_ref().get_user_id_by_email(&email).await {
                 Ok(Some(user_id)) => {
                     let extensions = req.extensions_mut();
                     let map = extensions.get_mut::<HashMap<String, i64>>();
@@ -91,28 +104,41 @@ where
     }
 }
 
-#[derive(Clone)]
-pub struct AuthLayer<D>
+pub struct AuthLayer<D, E>
 where
-    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+    D: AsRef<E>,
+    E: UserStore,
 {
-    db: Arc<D>,
+    db: D,
+    _marker: PhantomData<E>,
 }
 
-impl<D> AuthLayer<D>
+impl<D, E> AuthLayer<D, E>
 where
-    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+    D: AsRef<E>,
+    E: UserStore,
 {
-    pub fn new(db: Arc<D>) -> Self {
-        Self { db }
+    pub fn new(db: D) -> Self {
+        Self { db, _marker: PhantomData }
     }
 }
 
-impl<S, D> Layer<S> for AuthLayer<D>
+impl<D, E> Clone for AuthLayer<D, E> 
 where
-    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
+    D: AsRef<E> + Clone,
+    E: UserStore,
 {
-    type Service = AuthMiddleware<S, D>;
+    fn clone(&self) -> Self {
+        Self { db: self.db.clone(), _marker: PhantomData }
+    }
+}
+
+impl<S, D, E> Layer<S> for AuthLayer<D, E>
+where
+    D: AsRef<E> + Send + Sync + Clone + 'static,
+    E: UserStore + Sized,
+{
+    type Service = AuthMiddleware<S, D, E>;
 
     fn layer(&self, inner: S) -> Self::Service {
         AuthMiddleware::new(inner, self.db.clone())

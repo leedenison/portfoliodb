@@ -124,7 +124,8 @@ where
             period_end
         ).await?;
 
-        let tx = self.db().begin().await?;
+        let db = self.db();
+        let tx = db.begin().await?;
         let total_records = match {
             let mut total_records = tx.stage_instruments(
                 batch_dbid,
@@ -151,8 +152,8 @@ where
 #[tonic::async_trait]
 impl<D, R> PortfolioDb for Service<D, R>
 where
-    D: TransactionalStore + IngestStore + UserStore + Send + Sync,
-    R: StagingResolver + Send + Sync,
+    D: TransactionalStore + IngestStore + UserStore + Send + Sync + 'static,
+    R: StagingResolver + Send + Sync + 'static,
 {
     
     /// Updates transactions for a specific account within a given time period.

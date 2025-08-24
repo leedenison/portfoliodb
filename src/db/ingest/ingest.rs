@@ -16,7 +16,6 @@ use crate::db::store::DataStore;
 use crate::db::ingest::api::IngestStore;
 use crate::portfolio_db::{Tx, Instrument};
 
-#[async_trait::async_trait]
 impl<E> IngestStore for DataStore<E>
 where
     E: ConnectionTrait + TransactionTrait + Send + Sync,

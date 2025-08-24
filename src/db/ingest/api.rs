@@ -1,15 +1,11 @@
+use crate::db::ingest::models::StagingIdentifier;
+use crate::portfolio_db::{Instrument, Tx};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use crate::portfolio_db::{Tx, Instrument};
-use crate::db::ingest::models::StagingIdentifier;
 
-/// Trait defining the ingest operations for PortfolioDB.
-/// This trait abstracts the ingest operations and allows for easier testing
-/// by enabling mock implementations.
-#[async_trait::async_trait]
 pub trait IngestStore {
     /// Creates a new batch for ingestion and returns the batch_dbid.
-    /// 
+    ///
     /// # Arguments
     /// * `user_dbid` - Optional user database ID
     /// * `batch_type` - Type of batch ('txs_timeseries' or 'prices_timeseries')
@@ -20,17 +16,17 @@ pub trait IngestStore {
     /// # Returns
     /// * `Ok(batch_dbid)` if the batch was created successfully
     /// * `Err` if a database error occurs
-    async fn create_batch(
+    fn create_batch(
         &self,
         user_dbid: i64,
         batch_type: &str,
         broker_key: &str,
         period_start: DateTime<Utc>,
         period_end: DateTime<Utc>,
-    ) -> Result<i64>;
+    ) -> impl Future<Output = Result<i64>> + Send;
 
     /// Updates the total_records field of a batch.
-    /// 
+    ///
     /// # Arguments
     /// * `batch_dbid` - The batch database ID to update
     /// * `total_records` - The total number of records in the batch
@@ -38,14 +34,14 @@ pub trait IngestStore {
     /// # Returns
     /// * `Ok(())` if the batch was updated successfully
     /// * `Err` if a database error occurs
-    async fn update_batch_total_records(
+    fn update_batch_total_records(
         &self,
         batch_dbid: i64,
         total_records: i32,
-    ) -> Result<()>;
+    ) -> impl Future<Output = Result<()>> + Send;
 
     /// Updates the status and error_message fields of a batch.
-    /// 
+    ///
     /// # Arguments
     /// * `batch_dbid` - The batch database ID to update
     /// * `status` - The new status for the batch
@@ -54,16 +50,15 @@ pub trait IngestStore {
     /// # Returns
     /// * `Ok(())` if the batch was updated successfully
     /// * `Err` if a database error occurs
-    async fn update_batch_status<'a>(
+    fn update_batch_status<'a>(
         &'a self,
         batch_dbid: i64,
         status: &'a str,
         error_message: Option<&'a str>,
-    ) -> Result<()>;
+    ) -> impl Future<Output = Result<()>> + Send;
 
-    
     /// Bulk inserts Tx data into staging_txs table using SeaORM ActiveModel.
-    /// 
+    ///
     /// # Arguments
     /// * `batch_dbid` - The batch database ID to associate with the transactions
     /// * `transactions` - Iterator over Tx protobuf types
@@ -71,14 +66,14 @@ pub trait IngestStore {
     /// # Returns
     /// * `Ok(record_count)` - Number of records successfully inserted
     /// * `Err` if a database error occurs
-    async fn stage_txs(
+    fn stage_txs(
         &self,
         batch_dbid: i64,
         transactions: Box<dyn Iterator<Item = Tx> + Send>,
-    ) -> Result<usize>;
+    ) -> impl Future<Output = Result<usize>> + Send;
 
     /// Bulk inserts Instrument data into staging_instruments and staging_identifiers tables.
-    /// 
+    ///
     /// # Arguments
     /// * `batch_dbid` - The batch database ID to associate with the instruments
     /// * `instruments` - Iterator over Instrument protobuf types
@@ -86,23 +81,23 @@ pub trait IngestStore {
     /// # Returns
     /// * `Ok(record_count)` - Total number of records (identifiers + instruments) successfully inserted
     /// * `Err` if a database error occurs
-    async fn stage_instruments(
+    fn stage_instruments(
         &self,
         batch_dbid: i64,
         source: String,
         instruments: Box<dyn Iterator<Item = Instrument> + Send>,
-    ) -> Result<usize>;
+    ) -> impl Future<Output = Result<usize>> + Send;
 
     /// Returns all unresolved identifiers for a batch.
-    /// 
+    ///
     /// # Arguments
     /// * `batch_dbid` - The batch database ID to get unresolved identifiers for
     ///
     /// # Returns
     /// * `Ok(identifiers)` - Vector of unresolved identifiers
     /// * `Err` if a database error occurs
-    async fn unresolved_identifiers(
+    fn unresolved_identifiers(
         &self,
         batch_dbid: i64,
-    ) -> Result<Vec<StagingIdentifier>>;
-} 
+    ) -> impl Future<Output = Result<Vec<StagingIdentifier>>> + Send;
+}

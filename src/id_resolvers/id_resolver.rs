@@ -5,13 +5,11 @@ use crate::portfolio_db::{Identifier, Instrument};
 use anyhow::Result;
 use std::sync::Arc;
 
-#[async_trait::async_trait]
 pub trait IdResolver {
     fn name(&self) -> String;
-    async fn resolve(&self, ids: Vec<Identifier>) -> Result<Vec<Instrument>>;
+    fn resolve(&self, ids: Vec<Identifier>) -> impl Future<Output = Result<Vec<Instrument>>> + Send;
 }
 
-#[async_trait::async_trait]
 pub trait StagingResolver {
     /// Resolves identifiers in the supplied batch.
     ///
@@ -25,7 +23,7 @@ pub trait StagingResolver {
     /// # Returns
     /// * `Ok(())` - Success if resolution is successful
     /// * `Err(anyhow::Error)` - Error if resolution fails
-    async fn resolve(&self, batch_dbid: i64) -> Result<()>;
+    fn resolve(&self, batch_dbid: i64) -> impl Future<Output = Result<()>> + Send;
 }
 
 #[derive(Clone)]
@@ -55,7 +53,6 @@ where
     }
 }
 
-#[async_trait::async_trait]
 impl<D, R> StagingResolver for SimpleResolver<D, R>
 where
     D: TransactionalStore + IngestStore + UserStore + Send + Sync,
@@ -100,7 +97,6 @@ pub struct PriorityResolver {}
 // TODO  database.
 // TODO  Duplicate identifiers may be resolved multiple times and stored
 // TODO  in StagingIdentifiers, once for each source.
-#[async_trait::async_trait]
 impl StagingResolver for PriorityResolver {
     async fn resolve(&self, _batch_dbid: i64) -> Result<()> {
         Ok(())

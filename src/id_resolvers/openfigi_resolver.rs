@@ -11,7 +11,6 @@ impl OpenfigiResolver {
     }
 }
 
-#[async_trait::async_trait]
 impl IdResolver for OpenfigiResolver {
     fn name(&self) -> String {
         "openfigi".to_string()

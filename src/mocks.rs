@@ -1,15 +1,48 @@
 #[macro_export]
 macro_rules! automock {
-    // Require a body; this is the default you want in non-test builds.
-    (fn $name:ident $sig:tt $body:block) => {
-        // Tests (or when feature "automock" is on): replace with a panic body.
+    // with body
+    //
+    // e.g.:
+    //   automock!(async fn foo<T>(x: T) -> usize where T: Copy { 0 });
+    //
+    ($(#[$meta:meta])* $($async:ident)? fn $name:ident
+        $(<$($gen:tt)*>)?
+        ($($args:tt)*)
+        -> $ret:ty
+        $(where $($where:tt)*)?
+        $body:block
+    ) => {
         #[cfg(any(test, feature = "automock"))]
-        fn $name $sig {
+        $(#[$meta])*
+        $($async)? fn $name $(<$($gen)*>)? ($($args)*) -> $ret $(where $($where)*)? {
             panic!(concat!("unexpected call to ", stringify!($name)));
         }
 
-        // Normal builds: use the supplied default implementation.
         #[cfg(not(any(test, feature = "automock")))]
-        fn $name $sig $body
+        $(#[$meta])*
+        $($async)? fn $name $(<$($gen)*>)? ($($args)*) -> $ret $(where $($where)*)? $body
+    };
+
+    // without body
+    //
+    // e.g.:
+    //   automock!(fn bar(&self, x: i32) -> Result<()>;);
+    //
+    ($(#[$meta:meta])* $($async:ident)? fn $name:ident
+        $(<$($gen:tt)*>)?
+        ($($args:tt)*)
+        -> $ret:ty
+        $(where $($where:tt)*)?
+        ;
+    ) => {
+        #[cfg(any(test, feature = "automock"))]
+        $(#[$meta])*
+        $($async)? fn $name $(<$($gen)*>)? ($($args)*) -> $ret $(where $($where)*)? {
+            panic!(concat!("unexpected call to ", stringify!($name)));
+        }
+
+        #[cfg(not(any(test, feature = "automock")))]
+        $(#[$meta])*
+        $($async)? fn $name $(<$($gen)*>)? ($($args)*) -> $ret $(where $($where)*)? ;
     };
 }

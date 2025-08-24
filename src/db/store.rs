@@ -2,12 +2,14 @@ use anyhow::Result;
 use sea_orm::{Database, DatabaseConnection, DatabaseTransaction, ConnectionTrait, TransactionTrait};
 use crate::db::users::UserStore;
 use crate::db::ingest::api::IngestStore;
+use crate::automock;
 
-#[async_trait::async_trait]
 pub trait TransactionalStore {
-    async fn begin(&self) -> Result<impl TransactionalStore + UserStore + IngestStore + Send + Sync>;
-    async fn commit(self) -> Result<()>;
-    async fn rollback(self) -> Result<()>;
+    type Store: TransactionalStore + UserStore + IngestStore + Send + Sync;
+
+    fn begin(&self) -> impl Future<Output = Result<Self::Store>> + Send;        
+    fn commit(self) -> impl Future<Output = Result<()>> + Send;
+    fn rollback(self) -> impl Future<Output = Result<()>> + Send;
 }
 
 pub struct DataStore<E> {
@@ -21,36 +23,50 @@ impl DataStore<DatabaseConnection> {
     }
 }
 
-#[async_trait::async_trait]
 impl TransactionalStore for DataStore<DatabaseConnection> {
-    async fn begin(&self) -> Result<impl TransactionalStore + UserStore + IngestStore + Send + Sync> {
-        let tx = self.exec.begin().await?;
-        Ok(DataStore { exec: tx })
+    type Store = DataStore<DatabaseTransaction>;
+
+    fn begin(&self) -> impl Future<Output = Result<Self::Store>> + Send {
+        async move {
+            let tx = self.exec.begin().await?;
+            Ok(DataStore { exec: tx })
+        }
     }
 
-    async fn commit(self) -> Result<()> {
-        Err(anyhow::anyhow!("Attempted to commit a transaction context while not in a transaction context"))
+    fn commit(self) -> impl Future<Output = Result<()>> + Send {
+        async move {
+            Err(anyhow::anyhow!("Attempted to commit a transaction context while not in a transaction context"))
+        }
     }
 
-    async fn rollback(self) -> Result<()> {
-        Err(anyhow::anyhow!("Attempted to rollback a transaction context while not in a transaction context"))
+    fn rollback(self) -> impl Future<Output = Result<()>> + Send {
+        async move {
+            Err(anyhow::anyhow!("Attempted to rollback a transaction context while not in a transaction context"))
+        }
     }
 }
 
-#[async_trait::async_trait]
 impl TransactionalStore for DataStore<DatabaseTransaction> {    
-    async fn begin(&self) -> Result<DataStore<DatabaseTransaction>> {
-        Err(anyhow::anyhow!("Attempted to enter a transaction context from within an existing transaction context"))
+    type Store = DataStore<DatabaseTransaction>;
+
+    fn begin(&self) -> impl Future<Output = Result<Self::Store>> + Send {
+        async move {
+            Err(anyhow::anyhow!("Attempted to enter a transaction context from within an existing transaction context"))
+        }
     }
 
-    async fn commit(self) -> Result<()> {
-        self.exec.commit().await?;
-        Ok(())
+    fn commit(self) -> impl Future<Output = Result<()>> + Send {
+        async move {
+            self.exec.commit().await?;
+            Ok(())
+        }
     }
 
-    async fn rollback(self) -> Result<()> {
-        self.exec.rollback().await?;
-        Ok(())
+    fn rollback(self) -> impl Future<Output = Result<()>> + Send {
+        async move {
+            self.exec.rollback().await?;
+            Ok(())
+        }
     }
 }
 

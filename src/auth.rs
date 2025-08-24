@@ -51,7 +51,7 @@ impl<S, D, E> Service<Request<Body>> for AuthMiddleware<S, D, E>
 where
     S: Service<Request<Body>, Response = Response<Body>> + Clone + Send + 'static,
     D: AsRef<E> + Send + Sync + Clone + 'static,
-    E: UserStore + Sized,
+    E: UserStore + Sized + Send + Sync,
     S::Future: Send + 'static,
 {
     type Response = Response<Body>;

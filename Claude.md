@@ -70,6 +70,12 @@ Smaller PRs are easier to review, less likely to introduce bugs, and create clea
 
 Use text placeholders for unimplemented functionality as development progresses.  It should always be possible to see where UI elements will be displayed even if they are not yet implemented.
 
+## Naming
+
+Prefer terse names when naming functions and variables.  In particular here are some names that should be made terse:
+
+* Transaction (when referring to financial transactions, not database transactions) should be shortened to Tx.
+
 ## Documentation
 
 Prefer to create clear documentation in comments in the code rather than creating separate documentation files.  Datamodels and APIs for example should be documented in comments in the relevant SQL and proto files.

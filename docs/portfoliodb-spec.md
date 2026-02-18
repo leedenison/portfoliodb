@@ -56,7 +56,11 @@ If an instrument is not already identified the system should attempt to fetch da
 
 ## Fetching Prices
 
-## The system should support the ability to fetch current and historical prices for identified instruments.  Actual API / datasource integrations should be implemented as plugins.  The system should support manual entry by admin users if no automatic data source is available.
+The system should support the ability to fetch current and historical prices for identified instruments.  Actual API / datasource integrations should be implemented as plugins.  The system should support manual entry by admin users if no automatic data source is available.
+
+## Calculating Holdings
+
+PortfolioDB calculates holdings for a particular point in time from the transaction data.  It does not materialise the holdings in the database.
 
 ## Exchanges
 

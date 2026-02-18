@@ -74,6 +74,20 @@ Stocks, Options and Futures should have valid from and to dates which specify wh
 
 The system should support the ability to fetch data on stock splits, mergers, delistings, etc.  Actual API / datasource integrations should be implemented as plugins.  The system should support manual entry by admin users if no automatic data source is available.
 
+## Transaction Types
+
+Portfoliodb should support OFX style transaction types.  For investments:
+
+* Buys: BUYDEBT, BUYMF, BUYOPT, BUYOTHER, BUYSTOCK
+* Sells: SELLDEBT, SELLMF, SELLOPT, SELLOTHER, SELLSTOCK
+* Other actions: INCOME, INVEXPENSE, REINVEST, RETOFCAP, SPLIT, TRANSFER, JRNLFUND, JRNLSEC, MARGININTEREST, CLOSUREOPT
+
+For cash accounts (when support is added):
+
+* CREDIT, DEBIT, INT, DIV, FEE, SRVCHG, DEP, ATM, POS, XFER, CHECK, PAYMENT, CASH, DIRECTDEP, DIRECTDEBIT, REPEATPMT, OTHER
+
+These transaction types need only be interpreted enough to determine the change to the users holdings.  The supplied transaction type should be stored so that transactions can be filtered by type in the future.
+
 ## User Interface
 
 The user interface is specified in separate files \- see docs/ui/\*.md

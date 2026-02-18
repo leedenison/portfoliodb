@@ -18,7 +18,7 @@ In a portfolio the holdings information is owned by the user.  Instrument identi
 
 The service will run behind an OAuth2 proxy, so the service should assume that credentials will be included in an Authorization header for authenticated requests \- and that any request with an Authorization header has been successfully authenticated.
 
-Account creation will be handled by an explicit create user endpoint.  Any request authenticated with an unknown user should return an error.
+Account creation will be handled by an explicit create user endpoint.  Any request authenticated with an unknown user should return an error.  User's name and email address will be extracted from an ID token provided to the create user endpoint.
 
 ## Authorization
 
@@ -106,3 +106,9 @@ PortfolioDB should adopt security best practices for web development including, 
 ## Performance
 
 API integrations are likely to be paid for and have quota limits.  PortfolioDB should be efficient when calling external APIs, avoid calls for duplicate information and should implement appropriate backoff algorithms when services are interrupted.
+
+## Datamodel Migration
+
+Datamodel definitions should follow the industry standard migrations pattern.
+
+A 'version' file stored in the migrations directory should contain the numerical index of the latest migration file being edited.  Agents should not update this file; it will only be updated by human editors.  Agents should only create a new migration file when the numerical index has been updated to a non-existant file.  Otherwise changes should be made in place to the existing file identified by the index.

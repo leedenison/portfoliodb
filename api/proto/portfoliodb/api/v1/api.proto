@@ -14,8 +14,7 @@ enum Broker {
   SCHB        = 2;  // Charles Schwab
 }
 
-// OFX-style transaction types for investments. Cash account types reserved
-// for later.
+// OFX-style transaction types for investments.
 enum TxType {
   TX_TYPE_UNSPECIFIED = 0;
   // Buys
@@ -43,10 +42,7 @@ enum TxType {
   CLOSUREOPT     = 20;
 }
 
-// Tx represents one broker-reported transaction. Used in both bulk
-// and single ingestion. For bulk, broker may be specified at request level
-// only; instrument_description + timestamp are always required for the
-// natural key.
+// Tx represents one broker-reported transaction.
 message Tx {
   // Time of the transaction (part of natural key with broker and
   // instrument_description). Required.
@@ -152,7 +148,6 @@ message ListTxsResponse {
 }
 
 // Holding is the aggregate quantity of an instrument in a portfolio.
-// For M01 instruments are identified only by broker and instrument_description.
 message Holding {
   Broker broker = 1;
   string instrument_description = 2;
@@ -172,10 +167,10 @@ message GetHoldingsResponse {
 // Job status for async ingestion.
 enum JobStatus {
   JOB_STATUS_UNSPECIFIED = 0;
-  JOB_STATUS_PENDING = 1;
-  JOB_STATUS_RUNNING = 2;
-  JOB_STATUS_SUCCESS = 3;
-  JOB_STATUS_FAILED = 4;
+  PENDING = 1;
+  RUNNING = 2;
+  SUCCESS = 3;
+  FAILED = 4;
 }
 
 message ValidationError {

@@ -17,7 +17,7 @@
 
 | Task ID | Description                                                                         | Depends on         | Milestone | Status |
 | ------- | ----------------------------------------------------------------------------------- | ------------------ | --------- | ------ |
-| T01     | Design gRPC ingestion API for M01.                                                  |                    | M01       |        |
+| T01     | Design gRPC ingestion API for M01.                                                  |                    | M01       | Done   |
 | T02     | Design gRPC front end / back end API for M01.                                       |                    | M01       |        |
 | T03     | Design Postgresql datamodel for M01.                                                |                    | M01       |        |
 | T04     | Implement PortfolioDB service for M01.                                              | T01, T02, T03      | M01       |        |

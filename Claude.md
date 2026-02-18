@@ -80,6 +80,8 @@ Prefer terse names when naming functions and variables.  In particular here are 
 
 Prefer to use comments in the code, protobufs and sql files rather than creating separate files when documenting APIs, datamodels and functions.
 
+Do not refer to project tasks or milestones in comments.
+
 ## Style Guides
 
 Refer to docs/style/\<language\>.md for style guidence on specific languages.

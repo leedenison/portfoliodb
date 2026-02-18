@@ -56,15 +56,6 @@ PortfolioDBs purpose is to track the holdings (the quantity held) of equities, o
 
 Important: Before implementing any feature or making architectural decisions, consult docs/portfoliodb-spec.md to ensure alignment with the project specification. The spec contains detailed requirements, expected behaviors, and design decisions that should guide implementation.
 
-## Worktrees
-
-Feature branches use worktrees: git worktree add ../portfoliodb-\<feature\> \-b feature/\<branch\> origin/main
-
-After creating a new worktree, copy .env and config/ 
-
-cp .env ../portfoliodb-\<feature\>/  
-cp \-r config ../portfoliodb-\<feature\>/
-
 ## Pull Request Guidelines
 
 Prefer smaller, focused PRs to reduce review burden:
@@ -78,3 +69,7 @@ Smaller PRs are easier to review, less likely to introduce bugs, and create clea
 ## UI Mocks
 
 Use text placeholders for unimplemented functionality as development progresses.  It should always be possible to see where UI elements will be displayed even if they are not yet implemented.
+
+## Documentation
+
+Prefer to create clear documentation in comments in the code rather than creating separate documentation files.  Datamodels and APIs for example should be documented in comments in the relevant SQL and proto files.

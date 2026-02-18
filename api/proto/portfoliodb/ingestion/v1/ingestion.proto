@@ -93,7 +93,7 @@ message UpsertTxsRequest {
   google.protobuf.Timestamp period_to   = 4;
   // Transactions to store. Replaces any existing tx in [period_from, period_to]
   // for this broker.
-  repeated Tx transactions = 5;
+  repeated Tx txs = 5;
 }
 
 // UpsertTxRequest creates or replaces one transaction by natural key.

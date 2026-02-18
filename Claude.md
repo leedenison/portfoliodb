@@ -78,4 +78,4 @@ Prefer terse names when naming functions and variables.  In particular here are 
 
 ## Documentation
 
-Prefer to create clear documentation in comments in the code rather than creating separate documentation files.  Datamodels and APIs for example should be documented in comments in the relevant SQL and proto files.
+Prefer to use comments in the code, protobufs and sql files rather than creating separate files when documenting APIs, datamodels and functions.

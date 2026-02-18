@@ -3,6 +3,7 @@ syntax = "proto3";
 package portfoliodb.ingestion.v1;
 
 import "google/protobuf/timestamp.proto";
+import "portfoliodb/api/v1/api.proto";
 
 option go_package = "portfoliodb/ingestion/v1;ingestionv1";
 
@@ -19,66 +20,6 @@ service IngestionService {
   rpc UpsertTx(UpsertTxRequest) returns (IngestionResponse);
 }
 
-// OFX-style transaction types for investments. Cash account types reserved
-// for later.
-enum TxType {
-  TX_TYPE_UNSPECIFIED = 0;
-  // Buys
-  BUYDEBT  = 1;
-  BUYMF    = 2;
-  BUYOPT   = 3;
-  BUYOTHER = 4;
-  BUYSTOCK = 5;
-  // Sells
-  SELLDEBT  = 6;
-  SELLMF    = 7;
-  SELLOPT   = 8;
-  SELLOTHER = 9;
-  SELLSTOCK = 10;
-  // Other
-  INCOME         = 11;
-  INVEXPENSE     = 12;
-  REINVEST       = 13;
-  RETOFCAP       = 14;
-  SPLIT          = 15;
-  TRANSFER       = 16;
-  JRNLFUND       = 17;
-  JRNLSEC        = 18;
-  MARGININTEREST = 19;
-  CLOSUREOPT     = 20;
-}
-
-// Broker identifies the data source so that the same canonical value is used
-// across users uploading data from the same broker.
-enum Broker {
-  BROKER_UNSPECIFIED = 0;
-  IBKR        = 1;  // Interactive Brokers
-  SCHB        = 2;  // Charles Schwab
-}
-
-// Tx represents one broker-reported transaction. Used in both bulk
-// and single ingestion. For bulk, broker may be specified at request level
-// only; instrument_description + timestamp are always required for the
-// natural key.
-message Tx {
-  // Time of the transaction (part of natural key with broker and
-  // instrument_description). Required.
-  google.protobuf.Timestamp timestamp = 1;
-
-  // Broker's instrument description string. Part of natural key. Required.
-  string instrument_description = 3;
-  // OFX transaction type. Required.
-  TxType type = 4;
-  // Signed quantity: positive for buys/adds, negative for sells/reductions.
-  // Double per project style for numeric values.
-  double quantity = 5;
-  // Currency code (e.g. USD). Optional; validation may report unknown currency
-  // in async job.
-  string currency = 6;
-  // Unit price as reported by broker. Optional; not used for valuation.
-  double unit_price = 7;
-}
-
 // UpsertTxsRequest replaces all transactions for the given broker in the
 // given period with the supplied list. User from auth; portfolio must be
 // owned by that user.
@@ -86,14 +27,14 @@ message UpsertTxsRequest {
   // Portfolio to ingest into. Must be owned by the authenticated user.
   string portfolio_id = 1;
   // Broker. All transactions in this request are for this broker.
-  Broker broker = 2;
+  portfoliodb.api.v1.Broker broker = 2;
   // Period of transactions covered. Only transactions in this range for this
   // broker are replaced; others are unchanged.
   google.protobuf.Timestamp period_from = 3;
   google.protobuf.Timestamp period_to   = 4;
   // Transactions to store. Replaces any existing tx in [period_from, period_to]
   // for this broker.
-  repeated Tx txs = 5;
+  repeated portfoliodb.api.v1.Tx txs = 5;
 }
 
 // UpsertTxRequest creates or replaces one transaction by natural key.
@@ -101,9 +42,9 @@ message UpsertTxRequest {
   // Portfolio to ingest into. Must be owned by the authenticated user.
   string portfolio_id = 1;
   // Broker for this transaction.
-  Broker broker = 2;
+  portfoliodb.api.v1.Broker broker = 2;
   // The transaction.
-  Tx tx = 3;
+  portfoliodb.api.v1.Tx tx = 3;
 }
 
 // IngestionResponse returned by UpsertTxs and UpsertTx. Job status and

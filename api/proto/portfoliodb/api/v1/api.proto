@@ -1,0 +1,194 @@
+syntax = "proto3";
+
+package portfoliodb.api.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "portfoliodb/api/v1;apiv1";
+
+// Broker identifies the data source so that the same canonical value is used
+// across users uploading data from the same broker.
+enum Broker {
+  BROKER_UNSPECIFIED = 0;
+  IBKR        = 1;  // Interactive Brokers
+  SCHB        = 2;  // Charles Schwab
+}
+
+// OFX-style transaction types for investments. Cash account types reserved
+// for later.
+enum TxType {
+  TX_TYPE_UNSPECIFIED = 0;
+  // Buys
+  BUYDEBT  = 1;
+  BUYMF    = 2;
+  BUYOPT   = 3;
+  BUYOTHER = 4;
+  BUYSTOCK = 5;
+  // Sells
+  SELLDEBT  = 6;
+  SELLMF    = 7;
+  SELLOPT   = 8;
+  SELLOTHER = 9;
+  SELLSTOCK = 10;
+  // Other
+  INCOME         = 11;
+  INVEXPENSE     = 12;
+  REINVEST       = 13;
+  RETOFCAP       = 14;
+  SPLIT          = 15;
+  TRANSFER       = 16;
+  JRNLFUND       = 17;
+  JRNLSEC        = 18;
+  MARGININTEREST = 19;
+  CLOSUREOPT     = 20;
+}
+
+// Tx represents one broker-reported transaction. Used in both bulk
+// and single ingestion. For bulk, broker may be specified at request level
+// only; instrument_description + timestamp are always required for the
+// natural key.
+message Tx {
+  // Time of the transaction (part of natural key with broker and
+  // instrument_description). Required.
+  google.protobuf.Timestamp timestamp = 1;
+  // Broker's instrument description string. Part of natural key. Required.
+  string instrument_description = 3;
+  // OFX transaction type. Required.
+  TxType type = 4;
+  // Signed quantity: positive for buys/adds, negative for sells/reductions.
+  double quantity = 5;
+  // Currency code (e.g. USD). Optional; validation may report unknown currency
+  // in async job.
+  string currency = 6;
+  // Unit price as reported by broker. Optional; not used for valuation.
+  double unit_price = 7;
+}
+
+// ApiService provides gRPC endpoints for the web front end: portfolio CRUD,
+// listing transactions and holdings, and ingestion job status.
+service ApiService {
+  // Portfolios
+  rpc ListPortfolios(ListPortfoliosRequest) returns (ListPortfoliosResponse);
+  rpc GetPortfolio(GetPortfolioRequest) returns (GetPortfolioResponse);
+  rpc CreatePortfolio(CreatePortfolioRequest) returns (CreatePortfolioResponse);
+  rpc UpdatePortfolio(UpdatePortfolioRequest) returns (UpdatePortfolioResponse);
+  rpc DeletePortfolio(DeletePortfolioRequest) returns (DeletePortfolioResponse);
+
+  // Transactions and holdings for a portfolio
+  rpc ListTxs(ListTxsRequest) returns (ListTxsResponse);
+  rpc GetHoldings(GetHoldingsRequest) returns (GetHoldingsResponse);
+
+  // Async ingestion job status and validation errors
+  rpc GetJob(GetJobRequest) returns (GetJobResponse);
+}
+
+// Portfolio is a user-owned container for transactions and holdings.
+message Portfolio {
+  string id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+// ListPortfolios returns portfolios owned by the authenticated user.
+message ListPortfoliosRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ListPortfoliosResponse {
+  repeated Portfolio portfolios = 1;
+  string next_page_token = 2;
+}
+
+message GetPortfolioRequest {
+  string portfolio_id = 1;
+}
+
+message GetPortfolioResponse {
+  Portfolio portfolio = 1;
+}
+
+message CreatePortfolioRequest {
+  string name = 1;
+}
+
+message CreatePortfolioResponse {
+  Portfolio portfolio = 1;
+}
+
+message UpdatePortfolioRequest {
+  string portfolio_id = 1;
+  string name = 2;
+}
+
+message UpdatePortfolioResponse {
+  Portfolio portfolio = 1;
+}
+
+message DeletePortfolioRequest {
+  string portfolio_id = 1;
+}
+
+message DeletePortfolioResponse {}
+
+// PortfolioTx pairs a transaction with its broker for list responses.
+message PortfolioTx {
+  Broker broker = 1;
+  Tx tx = 2;
+}
+
+message ListTxsRequest {
+  string portfolio_id = 1;
+  Broker broker = 2;
+  google.protobuf.Timestamp period_from = 3;
+  google.protobuf.Timestamp period_to = 4;
+  int32 page_size = 5;
+  string page_token = 6;
+}
+
+message ListTxsResponse {
+  repeated PortfolioTx txs = 1;
+  string next_page_token = 2;
+}
+
+// Holding is the aggregate quantity of an instrument in a portfolio.
+// For M01 instruments are identified only by broker and instrument_description.
+message Holding {
+  Broker broker = 1;
+  string instrument_description = 2;
+  double quantity = 3;
+}
+
+message GetHoldingsRequest {
+  string portfolio_id = 1;
+  google.protobuf.Timestamp as_of = 2;
+}
+
+message GetHoldingsResponse {
+  repeated Holding holdings = 1;
+  google.protobuf.Timestamp as_of = 2;
+}
+
+// Job status for async ingestion.
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  JOB_STATUS_PENDING = 1;
+  JOB_STATUS_RUNNING = 2;
+  JOB_STATUS_SUCCESS = 3;
+  JOB_STATUS_FAILED = 4;
+}
+
+message ValidationError {
+  int32 row_index = 1;
+  string field = 2;
+  string message = 3;
+}
+
+message GetJobRequest {
+  string job_id = 1;
+}
+
+message GetJobResponse {
+  JobStatus status = 1;
+  repeated ValidationError validation_errors = 2;
+}

@@ -84,6 +84,8 @@ Do not refer to project tasks or milestones in comments.
 
 ## Style Guides
 
+Use language specific, idiomatic solutions to problems when possible.
+
 Refer to docs/style/\<language\>.md for style guidance on specific languages.
 
 ## Testing

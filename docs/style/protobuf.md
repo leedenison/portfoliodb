@@ -1,6 +1,6 @@
 ## Protobuf Style Guide
 
-Use protoc to generate golang protobuf bindings.
+Use protoc (not buf) to generate golang protobuf bindings.
 
 Use protobuf version 3.
 

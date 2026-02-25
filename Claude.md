@@ -23,6 +23,7 @@ PortfolioDBs purpose is to track the holdings (the quantity held) of equities, o
 ### Client Front End (client/)
 
 * Next.js single page application (SPA)
+* Front end Typescript protobuf bindings (client/api)
 
 ### Back End
 
@@ -30,6 +31,7 @@ PortfolioDBs purpose is to track the holdings (the quantity held) of equities, o
 
 * Go service which responds to transaction ingestion and front end API requests.  
 * Implements a database abstraction layer (server/db) which allows functions that depend on the database abstraction layer to be unit tested locally with mocks.  All sql queries should be confined to the abstraction layer implemented in server/db.  All other server code should access the database via the abstraction layer.
+* Backend Golang protobuf bindings (server/api)
 
 #### Identity Plugins (server/plugins/\<datasource\>/identifier)
 

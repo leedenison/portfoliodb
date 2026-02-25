@@ -20,39 +20,19 @@ PortfolioDBs purpose is to track the holdings (the quantity held) of equities, o
 
 ## Architecture
 
-### Client Front End (client/)
+Directory layout and which component lives where are described in **docs/layout.md**. In short: Next.js front end in **client/**; Go backend in **server/** (service, DB abstraction layer, plugins); shared API definitions in **api/**; protobuf-generated code in **server/gen** and **client/gen**; migrations in **server/migrations**; docs in **docs/**.
 
-* Next.js single page application (SPA)
-* Front end Typescript protobuf bindings (client/api)
-
-### Back End
-
-#### PortfolioDB Service (server/)
-
-* Go service which responds to transaction ingestion and front end API requests.  
-* Implements a database abstraction layer (server/db) which allows functions that depend on the database abstraction layer to be unit tested locally with mocks.  All sql queries should be confined to the abstraction layer implemented in server/db.  All other server code should access the database via the abstraction layer.
-* Backend Golang protobuf bindings (server/api)
-
-#### Identity Plugins (server/plugins/\<datasource\>/identifier)
-
-* Go library which can be compiled into the PortfolioDB service binary.
-
-#### Price Fetcher Plugins (server/plugins/\<datasource\>/price)
-
-* Go library which can be compiled into the PortfolioDB service binary.
-
-#### Corporate Event Plugins (server/plugins/\<datasource\>/corp)
-
-* Go library which can be compiled into the PortfolioDB service binary.
+The PortfolioDB service implements a database abstraction layer (in **server/db**): all SQL is confined there so that other server code can be unit tested with mocks. Identity, price-fetcher, and corporate-event plugins are Go libraries under **server/plugins/** compiled into the service binary.
 
 ## Development Setup
 
 1. Development is done in the local file system with locally run unit tests.  
 2. Testing of the database abstraction layer should be executed in a development docker container running Postgresql with the PortfolioDB datamodel loaded.  
-3. A development docker container (see docker/server) should also be available with the running PortfolioDB service and Postgresql database to allow for human QA testing.
+3. A development docker container (see docs/layout.md) should also be available with the running PortfolioDB service and Postgresql database to allow for human QA testing.
 
 ## Key Documentation
 
+* docs/layout.md \- Repository directory layout (where each component lives)  
 * docs/portfoliodb-spec.md \- Full specification  
 * docs/plan.md \- Project plan with milestones
 

@@ -5,7 +5,7 @@
 
 | Milestone ID | Description                                                                                                          | Status |
 | ------------ | -------------------------------------------------------------------------------------------------------------------- | ------ |
-| M01          | Implement PortfolioDB for holdings only with TimescaleDB extensions (ie. without instrument identification, price fetching or corporate events). |        |
+| M01          | Implement PortfolioDB for holdings only with TimescaleDB extensions (ie. without instrument identification, price fetching or corporate events). Users and authentication are stubbed. |        |
 | M02          | Implement instrument identification.                                                                                                                                                                 |        |
 | M03          | Implement price fetching.                                                                                            |        |
 | M04          | Implement corporate events.                                                                                          |        |

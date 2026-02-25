@@ -63,6 +63,9 @@ message Tx {
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,
 // listing transactions and holdings, and ingestion job status.
 service ApiService {
+  // CreateUser registers the authenticated user from ID token. Stubbed in M01.
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+
   // Portfolios
   rpc ListPortfolios(ListPortfoliosRequest) returns (ListPortfoliosResponse);
   rpc GetPortfolio(GetPortfolioRequest) returns (GetPortfolioResponse);

@@ -29,7 +29,7 @@ PortfolioDBs purpose is to track the holdings (the quantity held) of equities, o
 #### PortfolioDB Service (server/)
 
 * Go service which responds to transaction ingestion and front end API requests.  
-* Implements a database abstraction layer which allows functions that depend on the database abstraction layer to be unit tested locally with mocks.
+* Implements a database abstraction layer (server/db) which allows functions that depend on the database abstraction layer to be unit tested locally with mocks.  All sql queries should be confined to the abstraction layer implemented in server/db.  All other server code should access the database via the abstraction layer.
 
 #### Identity Plugins (server/plugins/\<datasource\>/identifier)
 
@@ -47,7 +47,7 @@ PortfolioDBs purpose is to track the holdings (the quantity held) of equities, o
 
 1. Development is done in the local file system with locally run unit tests.  
 2. Testing of the database abstraction layer should be executed in a development docker container running Postgresql with the PortfolioDB datamodel loaded.  
-3. A development docker container should also be available with the running PortfolioDB service and Postgresql database to allow for human QA testing.
+3. A development docker container (see docker/server) should also be available with the running PortfolioDB service and Postgresql database to allow for human QA testing.
 
 ## Key Documentation
 
@@ -84,4 +84,8 @@ Do not refer to project tasks or milestones in comments.
 
 ## Style Guides
 
-Refer to docs/style/\<language\>.md for style guidence on specific languages.
+Refer to docs/style/\<language\>.md for style guidance on specific languages.
+
+## Testing
+
+Refer to docs/testing.md for guidance on unit, functional and integration testing.

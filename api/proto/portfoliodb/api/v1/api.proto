@@ -4,7 +4,7 @@ package portfoliodb.api.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "portfoliodb/api/v1;apiv1";
+option go_package = "github.com/leedenison/portfoliodb/api/v1;apiv1";
 
 // Broker identifies the data source so that the same canonical value is used
 // across users uploading data from the same broker.

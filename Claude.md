@@ -20,26 +20,26 @@ PortfolioDBs purpose is to track the holdings (the quantity held) of equities, o
 
 ## Architecture
 
-### Front End
+### Client Front End (client/)
 
 * Next.js single page application (SPA)
 
 ### Back End
 
-#### PortfolioDB Service (src/portfoliodb)
+#### PortfolioDB Service (server/)
 
 * Go service which responds to transaction ingestion and front end API requests.  
 * Implements a database abstraction layer which allows functions that depend on the database abstraction layer to be unit tested locally with mocks.
 
-#### Identity Plugins (src/plugins/\<datasource\>/identifier)
+#### Identity Plugins (server/plugins/\<datasource\>/identifier)
 
 * Go library which can be compiled into the PortfolioDB service binary.
 
-#### Price Fetcher Plugins (src/plugins/\<datasource\>/price)
+#### Price Fetcher Plugins (server/plugins/\<datasource\>/price)
 
 * Go library which can be compiled into the PortfolioDB service binary.
 
-#### Corporate Event Plugins (src/plugins/\<datasource\>/corp)
+#### Corporate Event Plugins (server/plugins/\<datasource\>/corp)
 
 * Go library which can be compiled into the PortfolioDB service binary.
 

@@ -29,25 +29,31 @@ func testDB(t *testing.T) *Postgres {
 	return New(conn)
 }
 
-func resetDB(t *testing.T, conn *sql.DB) {
-	ctx := context.Background()
-	for _, q := range []string{
-		`DELETE FROM validation_errors`,
-		`DELETE FROM ingestion_jobs`,
-		`DELETE FROM txs`,
-		`DELETE FROM portfolios`,
-		`DELETE FROM users`,
-	} {
-		if _, err := conn.ExecContext(ctx, q); err != nil {
-			t.Fatalf("reset %q: %v", q, err)
-		}
+// testDBTx returns a Postgres backed by a transaction that is rolled back when the test ends, so each test gets an isolated clean state without maintaining a table list.
+func testDBTx(t *testing.T) *Postgres {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL not set (run via make test-db)")
 	}
+	conn, err := sql.Open("postgres", url)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	if err := conn.Ping(); err != nil {
+		t.Fatalf("ping: %v", err)
+	}
+	tx, err := conn.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback() })
+	return NewWithQueryable(tx)
 }
 
 func TestGetOrCreateUser(t *testing.T) {
-	p := testDB(t)
+	p := testDBTx(t)
 	ctx := context.Background()
-	resetDB(t, p.DB)
 	id1, err := p.GetOrCreateUser(ctx, "sub|1", "Alice", "a@b.com")
 	if err != nil {
 		t.Fatalf("first create: %v", err)
@@ -65,9 +71,8 @@ func TestGetOrCreateUser(t *testing.T) {
 }
 
 func TestPortfolioCRUD(t *testing.T) {
-	p := testDB(t)
+	p := testDBTx(t)
 	ctx := context.Background()
-	resetDB(t, p.DB)
 	userID, _ := p.GetOrCreateUser(ctx, "sub|p", "U", "u@u.com")
 	list, next, err := p.ListPortfolios(ctx, userID, 10, "")
 	if err != nil {
@@ -108,9 +113,8 @@ func TestPortfolioCRUD(t *testing.T) {
 }
 
 func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
-	p := testDB(t)
+	p := testDBTx(t)
 	ctx := context.Background()
-	resetDB(t, p.DB)
 	userID, _ := p.GetOrCreateUser(ctx, "sub|tx", "U", "u@u.com")
 	port, _ := p.CreatePortfolio(ctx, userID, "P")
 	now := time.Now()
@@ -146,9 +150,8 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 }
 
 func TestUpsertTx_Idempotent(t *testing.T) {
-	p := testDB(t)
+	p := testDBTx(t)
 	ctx := context.Background()
-	resetDB(t, p.DB)
 	userID, _ := p.GetOrCreateUser(ctx, "sub|up", "U", "u@u.com")
 	port, _ := p.CreatePortfolio(ctx, userID, "P")
 	ts := timestamppb.Now()
@@ -169,9 +172,8 @@ func TestUpsertTx_Idempotent(t *testing.T) {
 }
 
 func TestCreateJob_GetJob(t *testing.T) {
-	p := testDB(t)
+	p := testDBTx(t)
 	ctx := context.Background()
-	resetDB(t, p.DB)
 	userID, _ := p.GetOrCreateUser(ctx, "sub|j", "U", "u@u.com")
 	port, _ := p.CreatePortfolio(ctx, userID, "P")
 	from := timestamppb.Now()

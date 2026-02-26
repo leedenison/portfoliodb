@@ -6,172 +6,106 @@ import (
 	"testing"
 
 	"github.com/leedenison/portfoliodb/server/auth"
-	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/db/mock"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type mockDB struct {
-	db.DB
-	getOrCreateUser          func(ctx context.Context, authSub, name, email string) (string, error)
-	getUserByAuthSub         func(ctx context.Context, authSub string) (string, error)
-	listPortfolios           func(ctx context.Context, userID string, pageSize int32, pageToken string) ([]*apiv1.Portfolio, string, error)
-	getPortfolio             func(ctx context.Context, portfolioID string) (*apiv1.Portfolio, string, error)
-	createPortfolio          func(ctx context.Context, userID, name string) (*apiv1.Portfolio, error)
-	updatePortfolio          func(ctx context.Context, portfolioID, name string) (*apiv1.Portfolio, error)
-	deletePortfolio          func(ctx context.Context, portfolioID string) error
-	portfolioBelongsToUser   func(ctx context.Context, portfolioID, userID string) (bool, error)
-	replaceTxsInPeriod       func(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx) error
-	upsertTx                 func(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx) error
-	listTxs                  func(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodTo *timestamppb.Timestamp, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
-	computeHoldings          func(ctx context.Context, portfolioID string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error)
-	createJob                func(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp) (string, error)
-	getJob                   func(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, string, error)
-	setJobStatus             func(ctx context.Context, jobID string, status apiv1.JobStatus) error
-	appendValidationErrors   func(ctx context.Context, jobID string, errs []*apiv1.ValidationError) error
-	listPendingJobIDs        func(ctx context.Context) ([]string, error)
-}
-
-func (m *mockDB) GetOrCreateUser(ctx context.Context, authSub, name, email string) (string, error) {
-	if m.getOrCreateUser != nil {
-		return m.getOrCreateUser(ctx, authSub, name, email)
-	}
-	return "", nil
-}
-func (m *mockDB) GetUserByAuthSub(ctx context.Context, authSub string) (string, error) {
-	if m.getUserByAuthSub != nil {
-		return m.getUserByAuthSub(ctx, authSub)
-	}
-	return "", nil
-}
-func (m *mockDB) ListPortfolios(ctx context.Context, userID string, pageSize int32, pageToken string) ([]*apiv1.Portfolio, string, error) {
-	if m.listPortfolios != nil {
-		return m.listPortfolios(ctx, userID, pageSize, pageToken)
-	}
-	return nil, "", nil
-}
-func (m *mockDB) GetPortfolio(ctx context.Context, portfolioID string) (*apiv1.Portfolio, string, error) {
-	if m.getPortfolio != nil {
-		return m.getPortfolio(ctx, portfolioID)
-	}
-	return nil, "", nil
-}
-func (m *mockDB) CreatePortfolio(ctx context.Context, userID, name string) (*apiv1.Portfolio, error) {
-	if m.createPortfolio != nil {
-		return m.createPortfolio(ctx, userID, name)
-	}
-	return nil, nil
-}
-func (m *mockDB) UpdatePortfolio(ctx context.Context, portfolioID, name string) (*apiv1.Portfolio, error) {
-	if m.updatePortfolio != nil {
-		return m.updatePortfolio(ctx, portfolioID, name)
-	}
-	return nil, nil
-}
-func (m *mockDB) DeletePortfolio(ctx context.Context, portfolioID string) error {
-	if m.deletePortfolio != nil {
-		return m.deletePortfolio(ctx, portfolioID)
-	}
-	return nil
-}
-func (m *mockDB) PortfolioBelongsToUser(ctx context.Context, portfolioID, userID string) (bool, error) {
-	if m.portfolioBelongsToUser != nil {
-		return m.portfolioBelongsToUser(ctx, portfolioID, userID)
-	}
-	return false, nil
-}
-func (m *mockDB) ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx) error {
-	if m.replaceTxsInPeriod != nil {
-		return m.replaceTxsInPeriod(ctx, portfolioID, broker, periodFrom, periodTo, txs)
-	}
-	return nil
-}
-func (m *mockDB) UpsertTx(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx) error {
-	if m.upsertTx != nil {
-		return m.upsertTx(ctx, portfolioID, broker, tx)
-	}
-	return nil
-}
-func (m *mockDB) ListTxs(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodTo *timestamppb.Timestamp, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
-	if m.listTxs != nil {
-		return m.listTxs(ctx, portfolioID, broker, periodFrom, periodTo, pageSize, pageToken)
-	}
-	return nil, "", nil
-}
-func (m *mockDB) ComputeHoldings(ctx context.Context, portfolioID string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error) {
-	if m.computeHoldings != nil {
-		return m.computeHoldings(ctx, portfolioID, asOf)
-	}
-	return nil, nil, nil
-}
-func (m *mockDB) CreateJob(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp) (string, error) {
-	if m.createJob != nil {
-		return m.createJob(ctx, portfolioID, broker, periodFrom, periodTo)
-	}
-	return "", nil
-}
-func (m *mockDB) GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, string, error) {
-	if m.getJob != nil {
-		return m.getJob(ctx, jobID)
-	}
-	return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, "", nil
-}
-func (m *mockDB) SetJobStatus(ctx context.Context, jobID string, status apiv1.JobStatus) error {
-	if m.setJobStatus != nil {
-		return m.setJobStatus(ctx, jobID, status)
-	}
-	return nil
-}
-func (m *mockDB) AppendValidationErrors(ctx context.Context, jobID string, errs []*apiv1.ValidationError) error {
-	if m.appendValidationErrors != nil {
-		return m.appendValidationErrors(ctx, jobID, errs)
-	}
-	return nil
-}
-func (m *mockDB) ListPendingJobIDs(ctx context.Context) ([]string, error) {
-	if m.listPendingJobIDs != nil {
-		return m.listPendingJobIDs(ctx)
-	}
-	return nil, nil
-}
-
-func TestGetPortfolio_Unauthenticated(t *testing.T) {
-	srv := NewServer(&mockDB{})
-	ctx := context.Background()
-	_, err := srv.GetPortfolio(ctx, &apiv1.GetPortfolioRequest{PortfolioId: "any"})
+func requireGRPCCode(t *testing.T, err error, want codes.Code) {
+	t.Helper()
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if status.Code(err) != codes.Unauthenticated {
-		t.Fatalf("got %v", status.Code(err))
+	if got := status.Code(err); got != want {
+		t.Fatalf("status.Code(err) = %v, want %v", got, want)
+	}
+}
+
+func authCtx(userID, authSub string) context.Context {
+	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: authSub})
+}
+
+func authCtxWithProfile(userID, authSub, name, email string) context.Context {
+	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: authSub, Name: name, Email: email})
+}
+
+func TestAPI_Unauthenticated(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	srv := NewServer(mock.NewMockDB(ctrl))
+	ctx := context.Background()
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{"CreateUser", func() error { _, err := srv.CreateUser(ctx, &apiv1.CreateUserRequest{}); return err }},
+		{"ListPortfolios", func() error { _, err := srv.ListPortfolios(ctx, &apiv1.ListPortfoliosRequest{}); return err }},
+		{"GetPortfolio", func() error { _, err := srv.GetPortfolio(ctx, &apiv1.GetPortfolioRequest{PortfolioId: "any"}); return err }},
+		{"CreatePortfolio", func() error { _, err := srv.CreatePortfolio(ctx, &apiv1.CreatePortfolioRequest{Name: "x"}); return err }},
+		{"UpdatePortfolio", func() error { _, err := srv.UpdatePortfolio(ctx, &apiv1.UpdatePortfolioRequest{PortfolioId: "p", Name: "x"}); return err }},
+		{"DeletePortfolio", func() error { _, err := srv.DeletePortfolio(ctx, &apiv1.DeletePortfolioRequest{PortfolioId: "p"}); return err }},
+		{"ListTxs", func() error { _, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "p"}); return err }},
+		{"GetHoldings", func() error { _, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{PortfolioId: "p"}); return err }},
+		{"GetJob", func() error { _, err := srv.GetJob(ctx, &apiv1.GetJobRequest{JobId: "job-1"}); return err }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call()
+			requireGRPCCode(t, err, codes.Unauthenticated)
+		})
+	}
+}
+
+func TestAPI_InvalidArgument(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	srv := NewServer(mock.NewMockDB(ctrl))
+	ctx := authCtx("user-1", "sub|1")
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{"GetPortfolio_empty_portfolio_id", func() error { _, err := srv.GetPortfolio(ctx, &apiv1.GetPortfolioRequest{}); return err }},
+		{"CreatePortfolio_empty_name", func() error { _, err := srv.CreatePortfolio(ctx, &apiv1.CreatePortfolioRequest{}); return err }},
+		{"UpdatePortfolio_empty_portfolio_id", func() error { _, err := srv.UpdatePortfolio(ctx, &apiv1.UpdatePortfolioRequest{Name: "x"}); return err }},
+		{"DeletePortfolio_empty_portfolio_id", func() error { _, err := srv.DeletePortfolio(ctx, &apiv1.DeletePortfolioRequest{}); return err }},
+		{"ListTxs_empty_portfolio_id", func() error { _, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{}); return err }},
+		{"GetHoldings_empty_portfolio_id", func() error { _, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{}); return err }},
+		{"GetJob_empty_job_id", func() error { _, err := srv.GetJob(ctx, &apiv1.GetJobRequest{}); return err }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call()
+			requireGRPCCode(t, err, codes.InvalidArgument)
+		})
 	}
 }
 
 func TestGetPortfolio_NotFound(t *testing.T) {
-	srv := NewServer(&mockDB{
-		portfolioBelongsToUser: func(ctx context.Context, portfolioID, userID string) (bool, error) {
-			return false, nil
-		},
-	})
-	ctx := auth.WithUser(context.Background(), &auth.User{ID: "user-1"})
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(false, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
 	_, err := srv.GetPortfolio(ctx, &apiv1.GetPortfolioRequest{PortfolioId: "port-1"})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if status.Code(err) != codes.NotFound {
-		t.Fatalf("got %v", status.Code(err))
-	}
+	requireGRPCCode(t, err, codes.NotFound)
 }
 
 func TestCreateUser_Success(t *testing.T) {
-	srv := NewServer(&mockDB{
-		getOrCreateUser: func(ctx context.Context, authSub, name, email string) (string, error) {
-			return "user-123", nil
-		},
-	})
-	ctx := auth.WithUser(context.Background(), &auth.User{AuthSub: "sub|1", Name: "Alice", Email: "a@b.com"})
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		GetOrCreateUser(gomock.Any(), "sub|1", "Alice", "a@b.com").
+		Return("user-123", nil)
+	srv := NewServer(db)
+	ctx := authCtxWithProfile("", "sub|1", "Alice", "a@b.com")
 	resp, err := srv.CreateUser(ctx, &apiv1.CreateUserRequest{AuthSub: "sub|1", Name: "Alice", Email: "a@b.com"})
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
@@ -182,17 +116,317 @@ func TestCreateUser_Success(t *testing.T) {
 }
 
 func TestCreateUser_DBError(t *testing.T) {
-	srv := NewServer(&mockDB{
-		getOrCreateUser: func(ctx context.Context, authSub, name, email string) (string, error) {
-			return "", errors.New("db error")
-		},
-	})
-	ctx := auth.WithUser(context.Background(), &auth.User{AuthSub: "sub|1"})
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		GetOrCreateUser(gomock.Any(), "sub|1", "A", "a@b.com").
+		Return("", errors.New("db error"))
+	srv := NewServer(db)
+	ctx := authCtx("", "sub|1")
 	_, err := srv.CreateUser(ctx, &apiv1.CreateUserRequest{AuthSub: "sub|1", Name: "A", Email: "a@b.com"})
-	if err == nil {
-		t.Fatal("expected error")
+	requireGRPCCode(t, err, codes.Internal)
+}
+
+func TestGetPortfolio_Internal(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(false, errors.New("db error"))
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.GetPortfolio(ctx, &apiv1.GetPortfolioRequest{PortfolioId: "port-1"})
+	requireGRPCCode(t, err, codes.Internal)
+}
+
+func TestGetPortfolio_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	port := &apiv1.Portfolio{Id: "port-1", Name: "My Portfolio"}
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(true, nil)
+	db.EXPECT().
+		GetPortfolio(gomock.Any(), "port-1").
+		Return(port, "user-1", nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.GetPortfolio(ctx, &apiv1.GetPortfolioRequest{PortfolioId: "port-1"})
+	if err != nil {
+		t.Fatalf("GetPortfolio: %v", err)
 	}
-	if status.Code(err) != codes.Internal {
-		t.Fatalf("got %v", status.Code(err))
+	if resp.GetPortfolio().GetId() != "port-1" || resp.GetPortfolio().GetName() != "My Portfolio" {
+		t.Fatalf("got %v", resp.GetPortfolio())
+	}
+}
+
+func TestCreatePortfolio_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	port := &apiv1.Portfolio{Id: "port-1", Name: "New Portfolio"}
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		CreatePortfolio(gomock.Any(), "user-1", "New Portfolio").
+		Return(port, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.CreatePortfolio(ctx, &apiv1.CreatePortfolioRequest{Name: "New Portfolio"})
+	if err != nil {
+		t.Fatalf("CreatePortfolio: %v", err)
+	}
+	if resp.GetPortfolio().GetId() != "port-1" || resp.GetPortfolio().GetName() != "New Portfolio" {
+		t.Fatalf("got %v", resp.GetPortfolio())
+	}
+}
+
+func TestCreatePortfolio_DBError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		CreatePortfolio(gomock.Any(), "user-1", "x").
+		Return(nil, errors.New("db error"))
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.CreatePortfolio(ctx, &apiv1.CreatePortfolioRequest{Name: "x"})
+	requireGRPCCode(t, err, codes.Internal)
+}
+
+func TestListPortfolios_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	portfolios := []*apiv1.Portfolio{{Id: "p1", Name: "P1"}}
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		ListPortfolios(gomock.Any(), "user-1", int32(50), "").
+		Return(portfolios, "", nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.ListPortfolios(ctx, &apiv1.ListPortfoliosRequest{})
+	if err != nil {
+		t.Fatalf("ListPortfolios: %v", err)
+	}
+	if len(resp.GetPortfolios()) != 1 || resp.GetPortfolios()[0].GetId() != "p1" {
+		t.Fatalf("got %v", resp.GetPortfolios())
+	}
+}
+
+func TestListPortfolios_PageSizeClamping(t *testing.T) {
+	ctx := authCtx("user-1", "sub|1")
+	t.Run("zero_clamps_to_50", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		db := mock.NewMockDB(ctrl)
+		db.EXPECT().
+			ListPortfolios(gomock.Any(), "user-1", int32(50), "").
+			Return(nil, "", nil)
+		srv := NewServer(db)
+		_, err := srv.ListPortfolios(ctx, &apiv1.ListPortfoliosRequest{PageSize: 0})
+		if err != nil {
+			t.Fatalf("ListPortfolios: %v", err)
+		}
+	})
+	t.Run("over_100_clamps_to_100", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		db := mock.NewMockDB(ctrl)
+		db.EXPECT().
+			ListPortfolios(gomock.Any(), "user-1", int32(100), "").
+			Return(nil, "", nil)
+		srv := NewServer(db)
+		_, err := srv.ListPortfolios(ctx, &apiv1.ListPortfoliosRequest{PageSize: 200})
+		if err != nil {
+			t.Fatalf("ListPortfolios: %v", err)
+		}
+	})
+}
+
+func TestListPortfolios_DBError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		ListPortfolios(gomock.Any(), "user-1", int32(50), "").
+		Return(nil, "", errors.New("db error"))
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.ListPortfolios(ctx, &apiv1.ListPortfoliosRequest{})
+	requireGRPCCode(t, err, codes.Internal)
+}
+
+func TestUpdatePortfolio_NotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(false, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.UpdatePortfolio(ctx, &apiv1.UpdatePortfolioRequest{PortfolioId: "port-1", Name: "x"})
+	requireGRPCCode(t, err, codes.NotFound)
+}
+
+func TestUpdatePortfolio_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	port := &apiv1.Portfolio{Id: "port-1", Name: "Updated"}
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(true, nil)
+	db.EXPECT().
+		UpdatePortfolio(gomock.Any(), "port-1", "Updated").
+		Return(port, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.UpdatePortfolio(ctx, &apiv1.UpdatePortfolioRequest{PortfolioId: "port-1", Name: "Updated"})
+	if err != nil {
+		t.Fatalf("UpdatePortfolio: %v", err)
+	}
+	if resp.GetPortfolio().GetName() != "Updated" {
+		t.Fatalf("got %v", resp.GetPortfolio())
+	}
+}
+
+func TestDeletePortfolio_NotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(false, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.DeletePortfolio(ctx, &apiv1.DeletePortfolioRequest{PortfolioId: "port-1"})
+	requireGRPCCode(t, err, codes.NotFound)
+}
+
+func TestDeletePortfolio_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(true, nil)
+	db.EXPECT().
+		DeletePortfolio(gomock.Any(), "port-1").
+		Return(nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.DeletePortfolio(ctx, &apiv1.DeletePortfolioRequest{PortfolioId: "port-1"})
+	if err != nil {
+		t.Fatalf("DeletePortfolio: %v", err)
+	}
+}
+
+func TestListTxs_NotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(false, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "port-1"})
+	requireGRPCCode(t, err, codes.NotFound)
+}
+
+func TestListTxs_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	txs := []*apiv1.PortfolioTx{{Broker: apiv1.Broker_IBKR, Tx: &apiv1.Tx{InstrumentDescription: "AAPL"}}}
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(true, nil)
+	db.EXPECT().
+		ListTxs(gomock.Any(), "port-1", (*apiv1.Broker)(nil), (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), int32(50), "").
+		Return(txs, "", nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "port-1"})
+	if err != nil {
+		t.Fatalf("ListTxs: %v", err)
+	}
+	if len(resp.GetTxs()) != 1 || resp.GetTxs()[0].GetTx().GetInstrumentDescription() != "AAPL" {
+		t.Fatalf("got %v", resp.GetTxs())
+	}
+}
+
+func TestGetHoldings_NotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(false, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{PortfolioId: "port-1"})
+	requireGRPCCode(t, err, codes.NotFound)
+}
+
+func TestGetHoldings_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	holdings := []*apiv1.Holding{{InstrumentDescription: "AAPL", Quantity: 10}}
+	asOf := timestamppb.Now()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(true, nil)
+	db.EXPECT().
+		ComputeHoldings(gomock.Any(), "port-1", (*timestamppb.Timestamp)(nil)).
+		Return(holdings, asOf, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{PortfolioId: "port-1"})
+	if err != nil {
+		t.Fatalf("GetHoldings: %v", err)
+	}
+	if len(resp.GetHoldings()) != 1 || resp.GetHoldings()[0].GetInstrumentDescription() != "AAPL" {
+		t.Fatalf("got %v", resp.GetHoldings())
+	}
+	if resp.GetAsOf() == nil {
+		t.Fatal("asOf should be set")
+	}
+}
+
+func TestGetJob_NotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		GetJob(gomock.Any(), "job-1").
+		Return(apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, "", nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.GetJob(ctx, &apiv1.GetJobRequest{JobId: "job-1"})
+	requireGRPCCode(t, err, codes.NotFound)
+}
+
+func TestGetJob_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		GetJob(gomock.Any(), "job-1").
+		Return(apiv1.JobStatus_PENDING, nil, "port-1", nil)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(true, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.GetJob(ctx, &apiv1.GetJobRequest{JobId: "job-1"})
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if resp.GetStatus() != apiv1.JobStatus_PENDING {
+		t.Fatalf("got status %v", resp.GetStatus())
 	}
 }

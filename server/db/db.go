@@ -1,5 +1,7 @@
 package db
 
+//go:generate go run go.uber.org/mock/mockgen -source=db.go -destination=mock/db_mock.go -package=mock
+
 import (
 	"context"
 

@@ -6,7 +6,7 @@ Single reference for where each component of the PortfolioDB monorepo lives. The
 
 | Directory | Purpose |
 | --------- | ------- |
-| **api/** | API definitions (protobuf). Shared contract between server and client; no runtime code. |
+| **proto/** | API definitions (protobuf). Shared contract between server and client; no runtime code. |
 | **client/** | Web front end. Next.js (TypeScript) SPA; consumes gRPC/HTTP API and displays portfolio UI. |
 | **server/** | Back end. Go services, DB layer, plugins, and migrations. |
 | **docs/** | Project documentation: spec, plan, style guides, UI specs, and this layout. |
@@ -14,16 +14,16 @@ Single reference for where each component of the PortfolioDB monorepo lives. The
 
 ---
 
-## api/
+## proto/
 
-Protobuf source only; no generated code here.
+Protobuf source only; generated `.pb.go` files under `proto/` are build outputs (see `.gitignore`).
 
-- **api/proto/**  
+- **proto/**  
   `.proto` files, organized by package path.  
-  Example: `api/proto/portfoliodb/api/v1/api.proto`, `api/proto/portfoliodb/ingestion/v1/ingestion.proto`.  
+  Example: `proto/api/v1/api.proto`, `proto/ingestion/v1/ingestion.proto`.  
   These define the gRPC services used by the front end and by transaction ingestion.
 
-Generated bindings are produced by buf/protoc into **server/gen** (Go) and **client/gen** (TypeScript); those directories are build outputs and should be in `.gitignore`. See docs/style/protobuf.md for generation rules.
+Generated bindings are produced by buf/protoc: Go code under **proto/** (e.g. `proto/api/v1/*.pb.go`), TypeScript under **client/gen**. Those outputs are in `.gitignore`. See docs/style/protobuf.md for generation rules.
 
 ---
 

@@ -1,0 +1,5 @@
+server/gen
+client/gen
+.git
+*.md
+docker

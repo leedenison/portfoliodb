@@ -20,7 +20,7 @@ PortfolioDBs purpose is to track the holdings (the quantity held) of equities, o
 
 ## Architecture
 
-Directory layout and which component lives where are described in **docs/layout.md**. In short: Next.js front end in **client/**; Go backend in **server/** (service, DB abstraction layer, plugins); shared API definitions in **api/**; protobuf-generated code in **server/gen** and **client/gen**; migrations in **server/migrations**; docs in **docs/**.
+Directory layout and which component lives where are described in **docs/layout.md**. In short: Next.js front end in **client/**; Go backend in **server/** (service, DB abstraction layer, plugins); shared API definitions in **proto/**; protobuf-generated code under **proto/** (Go) and **client/gen** (TypeScript); migrations in **server/migrations**; docs in **docs/**.
 
 The PortfolioDB service implements a database abstraction layer (in **server/db**): all SQL is confined there so that other server code can be unit tested with mocks. Identity, price-fetcher, and corporate-event plugins are Go libraries under **server/plugins/** compiled into the service binary.
 

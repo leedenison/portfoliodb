@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: portfoliodb
+      POSTGRES_PASSWORD: portfoliodb
+      POSTGRES_DB: portfoliodb
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portfoliodb"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  portfoliodb:
+    build:
+      context: ../..
+      dockerfile: docker/server/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORTFOLIODB_DB_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable
+    ports:
+      - "50051:50051"
+    command: ["/portfoliodb", "-grpc-addr", ":50051", "-db-url", "postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable"]

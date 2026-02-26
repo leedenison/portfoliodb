@@ -1,0 +1,21 @@
+# Generated code
+proto/**/*.pb.go
+
+# Binaries
+portfoliodb
+*.exe
+
+# Go
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Env
+.env
+.env.local

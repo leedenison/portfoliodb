@@ -3,9 +3,9 @@ syntax = "proto3";
 package portfoliodb.ingestion.v1;
 
 import "google/protobuf/timestamp.proto";
-import "portfoliodb/api/v1/api.proto";
+import "api/v1/api.proto";
 
-option go_package = "github.com/leedenison/portfoliodb/server/gen/portfoliodb/ingestion/v1;ingestionv1";
+option go_package = "github.com/leedenison/portfoliodb/proto/ingestion/v1;ingestionv1";
 
 // IngestionService provides gRPC endpoints for uploading transaction data
 // (bulk and single).

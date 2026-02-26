@@ -4,7 +4,7 @@ package portfoliodb.api.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/leedenison/portfoliodb/api/v1;apiv1";
+option go_package = "github.com/leedenison/portfoliodb/proto/api/v1;apiv1";
 
 // Broker identifies the data source so that the same canonical value is used
 // across users uploading data from the same broker.
@@ -58,6 +58,17 @@ message Tx {
   string currency = 6;
   // Unit price as reported by broker. Optional; not used for valuation.
   double unit_price = 7;
+}
+
+// CreateUserRequest supplies user info from the ID token (stub in M01).
+message CreateUserRequest {
+  string auth_sub = 1;
+  string name = 2;
+  string email = 3;
+}
+
+message CreateUserResponse {
+  string user_id = 1;
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,

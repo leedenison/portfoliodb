@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: portfoliodb
+      POSTGRES_PASSWORD: portfoliodb
+      POSTGRES_DB: portfoliodb_test
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portfoliodb"]
+      interval: 2s
+      timeout: 2s
+      retries: 10

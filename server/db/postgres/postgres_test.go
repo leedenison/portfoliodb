@@ -122,9 +122,10 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 	to := timestamppb.New(now)
 	ts1 := timestamppb.New(now.Add(-90 * time.Minute))
 	ts2 := timestamppb.New(now.Add(-30 * time.Minute))
+	// Quantity is signed: positive = buy, negative = sell. No type-based sign flip.
 	txs := []*apiv1.Tx{
 		{Timestamp: ts1, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10},
-		{Timestamp: ts2, InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: 3},
+		{Timestamp: ts2, InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: -3},
 	}
 	err := p.ReplaceTxsInPeriod(ctx, port.GetId(), "IBKR", from, to, txs)
 	if err != nil {
@@ -145,7 +146,42 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 		}
 	}
 	if aaplQty != 7 {
-		t.Fatalf("expected AAPL quantity 7, got %v", aaplQty)
+		t.Fatalf("expected AAPL quantity 7 (10 + -3), got %v", aaplQty)
+	}
+}
+
+// TestComputeHoldings_signedQuantity verifies holdings are SUM(quantity) with no type-based sign flip.
+// Sells have negative quantity; buys positive. A position that is net short has negative holding.
+func TestComputeHoldings_signedQuantity(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|hold", "U", "u@u.com")
+	port, _ := p.CreatePortfolio(ctx, userID, "P")
+	now := time.Now()
+	from := timestamppb.New(now.Add(-1 * time.Hour))
+	to := timestamppb.New(now)
+	ts := timestamppb.New(now.Add(-30 * time.Minute))
+	// Only a sell with negative quantity: no buys. Net position should be -5.
+	txs := []*apiv1.Tx{
+		{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_SELLSTOCK, Quantity: -5},
+	}
+	err := p.ReplaceTxsInPeriod(ctx, port.GetId(), "IBKR", from, to, txs)
+	if err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	holdings, _, err := p.ComputeHoldings(ctx, port.GetId(), nil)
+	if err != nil {
+		t.Fatalf("holdings: %v", err)
+	}
+	var googQty float64
+	for _, h := range holdings {
+		if h.InstrumentDescription == "GOOG" {
+			googQty = h.Quantity
+			break
+		}
+	}
+	if googQty != -5 {
+		t.Fatalf("expected GOOG quantity -5 (signed quantity, no type-based flip), got %v", googQty)
 	}
 }
 

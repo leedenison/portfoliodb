@@ -523,11 +523,11 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, portfolioID string, asOf
 	}
 	rows, err := p.q.QueryContext(ctx, `
 		SELECT broker, instrument_description,
-			SUM(CASE WHEN tx_type LIKE 'SELL%' THEN -quantity ELSE quantity END) AS quantity
+			SUM(quantity) AS quantity
 		FROM txs
 		WHERE portfolio_id = $1 AND timestamp <= $2
 		GROUP BY portfolio_id, broker, instrument_description
-		HAVING SUM(CASE WHEN tx_type LIKE 'SELL%' THEN -quantity ELSE quantity END) != 0
+		HAVING SUM(quantity) != 0
 	`, portUUID, asOfT)
 	if err != nil {
 		return nil, nil, fmt.Errorf("compute holdings: %w", err)

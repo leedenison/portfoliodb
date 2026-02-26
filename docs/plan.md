@@ -5,7 +5,7 @@
 
 | Milestone ID | Description                                                                                                          | Status |
 | ------------ | -------------------------------------------------------------------------------------------------------------------- | ------ |
-| M01          | Implement PortfolioDB for holdings only with TimescaleDB extensions (ie. without instrument identification, price fetching or corporate events). Users and authentication are stubbed. |        |
+| M01          | Implement PortfolioDB for holdings only with TimescaleDB extensions (ie. without instrument identification, price fetching or corporate events). Users and authentication are stubbed. | Done   |
 | M02          | Implement instrument identification.                                                                                                                                                                 |        |
 | M03          | Implement price fetching.                                                                                            |        |
 | M04          | Implement corporate events.                                                                                          |        |
@@ -20,7 +20,7 @@
 | T01     | Design gRPC ingestion API for M01.                                                  |                    | M01       | Done   |
 | T02     | Design gRPC front end / back end API for M01.                                       |                    | M01       | Done   |
 | T03     | Design Postgresql datamodel for M01.                                                |                    | M01       | Done   |
-| T04     | Implement PortfolioDB backend service for M01.                                      | T01, T02, T03      | M01       |        |
+| T04     | Implement PortfolioDB backend service for M01.                                      | T01, T02, T03      | M01       | Done   |
 | T05     | Implement front end for M01.                                                        | T04                | M01       |        |
 | T06     | Design Go instrument identification plugin API.                                     |                    | M02       |        |
 | T07     | Extend gRPC ingestion API for M02.                                                  | T01                | M02       |        |

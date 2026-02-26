@@ -34,7 +34,7 @@ Typically a single transaction upload will result from a user forwarding transac
 
 ## Identifying Instruments
 
-Identifying an instrument means associating it with one or more external, canonical identifiers (ie. ISIN, CUSIP, etc).  The goal is to have as many of the imprecise strings used by brokers to identify instruments associated with corresponding canonical identifiers as possible.
+Identifying an instrument means associating it with one or more external, canonical identifiers (ie. ISIN, CUSIP, etc).  The goal is to have as many of the imprecise strings used by brokers to identify instruments associated with corresponding canonical identifiers as possible.  An identified instrument consists of canonical data (eg. asset class, exchange, currency, etc) which does not depend on how the instrument was identified.  It also consists of one or more associated identifier each with an id and an id_type.  id_type tells you the domain of the identifier (eg. ISIN, CUSIP, etc).  The id is assumed to be an opaque string.  Which identifier types will appear in the database depends on which plugins are enabled.
 
 PortfolioDB should attempt to identify any instruments uploaded via the API during asynchronous processing.  The system should implement a pluggable architecture in which an extensible set of APIs and datasources can be used to identify instruments based on the information provided by the broker.  The system administrators can enable plugins at runtime depending what APIs they have access to.  Plugins will likely have configuration that the administrator must supply, so the system should provide a way for plugins to present this user interface.
 
@@ -48,7 +48,13 @@ The system should also handle the edge case in which two instruments must be mer
 
 A user may believe that the system has miss identified an instrument in their portfolio.  In that case it should be possible for a user to override the identity of a given instrument.  This data is also owned by the user and affects only their portfolios.  Admin users are able to correct shared instrument identity information.
 
-### Plugin Precedence
+### Plugins
+
+Plugins are implemented as an interface with implementations included in the codebase (or compiled in as libraries).  Implementations are enabled at runtime and configured in the database.
+
+Plugins can optionally contain database migrations which will be run at server instantiation time after the main server migrations.  Plugins can store data reference data in their tables as needed.
+
+#### Precedence
 
 Except in the case of a forced refresh, the first source of data for instrument identities is always the PortfolioDB database.  If an instrument is already identified in the database it should not attempt to fetch data for an instrument using plugins.
 
@@ -72,7 +78,7 @@ Options and futures should be related to their underlying instrument.
 
 ## Valid From and To
 
-Stocks, Options and Futures should have valid from and to dates which specify when the instrument was traded.
+Stocks, Options and Futures should have valid from and to dates which specify when the instrument was available to trade on the exchange.
 
 ## Corporate Events
 

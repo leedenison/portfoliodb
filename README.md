@@ -15,6 +15,7 @@ To develop and run this project you need:
 Optional for manual gRPC checks:
 
 - **grpcurl** – call gRPC endpoints from the CLI (e.g. `go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest`).
+- **jq** – JSON parsing and editing for CLI testing; install via your package manager, e.g. `apt install jq` or `brew install jq`).
 
 ## Quick start
 

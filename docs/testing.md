@@ -8,6 +8,8 @@ Unit tests should use mocks (either using a mocking library or as ephemeral stru
 
 Prefer **gomock** for mocking interfaces (e.g. `db.DB`). Generate mocks via `go generate` (see `server/db/db.go` for the directive); do not maintain large hand-written mocks. Each test should set only the expectations it needs (e.g. `db.EXPECT().GetPortfolio(...).Return(...)`). The same generated mock can be reused across packages that depend on the interface.
 
+Generated mocks follow the naming convention **`*_mock.go`** and are not checked in (they are ignored via the pattern `**/*_mock.go` in `.gitignore`). Run `make test` or `go generate ./server/db` (or the relevant package) to generate mocks before running tests.
+
 ### Verbosity
 
 - Use **table-driven tests** when the same pattern repeats (e.g. unauthenticated, invalid argument, or not-found across several RPCs). One test with a slice of cases and `t.Run(tc.name, ...)` keeps coverage high without repetition.

@@ -2,10 +2,12 @@
 
 generate:
 	buf generate
+	go generate ./server/db
 
 clean:
 	rm -f portfoliodb portfoliodb.exe
 	find proto -name '*.pb.go' -delete 2>/dev/null || true
+	find server -name '*_mock.go' -delete 2>/dev/null || true
 
 docker-clean:
 	docker compose -f docker/server/docker-compose.yml down --rmi local --volumes
@@ -14,7 +16,7 @@ docker-clean:
 build: generate
 	go build -o portfoliodb ./server/cmd/portfoliodb
 
-test:
+test: generate
 	go test ./server/...
 
 test-db: generate

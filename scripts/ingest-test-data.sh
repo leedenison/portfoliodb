@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Create a portfolio via grpcurl, then ingest a transactions JSON file into it.
 # Usage: ingest-test-data.sh [TX_JSON_FILE]
-#   TX_JSON_FILE  UpsertTxsRequest JSON (default: testdata/ingestion_50_txs.json)
+#
+#   $ make docker-clean
+#   $ docker compose -f docker/server/docker-compose.yml up -d
+#   $ cat server/migrations/001_initial.sql | docker exec -i portfoliodb-postgres psql -U portfoliodb -d portfoliodb
+#   $ scripts/ingest-test-data.sh scripts/50-transactions.json
+# 
 # Requires: grpcurl, jq. Run from repo root with server on localhost:50051.
 
 set -euo pipefail

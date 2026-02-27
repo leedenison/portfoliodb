@@ -34,31 +34,36 @@ Typically a single transaction upload will result from a user forwarding transac
 
 ## Identifying Instruments
 
-Identifying an instrument means associating it with one or more external, canonical identifiers (ie. ISIN, CUSIP, etc).  The goal is to have as many of the imprecise strings used by brokers to identify instruments associated with corresponding canonical identifiers as possible.  An identified instrument consists of canonical data (eg. asset class, exchange, currency, etc) which does not depend on how the instrument was identified.  It also consists of one or more associated identifier each with an id and an id_type.  id_type tells you the domain of the identifier (eg. ISIN, CUSIP, etc).  The id is assumed to be an opaque string.  Which identifier types will appear in the database depends on which plugins are enabled.
+Identifying an instrument means associating broker-supplied data with a canonical **instrument** (security master) and zero or more **identifiers** (opaque type + value, e.g. ISIN, CUSIP, or broker description). Every valid transaction has a broker and an instrument description; missing either is a **validation error**. Every valid transaction ends up with an **instrument_id**: either from plugin resolution or from a **broker-description-only** instrument (an instrument whose only identifier is that broker’s description). Truly unidentified transactions do not exist.
 
-PortfolioDB should attempt to identify any instruments uploaded via the API during asynchronous processing.  The system should implement a pluggable architecture in which an extensible set of APIs and datasources can be used to identify instruments based on the information provided by the broker.  The system administrators can enable plugins at runtime depending what APIs they have access to.  Plugins will likely have configuration that the administrator must supply, so the system should provide a way for plugins to present this user interface.
+An **instrument** holds canonical data (id, asset class, exchange, currency, name, etc.) independent of how it was identified. An **identifier** is an opaque pair: `identifier_type` (e.g. `"CUSIP"`, `"ISIN"`, or a broker name such as `"IBKR"`, `"SCHB"`) and `value`. Broker descriptions are stored as identifiers: `identifier_type` = broker name, `value` = full instrument description. Lookup by (broker, instrument_description) is thus a single lookup on (identifier_type, value). **Normalization** of broker descriptions (e.g. avoiding two descriptions for the same instrument) is the **client’s responsibility**; the server stores values as received.
 
-PortfolioDB should periodically attempt to identify unidentified instruments in case its datasources have been updated.  Admin users can manually force a refresh of data for a given instrument or set of instruments.
+Broker-description-only instruments are first-class: they appear in holdings and the UI by that description. If no plugin resolves a given (broker, instrument_description), the system ensures an instrument exists with at least that broker identifier and attaches it to the transaction; optionally it records an identification warning/error for job status and UI. Plugin failures (e.g. timeout, unavailable) are handled the same way: persist the transaction with the broker-description-only instrument and record an identification error; do not fail the whole job.
 
-Broker strings and canonical identifiers should be unique once they are successfully asynchronously processed.  Two users who use the same brokerage might upload transactions that use the same description string.  Similarly two different brokerage strings might resolve to the same ISIN.  These should refer to the same data so that updates are reflected globally.
+PortfolioDB resolves instruments during asynchronous ingestion. Resolution order: (1) DB lookup by (broker, instrument_description) or by existing identifiers; (2) within the current batch, use a cache so the same (broker, description) is resolved once; (3) only if still unresolved, call enabled plugins. This avoids unnecessary or duplicate calls to expensive (e.g. quota-managed) plugins.
 
-The system should tolerate instruments which could not be identified which are instead presented simply using the broker string provided.  If an instrument could not be identified, nor a price fetched for it, then any summaries of portfolio performance containing the instrument should warn the user that the value of some instruments are not included.
+Broker strings and canonical identifiers are unique once processed. Two users with the same brokerage and description, or two broker descriptions resolving to the same ISIN, refer to the same instrument so updates are reflected globally.
 
-The system should also handle the edge case in which two instruments must be merged and dependent transactions updated.  This can happen if two instruments exist for some time without any common identifiers, transactions are added to each and then subsequently a common identifier is found.
+**Instrument merge**: When a new identifier would link two previously distinct instruments (e.g. same ISIN), the system must merge them: choose a survivor, update all transaction references, move identifiers to the survivor, delete the merged-away instrument. Merges can be run eagerly during ingestion when a conflict is detected, or by a periodic job. The code must support being invoked by such a job; the job’s scheduling and implementation are out of scope for the initial milestone. When a plugin returns identifiers that match an **existing** instrument, the **identifier is the source of truth**: attach the transaction to that instrument and do not overwrite its canonical fields with the plugin’s output.
 
-A user may believe that the system has miss identified an instrument in their portfolio.  In that case it should be possible for a user to override the identity of a given instrument.  This data is also owned by the user and affects only their portfolios.  Admin users are able to correct shared instrument identity information.
+**Edge cases**
+
+- **Duplicate (broker, instrument_description) in same batch with different plugin results**: Resolve each (broker, instrument_description) once per batch and cache the result. All transactions in the batch with that key receive the same instrument_id. No per-transaction plugin call for the same key—ensures consistency and avoids extra plugin cost.
+- **Plugin is unavailable or times out (e.g. external API down)**: Create or find the broker-description-only instrument, set instrument_id, persist the transaction, and record an identification error/warning (e.g. plugin timeout) for GetJob and UI. Do not fail the whole job. Optional: retry the plugin once with backoff before falling back; keep scope small for the initial milestone.
+
+PortfolioDB should periodically attempt to identify instruments in case datasources have been updated. Admin users can manually force a refresh for a given instrument or set of instruments.
+
+A user may believe the system has mis-identified an instrument. It should be possible for a user to override the identity for their portfolio; that data is user-owned. Admin users can correct shared instrument identity.
 
 ### Plugins
 
-Plugins are implemented as an interface with implementations included in the codebase (or compiled in as libraries).  Implementations are enabled at runtime and configured in the database.
+Plugins implement a single interface (e.g. `Identify(ctx, broker, instrument_description) → (*Instrument, []Identifier, error)`). Implementations live under `server/plugins/<datasource>/identifier` (e.g. `server/plugins/local/identifier`, `server/plugins/ibkr/identifier`). The shared interface and canonical types (Instrument, Identifier) live in `server/identifier`. Plugins are compiled in and enabled at runtime; configuration is stored in the database.
 
-Plugins can optionally contain database migrations which will be run at server instantiation time after the main server migrations.  Plugins can store data reference data in their tables as needed.
+**Plugin config** (in DB): plugin id, enabled flag, **precedence** (integer, required, unique across plugins; used to resolve conflicts), and optional config JSONB. Scope is global for the initial milestone. No two plugins may share the same precedence.
 
-#### Precedence
+**Resolution flow**: If the DB or in-batch cache already has an instrument for (broker, instrument_description), do not call plugins. Otherwise call **all enabled plugins in parallel**, merge results by **precedence (higher wins on conflict)**, then find or create an instrument (with at least the broker identifier) and set the transaction’s instrument_id. If no plugin resolves (e.g. returns a “not identified” sentinel), the service still ensures a broker-description-only instrument exists and attaches it. Record identification errors/warnings (e.g. plugin timeout, broker-description-only) for GetJob and UI.
 
-Except in the case of a forced refresh, the first source of data for instrument identities is always the PortfolioDB database.  If an instrument is already identified in the database it should not attempt to fetch data for an instrument using plugins.
-
-If an instrument is not already identified the system should attempt to fetch data using every available plugin.  Admins must configure the plugins to be in a complete ordering which defines precedence.  Any conflicts in data returned by plugins should be logged and resolved by taking the lowest precedence answer.
+Plugins can own database migrations (e.g. reference tables). Plugin migrations live in the plugin directory (eg. `server/plugins/<datasource>/identifier/migrations`). Example: the local reference-data plugin uses a Postgres reference table.
 
 ## Fetching Prices
 

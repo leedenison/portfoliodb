@@ -4,15 +4,118 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// errIdentifierExists is returned when EnsureInstrument hits a unique violation (identifier already for another instrument).
+var errIdentifierExists = errors.New("identifier already exists for another instrument")
+
+// mergeInstruments merges mergedAway into survivor inside the same transaction: updates all txs pointing at mergedAway to survivor, moves identifier rows to survivor (or keeps survivor's if duplicate), then deletes mergedAway. exec must be a transaction.
+func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway uuid.UUID) error {
+	if survivor == mergedAway {
+		return nil
+	}
+	if _, err := exec.ExecContext(ctx, `UPDATE txs SET instrument_id = $1 WHERE instrument_id = $2`, survivor, mergedAway); err != nil {
+		return fmt.Errorf("update txs: %w", err)
+	}
+	rows, err := exec.QueryContext(ctx, `SELECT identifier_type, value FROM instrument_identifiers WHERE instrument_id = $1`, mergedAway)
+	if err != nil {
+		return fmt.Errorf("list identifiers: %w", err)
+	}
+	defer rows.Close()
+	var toInsert []struct{ idType, value string }
+	for rows.Next() {
+		var idType, val string
+		if err := rows.Scan(&idType, &val); err != nil {
+			return err
+		}
+		toInsert = append(toInsert, struct{ idType, value string }{idType, val})
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := exec.ExecContext(ctx, `DELETE FROM instrument_identifiers WHERE instrument_id = $1`, mergedAway); err != nil {
+		return fmt.Errorf("delete merged identifiers: %w", err)
+	}
+	for _, idn := range toInsert {
+		_, err := exec.ExecContext(ctx, `
+			INSERT INTO instrument_identifiers (instrument_id, identifier_type, value) VALUES ($1, $2, $3)
+			ON CONFLICT (identifier_type, value) DO NOTHING
+		`, survivor, idn.idType, idn.value)
+		if err != nil {
+			return fmt.Errorf("insert identifier: %w", err)
+		}
+	}
+	if _, err := exec.ExecContext(ctx, `DELETE FROM instruments WHERE id = $1`, mergedAway); err != nil {
+		return fmt.Errorf("delete merged instrument: %w", err)
+	}
+	return nil
+}
+
+// pickSurvivor returns the instrument ID that should survive when merging the given set (most identifiers, then oldest created_at). ids must have at least one element.
+func pickSurvivor(ctx context.Context, q queryable, ids []uuid.UUID) (uuid.UUID, error) {
+	if len(ids) == 0 {
+		return uuid.Nil, fmt.Errorf("pickSurvivor requires at least one id")
+	}
+	if len(ids) == 1 {
+		return ids[0], nil
+	}
+	// Build placeholders for IN clause to avoid pq.Array uuid handling
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i := range ids {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = ids[i]
+	}
+	inClause := strings.Join(placeholders, ",")
+	query := fmt.Sprintf(`
+		SELECT i.id, i.created_at, (SELECT count(*) FROM instrument_identifiers WHERE instrument_id = i.id) AS n
+		FROM instruments i WHERE i.id IN (%s)
+	`, inClause)
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("query instruments: %w", err)
+	}
+	defer rows.Close()
+	type cand struct {
+		id        uuid.UUID
+		createdAt time.Time
+		n         int64
+	}
+	var cands []cand
+	for rows.Next() {
+		var c cand
+		if err := rows.Scan(&c.id, &c.createdAt, &c.n); err != nil {
+			return uuid.Nil, err
+		}
+		cands = append(cands, c)
+	}
+	if err := rows.Err(); err != nil {
+		return uuid.Nil, err
+	}
+	if len(cands) == 0 {
+		return uuid.Nil, fmt.Errorf("no instruments found for ids")
+	}
+	// Sort by n desc, created_at asc (more identifiers wins, then older wins)
+	sort.Slice(cands, func(i, j int) bool {
+		if cands[i].n != cands[j].n {
+			return cands[i].n > cands[j].n
+		}
+		return cands[i].createdAt.Before(cands[j].createdAt)
+	})
+	return cands[0].id, nil
+}
 
 // queryable is satisfied by *sql.DB and *sql.Tx. Used so tests can run against a transaction that is rolled back.
 type queryable interface {
@@ -333,10 +436,13 @@ func (p *Postgres) runInTx(ctx context.Context, f func(exec queryable) error) er
 }
 
 // ReplaceTxsInPeriod implements db.TxDB.
-func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx) error {
+func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string) error {
 	portUUID, err := uuid.Parse(portfolioID)
 	if err != nil {
 		return fmt.Errorf("invalid portfolio id: %w", err)
+	}
+	if len(instrumentIDs) != len(txs) {
+		return fmt.Errorf("instrumentIDs length %d != txs length %d", len(instrumentIDs), len(txs))
 	}
 	return p.runInTx(ctx, func(exec queryable) error {
 		fromT, err := tsToTime(periodFrom)
@@ -353,7 +459,11 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker s
 		if err != nil {
 			return fmt.Errorf("delete txs in period: %w", err)
 		}
-		for _, t := range txs {
+		for i, t := range txs {
+			instUUID, err := uuid.Parse(instrumentIDs[i])
+			if err != nil {
+				return fmt.Errorf("invalid instrument id: %w", err)
+			}
 			ts, err := tsToTime(t.Timestamp)
 			if err != nil {
 				return err
@@ -363,9 +473,9 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker s
 				return err
 			}
 			_, err = exec.ExecContext(ctx, `
-				INSERT INTO txs (portfolio_id, broker, timestamp, instrument_description, tx_type, quantity, currency, unit_price)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			`, portUUID, broker, ts, t.InstrumentDescription, txTypeStr, t.Quantity, nullStr(t.Currency), nullFloat(t.UnitPrice))
+				INSERT INTO txs (portfolio_id, broker, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			`, portUUID, broker, ts, t.InstrumentDescription, txTypeStr, t.Quantity, nullStr(t.Currency), nullFloat(t.UnitPrice), instUUID)
 			if err != nil {
 				return fmt.Errorf("insert tx: %w", err)
 			}
@@ -381,6 +491,14 @@ func nullStr(s string) interface{} {
 	return s
 }
 
+// strFromNull returns s.String if s.Valid, otherwise "".
+func strFromNull(s sql.NullString) string {
+	if s.Valid {
+		return s.String
+	}
+	return ""
+}
+
 func nullFloat(f float64) interface{} {
 	if f == 0 {
 		return nil
@@ -389,10 +507,14 @@ func nullFloat(f float64) interface{} {
 }
 
 // UpsertTx implements db.TxDB.
-func (p *Postgres) UpsertTx(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx) error {
+func (p *Postgres) UpsertTx(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx, instrumentID string) error {
 	portUUID, err := uuid.Parse(portfolioID)
 	if err != nil {
 		return fmt.Errorf("invalid portfolio id: %w", err)
+	}
+	instUUID, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("invalid instrument id: %w", err)
 	}
 	ts, err := tsToTime(tx.Timestamp)
 	if err != nil {
@@ -403,11 +525,11 @@ func (p *Postgres) UpsertTx(ctx context.Context, portfolioID, broker string, tx 
 		return err
 	}
 	_, err = p.q.ExecContext(ctx, `
-		INSERT INTO txs (portfolio_id, broker, timestamp, instrument_description, tx_type, quantity, currency, unit_price)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO txs (portfolio_id, broker, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (portfolio_id, broker, timestamp, instrument_description)
-		DO UPDATE SET tx_type = $5, quantity = $6, currency = $7, unit_price = $8
-	`, portUUID, broker, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity, nullStr(tx.Currency), nullFloat(tx.UnitPrice))
+		DO UPDATE SET tx_type = $5, quantity = $6, currency = $7, unit_price = $8, instrument_id = $9
+	`, portUUID, broker, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity, nullStr(tx.Currency), nullFloat(tx.UnitPrice), instUUID)
 	if err != nil {
 		return fmt.Errorf("upsert tx: %w", err)
 	}
@@ -425,7 +547,7 @@ func (p *Postgres) ListTxs(ctx context.Context, portfolioID string, broker *apiv
 		limit = 50
 	}
 	q := `
-		SELECT broker, timestamp, instrument_description, tx_type, quantity, currency, unit_price
+		SELECT broker, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id
 		FROM txs WHERE portfolio_id = $1
 	`
 	args := []interface{}{portUUID}
@@ -480,7 +602,8 @@ func (p *Postgres) ListTxs(ctx context.Context, portfolioID string, broker *apiv
 		var qty float64
 		var currency sql.NullString
 		var unitPrice sql.NullFloat64
-		if err := rows.Scan(&brokerStr, &ts, &instDesc, &txTypeStr, &qty, &currency, &unitPrice); err != nil {
+		var instrumentID sql.NullString
+		if err := rows.Scan(&brokerStr, &ts, &instDesc, &txTypeStr, &qty, &currency, &unitPrice, &instrumentID); err != nil {
 			return nil, "", err
 		}
 		tx := &apiv1.Tx{
@@ -494,6 +617,9 @@ func (p *Postgres) ListTxs(ctx context.Context, portfolioID string, broker *apiv
 		}
 		if unitPrice.Valid {
 			tx.UnitPrice = unitPrice.Float64
+		}
+		if instrumentID.Valid {
+			tx.InstrumentId = instrumentID.String
 		}
 		out = append(out, &apiv1.PortfolioTx{
 			Broker: strToBroker(brokerStr),
@@ -522,11 +648,11 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, portfolioID string, asOf
 		asOfT = asOf.AsTime()
 	}
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT broker, instrument_description,
+		SELECT broker, instrument_description, instrument_id,
 			SUM(quantity) AS quantity
 		FROM txs
 		WHERE portfolio_id = $1 AND timestamp <= $2
-		GROUP BY portfolio_id, broker, instrument_description
+		GROUP BY portfolio_id, broker, instrument_description, instrument_id
 		HAVING SUM(quantity) != 0
 	`, portUUID, asOfT)
 	if err != nil {
@@ -537,15 +663,20 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, portfolioID string, asOf
 	for rows.Next() {
 		var brokerStr string
 		var instDesc string
+		var instrumentID sql.NullString
 		var qty float64
-		if err := rows.Scan(&brokerStr, &instDesc, &qty); err != nil {
+		if err := rows.Scan(&brokerStr, &instDesc, &instrumentID, &qty); err != nil {
 			return nil, nil, err
 		}
-		out = append(out, &apiv1.Holding{
+		h := &apiv1.Holding{
 			Broker:                strToBroker(brokerStr),
 			InstrumentDescription: instDesc,
 			Quantity:              qty,
-		})
+		}
+		if instrumentID.Valid {
+			h.InstrumentId = instrumentID.String
+		}
+		out = append(out, h)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
@@ -579,23 +710,23 @@ func (p *Postgres) CreateJob(ctx context.Context, portfolioID, broker string, pe
 }
 
 // GetJob implements db.JobDB.
-func (p *Postgres) GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, string, error) {
+func (p *Postgres) GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []db.IdentificationError, string, error) {
 	jobUUID, err := uuid.Parse(jobID)
 	if err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, "", fmt.Errorf("invalid job id: %w", err)
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", fmt.Errorf("invalid job id: %w", err)
 	}
 	var statusStr string
 	var portfolioID uuid.UUID
 	err = p.q.QueryRowContext(ctx, `SELECT status, portfolio_id FROM ingestion_jobs WHERE id = $1`, jobUUID).Scan(&statusStr, &portfolioID)
 	if err == sql.ErrNoRows {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, "", nil
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", nil
 	}
 	if err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, "", fmt.Errorf("get job: %w", err)
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", fmt.Errorf("get job: %w", err)
 	}
 	rows, err := p.q.QueryContext(ctx, `SELECT row_index, field, message FROM validation_errors WHERE job_id = $1 ORDER BY row_index`, jobUUID)
 	if err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, "", fmt.Errorf("get validation errors: %w", err)
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", fmt.Errorf("get validation errors: %w", err)
 	}
 	defer rows.Close()
 	var errs []*apiv1.ValidationError
@@ -603,14 +734,31 @@ func (p *Postgres) GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, [
 		var rowIndex int32
 		var field, message string
 		if err := rows.Scan(&rowIndex, &field, &message); err != nil {
-			return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, "", err
+			return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", err
 		}
 		errs = append(errs, &apiv1.ValidationError{RowIndex: rowIndex, Field: field, Message: message})
 	}
 	if err := rows.Err(); err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, "", err
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", err
 	}
-	return strToJobStatus(statusStr), errs, portfolioID.String(), nil
+	// Identification errors
+	idRows, err := p.q.QueryContext(ctx, `SELECT row_index, instrument_description, message FROM identification_errors WHERE job_id = $1 ORDER BY row_index`, jobUUID)
+	if err != nil {
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", fmt.Errorf("get identification errors: %w", err)
+	}
+	defer idRows.Close()
+	var idErrs []db.IdentificationError
+	for idRows.Next() {
+		var e db.IdentificationError
+		if err := idRows.Scan(&e.RowIndex, &e.InstrumentDescription, &e.Message); err != nil {
+			return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", err
+		}
+		idErrs = append(idErrs, e)
+	}
+	if err := idRows.Err(); err != nil {
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", err
+	}
+	return strToJobStatus(statusStr), errs, idErrs, portfolioID.String(), nil
 }
 
 // SetJobStatus implements db.JobDB.
@@ -642,6 +790,22 @@ func (p *Postgres) AppendValidationErrors(ctx context.Context, jobID string, err
 	return nil
 }
 
+// AppendIdentificationErrors implements db.JobDB.
+func (p *Postgres) AppendIdentificationErrors(ctx context.Context, jobID string, errs []db.IdentificationError) error {
+	jobUUID, err := uuid.Parse(jobID)
+	if err != nil {
+		return fmt.Errorf("invalid job id: %w", err)
+	}
+	for _, e := range errs {
+		_, err = p.q.ExecContext(ctx, `INSERT INTO identification_errors (job_id, row_index, instrument_description, message) VALUES ($1, $2, $3, $4)`,
+			jobUUID, e.RowIndex, e.InstrumentDescription, e.Message)
+		if err != nil {
+			return fmt.Errorf("append identification error: %w", err)
+		}
+	}
+	return nil
+}
+
 // ListPendingJobIDs implements db.JobDB.
 func (p *Postgres) ListPendingJobIDs(ctx context.Context) ([]string, error) {
 	rows, err := p.q.QueryContext(ctx, `SELECT id FROM ingestion_jobs WHERE status = 'PENDING' ORDER BY created_at`)
@@ -658,4 +822,176 @@ func (p *Postgres) ListPendingJobIDs(ctx context.Context) ([]string, error) {
 		ids = append(ids, id.String())
 	}
 	return ids, rows.Err()
+}
+
+// FindInstrumentByBrokerDescription implements db.InstrumentDB.
+func (p *Postgres) FindInstrumentByBrokerDescription(ctx context.Context, broker, instrumentDescription string) (string, error) {
+	var id uuid.UUID
+	err := p.q.QueryRowContext(ctx, `
+		SELECT instrument_id FROM instrument_identifiers
+		WHERE identifier_type = $1 AND value = $2
+	`, broker, instrumentDescription).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("find instrument by broker description: %w", err)
+	}
+	return id.String(), nil
+}
+
+// GetInstrument implements db.InstrumentDB.
+func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.InstrumentRow, error) {
+	instUUID, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid instrument id: %w", err)
+	}
+	var row db.InstrumentRow
+	row.ID = instrumentID
+	var assetClass, exchange, currency, name sql.NullString
+	err = p.q.QueryRowContext(ctx, `SELECT asset_class, exchange, currency, name FROM instruments WHERE id = $1`, instUUID).
+		Scan(&assetClass, &exchange, &currency, &name)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get instrument: %w", err)
+	}
+	row.AssetClass = strFromNull(assetClass)
+	row.Exchange = strFromNull(exchange)
+	row.Currency = strFromNull(currency)
+	row.Name = strFromNull(name)
+	idRows, err := p.q.QueryContext(ctx, `SELECT identifier_type, value FROM instrument_identifiers WHERE instrument_id = $1`, instUUID)
+	if err != nil {
+		return nil, fmt.Errorf("get instrument identifiers: %w", err)
+	}
+	defer idRows.Close()
+	for idRows.Next() {
+		var idn db.IdentifierInput
+		if err := idRows.Scan(&idn.Type, &idn.Value); err != nil {
+			return nil, err
+		}
+		row.Identifiers = append(row.Identifiers, idn)
+	}
+	if err := idRows.Err(); err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+// ListEnabledPluginConfigs implements db.InstrumentDB.
+func (p *Postgres) ListEnabledPluginConfigs(ctx context.Context) ([]db.PluginConfigRow, error) {
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT plugin_id, precedence, config FROM identifier_plugin_config
+		WHERE enabled = true ORDER BY precedence DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list enabled plugin configs: %w", err)
+	}
+	defer rows.Close()
+	var out []db.PluginConfigRow
+	for rows.Next() {
+		var r db.PluginConfigRow
+		var config sql.NullString
+		if err := rows.Scan(&r.PluginID, &r.Precedence, &config); err != nil {
+			return nil, err
+		}
+		if config.Valid {
+			r.Config = []byte(config.String)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// EnsureInstrument implements db.InstrumentDB.
+// Finds by any identifier; if not found, creates instrument and inserts identifiers.
+// When multiple identifiers resolve to different instruments, merges them eagerly and returns the survivor.
+// On unique violation (identifier already exists for another instrument), returns the existing instrument ID (eager merge).
+func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchange, currency, name string, identifiers []db.IdentifierInput) (string, error) {
+	if len(identifiers) == 0 {
+		return "", fmt.Errorf("at least one identifier required")
+	}
+	// Look up every identifier and collect distinct instrument IDs (no early return).
+	seen := make(map[uuid.UUID]struct{})
+	var distinctIDs []uuid.UUID
+	for _, idn := range identifiers {
+		var existingID uuid.UUID
+		err := p.q.QueryRowContext(ctx, `SELECT instrument_id FROM instrument_identifiers WHERE identifier_type = $1 AND value = $2`, idn.Type, idn.Value).Scan(&existingID)
+		if err == nil {
+			if _, ok := seen[existingID]; !ok {
+				seen[existingID] = struct{}{}
+				distinctIDs = append(distinctIDs, existingID)
+			}
+			continue
+		}
+		if err != sql.ErrNoRows {
+			return "", fmt.Errorf("lookup instrument: %w", err)
+		}
+	}
+	// Multiple instruments: merge into one and return survivor.
+	if len(distinctIDs) > 1 {
+		survivor, err := pickSurvivor(ctx, p.q, distinctIDs)
+		if err != nil {
+			return "", err
+		}
+		err = p.runInTx(ctx, func(exec queryable) error {
+			for _, id := range distinctIDs {
+				if id == survivor {
+					continue
+				}
+				if err := mergeInstruments(ctx, exec, survivor, id); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return "", err
+		}
+		return survivor.String(), nil
+	}
+	// Exactly one instrument: return it.
+	if len(distinctIDs) == 1 {
+		return distinctIDs[0].String(), nil
+	}
+	// None found: create new instrument and add identifiers.
+	var newID uuid.UUID
+	err := p.runInTx(ctx, func(exec queryable) error {
+		err := exec.QueryRowContext(ctx, `
+			INSERT INTO instruments (asset_class, exchange, currency, name) VALUES ($1, $2, $3, $4)
+			RETURNING id
+		`, nullStr(assetClass), nullStr(exchange), nullStr(currency), nullStr(name)).Scan(&newID)
+		if err != nil {
+			return err
+		}
+		for _, idn := range identifiers {
+			_, err = exec.ExecContext(ctx, `INSERT INTO instrument_identifiers (instrument_id, identifier_type, value) VALUES ($1, $2, $3)`, newID, idn.Type, idn.Value)
+			if err != nil {
+				if isUniqueViolation(err) {
+					return errIdentifierExists // rollback tx; caller will look up existing id
+				}
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, errIdentifierExists) {
+			for _, idn := range identifiers {
+				var existingID uuid.UUID
+				rowErr := p.q.QueryRowContext(ctx, `SELECT instrument_id FROM instrument_identifiers WHERE identifier_type = $1 AND value = $2`, idn.Type, idn.Value).Scan(&existingID)
+				if rowErr == nil {
+					return existingID.String(), nil
+				}
+			}
+		}
+		return "", err
+	}
+	return newID.String(), nil
+}
+
+func isUniqueViolation(err error) bool {
+	var pe *pq.Error
+	return errors.As(err, &pe) && pe.Code == "23505"
 }

@@ -403,7 +403,7 @@ func TestGetJob_NotFound(t *testing.T) {
 	db := mock.NewMockDB(ctrl)
 	db.EXPECT().
 		GetJob(gomock.Any(), "job-1").
-		Return(apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, "", nil)
+		Return(apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", nil)
 	srv := NewServer(db)
 	ctx := authCtx("user-1", "sub|1")
 	_, err := srv.GetJob(ctx, &apiv1.GetJobRequest{JobId: "job-1"})
@@ -416,7 +416,7 @@ func TestGetJob_Success(t *testing.T) {
 	db := mock.NewMockDB(ctrl)
 	db.EXPECT().
 		GetJob(gomock.Any(), "job-1").
-		Return(apiv1.JobStatus_PENDING, nil, "port-1", nil)
+		Return(apiv1.JobStatus_PENDING, nil, nil, "port-1", nil)
 	db.EXPECT().
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
 		Return(true, nil)

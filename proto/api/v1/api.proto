@@ -42,6 +42,22 @@ enum TxType {
   CLOSUREOPT     = 20;
 }
 
+// InstrumentIdentifier is one (type, value) pair for an instrument (e.g. CUSIP, ISIN, broker description).
+message InstrumentIdentifier {
+  string type = 1;   // e.g. "CUSIP", "ISIN", "IBKR", "SCHB"
+  string value = 2;
+}
+
+// Instrument is canonical security-master data for an instrument, with its identifiers.
+message Instrument {
+  string id = 1;
+  string asset_class = 2;
+  string exchange = 3;
+  string currency = 4;
+  string name = 5;
+  repeated InstrumentIdentifier identifiers = 6;
+}
+
 // Tx represents one broker-reported transaction.
 message Tx {
   // Time of the transaction (part of natural key with broker and
@@ -58,6 +74,8 @@ message Tx {
   string currency = 6;
   // Unit price as reported by broker. Optional; not used for valuation.
   double unit_price = 7;
+  // Resolved instrument id (UUID). Set by identification during ingestion.
+  string instrument_id = 8;
 }
 
 // CreateUserRequest supplies user info from the ID token (stub in M01).
@@ -141,10 +159,11 @@ message DeletePortfolioRequest {
 
 message DeletePortfolioResponse {}
 
-// PortfolioTx pairs a transaction with its broker for list responses.
+// PortfolioTx pairs a transaction with its broker and optional resolved instrument for list responses.
 message PortfolioTx {
   Broker broker = 1;
   Tx tx = 2;
+  Instrument instrument = 3;  // optional; set when instrument_id was resolved
 }
 
 message ListTxsRequest {
@@ -166,6 +185,9 @@ message Holding {
   Broker broker = 1;
   string instrument_description = 2;
   double quantity = 3;
+  // Resolved instrument id (UUID). Set when identification ran for the underlying txs.
+  string instrument_id = 4;
+  Instrument instrument = 5;  // optional; set when instrument_id was resolved
 }
 
 message GetHoldingsRequest {
@@ -193,6 +215,13 @@ message ValidationError {
   string message = 3;
 }
 
+// IdentificationError is recorded when identification fails (e.g. plugin timeout) or broker description only.
+message IdentificationError {
+  int32 row_index = 1;
+  string instrument_description = 2;
+  string message = 3;
+}
+
 message GetJobRequest {
   string job_id = 1;
 }
@@ -200,4 +229,5 @@ message GetJobRequest {
 message GetJobResponse {
   JobStatus status = 1;
   repeated ValidationError validation_errors = 2;
+  repeated IdentificationError identification_errors = 3;
 }

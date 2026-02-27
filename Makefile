@@ -28,5 +28,6 @@ test-db: generate
 		if [ $$i -eq 10 ]; then echo "Postgres not ready"; exit 1; fi; \
 	done
 	cat server/migrations/001_initial.sql | docker compose -f docker/server/docker-compose.test.yml exec -T postgres psql -U portfoliodb -d portfoliodb_test -q
+	cat server/plugins/local/identifier/migrations/001_instrument_ref.sql | docker compose -f docker/server/docker-compose.test.yml exec -T postgres psql -U portfoliodb -d portfoliodb_test -q
 	TEST_DATABASE_URL="postgres://portfoliodb:portfoliodb@localhost:5433/portfoliodb_test?sslmode=disable" go test -v ./server/db/postgres/...
 	@docker compose -f docker/server/docker-compose.test.yml down

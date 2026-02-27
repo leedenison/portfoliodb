@@ -65,3 +65,53 @@ CREATE TABLE validation_errors (
 );
 
 CREATE INDEX idx_validation_errors_job_id ON validation_errors (job_id);
+
+-- M02: instruments, instrument_identifiers, plugin config, identification errors, txs.instrument_id.
+-- For this milestone datamodels are dropped and recreated from scratch; no backfill.
+
+-- Canonical instruments (security master).
+CREATE TABLE instruments (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  asset_class TEXT,
+  exchange    TEXT,
+  currency    TEXT,
+  name        TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Identifiers for an instrument. (identifier_type, value) is unique globally.
+-- Broker descriptions: identifier_type = broker name ('IBKR', 'SCHB'), value = full instrument_description.
+CREATE TABLE instrument_identifiers (
+  instrument_id   UUID NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  identifier_type TEXT NOT NULL,
+  value           TEXT NOT NULL,
+  PRIMARY KEY (instrument_id, identifier_type, value),
+  UNIQUE (identifier_type, value)
+);
+
+CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identifier_type, value);
+
+-- Plugin config: which plugins are enabled, precedence (unique), plugin-specific config.
+CREATE TABLE identifier_plugin_config (
+  plugin_id   TEXT PRIMARY KEY,
+  enabled     BOOLEAN NOT NULL DEFAULT true,
+  precedence  INT NOT NULL UNIQUE,
+  config      JSONB
+);
+
+-- Identification errors for a job (e.g. plugin timeout, broker description only).
+CREATE TABLE identification_errors (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id                UUID NOT NULL REFERENCES ingestion_jobs (id) ON DELETE CASCADE,
+  row_index             INT NOT NULL,
+  instrument_description TEXT NOT NULL,
+  message               TEXT NOT NULL
+);
+
+CREATE INDEX idx_identification_errors_job_id ON identification_errors (job_id);
+
+-- Link txs to instruments. Every tx has an instrument (plugin-resolved or broker description only).
+-- Nullable for migration safety when 002 runs on existing DB; for drop-and-recreate deploy, txs is empty.
+ALTER TABLE txs ADD COLUMN instrument_id UUID REFERENCES instruments (id);
+
+CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);

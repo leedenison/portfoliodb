@@ -187,6 +187,15 @@ func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	// Enrich with Instrument when instrument_id is set
+	for _, pt := range txs {
+		if pt.GetTx().GetInstrumentId() != "" {
+			inst, err := s.db.GetInstrument(ctx, pt.Tx.InstrumentId)
+			if err == nil && inst != nil {
+				pt.Instrument = instrumentRowToProto(inst)
+			}
+		}
+	}
 	return &apiv1.ListTxsResponse{Txs: txs, NextPageToken: nextToken}, nil
 }
 
@@ -210,6 +219,15 @@ func (s *Server) GetHoldings(ctx context.Context, req *apiv1.GetHoldingsRequest)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	// Enrich with Instrument when instrument_id is set
+	for _, h := range holdings {
+		if h.GetInstrumentId() != "" {
+			inst, err := s.db.GetInstrument(ctx, h.InstrumentId)
+			if err == nil && inst != nil {
+				h.Instrument = instrumentRowToProto(inst)
+			}
+		}
+	}
 	return &apiv1.GetHoldingsResponse{Holdings: holdings, AsOf: asOf}, nil
 }
 
@@ -222,7 +240,7 @@ func (s *Server) GetJob(ctx context.Context, req *apiv1.GetJobRequest) (*apiv1.G
 	if req.GetJobId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "job_id required")
 	}
-	statusVal, errs, portfolioID, err := s.db.GetJob(ctx, req.GetJobId())
+	statusVal, errs, idErrs, portfolioID, err := s.db.GetJob(ctx, req.GetJobId())
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -236,5 +254,31 @@ func (s *Server) GetJob(ctx context.Context, req *apiv1.GetJobRequest) (*apiv1.G
 	if !ok {
 		return nil, status.Error(codes.NotFound, "job not found")
 	}
-	return &apiv1.GetJobResponse{Status: statusVal, ValidationErrors: errs}, nil
+	idErrProtos := make([]*apiv1.IdentificationError, 0, len(idErrs))
+	for _, e := range idErrs {
+		idErrProtos = append(idErrProtos, &apiv1.IdentificationError{
+			RowIndex:               e.RowIndex,
+			InstrumentDescription: e.InstrumentDescription,
+			Message:                e.Message,
+		})
+	}
+	return &apiv1.GetJobResponse{Status: statusVal, ValidationErrors: errs, IdentificationErrors: idErrProtos}, nil
+}
+
+func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
+	if row == nil {
+		return nil
+	}
+	identifiers := make([]*apiv1.InstrumentIdentifier, 0, len(row.Identifiers))
+	for _, idn := range row.Identifiers {
+		identifiers = append(identifiers, &apiv1.InstrumentIdentifier{Type: idn.Type, Value: idn.Value})
+	}
+	return &apiv1.Instrument{
+		Id:          row.ID,
+		AssetClass:  row.AssetClass,
+		Exchange:    row.Exchange,
+		Currency:    row.Currency,
+		Name:        row.Name,
+		Identifiers: identifiers,
+	}
 }

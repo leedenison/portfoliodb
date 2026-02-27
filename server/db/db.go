@@ -16,6 +16,14 @@ type DB interface {
 	TxDB
 	HoldingsDB
 	JobDB
+	InstrumentDB
+}
+
+// IdentificationError is stored per job for identification warnings (e.g. broker description only, plugin timeout).
+type IdentificationError struct {
+	RowIndex               int32
+	InstrumentDescription string
+	Message                string
 }
 
 // UserDB provides user operations.
@@ -35,9 +43,10 @@ type PortfolioDB interface {
 }
 
 // TxDB provides transaction write and list.
+// instrumentIDs must match txs length in ReplaceTxsInPeriod; every tx has an instrument (plugin-resolved or broker description only).
 type TxDB interface {
-	ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx) error
-	UpsertTx(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx) error
+	ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string) error
+	UpsertTx(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx, instrumentID string) error
 	ListTxs(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodTo *timestamppb.Timestamp, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 }
 
@@ -49,8 +58,44 @@ type HoldingsDB interface {
 // JobDB provides ingestion job operations.
 type JobDB interface {
 	CreateJob(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp) (string, error)
-	GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, string, error)
+	GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []IdentificationError, string, error)
 	SetJobStatus(ctx context.Context, jobID string, status apiv1.JobStatus) error
 	AppendValidationErrors(ctx context.Context, jobID string, errs []*apiv1.ValidationError) error
+	AppendIdentificationErrors(ctx context.Context, jobID string, errs []IdentificationError) error
 	ListPendingJobIDs(ctx context.Context) ([]string, error)
+}
+
+// IdentifierInput is a single (type, value) for EnsureInstrument.
+type IdentifierInput struct {
+	Type  string
+	Value string
+}
+
+// PluginConfigRow is one row from identifier_plugin_config for enabled plugins.
+type PluginConfigRow struct {
+	PluginID   string
+	Precedence int
+	Config     []byte
+}
+
+// InstrumentRow is a single instrument with its identifiers (for API responses).
+type InstrumentRow struct {
+	ID         string
+	AssetClass string
+	Exchange   string
+	Currency   string
+	Name       string
+	Identifiers []IdentifierInput
+}
+
+// InstrumentDB provides instrument resolution and plugin config.
+type InstrumentDB interface {
+	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. Returns instrument ID. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument ID.
+	EnsureInstrument(ctx context.Context, assetClass, exchange, currency, name string, identifiers []IdentifierInput) (string, error)
+	// FindInstrumentByBrokerDescription looks up instrument_id by (broker, instrument_description) via instrument_identifiers. Returns "" if not found.
+	FindInstrumentByBrokerDescription(ctx context.Context, broker, instrumentDescription string) (string, error)
+	// GetInstrument returns an instrument by ID with its identifiers, or nil if not found.
+	GetInstrument(ctx context.Context, instrumentID string) (*InstrumentRow, error)
+	// ListEnabledPluginConfigs returns enabled plugins ordered by precedence descending (higher first).
+	ListEnabledPluginConfigs(ctx context.Context) ([]PluginConfigRow, error)
 }

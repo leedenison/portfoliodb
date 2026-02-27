@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	_ "github.com/lib/pq"
@@ -122,12 +123,16 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 	to := timestamppb.New(now)
 	ts1 := timestamppb.New(now.Add(-90 * time.Minute))
 	ts2 := timestamppb.New(now.Add(-30 * time.Minute))
-	// Quantity is signed: positive = buy, negative = sell. No type-based sign flip.
 	txs := []*apiv1.Tx{
 		{Timestamp: ts1, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10},
 		{Timestamp: ts2, InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: -3},
 	}
-	err := p.ReplaceTxsInPeriod(ctx, port.GetId(), "IBKR", from, to, txs)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "AAPL"}})
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	instrumentIDs := []string{instID, instID}
+	err = p.ReplaceTxsInPeriod(ctx, port.GetId(), "IBKR", from, to, txs, instrumentIDs)
 	if err != nil {
 		t.Fatalf("replace: %v", err)
 	}
@@ -165,7 +170,11 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	txs := []*apiv1.Tx{
 		{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_SELLSTOCK, Quantity: -5},
 	}
-	err := p.ReplaceTxsInPeriod(ctx, port.GetId(), "IBKR", from, to, txs)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "GOOG"}})
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	err = p.ReplaceTxsInPeriod(ctx, port.GetId(), "IBKR", from, to, txs, []string{instID})
 	if err != nil {
 		t.Fatalf("replace: %v", err)
 	}
@@ -192,11 +201,15 @@ func TestUpsertTx_Idempotent(t *testing.T) {
 	port, _ := p.CreatePortfolio(ctx, userID, "P")
 	ts := timestamppb.Now()
 	tx := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_BUYSTOCK, Quantity: 5}
-	if err := p.UpsertTx(ctx, port.GetId(), "IBKR", tx); err != nil {
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "GOOG"}})
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	if err := p.UpsertTx(ctx, port.GetId(), "IBKR", tx, instID); err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
 	tx.Quantity = 10
-	if err := p.UpsertTx(ctx, port.GetId(), "IBKR", tx); err != nil {
+	if err := p.UpsertTx(ctx, port.GetId(), "IBKR", tx, instID); err != nil {
 		t.Fatalf("second upsert: %v", err)
 	}
 	holdings, _, _ := p.ComputeHoldings(ctx, port.GetId(), nil)
@@ -221,17 +234,107 @@ func TestCreateJob_GetJob(t *testing.T) {
 	if jobID == "" {
 		t.Fatal("expected job id")
 	}
-	status, errs, portID, err := p.GetJob(ctx, jobID)
+	status, errs, idErrs, portID, err := p.GetJob(ctx, jobID)
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
-	if status != apiv1.JobStatus_PENDING || len(errs) != 0 || portID != port.GetId() {
-		t.Fatalf("get job: %v %v %s", status, errs, portID)
+	if status != apiv1.JobStatus_PENDING || len(errs) != 0 || len(idErrs) != 0 || portID != port.GetId() {
+		t.Fatalf("get job: %v %v %v %s", status, errs, idErrs, portID)
 	}
 	_ = p.SetJobStatus(ctx, jobID, apiv1.JobStatus_SUCCESS)
 	_ = p.AppendValidationErrors(ctx, jobID, []*apiv1.ValidationError{{RowIndex: 0, Field: "x", Message: "y"}})
-	status2, errs2, _, _ := p.GetJob(ctx, jobID)
-	if status2 != apiv1.JobStatus_SUCCESS || len(errs2) != 1 {
-		t.Fatalf("after update: %v %v", status2, errs2)
+	status2, errs2, idErrs2, _, _ := p.GetJob(ctx, jobID)
+	if status2 != apiv1.JobStatus_SUCCESS || len(errs2) != 1 || len(idErrs2) != 0 {
+		t.Fatalf("after update: %v %v %v", status2, errs2, idErrs2)
+	}
+}
+
+// TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch verifies that when multiple identifiers
+// resolve to different instruments (e.g. A has ISIN 1, B has CUSIP 1), EnsureInstrument merges
+// them and returns the survivor; both identifiers end up on the survivor and txs are updated.
+func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	// Create instrument A with (ISIN, 1) and B with (CUSIP, 1).
+	idA, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "ISIN", Value: "1"}})
+	if err != nil {
+		t.Fatalf("ensure A: %v", err)
+	}
+	idB, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "CUSIP", Value: "1"}})
+	if err != nil {
+		t.Fatalf("ensure B: %v", err)
+	}
+	if idA == idB {
+		t.Fatal("A and B should be different instruments")
+	}
+	// Attach one tx to A and one to B.
+	userID, _ := p.GetOrCreateUser(ctx, "sub|merge", "U", "u@u.com")
+	port, _ := p.CreatePortfolio(ctx, userID, "P")
+	now := time.Now()
+	from := timestamppb.New(now.Add(-2 * time.Hour))
+	to := timestamppb.New(now)
+	ts1 := timestamppb.New(now.Add(-90 * time.Minute))
+	ts2 := timestamppb.New(now.Add(-30 * time.Minute))
+	txs := []*apiv1.Tx{
+		{Timestamp: ts1, InstrumentDescription: "StockA", Type: apiv1.TxType_BUYSTOCK, Quantity: 10},
+		{Timestamp: ts2, InstrumentDescription: "StockB", Type: apiv1.TxType_BUYSTOCK, Quantity: 5},
+	}
+	err = p.ReplaceTxsInPeriod(ctx, port.GetId(), "IBKR", from, to, txs, []string{idA, idB})
+	if err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+	// Resolve with identifiers that match both A and B; should merge and return survivor.
+	brokerDesc := "SomeStock"
+	result, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{
+		{Type: "IBKR", Value: brokerDesc},
+		{Type: "ISIN", Value: "1"},
+		{Type: "CUSIP", Value: "1"},
+	})
+	if err != nil {
+		t.Fatalf("ensure merge: %v", err)
+	}
+	if result != idA && result != idB {
+		t.Fatalf("result %s should be either A %s or B %s", result, idA, idB)
+	}
+	survivor, mergedAway := result, idA
+	if result == idA {
+		mergedAway = idB
+	}
+	// Merged-away instrument should be gone.
+	gone, _ := p.GetInstrument(ctx, mergedAway)
+	if gone != nil {
+		t.Fatalf("merged-away instrument %s should be deleted, got %+v", mergedAway, gone)
+	}
+	// Survivor should have both identifiers.
+	row, err := p.GetInstrument(ctx, survivor)
+	if err != nil || row == nil {
+		t.Fatalf("get survivor: %v %v", err, row)
+	}
+	hasISIN, hasCUSIP := false, false
+	for _, idn := range row.Identifiers {
+		if idn.Type == "ISIN" && idn.Value == "1" {
+			hasISIN = true
+		}
+		if idn.Type == "CUSIP" && idn.Value == "1" {
+			hasCUSIP = true
+		}
+	}
+	if !hasISIN || !hasCUSIP {
+		t.Fatalf("survivor should have both ISIN 1 and CUSIP 1, got %+v", row.Identifiers)
+	}
+	// Both txs should now point at survivor (holdings or re-query would show one instrument).
+	holdings, _, err := p.ComputeHoldings(ctx, port.GetId(), nil)
+	if err != nil {
+		t.Fatalf("holdings: %v", err)
+	}
+	// We had two txs (10 and 5) on two instruments; after merge both are on survivor, so one holding with quantity 15.
+	var totalQty float64
+	for _, h := range holdings {
+		if h.InstrumentId == survivor {
+			totalQty += h.Quantity
+		}
+	}
+	if totalQty != 15 {
+		t.Fatalf("expected merged holding quantity 15, got %v (holdings: %+v)", totalQty, holdings)
 	}
 }

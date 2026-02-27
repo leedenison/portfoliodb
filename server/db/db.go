@@ -43,7 +43,6 @@ type PortfolioDB interface {
 }
 
 // TxDB provides transaction write and list.
-// instrumentIDs must match txs length in ReplaceTxsInPeriod; every tx has an instrument (plugin-resolved or broker description only).
 type TxDB interface {
 	ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string) error
 	UpsertTx(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx, instrumentID string) error

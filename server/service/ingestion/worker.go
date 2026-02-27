@@ -6,10 +6,12 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
 // RunWorker processes job requests from the channel until it is closed.
-func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest) {
+// Resolution uses DB, then in-batch cache, then enabled plugins from registry (timeout from config, retry once with backoff).
+func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, registry *identifier.Registry) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -18,39 +20,32 @@ func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest) {
 			if !ok {
 				return
 			}
-			processJob(ctx, database, j)
+			processJob(ctx, database, registry, j)
 		}
 	}
 }
 
-func processJob(ctx context.Context, database db.DB, j *JobRequest) {
+func processJob(ctx context.Context, database db.DB, registry *identifier.Registry, j *JobRequest) {
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_RUNNING)
 	if j.Bulk {
-		processBulk(ctx, database, j)
+		processBulk(ctx, database, registry, j)
 	} else {
-		processSingle(ctx, database, j)
+		processSingle(ctx, database, registry, j)
 	}
 }
 
-// resolveInstrumentID returns instrument_id for (broker, instrument_description), creating a broker-description-only instrument if needed.
-func resolveInstrumentID(ctx context.Context, database db.DB, broker, instrumentDescription string) (string, error) {
-	id, err := database.FindInstrumentByBrokerDescription(ctx, broker, instrumentDescription)
-	if err != nil || id != "" {
-		return id, err
-	}
-	return database.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: broker, Value: instrumentDescription}})
-}
-
-func processBulk(ctx context.Context, database db.DB, j *JobRequest) {
+func processBulk(ctx context.Context, database db.DB, registry *identifier.Registry, j *JobRequest) {
 	errs := ValidateTxs(j.Txs)
 	if len(errs) > 0 {
 		_ = database.AppendValidationErrors(ctx, j.JobID, errs)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return
 	}
+	cache := make(map[string]resolveResult)
 	instrumentIDs := make([]string, len(j.Txs))
 	for i, tx := range j.Txs {
-		id, err := resolveInstrumentID(ctx, database, j.Broker, tx.GetInstrumentDescription())
+		desc := tx.GetInstrumentDescription()
+		r, err := Resolve(ctx, database, registry, j.Broker, desc, cache, int32(i))
 		if err != nil {
 			log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
 			_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
@@ -59,7 +54,16 @@ func processBulk(ctx context.Context, database db.DB, j *JobRequest) {
 			_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 			return
 		}
-		instrumentIDs[i] = id
+		instrumentIDs[i] = r.InstrumentID
+	}
+	var idErrs []db.IdentificationError
+	for _, r := range cache {
+		if r.IdErr != nil {
+			idErrs = append(idErrs, *r.IdErr)
+		}
+	}
+	if len(idErrs) > 0 {
+		_ = database.AppendIdentificationErrors(ctx, j.JobID, idErrs)
 	}
 	err := database.ReplaceTxsInPeriod(ctx, j.PortfolioID, j.Broker, j.PeriodFrom, j.PeriodTo, j.Txs, instrumentIDs)
 	if err != nil {
@@ -73,14 +77,15 @@ func processBulk(ctx context.Context, database db.DB, j *JobRequest) {
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
 }
 
-func processSingle(ctx context.Context, database db.DB, j *JobRequest) {
+func processSingle(ctx context.Context, database db.DB, registry *identifier.Registry, j *JobRequest) {
 	errs := ValidateTx(j.Tx, 0)
 	if len(errs) > 0 {
 		_ = database.AppendValidationErrors(ctx, j.JobID, errs)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return
 	}
-	instrumentID, err := resolveInstrumentID(ctx, database, j.Broker, j.Tx.GetInstrumentDescription())
+	desc := j.Tx.GetInstrumentDescription()
+	r, err := Resolve(ctx, database, registry, j.Broker, desc, nil, 0)
 	if err != nil {
 		log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
@@ -89,7 +94,10 @@ func processSingle(ctx context.Context, database db.DB, j *JobRequest) {
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return
 	}
-	err = database.UpsertTx(ctx, j.PortfolioID, j.Broker, j.Tx, instrumentID)
+	if r.IdErr != nil {
+		_ = database.AppendIdentificationErrors(ctx, j.JobID, []db.IdentificationError{*r.IdErr})
+	}
+	err = database.UpsertTx(ctx, j.PortfolioID, j.Broker, j.Tx, r.InstrumentID)
 	if err != nil {
 		log.Printf("ingestion job %s: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{

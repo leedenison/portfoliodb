@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Import transactions from a JSON file into the given portfolio; echo the job id to stdout.
 #
-# Usage: scripts/ingest-txs.sh PORTFOLIO_ID TX_JSON_FILE
-#   JOB_ID=$(scripts/ingest-txs.sh "$PORTFOLIO_ID" scripts/50-transactions.json)
+# Usage: scripts/tests/api/ingest-txs.sh PORTFOLIO_ID TX_JSON_FILE
+#   JOB_ID=$(scripts/tests/api/ingest-txs.sh "$PORTFOLIO_ID" scripts/tests/api/50-transactions.json)
 #
 # Requires: grpcurl, jq. Run from repo root with server on localhost:50051.
 

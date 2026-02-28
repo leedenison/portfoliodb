@@ -2,15 +2,15 @@
 # End-to-end test: bring up stack, apply migrations, load local ref data, ingest transactions,
 # then verify resolution (ref symbols resolved, non-ref symbols broker-description-only) and holdings.
 #
-# Usage: scripts/e2e-test.sh
+# Usage: scripts/tests/api/api-test.sh
 #
 # Steps:
 #   1. make docker-clean
 #   2. docker compose -f docker/server/docker-compose.yml up -d
 #   3. Apply main migration and local plugin migration via docker compose exec
-#   4. scripts/import-local-identifier-ref.sh
-#   5. scripts/create-portfolio.sh -> PORTFOLIO_ID
-#   6. scripts/ingest-txs.sh PORTFOLIO_ID scripts/50-transactions.json -> JOB_ID, then poll until success
+#   4. scripts/tests/api/import-local-identifier-ref.sh
+#   5. scripts/tests/api/create-portfolio.sh -> PORTFOLIO_ID
+#   6. scripts/tests/api/ingest-txs.sh PORTFOLIO_ID scripts/tests/api/50-transactions.json -> JOB_ID, then poll until success
 #   7. Verify resolution and holdings
 #
 # Requires: grpcurl, jq, psql. Run from repo root.
@@ -63,14 +63,14 @@ cat server/migrations/001_initial.sql | docker compose -f "$COMPOSE_FILE" exec -
 cat server/plugins/local/identifier/migrations/001_instrument_ref.sql | docker compose -f "$COMPOSE_FILE" exec -T postgres psql -U portfoliodb -d portfoliodb -q
 
 echo "=== Step 4: Import local identifier reference data ==="
-scripts/import-local-identifier-ref.sh
+scripts/tests/api/import-local-identifier-ref.sh
 
 echo "=== Step 5: Create portfolio ==="
-PORTFOLIO_ID=$(scripts/create-portfolio.sh)
+PORTFOLIO_ID=$(scripts/tests/api/create-portfolio.sh)
 echo "Portfolio ID: $PORTFOLIO_ID"
 
 echo "=== Step 6: Ingest test transactions ==="
-JOB_ID=$(scripts/ingest-txs.sh "$PORTFOLIO_ID" scripts/50-transactions.json)
+JOB_ID=$(scripts/tests/api/ingest-txs.sh "$PORTFOLIO_ID" scripts/tests/api/50-transactions.json)
 echo "Job ID: $JOB_ID"
 
 echo "Polling job status (0.5s interval, max 30s)..."

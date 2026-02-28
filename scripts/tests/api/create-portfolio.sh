@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Create a user (if needed) and a portfolio via the API; echo the portfolio id to stdout.
 #
-# Usage: scripts/create-portfolio.sh
-#   PORTFOLIO_ID=$(scripts/create-portfolio.sh)
+# Usage: scripts/tests/api/create-portfolio.sh
+#   PORTFOLIO_ID=$(scripts/tests/api/create-portfolio.sh)
 #
 # Requires: grpcurl, jq. Run from repo root with server on localhost:50051.
 

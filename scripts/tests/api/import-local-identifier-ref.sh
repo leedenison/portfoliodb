@@ -7,7 +7,7 @@
 # Usage: import-local-identifier-ref.sh [REF_JSON_FILE]
 #
 #   REF_JSON_FILE  JSON with .instruments[].{asset_class,exchange,currency,name,identifiers[]}
-#                  (default: scripts/local-identifier-ref.json)
+#                  (default: scripts/tests/api/local-identifier-ref.json)
 #
 # Requires: jq, docker compose. Run from repo root with stack up (docker compose up -d).
 
@@ -19,7 +19,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker/server/docker-compose.yml}"
 
 usage() {
   echo "Usage: $(basename "$0") [REF_JSON_FILE]" >&2
-  echo "  REF_JSON_FILE  Default: scripts/local-identifier-ref.json" >&2
+  echo "  REF_JSON_FILE  Default: scripts/tests/api/local-identifier-ref.json" >&2
   exit 1
 }
 

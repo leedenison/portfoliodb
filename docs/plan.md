@@ -9,8 +9,9 @@
 | M02          | Implement instrument identification.                                                                                 |        |
 | M03          | Implement price fetching.                                                                                            |        |
 | M04          | Implement corporate events.                                                                                          |        |
-| M05          | Implement portfolio performance analysis UI.                                                                         |        |
-| M06          | Implement portfolio sharing between users and aggregates which combine portfolios (incl. shared portfolios).         |        |
+| M05          | Implement admin role.                                                                                                |        |
+| M06          | Implement portfolio performance analysis UI.                                                                         |        |
+| M07          | Implement portfolio sharing between users and aggregates which combine portfolios (incl. shared portfolios).         |        |
 
 
 ### Tasks

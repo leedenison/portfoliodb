@@ -185,13 +185,13 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		identifiers := make([]db.IdentifierInput, 0, len(mergedIds)+1)
 		hasBroker := false
 		for _, idn := range mergedIds {
-			identifiers = append(identifiers, db.IdentifierInput{Type: idn.Type, Value: idn.Value})
+			identifiers = append(identifiers, db.IdentifierInput{Type: idn.Type, Value: idn.Value, Canonical: true})
 			if idn.Type == broker && idn.Value == instrumentDescription {
 				hasBroker = true
 			}
 		}
 		if !hasBroker {
-			identifiers = append(identifiers, db.IdentifierInput{Type: broker, Value: instrumentDescription})
+			identifiers = append(identifiers, db.IdentifierInput{Type: broker, Value: instrumentDescription, Canonical: false})
 		}
 		inst := winner.inst
 		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, identifiers)
@@ -207,7 +207,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 
 	// Unresolved: broker-description-only and record identification error.
 	// Use instrumentDescription as name so the instrument row has a human-readable label.
-	id, err = database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: broker, Value: instrumentDescription}})
+	id, err = database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: broker, Value: instrumentDescription, Canonical: false}})
 	if err != nil {
 		return resolveResult{}, err
 	}

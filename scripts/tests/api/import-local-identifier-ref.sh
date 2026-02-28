@@ -82,8 +82,8 @@ for i in $(seq 0 $((count - 1))); do
     id_type_sql="${id_type//\'/\'\'}"
     value_sql="${value//\'/\'\'}"
     psql_exec -q -c "
-      INSERT INTO local_instrument_identifiers (instrument_id, identifier_type, value)
-      VALUES ('$id', '$id_type_sql', '$value_sql');
+      INSERT INTO local_instrument_identifiers (instrument_id, identifier_type, value, canonical)
+      VALUES ('$id', '$id_type_sql', '$value_sql', true);
     "
   done
 done

@@ -29,18 +29,19 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	if _, err := exec.ExecContext(ctx, `UPDATE txs SET instrument_id = $1 WHERE instrument_id = $2`, survivor, mergedAway); err != nil {
 		return fmt.Errorf("update txs: %w", err)
 	}
-	rows, err := exec.QueryContext(ctx, `SELECT identifier_type, value FROM instrument_identifiers WHERE instrument_id = $1`, mergedAway)
+	rows, err := exec.QueryContext(ctx, `SELECT identifier_type, value, canonical FROM instrument_identifiers WHERE instrument_id = $1`, mergedAway)
 	if err != nil {
 		return fmt.Errorf("list identifiers: %w", err)
 	}
 	defer rows.Close()
-	var toInsert []struct{ idType, value string }
+	var toInsert []struct{ idType, value string; canonical bool }
 	for rows.Next() {
 		var idType, val string
-		if err := rows.Scan(&idType, &val); err != nil {
+		var canonical bool
+		if err := rows.Scan(&idType, &val, &canonical); err != nil {
 			return err
 		}
-		toInsert = append(toInsert, struct{ idType, value string }{idType, val})
+		toInsert = append(toInsert, struct{ idType, value string; canonical bool }{idType, val, canonical})
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -50,9 +51,9 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	}
 	for _, idn := range toInsert {
 		_, err := exec.ExecContext(ctx, `
-			INSERT INTO instrument_identifiers (instrument_id, identifier_type, value) VALUES ($1, $2, $3)
+			INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical) VALUES ($1, $2, $3, $4)
 			ON CONFLICT (identifier_type, value) DO NOTHING
-		`, survivor, idn.idType, idn.value)
+		`, survivor, idn.idType, idn.value, idn.canonical)
 		if err != nil {
 			return fmt.Errorf("insert identifier: %w", err)
 		}
@@ -861,14 +862,14 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 	row.Exchange = strFromNull(exchange)
 	row.Currency = strFromNull(currency)
 	row.Name = strFromNull(name)
-	idRows, err := p.q.QueryContext(ctx, `SELECT identifier_type, value FROM instrument_identifiers WHERE instrument_id = $1`, instUUID)
+	idRows, err := p.q.QueryContext(ctx, `SELECT identifier_type, value, canonical FROM instrument_identifiers WHERE instrument_id = $1`, instUUID)
 	if err != nil {
 		return nil, fmt.Errorf("get instrument identifiers: %w", err)
 	}
 	defer idRows.Close()
 	for idRows.Next() {
 		var idn db.IdentifierInput
-		if err := idRows.Scan(&idn.Type, &idn.Value); err != nil {
+		if err := idRows.Scan(&idn.Type, &idn.Value, &idn.Canonical); err != nil {
 			return nil, err
 		}
 		row.Identifiers = append(row.Identifiers, idn)
@@ -902,6 +903,92 @@ func (p *Postgres) ListEnabledPluginConfigs(ctx context.Context) ([]db.PluginCon
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// ListInstrumentsForExport implements db.InstrumentDB.
+func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter string) ([]*db.InstrumentRow, error) {
+	var rows *sql.Rows
+	var err error
+	if exchangeFilter != "" {
+		rows, err = p.q.QueryContext(ctx, `
+			SELECT i.id, i.asset_class, i.exchange, i.currency, i.name
+			FROM instruments i
+			WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)
+			AND i.exchange = $1
+			ORDER BY i.id
+		`, exchangeFilter)
+	} else {
+		rows, err = p.q.QueryContext(ctx, `
+			SELECT i.id, i.asset_class, i.exchange, i.currency, i.name
+			FROM instruments i
+			WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)
+			ORDER BY i.id
+		`)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list instruments for export: %w", err)
+	}
+	defer rows.Close()
+	var results []*db.InstrumentRow
+	var ids []uuid.UUID
+	for rows.Next() {
+		var row db.InstrumentRow
+		var id uuid.UUID
+		var assetClass, exchange, currency, name sql.NullString
+		if err := rows.Scan(&id, &assetClass, &exchange, &currency, &name); err != nil {
+			return nil, err
+		}
+		row.ID = id.String()
+		row.AssetClass = strFromNull(assetClass)
+		row.Exchange = strFromNull(exchange)
+		row.Currency = strFromNull(currency)
+		row.Name = strFromNull(name)
+		results = append(results, &row)
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return results, nil
+	}
+	// Load all identifiers for these instruments (build placeholders to avoid pq.Array uuid handling).
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i := range ids {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = ids[i]
+	}
+	idRows, err := p.q.QueryContext(ctx, fmt.Sprintf(`
+		SELECT instrument_id, identifier_type, value, canonical
+		FROM instrument_identifiers
+		WHERE instrument_id IN (%s)
+		ORDER BY instrument_id
+	`, strings.Join(placeholders, ",")), args...)
+	if err != nil {
+		return nil, fmt.Errorf("list identifiers for export: %w", err)
+	}
+	defer idRows.Close()
+	byID := make(map[string]*db.InstrumentRow)
+	for _, r := range results {
+		byID[r.ID] = r
+	}
+	for idRows.Next() {
+		var instID uuid.UUID
+		var idType, val string
+		var canonical bool
+		if err := idRows.Scan(&instID, &idType, &val, &canonical); err != nil {
+			return nil, err
+		}
+		row := byID[instID.String()]
+		if row != nil {
+			row.Identifiers = append(row.Identifiers, db.IdentifierInput{Type: idType, Value: val, Canonical: canonical})
+		}
+	}
+	if err := idRows.Err(); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 // EnsureInstrument implements db.InstrumentDB.
@@ -966,7 +1053,8 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchange, c
 			return err
 		}
 		for _, idn := range identifiers {
-			_, err = exec.ExecContext(ctx, `INSERT INTO instrument_identifiers (instrument_id, identifier_type, value) VALUES ($1, $2, $3)`, newID, idn.Type, idn.Value)
+			canonical := idn.Canonical
+			_, err = exec.ExecContext(ctx, `INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical) VALUES ($1, $2, $3, $4)`, newID, idn.Type, idn.Value, canonical)
 			if err != nil {
 				if isUniqueViolation(err) {
 					return errIdentifierExists // rollback tx; caller will look up existing id

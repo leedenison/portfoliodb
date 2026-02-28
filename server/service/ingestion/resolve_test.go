@@ -83,7 +83,7 @@ func TestResolve_DBMiss_NoPlugins_BrokerDescriptionOnly(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any()).
 		Return(nil, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: "IBKR", Value: "UNKNOWN"}}).
+		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: "IBKR", Value: "UNKNOWN", Canonical: false}}).
 		Return("broker-only-id", nil)
 
 	r, err := Resolve(ctx, database, registry, "IBKR", "UNKNOWN", nil, 0)
@@ -116,7 +116,7 @@ func TestResolve_DBMiss_AllPluginsErrNotIdentified_BrokerDescriptionOnly(t *test
 		ListEnabledPluginConfigs(gomock.Any()).
 		Return([]db.PluginConfigRow{{PluginID: "p1", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: "IBKR", Value: "UNKNOWN"}}).
+		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: "IBKR", Value: "UNKNOWN", Canonical: false}}).
 		Return("broker-only-id", nil)
 
 	r, err := Resolve(ctx, database, registry, "IBKR", "UNKNOWN", nil, 0)
@@ -318,7 +318,7 @@ func TestResolve_PluginTimeout_FallbackAndMessage(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any()).
 		Return([]db.PluginConfigRow{{PluginID: "slow", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "SLOW", []db.IdentifierInput{{Type: "IBKR", Value: "SLOW"}}).
+		EnsureInstrument(gomock.Any(), "", "", "", "SLOW", []db.IdentifierInput{{Type: "IBKR", Value: "SLOW", Canonical: false}}).
 		Return("fallback-id", nil)
 
 	r, err := Resolve(ctx, database, registry, "IBKR", "SLOW", nil, 0)
@@ -345,7 +345,7 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any()).
 		Return([]db.PluginConfigRow{{PluginID: "bad", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "BAD", []db.IdentifierInput{{Type: "IBKR", Value: "BAD"}}).
+		EnsureInstrument(gomock.Any(), "", "", "", "BAD", []db.IdentifierInput{{Type: "IBKR", Value: "BAD", Canonical: false}}).
 		Return("fallback-id", nil)
 
 	r, err := Resolve(ctx, database, registry, "IBKR", "BAD", nil, 0)

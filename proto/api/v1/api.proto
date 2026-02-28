@@ -43,9 +43,11 @@ enum TxType {
 }
 
 // InstrumentIdentifier is one (type, value) pair for an instrument (e.g. CUSIP, ISIN, broker description).
+// canonical = false only for broker-description identifiers; true for standard identifiers (ISIN, CUSIP, etc.).
 message InstrumentIdentifier {
   string type = 1;   // e.g. "CUSIP", "ISIN", "IBKR", "SCHB"
   string value = 2;
+  bool canonical = 3;
 }
 
 // Instrument is canonical security-master data for an instrument, with its identifiers.
@@ -108,6 +110,10 @@ service ApiService {
 
   // Async ingestion job status and validation errors
   rpc GetJob(GetJobRequest) returns (GetJobResponse);
+
+  // Instrument export/import (admin-only when roles enforced). Export streams instruments with at least one canonical identifier; optional exchange filter.
+  rpc ExportInstruments(ExportInstrumentsRequest) returns (stream Instrument);
+  rpc ImportInstruments(ImportInstrumentsRequest) returns (ImportInstrumentsResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -230,4 +236,24 @@ message GetJobResponse {
   JobStatus status = 1;
   repeated ValidationError validation_errors = 2;
   repeated IdentificationError identification_errors = 3;
+}
+
+// ExportInstruments streams all instruments that have at least one canonical identifier. Optional exchange filter.
+message ExportInstrumentsRequest {
+  string exchange = 1;  // optional; empty = all exchanges
+}
+
+// ImportInstruments ensures the given instruments exist (find-or-create by identifiers, merge on conflict). No overwrite of canonical fields for existing.
+message ImportInstrumentsRequest {
+  repeated Instrument instruments = 1;
+}
+
+message ImportInstrumentsResponse {
+  int32 ensured_count = 1;
+  repeated ImportInstrumentError errors = 2;
+}
+
+message ImportInstrumentError {
+  int32 index = 1;    // index into request.instruments
+  string message = 2;
 }

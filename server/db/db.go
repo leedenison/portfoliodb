@@ -65,9 +65,11 @@ type JobDB interface {
 }
 
 // IdentifierInput is a single (type, value) for EnsureInstrument.
+// Canonical is false only for broker-description identifiers; true for standard identifiers (ISIN, CUSIP, etc.).
 type IdentifierInput struct {
-	Type  string
-	Value string
+	Type      string
+	Value     string
+	Canonical bool // default true when not set for backward compat
 }
 
 // PluginConfigRow is one row from identifier_plugin_config for enabled plugins.
@@ -97,4 +99,6 @@ type InstrumentDB interface {
 	GetInstrument(ctx context.Context, instrumentID string) (*InstrumentRow, error)
 	// ListEnabledPluginConfigs returns enabled plugins ordered by precedence descending (higher first).
 	ListEnabledPluginConfigs(ctx context.Context) ([]PluginConfigRow, error)
+	// ListInstrumentsForExport returns all instruments that have at least one identifier with canonical = true. If exchangeFilter != "", filter by instruments.exchange. Order by instruments.id.
+	ListInstrumentsForExport(ctx context.Context, exchangeFilter string) ([]*InstrumentRow, error)
 }

@@ -231,6 +231,66 @@ func (s *Server) GetHoldings(ctx context.Context, req *apiv1.GetHoldingsRequest)
 	return &apiv1.GetHoldingsResponse{Holdings: holdings, AsOf: asOf}, nil
 }
 
+// ExportInstruments streams instruments that have at least one canonical identifier. Optional exchange filter.
+// TODO(admin): restrict to admin once roles are enforced.
+func (s *Server) ExportInstruments(req *apiv1.ExportInstrumentsRequest, stream apiv1.ApiService_ExportInstrumentsServer) error {
+	ctx := stream.Context()
+	if auth.FromContext(ctx) == nil || auth.FromContext(ctx).ID == "" {
+		return status.Error(codes.Unauthenticated, "missing user")
+	}
+	rows, err := s.db.ListInstrumentsForExport(ctx, req.GetExchange())
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	for _, row := range rows {
+		if err := stream.Send(instrumentRowToProto(row)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ImportInstruments ensures the given instruments exist (find-or-create by identifiers). No overwrite of canonical fields for existing.
+// TODO(admin): restrict to admin once roles are enforced.
+func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrumentsRequest) (*apiv1.ImportInstrumentsResponse, error) {
+	if auth.FromContext(ctx) == nil || auth.FromContext(ctx).ID == "" {
+		return nil, status.Error(codes.Unauthenticated, "missing user")
+	}
+	var errs []*apiv1.ImportInstrumentError
+	seenKeys := make(map[string]struct{})
+	var ensuredCount int32
+	for i, inst := range req.GetInstruments() {
+		if len(inst.GetIdentifiers()) == 0 {
+			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: "at least one identifier required"})
+			continue
+		}
+		dup := false
+		for _, idf := range inst.GetIdentifiers() {
+			key := idf.GetType() + "\x00" + idf.GetValue()
+			if _, ok := seenKeys[key]; ok {
+				errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: "duplicate (type, value) in payload"})
+				dup = true
+				break
+			}
+			seenKeys[key] = struct{}{}
+		}
+		if dup {
+			continue
+		}
+		idns := make([]db.IdentifierInput, 0, len(inst.GetIdentifiers()))
+		for _, idf := range inst.GetIdentifiers() {
+			idns = append(idns, db.IdentifierInput{Type: idf.GetType(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
+		}
+		_, err := s.db.EnsureInstrument(ctx, inst.GetAssetClass(), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), idns)
+		if err != nil {
+			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: err.Error()})
+			continue
+		}
+		ensuredCount++
+	}
+	return &apiv1.ImportInstrumentsResponse{EnsuredCount: ensuredCount, Errors: errs}, nil
+}
+
 // GetJob returns ingestion job status and validation errors; job's portfolio must belong to user.
 func (s *Server) GetJob(ctx context.Context, req *apiv1.GetJobRequest) (*apiv1.GetJobResponse, error) {
 	u := auth.FromContext(ctx)
@@ -271,7 +331,7 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	}
 	identifiers := make([]*apiv1.InstrumentIdentifier, 0, len(row.Identifiers))
 	for _, idn := range row.Identifiers {
-		identifiers = append(identifiers, &apiv1.InstrumentIdentifier{Type: idn.Type, Value: idn.Value})
+		identifiers = append(identifiers, &apiv1.InstrumentIdentifier{Type: idn.Type, Value: idn.Value, Canonical: idn.Canonical})
 	}
 	return &apiv1.Instrument{
 		Id:          row.ID,

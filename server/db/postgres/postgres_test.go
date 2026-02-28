@@ -127,7 +127,7 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 		{Timestamp: ts1, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10},
 		{Timestamp: ts2, InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: -3},
 	}
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "AAPL"}})
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "AAPL", Canonical: false}})
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	txs := []*apiv1.Tx{
 		{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_SELLSTOCK, Quantity: -5},
 	}
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "GOOG"}})
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "GOOG", Canonical: false}})
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestUpsertTx_Idempotent(t *testing.T) {
 	port, _ := p.CreatePortfolio(ctx, userID, "P")
 	ts := timestamppb.Now()
 	tx := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_BUYSTOCK, Quantity: 5}
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "GOOG"}})
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "GOOG", Canonical: false}})
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -256,11 +256,11 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// Create instrument A with (ISIN, 1) and B with (CUSIP, 1).
-	idA, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "ISIN", Value: "1"}})
+	idA, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "ISIN", Value: "1", Canonical: true}})
 	if err != nil {
 		t.Fatalf("ensure A: %v", err)
 	}
-	idB, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "CUSIP", Value: "1"}})
+	idB, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "CUSIP", Value: "1", Canonical: true}})
 	if err != nil {
 		t.Fatalf("ensure B: %v", err)
 	}
@@ -286,9 +286,9 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	// Resolve with identifiers that match both A and B; should merge and return survivor.
 	brokerDesc := "SomeStock"
 	result, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{
-		{Type: "IBKR", Value: brokerDesc},
-		{Type: "ISIN", Value: "1"},
-		{Type: "CUSIP", Value: "1"},
+		{Type: "IBKR", Value: brokerDesc, Canonical: false},
+		{Type: "ISIN", Value: "1", Canonical: true},
+		{Type: "CUSIP", Value: "1", Canonical: true},
 	})
 	if err != nil {
 		t.Fatalf("ensure merge: %v", err)
@@ -314,9 +314,18 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	for _, idn := range row.Identifiers {
 		if idn.Type == "ISIN" && idn.Value == "1" {
 			hasISIN = true
+			if !idn.Canonical {
+				t.Fatal("ISIN identifier should have Canonical true after merge")
+			}
 		}
 		if idn.Type == "CUSIP" && idn.Value == "1" {
 			hasCUSIP = true
+			if !idn.Canonical {
+				t.Fatal("CUSIP identifier should have Canonical true after merge")
+			}
+		}
+		if idn.Type == "IBKR" && idn.Value == brokerDesc && idn.Canonical {
+			t.Fatal("broker description identifier should have Canonical false after merge")
 		}
 	}
 	if !hasISIN || !hasCUSIP {
@@ -336,5 +345,64 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	}
 	if totalQty != 15 {
 		t.Fatalf("expected merged holding quantity 15, got %v (holdings: %+v)", totalQty, holdings)
+	}
+}
+
+func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	// Instrument with only broker description (canonical=false) - should be excluded.
+	brokerOnlyID, err := p.EnsureInstrument(ctx, "", "", "", "BrokerOnly", []db.IdentifierInput{{Type: "IBKR", Value: "BRK", Canonical: false}})
+	if err != nil {
+		t.Fatalf("ensure broker-only: %v", err)
+	}
+	// Instrument with canonical identifier - should be included.
+	withCanonID, err := p.EnsureInstrument(ctx, "equity", "XNAS", "USD", "Apple", []db.IdentifierInput{
+		{Type: "ISIN", Value: "US0378331005", Canonical: true},
+		{Type: "IBKR", Value: "AAPL", Canonical: false},
+	})
+	if err != nil {
+		t.Fatalf("ensure with canonical: %v", err)
+	}
+	list, err := p.ListInstrumentsForExport(ctx, "")
+	if err != nil {
+		t.Fatalf("ListInstrumentsForExport: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 instrument (exclude broker-only), got %d", len(list))
+	}
+	if list[0].ID != withCanonID {
+		t.Fatalf("expected instrument %s, got %s", withCanonID, list[0].ID)
+	}
+	if list[0].Name != "Apple" || len(list[0].Identifiers) != 2 {
+		t.Fatalf("expected Apple with 2 identifiers, got %+v", list[0])
+	}
+	_ = brokerOnlyID
+}
+
+func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	_, err := p.EnsureInstrument(ctx, "equity", "XNAS", "USD", "Nasdaq", []db.IdentifierInput{{Type: "ISIN", Value: "N1", Canonical: true}})
+	if err != nil {
+		t.Fatalf("ensure XNAS: %v", err)
+	}
+	_, err = p.EnsureInstrument(ctx, "equity", "XNYS", "USD", "NYSE", []db.IdentifierInput{{Type: "ISIN", Value: "Y1", Canonical: true}})
+	if err != nil {
+		t.Fatalf("ensure XNYS: %v", err)
+	}
+	list, err := p.ListInstrumentsForExport(ctx, "XNAS")
+	if err != nil {
+		t.Fatalf("ListInstrumentsForExport: %v", err)
+	}
+	if len(list) != 1 || list[0].Exchange != "XNAS" {
+		t.Fatalf("expected 1 instrument with exchange XNAS, got %d (first exchange %q)", len(list), list[0].Exchange)
+	}
+	listAll, err := p.ListInstrumentsForExport(ctx, "")
+	if err != nil {
+		t.Fatalf("ListInstrumentsForExport all: %v", err)
+	}
+	if len(listAll) != 2 {
+		t.Fatalf("expected 2 instruments with no filter, got %d", len(listAll))
 	}
 }

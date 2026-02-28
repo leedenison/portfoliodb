@@ -46,7 +46,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 		ListEnabledPluginConfigs(gomock.Any()).
 		Return(nil, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: "IBKR", Value: "UNKNOWN"}}).
+		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: "IBKR", Value: "UNKNOWN", Canonical: false}}).
 		Return("broker-only-id", nil)
 	database.EXPECT().
 		AppendIdentificationErrors(gomock.Any(), "job-1", gomock.Any()).
@@ -108,7 +108,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any()).
 		Return(nil, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "CACHED", []db.IdentifierInput{{Type: "IBKR", Value: "CACHED"}}).
+		EnsureInstrument(gomock.Any(), "", "", "", "CACHED", []db.IdentifierInput{{Type: "IBKR", Value: "CACHED", Canonical: false}}).
 		Return("cached-inst-id", nil)
 	// Second tx hits cache - no additional FindInstrumentByBrokerDescription or ListEnabledPluginConfigs
 	database.EXPECT().

@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/leedenison/portfoliodb/server/auth"
+	dbpkg "github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -32,6 +34,28 @@ func authCtxWithProfile(userID, authSub, name, email string) context.Context {
 	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: authSub, Name: name, Email: email})
 }
 
+// exportStreamMock provides a stream with configurable context for ExportInstruments tests.
+type exportStreamMock struct {
+	ctx  context.Context
+	sent []*apiv1.Instrument
+}
+
+func (e *exportStreamMock) Context() context.Context    { return e.ctx }
+func (e *exportStreamMock) RecvMsg(m interface{}) error { return nil }
+func (e *exportStreamMock) Send(m *apiv1.Instrument) error {
+	e.sent = append(e.sent, m)
+	return nil
+}
+func (e *exportStreamMock) SendHeader(m metadata.MD) error { return nil }
+func (e *exportStreamMock) SetHeader(m metadata.MD) error { return nil }
+func (e *exportStreamMock) SetTrailer(m metadata.MD)       {}
+func (e *exportStreamMock) SendMsg(m interface{}) error {
+	if inst, ok := m.(*apiv1.Instrument); ok {
+		e.sent = append(e.sent, inst)
+	}
+	return nil
+}
+
 func TestAPI_Unauthenticated(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -50,6 +74,11 @@ func TestAPI_Unauthenticated(t *testing.T) {
 		{"ListTxs", func() error { _, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "p"}); return err }},
 		{"GetHoldings", func() error { _, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{PortfolioId: "p"}); return err }},
 		{"GetJob", func() error { _, err := srv.GetJob(ctx, &apiv1.GetJobRequest{JobId: "job-1"}); return err }},
+		{"ExportInstruments", func() error {
+			stream := &exportStreamMock{ctx: context.Background()}
+			return srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream)
+		}},
+		{"ImportInstruments", func() error { _, err := srv.ImportInstruments(ctx, &apiv1.ImportInstrumentsRequest{}); return err }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -428,5 +457,125 @@ func TestGetJob_Success(t *testing.T) {
 	}
 	if resp.GetStatus() != apiv1.JobStatus_PENDING {
 		t.Fatalf("got status %v", resp.GetStatus())
+	}
+}
+
+func TestExportInstruments_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	rows := []*dbpkg.InstrumentRow{
+		{ID: "id-1", Name: "Apple", Identifiers: []dbpkg.IdentifierInput{{Type: "ISIN", Value: "US0378331005", Canonical: true}}},
+	}
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		ListInstrumentsForExport(gomock.Any(), "").
+		Return(rows, nil)
+	srv := NewServer(db)
+	stream := &exportStreamMock{ctx: authCtx("user-1", "sub|1")}
+	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream)
+	if err != nil {
+		t.Fatalf("ExportInstruments: %v", err)
+	}
+	if len(stream.sent) != 1 {
+		t.Fatalf("expected 1 instrument streamed, got %d", len(stream.sent))
+	}
+	if stream.sent[0].GetId() != "id-1" || stream.sent[0].GetName() != "Apple" {
+		t.Fatalf("got %v", stream.sent[0])
+	}
+	if len(stream.sent[0].GetIdentifiers()) != 1 || !stream.sent[0].GetIdentifiers()[0].GetCanonical() {
+		t.Fatalf("expected one canonical identifier, got %v", stream.sent[0].GetIdentifiers())
+	}
+}
+
+func TestExportInstruments_WithExchangeFilter(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		ListInstrumentsForExport(gomock.Any(), "XNAS").
+		Return(nil, nil)
+	srv := NewServer(db)
+	stream := &exportStreamMock{ctx: authCtx("user-1", "sub|1")}
+	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{Exchange: "XNAS"}, stream)
+	if err != nil {
+		t.Fatalf("ExportInstruments: %v", err)
+	}
+	if len(stream.sent) != 0 {
+		t.Fatalf("expected 0 instruments, got %d", len(stream.sent))
+	}
+}
+
+func TestImportInstruments_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		EnsureInstrument(gomock.Any(), "equity", "XNAS", "USD", "Apple Inc.", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _, _ string, idns []dbpkg.IdentifierInput) (string, error) {
+			if len(idns) < 2 {
+				t.Errorf("expected at least 2 identifiers, got %d", len(idns))
+			}
+			return "inst-1", nil
+		})
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	req := &apiv1.ImportInstrumentsRequest{
+		Instruments: []*apiv1.Instrument{{
+			AssetClass: "equity", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc.",
+			Identifiers: []*apiv1.InstrumentIdentifier{
+				{Type: "ISIN", Value: "US0378331005", Canonical: true},
+				{Type: "IBKR", Value: "AAPL", Canonical: false},
+			},
+		}},
+	}
+	resp, err := srv.ImportInstruments(ctx, req)
+	if err != nil {
+		t.Fatalf("ImportInstruments: %v", err)
+	}
+	if resp.GetEnsuredCount() != 1 || len(resp.GetErrors()) != 0 {
+		t.Fatalf("ensured_count=1, errors empty; got ensured_count=%d, errors=%d", resp.GetEnsuredCount(), len(resp.GetErrors()))
+	}
+}
+
+func TestImportInstruments_EmptyIdentifiers(t *testing.T) {
+	srv := NewServer(mock.NewMockDB(gomock.NewController(t)))
+	ctx := authCtx("user-1", "sub|1")
+	req := &apiv1.ImportInstrumentsRequest{
+		Instruments: []*apiv1.Instrument{{Id: "x", Identifiers: nil}},
+	}
+	resp, err := srv.ImportInstruments(ctx, req)
+	if err != nil {
+		t.Fatalf("ImportInstruments: %v", err)
+	}
+	if resp.GetEnsuredCount() != 0 || len(resp.GetErrors()) != 1 {
+		t.Fatalf("expected 1 error, 0 ensured; got ensured=%d, errors=%d", resp.GetEnsuredCount(), len(resp.GetErrors()))
+	}
+	if resp.GetErrors()[0].GetMessage() != "at least one identifier required" {
+		t.Fatalf("got error %q", resp.GetErrors()[0].GetMessage())
+	}
+}
+
+func TestImportInstruments_DuplicateTypeValueInPayload(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	// First instrument (ISIN 1) is ensured; second is rejected as duplicate (type, value) in payload.
+	db.EXPECT().
+		EnsureInstrument(gomock.Any(), "", "", "", "", gomock.Any()).
+		Return("inst-1", nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	req := &apiv1.ImportInstrumentsRequest{
+		Instruments: []*apiv1.Instrument{
+			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: "ISIN", Value: "1", Canonical: true}}},
+			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: "ISIN", Value: "1", Canonical: true}}},
+		},
+	}
+	resp, err := srv.ImportInstruments(ctx, req)
+	if err != nil {
+		t.Fatalf("ImportInstruments: %v", err)
+	}
+	if resp.GetEnsuredCount() != 1 || len(resp.GetErrors()) != 1 {
+		t.Fatalf("expected 1 ensured and 1 error (duplicate); got ensured=%d, errors=%d", resp.GetEnsuredCount(), len(resp.GetErrors()))
 	}
 }

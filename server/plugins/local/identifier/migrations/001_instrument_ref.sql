@@ -13,11 +13,13 @@ CREATE TABLE IF NOT EXISTS local_instruments (
 );
 
 -- Many identifiers per instrument. (identifier_type, value) is unique globally for lookup.
+-- canonical = false only for broker-description identifiers; canonical = true for standard identifiers (ISIN, CUSIP, etc.).
 -- Broker descriptions: identifier_type = broker name ('IBKR', 'SCHB'), value = full instrument_description.
 CREATE TABLE IF NOT EXISTS local_instrument_identifiers (
   instrument_id   UUID NOT NULL REFERENCES local_instruments (id) ON DELETE CASCADE,
   identifier_type TEXT NOT NULL,
   value           TEXT NOT NULL,
+  canonical       BOOLEAN NOT NULL DEFAULT true,
   PRIMARY KEY (instrument_id, identifier_type, value),
   UNIQUE (identifier_type, value)
 );

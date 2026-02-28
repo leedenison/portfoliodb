@@ -1,0 +1,53 @@
+{
+  "instruments": [
+    {
+      "asset_class": "EQUITY",
+      "exchange": "NASDAQ",
+      "currency": "USD",
+      "name": "Apple Inc.",
+      "identifiers": [{ "identifier_type": "IBKR", "value": "AAPL" }]
+    },
+    {
+      "asset_class": "EQUITY",
+      "exchange": "NASDAQ",
+      "currency": "USD",
+      "name": "Alphabet Inc. Class A",
+      "identifiers": [{ "identifier_type": "IBKR", "value": "GOOGL" }]
+    },
+    {
+      "asset_class": "EQUITY",
+      "exchange": "NASDAQ",
+      "currency": "USD",
+      "name": "Microsoft Corporation",
+      "identifiers": [{ "identifier_type": "IBKR", "value": "MSFT" }]
+    },
+    {
+      "asset_class": "EQUITY",
+      "exchange": "NYSE",
+      "currency": "USD",
+      "name": "Vanguard Total Stock Market ETF",
+      "identifiers": [{ "identifier_type": "IBKR", "value": "VTI" }]
+    },
+    {
+      "asset_class": "EQUITY",
+      "exchange": "NASDAQ",
+      "currency": "USD",
+      "name": "Amazon.com Inc.",
+      "identifiers": [{ "identifier_type": "IBKR", "value": "AMZN" }]
+    },
+    {
+      "asset_class": "EQUITY",
+      "exchange": "NASDAQ",
+      "currency": "USD",
+      "name": "NVIDIA Corporation",
+      "identifiers": [{ "identifier_type": "IBKR", "value": "NVDA" }]
+    },
+    {
+      "asset_class": "EQUITY",
+      "exchange": "NASDAQ",
+      "currency": "USD",
+      "name": "Meta Platforms Inc.",
+      "identifiers": [{ "identifier_type": "IBKR", "value": "META" }]
+    }
+  ]
+}

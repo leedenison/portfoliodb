@@ -205,8 +205,9 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		return r, nil
 	}
 
-	// Unresolved: broker-description-only and record identification error
-	id, err = database.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: broker, Value: instrumentDescription}})
+	// Unresolved: broker-description-only and record identification error.
+	// Use instrumentDescription as name so the instrument row has a human-readable label.
+	id, err = database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: broker, Value: instrumentDescription}})
 	if err != nil {
 		return resolveResult{}, err
 	}

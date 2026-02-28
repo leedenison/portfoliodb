@@ -241,16 +241,17 @@ func (p *Postgres) GetOrCreateUser(ctx context.Context, authSub, name, email str
 }
 
 // GetUserByAuthSub implements db.UserDB.
-func (p *Postgres) GetUserByAuthSub(ctx context.Context, authSub string) (string, error) {
+func (p *Postgres) GetUserByAuthSub(ctx context.Context, authSub string) (userID, role string, err error) {
 	var id uuid.UUID
-	err := p.q.QueryRowContext(ctx, `SELECT id FROM users WHERE auth_sub = $1`, authSub).Scan(&id)
-	if err == sql.ErrNoRows {
-		return "", nil
+	var roleVal string
+	queryErr := p.q.QueryRowContext(ctx, `SELECT id, role FROM users WHERE auth_sub = $1`, authSub).Scan(&id, &roleVal)
+	if queryErr == sql.ErrNoRows {
+		return "", "", nil
 	}
-	if err != nil {
-		return "", fmt.Errorf("get user by auth sub: %w", err)
+	if queryErr != nil {
+		return "", "", fmt.Errorf("get user by auth sub: %w", queryErr)
 	}
-	return id.String(), nil
+	return id.String(), roleVal, nil
 }
 
 // ListPortfolios implements db.PortfolioDB.

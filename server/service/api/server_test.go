@@ -34,6 +34,11 @@ func authCtxWithProfile(userID, authSub, name, email string) context.Context {
 	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: authSub, Name: name, Email: email})
 }
 
+// adminCtx returns a context with an admin user (for Export/Import RPCs).
+func adminCtx(userID, authSub string) context.Context {
+	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: authSub, Role: "admin"})
+}
+
 // exportStreamMock provides a stream with configurable context for ExportInstruments tests.
 type exportStreamMock struct {
 	ctx  context.Context
@@ -471,7 +476,7 @@ func TestExportInstruments_Success(t *testing.T) {
 		ListInstrumentsForExport(gomock.Any(), "").
 		Return(rows, nil)
 	srv := NewServer(db)
-	stream := &exportStreamMock{ctx: authCtx("user-1", "sub|1")}
+	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
 	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream)
 	if err != nil {
 		t.Fatalf("ExportInstruments: %v", err)
@@ -495,7 +500,7 @@ func TestExportInstruments_WithExchangeFilter(t *testing.T) {
 		ListInstrumentsForExport(gomock.Any(), "XNAS").
 		Return(nil, nil)
 	srv := NewServer(db)
-	stream := &exportStreamMock{ctx: authCtx("user-1", "sub|1")}
+	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
 	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{Exchange: "XNAS"}, stream)
 	if err != nil {
 		t.Fatalf("ExportInstruments: %v", err)
@@ -503,6 +508,20 @@ func TestExportInstruments_WithExchangeFilter(t *testing.T) {
 	if len(stream.sent) != 0 {
 		t.Fatalf("expected 0 instruments, got %d", len(stream.sent))
 	}
+}
+
+func TestExportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
+	srv := NewServer(mock.NewMockDB(gomock.NewController(t)))
+	stream := &exportStreamMock{ctx: authCtx("user-1", "sub|1")}
+	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream)
+	requireGRPCCode(t, err, codes.PermissionDenied)
+}
+
+func TestImportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
+	srv := NewServer(mock.NewMockDB(gomock.NewController(t)))
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.ImportInstruments(ctx, &apiv1.ImportInstrumentsRequest{Instruments: []*apiv1.Instrument{{Identifiers: []*apiv1.InstrumentIdentifier{{Type: "ISIN", Value: "x", Canonical: true}}}}})
+	requireGRPCCode(t, err, codes.PermissionDenied)
 }
 
 func TestImportInstruments_Success(t *testing.T) {
@@ -518,7 +537,7 @@ func TestImportInstruments_Success(t *testing.T) {
 			return "inst-1", nil
 		})
 	srv := NewServer(db)
-	ctx := authCtx("user-1", "sub|1")
+	ctx := adminCtx("user-1", "sub|1")
 	req := &apiv1.ImportInstrumentsRequest{
 		Instruments: []*apiv1.Instrument{{
 			AssetClass: "equity", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc.",
@@ -539,7 +558,7 @@ func TestImportInstruments_Success(t *testing.T) {
 
 func TestImportInstruments_EmptyIdentifiers(t *testing.T) {
 	srv := NewServer(mock.NewMockDB(gomock.NewController(t)))
-	ctx := authCtx("user-1", "sub|1")
+	ctx := adminCtx("user-1", "sub|1")
 	req := &apiv1.ImportInstrumentsRequest{
 		Instruments: []*apiv1.Instrument{{Id: "x", Identifiers: nil}},
 	}
@@ -564,7 +583,7 @@ func TestImportInstruments_DuplicateTypeValueInPayload(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "", gomock.Any()).
 		Return("inst-1", nil)
 	srv := NewServer(db)
-	ctx := authCtx("user-1", "sub|1")
+	ctx := adminCtx("user-1", "sub|1")
 	req := &apiv1.ImportInstrumentsRequest{
 		Instruments: []*apiv1.Instrument{
 			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: "ISIN", Value: "1", Canonical: true}}},

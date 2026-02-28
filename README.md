@@ -59,7 +59,11 @@ cat server/migrations/001_initial.sql | docker compose -f docker/server/docker-c
 export PORTFOLIODB_DB_URL="postgres://portfoliodb:portfoliodb@localhost:5432/portfoliodb?sslmode=disable"
 ```
 
-The gRPC server listens on `localhost:50051`. To run the server in Docker:
+The gRPC server listens on `localhost:50051`.
+
+**Optional:** To treat a user as admin (e.g. for instrument export/import), set `ADMIN_AUTH_SUB` to that user’s OAuth subject (same value as `x-auth-sub`). The user must have called CreateUser at least once. Example: `export ADMIN_AUTH_SUB=smoke-test`.
+
+To run the server in Docker:
 
 ```bash
 docker compose -f docker/server/docker-compose.yml up -d

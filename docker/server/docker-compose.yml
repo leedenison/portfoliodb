@@ -22,6 +22,7 @@ services:
         condition: service_healthy
     environment:
       PORTFOLIODB_DB_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable
+      ADMIN_AUTH_SUB: smoke-test
     ports:
       - "50051:50051"
     command: ["/portfoliodb", "-grpc-addr", ":50051", "-db-url", "postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable"]

@@ -29,7 +29,7 @@ type IdentificationError struct {
 // UserDB provides user operations.
 type UserDB interface {
 	GetOrCreateUser(ctx context.Context, authSub, name, email string) (string, error)
-	GetUserByAuthSub(ctx context.Context, authSub string) (string, error)
+	GetUserByAuthSub(ctx context.Context, authSub string) (userID, role string, err error)
 }
 
 // PortfolioDB provides portfolio CRUD.

@@ -4,12 +4,12 @@ import "context"
 
 type contextKey struct{}
 
-// User holds stub user identity from metadata (M01).
 type User struct {
 	ID      string
 	AuthSub string
 	Name    string
 	Email   string
+	Role    string
 }
 
 // WithUser attaches the user to the context.

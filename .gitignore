@@ -3,7 +3,7 @@ proto/**/*.pb.go
 **/*_mock.go
 
 # Binaries
-portfoliodb
+/portfoliodb
 *.exe
 
 # Go
@@ -20,3 +20,6 @@ vendor/
 # Env
 .env
 .env.local
+
+# local files
+local/

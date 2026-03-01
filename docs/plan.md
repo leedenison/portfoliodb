@@ -31,11 +31,12 @@
 | T10     | Implement instrument identification plugin based on local reference data.           | T06                | M02       | Done   |
 | T11     | Extend PortfolioDB service to implement the plugin API and use the plugin from T10. | T10                | M02       | Done   |
 | T12     | Implement export/import API for instrument information.                             | T11                | M02       | Done   |
-| T13     | Implement network based identification plugin based on IBKR data.                   | T06                | M02       |        |
-| T14     | Implement UI for configuring plugins.                                               | T10, T11           | M02       |        |
-| T15     | Implement UI for showing instrument identities and errors.                          | T10, T11, T13, T14 | M02       |        |
-| T16     | Implement UI for exporting / importing instruments.                                 | T12                | M02       |        |
-| T16     | Allow list users for user creation API                                              |                    | M03       |        |
+| T13     | Implement support for underlying instruments for options and futures.               | T06, T07, T08, T09 | M02       |        |
+| T14     | Implement network based identification plugin based on IBKR data.                   | T06                | M02       |        |
+| T15     | Implement UI for configuring plugins.                                               | T10, T11           | M02       |        |
+| T16     | Implement UI for showing instrument identities and errors.                          | T10, T11, T13, T14 | M02       |        |
+| T17     | Implement UI for exporting / importing instruments.                                 | T12                | M02       |        |
+| T18     | Allow list users for user creation API                                              |                    | M03       |        |
 
 
 

@@ -4,13 +4,23 @@
 -- Operator applies this migration when creating/updating the datamodel.
 
 -- One row per logical instrument (canonical security-master data).
+-- asset_class: controlled vocabulary. OPTION and FUTURE require underlying_id.
 CREATE TABLE IF NOT EXISTS local_instruments (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  asset_class TEXT,
-  exchange    TEXT,
-  currency    TEXT,
-  name        TEXT
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  asset_class  TEXT CHECK (asset_class IS NULL OR asset_class IN ('EQUITY','ETF','MF','CASH','FIXED_INCOME','OPTION','FUTURE')),
+  exchange     TEXT,
+  currency     TEXT,
+  name         TEXT,
+  underlying_id UUID REFERENCES local_instruments (id),
+  valid_from   DATE,
+  valid_to     DATE,
+  CONSTRAINT chk_local_underlying_required CHECK (
+    (asset_class IN ('OPTION','FUTURE') AND underlying_id IS NOT NULL)
+    OR (asset_class IS NULL OR asset_class NOT IN ('OPTION','FUTURE'))
+  )
 );
+
+CREATE INDEX IF NOT EXISTS idx_local_instruments_underlying_id ON local_instruments (underlying_id);
 
 -- Many identifiers per instrument. (identifier_type, value) is unique globally for lookup.
 -- canonical = false only for broker-description identifiers; canonical = true for standard identifiers (ISIN, CUSIP, etc.).

@@ -71,14 +71,24 @@ CREATE INDEX idx_validation_errors_job_id ON validation_errors (job_id);
 -- For this milestone datamodels are dropped and recreated from scratch; no backfill.
 
 -- Canonical instruments (security master).
+-- asset_class: controlled vocabulary. OPTION and FUTURE require underlying_id.
 CREATE TABLE instruments (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  asset_class TEXT,
-  exchange    TEXT,
-  currency    TEXT,
-  name        TEXT,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  asset_class  TEXT CHECK (asset_class IS NULL OR asset_class IN ('EQUITY','ETF','MF','CASH','FIXED_INCOME','OPTION','FUTURE')),
+  exchange     TEXT,
+  currency     TEXT,
+  name         TEXT,
+  underlying_id UUID REFERENCES instruments (id),
+  valid_from   DATE,
+  valid_to     DATE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_underlying_required CHECK (
+    (asset_class IN ('OPTION','FUTURE') AND underlying_id IS NOT NULL)
+    OR (asset_class IS NULL OR asset_class NOT IN ('OPTION','FUTURE'))
+  )
 );
+
+CREATE INDEX idx_instruments_underlying_id ON instruments (underlying_id);
 
 -- Identifiers for an instrument. (identifier_type, value) is unique globally.
 -- canonical = false only for broker-description identifiers; canonical = true for standard identifiers (ISIN, CUSIP, etc.).

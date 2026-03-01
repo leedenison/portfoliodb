@@ -151,7 +151,7 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 		{Timestamp: ts1, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10},
 		{Timestamp: ts2, InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: -3},
 	}
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "AAPL", Canonical: false}})
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	txs := []*apiv1.Tx{
 		{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_SELLSTOCK, Quantity: -5},
 	}
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "GOOG", Canonical: false}})
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestUpsertTx_Idempotent(t *testing.T) {
 	port, _ := p.CreatePortfolio(ctx, userID, "P")
 	ts := timestamppb.Now()
 	tx := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_BUYSTOCK, Quantity: 5}
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "GOOG", Canonical: false}})
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -280,11 +280,11 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// Create instrument A with (ISIN, 1) and B with (CUSIP, 1).
-	idA, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "ISIN", Value: "1", Canonical: true}})
+	idA, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "ISIN", Value: "1", Canonical: true}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure A: %v", err)
 	}
-	idB, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "CUSIP", Value: "1", Canonical: true}})
+	idB, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "CUSIP", Value: "1", Canonical: true}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure B: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 		{Type: "IBKR", Value: brokerDesc, Canonical: false},
 		{Type: "ISIN", Value: "1", Canonical: true},
 		{Type: "CUSIP", Value: "1", Canonical: true},
-	})
+	}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure merge: %v", err)
 	}
@@ -376,15 +376,15 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// Instrument with only broker description (canonical=false) - should be excluded.
-	brokerOnlyID, err := p.EnsureInstrument(ctx, "", "", "", "BrokerOnly", []db.IdentifierInput{{Type: "IBKR", Value: "BRK", Canonical: false}})
+	brokerOnlyID, err := p.EnsureInstrument(ctx, "", "", "", "BrokerOnly", []db.IdentifierInput{{Type: "IBKR", Value: "BRK", Canonical: false}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure broker-only: %v", err)
 	}
 	// Instrument with canonical identifier - should be included.
-	withCanonID, err := p.EnsureInstrument(ctx, "equity", "XNAS", "USD", "Apple", []db.IdentifierInput{
+	withCanonID, err := p.EnsureInstrument(ctx, "EQUITY", "XNAS", "USD", "Apple", []db.IdentifierInput{
 		{Type: "ISIN", Value: "US0378331005", Canonical: true},
 		{Type: "IBKR", Value: "AAPL", Canonical: false},
-	})
+	}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure with canonical: %v", err)
 	}
@@ -407,11 +407,11 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	_, err := p.EnsureInstrument(ctx, "equity", "XNAS", "USD", "Nasdaq", []db.IdentifierInput{{Type: "ISIN", Value: "N1", Canonical: true}})
+	_, err := p.EnsureInstrument(ctx, "EQUITY", "XNAS", "USD", "Nasdaq", []db.IdentifierInput{{Type: "ISIN", Value: "N1", Canonical: true}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure XNAS: %v", err)
 	}
-	_, err = p.EnsureInstrument(ctx, "equity", "XNYS", "USD", "NYSE", []db.IdentifierInput{{Type: "ISIN", Value: "Y1", Canonical: true}})
+	_, err = p.EnsureInstrument(ctx, "EQUITY", "XNYS", "USD", "NYSE", []db.IdentifierInput{{Type: "ISIN", Value: "Y1", Canonical: true}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure XNYS: %v", err)
 	}
@@ -428,5 +428,72 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	}
 	if len(listAll) != 2 {
 		t.Fatalf("expected 2 instruments with no filter, got %d", len(listAll))
+	}
+}
+
+func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	// Create underlying first (EQUITY).
+	underlyingID, err := p.EnsureInstrument(ctx, "EQUITY", "XNAS", "USD", "Apple Inc.", []db.IdentifierInput{
+		{Type: "ISIN", Value: "US0378331005", Canonical: true},
+	}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("ensure underlying: %v", err)
+	}
+	validFrom := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	validTo := time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC)
+	// Create option with underlying_id and valid dates.
+	optionID, err := p.EnsureInstrument(ctx, "OPTION", "SMART", "USD", "AAPL Call", []db.IdentifierInput{
+		{Type: "IBKR", Value: "AAPL 20250117C200", Canonical: false},
+	}, underlyingID, &validFrom, &validTo)
+	if err != nil {
+		t.Fatalf("ensure option: %v", err)
+	}
+	row, err := p.GetInstrument(ctx, optionID)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.UnderlyingID != underlyingID {
+		t.Errorf("UnderlyingID = %q, want %q", row.UnderlyingID, underlyingID)
+	}
+	if row.ValidFrom == nil || !row.ValidFrom.Equal(validFrom) {
+		t.Errorf("ValidFrom = %v, want %v", row.ValidFrom, validFrom)
+	}
+	if row.ValidTo == nil || !row.ValidTo.Equal(validTo) {
+		t.Errorf("ValidTo = %v, want %v", row.ValidTo, validTo)
+	}
+	// ListInstrumentsByIDs returns the option with same fields.
+	rows, err := p.ListInstrumentsByIDs(ctx, []string{optionID})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("ListInstrumentsByIDs: %v (len=%d)", err, len(rows))
+	}
+	if rows[0].UnderlyingID != underlyingID || rows[0].ValidFrom == nil {
+		t.Errorf("ListInstrumentsByIDs row: UnderlyingID=%q ValidFrom=%v", rows[0].UnderlyingID, rows[0].ValidFrom)
+	}
+}
+
+func TestEnsureInstrument_OptionWithoutUnderlying_Rejected(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	_, err := p.EnsureInstrument(ctx, "OPTION", "SMART", "USD", "Option", []db.IdentifierInput{
+		{Type: "IBKR", Value: "OPT1", Canonical: false},
+	}, "", nil, nil)
+	if err == nil {
+		t.Fatal("expected error when OPTION has no underlying_id")
+	}
+	if err.Error() != "underlying_id required when asset_class is OPTION" {
+		t.Errorf("got error: %v", err)
+	}
+}
+
+func TestEnsureInstrument_InvalidAssetClass_Rejected(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	_, err := p.EnsureInstrument(ctx, "unknown", "XNAS", "USD", "X", []db.IdentifierInput{
+		{Type: "IBKR", Value: "X", Canonical: false},
+	}, "", nil, nil)
+	if err == nil {
+		t.Fatal("expected error for invalid asset_class")
 	}
 }

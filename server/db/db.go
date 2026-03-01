@@ -4,6 +4,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -79,24 +80,46 @@ type PluginConfigRow struct {
 	Config     []byte
 }
 
+// Valid asset class values (controlled vocabulary).
+const (
+	AssetClassEquity       = "EQUITY"
+	AssetClassETF         = "ETF"
+	AssetClassMF          = "MF"
+	AssetClassCash        = "CASH"
+	AssetClassFixedIncome = "FIXED_INCOME"
+	AssetClassOption      = "OPTION"
+	AssetClassFuture      = "FUTURE"
+)
+
+// ValidAssetClasses is the set of allowed asset_class values for validation.
+var ValidAssetClasses = map[string]bool{
+	AssetClassEquity: true, AssetClassETF: true, AssetClassMF: true,
+	AssetClassCash: true, AssetClassFixedIncome: true, AssetClassOption: true, AssetClassFuture: true,
+}
+
 // InstrumentRow is a single instrument with its identifiers (for API responses).
 type InstrumentRow struct {
-	ID         string
-	AssetClass string
-	Exchange   string
-	Currency   string
-	Name       string
-	Identifiers []IdentifierInput
+	ID           string
+	AssetClass   string
+	Exchange     string
+	Currency     string
+	Name         string
+	UnderlyingID string
+	ValidFrom    *time.Time
+	ValidTo      *time.Time
+	Identifiers  []IdentifierInput
 }
 
 // InstrumentDB provides instrument resolution and plugin config.
 type InstrumentDB interface {
-	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. Returns instrument ID. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument ID.
-	EnsureInstrument(ctx context.Context, assetClass, exchange, currency, name string, identifiers []IdentifierInput) (string, error)
+	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. Returns instrument ID. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument ID. When assetClass is OPTION or FUTURE, underlyingID must be non-empty.
+	EnsureInstrument(ctx context.Context, assetClass, exchange, currency, name string, identifiers []IdentifierInput, underlyingID string, validFrom, validTo *time.Time) (string, error)
 	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, value) via instrument_identifiers. Returns "" if not found.
 	FindInstrumentByIdentifier(ctx context.Context, identifierType, value string) (string, error)
 	// GetInstrument returns an instrument by ID with its identifiers, or nil if not found.
 	GetInstrument(ctx context.Context, instrumentID string) (*InstrumentRow, error)
+	// ListInstrumentsByIDs returns instruments by ID slice (for batch underlying lookup). Missing IDs are omitted; order not guaranteed.
+	ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*InstrumentRow, error)
 	// ListEnabledPluginConfigs returns enabled plugins ordered by precedence descending (higher first).
 	ListEnabledPluginConfigs(ctx context.Context) ([]PluginConfigRow, error)
 	// ListInstrumentsForExport returns all instruments that have at least one identifier with canonical = true. If exchangeFilter != "", filter by instruments.exchange. Order by instruments.id.

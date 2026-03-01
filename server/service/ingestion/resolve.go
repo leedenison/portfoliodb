@@ -194,7 +194,26 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			identifiers = append(identifiers, db.IdentifierInput{Type: source, Value: instrumentDescription, Canonical: false})
 		}
 		inst := winner.inst
-		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, identifiers)
+		var underlyingID string
+		var validFrom, validTo *time.Time
+		if inst.ValidFrom != nil {
+			validFrom = inst.ValidFrom
+		}
+		if inst.ValidTo != nil {
+			validTo = inst.ValidTo
+		}
+		if inst.Underlying != nil && len(inst.UnderlyingIdentifiers) > 0 {
+			// Ensure underlying first, then derivative with underlying_id.
+			underlyingIdns := make([]db.IdentifierInput, 0, len(inst.UnderlyingIdentifiers))
+			for _, idn := range inst.UnderlyingIdentifiers {
+				underlyingIdns = append(underlyingIdns, db.IdentifierInput{Type: idn.Type, Value: idn.Value, Canonical: true})
+			}
+			underlyingID, err = database.EnsureInstrument(ctx, inst.Underlying.AssetClass, inst.Underlying.Exchange, inst.Underlying.Currency, inst.Underlying.Name, underlyingIdns, "", inst.Underlying.ValidFrom, inst.Underlying.ValidTo)
+			if err != nil {
+				return resolveResult{}, err
+			}
+		}
+		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, identifiers, underlyingID, validFrom, validTo)
 		if err != nil {
 			return resolveResult{}, err
 		}
@@ -207,7 +226,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 
 	// Unresolved: broker-description-only and record identification error.
 	// Use instrumentDescription as name so the instrument row has a human-readable label.
-	id, err = database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: source, Value: instrumentDescription, Canonical: false}})
+	id, err = database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil)
 	if err != nil {
 		return resolveResult{}, err
 	}

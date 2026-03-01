@@ -51,6 +51,8 @@ message InstrumentIdentifier {
 }
 
 // Instrument is canonical security-master data for an instrument, with its identifiers.
+// asset_class must be one of: EQUITY, ETF, MF, CASH, FIXED_INCOME, OPTION, FUTURE.
+// When asset_class is OPTION or FUTURE, underlying_id must be set.
 message Instrument {
   string id = 1;
   string asset_class = 2;
@@ -58,6 +60,10 @@ message Instrument {
   string currency = 4;
   string name = 5;
   repeated InstrumentIdentifier identifiers = 6;
+  string underlying_id = 7;   // UUID of underlying instrument when this is a derivative (OPTION/FUTURE).
+  google.protobuf.Timestamp valid_from = 8;  // When the instrument was available to trade (optional).
+  google.protobuf.Timestamp valid_to = 9;    // When the instrument ceased to be available (optional).
+  Instrument underlying = 10; // Populated in ListTxs/GetHoldings so clients need not fetch separately.
 }
 
 // Tx represents one broker-reported transaction.

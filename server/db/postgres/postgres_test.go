@@ -251,7 +251,7 @@ func TestCreateJob_GetJob(t *testing.T) {
 	port, _ := p.CreatePortfolio(ctx, userID, "P")
 	from := timestamppb.Now()
 	to := timestamppb.Now()
-	jobID, err := p.CreateJob(ctx, port.GetId(), "IBKR", from, to)
+	jobID, err := p.CreateJob(ctx, port.GetId(), "IBKR", "IBKR:test:statement", from, to)
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}

@@ -10,6 +10,7 @@ type JobRequest struct {
 	JobID       string
 	PortfolioID string
 	Broker      string
+	Source      string
 	Bulk        bool
 	PeriodFrom  *timestamppb.Timestamp
 	PeriodTo    *timestamppb.Timestamp

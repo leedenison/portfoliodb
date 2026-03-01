@@ -43,12 +43,15 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 	if err := ValidateBroker(req.Broker); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Message)
 	}
+	if err := ValidateSource(req.GetSource()); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Message)
+	}
 	periodErrs := ValidateBulkRequest(req.PeriodFrom, req.PeriodTo)
 	if len(periodErrs) > 0 {
 		return nil, status.Error(codes.InvalidArgument, periodErrs[0].Message)
 	}
 	brokerStr, _ := brokerToString(req.Broker)
-	jobID, err := s.db.CreateJob(ctx, req.GetPortfolioId(), brokerStr, req.PeriodFrom, req.PeriodTo)
+	jobID, err := s.db.CreateJob(ctx, req.GetPortfolioId(), brokerStr, req.GetSource(), req.PeriodFrom, req.PeriodTo)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -61,6 +64,7 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 		JobID:       jobID,
 		PortfolioID: req.GetPortfolioId(),
 		Broker:      brokerStr,
+		Source:      req.GetSource(),
 		Bulk:        true,
 		PeriodFrom:  req.PeriodFrom,
 		PeriodTo:    req.PeriodTo,
@@ -91,11 +95,14 @@ func (s *Server) UpsertTx(ctx context.Context, req *ingestionv1.UpsertTxRequest)
 	if err := ValidateBroker(req.Broker); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Message)
 	}
+	if err := ValidateSource(req.GetSource()); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Message)
+	}
 	if req.Tx == nil {
 		return nil, status.Error(codes.InvalidArgument, "tx required")
 	}
 	brokerStr, _ := brokerToString(req.Broker)
-	jobID, err := s.db.CreateJob(ctx, req.GetPortfolioId(), brokerStr, nil, nil)
+	jobID, err := s.db.CreateJob(ctx, req.GetPortfolioId(), brokerStr, req.GetSource(), nil, nil)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -104,6 +111,7 @@ func (s *Server) UpsertTx(ctx context.Context, req *ingestionv1.UpsertTxRequest)
 		JobID:       jobID,
 		PortfolioID: req.GetPortfolioId(),
 		Broker:      brokerStr,
+		Source:      req.GetSource(),
 		Bulk:        false,
 		Tx:          req.Tx,
 	}:

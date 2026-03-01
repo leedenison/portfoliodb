@@ -64,6 +64,8 @@ Prefer to use comments in the code, protobufs and sql files rather than creating
 
 Do not refer to project tasks or milestones in comments.
 
+Never use smart quotes when generating documentation or plans.
+
 ## Style Guides
 
 Use language specific, idiomatic solutions to problems when possible.

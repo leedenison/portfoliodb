@@ -36,6 +36,14 @@ func ValidateBroker(b apiv1.Broker) *apiv1.ValidationError {
 	return nil
 }
 
+// ValidateSource returns an error if source is empty.
+func ValidateSource(source string) *apiv1.ValidationError {
+	if source == "" {
+		return &apiv1.ValidationError{RowIndex: -1, Field: "source", Message: "required"}
+	}
+	return nil
+}
+
 // ValidateBulkRequest validates UpsertTxsRequest (period and broker).
 func ValidateBulkRequest(periodFrom, periodTo *timestamppb.Timestamp) []*apiv1.ValidationError {
 	var errs []*apiv1.ValidationError

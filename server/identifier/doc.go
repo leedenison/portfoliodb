@@ -7,7 +7,7 @@
 //
 // # Plugin interface
 //
-// Implement the Plugin interface (Identify(ctx, broker, instrumentDescription)) and register in code.
+// Implement the Plugin interface (Identify(ctx, broker, source, instrumentDescription)) and register in code.
 // Add a row to the plugin config table (plugin_id, enabled, precedence, config JSONB). Precedence is required and unique; higher wins when merging results from multiple plugins.
 //
 // # Adding a new plugin

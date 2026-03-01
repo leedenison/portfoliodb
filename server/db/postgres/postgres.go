@@ -530,7 +530,7 @@ func (p *Postgres) UpsertTx(ctx context.Context, portfolioID, broker string, tx 
 		INSERT INTO txs (portfolio_id, broker, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (portfolio_id, broker, timestamp, instrument_description)
-		DO UPDATE SET tx_type = $5, quantity = $6, currency = $7, unit_price = $8, instrument_id = $9
+		DO UPDATE SET tx_type = EXCLUDED.tx_type, quantity = EXCLUDED.quantity, currency = EXCLUDED.currency, unit_price = EXCLUDED.unit_price, instrument_id = EXCLUDED.instrument_id
 	`, portUUID, broker, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity, nullStr(tx.Currency), nullFloat(tx.UnitPrice), instUUID)
 	if err != nil {
 		return fmt.Errorf("upsert tx: %w", err)
@@ -687,7 +687,7 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, portfolioID string, asOf
 }
 
 // CreateJob implements db.JobDB.
-func (p *Postgres) CreateJob(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp) (string, error) {
+func (p *Postgres) CreateJob(ctx context.Context, portfolioID, broker, source string, periodFrom, periodTo *timestamppb.Timestamp) (string, error) {
 	portUUID, err := uuid.Parse(portfolioID)
 	if err != nil {
 		return "", fmt.Errorf("invalid portfolio id: %w", err)
@@ -701,10 +701,10 @@ func (p *Postgres) CreateJob(ctx context.Context, portfolioID, broker string, pe
 	}
 	var id uuid.UUID
 	err = p.q.QueryRowContext(ctx, `
-		INSERT INTO ingestion_jobs (portfolio_id, broker, period_from, period_to, status)
-		VALUES ($1, $2, $3, $4, 'PENDING')
+		INSERT INTO ingestion_jobs (portfolio_id, broker, source, period_from, period_to, status)
+		VALUES ($1, $2, $3, $4, $5, 'PENDING')
 		RETURNING id
-	`, portUUID, broker, fromT, toT).Scan(&id)
+	`, portUUID, broker, source, fromT, toT).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("create job: %w", err)
 	}
@@ -826,18 +826,18 @@ func (p *Postgres) ListPendingJobIDs(ctx context.Context) ([]string, error) {
 	return ids, rows.Err()
 }
 
-// FindInstrumentByBrokerDescription implements db.InstrumentDB.
-func (p *Postgres) FindInstrumentByBrokerDescription(ctx context.Context, broker, instrumentDescription string) (string, error) {
+// FindInstrumentByIdentifier implements db.InstrumentDB.
+func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierType, value string) (string, error) {
 	var id uuid.UUID
 	err := p.q.QueryRowContext(ctx, `
 		SELECT instrument_id FROM instrument_identifiers
 		WHERE identifier_type = $1 AND value = $2
-	`, broker, instrumentDescription).Scan(&id)
+	`, identifierType, value).Scan(&id)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("find instrument by broker description: %w", err)
+		return "", fmt.Errorf("find instrument by identifier: %w", err)
 	}
 	return id.String(), nil
 }

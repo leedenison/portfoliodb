@@ -35,6 +35,8 @@
 | T14     | Implement UI for configuring plugins.                                               | T10, T11           | M02       |        |
 | T15     | Implement UI for showing instrument identities and errors.                          | T10, T11, T13, T14 | M02       |        |
 | T16     | Implement UI for exporting / importing instruments.                                 | T12                | M02       |        |
+| T16     | Allow list users for user creation API                                              |                    | M03       |        |
+
 
 
 

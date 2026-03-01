@@ -46,6 +46,7 @@ CREATE TABLE ingestion_jobs (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   portfolio_id UUID NOT NULL REFERENCES portfolios (id) ON DELETE CASCADE,
   broker       TEXT NOT NULL CHECK (broker IN ('IBKR', 'SCHB')),
+  source       TEXT NOT NULL,
   period_from  TIMESTAMPTZ,
   period_to    TIMESTAMPTZ,
   status       TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED')),

@@ -7,8 +7,9 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
-// Plugin implements identifier.Plugin by looking up (broker, instrument_description) in
+// Plugin implements identifier.Plugin by looking up (source, instrument_description) in
 // local_instrument_identifiers and resolving to canonical data in local_instruments.
+// Broker is passed but not used for lookup.
 type Plugin struct {
 	db *sql.DB
 }
@@ -20,7 +21,7 @@ func New(db *sql.DB) *Plugin {
 }
 
 // Identify implements identifier.Plugin.
-func (p *Plugin) Identify(ctx context.Context, broker, instrumentDescription string) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *Plugin) Identify(ctx context.Context, broker, source, instrumentDescription string) (*identifier.Instrument, []identifier.Identifier, error) {
 	var instID string
 	var assetClass, exchange, currency, name sql.NullString
 	err := p.db.QueryRowContext(ctx, `
@@ -28,7 +29,7 @@ func (p *Plugin) Identify(ctx context.Context, broker, instrumentDescription str
 		FROM local_instruments i
 		JOIN local_instrument_identifiers ii ON ii.instrument_id = i.id
 		WHERE ii.identifier_type = $1 AND ii.value = $2
-	`, broker, instrumentDescription).Scan(&instID, &assetClass, &exchange, &currency, &name)
+	`, source, instrumentDescription).Scan(&instID, &assetClass, &exchange, &currency, &name)
 	if err == sql.ErrNoRows {
 		return nil, nil, identifier.ErrNotIdentified
 	}

@@ -11,7 +11,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
-// Resolution order: (1) DB lookup by (broker, instrument_description), (2) in-batch cache,
+// Resolution order: (1) DB lookup by (source, instrument_description), (2) in-batch cache,
 // (3) if still unresolved, call enabled plugins in parallel (timeout from config, retry once with backoff).
 // Identification errors are recorded for fallbacks and do not fail the job.
 
@@ -27,16 +27,16 @@ const (
 	MsgPluginUnavailable     = "plugin unavailable"
 )
 
-// resolveResult holds the outcome of resolving one (broker, instrument_description).
+// resolveResult holds the outcome of resolving one (source, instrument_description).
 type resolveResult struct {
 	InstrumentID   string
 	IdErr          *db.IdentificationError
 	FirstRowIndex  int32
 }
 
-// cacheKey returns a key for the batch cache. Same (broker, description) in a batch resolves once.
-func cacheKey(broker, instrumentDescription string) string {
-	return broker + "\x00" + instrumentDescription
+// cacheKey returns a key for the batch cache. Same (source, description) in a batch resolves once.
+func cacheKey(source, instrumentDescription string) string {
+	return source + "\x00" + instrumentDescription
 }
 
 // pluginConfigJSON is the shape we read from identifier_plugin_config.config (JSONB).
@@ -60,10 +60,10 @@ func timeoutFromConfig(config []byte) time.Duration {
 }
 
 // callPluginWithRetry calls Identify once; on non-ErrNotIdentified error, sleeps backoff and tries once more.
-func callPluginWithRetry(ctx context.Context, p identifier.Plugin, broker, instrumentDescription string, timeout time.Duration) (*identifier.Instrument, []identifier.Identifier, error) {
+func callPluginWithRetry(ctx context.Context, p identifier.Plugin, broker, source, instrumentDescription string, timeout time.Duration) (*identifier.Instrument, []identifier.Identifier, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	inst, ids, err := p.Identify(ctx, broker, instrumentDescription)
+	inst, ids, err := p.Identify(ctx, broker, source, instrumentDescription)
 	if err == nil || errors.Is(err, identifier.ErrNotIdentified) {
 		return inst, ids, err
 	}
@@ -71,27 +71,27 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, broker, instr
 	time.Sleep(pluginRetryBackoff)
 	ctx2, cancel2 := context.WithTimeout(context.Background(), timeout)
 	defer cancel2()
-	inst, ids, err2 := p.Identify(ctx2, broker, instrumentDescription)
+	inst, ids, err2 := p.Identify(ctx2, broker, source, instrumentDescription)
 	if err2 != nil {
 		return nil, nil, err2
 	}
 	return inst, ids, err2
 }
 
-// Resolve resolves (broker, instrumentDescription) to an instrument_id using DB, then batch cache, then enabled plugins.
+// Resolve resolves (source, instrumentDescription) to an instrument_id using DB, then batch cache, then enabled plugins.
 // If cache is non-nil and has an entry for the key, that result is returned without calling plugins.
 // Otherwise plugins are called in parallel (each with its own timeout from config), results merged by precedence;
 // on fallback (broker-description-only), idErr is set with a distinct message and the job is not failed.
-func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, instrumentDescription string, cache map[string]resolveResult, rowIndex int32) (resolveResult, error) {
-	key := cacheKey(broker, instrumentDescription)
+func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, cache map[string]resolveResult, rowIndex int32) (resolveResult, error) {
+	key := cacheKey(source, instrumentDescription)
 	if cache != nil {
 		if r, ok := cache[key]; ok {
 			return r, nil
 		}
 	}
 
-	// 1) DB lookup
-	id, err := database.FindInstrumentByBrokerDescription(ctx, broker, instrumentDescription)
+	// 1) DB lookup by (source, instrument_description)
+	id, err := database.FindInstrumentByIdentifier(ctx, source, instrumentDescription)
 	if err != nil {
 		return resolveResult{}, err
 	}
@@ -137,7 +137,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			defer wg.Done()
 			in := inputs[idx]
 			timeout := timeoutFromConfig(in.config.Config)
-			inst, ids, err := callPluginWithRetry(ctx, in.plugin, broker, instrumentDescription, timeout)
+			inst, ids, err := callPluginWithRetry(ctx, in.plugin, broker, source, instrumentDescription, timeout)
 			results[idx] = result{precedence: in.config.Precedence, inst: inst, ids: ids, err: err}
 		}(i)
 	}
@@ -183,15 +183,15 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			}
 		}
 		identifiers := make([]db.IdentifierInput, 0, len(mergedIds)+1)
-		hasBroker := false
+		hasSource := false
 		for _, idn := range mergedIds {
 			identifiers = append(identifiers, db.IdentifierInput{Type: idn.Type, Value: idn.Value, Canonical: true})
-			if idn.Type == broker && idn.Value == instrumentDescription {
-				hasBroker = true
+			if idn.Type == source && idn.Value == instrumentDescription {
+				hasSource = true
 			}
 		}
-		if !hasBroker {
-			identifiers = append(identifiers, db.IdentifierInput{Type: broker, Value: instrumentDescription, Canonical: false})
+		if !hasSource {
+			identifiers = append(identifiers, db.IdentifierInput{Type: source, Value: instrumentDescription, Canonical: false})
 		}
 		inst := winner.inst
 		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, identifiers)
@@ -207,7 +207,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 
 	// Unresolved: broker-description-only and record identification error.
 	// Use instrumentDescription as name so the instrument row has a human-readable label.
-	id, err = database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: broker, Value: instrumentDescription, Canonical: false}})
+	id, err = database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: source, Value: instrumentDescription, Canonical: false}})
 	if err != nil {
 		return resolveResult{}, err
 	}

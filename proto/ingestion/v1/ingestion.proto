@@ -15,7 +15,7 @@ service IngestionService {
   // for status and validation errors via the front-end API.
   rpc UpsertTxs(UpsertTxsRequest) returns (IngestionResponse);
   // UpsertTx creates or replaces one transaction by natural key
-  // (timestamp, broker, instrument_description). Idempotent. Processed
+  // (timestamp, broker, instrument_description). Source is required but not part of natural key. Idempotent. Processed
   // asynchronously; returns a job_id for status.
   rpc UpsertTx(UpsertTxRequest) returns (IngestionResponse);
 }
@@ -28,6 +28,8 @@ message UpsertTxsRequest {
   string portfolio_id = 1;
   // Broker. All transactions in this request are for this broker.
   portfoliodb.api.v1.Broker broker = 2;
+  // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution; not part of natural key.
+  string source = 6;
   // Period of transactions covered. Only transactions in this range for this
   // broker are replaced; others are unchanged.
   google.protobuf.Timestamp period_from = 3;
@@ -43,6 +45,8 @@ message UpsertTxRequest {
   string portfolio_id = 1;
   // Broker for this transaction.
   portfoliodb.api.v1.Broker broker = 2;
+  // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution; not part of natural key.
+  string source = 4;
   // The transaction.
   portfoliodb.api.v1.Tx tx = 3;
 }

@@ -38,6 +38,7 @@ func TestUpsertTxs_Unauthenticated(t *testing.T) {
 	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
 		PortfolioId: "port-1",
 		Broker:      apiv1.Broker_IBKR,
+		Source:      "IBKR:test:statement",
 		PeriodFrom:  timestamppb.Now(),
 		PeriodTo:    timestamppb.Now(),
 	})
@@ -53,6 +54,7 @@ func TestUpsertTxs_InvalidArgument_portfolioID(t *testing.T) {
 	ctx := authCtx("user-1")
 	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
 		Broker:     apiv1.Broker_IBKR,
+		Source:     "IBKR:test:statement",
 		PeriodFrom: timestamppb.Now(),
 		PeriodTo:   timestamppb.Now(),
 	})
@@ -73,6 +75,28 @@ func TestUpsertTxs_InvalidArgument_broker(t *testing.T) {
 	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
 		PortfolioId: "port-1",
 		Broker:      apiv1.Broker_BROKER_UNSPECIFIED,
+		Source:      "IBKR:test:statement",
+		PeriodFrom:  timestamppb.Now(),
+		PeriodTo:    timestamppb.Now(),
+	})
+	requireGRPCCode(t, err, codes.InvalidArgument)
+}
+
+func TestUpsertTxs_InvalidArgument_source(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(true, nil)
+	queue := make(chan *JobRequest, 1)
+	defer close(queue)
+	srv := NewServer(db, queue)
+	ctx := authCtx("user-1")
+	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
+		PortfolioId: "port-1",
+		Broker:      apiv1.Broker_IBKR,
+		Source:      "", // missing source
 		PeriodFrom:  timestamppb.Now(),
 		PeriodTo:    timestamppb.Now(),
 	})
@@ -93,6 +117,7 @@ func TestUpsertTxs_InvalidArgument_period(t *testing.T) {
 	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
 		PortfolioId: "port-1",
 		Broker:      apiv1.Broker_IBKR,
+		Source:      "IBKR:test:statement",
 		PeriodTo:    timestamppb.Now(),
 		// PeriodFrom missing
 	})
@@ -113,6 +138,7 @@ func TestUpsertTxs_PermissionDenied(t *testing.T) {
 	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
 		PortfolioId: "port-1",
 		Broker:      apiv1.Broker_IBKR,
+		Source:      "IBKR:test:statement",
 		PeriodFrom:  timestamppb.Now(),
 		PeriodTo:    timestamppb.Now(),
 	})
@@ -129,7 +155,7 @@ func TestUpsertTxs_Success(t *testing.T) {
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
 		Return(true, nil)
 	db.EXPECT().
-		CreateJob(gomock.Any(), "port-1", "IBKR", periodFrom, periodTo).
+		CreateJob(gomock.Any(), "port-1", "IBKR", "IBKR:test:statement", periodFrom, periodTo).
 		Return("job-123", nil)
 	queue := make(chan *JobRequest, 1)
 	defer close(queue)
@@ -138,6 +164,7 @@ func TestUpsertTxs_Success(t *testing.T) {
 	resp, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
 		PortfolioId: "port-1",
 		Broker:      apiv1.Broker_IBKR,
+		Source:      "IBKR:test:statement",
 		PeriodFrom:  periodFrom,
 		PeriodTo:    periodTo,
 		Txs:         []*apiv1.Tx{},
@@ -150,7 +177,7 @@ func TestUpsertTxs_Success(t *testing.T) {
 	}
 	select {
 	case j := <-queue:
-		if j.JobID != "job-123" || j.PortfolioID != "port-1" || j.Broker != "IBKR" || !j.Bulk {
+		if j.JobID != "job-123" || j.PortfolioID != "port-1" || j.Broker != "IBKR" || j.Source != "IBKR:test:statement" || !j.Bulk {
 			t.Fatalf("got JobRequest %+v", j)
 		}
 	default:

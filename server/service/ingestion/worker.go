@@ -45,7 +45,7 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 	instrumentIDs := make([]string, len(j.Txs))
 	for i, tx := range j.Txs {
 		desc := tx.GetInstrumentDescription()
-		r, err := Resolve(ctx, database, registry, j.Broker, desc, cache, int32(i))
+		r, err := Resolve(ctx, database, registry, j.Broker, j.Source, desc, cache, int32(i))
 		if err != nil {
 			log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
 			_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
@@ -85,7 +85,7 @@ func processSingle(ctx context.Context, database db.DB, registry *identifier.Reg
 		return
 	}
 	desc := j.Tx.GetInstrumentDescription()
-	r, err := Resolve(ctx, database, registry, j.Broker, desc, nil, 0)
+	r, err := Resolve(ctx, database, registry, j.Broker, j.Source, desc, nil, 0)
 	if err != nil {
 		log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{

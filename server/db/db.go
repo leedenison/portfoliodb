@@ -56,7 +56,7 @@ type HoldingsDB interface {
 
 // JobDB provides ingestion job operations.
 type JobDB interface {
-	CreateJob(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp) (string, error)
+	CreateJob(ctx context.Context, portfolioID, broker, source string, periodFrom, periodTo *timestamppb.Timestamp) (string, error)
 	GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []IdentificationError, string, error)
 	SetJobStatus(ctx context.Context, jobID string, status apiv1.JobStatus) error
 	AppendValidationErrors(ctx context.Context, jobID string, errs []*apiv1.ValidationError) error
@@ -93,8 +93,8 @@ type InstrumentRow struct {
 type InstrumentDB interface {
 	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. Returns instrument ID. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument ID.
 	EnsureInstrument(ctx context.Context, assetClass, exchange, currency, name string, identifiers []IdentifierInput) (string, error)
-	// FindInstrumentByBrokerDescription looks up instrument_id by (broker, instrument_description) via instrument_identifiers. Returns "" if not found.
-	FindInstrumentByBrokerDescription(ctx context.Context, broker, instrumentDescription string) (string, error)
+	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, value) via instrument_identifiers. Returns "" if not found.
+	FindInstrumentByIdentifier(ctx context.Context, identifierType, value string) (string, error)
 	// GetInstrument returns an instrument by ID with its identifiers, or nil if not found.
 	GetInstrument(ctx context.Context, instrumentID string) (*InstrumentRow, error)
 	// ListEnabledPluginConfigs returns enabled plugins ordered by precedence descending (higher first).

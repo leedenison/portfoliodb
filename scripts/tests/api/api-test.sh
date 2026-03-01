@@ -101,8 +101,8 @@ done
 
 echo "=== Step 7: Verify resolution (ref lookup vs broker-description-only) ==="
 
-RESOLVED_IN_REF="AAPL GOOGL MSFT VTI AMZN NVDA META"
-UNRESOLVED_NOT_IN_REF="HD BRK.B JNJ"
+RESOLVED_IN_REF=$'Apple Inc. (AAPL)\nAlphabet Inc. Class A (GOOGL)\nMicrosoft Corporation (MSFT)\nVanguard Total Stock Market ETF (VTI)\nAmazon.com Inc. (AMZN)\nNVIDIA Corporation (NVDA)\nMeta Platforms Inc. (META)'
+UNRESOLVED_NOT_IN_REF=$'The Home Depot Inc. (HD)\nBerkshire Hathaway Inc. Class B (BRK.B)\nJohnson & Johnson (JNJ)'
 IDERR_DESCRIPTIONS=$(echo "$JOB_RESP" | jq -r '
   (.identification_errors // .identificationErrors // [])[] |
   .instrument_description // .instrumentDescription // empty
@@ -114,29 +114,31 @@ IDERR_BROKER_ONLY=$(echo "$JOB_RESP" | jq -r '
 ' | sort -u)
 
 missing_resolved=""
-for sym in $RESOLVED_IN_REF; do
+while IFS= read -r sym; do
+  [[ -z "$sym" ]] && continue
   if echo "$IDERR_DESCRIPTIONS" | grep -qFx "$sym"; then
     missing_resolved="${missing_resolved} ${sym}"
   fi
-done
+done <<< "$RESOLVED_IN_REF"
 if [[ -n "$missing_resolved" ]]; then
   echo "Verification failed: these symbols are in local ref but appeared in identification_errors:$missing_resolved" >&2
   exit 1
 fi
 
 found_unresolved=""
-for sym in $UNRESOLVED_NOT_IN_REF; do
+while IFS= read -r sym; do
+  [[ -z "$sym" ]] && continue
   if echo "$IDERR_BROKER_ONLY" | grep -qFx "$sym"; then
     found_unresolved="${found_unresolved} ${sym}"
   fi
-done
+done <<< "$UNRESOLVED_NOT_IN_REF"
 if [[ -z "$found_unresolved" ]]; then
-  echo "Verification failed: expected at least one of ($UNRESOLVED_NOT_IN_REF) to appear as 'broker description only' in identification_errors. Got: $IDERR_BROKER_ONLY" >&2
+  echo "Verification failed: expected at least one of (HD, BRK.B, JNJ) to appear as 'broker description only' in identification_errors. Got: $IDERR_BROKER_ONLY" >&2
   exit 1
 fi
 echo "Resolution check OK: ref symbols not in errors; at least one non-ref symbol (e.g.$found_unresolved) is broker-description-only."
 
-echo "=== Step 8: Verifying holdings (AAPL) ==="
+echo "=== Step 8: Verifying holdings (Apple Inc. (AAPL)) ==="
 HOLDINGS_RESP=$(grpcurl "${GRPCURL_OPTS[@]}" \
   -import-path proto \
   -proto proto/api/v1/api.proto \
@@ -145,14 +147,14 @@ HOLDINGS_RESP=$(grpcurl "${GRPCURL_OPTS[@]}" \
   portfoliodb.api.v1.ApiService/GetHoldings)
 AAPL_QTY=$(echo "$HOLDINGS_RESP" | jq -r '
   (.holdings // [])[] |
-  select(.instrumentDescription == "AAPL" or .instrument_description == "AAPL") |
+  select(.instrumentDescription == "Apple Inc. (AAPL)" or .instrument_description == "Apple Inc. (AAPL)") |
   .quantity // .Quantity
 ' | head -1)
 if [[ -z "$AAPL_QTY" || "$AAPL_QTY" == "null" ]]; then
-  echo "Holdings check failed: no AAPL holding found. Response:" >&2
+  echo "Holdings check failed: no Apple Inc. (AAPL) holding found. Response:" >&2
   echo "$HOLDINGS_RESP" >&2
   exit 1
 fi
-echo "AAPL holding quantity: $AAPL_QTY"
+echo "Apple Inc. (AAPL) holding quantity: $AAPL_QTY"
 
 echo "=== E2E test passed ==="

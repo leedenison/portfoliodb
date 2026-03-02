@@ -3,17 +3,21 @@
  */
 
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { timestampDate } from "@bufbuild/protobuf/wkt";
+import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   CreatePortfolioRequestSchema,
   CreatePortfolioResponseSchema,
   DeletePortfolioRequestSchema,
+  GetHoldingsRequestSchema,
+  GetHoldingsResponseSchema,
+  GetPortfolioRequestSchema,
+  GetPortfolioResponseSchema,
   ListPortfoliosRequestSchema,
   ListPortfoliosResponseSchema,
   UpdatePortfolioRequestSchema,
   UpdatePortfolioResponseSchema,
 } from "@/gen/api/v1/api_pb";
-import type { Portfolio as GenPortfolio } from "@/gen/api/v1/api_pb";
+import type { Holding, Portfolio as GenPortfolio } from "@/gen/api/v1/api_pb";
 import { unaryFetch } from "./grpc-web";
 
 const PAGE_SIZE = 30;
@@ -34,6 +38,12 @@ export interface Portfolio {
 export interface ListPortfoliosResult {
   portfolios: Portfolio[];
   nextPageToken: string | null;
+}
+
+/** Result of GetHoldings with asOf as Date for UI. */
+export interface GetHoldingsResult {
+  holdings: Holding[];
+  asOf?: Date;
 }
 
 function toPortfolio(p: GenPortfolio): Portfolio {
@@ -88,4 +98,34 @@ export async function deletePortfolio(id: string): Promise<void> {
   await unaryFetch(base, ApiServicePrefix + "DeletePortfolio", toBinary(DeletePortfolioRequestSchema, req), {
     credentials: "include",
   });
+}
+
+export async function getPortfolio(id: string): Promise<Portfolio> {
+  const base = getBaseUrl();
+  const req = create(GetPortfolioRequestSchema, { portfolioId: id });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "GetPortfolio", toBinary(GetPortfolioRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(GetPortfolioResponseSchema, resBytes);
+  if (!res.portfolio) throw new Error("GetPortfolio: no portfolio in response");
+  return toPortfolio(res.portfolio);
+}
+
+export async function getHoldings(
+  portfolioId: string,
+  asOf?: Date | null
+): Promise<GetHoldingsResult> {
+  const base = getBaseUrl();
+  const req = create(GetHoldingsRequestSchema, {
+    portfolioId,
+    asOf: asOf != null ? timestampFromDate(asOf) : undefined,
+  });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "GetHoldings", toBinary(GetHoldingsRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(GetHoldingsResponseSchema, resBytes);
+  return {
+    holdings: res.holdings,
+    asOf: res.asOf ? timestampDate(res.asOf) : undefined,
+  };
 }

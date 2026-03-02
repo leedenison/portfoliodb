@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { Portfolio } from "@/lib/portfolio-api";
 import {
@@ -226,7 +227,12 @@ export function PortfolioList() {
                   ) : (
                     <>
                       <div className="min-w-0 flex-1">
-                        <span className="font-medium text-slate-800">{p.name}</span>
+                        <Link
+                          href={`/portfolios/${p.id}`}
+                          className="font-medium text-slate-800 underline hover:text-slate-600"
+                        >
+                          {p.name}
+                        </Link>
                         {p.createdAt && (
                           <span className="ml-2 text-xs text-slate-500">
                             {p.createdAt.toLocaleDateString()}

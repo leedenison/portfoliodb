@@ -23,8 +23,8 @@ CREATE TABLE portfolios (
 
 CREATE INDEX idx_portfolios_user_id ON portfolios (user_id);
 
--- Transactions. Natural key (portfolio_id, broker, timestamp, instrument_description)
--- for idempotent single-tx upsert. Bulk upsert replaces by (portfolio_id, broker, period).
+-- Transactions. No natural key (broker statements often supply date only). Bulk idempotency
+-- by replace-by-period (portfolio_id, broker, period). Single-tx ingestion is append-only.
 CREATE TABLE txs (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   portfolio_id          UUID NOT NULL REFERENCES portfolios (id) ON DELETE CASCADE,
@@ -35,8 +35,7 @@ CREATE TABLE txs (
   quantity              DOUBLE PRECISION NOT NULL,
   currency              TEXT,
   unit_price            DOUBLE PRECISION,
-  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (portfolio_id, broker, timestamp, instrument_description)
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_txs_portfolio_broker_time ON txs (portfolio_id, broker, timestamp);

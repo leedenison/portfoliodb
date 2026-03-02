@@ -68,10 +68,9 @@ message Instrument {
 
 // Tx represents one broker-reported transaction.
 message Tx {
-  // Time of the transaction (part of natural key with broker and
-  // instrument_description). Required.
+  // Time of the transaction (date or time as provided by broker). Required.
   google.protobuf.Timestamp timestamp = 1;
-  // Broker's instrument description string. Part of natural key. Required.
+  // Broker's instrument description string. Required.
   string instrument_description = 3;
   // OFX transaction type. Required.
   TxType type = 4;

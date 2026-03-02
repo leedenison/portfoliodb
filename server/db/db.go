@@ -46,7 +46,7 @@ type PortfolioDB interface {
 // TxDB provides transaction write and list.
 type TxDB interface {
 	ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string) error
-	UpsertTx(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx, instrumentID string) error
+	CreateTx(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx, instrumentID string) error
 	ListTxs(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodTo *timestamppb.Timestamp, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 }
 

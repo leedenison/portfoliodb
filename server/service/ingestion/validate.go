@@ -1,8 +1,6 @@
 package ingestion
 
 import (
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -56,20 +54,11 @@ func ValidateBulkRequest(periodFrom, periodTo *timestamppb.Timestamp) []*apiv1.V
 	return errs
 }
 
-// ValidateTxs runs ValidateTx on each tx and checks for duplicate natural keys within the batch.
+// ValidateTxs runs ValidateTx on each tx.
 func ValidateTxs(txs []*apiv1.Tx) []*apiv1.ValidationError {
 	var errs []*apiv1.ValidationError
-	seen := make(map[string]bool)
 	for i, tx := range txs {
-		rowIndex := int32(i)
-		errs = append(errs, ValidateTx(tx, rowIndex)...)
-		if tx != nil && tx.Timestamp != nil && tx.Timestamp.IsValid() && tx.InstrumentDescription != "" {
-			key := tx.Timestamp.AsTime().Format(time.RFC3339Nano) + "\x00" + tx.InstrumentDescription
-			if seen[key] {
-				errs = append(errs, &apiv1.ValidationError{RowIndex: rowIndex, Field: "timestamp,instrument_description", Message: "duplicate in batch"})
-			}
-			seen[key] = true
-		}
+		errs = append(errs, ValidateTx(tx, int32(i))...)
 	}
 	return errs
 }

@@ -14,10 +14,10 @@ service IngestionService {
   // period with the supplied list. Processed asynchronously; returns a job_id
   // for status and validation errors via the front-end API.
   rpc UpsertTxs(UpsertTxsRequest) returns (IngestionResponse);
-  // UpsertTx creates or replaces one transaction by natural key
-  // (timestamp, broker, instrument_description). Source is required but not part of natural key. Idempotent. Processed
+  // CreateTx appends one transaction. No natural key; not idempotent (duplicate
+  // submissions create duplicate rows). Source required for instrument resolution. Processed
   // asynchronously; returns a job_id for status.
-  rpc UpsertTx(UpsertTxRequest) returns (IngestionResponse);
+  rpc CreateTx(CreateTxRequest) returns (IngestionResponse);
 }
 
 // UpsertTxsRequest replaces all transactions for the given broker in the
@@ -28,7 +28,7 @@ message UpsertTxsRequest {
   string portfolio_id = 1;
   // Broker. All transactions in this request are for this broker.
   portfoliodb.api.v1.Broker broker = 2;
-  // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution; not part of natural key.
+  // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution.
   string source = 6;
   // Period of transactions covered. Only transactions in this range for this
   // broker are replaced; others are unchanged.
@@ -39,19 +39,19 @@ message UpsertTxsRequest {
   repeated portfoliodb.api.v1.Tx txs = 5;
 }
 
-// UpsertTxRequest creates or replaces one transaction by natural key.
-message UpsertTxRequest {
+// CreateTxRequest appends one transaction.
+message CreateTxRequest {
   // Portfolio to ingest into. Must be owned by the authenticated user.
   string portfolio_id = 1;
   // Broker for this transaction.
   portfoliodb.api.v1.Broker broker = 2;
-  // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution; not part of natural key.
+  // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution.
   string source = 4;
   // The transaction.
   portfoliodb.api.v1.Tx tx = 3;
 }
 
-// IngestionResponse returned by UpsertTxs and UpsertTx. Job status and
+// IngestionResponse returned by UpsertTxs and CreateTx. Job status and
 // validation errors are available via the front-end/back-end API using job_id.
 message IngestionResponse {
   // Identifier for the async ingestion job. Use with front-end API to poll

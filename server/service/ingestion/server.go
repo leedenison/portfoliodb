@@ -76,8 +76,8 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 	return &ingestionv1.IngestionResponse{JobId: jobID}, nil
 }
 
-// UpsertTx creates a job and enqueues it for async processing.
-func (s *Server) UpsertTx(ctx context.Context, req *ingestionv1.UpsertTxRequest) (*ingestionv1.IngestionResponse, error) {
+// CreateTx creates a job and enqueues it for async processing.
+func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest) (*ingestionv1.IngestionResponse, error) {
 	u := auth.FromContext(ctx)
 	if u == nil || u.ID == "" {
 		return nil, status.Error(codes.Unauthenticated, "missing user")

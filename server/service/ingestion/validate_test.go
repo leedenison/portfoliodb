@@ -85,15 +85,16 @@ func TestValidateBulkRequest(t *testing.T) {
 	}
 }
 
-func TestValidateTxs_duplicate(t *testing.T) {
+func TestValidateTxs_sameTimestampAndDescriptionAllowed(t *testing.T) {
+	// No natural key: same (timestamp, instrument_description) in one batch is allowed.
 	ts := timestamppb.Now()
 	txs := []*apiv1.Tx{
 		{Timestamp: ts, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10},
 		{Timestamp: ts, InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: 5},
 	}
 	errs := ValidateTxs(txs)
-	if !containsMessage(errs, "duplicate in batch") {
-		t.Fatalf("ValidateTxs() should report duplicate in batch, got %v", errs)
+	if len(errs) != 0 {
+		t.Fatalf("ValidateTxs() should allow same timestamp+description in batch, got %v", errs)
 	}
 }
 

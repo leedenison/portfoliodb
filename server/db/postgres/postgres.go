@@ -534,8 +534,8 @@ func nullFloat(f float64) interface{} {
 	return f
 }
 
-// UpsertTx implements db.TxDB.
-func (p *Postgres) UpsertTx(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx, instrumentID string) error {
+// CreateTx implements db.TxDB.
+func (p *Postgres) CreateTx(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx, instrumentID string) error {
 	portUUID, err := uuid.Parse(portfolioID)
 	if err != nil {
 		return fmt.Errorf("invalid portfolio id: %w", err)
@@ -555,11 +555,9 @@ func (p *Postgres) UpsertTx(ctx context.Context, portfolioID, broker string, tx 
 	_, err = p.q.ExecContext(ctx, `
 		INSERT INTO txs (portfolio_id, broker, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (portfolio_id, broker, timestamp, instrument_description)
-		DO UPDATE SET tx_type = EXCLUDED.tx_type, quantity = EXCLUDED.quantity, currency = EXCLUDED.currency, unit_price = EXCLUDED.unit_price, instrument_id = EXCLUDED.instrument_id
 	`, portUUID, broker, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity, nullStr(tx.Currency), nullFloat(tx.UnitPrice), instUUID)
 	if err != nil {
-		return fmt.Errorf("upsert tx: %w", err)
+		return fmt.Errorf("create tx: %w", err)
 	}
 	return nil
 }

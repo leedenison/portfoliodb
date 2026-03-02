@@ -218,28 +218,28 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	}
 }
 
-func TestUpsertTx_Idempotent(t *testing.T) {
+func TestCreateTx_AppendOnly(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|up", "U", "u@u.com")
 	port, _ := p.CreatePortfolio(ctx, userID, "P")
 	ts := timestamppb.Now()
-	tx := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_BUYSTOCK, Quantity: 5}
+	tx1 := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_BUYSTOCK, Quantity: 5}
+	tx2 := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_BUYSTOCK, Quantity: 10}
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
-	if err := p.UpsertTx(ctx, port.GetId(), "IBKR", tx, instID); err != nil {
-		t.Fatalf("first upsert: %v", err)
+	if err := p.CreateTx(ctx, port.GetId(), "IBKR", tx1, instID); err != nil {
+		t.Fatalf("first create: %v", err)
 	}
-	tx.Quantity = 10
-	if err := p.UpsertTx(ctx, port.GetId(), "IBKR", tx, instID); err != nil {
-		t.Fatalf("second upsert: %v", err)
+	if err := p.CreateTx(ctx, port.GetId(), "IBKR", tx2, instID); err != nil {
+		t.Fatalf("second create: %v", err)
 	}
 	holdings, _, _ := p.ComputeHoldings(ctx, port.GetId(), nil)
 	for _, h := range holdings {
-		if h.InstrumentDescription == "GOOG" && h.Quantity != 10 {
-			t.Fatalf("idempotent upsert should update quantity to 10, got %v", h.Quantity)
+		if h.InstrumentDescription == "GOOG" && h.Quantity != 15 {
+			t.Fatalf("append-only: expected total quantity 15, got %v", h.Quantity)
 		}
 	}
 }

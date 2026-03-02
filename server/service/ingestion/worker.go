@@ -97,7 +97,7 @@ func processSingle(ctx context.Context, database db.DB, registry *identifier.Reg
 	if r.IdErr != nil {
 		_ = database.AppendIdentificationErrors(ctx, j.JobID, []db.IdentificationError{*r.IdErr})
 	}
-	err = database.UpsertTx(ctx, j.PortfolioID, j.Broker, j.Tx, r.InstrumentID)
+	err = database.CreateTx(ctx, j.PortfolioID, j.Broker, j.Tx, r.InstrumentID)
 	if err != nil {
 		log.Printf("ingestion job %s: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{

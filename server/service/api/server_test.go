@@ -70,7 +70,6 @@ func TestAPI_Unauthenticated(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{"CreateUser", func() error { _, err := srv.CreateUser(ctx, &apiv1.CreateUserRequest{}); return err }},
 		{"ListPortfolios", func() error { _, err := srv.ListPortfolios(ctx, &apiv1.ListPortfoliosRequest{}); return err }},
 		{"GetPortfolio", func() error { _, err := srv.GetPortfolio(ctx, &apiv1.GetPortfolioRequest{PortfolioId: "any"}); return err }},
 		{"CreatePortfolio", func() error { _, err := srv.CreatePortfolio(ctx, &apiv1.CreatePortfolioRequest{Name: "x"}); return err }},
@@ -129,37 +128,6 @@ func TestGetPortfolio_NotFound(t *testing.T) {
 	ctx := authCtx("user-1", "sub|1")
 	_, err := srv.GetPortfolio(ctx, &apiv1.GetPortfolioRequest{PortfolioId: "port-1"})
 	requireGRPCCode(t, err, codes.NotFound)
-}
-
-func TestCreateUser_Success(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	db := mock.NewMockDB(ctrl)
-	db.EXPECT().
-		GetOrCreateUser(gomock.Any(), "sub|1", "Alice", "a@b.com").
-		Return("user-123", nil)
-	srv := NewServer(db)
-	ctx := authCtxWithProfile("", "sub|1", "Alice", "a@b.com")
-	resp, err := srv.CreateUser(ctx, &apiv1.CreateUserRequest{AuthSub: "sub|1", Name: "Alice", Email: "a@b.com"})
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	if resp.GetUserId() != "user-123" {
-		t.Fatalf("got user_id %s", resp.GetUserId())
-	}
-}
-
-func TestCreateUser_DBError(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	db := mock.NewMockDB(ctrl)
-	db.EXPECT().
-		GetOrCreateUser(gomock.Any(), "sub|1", "A", "a@b.com").
-		Return("", errors.New("db error"))
-	srv := NewServer(db)
-	ctx := authCtx("", "sub|1")
-	_, err := srv.CreateUser(ctx, &apiv1.CreateUserRequest{AuthSub: "sub|1", Name: "A", Email: "a@b.com"})
-	requireGRPCCode(t, err, codes.Internal)
 }
 
 func TestGetPortfolio_Internal(t *testing.T) {

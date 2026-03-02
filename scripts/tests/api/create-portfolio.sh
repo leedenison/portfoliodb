@@ -1,31 +1,38 @@
 #!/usr/bin/env bash
-# Create a user (if needed) and a portfolio via the API; echo the portfolio id to stdout.
+# Obtain a session via Auth (using ID_TOKEN), then create a portfolio. Echo the portfolio id to stdout.
 #
-# Usage: scripts/tests/api/create-portfolio.sh
-#   PORTFOLIO_ID=$(scripts/tests/api/create-portfolio.sh)
+# Usage: ID_TOKEN=<google-id-token> scripts/tests/api/create-portfolio.sh
+#   Or:  PORTFOLIO_ID=$(ID_TOKEN=$(obtain-id-token.sh) scripts/tests/api/create-portfolio.sh)
 #
 # Requires: grpcurl, jq. Run from repo root with server on localhost:50051.
+# Obtain an ID token as part of your flow (e.g. Google Sign-In or test OAuth); set ID_TOKEN.
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 HOST="${GRPC_HOST:-localhost:50051}"
-GRPCURL_OPTS=(
-  -plaintext
-  -H 'x-auth-sub: smoke-test'
-  -H 'x-auth-name: Smoke Test'
-  -H 'x-auth-email: smoke@local'
-)
 
-grpcurl "${GRPCURL_OPTS[@]}" \
+if [[ -z "${ID_TOKEN:-}" ]]; then
+  echo "ID_TOKEN is required. Obtain a Google ID token (e.g. via Google Sign-In) and set ID_TOKEN." >&2
+  exit 1
+fi
+
+# Call Auth to establish a session; server returns session_id for programmatic clients.
+AUTH_RESP=$(grpcurl -plaintext \
   -import-path proto \
-  -proto proto/api/v1/api.proto \
-  -d '{"auth_sub":"smoke-test","name":"Smoke Test","email":"smoke@local"}' \
+  -proto proto/auth/v1/auth.proto \
+  -d '{"google_id_token":"'"$ID_TOKEN"'"}' \
   "$HOST" \
-  portfoliodb.api.v1.ApiService/CreateUser >/dev/null
+  portfoliodb.auth.v1.AuthService/Auth)
 
-RESP=$(grpcurl "${GRPCURL_OPTS[@]}" \
+SESSION_ID=$(echo "$AUTH_RESP" | jq -r '.session_id // empty')
+if [[ -z "$SESSION_ID" ]]; then
+  echo "Auth failed or did not return session_id. Response:" >&2
+  echo "$AUTH_RESP" >&2
+  exit 1
+fi
+
+RESP=$(grpcurl -plaintext \
+  -H "x-session-id: $SESSION_ID" \
   -import-path proto \
   -proto proto/api/v1/api.proto \
   -d '{"name":"grpcurl ingestion test"}' \

@@ -31,6 +31,10 @@ type IdentificationError struct {
 type UserDB interface {
 	GetOrCreateUser(ctx context.Context, authSub, name, email string) (string, error)
 	GetUserByAuthSub(ctx context.Context, authSub string) (userID, role string, err error)
+	// GetUserByEmail returns the first user (if any) with the given email (case-insensitive).
+	GetUserByEmail(ctx context.Context, email string) (userID string, err error)
+	// UpdateUserAuthSub sets auth_sub for the user (e.g. bind Google sub to existing user found by email).
+	UpdateUserAuthSub(ctx context.Context, userID, authSub string) error
 }
 
 // PortfolioDB provides portfolio CRUD.

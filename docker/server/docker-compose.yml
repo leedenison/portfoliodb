@@ -13,6 +13,16 @@ services:
       timeout: 2s
       retries: 10
 
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
   portfoliodb:
     build:
       context: ../..
@@ -20,9 +30,34 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       PORTFOLIODB_DB_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable
-      ADMIN_AUTH_SUB: smoke-test
+      PORTFOLIODB_REDIS_URL: redis://redis:6379/0
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-local-dev}
+      ACCOUNT_CREATE_EMAIL_ALLOWLIST: ${ACCOUNT_CREATE_EMAIL_ALLOWLIST:-*@*}
+      ADMIN_AUTH_SUB: ${ADMIN_AUTH_SUB:-}
     ports:
       - "50051:50051"
     command: ["/portfoliodb", "-grpc-addr", ":50051", "-db-url", "postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable"]
+
+  client:
+    build:
+      context: ../../client
+      dockerfile: Dockerfile
+      args:
+        GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+    ports: []
+
+  envoy:
+    image: envoyproxy/envoy:v1.31-latest
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+    ports:
+      - "8080:8080"
+      - "9901:9901"
+    command: ["-c", "/etc/envoy/envoy.yaml", "-l", "info"]
+    depends_on:
+      - portfoliodb
+      - client

@@ -14,15 +14,9 @@ PortfolioDB is a multi-user service.  Users create accounts and their data remai
 
 In a portfolio the holdings information is owned by the user.  Instrument identities and price information is shared across all users.
 
-## Authentication
+## Authentication and authorization
 
-The service will run behind an OAuth2 proxy, so the service should assume that credentials will be included in an Authorization header for authenticated requests \- and that any request with an Authorization header has been successfully authenticated.
-
-Account creation will be handled by an explicit create user endpoint.  Any request authenticated with an unknown user should return an error.  User's name and email address will be extracted from an ID token provided to the create user endpoint.
-
-## Authorization
-
-The service supports two roles: "user" and "admin".  Users own and can update their own portfolio data.  Admin users can manage other users and can update shared instrument and price data.
+See [docs/auth.md](docs/auth.md) for authentication, session bootstrap, and authorization.
 
 ## Data Ingestion
 

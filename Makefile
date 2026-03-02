@@ -1,4 +1,7 @@
-.PHONY: generate build test test-db clean docker-clean
+.PHONY: generate build test run run-server init-db init-test-db test-db clean docker-clean
+
+# Compose file and env for local stack (run from repo root so .env is found)
+COMPOSE_RUN = docker compose -f docker/server/docker-compose.yml --env-file .env
 
 generate:
 	buf generate
@@ -10,7 +13,7 @@ clean:
 	find server -name '*_mock.go' -delete 2>/dev/null || true
 
 docker-clean:
-	docker compose -f docker/server/docker-compose.yml down --rmi local --volumes
+	$(COMPOSE_RUN) down --rmi local --volumes
 	docker compose -f docker/server/docker-compose.test.yml down --rmi local --volumes
 
 build: generate
@@ -18,6 +21,18 @@ build: generate
 
 test: generate
 	go test ./server/...
+
+# Full stack (Postgres 5432, Redis 6379, portfoliodb, Envoy, client SPA) for local dev. SPA at localhost:8080.
+run: generate
+	$(COMPOSE_RUN) up -d --build
+	@echo "Waiting for Postgres..."
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		if $(COMPOSE_RUN) exec -T postgres pg_isready -U portfoliodb 2>/dev/null; then break; fi; \
+		sleep 1; \
+		if [ $$i -eq 10 ]; then echo "Postgres not ready"; exit 1; fi; \
+	done
+	cat server/migrations/001_initial.sql | $(COMPOSE_RUN) exec -T postgres psql -U portfoliodb -d portfoliodb -q
+	cat server/plugins/local/identifier/migrations/001_instrument_ref.sql | $(COMPOSE_RUN) exec -T postgres psql -U portfoliodb -d portfoliodb -q
 
 test-db: generate
 	docker compose -f docker/server/docker-compose.test.yml up -d

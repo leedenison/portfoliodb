@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package portfoliodb.auth.v1;
+
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/leedenison/portfoliodb/proto/auth/v1;authv1";
+
+// User is minimal user info returned after Auth.
+message User {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+}
+
+message AuthRequest {
+  string google_id_token = 1;
+}
+
+message AuthResponse {
+  User user = 1;
+  bool user_exists = 2;  // true if internal user already existed before this Auth call
+  string session_id = 3; // optional; set for programmatic clients so they can pass it as x-session-id (cookie not available in non-browser clients)
+}
+
+service AuthService {
+  // Auth verifies the Google ID token, provisions the user if allowlisted, creates a session, and sets the session cookie on the response.
+  rpc Auth(AuthRequest) returns (AuthResponse);
+  // Logout deletes the server-side session and clears the session cookie.
+  rpc Logout(google.protobuf.Empty) returns (google.protobuf.Empty);
+}

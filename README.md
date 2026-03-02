@@ -61,28 +61,26 @@ export PORTFOLIODB_DB_URL="postgres://portfoliodb:portfoliodb@localhost:5432/por
 
 The gRPC server listens on `localhost:50051`.
 
-**Optional:** To treat a user as admin (e.g. for instrument export/import), set `ADMIN_AUTH_SUB` to that user’s OAuth subject (same value as `x-auth-sub`). The user must have called CreateUser at least once. Example: `export ADMIN_AUTH_SUB=smoke-test`.
+**Optional:** To treat a user as admin (e.g. for instrument export/import), set `ADMIN_AUTH_SUB` to that user’s Google subject (same value as in their session after Auth). Example: `export ADMIN_AUTH_SUB=smoke-test`.
 
-To run the server in Docker:
+To run the server in Docker (Postgres, Redis, portfoliodb, Envoy):
 
 ```bash
 docker compose -f docker/server/docker-compose.yml up -d
 ```
 
-### 5. Smoke test the gRPC server with grpcurl
+Set `GOOGLE_OAUTH_CLIENT_ID` (and optionally `ACCOUNT_CREATE_EMAIL_ALLOWLIST`, `ADMIN_AUTH_SUB`) when using Auth. Envoy listens on 8080 (gRPC-Web + CORS + cookies); point the SPA API base to `http://localhost:8080` when using Envoy. CORS is configured for `http://localhost:3000` (SPA origin).
 
-With the server running on `localhost:50051`, from the repo root:
+### 5. Run the client (SPA)
+
+The web front end is a Next.js app under `client/`. To run it locally:
 
 ```bash
-grpcurl -plaintext \
-  -H 'x-auth-sub: smoke-test' \
-  -H 'x-auth-name: Smoke Test' \
-  -H 'x-auth-email: smoke@local' \
-  -import-path proto \
-  -proto proto/api/v1/api.proto \
-  -d '{"auth_sub":"smoke-test","name":"Smoke Test","email":"smoke@local"}' \
-  localhost:50051 \
-  portfoliodb.api.v1.ApiService/CreateUser
+cd client && npm install && npm run dev
 ```
 
-A successful response includes a `user_id`. Running it again is idempotent (same user, same ID).
+Open [http://localhost:3000](http://localhost:3000). In full stack setup, Envoy serves the built client (see docker/server); the SPA and API share one origin so session cookies work.
+
+### 6. Smoke test the gRPC server with grpcurl
+
+With the server running on `localhost:50051`, obtain an ID token (e.g. via Google Sign-In or test OAuth flow), then call Auth to establish a session. See [docs/auth.md](docs/auth.md) and scripts/tests for the auth flow. Admin: set `ADMIN_AUTH_SUB` to the user’s Google subject (same value as in session) for admin role.

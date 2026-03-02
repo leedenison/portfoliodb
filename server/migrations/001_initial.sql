@@ -1,7 +1,7 @@
 -- M01 datamodel: holdings only. No instrument identification, prices or corporate events.
 -- Holdings are calculated from transactions at query time, not materialized.
 
--- Users own portfolios. Auth subject from OAuth ID token; name and email from create-user.
+-- Users own portfolios. auth_sub stores Google ID token sub; name and email from token at Auth.
 CREATE TABLE users (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   auth_sub   TEXT NOT NULL UNIQUE,

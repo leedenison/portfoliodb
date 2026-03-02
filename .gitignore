@@ -23,3 +23,8 @@ vendor/
 
 # local files
 local/
+
+# Client (Next.js)
+client/node_modules/
+client/.next/
+client/gen/

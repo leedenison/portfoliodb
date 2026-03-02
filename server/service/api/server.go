@@ -23,31 +23,6 @@ func NewServer(database db.DB) *Server {
 	return &Server{db: database}
 }
 
-// CreateUser creates or updates the user from stub token data (M01).
-func (s *Server) CreateUser(ctx context.Context, req *apiv1.CreateUserRequest) (*apiv1.CreateUserResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.AuthSub == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing auth")
-	}
-	authSub := req.GetAuthSub()
-	if authSub == "" {
-		authSub = u.AuthSub
-	}
-	name := req.GetName()
-	if name == "" {
-		name = u.Name
-	}
-	email := req.GetEmail()
-	if email == "" {
-		email = u.Email
-	}
-	userID, err := s.db.GetOrCreateUser(ctx, authSub, name, email)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	return &apiv1.CreateUserResponse{UserId: userID}, nil
-}
-
 // ListPortfolios returns portfolios owned by the authenticated user.
 func (s *Server) ListPortfolios(ctx context.Context, req *apiv1.ListPortfoliosRequest) (*apiv1.ListPortfoliosResponse, error) {
 	u := auth.FromContext(ctx)

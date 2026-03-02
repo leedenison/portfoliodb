@@ -6,3 +6,6 @@ plugins:
   - remote: buf.build/grpc/go
     out: proto
     opt: paths=source_relative
+  - remote: buf.build/bufbuild/es
+    out: client/gen
+    opt: target=ts

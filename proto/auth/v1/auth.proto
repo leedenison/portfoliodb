@@ -26,6 +26,8 @@ message AuthResponse {
 service AuthService {
   // Auth verifies the Google ID token, provisions the user if allowlisted, creates a session, and sets the session cookie on the response.
   rpc Auth(AuthRequest) returns (AuthResponse);
+  // GetSession returns the current user when the request has a valid session cookie. Used by the SPA to restore auth state on load.
+  rpc GetSession(google.protobuf.Empty) returns (AuthResponse);
   // Logout deletes the server-side session and clears the session cookie.
   rpc Logout(google.protobuf.Empty) returns (google.protobuf.Empty);
 }

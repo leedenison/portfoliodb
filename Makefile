@@ -1,4 +1,4 @@
-.PHONY: generate build test run run-server init-db init-test-db test-db clean docker-clean
+.PHONY: generate build server-test db-test client-test run run-server init-db init-test-db clean docker-clean
 
 # Compose file and env for local stack (run from repo root so .env is found)
 COMPOSE_RUN = docker compose -f docker/server/docker-compose.yml --env-file .env
@@ -19,8 +19,11 @@ docker-clean:
 build: generate
 	go build -o portfoliodb ./server/cmd/portfoliodb
 
-test: generate
+server-test: generate
 	go test ./server/...
+
+client-test: generate
+	cd client && npm run test:run
 
 # Full stack (Postgres 5432, Redis 6379, portfoliodb, Envoy, client SPA) for local dev. SPA at localhost:8080.
 run: generate
@@ -34,7 +37,7 @@ run: generate
 	cat server/migrations/001_initial.sql | $(COMPOSE_RUN) exec -T postgres psql -U portfoliodb -d portfoliodb -q
 	cat server/plugins/local/identifier/migrations/001_instrument_ref.sql | $(COMPOSE_RUN) exec -T postgres psql -U portfoliodb -d portfoliodb -q
 
-test-db: generate
+db-test: generate
 	docker compose -f docker/server/docker-compose.test.yml up -d
 	@echo "Waiting for Postgres..."
 	@for i in 1 2 3 4 5 6 7 8 9 10; do \

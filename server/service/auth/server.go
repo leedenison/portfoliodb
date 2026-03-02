@@ -11,6 +11,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/auth/google"
 	"github.com/leedenison/portfoliodb/server/auth/session"
 	"github.com/leedenison/portfoliodb/server/db"
+	authpkg "github.com/leedenison/portfoliodb/server/auth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -145,6 +146,22 @@ func (s *Server) provisionUser(ctx context.Context, googleSub, email, name strin
 		return "", false, err
 	}
 	return userID, false, nil
+}
+
+// GetSession returns the current user when the request has a valid session cookie.
+func (s *Server) GetSession(ctx context.Context, _ *emptypb.Empty) (*authv1.AuthResponse, error) {
+	u := authpkg.FromContext(ctx)
+	if u == nil {
+		return nil, status.Error(codes.Unauthenticated, "missing or invalid session")
+	}
+	return &authv1.AuthResponse{
+		User: &authv1.User{
+			Id:    u.ID,
+			Email: u.Email,
+			Name:  u.Name,
+		},
+		UserExists: true, // session implies existing user
+	}, nil
 }
 
 // Logout deletes the session and clears the cookie.

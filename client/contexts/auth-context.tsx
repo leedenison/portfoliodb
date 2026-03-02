@@ -1,8 +1,8 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { AuthResponsePayload } from "@/lib/auth-api";
-import { auth as authApi, logout as logoutApi } from "@/lib/auth-api";
+import { auth as authApi, getSession, logout as logoutApi } from "@/lib/auth-api";
 
 type AuthState =
   | { status: "loading" }
@@ -20,8 +20,26 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<AuthState>({ status: "unauthenticated" });
+  const [state, setState] = useState<AuthState>({ status: "loading" });
   const [authError, setAuthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getSession()
+      .then((res) => {
+        if (res.user) {
+          setState({
+            status: "authenticated",
+            user: res.user,
+            email: res.user.email,
+          });
+        } else {
+          setState({ status: "unauthenticated" });
+        }
+      })
+      .catch(() => {
+        setState({ status: "unauthenticated" });
+      });
+  }, []);
 
   const signIn = useCallback(async (googleIdToken: string) => {
     setAuthError(null);

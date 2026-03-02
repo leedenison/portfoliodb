@@ -1,31 +1,62 @@
+import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { EmptySchema } from "@bufbuild/protobuf/wkt";
+import {
+  AuthRequestSchema,
+  AuthResponseSchema,
+} from "@/gen/auth/v1/auth_pb";
 import {
   AuthServiceMethod,
+  GetSessionServiceMethod,
   LogoutServiceMethod,
-  encodeAuthRequest,
-  encodeEmpty,
   unaryFetch,
-  decodeAuthResponse,
 } from "./grpc-web";
-import type { AuthResponsePayload } from "./grpc-web";
 
-export type { AuthResponsePayload };
-
-const defaultBase = typeof window !== "undefined" ? "" : "http://localhost:8080";
+export interface AuthResponsePayload {
+  user: { id: string; email: string; name: string } | null;
+  userExists: boolean;
+  sessionId: string;
+}
 
 function getBaseUrl(): string {
-  if (typeof window === "undefined") return defaultBase;
+  if (typeof window === "undefined") return "http://localhost:8080";
   return (process.env.NEXT_PUBLIC_GRPC_WEB_BASE ?? window.location.origin).replace(/\/$/, "");
+}
+
+function authResponseToPayload(res: { user?: { id: string; email: string; name: string } | undefined; userExists: boolean; sessionId: string }): AuthResponsePayload {
+  return {
+    user: res.user
+      ? { id: res.user.id, email: res.user.email, name: res.user.name }
+      : null,
+    userExists: res.userExists,
+    sessionId: res.sessionId,
+  };
 }
 
 export async function auth(googleIdToken: string): Promise<AuthResponsePayload> {
   const base = getBaseUrl();
-  const reqBytes = encodeAuthRequest(googleIdToken);
-  const resBytes = await unaryFetch(base, AuthServiceMethod, reqBytes, { credentials: "include" });
-  return decodeAuthResponse(resBytes);
+  const req = create(AuthRequestSchema, { googleIdToken });
+  const resBytes = await unaryFetch(base, AuthServiceMethod, toBinary(AuthRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(AuthResponseSchema, resBytes);
+  return authResponseToPayload(res);
+}
+
+/** Returns current user when the request has a valid session cookie; throws if unauthenticated. */
+export async function getSession(): Promise<AuthResponsePayload> {
+  const base = getBaseUrl();
+  const req = create(EmptySchema, {});
+  const resBytes = await unaryFetch(base, GetSessionServiceMethod, toBinary(EmptySchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(AuthResponseSchema, resBytes);
+  return authResponseToPayload(res);
 }
 
 export async function logout(): Promise<void> {
   const base = getBaseUrl();
-  const reqBytes = encodeEmpty();
-  await unaryFetch(base, LogoutServiceMethod, reqBytes, { credentials: "include" });
+  const req = create(EmptySchema, {});
+  await unaryFetch(base, LogoutServiceMethod, toBinary(EmptySchema, req), {
+    credentials: "include",
+  });
 }

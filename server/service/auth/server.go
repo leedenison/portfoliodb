@@ -116,6 +116,7 @@ func (s *Server) Auth(ctx context.Context, req *authv1.AuthRequest) (*authv1.Aut
 			Id:    userID,
 			Email: result.Email,
 			Name:  result.Name,
+			Role:  role,
 		},
 		UserExists: userExists,
 		SessionId:  sessionID, // for programmatic clients (e.g. scripts) that cannot use cookies
@@ -159,6 +160,7 @@ func (s *Server) GetSession(ctx context.Context, _ *emptypb.Empty) (*authv1.Auth
 			Id:    u.ID,
 			Email: u.Email,
 			Name:  u.Name,
+			Role:  u.Role,
 		},
 		UserExists: true, // session implies existing user
 	}, nil

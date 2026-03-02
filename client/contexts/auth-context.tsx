@@ -7,7 +7,7 @@ import { auth as authApi, getSession, logout as logoutApi } from "@/lib/auth-api
 type AuthState =
   | { status: "loading" }
   | { status: "unauthenticated" }
-  | { status: "authenticated"; user: AuthResponsePayload["user"]; email: string };
+  | { status: "authenticated"; user: AuthResponsePayload["user"]; email: string; role: string };
 
 type AuthContextValue = {
   state: AuthState;
@@ -31,6 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             status: "authenticated",
             user: res.user,
             email: res.user.email,
+            role: res.user.role ?? "user",
           });
         } else {
           setState({ status: "unauthenticated" });
@@ -50,6 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           status: "authenticated",
           user: res.user,
           email: res.user.email,
+          role: res.user.role ?? "user",
         });
         return { ok: true };
       }

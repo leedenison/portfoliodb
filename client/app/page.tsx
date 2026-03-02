@@ -1,7 +1,7 @@
 "use client";
 
 import { SignInButton } from "./components/sign-in";
-import { UserMenu } from "./components/user-menu";
+import { AppHeader } from "./components/app-header";
 import { PortfolioList } from "./components/portfolio-list";
 import { useAuth } from "@/contexts/auth-context";
 
@@ -10,10 +10,7 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen flex-col">
-      <header className="flex items-center justify-end gap-4 border-b border-slate-200 bg-white px-4 py-3">
-        <UserMenu />
-        <SignInButton />
-      </header>
+      <AppHeader />
       <div className="flex flex-1 flex-col items-center px-4 py-8">
         {state.status === "loading" && (
           <p className="text-slate-500">Loading…</p>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { SignInButton } from "@/app/components/sign-in";
-import { UserMenu } from "@/app/components/user-menu";
+import { AppHeader } from "@/app/components/app-header";
 import { useAuth } from "@/contexts/auth-context";
 import { getHoldings, getPortfolio } from "@/lib/portfolio-api";
 import type { Portfolio } from "@/lib/portfolio-api";
@@ -56,10 +56,7 @@ export default function PortfolioHoldingsPage() {
 
   return (
     <main className="flex min-h-screen flex-col">
-      <header className="flex items-center justify-end gap-4 border-b border-slate-200 bg-white px-4 py-3">
-        <UserMenu />
-        <SignInButton />
-      </header>
+      <AppHeader />
       <div className="flex flex-1 flex-col items-center px-4 py-8">
         {state.status === "loading" && (
           <p className="text-slate-500">Loading…</p>

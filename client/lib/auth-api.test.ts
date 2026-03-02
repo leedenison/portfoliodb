@@ -15,7 +15,7 @@ vi.mock("./grpc-web", async (importOriginal) => {
 const mockUnaryFetch = vi.mocked(grpcWeb.unaryFetch);
 
 function authResponseBytes(payload: {
-  user?: { id: string; email: string; name: string };
+  user?: { id: string; email: string; name: string; role?: string };
   userExists: boolean;
   sessionId: string;
 }): Uint8Array {
@@ -32,7 +32,7 @@ describe("auth-api", () => {
     it("sends Auth request and returns user and session", async () => {
       mockUnaryFetch.mockResolvedValue(
         authResponseBytes({
-          user: { id: "u1", email: "a@b.com", name: "Alice" },
+          user: { id: "u1", email: "a@b.com", name: "Alice", role: "user" },
           userExists: true,
           sessionId: "sess-123",
         })
@@ -41,7 +41,7 @@ describe("auth-api", () => {
       const result = await auth("google-id-token");
 
       expect(result).toEqual({
-        user: { id: "u1", email: "a@b.com", name: "Alice" },
+        user: { id: "u1", email: "a@b.com", name: "Alice", role: "user" },
         userExists: true,
         sessionId: "sess-123",
       });
@@ -73,7 +73,7 @@ describe("auth-api", () => {
     it("returns current user from session", async () => {
       mockUnaryFetch.mockResolvedValue(
         authResponseBytes({
-          user: { id: "u2", email: "b@c.com", name: "Bob" },
+          user: { id: "u2", email: "b@c.com", name: "Bob", role: "admin" },
           userExists: true,
           sessionId: "sess-789",
         })
@@ -85,6 +85,7 @@ describe("auth-api", () => {
         id: "u2",
         email: "b@c.com",
         name: "Bob",
+        role: "admin",
       });
       expect(mockUnaryFetch).toHaveBeenCalledWith(
         expect.any(String),

@@ -23,9 +23,9 @@ AUTH_RESP=$(grpcurl -plaintext \
   "$HOST" \
   portfoliodb.auth.v1.AuthService/Auth)
 
-SESSION_ID=$(echo "$AUTH_RESP" | jq -r '.session_id // empty')
+SESSION_ID=$(echo "$AUTH_RESP" | jq -r '.sessionId // .session_id // empty')
 if [[ -z "$SESSION_ID" ]]; then
-  echo "Auth failed or did not return session_id. Response:" >&2
+  echo "Auth failed or did not return session_id/sessionId. Response:" >&2
   echo "$AUTH_RESP" >&2
   exit 1
 fi

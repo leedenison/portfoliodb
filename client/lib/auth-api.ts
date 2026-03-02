@@ -12,7 +12,7 @@ import {
 } from "./grpc-web";
 
 export interface AuthResponsePayload {
-  user: { id: string; email: string; name: string } | null;
+  user: { id: string; email: string; name: string; role: string } | null;
   userExists: boolean;
   sessionId: string;
 }
@@ -22,10 +22,10 @@ function getBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_GRPC_WEB_BASE ?? window.location.origin).replace(/\/$/, "");
 }
 
-function authResponseToPayload(res: { user?: { id: string; email: string; name: string } | undefined; userExists: boolean; sessionId: string }): AuthResponsePayload {
+function authResponseToPayload(res: { user?: { id: string; email: string; name: string; role?: string } | undefined; userExists: boolean; sessionId: string }): AuthResponsePayload {
   return {
     user: res.user
-      ? { id: res.user.id, email: res.user.email, name: res.user.name }
+      ? { id: res.user.id, email: res.user.email, name: res.user.name, role: res.user.role ?? "user" }
       : null,
     userExists: res.userExists,
     sessionId: res.sessionId,

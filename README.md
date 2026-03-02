@@ -12,14 +12,9 @@ To develop and run this project you need:
 | **Docker & Docker Compose** | Run PostgreSQL for local development and for the DB integration tests. |
 | **Buf CLI** | Generate Go code from `.proto` files (`make generate`). Install: [buf.build/docs/installation](https://buf.build/docs/installation) (e.g. `go install github.com/bufbuild/buf/cmd/buf@latest` or official install script). |
 
-Optional for manual gRPC checks:
-
-- **grpcurl** – call gRPC endpoints from the CLI (e.g. `go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest`).
-- **jq** – JSON parsing and editing for CLI testing; install via your package manager, e.g. `apt install jq` or `brew install jq`).
-
 ## Quick start
 
-These steps verify the system builds, tests pass, and the server can run against a real database.
+These steps verify the system builds and the core test suites pass.
 
 ### 1. Generate code and build
 
@@ -28,65 +23,51 @@ make generate
 make build
 ```
 
-### 2. Unit tests
+### 2. Run server tests
+
+`make server-test` runs all server tests.
 
 ```bash
-make test
+make server-test
 ```
 
-Runs all tests under `./server/...` except the Postgres integration tests (those need a DB).
+### 3. Run client tests
 
-### 3. Database integration tests
-
-Starts Postgres in Docker, applies migrations, runs `server/db/postgres` tests, then tears down:
+`make client-test` runs the Next.js/Vitest front-end tests under `client/`.
 
 ```bash
-make test-db
+make client-test
 ```
 
-### 4. Run the server locally
+### 4. Run database tests
 
-From the repo root:
+`make db-test` brings up Postgres in Docker, applies migrations, runs the DB integration tests, and then tears everything down.
 
 ```bash
-# Start Postgres and Redis (required for sessions)
-docker compose -f docker/server/docker-compose.yml up -d postgres redis
+make db-test
+```
 
-# Apply migrations
-cat server/migrations/001_initial.sql | docker compose -f docker/server/docker-compose.yml exec -T postgres psql -U portfoliodb -d portfoliodb -q
+### 5. Run the server locally
 
-# Required for Auth: set Google OAuth client ID (create in Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID, type Web application)
+From the repo root, configure the environment and then use `make run`:
+
+```bash
+# Required: Google OAuth client ID used for login (Web application)
+# Must be set before the client docker container is built.
 export GOOGLE_OAUTH_CLIENT_ID="your-client-id.apps.googleusercontent.com"
-export PORTFOLIODB_DB_URL="postgres://portfoliodb:portfoliodb@localhost:5432/portfoliodb?sslmode=disable"
-export PORTFOLIODB_REDIS_URL="redis://localhost:6379/0"
 
-# Run the server
-./portfoliodb
+# Required for the client to talk to the server via gRPC-Web / Envoy
+export NEXT_PUBLIC_GRPC_WEB_BASE="http://localhost:8080"
+
+# Optional: treat a specific Google user as admin (instrument import/export, admin UI)
+# To find your Google subject (`sub`), you can use the oauth3 playground:
+# https://www.oauth.com/playground/google-openid-connect/
+export ADMIN_AUTH_SUB="your-google-subject-id"
+
+# Start Postgres, Redis, Envoy, and the server
+make run
 ```
 
-The gRPC server listens on `localhost:50051`.
+The gRPC server listens on `localhost:50051` behind Envoy on `http://localhost:8080` for gRPC-Web.
 
-**Optional:** To treat a user as admin (e.g. for instrument export/import), set `ADMIN_AUTH_SUB` to that user’s Google subject (same value as in their session after Auth). Example: `export ADMIN_AUTH_SUB=smoke-test`.
-
-To run the server in Docker (Postgres, Redis, portfoliodb, Envoy):
-
-```bash
-export GOOGLE_OAUTH_CLIENT_ID="your-client-id.apps.googleusercontent.com"
-docker compose -f docker/server/docker-compose.yml up -d
-```
-
-**GOOGLE_OAUTH_CLIENT_ID** is required for Auth (server uses it to verify Google ID tokens). Create a **OAuth 2.0 Client ID** (Web application) in [Google Cloud Console](https://console.cloud.google.com/apis/credentials); use the same client ID in the backend and in the client (`NEXT_PUBLIC_GOOGLE_CLIENT_ID`). Set it when running locally or in Docker: `export GOOGLE_OAUTH_CLIENT_ID="your-client-id.apps.googleusercontent.com"`. Optional: `ACCOUNT_CREATE_EMAIL_ALLOWLIST`, `ADMIN_AUTH_SUB`. Envoy listens on 8080 (gRPC-Web + CORS + cookies); point the SPA API base to `http://localhost:8080` when using Envoy. CORS is configured for `http://localhost:3000` (SPA origin).
-
-### 5. Run the client (SPA)
-
-The web front end is a Next.js app under `client/`. To run it locally:
-
-```bash
-cd client && npm install && npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000). In full stack setup, Envoy serves the built client (see docker/server); the SPA and API share one origin so session cookies work.
-
-### 6. Smoke test the gRPC server with grpcurl
-
-With the server running on `localhost:50051`, obtain an ID token (e.g. via Google Sign-In or test OAuth flow), then call Auth to establish a session. See [docs/auth.md](docs/auth.md) and scripts/tests for the auth flow. Admin: set `ADMIN_AUTH_SUB` to the user’s Google subject (same value as in session) for admin role.
+**GOOGLE_OAUTH_CLIENT_ID** is required for Auth (server uses it to verify Google ID tokens). Create a **OAuth 2.0 Client ID** (Web application) in [Google Cloud Console](https://console.cloud.google.com/apis/credentials). 

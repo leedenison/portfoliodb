@@ -7,11 +7,13 @@
 | ------------ | -------------------------------------------------------------------------------------------------------------------- | ------ |
 | M01          | Implement PortfolioDB for holdings only with TimescaleDB extensions (ie. without instrument identification, price fetching or corporate events). Users and authentication are stubbed. | Done   |
 | M02          | Implement instrument identification.                                                                                 |        |
-| M03          | Implement authentication and admin role.                                                                             |        |
-| M04          | Implement price fetching.                                                                                            |        |
-| M05          | Implement corporate events.                                                                                          |        |
-| M06          | Implement portfolio performance analysis UI.                                                                         |        |
-| M07          | Implement portfolio sharing between users and aggregates which combine portfolios (incl. shared portfolios).         |        |
+| M03          | Implement authentication and admin role.                                                                             | Done   |
+| M04          | Implement transaction importing using in-codebase, broker specific converters.                                       |        |
+| M05          | Implement price fetching.                                                                                            |        |
+| M06          | Implement corporate events.                                                                                          |        |
+| M07          | Implement portfolio performance analysis UI.                                                                         |        |
+| M08          | Implement portfolio sharing between users and aggregates which combine portfolios (incl. shared portfolios).         |        |
+| M09          | Implement external packages for broker specific transaction converters                                               |        |
 
 
 ### Tasks
@@ -24,7 +26,7 @@
 | T03     | Design Postgresql datamodel for M01.                                                |                    | M01       | Done   |
 | T04     | Implement PortfolioDB backend service for M01.                                      | T01, T02, T03      | M01       | Done   |
 | T05     | Implement basic SPA with a landing page.                                            |                    | M01       | Done   |
-| T06     | Implement front end for M01.                                                        | T04, T05           | M01       |        |
+| T06     | Implement front end for M01.                                                        | T04, T05           | M01       | Done   |
 | T07     | Design Go instrument identification plugin API.                                     |                    | M02       | Done   |
 | T08     | Extend gRPC ingestion API for M02.                                                  | T01                | M02       | Done   |
 | T09     | Extend gRPC front end / back end API for M02.                                       | T02                | M02       | Done   |
@@ -40,7 +42,6 @@
 | T19     | Implement authentication in the backend.                                            |                    | M03       | Done   |
 | T20     | Create Envoy and Redis docker containers and configuration.                         |                    | M03       | Done   |
 | T21     | Implement initial SPA with authentication flow.                                     | T19                | M03       | Done   |
-
-
-
-
+| T22     | Create a UI to upload a CSV of transactions and select the 'standard' format.       | T21                | M04       |        |
+| T23     | Implement conversion from Fidelity CSV to the standard format (in-codebase pkg)     | T21                | M04       |        |
+| T24     | Implement UI to allow selection of broker specific format.                          | T21, T23           | M04       |        |

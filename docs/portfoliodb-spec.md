@@ -28,6 +28,13 @@ Typically a single transaction upload will result from a user forwarding transac
 
 **Recovery from CreateTx failure:** When a client uses CreateTx and the job fails (e.g. validation error, identification error, or other failure), the client cannot retry CreateTx to fix that single transaction in place.  The client should instead query all transactions in a period that covers the failed transaction (via the front-end API) and correct the error by re-ingesting the corrected set using the bulk upload API (UpsertTxs) for that broker and period, which replaces all transactions in the period with the supplied list.
 
+## Upload Formats
+
+The client supports uploading transactions in several formats:
+
+* 'Standard' format - A CSV format that directly represents the fields expected by the API.  Users can convert to this format outside of the client if their broker specific format is not supported.
+* Broker formats - Brokers use a range of custom schemas and formats (CSV, JSON, OFX, etc) for their transaction downloads.  The portfoliodb client supplies several packages within its own codebase that convert from the broker schema/format to the standard CSV format before upload.  Portfoliodb also allows npm packages to be installed and used for the same purpose.
+
 ## Identifying Instruments
 
 Identifying an instrument means associating broker-supplied data with a canonical **instrument** (security master) and zero or more **identifiers** (opaque type + value, e.g. ISIN, CUSIP, or broker description). Every valid transaction has a broker, a **source** (required; opaque, e.g. `"IBKR:<client>:statement"`), and an instrument description; missing any is a **validation error**. Every valid transaction ends up with an **instrument_id**: either from plugin resolution or from a **broker-description-only** instrument (an instrument whose only identifier is that source’s description). Truly unidentified transactions do not exist.
@@ -54,7 +61,7 @@ PortfolioDB should periodically attempt to identify instruments in case datasour
 
 A user may believe the system has mis-identified an instrument. It should be possible for a user to override the identity for their portfolio; that data is user-owned. Admin users can correct shared instrument identity.
 
-### Plugins
+### Identifier Plugins
 
 Plugins implement a single interface (e.g. `Identify(ctx, broker, instrument_description) → (*Instrument, []Identifier, error)`). Implementations live under `server/plugins/<datasource>/identifier` (e.g. `server/plugins/local/identifier`, `server/plugins/ibkr/identifier`). The shared interface and canonical types (Instrument, Identifier) live in `server/identifier`. Plugins are compiled in and enabled at runtime; configuration is stored in the database.
 

@@ -10,6 +10,8 @@ import {
   DeletePortfolioRequestSchema,
   GetHoldingsRequestSchema,
   GetHoldingsResponseSchema,
+  GetJobRequestSchema,
+  GetJobResponseSchema,
   GetPortfolioRequestSchema,
   GetPortfolioResponseSchema,
   ListPortfoliosRequestSchema,
@@ -17,7 +19,13 @@ import {
   UpdatePortfolioRequestSchema,
   UpdatePortfolioResponseSchema,
 } from "@/gen/api/v1/api_pb";
-import type { Holding, Portfolio as GenPortfolio } from "@/gen/api/v1/api_pb";
+import type {
+  Holding,
+  IdentificationError,
+  Portfolio as GenPortfolio,
+  ValidationError,
+} from "@/gen/api/v1/api_pb";
+import { JobStatus } from "@/gen/api/v1/api_pb";
 import { unaryFetch } from "./grpc-web";
 
 const PAGE_SIZE = 30;
@@ -127,5 +135,26 @@ export async function getHoldings(
   return {
     holdings: res.holdings,
     asOf: res.asOf ? timestampDate(res.asOf) : undefined,
+  };
+}
+
+/** Result of GetJob for ingestion job status. */
+export interface GetJobResult {
+  status: JobStatus;
+  validationErrors: ValidationError[];
+  identificationErrors: IdentificationError[];
+}
+
+export async function getJob(jobId: string): Promise<GetJobResult> {
+  const base = getBaseUrl();
+  const req = create(GetJobRequestSchema, { jobId });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "GetJob", toBinary(GetJobRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(GetJobResponseSchema, resBytes);
+  return {
+    status: res.status,
+    validationErrors: res.validationErrors,
+    identificationErrors: res.identificationErrors,
   };
 }

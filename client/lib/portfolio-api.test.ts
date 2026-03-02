@@ -1,15 +1,18 @@
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
   CreatePortfolioResponseSchema,
+  GetJobResponseSchema,
   ListPortfoliosResponseSchema,
   UpdatePortfolioResponseSchema,
 } from "@/gen/api/v1/api_pb";
+import { JobStatus } from "@/gen/api/v1/api_pb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   listPortfolios,
   createPortfolio,
   updatePortfolio,
   deletePortfolio,
+  getJob,
 } from "./portfolio-api";
 import * as grpcWeb from "./grpc-web";
 
@@ -151,6 +154,56 @@ describe("portfolio-api", () => {
         expect.any(Uint8Array),
         { credentials: "include" }
       );
+    });
+  });
+
+  describe("getJob", () => {
+    it("sends job id and returns status and errors", async () => {
+      mockUnaryFetch.mockResolvedValue(
+        toBinary(
+          GetJobResponseSchema,
+          create(GetJobResponseSchema, {
+            status: JobStatus.SUCCESS,
+            validationErrors: [],
+            identificationErrors: [],
+          })
+        )
+      );
+
+      const result = await getJob("job-123");
+
+      expect(result.status).toBe(JobStatus.SUCCESS);
+      expect(result.validationErrors).toEqual([]);
+      expect(result.identificationErrors).toEqual([]);
+      expect(mockUnaryFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        "portfoliodb.api.v1.ApiService/GetJob",
+        expect.any(Uint8Array),
+        { credentials: "include" }
+      );
+    });
+
+    it("returns validation and identification errors when failed", async () => {
+      mockUnaryFetch.mockResolvedValue(
+        toBinary(
+          GetJobResponseSchema,
+          create(GetJobResponseSchema, {
+            status: JobStatus.FAILED,
+            validationErrors: [{ rowIndex: 0, field: "timestamp", message: "required" }],
+            identificationErrors: [
+              { rowIndex: 1, instrumentDescription: "FOO", message: "broker-description-only" },
+            ],
+          })
+        )
+      );
+
+      const result = await getJob("job-456");
+
+      expect(result.status).toBe(JobStatus.FAILED);
+      expect(result.validationErrors).toHaveLength(1);
+      expect(result.validationErrors[0]).toMatchObject({ rowIndex: 0, field: "timestamp", message: "required" });
+      expect(result.identificationErrors).toHaveLength(1);
+      expect(result.identificationErrors[0].instrumentDescription).toBe("FOO");
     });
   });
 });

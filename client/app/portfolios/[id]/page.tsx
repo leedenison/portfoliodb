@@ -95,9 +95,17 @@ export default function PortfolioHoldingsPage() {
             )}
             {!loading && !error && portfolio && holdings && (
               <>
-                <h2 className="text-xl font-semibold text-slate-800">
-                  Holdings – {portfolio.name}
-                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-xl font-semibold text-slate-800">
+                    Holdings – {portfolio.name}
+                  </h2>
+                  <Link
+                    href={`/portfolios/${id}/upload`}
+                    className="text-sm text-slate-600 underline hover:text-slate-800"
+                  >
+                    Upload transactions
+                  </Link>
+                </div>
                 {holdings.asOf && (
                   <p className="text-xs text-slate-500">
                     As of {holdings.asOf.toLocaleString()}

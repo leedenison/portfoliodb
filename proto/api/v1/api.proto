@@ -83,6 +83,8 @@ message Tx {
   double unit_price = 7;
   // Resolved instrument id (UUID). Set by identification during ingestion.
   string instrument_id = 8;
+  // Account (opaque string). Required.
+  string account = 9;
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,
@@ -94,8 +96,10 @@ service ApiService {
   rpc CreatePortfolio(CreatePortfolioRequest) returns (CreatePortfolioResponse);
   rpc UpdatePortfolio(UpdatePortfolioRequest) returns (UpdatePortfolioResponse);
   rpc DeletePortfolio(DeletePortfolioRequest) returns (DeletePortfolioResponse);
+  rpc GetPortfolioFilters(GetPortfolioFiltersRequest) returns (GetPortfolioFiltersResponse);
+  rpc SetPortfolioFilters(SetPortfolioFiltersRequest) returns (SetPortfolioFiltersResponse);
 
-  // Transactions and holdings for a portfolio
+  // Transactions and holdings: by portfolio view (portfolio_id set) or all user data (portfolio_id empty). Filtering is via portfolios only.
   rpc ListTxs(ListTxsRequest) returns (ListTxsResponse);
   rpc GetHoldings(GetHoldingsRequest) returns (GetHoldingsResponse);
 
@@ -156,16 +160,37 @@ message DeletePortfolioRequest {
 
 message DeletePortfolioResponse {}
 
-// PortfolioTx pairs a transaction with its broker and optional resolved instrument for list responses.
+// Portfolio filter: one of broker, account, or instrument. filter_value is broker name, account string, or instrument UUID.
+message PortfolioFilterProto {
+  string filter_type = 1;   // "broker", "account", "instrument"
+  string filter_value = 2;
+}
+
+message GetPortfolioFiltersRequest {
+  string portfolio_id = 1;
+}
+
+message GetPortfolioFiltersResponse {
+  repeated PortfolioFilterProto filters = 1;
+}
+
+message SetPortfolioFiltersRequest {
+  string portfolio_id = 1;
+  repeated PortfolioFilterProto filters = 2;
+}
+
+message SetPortfolioFiltersResponse {}
+
+// PortfolioTx pairs a transaction with its broker, account, and optional resolved instrument for list responses.
 message PortfolioTx {
   Broker broker = 1;
   Tx tx = 2;
   Instrument instrument = 3;  // optional; set when instrument_id was resolved
+  string account = 4;  // from Tx; echoed for convenience when listing
 }
 
 message ListTxsRequest {
-  string portfolio_id = 1;
-  Broker broker = 2;
+  string portfolio_id = 7;  // if set, list txs in this portfolio view; otherwise all user transactions
   google.protobuf.Timestamp period_from = 3;
   google.protobuf.Timestamp period_to = 4;
   int32 page_size = 5;
@@ -177,7 +202,7 @@ message ListTxsResponse {
   string next_page_token = 2;
 }
 
-// Holding is the aggregate quantity of an instrument in a portfolio.
+// Holding is the aggregate quantity of an instrument in a portfolio (or per account for user/portfolio views).
 message Holding {
   Broker broker = 1;
   string instrument_description = 2;
@@ -185,6 +210,7 @@ message Holding {
   // Resolved instrument id (UUID). Set when identification ran for the underlying txs.
   string instrument_id = 4;
   Instrument instrument = 5;  // optional; set when instrument_id was resolved
+  string account = 6;  // account string from txs; holdings are grouped by (broker, account, instrument)
 }
 
 message GetHoldingsRequest {

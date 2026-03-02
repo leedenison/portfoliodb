@@ -72,7 +72,7 @@ function parseCSVLine(line: string): string[] {
 
 /**
  * Parse standard-format CSV text into Tx array and period.
- * Header names are case-insensitive. Columns: date (or timestamp), instrument_description, type, quantity, currency (optional), unit_price (optional).
+ * Header names are case-insensitive. Columns: date (or timestamp), instrument_description, type, quantity, currency (optional), unit_price (optional), account (optional).
  */
 export function parseStandardCSV(csvText: string): StandardParseResult {
   const errors: ParseError[] = [];
@@ -97,6 +97,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
   const qtyCol = col("quantity");
   const currencyCol = col("currency");
   const priceCol = col("unit_price");
+  const accountCol = col("account");
 
   if (dateCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: date or timestamp" });
   if (descCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: instrument_description" });
@@ -148,6 +149,8 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
       continue;
     }
 
+    const account = accountCol >= 0 ? get(accountCol) : "";
+
     const ts = date.getTime();
     if (ts < minTime) minTime = ts;
     if (ts > maxTime) maxTime = ts;
@@ -158,6 +161,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
         instrumentDescription,
         type: txType,
         quantity,
+        account,
         ...(currency ? { currency } : {}),
         ...(unitPrice !== undefined && !Number.isNaN(unitPrice) ? { unitPrice } : {}),
       })

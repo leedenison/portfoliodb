@@ -22,17 +22,17 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 	from := timestamppb.Now()
 	to := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: from, InstrumentDescription: "UNKNOWN", Type: apiv1.TxType_BUYSTOCK, Quantity: 1},
+		{Timestamp: from, InstrumentDescription: "UNKNOWN", Type: apiv1.TxType_BUYSTOCK, Quantity: 1, Account: ""},
 	}
 	j := &JobRequest{
-		JobID:       "job-1",
-		PortfolioID: "port-1",
-		Broker:      "IBKR",
-		Source:      "IBKR:test:statement",
-		Bulk:        true,
-		PeriodFrom:  from,
-		PeriodTo:    to,
-		Txs:         txs,
+		JobID:      "job-1",
+		UserID:     "user-1",
+		Broker:     "IBKR",
+		Source:     "IBKR:test:statement",
+		Bulk:       true,
+		PeriodFrom: from,
+		PeriodTo:   to,
+		Txs:        txs,
 	}
 
 	// processBulk: SetJobStatus RUNNING already done in processJob
@@ -65,7 +65,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 			return nil
 		})
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "port-1", "IBKR", from, to, txs, []string{"broker-only-id"}).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", from, to, txs, []string{"broker-only-id"}).
 		Return(nil)
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-1", apiv1.JobStatus_SUCCESS).
@@ -85,18 +85,18 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	to := timestamppb.Now()
 	// Two txs with same instrument description - should resolve once and use cache for second
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(from.AsTime().Add(-1)), InstrumentDescription: "CACHED", Type: apiv1.TxType_BUYSTOCK, Quantity: 1},
-		{Timestamp: timestamppb.New(from.AsTime().Add(1)), InstrumentDescription: "CACHED", Type: apiv1.TxType_BUYSTOCK, Quantity: 2},
+		{Timestamp: timestamppb.New(from.AsTime().Add(-1)), InstrumentDescription: "CACHED", Type: apiv1.TxType_BUYSTOCK, Quantity: 1, Account: ""},
+		{Timestamp: timestamppb.New(from.AsTime().Add(1)), InstrumentDescription: "CACHED", Type: apiv1.TxType_BUYSTOCK, Quantity: 2, Account: ""},
 	}
 	j := &JobRequest{
-		JobID:       "job-2",
-		PortfolioID: "port-1",
-		Broker:      "IBKR",
-		Source:      "IBKR:test:statement",
-		Bulk:        true,
-		PeriodFrom:  from,
-		PeriodTo:    to,
-		Txs:         txs,
+		JobID:      "job-2",
+		UserID:     "user-1",
+		Broker:     "IBKR",
+		Source:     "IBKR:test:statement",
+		Bulk:       true,
+		PeriodFrom: from,
+		PeriodTo:   to,
+		Txs:        txs,
 	}
 
 	database.EXPECT().
@@ -117,7 +117,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		AppendIdentificationErrors(gomock.Any(), "job-2", gomock.Any()).
 		Return(nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "port-1", "IBKR", from, to, txs, []string{"cached-inst-id", "cached-inst-id"}).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", from, to, txs, []string{"cached-inst-id", "cached-inst-id"}).
 		Return(nil)
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-2", apiv1.JobStatus_SUCCESS).

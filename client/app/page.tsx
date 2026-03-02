@@ -1,12 +1,31 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { SignInButton } from "./components/sign-in";
 import { AppHeader } from "./components/app-header";
-import { PortfolioList } from "./components/portfolio-list";
 import { useAuth } from "@/contexts/auth-context";
 
 export default function Home() {
+  const router = useRouter();
   const { state, authError } = useAuth();
+
+  useEffect(() => {
+    if (state.status === "authenticated") {
+      router.replace("/holdings");
+    }
+  }, [state.status, router]);
+
+  if (state.status === "authenticated") {
+    return (
+      <main className="flex min-h-screen flex-col">
+        <AppHeader />
+        <div className="flex flex-1 items-center justify-center px-4 py-8">
+          <p className="text-slate-500">Loading…</p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="flex min-h-screen flex-col">
@@ -32,9 +51,6 @@ export default function Home() {
               </p>
             )}
           </div>
-        )}
-        {state.status === "authenticated" && (
-          <PortfolioList />
         )}
       </div>
     </main>

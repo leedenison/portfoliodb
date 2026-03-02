@@ -75,8 +75,10 @@ func TestAPI_Unauthenticated(t *testing.T) {
 		{"CreatePortfolio", func() error { _, err := srv.CreatePortfolio(ctx, &apiv1.CreatePortfolioRequest{Name: "x"}); return err }},
 		{"UpdatePortfolio", func() error { _, err := srv.UpdatePortfolio(ctx, &apiv1.UpdatePortfolioRequest{PortfolioId: "p", Name: "x"}); return err }},
 		{"DeletePortfolio", func() error { _, err := srv.DeletePortfolio(ctx, &apiv1.DeletePortfolioRequest{PortfolioId: "p"}); return err }},
-		{"ListTxs", func() error { _, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "p"}); return err }},
-		{"GetHoldings", func() error { _, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{PortfolioId: "p"}); return err }},
+		{"ListTxs", func() error { _, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{}); return err }},
+		{"GetHoldings", func() error { _, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{}); return err }},
+		{"GetPortfolioFilters", func() error { _, err := srv.GetPortfolioFilters(ctx, &apiv1.GetPortfolioFiltersRequest{PortfolioId: "p"}); return err }},
+		{"SetPortfolioFilters", func() error { _, err := srv.SetPortfolioFilters(ctx, &apiv1.SetPortfolioFiltersRequest{PortfolioId: "p"}); return err }},
 		{"GetJob", func() error { _, err := srv.GetJob(ctx, &apiv1.GetJobRequest{JobId: "job-1"}); return err }},
 		{"ExportInstruments", func() error {
 			stream := &exportStreamMock{ctx: context.Background()}
@@ -105,8 +107,6 @@ func TestAPI_InvalidArgument(t *testing.T) {
 		{"CreatePortfolio_empty_name", func() error { _, err := srv.CreatePortfolio(ctx, &apiv1.CreatePortfolioRequest{}); return err }},
 		{"UpdatePortfolio_empty_portfolio_id", func() error { _, err := srv.UpdatePortfolio(ctx, &apiv1.UpdatePortfolioRequest{Name: "x"}); return err }},
 		{"DeletePortfolio_empty_portfolio_id", func() error { _, err := srv.DeletePortfolio(ctx, &apiv1.DeletePortfolioRequest{}); return err }},
-		{"ListTxs_empty_portfolio_id", func() error { _, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{}); return err }},
-		{"GetHoldings_empty_portfolio_id", func() error { _, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{}); return err }},
 		{"GetJob_empty_job_id", func() error { _, err := srv.GetJob(ctx, &apiv1.GetJobRequest{}); return err }},
 	}
 	for _, tc := range tests {
@@ -325,20 +325,49 @@ func TestDeletePortfolio_Success(t *testing.T) {
 	}
 }
 
-func TestListTxs_NotFound(t *testing.T) {
+func TestListTxs_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
+	txs := []*apiv1.PortfolioTx{{Broker: apiv1.Broker_IBKR, Tx: &apiv1.Tx{InstrumentDescription: "AAPL"}}}
 	db := mock.NewMockDB(ctrl)
 	db.EXPECT().
-		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
-		Return(false, nil)
+		ListTxs(gomock.Any(), "user-1", (*apiv1.Broker)(nil), "", (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), int32(50), "").
+		Return(txs, "", nil)
 	srv := NewServer(db)
 	ctx := authCtx("user-1", "sub|1")
-	_, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "port-1"})
-	requireGRPCCode(t, err, codes.NotFound)
+	resp, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{})
+	if err != nil {
+		t.Fatalf("ListTxs: %v", err)
+	}
+	if len(resp.GetTxs()) != 1 || resp.GetTxs()[0].GetTx().GetInstrumentDescription() != "AAPL" {
+		t.Fatalf("got %v", resp.GetTxs())
+	}
 }
 
-func TestListTxs_Success(t *testing.T) {
+func TestGetHoldings_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	holdings := []*apiv1.Holding{{InstrumentDescription: "AAPL", Quantity: 10}}
+	asOf := timestamppb.Now()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		ComputeHoldings(gomock.Any(), "user-1", (*apiv1.Broker)(nil), "", (*timestamppb.Timestamp)(nil)).
+		Return(holdings, asOf, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{})
+	if err != nil {
+		t.Fatalf("GetHoldings: %v", err)
+	}
+	if len(resp.GetHoldings()) != 1 || resp.GetHoldings()[0].GetInstrumentDescription() != "AAPL" {
+		t.Fatalf("got %v", resp.GetHoldings())
+	}
+	if resp.GetAsOf() == nil {
+		t.Fatal("asOf should be set")
+	}
+}
+
+func TestListTxs_WithPortfolioId_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	txs := []*apiv1.PortfolioTx{{Broker: apiv1.Broker_IBKR, Tx: &apiv1.Tx{InstrumentDescription: "AAPL"}}}
@@ -347,7 +376,7 @@ func TestListTxs_Success(t *testing.T) {
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
 		Return(true, nil)
 	db.EXPECT().
-		ListTxs(gomock.Any(), "port-1", (*apiv1.Broker)(nil), (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), int32(50), "").
+		ListTxsByPortfolio(gomock.Any(), "port-1", (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), int32(50), "").
 		Return(txs, "", nil)
 	srv := NewServer(db)
 	ctx := authCtx("user-1", "sub|1")
@@ -360,7 +389,43 @@ func TestListTxs_Success(t *testing.T) {
 	}
 }
 
-func TestGetHoldings_NotFound(t *testing.T) {
+func TestListTxs_WithPortfolioId_NotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(false, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "port-1"})
+	requireGRPCCode(t, err, codes.NotFound)
+}
+
+func TestGetHoldings_WithPortfolioId_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	holdings := []*apiv1.Holding{{InstrumentDescription: "AAPL", Quantity: 10}}
+	asOf := timestamppb.Now()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(true, nil)
+	db.EXPECT().
+		ComputeHoldingsForPortfolio(gomock.Any(), "port-1", (*timestamppb.Timestamp)(nil)).
+		Return(holdings, asOf, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{PortfolioId: "port-1"})
+	if err != nil {
+		t.Fatalf("GetHoldings: %v", err)
+	}
+	if len(resp.GetHoldings()) != 1 || resp.GetHoldings()[0].GetInstrumentDescription() != "AAPL" {
+		t.Fatalf("got %v", resp.GetHoldings())
+	}
+}
+
+func TestGetHoldings_WithPortfolioId_NotFound(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	db := mock.NewMockDB(ctrl)
@@ -373,30 +438,86 @@ func TestGetHoldings_NotFound(t *testing.T) {
 	requireGRPCCode(t, err, codes.NotFound)
 }
 
-func TestGetHoldings_Success(t *testing.T) {
+func TestGetPortfolioFilters_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	holdings := []*apiv1.Holding{{InstrumentDescription: "AAPL", Quantity: 10}}
-	asOf := timestamppb.Now()
 	db := mock.NewMockDB(ctrl)
 	db.EXPECT().
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
 		Return(true, nil)
 	db.EXPECT().
-		ComputeHoldings(gomock.Any(), "port-1", (*timestamppb.Timestamp)(nil)).
-		Return(holdings, asOf, nil)
+		ListPortfolioFilters(gomock.Any(), "port-1").
+		Return([]dbpkg.PortfolioFilter{{FilterType: "broker", FilterValue: "IBKR"}}, nil)
 	srv := NewServer(db)
 	ctx := authCtx("user-1", "sub|1")
-	resp, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{PortfolioId: "port-1"})
+	resp, err := srv.GetPortfolioFilters(ctx, &apiv1.GetPortfolioFiltersRequest{PortfolioId: "port-1"})
 	if err != nil {
-		t.Fatalf("GetHoldings: %v", err)
+		t.Fatalf("GetPortfolioFilters: %v", err)
 	}
-	if len(resp.GetHoldings()) != 1 || resp.GetHoldings()[0].GetInstrumentDescription() != "AAPL" {
-		t.Fatalf("got %v", resp.GetHoldings())
+	if len(resp.GetFilters()) != 1 || resp.GetFilters()[0].GetFilterType() != "broker" || resp.GetFilters()[0].GetFilterValue() != "IBKR" {
+		t.Fatalf("got %v", resp.GetFilters())
 	}
-	if resp.GetAsOf() == nil {
-		t.Fatal("asOf should be set")
+}
+
+func TestGetPortfolioFilters_EmptyPortfolioId(t *testing.T) {
+	srv := NewServer(mock.NewMockDB(gomock.NewController(t)))
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.GetPortfolioFilters(ctx, &apiv1.GetPortfolioFiltersRequest{})
+	requireGRPCCode(t, err, codes.InvalidArgument)
+}
+
+func TestGetPortfolioFilters_NotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(false, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.GetPortfolioFilters(ctx, &apiv1.GetPortfolioFiltersRequest{PortfolioId: "port-1"})
+	requireGRPCCode(t, err, codes.NotFound)
+}
+
+func TestSetPortfolioFilters_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(true, nil)
+	db.EXPECT().
+		SetPortfolioFilters(gomock.Any(), "port-1", []dbpkg.PortfolioFilter{{FilterType: "broker", FilterValue: "IBKR"}}).
+		Return(nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.SetPortfolioFilters(ctx, &apiv1.SetPortfolioFiltersRequest{
+		PortfolioId: "port-1",
+		Filters:     []*apiv1.PortfolioFilterProto{{FilterType: "broker", FilterValue: "IBKR"}},
+	})
+	if err != nil {
+		t.Fatalf("SetPortfolioFilters: %v", err)
 	}
+}
+
+func TestSetPortfolioFilters_EmptyPortfolioId(t *testing.T) {
+	srv := NewServer(mock.NewMockDB(gomock.NewController(t)))
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.SetPortfolioFilters(ctx, &apiv1.SetPortfolioFiltersRequest{Filters: []*apiv1.PortfolioFilterProto{{FilterType: "broker", FilterValue: "IBKR"}}})
+	requireGRPCCode(t, err, codes.InvalidArgument)
+}
+
+func TestSetPortfolioFilters_NotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mock.NewMockDB(ctrl)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(false, nil)
+	srv := NewServer(db)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.SetPortfolioFilters(ctx, &apiv1.SetPortfolioFiltersRequest{PortfolioId: "port-1", Filters: nil})
+	requireGRPCCode(t, err, codes.NotFound)
 }
 
 func TestGetJob_NotFound(t *testing.T) {
@@ -418,10 +539,7 @@ func TestGetJob_Success(t *testing.T) {
 	db := mock.NewMockDB(ctrl)
 	db.EXPECT().
 		GetJob(gomock.Any(), "job-1").
-		Return(apiv1.JobStatus_PENDING, nil, nil, "port-1", nil)
-	db.EXPECT().
-		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
-		Return(true, nil)
+		Return(apiv1.JobStatus_PENDING, nil, nil, "user-1", nil)
 	srv := NewServer(db)
 	ctx := authCtx("user-1", "sub|1")
 	resp, err := srv.GetJob(ctx, &apiv1.GetJobRequest{JobId: "job-1"})

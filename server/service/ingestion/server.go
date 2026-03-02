@@ -30,16 +30,6 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 	if u == nil || u.ID == "" {
 		return nil, status.Error(codes.Unauthenticated, "missing user")
 	}
-	if req.GetPortfolioId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "portfolio_id required")
-	}
-	ok, err := s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	if !ok {
-		return nil, status.Error(codes.PermissionDenied, "portfolio not owned by user")
-	}
 	if err := ValidateBroker(req.Broker); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Message)
 	}
@@ -51,7 +41,7 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 		return nil, status.Error(codes.InvalidArgument, periodErrs[0].Message)
 	}
 	brokerStr, _ := brokerToString(req.Broker)
-	jobID, err := s.db.CreateJob(ctx, req.GetPortfolioId(), brokerStr, req.GetSource(), req.PeriodFrom, req.PeriodTo)
+	jobID, err := s.db.CreateJob(ctx, u.ID, brokerStr, req.GetSource(), req.PeriodFrom, req.PeriodTo)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -61,14 +51,14 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 	}
 	select {
 	case s.queue <- &JobRequest{
-		JobID:       jobID,
-		PortfolioID: req.GetPortfolioId(),
-		Broker:      brokerStr,
-		Source:      req.GetSource(),
-		Bulk:        true,
-		PeriodFrom:  req.PeriodFrom,
-		PeriodTo:    req.PeriodTo,
-		Txs:         txs,
+		JobID:      jobID,
+		UserID:     u.ID,
+		Broker:     brokerStr,
+		Source:     req.GetSource(),
+		Bulk:       true,
+		PeriodFrom: req.PeriodFrom,
+		PeriodTo:   req.PeriodTo,
+		Txs:        txs,
 	}:
 	default:
 		return nil, status.Error(codes.Unavailable, "job queue full")
@@ -82,16 +72,6 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 	if u == nil || u.ID == "" {
 		return nil, status.Error(codes.Unauthenticated, "missing user")
 	}
-	if req.GetPortfolioId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "portfolio_id required")
-	}
-	ok, err := s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	if !ok {
-		return nil, status.Error(codes.PermissionDenied, "portfolio not owned by user")
-	}
 	if err := ValidateBroker(req.Broker); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Message)
 	}
@@ -102,18 +82,18 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 		return nil, status.Error(codes.InvalidArgument, "tx required")
 	}
 	brokerStr, _ := brokerToString(req.Broker)
-	jobID, err := s.db.CreateJob(ctx, req.GetPortfolioId(), brokerStr, req.GetSource(), nil, nil)
+	jobID, err := s.db.CreateJob(ctx, u.ID, brokerStr, req.GetSource(), nil, nil)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	select {
 	case s.queue <- &JobRequest{
-		JobID:       jobID,
-		PortfolioID: req.GetPortfolioId(),
-		Broker:      brokerStr,
-		Source:      req.GetSource(),
-		Bulk:        false,
-		Tx:          req.Tx,
+		JobID:  jobID,
+		UserID: u.ID,
+		Broker: brokerStr,
+		Source: req.GetSource(),
+		Bulk:   false,
+		Tx:     req.Tx,
 	}:
 	default:
 		return nil, status.Error(codes.Unavailable, "job queue full")

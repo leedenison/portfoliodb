@@ -447,6 +447,54 @@ func (p *Postgres) PortfolioBelongsToUser(ctx context.Context, portfolioID, user
 	return true, nil
 }
 
+// ListPortfolioFilters implements db.PortfolioDB.
+func (p *Postgres) ListPortfolioFilters(ctx context.Context, portfolioID string) ([]db.PortfolioFilter, error) {
+	portUUID, err := uuid.Parse(portfolioID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid portfolio id: %w", err)
+	}
+	rows, err := p.q.QueryContext(ctx, `SELECT filter_type, filter_value FROM portfolio_filters WHERE portfolio_id = $1`, portUUID)
+	if err != nil {
+		return nil, fmt.Errorf("list portfolio filters: %w", err)
+	}
+	defer rows.Close()
+	var out []db.PortfolioFilter
+	for rows.Next() {
+		var f db.PortfolioFilter
+		if err := rows.Scan(&f.FilterType, &f.FilterValue); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SetPortfolioFilters implements db.PortfolioDB.
+func (p *Postgres) SetPortfolioFilters(ctx context.Context, portfolioID string, filters []db.PortfolioFilter) error {
+	portUUID, err := uuid.Parse(portfolioID)
+	if err != nil {
+		return fmt.Errorf("invalid portfolio id: %w", err)
+	}
+	return p.runInTx(ctx, func(exec queryable) error {
+		if _, err := exec.ExecContext(ctx, `DELETE FROM portfolio_filters WHERE portfolio_id = $1`, portUUID); err != nil {
+			return fmt.Errorf("delete portfolio filters: %w", err)
+		}
+		for _, f := range filters {
+			if f.FilterType != "broker" && f.FilterType != "account" && f.FilterType != "instrument" {
+				return fmt.Errorf("invalid filter_type %q", f.FilterType)
+			}
+			if _, err := exec.ExecContext(ctx, `INSERT INTO portfolio_filters (portfolio_id, filter_type, filter_value) VALUES ($1, $2, $3)`,
+				portUUID, f.FilterType, f.FilterValue); err != nil {
+				return fmt.Errorf("insert portfolio filter: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
 // runInTx runs f inside a transaction. When p.q is *sql.DB it begins a new tx, runs f, and commits; when p.q is *sql.Tx (e.g. in tests) it runs f on that tx and does not commit.
 func (p *Postgres) runInTx(ctx context.Context, f func(exec queryable) error) error {
 	switch q := p.q.(type) {
@@ -468,10 +516,10 @@ func (p *Postgres) runInTx(ctx context.Context, f func(exec queryable) error) er
 }
 
 // ReplaceTxsInPeriod implements db.TxDB.
-func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string) error {
-	portUUID, err := uuid.Parse(portfolioID)
+func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string) error {
+	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return fmt.Errorf("invalid portfolio id: %w", err)
+		return fmt.Errorf("invalid user id: %w", err)
 	}
 	if len(instrumentIDs) != len(txs) {
 		return fmt.Errorf("instrumentIDs length %d != txs length %d", len(instrumentIDs), len(txs))
@@ -486,8 +534,8 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker s
 			return fmt.Errorf("period_to: %w", err)
 		}
 		_, err = exec.ExecContext(ctx, `
-			DELETE FROM txs WHERE portfolio_id = $1 AND broker = $2 AND timestamp >= $3 AND timestamp <= $4
-		`, portUUID, broker, fromT, toT)
+			DELETE FROM txs WHERE user_id = $1 AND broker = $2 AND timestamp >= $3 AND timestamp <= $4
+		`, userUUID, broker, fromT, toT)
 		if err != nil {
 			return fmt.Errorf("delete txs in period: %w", err)
 		}
@@ -504,10 +552,11 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker s
 			if err != nil {
 				return err
 			}
+			acc := t.GetAccount()
 			_, err = exec.ExecContext(ctx, `
-				INSERT INTO txs (portfolio_id, broker, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-			`, portUUID, broker, ts, t.InstrumentDescription, txTypeStr, t.Quantity, nullStr(t.Currency), nullFloat(t.UnitPrice), instUUID)
+				INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			`, userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, t.Quantity, nullStr(t.Currency), nullFloat(t.UnitPrice), instUUID)
 			if err != nil {
 				return fmt.Errorf("insert tx: %w", err)
 			}
@@ -561,10 +610,10 @@ func nullFloat(f float64) interface{} {
 }
 
 // CreateTx implements db.TxDB.
-func (p *Postgres) CreateTx(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx, instrumentID string) error {
-	portUUID, err := uuid.Parse(portfolioID)
+func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account string, tx *apiv1.Tx, instrumentID string) error {
+	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return fmt.Errorf("invalid portfolio id: %w", err)
+		return fmt.Errorf("invalid user id: %w", err)
 	}
 	instUUID, err := uuid.Parse(instrumentID)
 	if err != nil {
@@ -579,9 +628,9 @@ func (p *Postgres) CreateTx(ctx context.Context, portfolioID, broker string, tx 
 		return err
 	}
 	_, err = p.q.ExecContext(ctx, `
-		INSERT INTO txs (portfolio_id, broker, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, portUUID, broker, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity, nullStr(tx.Currency), nullFloat(tx.UnitPrice), instUUID)
+		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, userUUID, broker, account, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity, nullStr(tx.Currency), nullFloat(tx.UnitPrice), instUUID)
 	if err != nil {
 		return fmt.Errorf("create tx: %w", err)
 	}
@@ -589,20 +638,20 @@ func (p *Postgres) CreateTx(ctx context.Context, portfolioID, broker string, tx 
 }
 
 // ListTxs implements db.TxDB.
-func (p *Postgres) ListTxs(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodTo *timestamppb.Timestamp, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
-	portUUID, err := uuid.Parse(portfolioID)
+func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Broker, account string, periodFrom, periodTo *timestamppb.Timestamp, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
+	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid portfolio id: %w", err)
+		return nil, "", fmt.Errorf("invalid user id: %w", err)
 	}
 	limit := pageSize
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
 	q := `
-		SELECT broker, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id
-		FROM txs WHERE portfolio_id = $1
+		SELECT broker, account, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id
+		FROM txs WHERE user_id = $1
 	`
-	args := []interface{}{portUUID}
+	args := []interface{}{userUUID}
 	argNum := 2
 	if broker != nil {
 		brokerStr, err := brokerToStr(*broker)
@@ -611,6 +660,11 @@ func (p *Postgres) ListTxs(ctx context.Context, portfolioID string, broker *apiv
 		}
 		q += fmt.Sprintf(" AND broker = $%d", argNum)
 		args = append(args, brokerStr)
+		argNum++
+	}
+	if account != "" {
+		q += fmt.Sprintf(" AND account = $%d", argNum)
+		args = append(args, account)
 		argNum++
 	}
 	if periodFrom != nil {
@@ -648,14 +702,14 @@ func (p *Postgres) ListTxs(ctx context.Context, portfolioID string, broker *apiv
 	var out []*apiv1.PortfolioTx
 	var n int32
 	for rows.Next() && n < limit {
-		var brokerStr string
+		var brokerStr, accStr string
 		var ts time.Time
 		var instDesc, txTypeStr string
 		var qty float64
 		var currency sql.NullString
 		var unitPrice sql.NullFloat64
 		var instrumentID sql.NullString
-		if err := rows.Scan(&brokerStr, &ts, &instDesc, &txTypeStr, &qty, &currency, &unitPrice, &instrumentID); err != nil {
+		if err := rows.Scan(&brokerStr, &accStr, &ts, &instDesc, &txTypeStr, &qty, &currency, &unitPrice, &instrumentID); err != nil {
 			return nil, "", err
 		}
 		tx := &apiv1.Tx{
@@ -663,6 +717,7 @@ func (p *Postgres) ListTxs(ctx context.Context, portfolioID string, broker *apiv
 			InstrumentDescription: instDesc,
 			Type:                  strToTxType(txTypeStr),
 			Quantity:              qty,
+			Account:               accStr,
 		}
 		if currency.Valid {
 			tx.Currency = currency.String
@@ -674,8 +729,116 @@ func (p *Postgres) ListTxs(ctx context.Context, portfolioID string, broker *apiv
 			tx.InstrumentId = instrumentID.String
 		}
 		out = append(out, &apiv1.PortfolioTx{
-			Broker: strToBroker(brokerStr),
-			Tx:     tx,
+			Broker:  strToBroker(brokerStr),
+			Tx:      tx,
+			Account: accStr,
+		})
+		n++
+	}
+	nextToken := ""
+	if n == limit {
+		nextToken = base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(offset+int64(limit), 10)))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	return out, nextToken, nil
+}
+
+// ListTxsByPortfolio implements db.TxDB. Returns txs that match any of the portfolio's filters (OR), deduped.
+func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, periodFrom, periodTo *timestamppb.Timestamp, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
+	portUUID, err := uuid.Parse(portfolioID)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid portfolio id: %w", err)
+	}
+	limit := pageSize
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	q := `
+		WITH matched AS (
+			SELECT DISTINCT t.id
+			FROM txs t
+			INNER JOIN portfolio_filters f ON f.portfolio_id = $1::uuid
+				AND (
+					(f.filter_type = 'broker' AND t.broker = f.filter_value)
+					OR (f.filter_type = 'account' AND t.account = f.filter_value)
+					OR (f.filter_type = 'instrument' AND t.instrument_id IS NOT NULL AND t.instrument_id::text = f.filter_value)
+				)
+			WHERE t.user_id = (SELECT user_id FROM portfolios WHERE id = $2::uuid)
+		)
+		SELECT t.broker, t.account, t.timestamp, t.instrument_description, t.tx_type, t.quantity, t.currency, t.unit_price, t.instrument_id
+		FROM txs t
+		INNER JOIN matched m ON m.id = t.id
+		WHERE 1=1
+	`
+	args := []interface{}{portUUID, portUUID}
+	argNum := 3
+	if periodFrom != nil {
+		fromT, err := tsToTime(periodFrom)
+		if err != nil {
+			return nil, "", fmt.Errorf("period_from: %w", err)
+		}
+		q += fmt.Sprintf(" AND t.timestamp >= $%d", argNum)
+		args = append(args, fromT)
+		argNum++
+	}
+	if periodTo != nil {
+		toT, err := tsToTime(periodTo)
+		if err != nil {
+			return nil, "", fmt.Errorf("period_to: %w", err)
+		}
+		q += fmt.Sprintf(" AND t.timestamp <= $%d", argNum)
+		args = append(args, toT)
+		argNum++
+	}
+	q += " ORDER BY t.timestamp LIMIT $" + strconv.Itoa(argNum) + " OFFSET $" + strconv.Itoa(argNum+1)
+	offset := int64(0)
+	if pageToken != "" {
+		b, err := base64.StdEncoding.DecodeString(pageToken)
+		if err == nil {
+			offset, _ = strconv.ParseInt(string(b), 10, 64)
+		}
+	}
+	args = append(args, limit+1, offset)
+	rows, err := p.q.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("list txs by portfolio: %w", err)
+	}
+	defer rows.Close()
+	var out []*apiv1.PortfolioTx
+	var n int32
+	for rows.Next() && n < limit {
+		var brokerStr, accStr string
+		var ts time.Time
+		var instDesc, txTypeStr string
+		var qty float64
+		var currency sql.NullString
+		var unitPrice sql.NullFloat64
+		var instrumentID sql.NullString
+		if err := rows.Scan(&brokerStr, &accStr, &ts, &instDesc, &txTypeStr, &qty, &currency, &unitPrice, &instrumentID); err != nil {
+			return nil, "", err
+		}
+		tx := &apiv1.Tx{
+			Timestamp:             timeToTs(ts),
+			InstrumentDescription: instDesc,
+			Type:                  strToTxType(txTypeStr),
+			Quantity:              qty,
+			Account:               accStr,
+		}
+		if currency.Valid {
+			tx.Currency = currency.String
+		}
+		if unitPrice.Valid {
+			tx.UnitPrice = unitPrice.Float64
+		}
+		if instrumentID.Valid {
+			tx.InstrumentId = instrumentID.String
+		}
+		out = append(out, &apiv1.PortfolioTx{
+			Broker:  strToBroker(brokerStr),
+			Tx:      tx,
+			Account: accStr,
 		})
 		n++
 	}
@@ -690,7 +853,75 @@ func (p *Postgres) ListTxs(ctx context.Context, portfolioID string, broker *apiv
 }
 
 // ComputeHoldings implements db.HoldingsDB.
-func (p *Postgres) ComputeHoldings(ctx context.Context, portfolioID string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error) {
+func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *apiv1.Broker, account string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error) {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	asOfT := time.Now().UTC()
+	if asOf != nil && asOf.IsValid() {
+		asOfT = asOf.AsTime()
+	}
+	q := `
+		SELECT broker, account, instrument_description, instrument_id,
+			SUM(quantity) AS quantity
+		FROM txs
+		WHERE user_id = $1 AND timestamp <= $2
+	`
+	args := []interface{}{userUUID, asOfT}
+	argNum := 3
+	if broker != nil {
+		brokerStr, err := brokerToStr(*broker)
+		if err != nil {
+			return nil, nil, err
+		}
+		q += fmt.Sprintf(" AND broker = $%d", argNum)
+		args = append(args, brokerStr)
+		argNum++
+	}
+	if account != "" {
+		q += fmt.Sprintf(" AND account = $%d", argNum)
+		args = append(args, account)
+		argNum++
+	}
+	q += `
+		GROUP BY broker, account, instrument_description, instrument_id
+		HAVING SUM(quantity) != 0
+	`
+	rows, err := p.q.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("compute holdings: %w", err)
+	}
+	defer rows.Close()
+	var out []*apiv1.Holding
+	for rows.Next() {
+		var brokerStr string
+		var acct string
+		var instDesc string
+		var instrumentID sql.NullString
+		var qty float64
+		if err := rows.Scan(&brokerStr, &acct, &instDesc, &instrumentID, &qty); err != nil {
+			return nil, nil, err
+		}
+		h := &apiv1.Holding{
+			Broker:                strToBroker(brokerStr),
+			InstrumentDescription: instDesc,
+			Quantity:              qty,
+			Account:               acct,
+		}
+		if instrumentID.Valid {
+			h.InstrumentId = instrumentID.String
+		}
+		out = append(out, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return out, timeToTs(asOfT), nil
+}
+
+// ComputeHoldingsForPortfolio implements db.HoldingsDB. Returns holdings for txs matching the portfolio's filters (OR), deduped.
+func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error) {
 	portUUID, err := uuid.Parse(portfolioID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid portfolio id: %w", err)
@@ -700,30 +931,43 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, portfolioID string, asOf
 		asOfT = asOf.AsTime()
 	}
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT broker, instrument_description, instrument_id,
-			SUM(quantity) AS quantity
-		FROM txs
-		WHERE portfolio_id = $1 AND timestamp <= $2
-		GROUP BY portfolio_id, broker, instrument_description, instrument_id
-		HAVING SUM(quantity) != 0
-	`, portUUID, asOfT)
+		WITH matched AS (
+			SELECT DISTINCT t.id
+			FROM txs t
+			INNER JOIN portfolio_filters f ON f.portfolio_id = $1::uuid
+				AND (
+					(f.filter_type = 'broker' AND t.broker = f.filter_value)
+					OR (f.filter_type = 'account' AND t.account = f.filter_value)
+					OR (f.filter_type = 'instrument' AND t.instrument_id IS NOT NULL AND t.instrument_id::text = f.filter_value)
+				)
+			WHERE t.user_id = (SELECT user_id FROM portfolios WHERE id = $2::uuid)
+		)
+		SELECT t.broker, t.account, t.instrument_description, t.instrument_id, SUM(t.quantity) AS quantity
+		FROM txs t
+		INNER JOIN matched m ON m.id = t.id
+		WHERE t.timestamp <= $3
+		GROUP BY t.broker, t.account, t.instrument_description, t.instrument_id
+		HAVING SUM(t.quantity) != 0
+	`, portUUID, portUUID, asOfT)
 	if err != nil {
-		return nil, nil, fmt.Errorf("compute holdings: %w", err)
+		return nil, nil, fmt.Errorf("compute holdings for portfolio: %w", err)
 	}
 	defer rows.Close()
 	var out []*apiv1.Holding
 	for rows.Next() {
 		var brokerStr string
+		var acct string
 		var instDesc string
 		var instrumentID sql.NullString
 		var qty float64
-		if err := rows.Scan(&brokerStr, &instDesc, &instrumentID, &qty); err != nil {
+		if err := rows.Scan(&brokerStr, &acct, &instDesc, &instrumentID, &qty); err != nil {
 			return nil, nil, err
 		}
 		h := &apiv1.Holding{
 			Broker:                strToBroker(brokerStr),
 			InstrumentDescription: instDesc,
 			Quantity:              qty,
+			Account:               acct,
 		}
 		if instrumentID.Valid {
 			h.InstrumentId = instrumentID.String
@@ -737,10 +981,10 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, portfolioID string, asOf
 }
 
 // CreateJob implements db.JobDB.
-func (p *Postgres) CreateJob(ctx context.Context, portfolioID, broker, source string, periodFrom, periodTo *timestamppb.Timestamp) (string, error) {
-	portUUID, err := uuid.Parse(portfolioID)
+func (p *Postgres) CreateJob(ctx context.Context, userID, broker, source string, periodFrom, periodTo *timestamppb.Timestamp) (string, error) {
+	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return "", fmt.Errorf("invalid portfolio id: %w", err)
+		return "", fmt.Errorf("invalid user id: %w", err)
 	}
 	var fromT, toT interface{}
 	if periodFrom != nil && periodFrom.IsValid() {
@@ -751,10 +995,10 @@ func (p *Postgres) CreateJob(ctx context.Context, portfolioID, broker, source st
 	}
 	var id uuid.UUID
 	err = p.q.QueryRowContext(ctx, `
-		INSERT INTO ingestion_jobs (portfolio_id, broker, source, period_from, period_to, status)
+		INSERT INTO ingestion_jobs (user_id, broker, source, period_from, period_to, status)
 		VALUES ($1, $2, $3, $4, $5, 'PENDING')
 		RETURNING id
-	`, portUUID, broker, source, fromT, toT).Scan(&id)
+	`, userUUID, broker, source, fromT, toT).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("create job: %w", err)
 	}
@@ -768,8 +1012,8 @@ func (p *Postgres) GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, [
 		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", fmt.Errorf("invalid job id: %w", err)
 	}
 	var statusStr string
-	var portfolioID uuid.UUID
-	err = p.q.QueryRowContext(ctx, `SELECT status, portfolio_id FROM ingestion_jobs WHERE id = $1`, jobUUID).Scan(&statusStr, &portfolioID)
+	var jobUserID uuid.UUID
+	err = p.q.QueryRowContext(ctx, `SELECT status, user_id FROM ingestion_jobs WHERE id = $1`, jobUUID).Scan(&statusStr, &jobUserID)
 	if err == sql.ErrNoRows {
 		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", nil
 	}
@@ -810,7 +1054,7 @@ func (p *Postgres) GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, [
 	if err := idRows.Err(); err != nil {
 		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", err
 	}
-	return strToJobStatus(statusStr), errs, idErrs, portfolioID.String(), nil
+	return strToJobStatus(statusStr), errs, idErrs, jobUserID.String(), nil
 }
 
 // SetJobStatus implements db.JobDB.

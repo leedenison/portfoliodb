@@ -42,6 +42,9 @@
 | T19     | Implement authentication in the backend.                                            |                    | M03       | Done   |
 | T20     | Create Envoy and Redis docker containers and configuration.                         |                    | M03       | Done   |
 | T21     | Implement initial SPA with authentication flow.                                     | T19                | M03       | Done   |
-| T22     | Create a UI to upload a CSV of transactions and select the 'standard' format.       | T21                | M04       |        |
-| T23     | Implement conversion from Fidelity CSV to the standard format (in-codebase pkg)     | T21                | M04       |        |
-| T24     | Implement UI to allow selection of broker specific format.                          | T21, T23           | M04       |        |
+| T22     | Create a UI to upload a CSV of transactions and select the 'standard' format.       | T21                | M04       | Done   |
+| T23     | Support segregation of holdings by account.                                         | T21                | M04       |        |
+| T24     | Implement conversion from Fidelity CSV to the standard format (in-codebase pkg)     | T21                | M04       |        |
+| T25     | Implement UI to allow selection of broker specific format.                          | T21, T24           | M04       |        |
+| T??     | Allow accounts to be tagged and portfolio performance to be filtered by tag.        |                    | M07       |        |
+

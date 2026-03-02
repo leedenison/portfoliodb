@@ -23,12 +23,23 @@ CREATE TABLE portfolios (
 
 CREATE INDEX idx_portfolios_user_id ON portfolios (user_id);
 
+-- Portfolio filters: a portfolio is a view over txs matching any of its filters (OR). filter_value is text (broker name, account string, or instrument UUID).
+CREATE TABLE portfolio_filters (
+  portfolio_id  UUID NOT NULL REFERENCES portfolios (id) ON DELETE CASCADE,
+  filter_type   TEXT NOT NULL CHECK (filter_type IN ('broker', 'account', 'instrument')),
+  filter_value  TEXT NOT NULL,
+  PRIMARY KEY (portfolio_id, filter_type, filter_value)
+);
+
+CREATE INDEX idx_portfolio_filters_portfolio ON portfolio_filters (portfolio_id);
+
 -- Transactions. No natural key (broker statements often supply date only). Bulk idempotency
--- by replace-by-period (portfolio_id, broker, period). Single-tx ingestion is append-only.
+-- by replace-by-period (user_id, broker, period). Single-tx ingestion is append-only.
 CREATE TABLE txs (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  portfolio_id          UUID NOT NULL REFERENCES portfolios (id) ON DELETE CASCADE,
+  user_id               UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   broker                TEXT NOT NULL CHECK (broker IN ('IBKR', 'SCHB')),
+  account               TEXT NOT NULL DEFAULT '',
   timestamp             TIMESTAMPTZ NOT NULL,
   instrument_description TEXT NOT NULL,
   tx_type               TEXT NOT NULL,
@@ -38,12 +49,12 @@ CREATE TABLE txs (
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_txs_portfolio_broker_time ON txs (portfolio_id, broker, timestamp);
+CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, timestamp);
 
 -- Async ingestion jobs. status and validation_errors surfaced via front-end API.
 CREATE TABLE ingestion_jobs (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  portfolio_id UUID NOT NULL REFERENCES portfolios (id) ON DELETE CASCADE,
+  user_id      UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   broker       TEXT NOT NULL CHECK (broker IN ('IBKR', 'SCHB')),
   source       TEXT NOT NULL,
   period_from  TIMESTAMPTZ,
@@ -52,7 +63,7 @@ CREATE TABLE ingestion_jobs (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_ingestion_jobs_portfolio ON ingestion_jobs (portfolio_id);
+CREATE INDEX idx_ingestion_jobs_user ON ingestion_jobs (user_id);
 CREATE INDEX idx_ingestion_jobs_status ON ingestion_jobs (status);
 
 -- Validation errors for async ingestion. row_index, field, message per API.

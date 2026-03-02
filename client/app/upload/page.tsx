@@ -2,12 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
 import { SignInButton } from "@/app/components/sign-in";
-import { AppHeader } from "@/app/components/app-header";
+import { AppShell } from "@/app/components/app-shell";
 import { useAuth } from "@/contexts/auth-context";
-import { getJob, getPortfolio } from "@/lib/portfolio-api";
-import type { Portfolio } from "@/lib/portfolio-api";
+import { getJob } from "@/lib/portfolio-api";
 import { upsertTxs } from "@/lib/ingestion-api";
 import { parseStandardCSV } from "@/lib/csv/standard";
 import { Broker } from "@/gen/api/v1/api_pb";
@@ -30,11 +28,8 @@ function brokerToSourcePrefix(broker: Broker): string {
   }
 }
 
-export default function UploadTransactionsPage() {
-  const params = useParams();
-  const portfolioId = typeof params?.id === "string" ? params.id : "";
+export default function UploadPage() {
   const { state, authError } = useAuth();
-  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
   const [broker, setBroker] = useState<Broker>(Broker.IBKR);
   const [file, setFile] = useState<File | null>(null);
@@ -42,26 +37,7 @@ export default function UploadTransactionsPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<Awaited<ReturnType<typeof getJob>> | null>(null);
-  const [loading, setLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!portfolioId || state.status !== "authenticated") return;
-    let cancelled = false;
-    getPortfolio(portfolioId)
-      .then((p) => {
-        if (!cancelled) setPortfolio(p);
-      })
-      .catch(() => {
-        if (!cancelled) setPortfolio(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [portfolioId, state.status]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -79,12 +55,11 @@ export default function UploadTransactionsPage() {
   }, []);
 
   const handleUpload = useCallback(async () => {
-    if (!portfolioId || !parseResult || parseResult.errors.length > 0 || parseResult.txs.length === 0) return;
+    if (!parseResult || parseResult.errors.length > 0 || parseResult.txs.length === 0) return;
     setSubmitError(null);
     try {
       const source = `${brokerToSourcePrefix(broker)}:web:standard`;
       const res = await upsertTxs({
-        portfolioId,
         broker,
         source,
         periodFrom: timestampFromDate(parseResult.periodFrom),
@@ -95,7 +70,7 @@ export default function UploadTransactionsPage() {
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : String(e));
     }
-  }, [portfolioId, broker, parseResult]);
+  }, [broker, parseResult]);
 
   useEffect(() => {
     if (!jobId || state.status !== "authenticated") return;
@@ -121,21 +96,19 @@ export default function UploadTransactionsPage() {
     };
   }, [jobId, state.status]);
 
-  if (state.status === "loading" || (state.status === "authenticated" && loading && !portfolio)) {
+  if (state.status === "loading") {
     return (
-      <main className="flex min-h-screen flex-col">
-        <AppHeader />
+      <AppShell>
         <div className="flex flex-1 items-center justify-center px-4 py-8">
           <p className="text-slate-500">Loading…</p>
         </div>
-      </main>
+      </AppShell>
     );
   }
 
   if (state.status === "unauthenticated") {
     return (
-      <main className="flex min-h-screen flex-col">
-        <AppHeader />
+      <AppShell>
         <div className="flex flex-1 flex-col items-center justify-center px-4 py-8">
           <h1 className="text-4xl font-bold tracking-tight text-slate-800">Upload transactions</h1>
           <p className="mt-3 text-slate-600">Sign in to upload.</p>
@@ -146,21 +119,7 @@ export default function UploadTransactionsPage() {
             <p className="mt-4 rounded bg-red-50 px-4 py-2 text-sm text-red-700">{authError}</p>
           )}
         </div>
-      </main>
-    );
-  }
-
-  if (!portfolioId || !portfolio) {
-    return (
-      <main className="flex min-h-screen flex-col">
-        <AppHeader />
-        <div className="flex flex-1 items-center justify-center px-4 py-8">
-          <p className="text-slate-600">Portfolio not found.</p>
-          <Link href="/" className="ml-2 text-slate-600 underline hover:text-slate-800">
-            Back to portfolios
-          </Link>
-        </div>
-      </main>
+      </AppShell>
     );
   }
 
@@ -171,18 +130,17 @@ export default function UploadTransactionsPage() {
     !jobId;
 
   return (
-    <main className="flex min-h-screen flex-col">
-      <AppHeader />
+    <AppShell>
       <div className="flex flex-1 flex-col items-center px-4 py-8">
         <div className="w-full max-w-2xl space-y-4">
           <Link
-            href={`/portfolios/${portfolioId}`}
+            href="/holdings"
             className="text-sm text-slate-600 underline hover:text-slate-800"
           >
             Back to holdings
           </Link>
           <h2 className="text-xl font-semibold text-slate-800">
-            Upload transactions – {portfolio.name}
+            Upload transactions
           </h2>
 
           {jobId && jobStatus && (jobStatus.status === JobStatus.SUCCESS || jobStatus.status === JobStatus.FAILED) ? (
@@ -191,7 +149,7 @@ export default function UploadTransactionsPage() {
                 <>
                   <p className="text-slate-800">Upload completed successfully.</p>
                   <Link
-                    href={`/portfolios/${portfolioId}`}
+                    href="/holdings"
                     className="inline-block text-sm text-slate-600 underline hover:text-slate-800"
                   >
                     View holdings
@@ -327,6 +285,6 @@ export default function UploadTransactionsPage() {
           )}
         </div>
       </div>
-    </main>
+    </AppShell>
   );
 }

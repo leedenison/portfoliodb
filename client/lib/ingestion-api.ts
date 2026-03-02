@@ -21,7 +21,6 @@ function getBaseUrl(): string {
 
 /** Parameters for bulk transaction upload. */
 export interface UpsertTxsParams {
-  portfolioId: string;
   broker: Broker;
   source: string;
   periodFrom?: Timestamp;
@@ -31,7 +30,13 @@ export interface UpsertTxsParams {
 
 export async function upsertTxs(params: UpsertTxsParams): Promise<IngestionResponse> {
   const base = getBaseUrl();
-  const req = create(UpsertTxsRequestSchema, params);
+  const req = create(UpsertTxsRequestSchema, {
+    broker: params.broker,
+    source: params.source,
+    periodFrom: params.periodFrom,
+    periodTo: params.periodTo,
+    txs: params.txs,
+  });
   const resBytes = await unaryFetch(
     base,
     IngestionServicePrefix + "UpsertTxs",

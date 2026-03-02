@@ -7,13 +7,13 @@ import (
 
 // JobRequest is a unit of work for the ingestion worker.
 type JobRequest struct {
-	JobID       string
-	PortfolioID string
-	Broker      string
-	Source      string
-	Bulk        bool
-	PeriodFrom  *timestamppb.Timestamp
-	PeriodTo    *timestamppb.Timestamp
-	Txs         []*apiv1.Tx
-	Tx          *apiv1.Tx
+	JobID      string
+	UserID     string
+	Broker     string
+	Source     string
+	Bulk       bool
+	PeriodFrom *timestamppb.Timestamp
+	PeriodTo   *timestamppb.Timestamp
+	Txs        []*apiv1.Tx
+	Tx         *apiv1.Tx
 }

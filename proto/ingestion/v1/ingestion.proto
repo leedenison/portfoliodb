@@ -21,33 +21,28 @@ service IngestionService {
 }
 
 // UpsertTxsRequest replaces all transactions for the given broker in the
-// given period with the supplied list. User from auth; portfolio must be
-// owned by that user.
+// given period with the supplied list. User from auth.
 message UpsertTxsRequest {
-  // Portfolio to ingest into. Must be owned by the authenticated user.
-  string portfolio_id = 1;
   // Broker. All transactions in this request are for this broker.
-  portfoliodb.api.v1.Broker broker = 2;
+  portfoliodb.api.v1.Broker broker = 1;
   // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution.
-  string source = 6;
+  string source = 2;
   // Period of transactions covered. Only transactions in this range for this
   // broker are replaced; others are unchanged.
   google.protobuf.Timestamp period_from = 3;
   google.protobuf.Timestamp period_to   = 4;
   // Transactions to store. Replaces any existing tx in [period_from, period_to]
-  // for this broker.
+  // for this user and broker. Each tx carries its own account.
   repeated portfoliodb.api.v1.Tx txs = 5;
 }
 
 // CreateTxRequest appends one transaction.
 message CreateTxRequest {
-  // Portfolio to ingest into. Must be owned by the authenticated user.
-  string portfolio_id = 1;
   // Broker for this transaction.
-  portfoliodb.api.v1.Broker broker = 2;
+  portfoliodb.api.v1.Broker broker = 1;
   // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution.
-  string source = 4;
-  // The transaction.
+  string source = 2;
+  // The transaction (must include account).
   portfoliodb.api.v1.Tx tx = 3;
 }
 

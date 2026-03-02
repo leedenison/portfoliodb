@@ -37,7 +37,13 @@ type UserDB interface {
 	UpdateUserAuthSub(ctx context.Context, userID, authSub string) error
 }
 
-// PortfolioDB provides portfolio CRUD.
+// PortfolioFilter is one filter row for a portfolio view.
+type PortfolioFilter struct {
+	FilterType  string // "broker", "account", "instrument"
+	FilterValue string
+}
+
+// PortfolioDB provides portfolio CRUD and filter management.
 type PortfolioDB interface {
 	ListPortfolios(ctx context.Context, userID string, pageSize int32, pageToken string) ([]*apiv1.Portfolio, string, error)
 	GetPortfolio(ctx context.Context, portfolioID string) (*apiv1.Portfolio, string, error)
@@ -45,24 +51,28 @@ type PortfolioDB interface {
 	UpdatePortfolio(ctx context.Context, portfolioID, name string) (*apiv1.Portfolio, error)
 	DeletePortfolio(ctx context.Context, portfolioID string) error
 	PortfolioBelongsToUser(ctx context.Context, portfolioID, userID string) (bool, error)
+	ListPortfolioFilters(ctx context.Context, portfolioID string) ([]PortfolioFilter, error)
+	SetPortfolioFilters(ctx context.Context, portfolioID string, filters []PortfolioFilter) error
 }
 
 // TxDB provides transaction write and list.
 type TxDB interface {
-	ReplaceTxsInPeriod(ctx context.Context, portfolioID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string) error
-	CreateTx(ctx context.Context, portfolioID, broker string, tx *apiv1.Tx, instrumentID string) error
-	ListTxs(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodTo *timestamppb.Timestamp, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
+	ReplaceTxsInPeriod(ctx context.Context, userID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string) error
+	CreateTx(ctx context.Context, userID, broker, account string, tx *apiv1.Tx, instrumentID string) error
+	ListTxs(ctx context.Context, userID string, broker *apiv1.Broker, account string, periodFrom, periodTo *timestamppb.Timestamp, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
+	ListTxsByPortfolio(ctx context.Context, portfolioID string, periodFrom, periodTo *timestamppb.Timestamp, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 }
 
 // HoldingsDB computes holdings at a point in time.
 type HoldingsDB interface {
-	ComputeHoldings(ctx context.Context, portfolioID string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error)
+	ComputeHoldings(ctx context.Context, userID string, broker *apiv1.Broker, account string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error)
+	ComputeHoldingsForPortfolio(ctx context.Context, portfolioID string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error)
 }
 
 // JobDB provides ingestion job operations.
 type JobDB interface {
-	CreateJob(ctx context.Context, portfolioID, broker, source string, periodFrom, periodTo *timestamppb.Timestamp) (string, error)
-	GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []IdentificationError, string, error)
+	CreateJob(ctx context.Context, userID, broker, source string, periodFrom, periodTo *timestamppb.Timestamp) (string, error)
+	GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []IdentificationError, string, error) // last string is job's user_id for auth
 	SetJobStatus(ctx context.Context, jobID string, status apiv1.JobStatus) error
 	AppendValidationErrors(ctx context.Context, jobID string, errs []*apiv1.ValidationError) error
 	AppendIdentificationErrors(ctx context.Context, jobID string, errs []IdentificationError) error

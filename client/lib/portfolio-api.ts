@@ -14,18 +14,26 @@ import {
   GetJobResponseSchema,
   GetPortfolioRequestSchema,
   GetPortfolioResponseSchema,
+  GetPortfolioFiltersRequestSchema,
+  GetPortfolioFiltersResponseSchema,
   ListPortfoliosRequestSchema,
   ListPortfoliosResponseSchema,
+  ListTxsRequestSchema,
+  ListTxsResponseSchema,
+  SetPortfolioFiltersRequestSchema,
+  SetPortfolioFiltersResponseSchema,
   UpdatePortfolioRequestSchema,
   UpdatePortfolioResponseSchema,
+  JobStatus,
 } from "@/gen/api/v1/api_pb";
 import type {
   Holding,
   IdentificationError,
   Portfolio as GenPortfolio,
+  PortfolioFilterProto,
+  PortfolioTx,
   ValidationError,
 } from "@/gen/api/v1/api_pb";
-import { JobStatus } from "@/gen/api/v1/api_pb";
 import { unaryFetch } from "./grpc-web";
 
 const PAGE_SIZE = 30;
@@ -119,14 +127,16 @@ export async function getPortfolio(id: string): Promise<Portfolio> {
   return toPortfolio(res.portfolio);
 }
 
-export async function getHoldings(
-  portfolioId: string,
-  asOf?: Date | null
-): Promise<GetHoldingsResult> {
+export interface GetHoldingsParams {
+  portfolioId?: string;
+  asOf?: Date | null;
+}
+
+export async function getHoldings(params?: GetHoldingsParams): Promise<GetHoldingsResult> {
   const base = getBaseUrl();
   const req = create(GetHoldingsRequestSchema, {
-    portfolioId,
-    asOf: asOf != null ? timestampFromDate(asOf) : undefined,
+    portfolioId: params?.portfolioId ?? "",
+    asOf: params?.asOf != null ? timestampFromDate(params.asOf) : undefined,
   });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "GetHoldings", toBinary(GetHoldingsRequestSchema, req), {
     credentials: "include",
@@ -136,6 +146,63 @@ export async function getHoldings(
     holdings: res.holdings,
     asOf: res.asOf ? timestampDate(res.asOf) : undefined,
   };
+}
+
+export interface ListTxsParams {
+  portfolioId?: string;
+  periodFrom?: Date | null;
+  periodTo?: Date | null;
+  pageToken?: string | null;
+}
+
+export interface ListTxsResult {
+  txs: PortfolioTx[];
+  nextPageToken: string | null;
+}
+
+export async function listTxs(params?: ListTxsParams): Promise<ListTxsResult> {
+  const base = getBaseUrl();
+  const req = create(ListTxsRequestSchema, {
+    portfolioId: params?.portfolioId ?? "",
+    periodFrom: params?.periodFrom != null ? timestampFromDate(params.periodFrom) : undefined,
+    periodTo: params?.periodTo != null ? timestampFromDate(params.periodTo) : undefined,
+    pageSize: PAGE_SIZE,
+    pageToken: params?.pageToken ?? "",
+  });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListTxs", toBinary(ListTxsRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(ListTxsResponseSchema, resBytes);
+  return {
+    txs: res.txs,
+    nextPageToken: res.nextPageToken || null,
+  };
+}
+
+export interface PortfolioFilter {
+  filterType: string;
+  filterValue: string;
+}
+
+export async function getPortfolioFilters(portfolioId: string): Promise<PortfolioFilter[]> {
+  const base = getBaseUrl();
+  const req = create(GetPortfolioFiltersRequestSchema, { portfolioId });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "GetPortfolioFilters", toBinary(GetPortfolioFiltersRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(GetPortfolioFiltersResponseSchema, resBytes);
+  return (res.filters ?? []).map((f: PortfolioFilterProto) => ({ filterType: f.filterType, filterValue: f.filterValue }));
+}
+
+export async function setPortfolioFilters(portfolioId: string, filters: PortfolioFilter[]): Promise<void> {
+  const base = getBaseUrl();
+  const req = create(SetPortfolioFiltersRequestSchema, {
+    portfolioId,
+    filters: filters.map((f) => ({ filterType: f.filterType, filterValue: f.filterValue })),
+  });
+  await unaryFetch(base, ApiServicePrefix + "SetPortfolioFilters", toBinary(SetPortfolioFiltersRequestSchema, req), {
+    credentials: "include",
+  });
 }
 
 /** Result of GetJob for ingestion job status. */

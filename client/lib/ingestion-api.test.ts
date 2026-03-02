@@ -39,10 +39,10 @@ describe("ingestion-api", () => {
         instrumentDescription: "AAPL",
         type: 5, // BUYSTOCK
         quantity: 10,
+        account: "",
       });
 
       const result = await upsertTxs({
-        portfolioId: "port-1",
         broker: Broker.IBKR,
         source: "IBKR:web:standard",
         periodFrom: timestampFromDate(new Date("2024-01-01")),
@@ -61,12 +61,12 @@ describe("ingestion-api", () => {
       const reqBytes = mockUnaryFetch.mock.calls[0]?.[2];
       expect(reqBytes).toBeDefined();
       const decoded = fromBinary(UpsertTxsRequestSchema, reqBytes!);
-      expect(decoded.portfolioId).toBe("port-1");
       expect(decoded.broker).toBe(Broker.IBKR);
       expect(decoded.source).toBe("IBKR:web:standard");
       expect(decoded.txs).toHaveLength(1);
       expect(decoded.txs[0].instrumentDescription).toBe("AAPL");
       expect(decoded.txs[0].quantity).toBe(10);
+      expect(decoded.txs[0].account).toBe("");
     });
   });
 });

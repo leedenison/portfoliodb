@@ -1,11 +1,11 @@
 # Upload transactions UI
 
-Uploads are scoped to **one portfolio**. The user reaches the upload flow from that portfolio’s holdings page.
+Uploads are **user-level** (transactions are associated with the user, not a portfolio). The user reaches the upload flow from the Holdings page.
 
 ## Flow
 
 1. **Step 1 — Select broker**  
-   The user selects the broker for the transactions (e.g. IBKR, Charles Schwab). The portfolio is already fixed from the route. No source or period input is shown.
+   The user selects the broker for the transactions (e.g. IBKR, Charles Schwab). No source or period input is shown.
 
 2. **Step 2 — Format and file**  
    The user chooses between broker-specific options (if any) and **Standard** format. For the initial implementation only **Standard** is available.  
@@ -16,12 +16,12 @@ Uploads are scoped to **one portfolio**. The user reaches the upload flow from t
 3. **Submit and job status**  
    On Upload, the client sends the transactions via the bulk ingestion API and receives a job id. The UI polls job status until the job completes.  
    - **PENDING / RUNNING**: Show “Processing…”.  
-   - **SUCCESS**: Message and link back to portfolio holdings.  
+   - **SUCCESS**: Message and link back to Holdings.  
    - **FAILED**: Show validation errors and identification errors (row index, field or instrument description, message) so the user can fix the CSV and try again.
 
 ## Access
 
-- **Entry point**: From the portfolio holdings page (`/portfolios/{id}`), an “Upload transactions” link goes to `/portfolios/{id}/upload`.
+- **Entry point**: From the Holdings page (`/holdings`), an "Upload transactions" button goes to `/upload`.
 - **Auth**: Same as the holdings page; the user must be signed in.
 
 ---

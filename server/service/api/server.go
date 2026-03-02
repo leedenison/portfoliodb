@@ -133,8 +133,8 @@ func (s *Server) DeletePortfolio(ctx context.Context, req *apiv1.DeletePortfolio
 	return &apiv1.DeletePortfolioResponse{}, nil
 }
 
-// ListTxs lists transactions for a portfolio owned by the user.
-func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1.ListTxsResponse, error) {
+// GetPortfolioFilters returns the filter rows for a portfolio (broker/account/instrument). Portfolio must be owned by user.
+func (s *Server) GetPortfolioFilters(ctx context.Context, req *apiv1.GetPortfolioFiltersRequest) (*apiv1.GetPortfolioFiltersResponse, error) {
 	u := auth.FromContext(ctx)
 	if u == nil || u.ID == "" {
 		return nil, status.Error(codes.Unauthenticated, "missing user")
@@ -149,6 +149,51 @@ func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1
 	if !ok {
 		return nil, status.Error(codes.NotFound, "portfolio not found")
 	}
+	filters, err := s.db.ListPortfolioFilters(ctx, req.GetPortfolioId())
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	protos := make([]*apiv1.PortfolioFilterProto, 0, len(filters))
+	for _, f := range filters {
+		protos = append(protos, &apiv1.PortfolioFilterProto{FilterType: f.FilterType, FilterValue: f.FilterValue})
+	}
+	return &apiv1.GetPortfolioFiltersResponse{Filters: protos}, nil
+}
+
+// SetPortfolioFilters replaces all filters for a portfolio. Portfolio must be owned by user.
+func (s *Server) SetPortfolioFilters(ctx context.Context, req *apiv1.SetPortfolioFiltersRequest) (*apiv1.SetPortfolioFiltersResponse, error) {
+	u := auth.FromContext(ctx)
+	if u == nil || u.ID == "" {
+		return nil, status.Error(codes.Unauthenticated, "missing user")
+	}
+	if req.GetPortfolioId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "portfolio_id required")
+	}
+	ok, err := s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if !ok {
+		return nil, status.Error(codes.NotFound, "portfolio not found")
+	}
+	filters := make([]db.PortfolioFilter, 0, len(req.GetFilters()))
+	for _, f := range req.GetFilters() {
+		if f.GetFilterType() != "" {
+			filters = append(filters, db.PortfolioFilter{FilterType: f.GetFilterType(), FilterValue: f.GetFilterValue()})
+		}
+	}
+	if err := s.db.SetPortfolioFilters(ctx, req.GetPortfolioId(), filters); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &apiv1.SetPortfolioFiltersResponse{}, nil
+}
+
+// ListTxs lists transactions: by portfolio view (if portfolio_id set) or all user transactions. Filtering is via portfolios only.
+func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1.ListTxsResponse, error) {
+	u := auth.FromContext(ctx)
+	if u == nil || u.ID == "" {
+		return nil, status.Error(codes.Unauthenticated, "missing user")
+	}
 	pageSize := req.GetPageSize()
 	if pageSize <= 0 {
 		pageSize = 50
@@ -156,11 +201,21 @@ func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1
 	if pageSize > 100 {
 		pageSize = 100
 	}
-	var broker *apiv1.Broker
-	if req.Broker != apiv1.Broker_BROKER_UNSPECIFIED {
-		broker = &req.Broker
+	var txs []*apiv1.PortfolioTx
+	var nextToken string
+	var err error
+	if req.GetPortfolioId() != "" {
+		ok, err := s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		if !ok {
+			return nil, status.Error(codes.NotFound, "portfolio not found")
+		}
+		txs, nextToken, err = s.db.ListTxsByPortfolio(ctx, req.GetPortfolioId(), req.PeriodFrom, req.PeriodTo, pageSize, req.GetPageToken())
+	} else {
+		txs, nextToken, err = s.db.ListTxs(ctx, u.ID, nil, "", req.PeriodFrom, req.PeriodTo, pageSize, req.GetPageToken())
 	}
-	txs, nextToken, err := s.db.ListTxs(ctx, req.GetPortfolioId(), broker, req.PeriodFrom, req.PeriodTo, pageSize, req.GetPageToken())
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -202,23 +257,27 @@ func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1
 	return &apiv1.ListTxsResponse{Txs: txs, NextPageToken: nextToken}, nil
 }
 
-// GetHoldings returns holdings for a portfolio at a point in time.
+// GetHoldings returns holdings: by portfolio view (if portfolio_id set) or all user holdings. Filtering is via portfolios only.
 func (s *Server) GetHoldings(ctx context.Context, req *apiv1.GetHoldingsRequest) (*apiv1.GetHoldingsResponse, error) {
 	u := auth.FromContext(ctx)
 	if u == nil || u.ID == "" {
 		return nil, status.Error(codes.Unauthenticated, "missing user")
 	}
-	if req.GetPortfolioId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "portfolio_id required")
+	var holdings []*apiv1.Holding
+	var asOf *timestamppb.Timestamp
+	var err error
+	if req.GetPortfolioId() != "" {
+		ok, err := s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		if !ok {
+			return nil, status.Error(codes.NotFound, "portfolio not found")
+		}
+		holdings, asOf, err = s.db.ComputeHoldingsForPortfolio(ctx, req.GetPortfolioId(), req.AsOf)
+	} else {
+		holdings, asOf, err = s.db.ComputeHoldings(ctx, u.ID, nil, "", req.AsOf)
 	}
-	ok, err := s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	if !ok {
-		return nil, status.Error(codes.NotFound, "portfolio not found")
-	}
-	holdings, asOf, err := s.db.ComputeHoldings(ctx, req.GetPortfolioId(), req.AsOf)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -403,7 +462,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 	return &apiv1.ImportInstrumentsResponse{EnsuredCount: ensuredCount, Errors: errs}, nil
 }
 
-// GetJob returns ingestion job status and validation errors; job's portfolio must belong to user.
+// GetJob returns ingestion job status and validation errors; job must belong to user.
 func (s *Server) GetJob(ctx context.Context, req *apiv1.GetJobRequest) (*apiv1.GetJobResponse, error) {
 	u := auth.FromContext(ctx)
 	if u == nil || u.ID == "" {
@@ -412,18 +471,14 @@ func (s *Server) GetJob(ctx context.Context, req *apiv1.GetJobRequest) (*apiv1.G
 	if req.GetJobId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "job_id required")
 	}
-	statusVal, errs, idErrs, portfolioID, err := s.db.GetJob(ctx, req.GetJobId())
+	statusVal, errs, idErrs, jobUserID, err := s.db.GetJob(ctx, req.GetJobId())
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	if portfolioID == "" {
+	if jobUserID == "" {
 		return nil, status.Error(codes.NotFound, "job not found")
 	}
-	ok, err := s.db.PortfolioBelongsToUser(ctx, portfolioID, u.ID)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	if !ok {
+	if jobUserID != u.ID {
 		return nil, status.Error(codes.NotFound, "job not found")
 	}
 	idErrProtos := make([]*apiv1.IdentificationError, 0, len(idErrs))

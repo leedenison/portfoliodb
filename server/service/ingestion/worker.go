@@ -65,7 +65,7 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 	if len(idErrs) > 0 {
 		_ = database.AppendIdentificationErrors(ctx, j.JobID, idErrs)
 	}
-	err := database.ReplaceTxsInPeriod(ctx, j.PortfolioID, j.Broker, j.PeriodFrom, j.PeriodTo, j.Txs, instrumentIDs)
+	err := database.ReplaceTxsInPeriod(ctx, j.UserID, j.Broker, j.PeriodFrom, j.PeriodTo, j.Txs, instrumentIDs)
 	if err != nil {
 		log.Printf("ingestion job %s: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
@@ -97,7 +97,7 @@ func processSingle(ctx context.Context, database db.DB, registry *identifier.Reg
 	if r.IdErr != nil {
 		_ = database.AppendIdentificationErrors(ctx, j.JobID, []db.IdentificationError{*r.IdErr})
 	}
-	err = database.CreateTx(ctx, j.PortfolioID, j.Broker, j.Tx, r.InstrumentID)
+	err = database.CreateTx(ctx, j.UserID, j.Broker, j.Tx.GetAccount(), j.Tx, r.InstrumentID)
 	if err != nil {
 		log.Printf("ingestion job %s: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{

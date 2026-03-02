@@ -2,7 +2,6 @@
 # Obtain a session via Auth (using ID_TOKEN), then create a portfolio. Echo the portfolio id to stdout.
 #
 # Usage: ID_TOKEN=<google-id-token> scripts/tests/api/create-portfolio.sh
-#   Or:  PORTFOLIO_ID=$(ID_TOKEN=$(obtain-id-token.sh) scripts/tests/api/create-portfolio.sh)
 #
 # Requires: grpcurl, jq. Run from repo root with server on localhost:50051.
 # Obtain an ID token as part of your flow (e.g. Google Sign-In or test OAuth); set ID_TOKEN.

@@ -49,14 +49,19 @@ make test-db
 From the repo root:
 
 ```bash
-# Start Postgres
-docker compose -f docker/server/docker-compose.yml up -d postgres
+# Start Postgres and Redis (required for sessions)
+docker compose -f docker/server/docker-compose.yml up -d postgres redis
 
 # Apply migrations
 cat server/migrations/001_initial.sql | docker compose -f docker/server/docker-compose.yml exec -T postgres psql -U portfoliodb -d portfoliodb -q
 
-# Run the server (uses same DB as Docker Postgres)
+# Required for Auth: set Google OAuth client ID (create in Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID, type Web application)
+export GOOGLE_OAUTH_CLIENT_ID="your-client-id.apps.googleusercontent.com"
 export PORTFOLIODB_DB_URL="postgres://portfoliodb:portfoliodb@localhost:5432/portfoliodb?sslmode=disable"
+export PORTFOLIODB_REDIS_URL="redis://localhost:6379/0"
+
+# Run the server
+./portfoliodb
 ```
 
 The gRPC server listens on `localhost:50051`.
@@ -66,10 +71,11 @@ The gRPC server listens on `localhost:50051`.
 To run the server in Docker (Postgres, Redis, portfoliodb, Envoy):
 
 ```bash
+export GOOGLE_OAUTH_CLIENT_ID="your-client-id.apps.googleusercontent.com"
 docker compose -f docker/server/docker-compose.yml up -d
 ```
 
-Set `GOOGLE_OAUTH_CLIENT_ID` (and optionally `ACCOUNT_CREATE_EMAIL_ALLOWLIST`, `ADMIN_AUTH_SUB`) when using Auth. Envoy listens on 8080 (gRPC-Web + CORS + cookies); point the SPA API base to `http://localhost:8080` when using Envoy. CORS is configured for `http://localhost:3000` (SPA origin).
+**GOOGLE_OAUTH_CLIENT_ID** is required for Auth (server uses it to verify Google ID tokens). Create a **OAuth 2.0 Client ID** (Web application) in [Google Cloud Console](https://console.cloud.google.com/apis/credentials); use the same client ID in the backend and in the client (`NEXT_PUBLIC_GOOGLE_CLIENT_ID`). Set it when running locally or in Docker: `export GOOGLE_OAUTH_CLIENT_ID="your-client-id.apps.googleusercontent.com"`. Optional: `ACCOUNT_CREATE_EMAIL_ALLOWLIST`, `ADMIN_AUTH_SUB`. Envoy listens on 8080 (gRPC-Web + CORS + cookies); point the SPA API base to `http://localhost:8080` when using Envoy. CORS is configured for `http://localhost:3000` (SPA origin).
 
 ### 5. Run the client (SPA)
 

@@ -10,6 +10,9 @@ proto/**/*.pb.go
 *.test
 *.out
 vendor/
+.cache/
+.gomodcache/
+tmp/
 
 # IDE
 .idea/

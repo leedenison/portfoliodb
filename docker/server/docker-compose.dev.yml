@@ -1,0 +1,34 @@
+# Dev override: mount source, run with host UID/GID, use live-reload (Air + next dev).
+# Use with: docker compose -f docker/server/docker-compose.yml -f docker/server/docker-compose.dev.yml up
+# Ensure HOST_UID and HOST_GID are set (e.g. by Makefile run target).
+
+services:
+  portfoliodb:
+    build:
+      context: ../..
+      dockerfile: docker/server/Dockerfile.dev
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    env_file:
+      - ../../.env
+    environment:
+      HOME: /tmp/air-home
+      GOCACHE: /app/.cache/go-build
+      GOMODCACHE: /app/.gomodcache
+      BUF_CACHE_DIR: /app/.cache/buf
+    volumes:
+      - ../../:/app
+    command: ["air"]
+
+  client:
+    build:
+      context: ../../client
+      dockerfile: Dockerfile.dev
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    env_file:
+      - ../../.env
+    environment:
+      HOSTNAME: "0.0.0.0"
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+    volumes:
+      - ../../client:/app
+    command: ["npm", "run", "dev"]

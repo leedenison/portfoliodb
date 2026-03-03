@@ -2,6 +2,8 @@
 
 # Compose file and env for local stack (run from repo root so .env is found)
 COMPOSE_RUN = docker compose -f docker/server/docker-compose.yml --env-file .env
+# Dev stack: same as above plus override with source mounts and live-reload (Air + next dev)
+COMPOSE_DEV = docker compose -f docker/server/docker-compose.yml -f docker/server/docker-compose.dev.yml --env-file .env
 
 generate:
 	buf generate
@@ -26,16 +28,18 @@ client-test: generate
 	cd client && npm run test:run
 
 # Full stack (Postgres 5432, Redis 6379, portfoliodb, Envoy, client SPA) for local dev. SPA at localhost:8080.
-run: generate
-	$(COMPOSE_RUN) up -d --build
+# Uses dev override: source mounts, host UID/GID, Air + next dev for live-reload.
+# Does not depend on generate so BSR rate limits do not block starting the stack; Air runs buf generate in-container.
+run:
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) up -d --build
 	@echo "Waiting for Postgres..."
 	@for i in 1 2 3 4 5 6 7 8 9 10; do \
-		if $(COMPOSE_RUN) exec -T postgres pg_isready -U portfoliodb 2>/dev/null; then break; fi; \
+		if $(COMPOSE_DEV) exec -T postgres pg_isready -U portfoliodb 2>/dev/null; then break; fi; \
 		sleep 1; \
 		if [ $$i -eq 10 ]; then echo "Postgres not ready"; exit 1; fi; \
 	done
-	cat server/migrations/001_initial.sql | $(COMPOSE_RUN) exec -T postgres psql -U portfoliodb -d portfoliodb -q
-	cat server/plugins/local/identifier/migrations/001_instrument_ref.sql | $(COMPOSE_RUN) exec -T postgres psql -U portfoliodb -d portfoliodb -q
+	cat server/migrations/001_initial.sql | $(COMPOSE_DEV) exec -T postgres psql -U portfoliodb -d portfoliodb -q
+	cat server/plugins/local/identifier/migrations/001_instrument_ref.sql | $(COMPOSE_DEV) exec -T postgres psql -U portfoliodb -d portfoliodb -q
 
 db-test: generate
 	docker compose -f docker/server/docker-compose.test.yml up -d

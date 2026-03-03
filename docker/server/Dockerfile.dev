@@ -1,0 +1,7 @@
+# Dev image: Go + buf + Air for live-reload. Source is mounted at /app at run time.
+FROM golang:1.25-alpine
+RUN apk add --no-cache git
+RUN go install github.com/bufbuild/buf/cmd/buf@latest
+RUN go install github.com/air-verse/air@latest
+WORKDIR /app
+CMD ["air"]

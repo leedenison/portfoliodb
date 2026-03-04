@@ -73,3 +73,4 @@
 | T33     | Admin API and UI to correct shared instrument identity (e.g. merge, edit, reassign identifiers). |                    |           |        |
 | T34     | Populate and use instrument valid_from / valid_to (from plugins or admin); expose in API/UI where relevant. |                    |           |        |
 | T35     | Compute and expose TWR and MWR for a portfolio over a period (requires price data). | T20                |           |        |
+| T36     | Instrument tags (tag type / tag value); store OpenFIGI market sector and related fields as tags when identification plugins provide them. |                    |           |        |

@@ -36,6 +36,9 @@
 | T17     | Implement network based identification plugin based on ChatGPT and OpenFigi data.   | T16                | M06       |        |
 | T18     | Admin UI for configuring identification plugins.                                    | T17                | M06       |        |
 | T19     | Implement UI for showing instrument identities and errors that occurred.            | T17                | M06       |        |
+| T20     | Price storage (table/schema) and API for current and historical prices per instrument (and date). |                    | M07       |        |
+| T21     | Price plugin Go API (e.g. FetchPrices) and at least one plugin implementation.    | T20                | M07       |        |
+| T22     | Admin UI (or API) for manual price entry when no automatic source is available.    | T20                | M07       |        |
 
 ### Unscheduled Milestones
 
@@ -49,8 +52,24 @@
 |              | Implement portfolio sharing between users and aggregates which combine portfolios (incl. shared portfolios).         |        |
 |              | Transaction importer for IBKR.                                                                                       |        |
 |              | Transaction importer for SCHB.                                                                                       |        |
+|              | Exchange and listing currency: identify and store per transaction/instrument (and support multiple listings per instrument if needed). |        |
+|              | User override of instrument identity per portfolio (user-owned data); admin correction of shared instrument identity. |        |
+|              | Portfolio performance metrics: time-weighted return (TWR) and money-weighted return (MWR).                           |        |
 
 ### Unscheduled Tasks
 
 | Task ID | Description                                                                         | Depends on         | Milestone | Status |
 | ------- | ----------------------------------------------------------------------------------- | ------------------ | --------- | ------ |
+| T23     | ListTxs: optional filter by broker (and optionally account) for CreateTx recovery.   |                    |           |        |
+| T24     | UI: recovery flow for failed CreateTx (list txs for broker+period, edit and re-upload via bulk). | T23                |           |        |
+| T25     | ListTxs (and/or export): optional filter by transaction type (OFX types).           |                    |           |        |
+| T26     | Identify exchange and listing currency during instrument resolution; persist on instrument/transaction as specified. |                    |           |        |
+| T27     | Corporate events datamodel and API (fetch/store events per instrument).              |                    |           |        |
+| T28     | Corporate events plugin API and at least one plugin; apply adjustments to user transactions idempotently. | T27                |           |        |
+| T29     | Admin UI or API for manual entry of corporate events when no automatic source is available. | T27                |           |        |
+| T30     | Periodic job to re-attempt instrument identification (e.g. broker-description-only or stale). |                    |           |        |
+| T31     | Admin API and UI: manually force identification refresh for a given instrument or set of instruments. |                    |           |        |
+| T32     | Datamodel and API for user-level instrument override (e.g. portfolio-level mapping). |                    |           |        |
+| T33     | Admin API and UI to correct shared instrument identity (e.g. merge, edit, reassign identifiers). |                    |           |        |
+| T34     | Populate and use instrument valid_from / valid_to (from plugins or admin); expose in API/UI where relevant. |                    |           |        |
+| T35     | Compute and expose TWR and MWR for a portfolio over a period (requires price data). | T20                |           |        |

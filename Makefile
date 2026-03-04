@@ -1,4 +1,4 @@
-.PHONY: tools generate build server-test db-test client-test run run-server init-db init-test-db clean clean-generated clean-docker clean-volumes test
+.PHONY: tools generate build server-test db-test client-test run run-server init-db init-test-db stop clean clean-generated clean-docker clean-next test
 
 # Compose file and env for local stack (run from repo root so .env is found)
 COMPOSE_RUN = docker compose -f docker/server/docker-compose.yml --env-file .env
@@ -8,11 +8,10 @@ COMPOSE_DEV = docker compose -f docker/server/docker-compose.yml -f docker/serve
 # Install Go and npm tooling required for generate and tests. Run once (or after adding deps).
 tools:
 	@command -v go >/dev/null 2>&1 || { echo "go is required; install from https://go.dev/dl"; exit 1; }
-	@command -v npm >/dev/null 2>&1 || { echo "npm is required; install Node.js from https://nodejs.org"; exit 1; }
 	go install github.com/bufbuild/buf/cmd/buf@latest
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-	cd client && npm ci
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm ci
 
 generate:
 	buf generate
@@ -29,10 +28,9 @@ clean-docker:
 	$(COMPOSE_RUN) down --rmi local --volumes
 	docker compose -f docker/server/docker-compose.test.yml down --rmi local --volumes
 
-# Remove dev stack named volumes (client_node_modules, client_next). Stops client first so volumes are not in use.
-clean-volumes:
-	$(COMPOSE_DEV) stop client
-	docker volume rm portfoliodb_client_node_modules portfoliodb_client_next
+# Remove client node_modules and .next (e.g. after switching Node versions). Re-run 'make tools' to reinstall.
+clean-next:
+	rm -rf client/node_modules client/.next
 
 build: generate
 	go build -o portfoliodb ./server/cmd/portfoliodb
@@ -49,11 +47,15 @@ run:
 	done
 	cat server/migrations/001_initial.sql | $(COMPOSE_DEV) exec -T postgres psql -U portfoliodb -d portfoliodb -q
 
-server-test:
+# Stop containers started by 'make run'.
+stop:
+	$(COMPOSE_DEV) down
+
+server-test: generate
 	go test ./server/...
 
 client-test:
-	cd client && npm run test:run
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm run test:run
 	
 db-test:
 	docker compose -f docker/server/docker-compose.test.yml up -d

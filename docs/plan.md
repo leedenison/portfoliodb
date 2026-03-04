@@ -31,7 +31,7 @@
 | T12     | Create UI to upload a CSV of transactions and select the 'standard' format.         | T11                | M04       | Done   |
 | T13     | Upload and conversion from Fidelity CSV to the standard format.                     | T11                | M04       |        |
 | T14     | Export/import API for instrument information.                                       |                    | M05       | Done   |
-| T15     | Filter exports by broker and exchange.                                              | T14                | M05       |        |
+| T15     | Filter instrument export by broker and exchange.                                    | T14                | M05       |        |
 | T16     | Instrument identification plugin Go API.                                            |                    | M06       | Done   |
 | T17     | Implement network based identification plugin based on ChatGPT and OpenFigi data.   | T16                | M06       |        |
 | T18     | Admin UI for configuring identification plugins.                                    | T17                | M06       |        |

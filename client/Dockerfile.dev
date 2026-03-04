@@ -1,10 +1,8 @@
 # Dev image: Node + deps, run next dev. Source is mounted at /app at run time.
 # Run as host UID/GID so .next and node_modules (if installed in container) keep correct permissions.
-FROM node:20-alpine
+FROM node:25-alpine
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 CMD ["npm", "run", "dev"]

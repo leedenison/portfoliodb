@@ -18,7 +18,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/auth/session"
 	"github.com/leedenison/portfoliodb/server/db/postgres"
 	"github.com/leedenison/portfoliodb/server/identifier"
-	localidentifier "github.com/leedenison/portfoliodb/server/plugins/local/identifier"
 	"github.com/leedenison/portfoliodb/server/service/api"
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
 	"github.com/leedenison/portfoliodb/server/service/ingestion"
@@ -123,7 +122,6 @@ func main() {
 	}
 
 	pluginRegistry := identifier.NewRegistry()
-	localidentifier.RegisterLocal(pluginRegistry, conn)
 	queue := make(chan *ingestion.JobRequest, 256)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

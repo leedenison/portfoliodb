@@ -38,8 +38,8 @@ CREATE INDEX idx_portfolio_filters_portfolio ON portfolio_filters (portfolio_id)
 CREATE TABLE txs (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id               UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  broker                TEXT NOT NULL CHECK (broker IN ('IBKR', 'SCHB')),
-  account               TEXT NOT NULL DEFAULT '',
+  broker                TEXT NOT NULL,
+  account               TEXT NOT NULL,
   timestamp             TIMESTAMPTZ NOT NULL,
   instrument_description TEXT NOT NULL,
   tx_type               TEXT NOT NULL,
@@ -55,7 +55,7 @@ CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, timestamp);
 CREATE TABLE ingestion_jobs (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  broker       TEXT NOT NULL CHECK (broker IN ('IBKR', 'SCHB')),
+  broker       TEXT NOT NULL,
   source       TEXT NOT NULL,
   period_from  TIMESTAMPTZ,
   period_to    TIMESTAMPTZ,

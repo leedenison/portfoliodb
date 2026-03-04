@@ -8,17 +8,26 @@ To develop and run this project you need:
 
 | Tool | Purpose |
 |------|---------|
-| **Go 1.25+** | Build and run the server; run tests. |
+| **Go 1.25+** | Build and run the server; run tests; install buf and protoc plugins via `make tools`. |
+| **Node.js & npm** | Client app and `protoc-gen-es` for TypeScript codegen; install client deps via `make tools`. |
 | **Docker & Docker Compose** | Run PostgreSQL for local development and for the DB integration tests. |
-| **Buf CLI** | Generate Go code from `.proto` files (`make generate`). Install: [buf.build/docs/installation](https://buf.build/docs/installation) (e.g. `go install github.com/bufbuild/buf/cmd/buf@latest` or official install script). |
+
+Install project tooling and dependencies (buf, protoc-gen-go, protoc-gen-go-grpc, and client npm packages) with:
+
+```bash
+make tools
+```
+
+Ensure `$(go env GOPATH)/bin` is on your `PATH` so `buf` and the protoc plugins are found.
 
 ## Quick start
 
 These steps verify the system builds and the core test suites pass.
 
-### 1. Generate code and build
+### 1. Install tools and generate code
 
 ```bash
+make tools
 make generate
 make build
 ```

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { SignInButton } from "@/app/components/sign-in";
 import { AppShell } from "@/app/components/app-shell";
 import { useAuth } from "@/contexts/auth-context";
 import { getJob } from "@/lib/portfolio-api";
@@ -100,7 +99,7 @@ export default function UploadPage() {
     return (
       <AppShell>
         <div className="flex flex-1 items-center justify-center px-4 py-8">
-          <p className="text-slate-500">Loading…</p>
+          <p className="text-text-muted">Loading…</p>
         </div>
       </AppShell>
     );
@@ -109,14 +108,11 @@ export default function UploadPage() {
   if (state.status === "unauthenticated") {
     return (
       <AppShell>
-        <div className="flex flex-1 flex-col items-center justify-center px-4 py-8">
-          <h1 className="text-4xl font-bold tracking-tight text-slate-800">Upload transactions</h1>
-          <p className="mt-3 text-slate-600">Sign in to upload.</p>
-          <p className="mt-6">
-            <SignInButton />
-          </p>
+        <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center">
+          <h1 className="text-4xl font-bold tracking-tight text-text-primary">Upload transactions</h1>
+          <p className="mt-3 text-text-muted">Sign in to upload.</p>
           {authError && (
-            <p className="mt-4 rounded bg-red-50 px-4 py-2 text-sm text-red-700">{authError}</p>
+            <p className="mt-4 rounded-lg bg-accent-soft/50 px-4 py-2 text-sm text-accent-dark">{authError}</p>
           )}
         </div>
       </AppShell>
@@ -135,33 +131,33 @@ export default function UploadPage() {
         <div className="w-full max-w-2xl space-y-4">
           <Link
             href="/holdings"
-            className="text-sm text-slate-600 underline hover:text-slate-800"
+            className="text-sm text-text-muted underline transition-colors hover:text-primary"
           >
             Back to holdings
           </Link>
-          <h2 className="text-xl font-semibold text-slate-800">
+          <h2 className="text-xl font-semibold text-text-primary">
             Upload transactions
           </h2>
 
           {jobId && jobStatus && (jobStatus.status === JobStatus.SUCCESS || jobStatus.status === JobStatus.FAILED) ? (
-            <div className="space-y-3 rounded border border-slate-200 bg-white p-4">
+            <div className="space-y-3 rounded-lg border border-border bg-surface p-4 shadow-sm">
               {jobStatus.status === JobStatus.SUCCESS ? (
                 <>
-                  <p className="text-slate-800">Upload completed successfully.</p>
+                  <p className="text-text-primary">Upload completed successfully.</p>
                   <Link
                     href="/holdings"
-                    className="inline-block text-sm text-slate-600 underline hover:text-slate-800"
+                    className="inline-block text-sm text-primary underline hover:text-primary-dark"
                   >
                     View holdings
                   </Link>
                 </>
               ) : (
                 <>
-                  <p className="font-medium text-red-700">Upload failed</p>
+                  <p className="font-medium text-accent-dark">Upload failed</p>
                   {jobStatus.validationErrors.length > 0 && (
                     <div>
-                      <p className="text-sm font-medium text-slate-700">Validation errors</p>
-                      <ul className="mt-1 list-inside list-disc text-sm text-slate-600">
+                      <p className="text-sm font-medium text-text-primary">Validation errors</p>
+                      <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
                         {jobStatus.validationErrors.map((e, i) => (
                           <li key={i}>
                             Row {e.rowIndex + 1}: {e.field} – {e.message}
@@ -172,8 +168,8 @@ export default function UploadPage() {
                   )}
                   {jobStatus.identificationErrors.length > 0 && (
                     <div>
-                      <p className="text-sm font-medium text-slate-700">Identification errors</p>
-                      <ul className="mt-1 list-inside list-disc text-sm text-slate-600">
+                      <p className="text-sm font-medium text-text-primary">Identification errors</p>
+                      <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
                         {jobStatus.identificationErrors.map((e, i) => (
                           <li key={i}>
                             Row {e.rowIndex + 1}: {e.instrumentDescription} – {e.message}
@@ -186,19 +182,19 @@ export default function UploadPage() {
               )}
             </div>
           ) : jobId ? (
-            <p className="text-slate-600">Processing…</p>
+            <p className="text-text-muted">Processing…</p>
           ) : step === 1 ? (
             <>
-              <p className="text-slate-600">Select the broker for this transaction file.</p>
+              <p className="text-text-muted">Select the broker for this transaction file.</p>
               <div className="space-y-2">
-                <label htmlFor="broker" className="block text-sm font-medium text-slate-700">
+                <label htmlFor="broker" className="block text-sm font-medium text-text-primary">
                   Broker
                 </label>
                 <select
                   id="broker"
                   value={broker}
                   onChange={(e) => setBroker(Number(e.target.value) as Broker)}
-                  className="block w-full rounded border border-slate-300 bg-white px-3 py-2 text-slate-800"
+                  className="block w-full rounded-lg border border-border bg-surface px-3 py-2 text-text-primary"
                 >
                   {BROKER_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -210,24 +206,24 @@ export default function UploadPage() {
               <button
                 type="button"
                 onClick={() => setStep(2)}
-                className="rounded bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark"
               >
                 Next
               </button>
             </>
           ) : (
             <>
-              <p className="text-slate-600">
+              <p className="text-text-muted">
                 Choose <strong>Standard</strong> format and select your CSV file.
               </p>
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-slate-700">Format</label>
-                <p className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <label className="block text-sm font-medium text-text-primary">Format</label>
+                <p className="rounded-lg border border-border bg-primary-light/10 px-3 py-2 text-sm text-text-primary">
                   Standard
                 </p>
               </div>
               <div className="space-y-2">
-                <label htmlFor="file" className="block text-sm font-medium text-slate-700">
+                <label htmlFor="file" className="block text-sm font-medium text-text-primary">
                   CSV file
                 </label>
                 <input
@@ -236,15 +232,15 @@ export default function UploadPage() {
                   type="file"
                   accept=".csv"
                   onChange={handleFileChange}
-                  className="block w-full text-sm text-slate-600 file:mr-4 file:rounded file:border-0 file:bg-slate-100 file:px-4 file:py-2 file:text-slate-700"
+                  className="block w-full text-sm text-text-muted file:mr-4 file:rounded-lg file:border-0 file:bg-primary-light/30 file:px-4 file:py-2 file:text-text-primary"
                 />
               </div>
               {parseResult && (
-                <div className="rounded border border-slate-200 bg-white p-4">
+                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
                   {parseResult.errors.length > 0 ? (
                     <>
-                      <p className="font-medium text-red-700">Parse errors</p>
-                      <ul className="mt-1 list-inside list-disc text-sm text-slate-600">
+                      <p className="font-medium text-accent-dark">Parse errors</p>
+                      <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
                         {parseResult.errors.map((e, i) => (
                           <li key={i}>
                             Row {e.rowIndex}: {e.field} – {e.message}
@@ -254,7 +250,7 @@ export default function UploadPage() {
                     </>
                   ) : (
                     <>
-                      <p className="text-slate-800">
+                      <p className="text-text-primary">
                         {parseResult.txs.length} transaction(s), from{" "}
                         {parseResult.periodFrom.toLocaleDateString()} to{" "}
                         {parseResult.periodTo.toLocaleDateString()}.
@@ -263,7 +259,7 @@ export default function UploadPage() {
                         type="button"
                         onClick={handleUpload}
                         disabled={!canUpload}
-                        className="mt-3 rounded bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                        className="mt-3 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-dark disabled:opacity-50"
                       >
                         Upload
                       </button>
@@ -272,12 +268,12 @@ export default function UploadPage() {
                 </div>
               )}
               {submitError && (
-                <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{submitError}</p>
+                <p className="rounded-lg bg-accent-soft/50 px-3 py-2 text-sm text-accent-dark">{submitError}</p>
               )}
               <button
                 type="button"
                 onClick={() => setStep(1)}
-                className="text-sm text-slate-600 underline hover:text-slate-800"
+                className="text-sm text-text-muted underline hover:text-primary"
               >
                 Back
               </button>

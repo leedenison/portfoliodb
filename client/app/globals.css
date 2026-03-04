@@ -1,3 +1,20 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    /* Core brand – theme.md */
+    --color-primary: #3e6b8a;
+    --color-primary-dark: #27465d;
+    --color-primary-light: #bfd3e1;
+    --color-accent: #e07a2f;
+    --color-accent-dark: #b85e1d;
+    --color-accent-soft: #f7d8c1;
+    --color-background: #f6f8fb;
+    --color-surface: #ffffff;
+    --color-border: #d6dee7;
+    --color-text: #0f1720;
+    --color-text-muted: #5a6b7a;
+  }
+}

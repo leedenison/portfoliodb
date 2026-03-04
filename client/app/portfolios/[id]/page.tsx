@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { SignInButton } from "@/app/components/sign-in";
 import { AppShell } from "@/app/components/app-shell";
 import { useAuth } from "@/contexts/auth-context";
 import {
@@ -104,19 +103,16 @@ export default function PortfolioHoldingsPage() {
     <AppShell>
       <div className="flex flex-1 flex-col items-center px-4 py-8">
         {state.status === "loading" && (
-          <p className="text-slate-500">Loading…</p>
+          <p className="text-text-muted">Loading…</p>
         )}
         {state.status === "unauthenticated" && (
-          <div className="flex flex-1 flex-col items-center justify-center">
-            <h1 className="text-4xl font-bold tracking-tight text-slate-800">
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
+            <h1 className="text-4xl font-bold tracking-tight text-text-primary">
               Portfolio holdings
             </h1>
-            <p className="mt-3 text-slate-600">Sign in to view holdings.</p>
-            <p className="mt-6">
-              <SignInButton />
-            </p>
+            <p className="mt-3 text-text-muted">Sign in to view holdings.</p>
             {authError && (
-              <p className="mt-4 rounded bg-red-50 px-4 py-2 text-sm text-red-700">
+              <p className="mt-4 rounded-lg bg-accent-soft/50 px-4 py-2 text-sm text-accent-dark">
                 {authError}
               </p>
             )}
@@ -126,48 +122,48 @@ export default function PortfolioHoldingsPage() {
           <div className="w-full max-w-2xl space-y-4">
             <Link
               href="/portfolios"
-              className="text-sm text-slate-600 underline hover:text-slate-800"
+              className="text-sm text-text-muted underline transition-colors hover:text-primary"
             >
               Back to portfolios
             </Link>
             {loading && (
-              <p className="text-slate-500">Loading holdings…</p>
+              <p className="text-text-muted">Loading holdings…</p>
             )}
             {!loading && error && (
-              <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+              <p className="rounded-lg bg-accent-soft/50 px-3 py-2 text-sm text-accent-dark">
                 {error}
               </p>
             )}
             {!loading && !error && portfolio && holdings && (
               <>
-                <h2 className="text-xl font-semibold text-slate-800">
+                <h2 className="text-xl font-semibold text-text-primary">
                   Holdings – {portfolio.name}
                 </h2>
                 {holdings.asOf && (
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-text-muted">
                     As of {holdings.asOf.toLocaleString()}
                   </p>
                 )}
-                <section className="rounded border border-slate-200 bg-slate-50 p-4">
-                  <h3 className="mb-2 text-sm font-medium text-slate-700">
+                <section className="rounded-lg border border-border bg-primary-light/10 p-4">
+                  <h3 className="mb-2 text-sm font-medium text-text-primary">
                     Portfolio view filters
                   </h3>
-                  <p className="mb-3 text-xs text-slate-500">
+                  <p className="mb-3 text-xs text-text-muted">
                     This view shows transactions matching any of the filters below (e.g. broker, account, or instrument). Add filters to include transactions in this portfolio.
                   </p>
                   <ul className="mb-3 space-y-1 text-sm">
                     {filters.length === 0 ? (
-                      <li className="text-slate-500">No filters. Add one below.</li>
+                      <li className="text-text-muted">No filters. Add one below.</li>
                     ) : (
                       filters.map((f, i) => (
                         <li key={i} className="flex items-center gap-2">
-                          <span className="font-medium text-slate-700">{f.filterType}</span>
-                          <span className="text-slate-600">{f.filterValue || "(empty)"}</span>
+                          <span className="font-medium text-text-primary">{f.filterType}</span>
+                          <span className="text-text-muted">{f.filterValue || "(empty)"}</span>
                           <button
                             type="button"
                             onClick={() => handleRemoveFilter(i)}
                             disabled={filterSaving}
-                            className="text-red-600 underline hover:no-underline disabled:opacity-50"
+                            className="text-accent-dark underline hover:no-underline disabled:opacity-50"
                           >
                             Remove
                           </button>
@@ -179,7 +175,7 @@ export default function PortfolioHoldingsPage() {
                     <select
                       value={newFilterType}
                       onChange={(e) => setNewFilterType(e.target.value)}
-                      className="rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                      className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text-primary"
                     >
                       <option value="broker">Broker</option>
                       <option value="account">Account</option>
@@ -190,35 +186,35 @@ export default function PortfolioHoldingsPage() {
                       value={newFilterValue}
                       onChange={(e) => setNewFilterValue(e.target.value)}
                       placeholder="Value (e.g. IBKR or account name)"
-                      className="min-w-[160px] rounded border border-slate-300 px-2 py-1 text-sm"
+                      className="min-w-[160px] rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text-primary placeholder:text-text-muted"
                     />
                     <button
                       type="button"
                       onClick={handleAddFilter}
                       disabled={filterSaving}
-                      className="rounded bg-slate-700 px-3 py-1 text-sm text-white hover:bg-slate-800 disabled:opacity-50"
+                      className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
                     >
                       Add filter
                     </button>
                   </div>
                   {filterSaving && (
-                    <p className="mt-2 text-xs text-slate-500">Saving…</p>
+                    <p className="mt-2 text-xs text-text-muted">Saving…</p>
                   )}
                 </section>
-                <div className="overflow-x-auto rounded border border-slate-200 bg-white">
+                <div className="overflow-x-auto rounded-lg border border-border bg-surface shadow-sm">
                   <table className="w-full min-w-[320px] border-collapse text-sm">
                     <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50">
-                        <th className="px-4 py-2 text-left font-medium text-slate-700">
+                      <tr className="border-b border-border bg-primary-light/20">
+                        <th className="px-4 py-2.5 text-left font-medium text-text-primary">
                           Instrument
                         </th>
-                        <th className="px-4 py-2 text-right font-medium text-slate-700">
+                        <th className="px-4 py-2.5 text-right font-medium text-text-primary">
                           Quantity
                         </th>
-                        <th className="px-4 py-2 text-left font-medium text-slate-700">
+                        <th className="px-4 py-2.5 text-left font-medium text-text-primary">
                           Account
                         </th>
-                        <th className="px-4 py-2 text-left font-medium text-slate-700">
+                        <th className="px-4 py-2.5 text-left font-medium text-text-primary">
                           Broker
                         </th>
                       </tr>
@@ -228,7 +224,7 @@ export default function PortfolioHoldingsPage() {
                         <tr>
                           <td
                             colSpan={4}
-                            className="px-4 py-6 text-center text-slate-500"
+                            className="px-4 py-6 text-center text-text-muted"
                           >
                             No holdings.
                           </td>
@@ -237,18 +233,18 @@ export default function PortfolioHoldingsPage() {
                         holdings.holdings.map((h, i) => (
                           <tr
                             key={i}
-                            className="border-b border-slate-100 last:border-0"
+                            className="border-b border-border/50 last:border-0"
                           >
-                            <td className="px-4 py-2 text-slate-800">
+                            <td className="px-4 py-2.5 text-text-primary">
                               {h.instrumentDescription || "—"}
                             </td>
-                            <td className="px-4 py-2 text-right tabular-nums text-slate-800">
+                            <td className="px-4 py-2.5 text-right tabular-nums text-text-primary">
                               {h.quantity}
                             </td>
-                            <td className="px-4 py-2 text-slate-600">
+                            <td className="px-4 py-2.5 text-text-muted">
                               {h.account || "—"}
                             </td>
-                            <td className="px-4 py-2 text-slate-600">
+                            <td className="px-4 py-2.5 text-text-muted">
                               {brokerLabel(h.broker) || "—"}
                             </td>
                           </tr>

@@ -13,11 +13,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col bg-background">
       <AppHeader />
       <div className="flex flex-1">
-        <aside className="w-52 shrink-0 border-r border-slate-200 bg-white py-4">
-          <nav className="flex flex-col gap-0.5 px-2">
+        <aside className="w-52 shrink-0 border-r border-border bg-surface py-6">
+          <nav className="flex flex-col gap-0.5 px-3">
             {navItems.map(({ href, label }) => {
               const isActive =
                 pathname === href ||
@@ -27,10 +27,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   key={href}
                   href={href}
                   className={
-                    "rounded px-3 py-2 text-sm font-medium transition-colors " +
+                    "rounded-lg px-3 py-2.5 text-sm font-medium transition-colors " +
                     (isActive
-                      ? "bg-slate-100 text-slate-900"
-                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-800")
+                      ? "bg-primary-light/30 text-primary-dark"
+                      : "text-text-muted hover:bg-primary-light/20 hover:text-text-primary")
                   }
                 >
                   {label}

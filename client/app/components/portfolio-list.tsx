@@ -124,12 +124,12 @@ export function PortfolioList() {
   return (
     <div className="w-full max-w-2xl space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-slate-800">Your portfolios</h2>
+        <h2 className="text-xl font-semibold text-text-primary">Your portfolios</h2>
         {!creating && (
           <button
             type="button"
             onClick={() => setCreating(true)}
-            className="rounded bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-dark"
           >
             New portfolio
           </button>
@@ -137,25 +137,25 @@ export function PortfolioList() {
       </div>
 
       {creating && (
-        <form onSubmit={handleCreate} className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-white p-3">
+        <form onSubmit={handleCreate} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-3 shadow-sm">
           <input
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Portfolio name"
-            className="min-w-[200px] rounded border border-slate-300 px-2 py-1.5 text-sm"
+            className="min-w-[200px] rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text-primary placeholder:text-text-muted"
             autoFocus
           />
           <button
             type="submit"
-            className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white hover:bg-slate-700"
+            className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary-dark"
           >
             Create
           </button>
           <button
             type="button"
             onClick={() => { setCreating(false); setNewName(""); }}
-            className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100"
+            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-text-primary transition-colors hover:bg-primary-light/20"
           >
             Cancel
           </button>
@@ -163,16 +163,16 @@ export function PortfolioList() {
       )}
 
       {error && (
-        <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+        <p className="rounded-lg bg-accent-soft/50 px-3 py-2 text-sm text-accent-dark">{error}</p>
       )}
 
       {loading ? (
-        <p className="text-slate-500">Loading portfolios…</p>
+        <p className="text-text-muted">Loading portfolios…</p>
       ) : (
         <>
-          <ul className="divide-y divide-slate-200 rounded border border-slate-200 bg-white">
+          <ul className="divide-y divide-border rounded-lg border border-border bg-surface shadow-sm">
             {portfolios.length === 0 && !creating ? (
-              <li className="px-4 py-6 text-center text-slate-500">
+              <li className="px-4 py-6 text-center text-text-muted">
                 No portfolios yet. Create one above.
               </li>
             ) : (
@@ -187,39 +187,39 @@ export function PortfolioList() {
                         type="text"
                         value={renameValue}
                         onChange={(e) => setRenameValue(e.target.value)}
-                        className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-sm text-text-primary"
                         autoFocus
                       />
                       <button
                         type="submit"
-                        className="rounded bg-slate-800 px-2 py-1 text-sm text-white hover:bg-slate-700"
+                        className="rounded-lg bg-primary px-2 py-1 text-sm font-medium text-white hover:bg-primary-dark"
                       >
                         Save
                       </button>
                       <button
                         type="button"
                         onClick={() => { setRenamingId(null); setRenameValue(""); }}
-                        className="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
+                        className="rounded-lg border border-border px-2 py-1 text-sm hover:bg-primary-light/20"
                       >
                         Cancel
                       </button>
                     </form>
                   ) : deletingId === p.id ? (
                     <>
-                      <span className="flex-1 text-sm text-slate-700">
+                      <span className="flex-1 text-sm text-text-primary">
                         Delete &quot;{p.name}&quot;?
                       </span>
                       <button
                         type="button"
                         onClick={() => handleDelete(p.id)}
-                        className="rounded bg-red-600 px-2 py-1 text-sm text-white hover:bg-red-500"
+                        className="rounded-lg bg-accent-dark px-2 py-1 text-sm font-medium text-white hover:bg-accent"
                       >
                         Yes, delete
                       </button>
                       <button
                         type="button"
                         onClick={() => setDeletingId(null)}
-                        className="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
+                        className="rounded-lg border border-border px-2 py-1 text-sm hover:bg-primary-light/20"
                       >
                         Cancel
                       </button>
@@ -229,12 +229,12 @@ export function PortfolioList() {
                       <div className="min-w-0 flex-1">
                         <Link
                           href={`/portfolios/${p.id}`}
-                          className="font-medium text-slate-800 underline hover:text-slate-600"
+                          className="font-medium text-primary underline transition-colors hover:text-primary-dark"
                         >
                           {p.name}
                         </Link>
                         {p.createdAt && (
-                          <span className="ml-2 text-xs text-slate-500">
+                          <span className="ml-2 text-xs text-text-muted">
                             {p.createdAt.toLocaleDateString()}
                           </span>
                         )}
@@ -243,14 +243,14 @@ export function PortfolioList() {
                         <button
                           type="button"
                           onClick={() => startRename(p)}
-                          className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
+                          className="rounded-lg border border-border px-2 py-1 text-xs transition-colors hover:bg-primary-light/20"
                         >
                           Rename
                         </button>
                         <button
                           type="button"
                           onClick={() => confirmDelete(p)}
-                          className="rounded border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50"
+                          className="rounded-lg border border-accent-soft px-2 py-1 text-xs text-accent-dark hover:bg-accent-soft/50"
                         >
                           Delete
                         </button>
@@ -263,23 +263,23 @@ export function PortfolioList() {
           </ul>
 
           {(hasPrev || hasNext) && (
-            <div className="flex items-center justify-between border-t border-slate-200 pt-2">
+            <div className="flex items-center justify-between border-t border-border pt-2">
               <button
                 type="button"
                 onClick={goPrev}
                 disabled={!hasPrev}
-                className="rounded border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-50 hover:enabled:bg-slate-100"
+                className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm disabled:opacity-50 hover:enabled:bg-primary-light/20"
               >
                 Previous
               </button>
-              <span className="text-sm text-slate-500">
+              <span className="text-sm text-text-muted">
                 Page {pageIndex + 1} (up to {PAGE_SIZE} per page)
               </span>
               <button
                 type="button"
                 onClick={goNext}
                 disabled={!hasNext}
-                className="rounded border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-50 hover:enabled:bg-slate-100"
+                className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm disabled:opacity-50 hover:enabled:bg-primary-light/20"
               >
                 Next
               </button>

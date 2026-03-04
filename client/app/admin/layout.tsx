@@ -21,10 +21,10 @@ export default function AdminLayout({
 
   if (state.status === "loading") {
     return (
-      <main className="flex min-h-screen flex-col">
+      <main className="flex min-h-screen flex-col bg-background">
         <AppHeader />
         <div className="flex flex-1 items-center justify-center px-4 py-8">
-          <p className="text-slate-500">Loading…</p>
+          <p className="text-text-muted">Loading…</p>
         </div>
       </main>
     );
@@ -32,14 +32,14 @@ export default function AdminLayout({
 
   if (!isAdmin) {
     return (
-      <main className="flex min-h-screen flex-col">
+      <main className="flex min-h-screen flex-col bg-background">
         <AppHeader />
-        <div className="flex flex-1 flex-col items-center justify-center px-4 py-8">
-          <h1 className="text-xl font-semibold text-slate-800">Access denied</h1>
-          <p className="mt-2 text-slate-600">Admin role required.</p>
+        <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center">
+          <h1 className="text-xl font-semibold text-text-primary">Access denied</h1>
+          <p className="mt-2 text-text-muted">Admin role required.</p>
           <Link
             href="/"
-            className="mt-4 text-sm text-slate-600 underline hover:text-slate-800"
+            className="mt-4 text-sm text-primary underline hover:text-primary-dark"
           >
             Back to home
           </Link>
@@ -49,10 +49,10 @@ export default function AdminLayout({
   }
 
   return (
-    <main className="flex min-h-screen flex-col">
+    <main className="flex min-h-screen flex-col bg-background">
       <AppHeader />
       <div className="flex flex-1 gap-8 px-4 py-8">
-        <nav className="w-40 shrink-0 border-r border-slate-200 pr-6">
+        <nav className="w-40 shrink-0 border-r border-border pr-6">
           <ul className="space-y-2">
             {adminNav.map(({ href, label }) => (
               <li key={href}>
@@ -60,8 +60,8 @@ export default function AdminLayout({
                   href={href}
                   className={`block text-sm ${
                     pathname === href
-                      ? "font-medium text-slate-800"
-                      : "text-slate-600 underline hover:text-slate-800"
+                      ? "font-medium text-primary-dark"
+                      : "text-text-muted underline hover:text-primary"
                   }`}
                 >
                   {label}

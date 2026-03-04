@@ -8,19 +8,21 @@ export function SignInButton() {
 
   if (state.status === "authenticated") return null;
   if (state.status === "loading") {
-    return <span className="text-slate-500">Loading…</span>;
+    return <span className="text-text-muted">Loading…</span>;
   }
   return (
-    <GoogleLogin
-      onSuccess={async (credentialResponse) => {
-        const idToken = credentialResponse.credential;
-        if (idToken) await signIn(idToken);
-      }}
-      onError={() => {}}
-      useOneTap={false}
-      theme="filled_black"
-      size="medium"
-      text="signin_with"
-    />
+    <div className="[color-scheme:light]">
+      <GoogleLogin
+        onSuccess={async (credentialResponse) => {
+          const idToken = credentialResponse.credential;
+          if (idToken) await signIn(idToken);
+        }}
+        onError={() => { }}
+        useOneTap={false}
+        theme="outline"
+        size="medium"
+        text="signin_with"
+      />
+    </div>
   );
 }

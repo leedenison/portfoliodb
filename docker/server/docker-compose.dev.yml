@@ -29,6 +29,8 @@ services:
     environment:
       HOSTNAME: "0.0.0.0"
       NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      # Poll for file changes so bind-mounted source updates are picked up (inotify often doesn't propagate into the container).
+      CHOKIDAR_USEPOLLING: "true"
     volumes:
       - ../..:/app
     working_dir: /app/client

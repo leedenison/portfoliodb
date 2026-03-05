@@ -27,60 +27,47 @@ func newIngestionServerWithMock(t *testing.T, queue chan<- *JobRequest) (*Server
 	return NewServer(db, queue), db
 }
 
-func TestUpsertTxs_Unauthenticated(t *testing.T) {
-	queue := make(chan *JobRequest, 1)
-	defer close(queue)
-	srv, _ := newIngestionServerWithMock(t, queue)
-	ctx := context.Background()
-	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
-		Broker:     apiv1.Broker_IBKR,
-		Source:     "IBKR:test:statement",
-		PeriodFrom: timestamppb.Now(),
-		PeriodTo:   timestamppb.Now(),
-	})
-	testutil.RequireGRPCCode(t, err, codes.Unauthenticated)
-}
-
-func TestUpsertTxs_InvalidArgument_broker(t *testing.T) {
-	queue := make(chan *JobRequest, 1)
-	defer close(queue)
-	srv, _ := newIngestionServerWithMock(t, queue)
-	ctx := authCtx("user-1")
-	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
-		Broker:      apiv1.Broker_BROKER_UNSPECIFIED,
-		Source:      "IBKR:test:statement",
-		PeriodFrom:  timestamppb.Now(),
-		PeriodTo:    timestamppb.Now(),
-	})
-	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
-}
-
-func TestUpsertTxs_InvalidArgument_source(t *testing.T) {
-	queue := make(chan *JobRequest, 1)
-	defer close(queue)
-	srv, _ := newIngestionServerWithMock(t, queue)
-	ctx := authCtx("user-1")
-	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
-		Broker:     apiv1.Broker_IBKR,
-		Source:     "", // missing source
-		PeriodFrom: timestamppb.Now(),
-		PeriodTo:    timestamppb.Now(),
-	})
-	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
-}
-
-func TestUpsertTxs_InvalidArgument_period(t *testing.T) {
-	queue := make(chan *JobRequest, 1)
-	defer close(queue)
-	srv, _ := newIngestionServerWithMock(t, queue)
-	ctx := authCtx("user-1")
-	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
-		Broker:   apiv1.Broker_IBKR,
-		Source:   "IBKR:test:statement",
-		PeriodTo: timestamppb.Now(),
-		// PeriodFrom missing
-	})
-	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
+func TestUpsertTxs(t *testing.T) {
+	now := timestamppb.Now()
+	tests := []struct {
+		name          string
+		ctx           context.Context
+		req           *ingestionv1.UpsertTxsRequest
+		wantCode      codes.Code
+	}{
+		{"Unauthenticated", context.Background(), &ingestionv1.UpsertTxsRequest{
+			Broker:     apiv1.Broker_IBKR,
+			Source:     "IBKR:test:statement",
+			PeriodFrom: now,
+			PeriodTo:   now,
+		}, codes.Unauthenticated},
+		{"InvalidArgument_broker", authCtx("user-1"), &ingestionv1.UpsertTxsRequest{
+			Broker:      apiv1.Broker_BROKER_UNSPECIFIED,
+			Source:      "IBKR:test:statement",
+			PeriodFrom:  now,
+			PeriodTo:    now,
+		}, codes.InvalidArgument},
+		{"InvalidArgument_source", authCtx("user-1"), &ingestionv1.UpsertTxsRequest{
+			Broker:     apiv1.Broker_IBKR,
+			Source:     "",
+			PeriodFrom: now,
+			PeriodTo:   now,
+		}, codes.InvalidArgument},
+		{"InvalidArgument_period", authCtx("user-1"), &ingestionv1.UpsertTxsRequest{
+			Broker:   apiv1.Broker_IBKR,
+			Source:   "IBKR:test:statement",
+			PeriodTo: now,
+		}, codes.InvalidArgument},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			queue := make(chan *JobRequest, 1)
+			defer close(queue)
+			srv, _ := newIngestionServerWithMock(t, queue)
+			_, err := srv.UpsertTxs(tc.ctx, tc.req)
+			testutil.RequireGRPCCode(t, err, tc.wantCode)
+		})
+	}
 }
 
 func TestUpsertTxs_Success(t *testing.T) {

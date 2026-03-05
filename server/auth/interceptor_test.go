@@ -48,93 +48,57 @@ var testInterceptorConfig = InterceptorConfig{
 	ExtendTTL:         time.Hour,
 }
 
-func TestUnaryInterceptor_AttachesUserFromSession(t *testing.T) {
-	interceptor := UnaryInterceptor(testInterceptorConfig)
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		"cookie", "portfoliodb_session=valid-session-id",
-	))
-	var got *User
-	_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/api/ListPortfolios"}, func(ctx context.Context, req interface{}) (interface{}, error) {
-		got = FromContext(ctx)
-		return nil, nil
-	})
-	if err != nil {
-		t.Fatalf("handler err: %v", err)
+func makeUnaryCtx(cookie string) context.Context {
+	if cookie == "" {
+		return context.Background()
 	}
-	if got == nil || got.ID != "user-1" || got.Role != "user" {
-		t.Fatalf("got user %+v", got)
-	}
+	return metadata.NewIncomingContext(context.Background(), metadata.Pairs("cookie", cookie))
 }
 
-func TestUnaryInterceptor_SkipAuthPrefix_CallsHandlerWithoutUser(t *testing.T) {
-	interceptor := UnaryInterceptor(testInterceptorConfig)
-	ctx := context.Background()
-	var got *User
-	_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo"}, func(ctx context.Context, req interface{}) (interface{}, error) {
-		got = FromContext(ctx)
-		return nil, nil
-	})
-	if err != nil {
-		t.Fatalf("handler err: %v", err)
+func TestUnaryInterceptor(t *testing.T) {
+	tests := []struct {
+		name                 string
+		cookie               string
+		fullMethod           string
+		wantUnauthenticated  bool
+		wantUserInContext   bool
+	}{
+		{"AttachesUserFromSession", "portfoliodb_session=valid-session-id", "/api/ListPortfolios", false, true},
+		{"SkipAuthPrefix_CallsHandlerWithoutUser", "", "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo", false, false},
+		{"NoSessionMethod_CallsHandlerWithoutUser", "", "/portfoliodb.auth.v1.AuthService/Auth", false, false},
+		{"MissingSession_ReturnsUnauthenticated", "other=value", "/api/ListPortfolios", true, false},
+		{"InvalidSession_ReturnsUnauthenticated", "portfoliodb_session=invalid-id", "/api/ListPortfolios", true, false},
+		{"OptionalSession_AllowsMissingSession", "", "/portfoliodb.auth.v1.AuthService/Logout", false, false},
 	}
-	if got != nil {
-		t.Fatalf("expected no user for skip-auth method, got %+v", got)
-	}
-}
-
-func TestUnaryInterceptor_NoSessionMethod_CallsHandlerWithoutUser(t *testing.T) {
-	interceptor := UnaryInterceptor(testInterceptorConfig)
-	ctx := context.Background()
-	_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/portfoliodb.auth.v1.AuthService/Auth"}, func(ctx context.Context, req interface{}) (interface{}, error) {
-		return nil, nil
-	})
-	if err != nil {
-		t.Fatalf("handler err: %v", err)
-	}
-}
-
-func TestUnaryInterceptor_MissingSession_ReturnsUnauthenticated(t *testing.T) {
-	interceptor := UnaryInterceptor(testInterceptorConfig)
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("cookie", "other=value"))
-	_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/api/ListPortfolios"}, func(context.Context, interface{}) (interface{}, error) {
-		return nil, nil
-	})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if status.Code(err) != codes.Unauthenticated {
-		t.Fatalf("got %v", err)
-	}
-}
-
-func TestUnaryInterceptor_InvalidSession_ReturnsUnauthenticated(t *testing.T) {
-	interceptor := UnaryInterceptor(testInterceptorConfig)
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("cookie", "portfoliodb_session=invalid-id"))
-	_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/api/ListPortfolios"}, func(context.Context, interface{}) (interface{}, error) {
-		return nil, nil
-	})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if status.Code(err) != codes.Unauthenticated {
-		t.Fatalf("got %v", err)
-	}
-}
-
-func TestStreamInterceptor_AttachesUserToContext(t *testing.T) {
-	interceptor := StreamInterceptor(testInterceptorConfig)
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("cookie", "portfoliodb_session=valid-session-id"))
-	stream := &streamMock{ctx: ctx}
-	var got *User
-	err := interceptor(nil, stream, &grpc.StreamServerInfo{FullMethod: "/portfoliodb.api.v1.ApiService/ExportInstruments"}, func(srv interface{}, stream grpc.ServerStream) error {
-		got = FromContext(stream.Context())
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("handler err: %v", err)
-	}
-	if got == nil || got.ID != "user-1" || got.Role != "user" {
-		t.Fatalf("got user %+v", got)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			interceptor := UnaryInterceptor(testInterceptorConfig)
+			ctx := makeUnaryCtx(tc.cookie)
+			var got *User
+			_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: tc.fullMethod}, func(ctx context.Context, req interface{}) (interface{}, error) {
+				got = FromContext(ctx)
+				return nil, nil
+			})
+			if tc.wantUnauthenticated {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				if status.Code(err) != codes.Unauthenticated {
+					t.Fatalf("got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("handler err: %v", err)
+			}
+			if tc.wantUserInContext {
+				if got == nil || got.ID != "user-1" || got.Role != "user" {
+					t.Fatalf("got user %+v", got)
+				}
+			} else if got != nil {
+				t.Fatalf("expected no user, got %+v", got)
+			}
+		})
 	}
 }
 

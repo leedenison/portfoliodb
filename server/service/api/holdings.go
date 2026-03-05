@@ -13,9 +13,9 @@ import (
 
 // GetHoldings returns holdings: by portfolio view (if portfolio_id set) or all user holdings. Filtering is via portfolios only.
 func (s *Server) GetHoldings(ctx context.Context, req *apiv1.GetHoldingsRequest) (*apiv1.GetHoldingsResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
 	}
 	var holdings []*apiv1.Holding
 	var asOf *timestamppb.Timestamp

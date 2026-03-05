@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/testutil"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
@@ -11,14 +11,11 @@ import (
 )
 
 func TestListTxs_Success(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	srv, db := newAPIServerWithMock(t)
 	txs := []*apiv1.PortfolioTx{{Broker: apiv1.Broker_IBKR, Tx: &apiv1.Tx{InstrumentDescription: "AAPL"}}}
-	db := mock.NewMockDB(ctrl)
 	db.EXPECT().
 		ListTxs(gomock.Any(), "user-1", (*apiv1.Broker)(nil), "", (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), int32(50), "").
 		Return(txs, "", nil)
-	srv := NewServer(db)
 	ctx := authCtx("user-1", "sub|1")
 	resp, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{})
 	if err != nil {
@@ -30,17 +27,14 @@ func TestListTxs_Success(t *testing.T) {
 }
 
 func TestListTxs_WithPortfolioId_Success(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	srv, db := newAPIServerWithMock(t)
 	txs := []*apiv1.PortfolioTx{{Broker: apiv1.Broker_IBKR, Tx: &apiv1.Tx{InstrumentDescription: "AAPL"}}}
-	db := mock.NewMockDB(ctrl)
 	db.EXPECT().
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
 		Return(true, nil)
 	db.EXPECT().
 		ListTxsByPortfolio(gomock.Any(), "port-1", (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), int32(50), "").
 		Return(txs, "", nil)
-	srv := NewServer(db)
 	ctx := authCtx("user-1", "sub|1")
 	resp, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "port-1"})
 	if err != nil {
@@ -52,14 +46,11 @@ func TestListTxs_WithPortfolioId_Success(t *testing.T) {
 }
 
 func TestListTxs_WithPortfolioId_NotFound(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	db := mock.NewMockDB(ctrl)
+	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
 		Return(false, nil)
-	srv := NewServer(db)
 	ctx := authCtx("user-1", "sub|1")
 	_, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "port-1"})
-	requireGRPCCode(t, err, codes.NotFound)
+	testutil.RequireGRPCCode(t, err, codes.NotFound)
 }

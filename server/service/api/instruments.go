@@ -13,11 +13,8 @@ import (
 // ExportInstruments streams instruments that have at least one canonical identifier. Optional exchange filter. Admin only.
 func (s *Server) ExportInstruments(req *apiv1.ExportInstrumentsRequest, stream apiv1.ApiService_ExportInstrumentsServer) error {
 	ctx := stream.Context()
-	if auth.FromContext(ctx) == nil || auth.FromContext(ctx).ID == "" {
-		return status.Error(codes.Unauthenticated, "missing user")
-	}
-	if auth.FromContext(ctx).Role != "admin" {
-		return status.Error(codes.PermissionDenied, "admin role required")
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return authErr
 	}
 	rows, err := s.db.ListInstrumentsForExport(ctx, req.GetExchange())
 	if err != nil {
@@ -41,11 +38,8 @@ func (s *Server) ExportInstruments(req *apiv1.ExportInstrumentsRequest, stream a
 
 // ImportInstruments ensures the given instruments exist (find-or-create by identifiers). Two-pass: underlyings first, then derivatives. Admin only.
 func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrumentsRequest) (*apiv1.ImportInstrumentsResponse, error) {
-	if auth.FromContext(ctx) == nil || auth.FromContext(ctx).ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
-	}
-	if auth.FromContext(ctx).Role != "admin" {
-		return nil, status.Error(codes.PermissionDenied, "admin role required")
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
 	}
 	var errs []*apiv1.ImportInstrumentError
 	seenKeys := make(map[string]struct{})

@@ -12,9 +12,9 @@ import (
 
 // ListTxs lists transactions: by portfolio view (if portfolio_id set) or all user transactions. Filtering is via portfolios only.
 func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1.ListTxsResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
 	}
 	pageSize := req.GetPageSize()
 	if pageSize <= 0 {

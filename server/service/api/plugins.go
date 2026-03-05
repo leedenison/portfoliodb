@@ -12,11 +12,8 @@ import (
 
 // ListIdentifierPlugins returns all identifier plugin configs. Admin only.
 func (s *Server) ListIdentifierPlugins(ctx context.Context, req *apiv1.ListIdentifierPluginsRequest) (*apiv1.ListIdentifierPluginsResponse, error) {
-	if auth.FromContext(ctx) == nil || auth.FromContext(ctx).ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
-	}
-	if auth.FromContext(ctx).Role != "admin" {
-		return nil, status.Error(codes.PermissionDenied, "admin role required")
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
 	}
 	rows, err := s.db.ListPluginConfigs(ctx)
 	if err != nil {
@@ -40,11 +37,8 @@ func (s *Server) ListIdentifierPlugins(ctx context.Context, req *apiv1.ListIdent
 
 // UpdateIdentifierPlugin updates enabled, precedence, and/or config for a plugin. Admin only.
 func (s *Server) UpdateIdentifierPlugin(ctx context.Context, req *apiv1.UpdateIdentifierPluginRequest) (*apiv1.UpdateIdentifierPluginResponse, error) {
-	if auth.FromContext(ctx) == nil || auth.FromContext(ctx).ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
-	}
-	if auth.FromContext(ctx).Role != "admin" {
-		return nil, status.Error(codes.PermissionDenied, "admin role required")
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
 	}
 	if req.GetPluginId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "plugin_id required")

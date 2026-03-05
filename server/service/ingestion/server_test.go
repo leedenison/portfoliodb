@@ -6,34 +6,31 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/testutil"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
-
-func requireGRPCCode(t *testing.T, err error, want codes.Code) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if got := status.Code(err); got != want {
-		t.Fatalf("status.Code(err) = %v, want %v", got, want)
-	}
-}
 
 func authCtx(userID string) context.Context {
 	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: "sub|1"})
 }
 
-func TestUpsertTxs_Unauthenticated(t *testing.T) {
+// newIngestionServerWithMock creates a gomock controller, mock DB, and ingestion server. The controller is finished when the test ends.
+func newIngestionServerWithMock(t *testing.T, queue chan<- *JobRequest) (*Server, *mock.MockDB) {
+	t.Helper()
 	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	t.Cleanup(func() { ctrl.Finish() })
+	db := mock.NewMockDB(ctrl)
+	return NewServer(db, queue), db
+}
+
+func TestUpsertTxs_Unauthenticated(t *testing.T) {
 	queue := make(chan *JobRequest, 1)
 	defer close(queue)
-	srv := NewServer(mock.NewMockDB(ctrl), queue)
+	srv, _ := newIngestionServerWithMock(t, queue)
 	ctx := context.Background()
 	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
 		Broker:     apiv1.Broker_IBKR,
@@ -41,15 +38,13 @@ func TestUpsertTxs_Unauthenticated(t *testing.T) {
 		PeriodFrom: timestamppb.Now(),
 		PeriodTo:   timestamppb.Now(),
 	})
-	requireGRPCCode(t, err, codes.Unauthenticated)
+	testutil.RequireGRPCCode(t, err, codes.Unauthenticated)
 }
 
 func TestUpsertTxs_InvalidArgument_broker(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
 	queue := make(chan *JobRequest, 1)
 	defer close(queue)
-	srv := NewServer(mock.NewMockDB(ctrl), queue)
+	srv, _ := newIngestionServerWithMock(t, queue)
 	ctx := authCtx("user-1")
 	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
 		Broker:      apiv1.Broker_BROKER_UNSPECIFIED,
@@ -57,15 +52,13 @@ func TestUpsertTxs_InvalidArgument_broker(t *testing.T) {
 		PeriodFrom:  timestamppb.Now(),
 		PeriodTo:    timestamppb.Now(),
 	})
-	requireGRPCCode(t, err, codes.InvalidArgument)
+	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
 }
 
 func TestUpsertTxs_InvalidArgument_source(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
 	queue := make(chan *JobRequest, 1)
 	defer close(queue)
-	srv := NewServer(mock.NewMockDB(ctrl), queue)
+	srv, _ := newIngestionServerWithMock(t, queue)
 	ctx := authCtx("user-1")
 	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
 		Broker:     apiv1.Broker_IBKR,
@@ -73,15 +66,13 @@ func TestUpsertTxs_InvalidArgument_source(t *testing.T) {
 		PeriodFrom: timestamppb.Now(),
 		PeriodTo:    timestamppb.Now(),
 	})
-	requireGRPCCode(t, err, codes.InvalidArgument)
+	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
 }
 
 func TestUpsertTxs_InvalidArgument_period(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
 	queue := make(chan *JobRequest, 1)
 	defer close(queue)
-	srv := NewServer(mock.NewMockDB(ctrl), queue)
+	srv, _ := newIngestionServerWithMock(t, queue)
 	ctx := authCtx("user-1")
 	_, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
 		Broker:   apiv1.Broker_IBKR,
@@ -89,21 +80,18 @@ func TestUpsertTxs_InvalidArgument_period(t *testing.T) {
 		PeriodTo: timestamppb.Now(),
 		// PeriodFrom missing
 	})
-	requireGRPCCode(t, err, codes.InvalidArgument)
+	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
 }
 
 func TestUpsertTxs_Success(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
 	periodFrom := timestamppb.Now()
 	periodTo := timestamppb.Now()
-	db := mock.NewMockDB(ctrl)
+	queue := make(chan *JobRequest, 1)
+	defer close(queue)
+	srv, db := newIngestionServerWithMock(t, queue)
 	db.EXPECT().
 		CreateJob(gomock.Any(), "user-1", "IBKR", "IBKR:test:statement", periodFrom, periodTo).
 		Return("job-123", nil)
-	queue := make(chan *JobRequest, 1)
-	defer close(queue)
-	srv := NewServer(db, queue)
 	ctx := authCtx("user-1")
 	resp, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
 		Broker:     apiv1.Broker_IBKR,

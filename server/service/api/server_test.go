@@ -6,22 +6,12 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/testutil"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 )
-
-func requireGRPCCode(t *testing.T, err error, want codes.Code) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if got := status.Code(err); got != want {
-		t.Fatalf("status.Code(err) = %v, want %v", got, want)
-	}
-}
 
 func authCtx(userID, authSub string) context.Context {
 	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: authSub})
@@ -34,6 +24,15 @@ func authCtxWithProfile(userID, authSub, name, email string) context.Context {
 // adminCtx returns a context with an admin user (for Export/Import RPCs).
 func adminCtx(userID, authSub string) context.Context {
 	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: authSub, Role: "admin"})
+}
+
+// newAPIServerWithMock creates a gomock controller, mock DB, and API server. The controller is finished when the test ends.
+func newAPIServerWithMock(t *testing.T) (*Server, *mock.MockDB) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	t.Cleanup(func() { ctrl.Finish() })
+	db := mock.NewMockDB(ctrl)
+	return NewServer(db), db
 }
 
 // exportStreamMock provides a stream with configurable context for ExportInstruments tests.
@@ -59,9 +58,7 @@ func (e *exportStreamMock) SendMsg(m interface{}) error {
 }
 
 func TestAPI_Unauthenticated(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	srv := NewServer(mock.NewMockDB(ctrl))
+	srv, _ := newAPIServerWithMock(t)
 	ctx := context.Background()
 	tests := []struct {
 		name string
@@ -86,15 +83,13 @@ func TestAPI_Unauthenticated(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.call()
-			requireGRPCCode(t, err, codes.Unauthenticated)
+			testutil.RequireGRPCCode(t, err, codes.Unauthenticated)
 		})
 	}
 }
 
 func TestAPI_InvalidArgument(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	srv := NewServer(mock.NewMockDB(ctrl))
+	srv, _ := newAPIServerWithMock(t)
 	ctx := authCtx("user-1", "sub|1")
 	tests := []struct {
 		name string
@@ -109,7 +104,7 @@ func TestAPI_InvalidArgument(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.call()
-			requireGRPCCode(t, err, codes.InvalidArgument)
+			testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
 		})
 	}
 }

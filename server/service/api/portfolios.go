@@ -12,9 +12,9 @@ import (
 
 // ListPortfolios returns portfolios owned by the authenticated user.
 func (s *Server) ListPortfolios(ctx context.Context, req *apiv1.ListPortfoliosRequest) (*apiv1.ListPortfoliosResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
 	}
 	pageSize := req.GetPageSize()
 	if pageSize <= 0 {
@@ -32,9 +32,9 @@ func (s *Server) ListPortfolios(ctx context.Context, req *apiv1.ListPortfoliosRe
 
 // GetPortfolio returns a portfolio by ID if owned by the user.
 func (s *Server) GetPortfolio(ctx context.Context, req *apiv1.GetPortfolioRequest) (*apiv1.GetPortfolioResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
 	}
 	if req.GetPortfolioId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "portfolio_id required")
@@ -58,9 +58,9 @@ func (s *Server) GetPortfolio(ctx context.Context, req *apiv1.GetPortfolioReques
 
 // CreatePortfolio creates a portfolio for the authenticated user.
 func (s *Server) CreatePortfolio(ctx context.Context, req *apiv1.CreatePortfolioRequest) (*apiv1.CreatePortfolioResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
 	}
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name required")
@@ -74,9 +74,9 @@ func (s *Server) CreatePortfolio(ctx context.Context, req *apiv1.CreatePortfolio
 
 // UpdatePortfolio updates a portfolio name if owned by the user.
 func (s *Server) UpdatePortfolio(ctx context.Context, req *apiv1.UpdatePortfolioRequest) (*apiv1.UpdatePortfolioResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
 	}
 	if req.GetPortfolioId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "portfolio_id required")
@@ -100,9 +100,9 @@ func (s *Server) UpdatePortfolio(ctx context.Context, req *apiv1.UpdatePortfolio
 
 // DeletePortfolio deletes a portfolio if owned by the user.
 func (s *Server) DeletePortfolio(ctx context.Context, req *apiv1.DeletePortfolioRequest) (*apiv1.DeletePortfolioResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
 	}
 	if req.GetPortfolioId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "portfolio_id required")
@@ -122,9 +122,9 @@ func (s *Server) DeletePortfolio(ctx context.Context, req *apiv1.DeletePortfolio
 
 // GetPortfolioFilters returns the filter rows for a portfolio (broker/account/instrument). Portfolio must be owned by user.
 func (s *Server) GetPortfolioFilters(ctx context.Context, req *apiv1.GetPortfolioFiltersRequest) (*apiv1.GetPortfolioFiltersResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
 	}
 	if req.GetPortfolioId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "portfolio_id required")
@@ -149,9 +149,9 @@ func (s *Server) GetPortfolioFilters(ctx context.Context, req *apiv1.GetPortfoli
 
 // SetPortfolioFilters replaces all filters for a portfolio. Portfolio must be owned by user.
 func (s *Server) SetPortfolioFilters(ctx context.Context, req *apiv1.SetPortfolioFiltersRequest) (*apiv1.SetPortfolioFiltersResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
 	}
 	if req.GetPortfolioId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "portfolio_id required")

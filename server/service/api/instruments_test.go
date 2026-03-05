@@ -5,23 +5,20 @@ import (
 	"testing"
 
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
-	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/testutil"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 )
 
 func TestExportInstruments_Success(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	srv, db := newAPIServerWithMock(t)
 	rows := []*dbpkg.InstrumentRow{
 		{ID: "id-1", Name: "Apple", Identifiers: []dbpkg.IdentifierInput{{Type: "ISIN", Value: "US0378331005", Canonical: true}}},
 	}
-	db := mock.NewMockDB(ctrl)
 	db.EXPECT().
 		ListInstrumentsForExport(gomock.Any(), "").
 		Return(rows, nil)
-	srv := NewServer(db)
 	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
 	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream)
 	if err != nil {
@@ -39,13 +36,10 @@ func TestExportInstruments_Success(t *testing.T) {
 }
 
 func TestExportInstruments_WithExchangeFilter(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	db := mock.NewMockDB(ctrl)
+	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
 		ListInstrumentsForExport(gomock.Any(), "XNAS").
 		Return(nil, nil)
-	srv := NewServer(db)
 	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
 	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{Exchange: "XNAS"}, stream)
 	if err != nil {
@@ -57,23 +51,21 @@ func TestExportInstruments_WithExchangeFilter(t *testing.T) {
 }
 
 func TestExportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
-	srv := NewServer(mock.NewMockDB(gomock.NewController(t)))
+	srv, _ := newAPIServerWithMock(t)
 	stream := &exportStreamMock{ctx: authCtx("user-1", "sub|1")}
 	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream)
-	requireGRPCCode(t, err, codes.PermissionDenied)
+	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 }
 
 func TestImportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
-	srv := NewServer(mock.NewMockDB(gomock.NewController(t)))
+	srv, _ := newAPIServerWithMock(t)
 	ctx := authCtx("user-1", "sub|1")
 	_, err := srv.ImportInstruments(ctx, &apiv1.ImportInstrumentsRequest{Instruments: []*apiv1.Instrument{{Identifiers: []*apiv1.InstrumentIdentifier{{Type: "ISIN", Value: "x", Canonical: true}}}}})
-	requireGRPCCode(t, err, codes.PermissionDenied)
+	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 }
 
 func TestImportInstruments_Success(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	db := mock.NewMockDB(ctrl)
+	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
 		EnsureInstrument(gomock.Any(), "equity", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
 		DoAndReturn(func(_ context.Context, _, _, _, _ string, idns []dbpkg.IdentifierInput, _ string, _, _ interface{}) (string, error) {
@@ -82,7 +74,6 @@ func TestImportInstruments_Success(t *testing.T) {
 			}
 			return "inst-1", nil
 		})
-	srv := NewServer(db)
 	ctx := adminCtx("user-1", "sub|1")
 	req := &apiv1.ImportInstrumentsRequest{
 		Instruments: []*apiv1.Instrument{{
@@ -103,7 +94,7 @@ func TestImportInstruments_Success(t *testing.T) {
 }
 
 func TestImportInstruments_EmptyIdentifiers(t *testing.T) {
-	srv := NewServer(mock.NewMockDB(gomock.NewController(t)))
+	srv, _ := newAPIServerWithMock(t)
 	ctx := adminCtx("user-1", "sub|1")
 	req := &apiv1.ImportInstrumentsRequest{
 		Instruments: []*apiv1.Instrument{{Id: "x", Identifiers: nil}},
@@ -121,14 +112,11 @@ func TestImportInstruments_EmptyIdentifiers(t *testing.T) {
 }
 
 func TestImportInstruments_DuplicateTypeValueInPayload(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	db := mock.NewMockDB(ctrl)
+	srv, db := newAPIServerWithMock(t)
 	// First instrument (ISIN 1) is ensured; second is rejected as duplicate (type, value) in payload.
 	db.EXPECT().
 		EnsureInstrument(gomock.Any(), "", "", "", "", gomock.Any(), "", nil, nil).
 		Return("inst-1", nil)
-	srv := NewServer(db)
 	ctx := adminCtx("user-1", "sub|1")
 	req := &apiv1.ImportInstrumentsRequest{
 		Instruments: []*apiv1.Instrument{

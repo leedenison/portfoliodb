@@ -11,9 +11,9 @@ import (
 
 // GetJob returns ingestion job status and validation errors; job must belong to user.
 func (s *Server) GetJob(ctx context.Context, req *apiv1.GetJobRequest) (*apiv1.GetJobResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
 	}
 	if req.GetJobId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "job_id required")

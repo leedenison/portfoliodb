@@ -26,9 +26,9 @@ func NewServer(database db.DB, queue chan<- *JobRequest) *Server {
 
 // UpsertTxs creates a job and enqueues it for async processing.
 func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsRequest) (*ingestionv1.IngestionResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
 	}
 	if err := ValidateBroker(req.Broker); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Message)
@@ -68,9 +68,9 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 
 // CreateTx creates a job and enqueues it for async processing.
 func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest) (*ingestionv1.IngestionResponse, error) {
-	u := auth.FromContext(ctx)
-	if u == nil || u.ID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user")
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
 	}
 	if err := ValidateBroker(req.Broker); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Message)

@@ -40,7 +40,7 @@ func TestResolve_DBHit_NoPluginCall(t *testing.T) {
 		FindInstrumentByIdentifier(gomock.Any(), source, "AAPL").
 		Return("existing-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", "", nil, 0)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", "", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestResolve_CacheHit_NoPluginCall(t *testing.T) {
 	cache[key] = resolveResult{InstrumentID: "cached-id", FirstRowIndex: 0}
 
 	// No DB or plugin calls when cache has entry
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "GOOG", "", cache, 1)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "GOOG", "", cache, 1, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestResolve_DBMiss_NoPlugins_BrokerDescriptionOnly(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: source, Value: "UNKNOWN", Canonical: false}}, "", nil, nil).
 		Return("broker-only-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "UNKNOWN", "", nil, 0)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "UNKNOWN", "", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestResolve_DBMiss_AllPluginsErrNotIdentified_BrokerDescriptionOnly(t *test
 		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: source, Value: "UNKNOWN", Canonical: false}}, "", nil, nil).
 		Return("broker-only-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "UNKNOWN", "", nil, 0)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "UNKNOWN", "", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestResolve_DBMiss_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T
 			return "resolved-id", nil
 		})
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", "", nil, 0)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", "", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 			return "resolved-id", nil
 		})
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, "", nil, 0)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, "", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestResolve_PluginReturnsUnderlying_EnsuresUnderlyingThenDerivative(t *test
 		EnsureInstrument(gomock.Any(), "OPTION", "SMART", "USD", "AAPL Call 20250117 200 C", gomock.Any(), "underlying-uuid", nil, nil).
 		Return("option-uuid", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL  20250117C200", "", nil, 0)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL  20250117C200", "", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestResolve_TwoPlugins_HigherPrecedenceWins(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "High", gomock.Any(), "", nil, nil).
 		Return("high-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "X", "", nil, 0)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "X", "", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
 			return "merged-id", nil
 		})
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "Y", "", nil, 0)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "Y", "", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestResolve_TwoPlugins_SameType_HighPrecedenceWins(t *testing.T) {
 			return "id", nil
 		})
 
-	_, err := Resolve(ctx, database, registry, "IBKR", source, "Z", "", nil, 0)
+	_, err := Resolve(ctx, database, registry, "IBKR", source, "Z", "", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -442,7 +442,7 @@ func TestResolve_PluginTimeout_FallbackAndMessage(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "SLOW", []db.IdentifierInput{{Type: source, Value: "SLOW", Canonical: false}}, "", nil, nil).
 		Return("fallback-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "SLOW", "", nil, 0)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "SLOW", "", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -470,7 +470,7 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "BAD", []db.IdentifierInput{{Type: source, Value: "BAD", Canonical: false}}, "", nil, nil).
 		Return("fallback-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "BAD", "", nil, 0)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "BAD", "", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -549,7 +549,7 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "Retried", gomock.Any(), "", nil, nil).
 		Return("retried-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "RETRY", "", nil, 0)
+	r, err := Resolve(ctx, database, registry, "IBKR", source, "RETRY", "", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

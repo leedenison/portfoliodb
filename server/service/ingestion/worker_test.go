@@ -71,7 +71,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 		SetJobStatus(gomock.Any(), "job-1", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processJob(ctx, database, registry, j)
+	processJob(ctx, database, registry, nil, j)
 }
 
 func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
@@ -123,5 +123,5 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-2", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processJob(ctx, database, registry, j)
+	processJob(ctx, database, registry, nil, j)
 }

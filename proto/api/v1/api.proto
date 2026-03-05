@@ -116,6 +116,9 @@ service ApiService {
   // Identifier plugin config (admin-only). List all plugins; update enabled, precedence, and config JSON (including API keys).
   rpc ListIdentifierPlugins(ListIdentifierPluginsRequest) returns (ListIdentifierPluginsResponse);
   rpc UpdateIdentifierPlugin(UpdateIdentifierPluginRequest) returns (UpdateIdentifierPluginResponse);
+
+  // Telemetry counters (admin-only). Returns counters discovered from Redis (portfoliodb:counters:*).
+  rpc ListTelemetryCounters(ListTelemetryCountersRequest) returns (ListTelemetryCountersResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -305,4 +308,15 @@ message UpdateIdentifierPluginRequest {
 
 message UpdateIdentifierPluginResponse {
   IdentifierPluginConfig plugin = 1;
+}
+
+message ListTelemetryCountersRequest {}
+
+message TelemetryCounter {
+  string name = 1;
+  int64 value = 2;
+}
+
+message ListTelemetryCountersResponse {
+  repeated TelemetryCounter counters = 1;
 }

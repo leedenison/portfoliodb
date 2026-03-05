@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -26,6 +27,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/service/api"
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
 	"github.com/leedenison/portfoliodb/server/service/ingestion"
+	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/redis/go-redis/v9"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
@@ -73,6 +75,12 @@ func main() {
 	sessionTTL := 30 * 24 * time.Hour
 	extendTTL := 72 * time.Hour
 	sessionStore := session.NewRedisStore(rdb, "portfoliodb:session:", extendTTL)
+
+	counterPrefix := "portfoliodb:counters:"
+	counter := telemetry.NewRedisCounter(rdb, counterPrefix)
+	logLevel := parseLogLevel(envOrDefault("LOG_LEVEL", "debug"))
+	serverLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
+	slog.SetDefault(serverLogger)
 
 	// Google ID token verifier
 	googleClientID := os.Getenv("GOOGLE_OAUTH_CLIENT_ID")
@@ -131,20 +139,20 @@ func main() {
 	}
 
 	pluginRegistry := identifier.NewRegistry()
-	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin())
+	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin(counter, serverLogger))
 	if err := ensurePluginConfigs(context.Background(), database, pluginRegistry); err != nil {
 		log.Fatalf("ensure plugin configs: %v", err)
 	}
 	queue := make(chan *ingestion.JobRequest, 256)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go ingestion.RunWorker(ctx, database, queue, pluginRegistry)
+	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, counter)
 	svc := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(interceptorConfig)),
 		grpc.ChainStreamInterceptor(auth.StreamInterceptor(interceptorConfig)),
 	)
 	authv1.RegisterAuthServiceServer(svc, authServer)
-	apiv1.RegisterApiServiceServer(svc, api.NewServer(database))
+	apiv1.RegisterApiServiceServer(svc, api.NewServer(database, rdb, counterPrefix))
 	ingestionv1.RegisterIngestionServiceServer(svc, ingestion.NewServer(database, queue))
 	reflection.Register(svc)
 	lis, err := net.Listen("tcp", *grpcAddr)
@@ -194,6 +202,19 @@ func parseAllowlist(env string) []string {
 		}
 	}
 	return out
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch strings.ToLower(s) {
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelDebug
+	}
 }
 
 // ensurePluginConfigs creates a config row for each registered plugin that does not yet have one (from plugin.DefaultConfig(), enabled=false, precedence by order).

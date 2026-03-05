@@ -83,6 +83,23 @@ export default function UploadPage() {
     setParseResult(null);
   }, [broker, formatId, converterOptions]);
 
+  // Re-parse when format or converter options change and we already have a file
+  // (e.g. user picked file with "standard", then switched to "Fidelity CSV" and selected currency)
+  useEffect(() => {
+    if (!file || !selectedFormat || !optionsValid) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = typeof reader.result === "string" ? reader.result : "";
+      if (selectedFormat.convert) {
+        const result = selectedFormat.convert(text, converterOptions);
+        setParseResult(result);
+      } else {
+        setParseResult(parseStandardCSV(text));
+      }
+    };
+    reader.readAsText(file);
+  }, [file, formatId, selectedFormat, converterOptions, optionsValid]);
+
   useEffect(() => {
     if (!jobId || state.status !== "authenticated") return;
     let cancelled = false;

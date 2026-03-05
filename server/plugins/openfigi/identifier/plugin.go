@@ -3,11 +3,13 @@ package identifier
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"regexp"
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
 // PluginID is the stable plugin_id for registration and identifier_plugin_config.
@@ -27,11 +29,13 @@ type Plugin struct {
 	openfigi *OpenFIGIClient
 	openai   *OpenAIClient
 	config   configJSON
+	counter  telemetry.CounterIncrementer
+	log      *slog.Logger
 }
 
-// NewPlugin returns a plugin that uses the given clients. Config is parsed from the passed config bytes when Identify is called.
-func NewPlugin() *Plugin {
-	return &Plugin{}
+// NewPlugin returns a plugin. Counter and log are optional (nil for tests); when set, OpenFIGI calls are counted and logged.
+func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger) *Plugin {
+	return &Plugin{counter: counter, log: log}
 }
 
 // DefaultConfig returns default config JSON with the keys the plugin uses and empty/dummy values for the user to fill in via Admin UI.
@@ -57,11 +61,11 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		}
 	}
 	p.config = cfg
+	baseURL := openFIGIBaseURL
 	if cfg.OpenFIGIBaseURL != "" {
-		p.openfigi = NewOpenFIGIClientWithBaseURL(cfg.OpenFIGIAPIKey, cfg.OpenFIGIBaseURL)
-	} else {
-		p.openfigi = NewOpenFIGIClient(cfg.OpenFIGIAPIKey)
+		baseURL = cfg.OpenFIGIBaseURL
 	}
+	p.openfigi = NewOpenFIGIClientWithTelemetry(cfg.OpenFIGIAPIKey, baseURL, p.counter, p.log)
 	if cfg.OpenAIAPIKey != "" {
 		if cfg.OpenAIBaseURL != "" {
 			p.openai = NewOpenAIClientWithBaseURL(cfg.OpenAIAPIKey, cfg.OpenAIModel, cfg.OpenAIBaseURL)

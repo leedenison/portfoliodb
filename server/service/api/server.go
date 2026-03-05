@@ -6,17 +6,20 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"github.com/redis/go-redis/v9"
 )
 
 // Server implements ApiService.
 type Server struct {
 	apiv1.UnimplementedApiServiceServer
-	db db.DB
+	db             db.DB
+	rdb            *redis.Client
+	counterPrefix  string
 }
 
-// NewServer returns a new API server.
-func NewServer(database db.DB) *Server {
-	return &Server{db: database}
+// NewServer returns a new API server. rdb and counterPrefix are used for ListTelemetryCounters (admin).
+func NewServer(database db.DB, rdb *redis.Client, counterPrefix string) *Server {
+	return &Server{db: database, rdb: rdb, counterPrefix: counterPrefix}
 }
 
 func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {

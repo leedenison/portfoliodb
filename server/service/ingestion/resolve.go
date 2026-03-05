@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
 // Resolution order: (1) DB lookup by (source, instrument_description), (2) in-batch cache,
@@ -84,7 +86,8 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte
 // If cache is non-nil and has an entry for the key, that result is returned without calling plugins.
 // Otherwise plugins are called in parallel (each with its own timeout from config), results merged by precedence;
 // on fallback (broker-description-only), idErr is set with a distinct message and the job is not failed.
-func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription, exchangeCodeHint string, cache map[string]resolveResult, rowIndex int32) (resolveResult, error) {
+// counter is optional; when non-nil and plugins are invoked, instrument.identify.attempts is incremented.
+func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription, exchangeCodeHint string, cache map[string]resolveResult, rowIndex int32, counter telemetry.CounterIncrementer) (resolveResult, error) {
 	key := cacheKey(source, instrumentDescription)
 	if cache != nil {
 		if r, ok := cache[key]; ok {
@@ -122,6 +125,12 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			continue
 		}
 		inputs = append(inputs, pluginInput{config: c, plugin: p})
+	}
+	if len(inputs) > 0 && counter != nil {
+		counter.Incr(ctx, "instrument.identify.attempts")
+	}
+	if len(inputs) == 0 {
+		slog.DebugContext(ctx, "instrument resolution: DB miss but no enabled plugins", "source", source, "instrument_description", instrumentDescription)
 	}
 
 	// Precedence is already descending from ListEnabledPluginConfigs.

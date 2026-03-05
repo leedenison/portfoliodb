@@ -20,6 +20,7 @@ services:
       GOCACHE: /app/.cache/go-build
       GOMODCACHE: /app/.gomodcache
       BUF_CACHE_DIR: /app/.cache/buf
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
     volumes:
       - ../../:/app
     command: ["air"]

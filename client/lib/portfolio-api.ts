@@ -20,6 +20,8 @@ import {
   ListIdentifierPluginsResponseSchema,
   ListPortfoliosRequestSchema,
   ListPortfoliosResponseSchema,
+  ListTelemetryCountersRequestSchema,
+  ListTelemetryCountersResponseSchema,
   ListTxsRequestSchema,
   ListTxsResponseSchema,
   SetPortfolioFiltersRequestSchema,
@@ -259,4 +261,20 @@ export async function updateIdentifierPlugin(
   });
   const res = fromBinary(UpdateIdentifierPluginResponseSchema, resBytes);
   return res.plugin!;
+}
+
+export interface TelemetryCounterRow {
+  name: string;
+  value: number;
+}
+
+/** List telemetry counters (admin only). Discovery from Redis. */
+export async function listTelemetryCounters(): Promise<TelemetryCounterRow[]> {
+  const base = getBaseUrl();
+  const req = create(ListTelemetryCountersRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListTelemetryCounters", toBinary(ListTelemetryCountersRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(ListTelemetryCountersResponseSchema, resBytes);
+  return (res.counters ?? []).map((c) => ({ name: c.name ?? "", value: Number(c.value ?? 0) }));
 }

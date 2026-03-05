@@ -18,8 +18,10 @@ import (
 	"github.com/leedenison/portfoliodb/server/auth/google"
 	"github.com/leedenison/portfoliodb/server/auth/session"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/db/migrate"
 	"github.com/leedenison/portfoliodb/server/db/postgres"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/migrations"
 	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
 	"github.com/leedenison/portfoliodb/server/service/api"
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
@@ -51,6 +53,10 @@ func main() {
 	defer conn.Close()
 	if err := conn.Ping(); err != nil {
 		log.Fatalf("db ping: %v", err)
+	}
+	ctx := context.Background()
+	if err := migrate.Up(ctx, conn, migrations.Files); err != nil {
+		log.Fatalf("migrate: %v", err)
 	}
 	database := postgres.New(conn)
 

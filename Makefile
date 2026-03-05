@@ -14,7 +14,7 @@ tools:
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm ci
 
 generate:
-	buf generate
+	buf generate --template buf.gen.go.yaml && buf generate --template buf.gen.ts.yaml
 	go generate ./server/db
 
 clean:
@@ -45,7 +45,6 @@ run:
 		sleep 1; \
 		if [ $$i -eq 10 ]; then echo "Postgres not ready"; exit 1; fi; \
 	done
-	cat server/migrations/001_initial.sql | $(COMPOSE_DEV) exec -T postgres psql -U portfoliodb -d portfoliodb -q
 
 # Stop containers started by 'make run'.
 stop:
@@ -65,7 +64,6 @@ db-test:
 		sleep 1; \
 		if [ $$i -eq 10 ]; then echo "Postgres not ready"; exit 1; fi; \
 	done
-	cat server/migrations/001_initial.sql | docker compose -f docker/server/docker-compose.test.yml exec -T postgres psql -U portfoliodb -d portfoliodb_test -q
 	TEST_DATABASE_URL="postgres://portfoliodb:portfoliodb@localhost:5433/portfoliodb_test?sslmode=disable" go test -v ./server/db/postgres/...
 	@docker compose -f docker/server/docker-compose.test.yml down
 

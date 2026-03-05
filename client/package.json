@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "^2.11.0",
+    "chokidar-cli": "^3.0.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",
     "@types/node": "^20.0.0",

@@ -3,11 +3,31 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"log"
 	"os"
 	"testing"
 
+	"github.com/leedenison/portfoliodb/server/db/migrate"
+	"github.com/leedenison/portfoliodb/server/migrations"
 	_ "github.com/lib/pq"
 )
+
+func TestMain(m *testing.M) {
+	if url := os.Getenv("TEST_DATABASE_URL"); url != "" {
+		conn, err := sql.Open("postgres", url)
+		if err != nil {
+			log.Fatalf("TestMain open db: %v", err)
+		}
+		defer conn.Close()
+		if err := conn.Ping(); err != nil {
+			log.Fatalf("TestMain ping: %v", err)
+		}
+		if err := migrate.Up(context.Background(), conn, migrations.Files); err != nil {
+			log.Fatalf("TestMain migrate: %v", err)
+		}
+	}
+	os.Exit(m.Run())
+}
 
 func testDB(t *testing.T) *Postgres {
 	url := os.Getenv("TEST_DATABASE_URL")

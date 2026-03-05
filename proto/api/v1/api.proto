@@ -106,9 +106,13 @@ service ApiService {
   // Async ingestion job status and validation errors
   rpc GetJob(GetJobRequest) returns (GetJobResponse);
 
-  // Instrument export/import (admin-only when roles enforced). Export streams instruments with at least one canonical identifier; optional exchange filter.
+  // Instrument export/import (admin-only). Export streams instruments with at least one canonical identifier; optional exchange filter.
   rpc ExportInstruments(ExportInstrumentsRequest) returns (stream Instrument);
   rpc ImportInstruments(ImportInstrumentsRequest) returns (ImportInstrumentsResponse);
+
+  // Identifier plugin config (admin-only). List all plugins; update enabled, precedence, and config JSON (including API keys).
+  rpc ListIdentifierPlugins(ListIdentifierPluginsRequest) returns (ListIdentifierPluginsResponse);
+  rpc UpdateIdentifierPlugin(UpdateIdentifierPluginRequest) returns (UpdateIdentifierPluginResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -273,4 +277,29 @@ message ImportInstrumentsResponse {
 message ImportInstrumentError {
   int32 index = 1;    // index into request.instruments
   string message = 2;
+}
+
+// IdentifierPluginConfig is one row from identifier_plugin_config (admin-only).
+message IdentifierPluginConfig {
+  string plugin_id = 1;
+  bool enabled = 2;
+  int32 precedence = 3;
+  string config_json = 4;  // JSON object; may contain API keys; only admins can read/write
+}
+
+message ListIdentifierPluginsRequest {}
+
+message ListIdentifierPluginsResponse {
+  repeated IdentifierPluginConfig plugins = 1;
+}
+
+message UpdateIdentifierPluginRequest {
+  string plugin_id = 1;
+  optional bool enabled = 2;
+  optional int32 precedence = 3;
+  optional string config_json = 4;  // JSON object; merged or replaced per implementation
+}
+
+message UpdateIdentifierPluginResponse {
+  IdentifierPluginConfig plugin = 1;
 }

@@ -16,12 +16,16 @@ import {
   GetPortfolioResponseSchema,
   GetPortfolioFiltersRequestSchema,
   GetPortfolioFiltersResponseSchema,
+  ListIdentifierPluginsRequestSchema,
+  ListIdentifierPluginsResponseSchema,
   ListPortfoliosRequestSchema,
   ListPortfoliosResponseSchema,
   ListTxsRequestSchema,
   ListTxsResponseSchema,
   SetPortfolioFiltersRequestSchema,
   SetPortfolioFiltersResponseSchema,
+  UpdateIdentifierPluginRequestSchema,
+  UpdateIdentifierPluginResponseSchema,
   UpdatePortfolioRequestSchema,
   UpdatePortfolioResponseSchema,
   JobStatus,
@@ -29,6 +33,7 @@ import {
 import type {
   Holding,
   IdentificationError,
+  IdentifierPluginConfig,
   Portfolio as GenPortfolio,
   PortfolioFilterProto,
   PortfolioTx,
@@ -224,4 +229,34 @@ export async function getJob(jobId: string): Promise<GetJobResult> {
     validationErrors: res.validationErrors,
     identificationErrors: res.identificationErrors,
   };
+}
+
+/** List identifier plugin configs (admin only). */
+export async function listIdentifierPlugins(): Promise<IdentifierPluginConfig[]> {
+  const base = getBaseUrl();
+  const req = create(ListIdentifierPluginsRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListIdentifierPlugins", toBinary(ListIdentifierPluginsRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(ListIdentifierPluginsResponseSchema, resBytes);
+  return res.plugins;
+}
+
+/** Update identifier plugin (admin only). Pass only fields to update. */
+export async function updateIdentifierPlugin(
+  pluginId: string,
+  opts: { enabled?: boolean; precedence?: number; configJson?: string }
+): Promise<IdentifierPluginConfig> {
+  const base = getBaseUrl();
+  const reqMsg = create(UpdateIdentifierPluginRequestSchema, {
+    pluginId,
+    ...(opts.enabled !== undefined && { enabled: opts.enabled }),
+    ...(opts.precedence !== undefined && { precedence: opts.precedence }),
+    ...(opts.configJson !== undefined && { configJson: opts.configJson }),
+  });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "UpdateIdentifierPlugin", toBinary(UpdateIdentifierPluginRequestSchema, reqMsg), {
+    credentials: "include",
+  });
+  const res = fromBinary(UpdateIdentifierPluginResponseSchema, resBytes);
+  return res.plugin!;
 }

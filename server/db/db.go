@@ -94,6 +94,14 @@ type PluginConfigRow struct {
 	Config     []byte
 }
 
+// PluginConfigRowFull is a full row from identifier_plugin_config (includes enabled). Used for admin list/update.
+type PluginConfigRowFull struct {
+	PluginID   string
+	Enabled    bool
+	Precedence int
+	Config     []byte
+}
+
 // Valid asset class values (controlled vocabulary).
 const (
 	AssetClassEquity       = "EQUITY"
@@ -136,6 +144,14 @@ type InstrumentDB interface {
 	ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*InstrumentRow, error)
 	// ListEnabledPluginConfigs returns enabled plugins ordered by precedence descending (higher first).
 	ListEnabledPluginConfigs(ctx context.Context) ([]PluginConfigRow, error)
+	// ListPluginConfigs returns all plugin config rows (for admin UI). Order by precedence descending.
+	ListPluginConfigs(ctx context.Context) ([]PluginConfigRowFull, error)
+	// GetPluginConfig returns the config row for pluginID. Returns (nil, sql.ErrNoRows) when no row exists.
+	GetPluginConfig(ctx context.Context, pluginID string) (*PluginConfigRowFull, error)
+	// InsertPluginConfig creates a new plugin config row. Used by the server on startup when a plugin has no row (from plugin.DefaultConfig()).
+	InsertPluginConfig(ctx context.Context, pluginID string, enabled bool, precedence int, config []byte) (*PluginConfigRowFull, error)
+	// UpdatePluginConfig updates enabled, precedence, and/or config for a plugin. Zero-value fields in the struct mean "no change" except Config: nil means no change, empty slice means clear config.
+	UpdatePluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte) (*PluginConfigRowFull, error)
 	// ListInstrumentsForExport returns all instruments that have at least one identifier with canonical = true. If exchangeFilter != "", filter by instruments.exchange. Order by instruments.id.
 	ListInstrumentsForExport(ctx context.Context, exchangeFilter string) ([]*InstrumentRow, error)
 }

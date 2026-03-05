@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"flag"
 	"log"
 	"net"
@@ -16,8 +17,10 @@ import (
 	"github.com/leedenison/portfoliodb/server/auth/allowlist"
 	"github.com/leedenison/portfoliodb/server/auth/google"
 	"github.com/leedenison/portfoliodb/server/auth/session"
+	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/postgres"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
 	"github.com/leedenison/portfoliodb/server/service/api"
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
 	"github.com/leedenison/portfoliodb/server/service/ingestion"
@@ -122,6 +125,10 @@ func main() {
 	}
 
 	pluginRegistry := identifier.NewRegistry()
+	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin())
+	if err := ensurePluginConfigs(context.Background(), database, pluginRegistry); err != nil {
+		log.Fatalf("ensure plugin configs: %v", err)
+	}
 	queue := make(chan *ingestion.JobRequest, 256)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -181,4 +188,26 @@ func parseAllowlist(env string) []string {
 		}
 	}
 	return out
+}
+
+// ensurePluginConfigs creates a config row for each registered plugin that does not yet have one (from plugin.DefaultConfig(), enabled=false, precedence by order).
+func ensurePluginConfigs(ctx context.Context, database db.InstrumentDB, registry *identifier.Registry) error {
+	for i, id := range registry.ListIDs() {
+		_, err := database.GetPluginConfig(ctx, id)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			p := registry.Get(id)
+			if p == nil {
+				continue
+			}
+			defaultConfig := p.DefaultConfig()
+			precedence := 10 * (i + 1)
+			if _, err := database.InsertPluginConfig(ctx, id, false, precedence, defaultConfig); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

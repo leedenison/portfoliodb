@@ -60,10 +60,10 @@ func timeoutFromConfig(config []byte) time.Duration {
 }
 
 // callPluginWithRetry calls Identify once; on non-ErrNotIdentified error, sleeps backoff and tries once more.
-func callPluginWithRetry(ctx context.Context, p identifier.Plugin, broker, source, instrumentDescription string, timeout time.Duration) (*identifier.Instrument, []identifier.Identifier, error) {
+func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, timeout time.Duration) (*identifier.Instrument, []identifier.Identifier, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	inst, ids, err := p.Identify(ctx, broker, source, instrumentDescription)
+	inst, ids, err := p.Identify(ctx, config, broker, source, instrumentDescription)
 	if err == nil || errors.Is(err, identifier.ErrNotIdentified) {
 		return inst, ids, err
 	}
@@ -71,7 +71,7 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, broker, sourc
 	time.Sleep(pluginRetryBackoff)
 	ctx2, cancel2 := context.WithTimeout(context.Background(), timeout)
 	defer cancel2()
-	inst, ids, err2 := p.Identify(ctx2, broker, source, instrumentDescription)
+	inst, ids, err2 := p.Identify(ctx2, config, broker, source, instrumentDescription)
 	if err2 != nil {
 		return nil, nil, err2
 	}
@@ -137,7 +137,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			defer wg.Done()
 			in := inputs[idx]
 			timeout := timeoutFromConfig(in.config.Config)
-			inst, ids, err := callPluginWithRetry(ctx, in.plugin, broker, source, instrumentDescription, timeout)
+			inst, ids, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, timeout)
 			results[idx] = result{precedence: in.config.Precedence, inst: inst, ids: ids, err: err}
 		}(i)
 	}

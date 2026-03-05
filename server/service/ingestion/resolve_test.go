@@ -19,12 +19,14 @@ type fakePlugin struct {
 	err  error
 }
 
-func (p *fakePlugin) Identify(ctx context.Context, broker, source, instrumentDescription string) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *fakePlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string) (*identifier.Instrument, []identifier.Identifier, error) {
 	if ctx.Err() != nil {
 		return nil, nil, ctx.Err()
 	}
 	return p.inst, p.ids, p.err
 }
+
+func (p *fakePlugin) DefaultConfig() []byte { return nil }
 
 func TestResolve_DBHit_NoPluginCall(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -170,6 +172,58 @@ func TestResolve_DBMiss_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T
 	}
 	if r.IdErr != nil {
 		t.Errorf("unexpected IdErr: %+v", r.IdErr)
+	}
+}
+
+// TestResolve_BrokerDescriptionAlwaysStored verifies that when a plugin succeeds but does not return
+// the (source, instrument_description) identifier, the resolver still adds it so future uploads can
+// resolve by DB lookup without calling plugins again.
+func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+	source := "IBKR:test:statement"
+	desc := "APPLE INC COM"
+	// Plugin returns only canonical ids; does not include (source, desc).
+	registry.Register("local", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "EQUITY", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "FIGI", Value: "BBG000B9XRY4"}},
+		err:  nil,
+	})
+
+	ctx := context.Background()
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), source, desc).
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any()).
+		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10, Config: nil}}, nil)
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "EQUITY", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time) (string, error) {
+			hasSource := false
+			for _, idn := range idns {
+				if idn.Type == source && idn.Value == desc {
+					hasSource = true
+					if idn.Canonical {
+						t.Errorf("broker description identifier should be Canonical=false, got true")
+					}
+					break
+				}
+			}
+			if !hasSource {
+				t.Errorf("resolver must always store (source, instrument_description): missing identifier type=%q value=%q in %+v", source, desc, idns)
+			}
+			return "resolved-id", nil
+		})
+
+	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, nil, 0)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if r.InstrumentID != "resolved-id" {
+		t.Errorf("InstrumentID = %q, want resolved-id", r.InstrumentID)
 	}
 }
 
@@ -463,13 +517,15 @@ type retryPlugin struct {
 	ids       []identifier.Identifier
 }
 
-func (p *retryPlugin) Identify(ctx context.Context, broker, source, instrumentDescription string) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *retryPlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string) (*identifier.Instrument, []identifier.Identifier, error) {
 	p.callCount++
 	if p.callCount == 1 {
 		return nil, nil, errors.New("temporary failure")
 	}
 	return p.inst, p.ids, nil
 }
+
+func (p *retryPlugin) DefaultConfig() []byte { return nil }
 
 func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 	ctrl := gomock.NewController(t)

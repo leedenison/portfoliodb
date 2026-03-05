@@ -13,10 +13,15 @@ var ErrNotIdentified = errors.New("instrument not identified by plugin")
 // Implementations live under server/plugins/<datasource>/identifier (e.g. server/plugins/local/identifier).
 type Plugin interface {
 	// Identify resolves (source, instrument_description) to canonical instrument data and identifiers.
+	// config is the plugin's JSON config from identifier_plugin_config.config (may be nil); plugins may use it for API keys and options.
 	// Returns (instrument, identifiers, nil) when resolved, or (nil, nil, ErrNotIdentified) when the plugin cannot resolve.
 	// broker is the broker name (e.g. "IBKR", "SCHB"); source is opaque (e.g. "<broker>:<client>:<source>"); instrument_description is the broker's description string.
 	// Plugins must not rely on extracting broker from source; both are passed. The caller ensures identifiers include at least (Type=source, Value=instrument_description) when creating a new instrument.
-	Identify(ctx context.Context, broker, source, instrumentDescription string) (*Instrument, []Identifier, error)
+	Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string) (*Instrument, []Identifier, error)
+
+	// DefaultConfig returns the plugin's default config JSON (keys the plugin uses, with dummy/empty values).
+	// The server calls this on startup when no row exists for the plugin and inserts the result so the user can edit it via the Admin UI. Return nil or empty slice to insert {}.
+	DefaultConfig() []byte
 }
 
 // PluginConfig is the per-plugin configuration stored in the DB.

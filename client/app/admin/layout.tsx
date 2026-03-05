@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/auth-context";
 
 const adminNav = [
   { href: "/admin", label: "Overview" },
+  { href: "/admin/plugins", label: "Identifier plugins" },
   { href: "/admin/id-token", label: "ID token" },
 ];
 

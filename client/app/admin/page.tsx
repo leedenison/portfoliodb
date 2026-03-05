@@ -11,6 +11,12 @@ export default function AdminPage() {
       </p>
       <ul className="list-inside list-disc space-y-1 text-sm text-text-primary">
         <li>
+          <Link href="/admin/plugins" className="underline hover:text-primary">
+            Identifier plugins
+          </Link>
+          — enable/disable identification plugins and edit config (API keys, precedence).
+        </li>
+        <li>
           <Link href="/admin/id-token" className="underline hover:text-primary">
             ID token
           </Link>

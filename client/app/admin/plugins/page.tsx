@@ -7,6 +7,22 @@ import {
 } from "@/lib/portfolio-api";
 import type { IdentifierPluginConfig } from "@/gen/api/v1/api_pb";
 
+/** Parse plugin config JSON into key–value pairs; values are stringified. React escapes when rendering. */
+function getConfigEntries(configJson: string | undefined): [string, string][] {
+  if (!configJson?.trim()) return [];
+  try {
+    const obj = JSON.parse(configJson) as Record<string, unknown>;
+    if (obj === null || typeof obj !== "object" || Array.isArray(obj))
+      return [];
+    return Object.entries(obj).map(([k, v]) => [
+      k,
+      v === null ? "null" : typeof v === "string" ? v : JSON.stringify(v),
+    ]);
+  } catch {
+    return [];
+  }
+}
+
 export default function AdminPluginsPage() {
   const [plugins, setPlugins] = useState<IdentifierPluginConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,7 +116,9 @@ export default function AdminPluginsPage() {
         </div>
       )}
       <ul className="space-y-4">
-        {plugins.map((plugin) => (
+        {plugins.map((plugin) => {
+          const configEntries = getConfigEntries(plugin.configJson);
+          return (
           <li
             key={plugin.pluginId}
             className="rounded-lg border border-border bg-background p-4 shadow-sm"
@@ -157,6 +175,18 @@ export default function AdminPluginsPage() {
                 )}
               </div>
             </div>
+            {configEntries.length > 0 && (
+              <dl className="mt-3 flex flex-col gap-y-1 text-sm">
+                {configEntries.map(([key, value]) => (
+                  <div key={key} className="flex gap-2">
+                    <dt className="shrink-0 font-medium text-text-muted after:content-[':']">
+                      {key}
+                    </dt>
+                    <dd className="min-w-0 text-text-primary">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
             {editingId === plugin.pluginId && (
               <div className="mt-4">
                 <label className="block text-sm font-medium text-text-muted">
@@ -172,7 +202,8 @@ export default function AdminPluginsPage() {
               </div>
             )}
           </li>
-        ))}
+          );
+        })}
       </ul>
       {plugins.length === 0 && !loading && (
         <p className="text-text-muted">No plugins in config.</p>

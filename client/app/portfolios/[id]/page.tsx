@@ -12,18 +12,7 @@ import {
   setPortfolioFilters,
 } from "@/lib/portfolio-api";
 import type { Portfolio, PortfolioFilter } from "@/lib/portfolio-api";
-import { Broker } from "@/gen/api/v1/api_pb";
-
-function brokerLabel(broker: Broker): string {
-  switch (broker) {
-    case Broker.IBKR:
-      return "IBKR";
-    case Broker.SCHB:
-      return "SCHB";
-    default:
-      return "";
-  }
-}
+import { getBrokerLabel } from "@/lib/csv/converters";
 
 export default function PortfolioHoldingsPage() {
   const params = useParams();
@@ -245,7 +234,7 @@ export default function PortfolioHoldingsPage() {
                               {h.account || "—"}
                             </td>
                             <td className="px-4 py-2.5 text-text-muted">
-                              {brokerLabel(h.broker) || "—"}
+                              {getBrokerLabel(h.broker)}
                             </td>
                           </tr>
                         ))

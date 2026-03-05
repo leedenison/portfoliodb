@@ -12,6 +12,7 @@ enum Broker {
   BROKER_UNSPECIFIED = 0;
   IBKR        = 1;  // Interactive Brokers
   SCHB        = 2;  // Charles Schwab
+  FIDELITY    = 3;
 }
 
 // OFX-style transaction types for investments.

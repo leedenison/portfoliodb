@@ -28,7 +28,7 @@ func ValidateBroker(b apiv1.Broker) *apiv1.ValidationError {
 	if b == apiv1.Broker_BROKER_UNSPECIFIED {
 		return &apiv1.ValidationError{RowIndex: -1, Field: "broker", Message: "required"}
 	}
-	if b != apiv1.Broker_IBKR && b != apiv1.Broker_SCHB {
+	if b != apiv1.Broker_IBKR && b != apiv1.Broker_SCHB && b != apiv1.Broker_FIDELITY {
 		return &apiv1.ValidationError{RowIndex: -1, Field: "broker", Message: "unknown broker"}
 	}
 	return nil

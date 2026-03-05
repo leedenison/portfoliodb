@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/app/components/app-shell";
 import { useAuth } from "@/contexts/auth-context";
@@ -10,27 +10,21 @@ import { parseStandardCSV } from "@/lib/csv/standard";
 import { Broker } from "@/gen/api/v1/api_pb";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { JobStatus } from "@/gen/api/v1/api_pb";
+import {
+  getBrokerOptionsForUpload,
+  getFormatsForBroker,
+  getSourcePrefix,
+} from "@/lib/csv/converters";
 
-const BROKER_OPTIONS: { value: Broker; label: string }[] = [
-  { value: Broker.IBKR, label: "IBKR" },
-  { value: Broker.SCHB, label: "Charles Schwab" },
-];
-
-function brokerToSourcePrefix(broker: Broker): string {
-  switch (broker) {
-    case Broker.IBKR:
-      return "IBKR";
-    case Broker.SCHB:
-      return "SCHB";
-    default:
-      return "unknown";
-  }
-}
+const BROKER_OPTIONS = getBrokerOptionsForUpload();
+const DEFAULT_BROKER = BROKER_OPTIONS[0]?.value ?? Broker.FIDELITY;
 
 export default function UploadPage() {
   const { state, authError } = useAuth();
   const [step, setStep] = useState<1 | 2>(1);
-  const [broker, setBroker] = useState<Broker>(Broker.IBKR);
+  const [broker, setBroker] = useState<Broker>(DEFAULT_BROKER);
+  const [formatId, setFormatId] = useState<string>("standard");
+  const [converterOptions, setConverterOptions] = useState<Record<string, unknown>>({});
   const [file, setFile] = useState<File | null>(null);
   const [parseResult, setParseResult] = useState<ReturnType<typeof parseStandardCSV> | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -38,26 +32,40 @@ export default function UploadPage() {
   const [jobStatus, setJobStatus] = useState<Awaited<ReturnType<typeof getJob>> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    setFile(f ?? null);
-    setParseResult(null);
-    setSubmitError(null);
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = typeof reader.result === "string" ? reader.result : "";
-      const result = parseStandardCSV(text);
-      setParseResult(result);
-    };
-    reader.readAsText(f);
-  }, []);
+  const formats = useMemo(() => getFormatsForBroker(broker), [broker]);
+  const selectedFormat = useMemo(() => formats.find((f) => f.id === formatId), [formats, formatId]);
+  const optionsValid =
+    selectedFormat?.OptionsComponent == null ||
+    (converterOptions?.currency != null && converterOptions?.currency !== "");
+
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const f = e.target.files?.[0];
+      setFile(f ?? null);
+      setParseResult(null);
+      setSubmitError(null);
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = typeof reader.result === "string" ? reader.result : "";
+        if (selectedFormat?.convert) {
+          const result = selectedFormat.convert!(text, converterOptions);
+          setParseResult(result);
+        } else {
+          setParseResult(parseStandardCSV(text));
+        }
+      };
+      reader.readAsText(f);
+    },
+    [selectedFormat, converterOptions]
+  );
 
   const handleUpload = useCallback(async () => {
     if (!parseResult || parseResult.errors.length > 0 || parseResult.txs.length === 0) return;
     setSubmitError(null);
     try {
-      const source = `${brokerToSourcePrefix(broker)}:web:standard`;
+      const sourcePrefix = getSourcePrefix(broker);
+      const source = `${sourcePrefix}:web:${formatId}`;
       const res = await upsertTxs({
         broker,
         source,
@@ -69,7 +77,11 @@ export default function UploadPage() {
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : String(e));
     }
-  }, [broker, parseResult]);
+  }, [broker, formatId, parseResult]);
+
+  useEffect(() => {
+    setParseResult(null);
+  }, [broker, formatId, converterOptions]);
 
   useEffect(() => {
     if (!jobId || state.status !== "authenticated") return;
@@ -123,6 +135,7 @@ export default function UploadPage() {
     parseResult &&
     parseResult.errors.length === 0 &&
     parseResult.txs.length > 0 &&
+    optionsValid &&
     !jobId;
 
   return (
@@ -193,7 +206,11 @@ export default function UploadPage() {
                 <select
                   id="broker"
                   value={broker}
-                  onChange={(e) => setBroker(Number(e.target.value) as Broker)}
+                  onChange={(e) => {
+                    setBroker(Number(e.target.value) as Broker);
+                    setFormatId("standard");
+                    setConverterOptions({});
+                  }}
                   className="block w-full rounded-lg border border-border bg-surface px-3 py-2 text-text-primary"
                 >
                   {BROKER_OPTIONS.map((opt) => (
@@ -214,14 +231,36 @@ export default function UploadPage() {
           ) : (
             <>
               <p className="text-text-muted">
-                Choose <strong>Standard</strong> format and select your CSV file.
+                Choose format and select your CSV file.
               </p>
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-text-primary">Format</label>
-                <p className="rounded-lg border border-border bg-primary-light/10 px-3 py-2 text-sm text-text-primary">
-                  Standard
-                </p>
+                <label htmlFor="format" className="block text-sm font-medium text-text-primary">
+                  Format
+                </label>
+                <select
+                  id="format"
+                  value={formatId}
+                  onChange={(e) => setFormatId(e.target.value)}
+                  className="block w-full rounded-lg border border-border bg-surface px-3 py-2 text-text-primary"
+                >
+                  {formats.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
               </div>
+              {selectedFormat?.OptionsComponent && (() => {
+                const OptionsComponent = selectedFormat.OptionsComponent;
+                return (
+                  <div className="space-y-2">
+                    <OptionsComponent
+                      onOptionsChange={setConverterOptions}
+                      options={converterOptions}
+                    />
+                  </div>
+                );
+              })()}
               <div className="space-y-2">
                 <label htmlFor="file" className="block text-sm font-medium text-text-primary">
                   CSV file

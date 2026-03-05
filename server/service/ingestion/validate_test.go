@@ -40,6 +40,7 @@ func TestValidateBroker(t *testing.T) {
 		{"unspecified", apiv1.Broker_BROKER_UNSPECIFIED, true},
 		{"IBKR", apiv1.Broker_IBKR, false},
 		{"SCHB", apiv1.Broker_SCHB, false},
+		{"Fidelity", apiv1.Broker_FIDELITY, false},
 		{"unknown broker", apiv1.Broker(99), true},
 	}
 	for _, tc := range tests {

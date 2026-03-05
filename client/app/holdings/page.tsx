@@ -5,18 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { useAuth } from "@/contexts/auth-context";
 import { getHoldings } from "@/lib/portfolio-api";
-import { Broker } from "@/gen/api/v1/api_pb";
-
-function brokerLabel(broker: Broker): string {
-  switch (broker) {
-    case Broker.IBKR:
-      return "IBKR";
-    case Broker.SCHB:
-      return "SCHB";
-    default:
-      return "";
-  }
-}
+import { getBrokerLabel } from "@/lib/csv/converters";
 
 export default function UserHoldingsPage() {
   const { state, authError } = useAuth();
@@ -134,7 +123,7 @@ export default function UserHoldingsPage() {
                               {h.account || "—"}
                             </td>
                             <td className="px-4 py-2.5 text-text-muted">
-                              {brokerLabel(h.broker) || "—"}
+                              {getBrokerLabel(h.broker)}
                             </td>
                           </tr>
                         ))

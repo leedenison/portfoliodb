@@ -107,6 +107,8 @@ func brokerToString(b apiv1.Broker) (string, error) {
 		return "IBKR", nil
 	case apiv1.Broker_SCHB:
 		return "SCHB", nil
+	case apiv1.Broker_FIDELITY:
+		return "Fidelity", nil
 	default:
 		return "", fmt.Errorf("unknown broker")
 	}

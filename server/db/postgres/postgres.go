@@ -43,6 +43,8 @@ func brokerToStr(b apiv1.Broker) (string, error) {
 		return "IBKR", nil
 	case apiv1.Broker_SCHB:
 		return "SCHB", nil
+	case apiv1.Broker_FIDELITY:
+		return "Fidelity", nil
 	default:
 		return "", fmt.Errorf("unknown broker: %v", b)
 	}
@@ -54,6 +56,8 @@ func strToBroker(s string) apiv1.Broker {
 		return apiv1.Broker_IBKR
 	case "SCHB":
 		return apiv1.Broker_SCHB
+	case "Fidelity":
+		return apiv1.Broker_FIDELITY
 	default:
 		return apiv1.Broker_BROKER_UNSPECIFIED
 	}

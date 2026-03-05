@@ -2,7 +2,6 @@ package identifier
 
 import (
 	"context"
-	"regexp"
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -65,45 +64,34 @@ func openFIGIResultToInstrument(r *OpenFIGIResult) (*identifier.Instrument, []id
 	return inst, ids
 }
 
-// baseTickerFromOptionTicker extracts the underlying ticker from an option ticker like "IBM 03/20/10 C105" or "AAPL 20250117C200".
-var baseTickerRe = regexp.MustCompile(`^([A-Z]{1,5})\s`)
-
-func baseTickerFromOptionTicker(optionTicker string) string {
-	optionTicker = strings.TrimSpace(optionTicker)
-	if m := baseTickerRe.FindStringSubmatch(optionTicker); len(m) >= 2 {
-		return m[1]
-	}
-	// Fallback: take leading alphabetic run
-	for i, r := range optionTicker {
-		if r >= '0' && r <= '9' {
-			return optionTicker[:i]
-		}
-	}
-	return optionTicker
-}
-
 // isDerivative returns true if the result is an option or future.
 func isDerivative(r *OpenFIGIResult) bool {
 	ac := assetClassFromOpenFIGI(r.SecurityType, r.SecurityType2, r.MarketSector)
 	return ac == "OPTION" || ac == "FUTURE"
 }
 
+// UnderlyingResolver returns the underlying symbol and optional exchange hint for a derivative ticker.
+// Used so that the openfigi plugin can use a separate derivative parsing library and optionally OpenAI
+// without assuming the underlying trades on the same exchange as the derivative.
+type UnderlyingResolver func(ctx context.Context, derivativeTicker string) (symbol, exchangeHint string, ok bool)
+
 // EnsureUnderlying performs a second OpenFIGI lookup for the underlying and sets inst.Underlying and inst.UnderlyingIdentifiers.
-func EnsureUnderlying(ctx context.Context, client *OpenFIGIClient, exchCode string, inst *identifier.Instrument, result *OpenFIGIResult) {
-	if !isDerivative(result) {
+// The resolver (e.g. library + OpenAI) provides the underlying symbol and optional exchange hint; the derivative's exchange is not used.
+func EnsureUnderlying(ctx context.Context, client *OpenFIGIClient, inst *identifier.Instrument, result *OpenFIGIResult, resolve UnderlyingResolver) {
+	if !isDerivative(result) || resolve == nil {
 		return
 	}
-	baseTicker := baseTickerFromOptionTicker(result.Ticker)
-	if baseTicker == "" {
+	symbol, exchangeHint, ok := resolve(ctx, result.Ticker)
+	if !ok || symbol == "" {
 		return
 	}
-	job := MappingJob{IDType: "TICKER", IDValue: baseTicker}
-	if exchCode != "" {
-		job.ExchCode = exchCode
+	job := MappingJob{IDType: "TICKER", IDValue: symbol}
+	if exchangeHint != "" {
+		job.ExchCode = exchangeHint
 	}
 	underlyingResults, err := client.Mapping(ctx, job)
 	if err != nil || len(underlyingResults) == 0 {
-		sr, err2 := client.Search(ctx, baseTicker, exchCode)
+		sr, err2 := client.Search(ctx, symbol, exchangeHint)
 		if err2 != nil || sr == nil || len(sr.Data) == 0 {
 			return
 		}

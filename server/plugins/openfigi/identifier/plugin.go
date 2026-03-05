@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
@@ -14,12 +15,11 @@ const PluginID = "openfigi"
 
 // configJSON is the shape of the plugin's config from identifier_plugin_config.config.
 type configJSON struct {
-	OpenFIGIAPIKey   string `json:"openfigi_api_key"`
-	OpenAIAPIKey     string `json:"openai_api_key"`
-	ExchCode         string `json:"exch_code"`
-	OpenAIModel      string `json:"openai_model"`
-	OpenFIGIBaseURL  string `json:"openfigi_base_url"`  // for testing
-	OpenAIBaseURL    string `json:"openai_base_url"`    // for testing
+	OpenFIGIAPIKey  string `json:"openfigi_api_key"`
+	OpenAIAPIKey    string `json:"openai_api_key"`
+	OpenAIModel     string `json:"openai_model"`
+	OpenFIGIBaseURL string `json:"openfigi_base_url"` // for testing
+	OpenAIBaseURL   string `json:"openai_base_url"`  // for testing
 }
 
 // Plugin implements identifier.Plugin using OpenFIGI and optionally OpenAI.
@@ -39,7 +39,6 @@ func (p *Plugin) DefaultConfig() []byte {
 	cfg := configJSON{
 		OpenFIGIAPIKey:  "",
 		OpenAIAPIKey:    "",
-		ExchCode:        "",
 		OpenAIModel:     "",
 		OpenFIGIBaseURL: "",
 		OpenAIBaseURL:   "",
@@ -49,7 +48,8 @@ func (p *Plugin) DefaultConfig() []byte {
 }
 
 // Identify resolves (source, instrument_description) using OpenFIGI first, then OpenAI if needed.
-func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string) (*identifier.Instrument, []identifier.Identifier, error) {
+// exchangeCodeHint narrows mapping/search when provided; only API-confirmed exchange is stored on the instrument.
+func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription, exchangeCodeHint string) (*identifier.Instrument, []identifier.Identifier, error) {
 	var cfg configJSON
 	if len(config) > 0 {
 		if err := json.Unmarshal(config, &cfg); err != nil {
@@ -73,7 +73,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	}
 
 	// 1) Try OpenFIGI first (mapping if looks like ticker, else search)
-	results, err := p.tryOpenFIGI(ctx, instrumentDescription)
+	results, err := p.tryOpenFIGI(ctx, instrumentDescription, exchangeCodeHint)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -89,7 +89,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	if err != nil || normalized == "" {
 		return nil, nil, identifier.ErrNotIdentified
 	}
-	results, err = p.tryOpenFIGI(ctx, normalized)
+	results, err = p.tryOpenFIGI(ctx, normalized, exchangeCodeHint)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -124,13 +124,13 @@ func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, f
 		}
 	}
 	inst, ids := openFIGIResultToInstrument(&results[idx])
-	EnsureUnderlying(ctx, p.openfigi, p.config.ExchCode, inst, &results[idx])
+	EnsureUnderlying(ctx, p.openfigi, inst, &results[idx], p.getUnderlyingSymbol)
 	return inst, ids, true
 }
 
 var tickerLikeRe = regexp.MustCompile(`^[A-Z0-9]{1,5}$`)
 
-func (p *Plugin) tryOpenFIGI(ctx context.Context, query string) ([]OpenFIGIResult, error) {
+func (p *Plugin) tryOpenFIGI(ctx context.Context, query, exchangeCodeHint string) ([]OpenFIGIResult, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, identifier.ErrNotIdentified
@@ -138,8 +138,8 @@ func (p *Plugin) tryOpenFIGI(ctx context.Context, query string) ([]OpenFIGIResul
 	upper := strings.ToUpper(query)
 	if tickerLikeRe.MatchString(upper) {
 		job := MappingJob{IDType: "TICKER", IDValue: upper}
-		if p.config.ExchCode != "" {
-			job.ExchCode = p.config.ExchCode
+		if exchangeCodeHint != "" {
+			job.ExchCode = exchangeCodeHint
 		}
 		results, err := p.openfigi.Mapping(ctx, job)
 		if err != nil {
@@ -147,7 +147,7 @@ func (p *Plugin) tryOpenFIGI(ctx context.Context, query string) ([]OpenFIGIResul
 		}
 		return results, nil
 	}
-	sr, err := p.openfigi.Search(ctx, query, p.config.ExchCode)
+	sr, err := p.openfigi.Search(ctx, query, exchangeCodeHint)
 	if err != nil {
 		return nil, err
 	}
@@ -155,4 +155,19 @@ func (p *Plugin) tryOpenFIGI(ctx context.Context, query string) ([]OpenFIGIResul
 		return nil, nil
 	}
 	return sr.Data, nil
+}
+
+// getUnderlyingSymbol resolves the underlying ticker for a derivative using the derivative library, then OpenAI if needed.
+// It does not assume the underlying trades on the same exchange as the derivative.
+func (p *Plugin) getUnderlyingSymbol(ctx context.Context, derivativeTicker string) (symbol, exchangeHint string, ok bool) {
+	if u, parseOk := derivative.ParseOptionTicker(derivativeTicker); parseOk {
+		return u.Symbol, u.ExchangeHint, true
+	}
+	if p.openai != nil {
+		sym, err := p.openai.UnderlyingFromDerivative(ctx, derivativeTicker)
+		if err == nil && strings.TrimSpace(sym) != "" {
+			return strings.TrimSpace(sym), "", true
+		}
+	}
+	return "", "", false
 }

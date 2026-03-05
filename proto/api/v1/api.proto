@@ -85,6 +85,8 @@ message Tx {
   string instrument_id = 8;
   // Account (opaque string). Required.
   string account = 9;
+  // Optional exchange code hint to narrow identification (e.g. "US"). Not stored as canonical; only API-confirmed exchange is written to the instrument.
+  string exchange_code_hint = 10;
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,

@@ -35,6 +35,7 @@ type resolveResult struct {
 }
 
 // cacheKey returns a key for the batch cache. Same (source, description) in a batch resolves once.
+// The exchange code hint is not part of the key: if one tx has a hint and another has none but the same source and description, they share the same cached instrument.
 func cacheKey(source, instrumentDescription string) string {
 	return source + "\x00" + instrumentDescription
 }
@@ -60,10 +61,10 @@ func timeoutFromConfig(config []byte) time.Duration {
 }
 
 // callPluginWithRetry calls Identify once; on non-ErrNotIdentified error, sleeps backoff and tries once more.
-func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, timeout time.Duration) (*identifier.Instrument, []identifier.Identifier, error) {
+func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription, exchangeCodeHint string, timeout time.Duration) (*identifier.Instrument, []identifier.Identifier, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	inst, ids, err := p.Identify(ctx, config, broker, source, instrumentDescription)
+	inst, ids, err := p.Identify(ctx, config, broker, source, instrumentDescription, exchangeCodeHint)
 	if err == nil || errors.Is(err, identifier.ErrNotIdentified) {
 		return inst, ids, err
 	}
@@ -71,7 +72,7 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte
 	time.Sleep(pluginRetryBackoff)
 	ctx2, cancel2 := context.WithTimeout(context.Background(), timeout)
 	defer cancel2()
-	inst, ids, err2 := p.Identify(ctx2, config, broker, source, instrumentDescription)
+	inst, ids, err2 := p.Identify(ctx2, config, broker, source, instrumentDescription, exchangeCodeHint)
 	if err2 != nil {
 		return nil, nil, err2
 	}
@@ -79,10 +80,11 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte
 }
 
 // Resolve resolves (source, instrumentDescription) to an instrument_id using DB, then batch cache, then enabled plugins.
+// exchangeCodeHint is optional (e.g. from tx.exchange_code_hint); used only to narrow plugin mapping/search, not stored as canonical.
 // If cache is non-nil and has an entry for the key, that result is returned without calling plugins.
 // Otherwise plugins are called in parallel (each with its own timeout from config), results merged by precedence;
 // on fallback (broker-description-only), idErr is set with a distinct message and the job is not failed.
-func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, cache map[string]resolveResult, rowIndex int32) (resolveResult, error) {
+func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription, exchangeCodeHint string, cache map[string]resolveResult, rowIndex int32) (resolveResult, error) {
 	key := cacheKey(source, instrumentDescription)
 	if cache != nil {
 		if r, ok := cache[key]; ok {
@@ -137,7 +139,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			defer wg.Done()
 			in := inputs[idx]
 			timeout := timeoutFromConfig(in.config.Config)
-			inst, ids, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, timeout)
+			inst, ids, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, exchangeCodeHint, timeout)
 			results[idx] = result{precedence: in.config.Precedence, inst: inst, ids: ids, err: err}
 		}(i)
 	}

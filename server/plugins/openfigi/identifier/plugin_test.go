@@ -44,7 +44,7 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 	})
 	ctx := context.Background()
 	p := NewPlugin()
-	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM")
+	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", "")
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestPlugin_Identify_OpenFIGISearch_OneResult(t *testing.T) {
 	})
 	ctx := context.Background()
 	p := NewPlugin()
-	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "Apple Inc")
+	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "Apple Inc", "")
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestPlugin_Identify_OpenFIGIZero_OpenAINormalize_ThenSuccess(t *testing.T) 
 	})
 	ctx := context.Background()
 	p := NewPlugin()
-	inst, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "APPLE INC COM")
+	inst, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "APPLE INC COM", "")
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestPlugin_Identify_ErrNotIdentified_WhenNoResults(t *testing.T) {
 	})
 	ctx := context.Background()
 	p := NewPlugin()
-	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "UNKNOWN THING XYZ")
+	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "UNKNOWN THING XYZ", "")
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
 	}
@@ -220,7 +220,7 @@ func TestPlugin_Identify_NoOpenAIKey_ReturnsErrNotIdentified_WhenOpenFIGIFails(t
 	})
 	ctx := context.Background()
 	p := NewPlugin()
-	_, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "SOME UNKNOWN")
+	_, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "SOME UNKNOWN", "")
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v", err)
 	}

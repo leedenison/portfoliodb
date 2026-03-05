@@ -25,7 +25,7 @@ clean-generated:
 	find server -name '*_mock.go' -delete 2>/dev/null || true
 
 clean-docker:
-	$(COMPOSE_RUN) down --rmi local --volumes
+	$(COMPOSE_DEV) down --rmi local --volumes
 	docker compose -f docker/server/docker-compose.test.yml down --rmi local --volumes
 
 # Remove client node_modules and .next (e.g. after switching Node versions). Re-run 'make tools' to reinstall.

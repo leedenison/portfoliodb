@@ -1,8 +1,13 @@
 # Dev override: mount source, run with host UID/GID, use live-reload (Air + next dev).
 # Use with: docker compose -f docker/server/docker-compose.yml -f docker/server/docker-compose.dev.yml up
 # Ensure HOST_UID and HOST_GID are set (e.g. by Makefile run target).
+# Postgres uses a named volume so data (e.g. plugin config) persists across make stop / make run.
 
 services:
+  postgres:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   portfoliodb:
     build:
       context: ../..
@@ -35,3 +40,6 @@ services:
       - ../..:/app
     working_dir: /app/client
     command: ["sh", "/app/client/scripts/dev-with-codegen.sh"]
+
+volumes:
+  postgres_data:

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"regexp"
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/derivative"
@@ -18,16 +17,12 @@ const PluginID = "openfigi"
 // configJSON is the shape of the plugin's config from identifier_plugin_config.config.
 type configJSON struct {
 	OpenFIGIAPIKey  string `json:"openfigi_api_key"`
-	OpenAIAPIKey    string `json:"openai_api_key"`
-	OpenAIModel     string `json:"openai_model"`
 	OpenFIGIBaseURL string `json:"openfigi_base_url"` // for testing
-	OpenAIBaseURL   string `json:"openai_base_url"`  // for testing
 }
 
-// Plugin implements identifier.Plugin using OpenFIGI and optionally OpenAI.
+// Plugin implements identifier.Plugin using OpenFIGI Mapping only (no Search, no OpenAI).
 type Plugin struct {
 	openfigi *OpenFIGIClient
-	openai   *OpenAIClient
 	config   configJSON
 	counter  telemetry.CounterIncrementer
 	log      *slog.Logger
@@ -42,18 +37,15 @@ func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger) *Plugin {
 func (p *Plugin) DefaultConfig() []byte {
 	cfg := configJSON{
 		OpenFIGIAPIKey:  "",
-		OpenAIAPIKey:    "",
-		OpenAIModel:     "",
 		OpenFIGIBaseURL: "",
-		OpenAIBaseURL:   "",
 	}
 	out, _ := json.Marshal(cfg)
 	return out
 }
 
-// Identify resolves (source, instrument_description) using OpenFIGI first, then OpenAI if needed.
-// exchangeCodeHint narrows mapping/search when provided; only API-confirmed exchange is stored on the instrument.
-func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription, exchangeCodeHint string) (*identifier.Instrument, []identifier.Identifier, error) {
+// Identify resolves using identifier hints (mapping) or returns ErrNotIdentified. Does not use Search API or OpenAI.
+// When identifierHints is empty, returns ErrNotIdentified. When non-empty, uses OpenFIGI Mapping only.
+func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint string, identifierHints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
 	var cfg configJSON
 	if len(config) > 0 {
 		if err := json.Unmarshal(config, &cfg); err != nil {
@@ -66,34 +58,12 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		baseURL = cfg.OpenFIGIBaseURL
 	}
 	p.openfigi = NewOpenFIGIClientWithTelemetry(cfg.OpenFIGIAPIKey, baseURL, p.counter, p.log)
-	if cfg.OpenAIAPIKey != "" {
-		if cfg.OpenAIBaseURL != "" {
-			p.openai = NewOpenAIClientWithBaseURL(cfg.OpenAIAPIKey, cfg.OpenAIModel, cfg.OpenAIBaseURL)
-		} else {
-			p.openai = NewOpenAIClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
-		}
-	} else {
-		p.openai = nil
-	}
 
-	// 1) Try OpenFIGI first (mapping if looks like ticker, else search)
-	results, err := p.tryOpenFIGI(ctx, instrumentDescription, exchangeCodeHint)
-	if err != nil {
-		return nil, nil, err
-	}
-	if inst, ids, ok := p.resolveResults(ctx, results, false); ok {
-		return inst, ids, nil
-	}
-
-	// 2) ChatGPT only when needed
-	if p.openai == nil {
+	if len(identifierHints) == 0 {
 		return nil, nil, identifier.ErrNotIdentified
 	}
-	normalized, err := p.openai.NormalizeDescription(ctx, instrumentDescription)
-	if err != nil || normalized == "" {
-		return nil, nil, identifier.ErrNotIdentified
-	}
-	results, err = p.tryOpenFIGI(ctx, normalized, exchangeCodeHint)
+	// Use OpenFIGI Mapping only (no Search API); try first hint that we can map
+	results, err := p.tryOpenFIGIFromHints(ctx, identifierHints, exchangeCodeHint, currencyHint, micHint)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -132,46 +102,51 @@ func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, f
 	return inst, ids, true
 }
 
-var tickerLikeRe = regexp.MustCompile(`^[A-Z0-9]{1,5}$`)
+// openFIGIMappingIDTypes are identifier types that OpenFIGI Mapping API accepts.
+var openFIGIMappingIDTypes = map[string]bool{
+	"TICKER": true, "FIGI": true, "ISIN": true, "CUSIP": true, "SEDOL": true,
+	"COMPOSITE_FIGI": true, "SHARE_CLASS_FIGI": true, "WKN": true, "QUOTE_LISTED": true,
+}
 
-func (p *Plugin) tryOpenFIGI(ctx context.Context, query, exchangeCodeHint string) ([]OpenFIGIResult, error) {
-	query = strings.TrimSpace(query)
-	if query == "" {
-		return nil, identifier.ErrNotIdentified
-	}
-	upper := strings.ToUpper(query)
-	if tickerLikeRe.MatchString(upper) {
-		job := MappingJob{IDType: "TICKER", IDValue: upper}
-		if exchangeCodeHint != "" {
+// tryOpenFIGIFromHints tries OpenFIGI Mapping for each hint (in order); returns first non-empty result set.
+// Uses only Mapping API (no Search). exchangeCodeHint, currencyHint, and micHint narrow results when the hint has no domain.
+func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, hints []identifier.Identifier, exchangeCodeHint, currencyHint, micHint string) ([]OpenFIGIResult, error) {
+	for _, h := range hints {
+		idType := strings.ToUpper(strings.TrimSpace(h.Type))
+		if idType == "" || !openFIGIMappingIDTypes[idType] {
+			continue
+		}
+		value := strings.TrimSpace(h.Value)
+		if value == "" {
+			continue
+		}
+		job := MappingJob{IDType: idType, IDValue: value}
+		if h.Domain != "" {
+			job.ExchCode = h.Domain
+		} else if exchangeCodeHint != "" {
 			job.ExchCode = exchangeCodeHint
+		}
+		if currencyHint != "" {
+			job.Currency = currencyHint
+		}
+		if micHint != "" {
+			job.MICCode = micHint
 		}
 		results, err := p.openfigi.Mapping(ctx, job)
 		if err != nil {
 			return nil, err
 		}
-		return results, nil
+		if len(results) > 0 {
+			return results, nil
+		}
 	}
-	sr, err := p.openfigi.Search(ctx, query, exchangeCodeHint)
-	if err != nil {
-		return nil, err
-	}
-	if sr == nil {
-		return nil, nil
-	}
-	return sr.Data, nil
+	return nil, nil
 }
 
-// getUnderlyingSymbol resolves the underlying ticker for a derivative using the derivative library, then OpenAI if needed.
-// It does not assume the underlying trades on the same exchange as the derivative.
+// getUnderlyingSymbol resolves the underlying ticker for a derivative using the derivative library only (no OpenAI).
 func (p *Plugin) getUnderlyingSymbol(ctx context.Context, derivativeTicker string) (symbol, exchangeHint string, ok bool) {
 	if u, parseOk := derivative.ParseOptionTicker(derivativeTicker); parseOk {
 		return u.Symbol, u.ExchangeHint, true
-	}
-	if p.openai != nil {
-		sym, err := p.openai.UnderlyingFromDerivative(ctx, derivativeTicker)
-		if err == nil && strings.TrimSpace(sym) != "" {
-			return strings.TrimSpace(sym), "", true
-		}
 	}
 	return "", "", false
 }

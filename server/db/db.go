@@ -18,6 +18,19 @@ type DB interface {
 	HoldingsDB
 	JobDB
 	InstrumentDB
+	DescriptionPluginDB
+}
+
+// DescriptionPluginDB provides description plugin config (extract identifier hints from broker descriptions).
+type DescriptionPluginDB interface {
+	// ListEnabledDescriptionPluginConfigs returns enabled description plugins ordered by precedence descending.
+	ListEnabledDescriptionPluginConfigs(ctx context.Context) ([]PluginConfigRow, error)
+	// GetDescriptionPluginConfig returns the config row for pluginID. Returns (nil, sql.ErrNoRows) when no row exists.
+	GetDescriptionPluginConfig(ctx context.Context, pluginID string) (*PluginConfigRowFull, error)
+	// InsertDescriptionPluginConfig creates a new description plugin config row.
+	InsertDescriptionPluginConfig(ctx context.Context, pluginID string, enabled bool, precedence int, config []byte) (*PluginConfigRowFull, error)
+	// UpdateDescriptionPluginConfig updates enabled, precedence, and/or config for a description plugin.
+	UpdateDescriptionPluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte) (*PluginConfigRowFull, error)
 }
 
 // IdentificationError is stored per job for identification warnings (e.g. broker description only, plugin timeout).
@@ -79,12 +92,14 @@ type JobDB interface {
 	ListPendingJobIDs(ctx context.Context) ([]string, error)
 }
 
-// IdentifierInput is a single (type, value) for EnsureInstrument.
+// IdentifierInput is a single (type, domain, value) for EnsureInstrument.
+// Domain is empty or nil for broker-description and for identifiers that have no domain (e.g. ISIN, CUSIP).
 // Canonical is false only for broker-description identifiers; true for standard identifiers (ISIN, CUSIP, etc.).
 type IdentifierInput struct {
 	Type      string
+	Domain    string // empty or NULL for no domain
 	Value     string
-	Canonical bool // default true when not set for backward compat
+	Canonical bool   // default true when not set for backward compat
 }
 
 // PluginConfigRow is one row from identifier_plugin_config for enabled plugins.
@@ -136,8 +151,10 @@ type InstrumentRow struct {
 type InstrumentDB interface {
 	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. Returns instrument ID. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument ID. When assetClass is OPTION or FUTURE, underlyingID must be non-empty.
 	EnsureInstrument(ctx context.Context, assetClass, exchange, currency, name string, identifiers []IdentifierInput, underlyingID string, validFrom, validTo *time.Time) (string, error)
-	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, value) via instrument_identifiers. Returns "" if not found.
-	FindInstrumentByIdentifier(ctx context.Context, identifierType, value string) (string, error)
+	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
+	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
+	// FindInstrumentBySourceDescription looks up instrument_id by (source, NULL domain, instrument_description). Returns "" if not found.
+	FindInstrumentBySourceDescription(ctx context.Context, source, description string) (string, error)
 	// GetInstrument returns an instrument by ID with its identifiers, or nil if not found.
 	GetInstrument(ctx context.Context, instrumentID string) (*InstrumentRow, error)
 	// ListInstrumentsByIDs returns instruments by ID slice (for batch underlying lookup). Missing IDs are omitted; order not guaranteed.

@@ -7,12 +7,13 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/identifier/description"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
 // RunWorker processes job requests from the channel until it is closed.
-// Resolution uses DB, then in-batch cache, then enabled plugins from registry (timeout from config, retry once with backoff).
-func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, registry *identifier.Registry, counter telemetry.CounterIncrementer) {
+// Resolution uses DB, then in-batch cache, then description plugins (extract hints) and identifier plugins (timeout from config, retry once with backoff).
+func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -21,21 +22,21 @@ func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, re
 			if !ok {
 				return
 			}
-			processJob(ctx, database, registry, counter, j)
+			processJob(ctx, database, registry, descRegistry, counter, j)
 		}
 	}
 }
 
-func processJob(ctx context.Context, database db.DB, registry *identifier.Registry, counter telemetry.CounterIncrementer, j *JobRequest) {
+func processJob(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest) {
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_RUNNING)
 	if j.Bulk {
-		processBulk(ctx, database, registry, counter, j)
+		processBulk(ctx, database, registry, descRegistry, counter, j)
 	} else {
-		processSingle(ctx, database, registry, counter, j)
+		processSingle(ctx, database, registry, descRegistry, counter, j)
 	}
 }
 
-func processBulk(ctx context.Context, database db.DB, registry *identifier.Registry, counter telemetry.CounterIncrementer, j *JobRequest) {
+func processBulk(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest) {
 	errs := ValidateTxs(j.Txs)
 	if len(errs) > 0 {
 		_ = database.AppendValidationErrors(ctx, j.JobID, errs)
@@ -46,8 +47,7 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 	instrumentIDs := make([]string, len(j.Txs))
 	for i, tx := range j.Txs {
 		desc := tx.GetInstrumentDescription()
-		hint := tx.GetExchangeCodeHint()
-		r, err := Resolve(ctx, database, registry, j.Broker, j.Source, desc, hint, cache, int32(i), counter)
+		r, err := Resolve(ctx, database, registry, descRegistry, j.Broker, j.Source, desc, tx.GetExchangeCodeHint(), tx.GetCurrencyHint(), tx.GetMicHint(), identifierHintsFromTx(tx), cache, int32(i), counter)
 		if err != nil {
 			log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
 			_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
@@ -79,7 +79,7 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
 }
 
-func processSingle(ctx context.Context, database db.DB, registry *identifier.Registry, counter telemetry.CounterIncrementer, j *JobRequest) {
+func processSingle(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest) {
 	errs := ValidateTx(j.Tx, 0)
 	if len(errs) > 0 {
 		_ = database.AppendValidationErrors(ctx, j.JobID, errs)
@@ -87,8 +87,7 @@ func processSingle(ctx context.Context, database db.DB, registry *identifier.Reg
 		return
 	}
 	desc := j.Tx.GetInstrumentDescription()
-	hint := j.Tx.GetExchangeCodeHint()
-	r, err := Resolve(ctx, database, registry, j.Broker, j.Source, desc, hint, nil, 0, counter)
+	r, err := Resolve(ctx, database, registry, descRegistry, j.Broker, j.Source, desc, j.Tx.GetExchangeCodeHint(), j.Tx.GetCurrencyHint(), j.Tx.GetMicHint(), identifierHintsFromTx(j.Tx), nil, 0, counter)
 	if err != nil {
 		log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{

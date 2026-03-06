@@ -25,19 +25,24 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	if _, err := exec.ExecContext(ctx, `UPDATE txs SET instrument_id = $1 WHERE instrument_id = $2`, survivor, mergedAway); err != nil {
 		return fmt.Errorf("update txs: %w", err)
 	}
-	rows, err := exec.QueryContext(ctx, `SELECT identifier_type, value, canonical FROM instrument_identifiers WHERE instrument_id = $1`, mergedAway)
+	rows, err := exec.QueryContext(ctx, `SELECT identifier_type, domain, value, canonical FROM instrument_identifiers WHERE instrument_id = $1`, mergedAway)
 	if err != nil {
 		return fmt.Errorf("list identifiers: %w", err)
 	}
 	defer rows.Close()
-	var toInsert []struct{ idType, value string; canonical bool }
+	var toInsert []struct{ idType, domain, value string; canonical bool }
 	for rows.Next() {
 		var idType, val string
+		var domain sql.NullString
 		var canonical bool
-		if err := rows.Scan(&idType, &val, &canonical); err != nil {
+		if err := rows.Scan(&idType, &domain, &val, &canonical); err != nil {
 			return err
 		}
-		toInsert = append(toInsert, struct{ idType, value string; canonical bool }{idType, val, canonical})
+		d := ""
+		if domain.Valid {
+			d = domain.String
+		}
+		toInsert = append(toInsert, struct{ idType, domain, value string; canonical bool }{idType, d, val, canonical})
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -47,10 +52,12 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	}
 	for _, idn := range toInsert {
 		_, err := exec.ExecContext(ctx, `
-			INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical) VALUES ($1, $2, $3, $4)
-			ON CONFLICT (identifier_type, value) DO NOTHING
-		`, survivor, idn.idType, idn.value, idn.canonical)
+			INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical) VALUES ($1, $2, $3, $4, $5)
+		`, survivor, idn.idType, nullStr(idn.domain), idn.value, idn.canonical)
 		if err != nil {
+			if isUniqueViolation(err) {
+				continue
+			}
 			return fmt.Errorf("insert identifier: %w", err)
 		}
 	}
@@ -124,12 +131,20 @@ func isUniqueViolation(err error) bool {
 }
 
 // FindInstrumentByIdentifier implements db.InstrumentDB.
-func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierType, value string) (string, error) {
+func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error) {
 	var id uuid.UUID
-	err := p.q.QueryRowContext(ctx, `
-		SELECT instrument_id FROM instrument_identifiers
-		WHERE identifier_type = $1 AND value = $2
-	`, identifierType, value).Scan(&id)
+	var err error
+	if domain == "" {
+		err = p.q.QueryRowContext(ctx, `
+			SELECT instrument_id FROM instrument_identifiers
+			WHERE identifier_type = $1 AND domain IS NULL AND value = $2
+		`, identifierType, value).Scan(&id)
+	} else {
+		err = p.q.QueryRowContext(ctx, `
+			SELECT instrument_id FROM instrument_identifiers
+			WHERE identifier_type = $1 AND domain = $2 AND value = $3
+		`, identifierType, domain, value).Scan(&id)
+	}
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -137,6 +152,11 @@ func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierTyp
 		return "", fmt.Errorf("find instrument by identifier: %w", err)
 	}
 	return id.String(), nil
+}
+
+// FindInstrumentBySourceDescription implements db.InstrumentDB.
+func (p *Postgres) FindInstrumentBySourceDescription(ctx context.Context, source, description string) (string, error) {
+	return p.FindInstrumentByIdentifier(ctx, source, "", description)
 }
 
 // GetInstrument implements db.InstrumentDB.
@@ -165,15 +185,19 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 	row.UnderlyingID = strFromNull(underlyingID)
 	row.ValidFrom = timeFromNull(validFrom)
 	row.ValidTo = timeFromNull(validTo)
-	idRows, err := p.q.QueryContext(ctx, `SELECT identifier_type, value, canonical FROM instrument_identifiers WHERE instrument_id = $1`, instUUID)
+	idRows, err := p.q.QueryContext(ctx, `SELECT identifier_type, domain, value, canonical FROM instrument_identifiers WHERE instrument_id = $1`, instUUID)
 	if err != nil {
 		return nil, fmt.Errorf("get instrument identifiers: %w", err)
 	}
 	defer idRows.Close()
 	for idRows.Next() {
 		var idn db.IdentifierInput
-		if err := idRows.Scan(&idn.Type, &idn.Value, &idn.Canonical); err != nil {
+		var domain sql.NullString
+		if err := idRows.Scan(&idn.Type, &domain, &idn.Value, &idn.Canonical); err != nil {
 			return nil, err
+		}
+		if domain.Valid {
+			idn.Domain = domain.String
 		}
 		row.Identifiers = append(row.Identifiers, idn)
 	}
@@ -243,7 +267,7 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 		args[i] = ids[i]
 	}
 	idRows, err := p.q.QueryContext(ctx, fmt.Sprintf(`
-		SELECT instrument_id, identifier_type, value, canonical
+		SELECT instrument_id, identifier_type, domain, value, canonical
 		FROM instrument_identifiers
 		WHERE instrument_id IN (%s)
 		ORDER BY instrument_id
@@ -259,13 +283,18 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 	for idRows.Next() {
 		var instID uuid.UUID
 		var idType, val string
+		var domain sql.NullString
 		var canonical bool
-		if err := idRows.Scan(&instID, &idType, &val, &canonical); err != nil {
+		if err := idRows.Scan(&instID, &idType, &domain, &val, &canonical); err != nil {
 			return nil, err
+		}
+		idn := db.IdentifierInput{Type: idType, Value: val, Canonical: canonical}
+		if domain.Valid {
+			idn.Domain = domain.String
 		}
 		row := byID[instID.String()]
 		if row != nil {
-			row.Identifiers = append(row.Identifiers, db.IdentifierInput{Type: idType, Value: val, Canonical: canonical})
+			row.Identifiers = append(row.Identifiers, idn)
 		}
 	}
 	if err := idRows.Err(); err != nil {
@@ -345,7 +374,7 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 		idArgs[i] = resultIDs[i]
 	}
 	idRows, err := p.q.QueryContext(ctx, fmt.Sprintf(`
-		SELECT instrument_id, identifier_type, value, canonical
+		SELECT instrument_id, identifier_type, domain, value, canonical
 		FROM instrument_identifiers WHERE instrument_id IN (%s) ORDER BY instrument_id
 	`, strings.Join(idPlaceholders, ",")), idArgs...)
 	if err != nil {
@@ -359,12 +388,17 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	for idRows.Next() {
 		var instID uuid.UUID
 		var idType, val string
+		var domain sql.NullString
 		var canonical bool
-		if err := idRows.Scan(&instID, &idType, &val, &canonical); err != nil {
+		if err := idRows.Scan(&instID, &idType, &domain, &val, &canonical); err != nil {
 			return nil, err
 		}
+		idn := db.IdentifierInput{Type: idType, Value: val, Canonical: canonical}
+		if domain.Valid {
+			idn.Domain = domain.String
+		}
 		if row := byID[instID.String()]; row != nil {
-			row.Identifiers = append(row.Identifiers, db.IdentifierInput{Type: idType, Value: val, Canonical: canonical})
+			row.Identifiers = append(row.Identifiers, idn)
 		}
 	}
 	return results, idRows.Err()
@@ -396,17 +430,16 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchange, c
 	seen := make(map[uuid.UUID]struct{})
 	var distinctIDs []uuid.UUID
 	for _, idn := range identifiers {
-		var existingID uuid.UUID
-		err := p.q.QueryRowContext(ctx, `SELECT instrument_id FROM instrument_identifiers WHERE identifier_type = $1 AND value = $2`, idn.Type, idn.Value).Scan(&existingID)
-		if err == nil {
-			if _, ok := seen[existingID]; !ok {
-				seen[existingID] = struct{}{}
-				distinctIDs = append(distinctIDs, existingID)
-			}
-			continue
-		}
-		if err != sql.ErrNoRows {
+		existingID, err := p.FindInstrumentByIdentifier(ctx, idn.Type, idn.Domain, idn.Value)
+		if err != nil {
 			return "", fmt.Errorf("lookup instrument: %w", err)
+		}
+		if existingID != "" {
+			parsed, _ := uuid.Parse(existingID)
+			if _, ok := seen[parsed]; !ok {
+				seen[parsed] = struct{}{}
+				distinctIDs = append(distinctIDs, parsed)
+			}
 		}
 	}
 	// Multiple instruments: merge into one and return survivor.
@@ -448,7 +481,7 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchange, c
 		}
 		for _, idn := range identifiers {
 			canonical := idn.Canonical
-			_, err = exec.ExecContext(ctx, `INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical) VALUES ($1, $2, $3, $4)`, newID, idn.Type, idn.Value, canonical)
+			_, err = exec.ExecContext(ctx, `INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical) VALUES ($1, $2, $3, $4, $5)`, newID, idn.Type, nullStr(idn.Domain), idn.Value, canonical)
 			if err != nil {
 				if isUniqueViolation(err) {
 					return errIdentifierExists // rollback tx; caller will look up existing id
@@ -461,10 +494,9 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchange, c
 	if err != nil {
 		if errors.Is(err, errIdentifierExists) {
 			for _, idn := range identifiers {
-				var existingID uuid.UUID
-				rowErr := p.q.QueryRowContext(ctx, `SELECT instrument_id FROM instrument_identifiers WHERE identifier_type = $1 AND value = $2`, idn.Type, idn.Value).Scan(&existingID)
-				if rowErr == nil {
-					return existingID.String(), nil
+				existingID, rowErr := p.FindInstrumentByIdentifier(ctx, idn.Type, idn.Domain, idn.Value)
+				if rowErr == nil && existingID != "" {
+					return existingID, nil
 				}
 			}
 		}

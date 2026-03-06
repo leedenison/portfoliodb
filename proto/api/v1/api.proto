@@ -43,12 +43,13 @@ enum TxType {
   CLOSUREOPT     = 20;
 }
 
-// InstrumentIdentifier is one (type, value) pair for an instrument (e.g. CUSIP, ISIN, broker description).
-// canonical = false only for broker-description identifiers; true for standard identifiers (ISIN, CUSIP, etc.).
+// InstrumentIdentifier is one (type, domain, value) for an instrument (e.g. CUSIP, ISIN, TICKER+exchange, broker description).
+// domain is optional (e.g. exchange code for TICKER). canonical = false only for broker-description identifiers.
 message InstrumentIdentifier {
-  string type = 1;   // e.g. "CUSIP", "ISIN", "IBKR", "SCHB"
+  string type = 1;   // e.g. "CUSIP", "ISIN", "TICKER", "FIGI"
   string value = 2;
   bool canonical = 3;
+  string domain = 4; // optional; e.g. exchange code for TICKER
 }
 
 // Instrument is canonical security-master data for an instrument, with its identifiers.
@@ -88,6 +89,12 @@ message Tx {
   string account = 9;
   // Optional exchange code hint to narrow identification (e.g. "US"). Not stored as canonical; only API-confirmed exchange is written to the instrument.
   string exchange_code_hint = 10;
+  // Optional currency hint (e.g. "USD"). Not stored as canonical; used only to narrow resolution.
+  string currency_hint = 11;
+  // Optional MIC (market identifier code) hint. Not stored as canonical; used only to narrow resolution.
+  string mic_hint = 12;
+  // Optional external identifier hints (e.g. ISIN, CUSIP, FIGI, TICKER). When supplied, resolution uses these and does not store (source, description) on the instrument.
+  repeated InstrumentIdentifier identifier_hints = 13;
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,

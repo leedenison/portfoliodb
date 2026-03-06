@@ -9,6 +9,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/identifier/description"
 	"go.uber.org/mock/gomock"
 )
 
@@ -19,7 +20,7 @@ type fakePlugin struct {
 	err  error
 }
 
-func (p *fakePlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription, exchangeCodeHint string) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *fakePlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint string, identifierHints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
 	if ctx.Err() != nil {
 		return nil, nil, ctx.Err()
 	}
@@ -27,6 +28,25 @@ func (p *fakePlugin) Identify(ctx context.Context, config []byte, broker, source
 }
 
 func (p *fakePlugin) DefaultConfig() []byte { return nil }
+
+// fakeDescPlugin is a description plugin that returns one TICKER hint with the given instrument description.
+type fakeDescPlugin struct{}
+
+func (p *fakeDescPlugin) Extract(ctx context.Context, config []byte, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint string) ([]identifier.Identifier, error) {
+	if instrumentDescription == "" {
+		return nil, nil
+	}
+	return []identifier.Identifier{{Type: "TICKER", Domain: "", Value: instrumentDescription}}, nil
+}
+
+func (p *fakeDescPlugin) DefaultConfig() []byte { return nil }
+
+// descRegistryWithFake returns a description registry with the fake plugin registered for use in tests that need extraction to return hints.
+func descRegistryWithFake() *description.Registry {
+	r := description.NewRegistry()
+	r.Register("fake", &fakeDescPlugin{})
+	return r
+}
 
 func TestResolve_DBHit_NoPluginCall(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -37,10 +57,10 @@ func TestResolve_DBHit_NoPluginCall(t *testing.T) {
 	ctx := context.Background()
 	source := "IBKR:test:statement"
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), source, "AAPL").
+		FindInstrumentBySourceDescription(gomock.Any(), source, "AAPL").
 		Return("existing-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", "", nil, 0, nil)
+	r, err := Resolve(ctx, database, registry, nil, "IBKR", source, "AAPL", "", "", "", nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -65,7 +85,7 @@ func TestResolve_CacheHit_NoPluginCall(t *testing.T) {
 	cache[key] = resolveResult{InstrumentID: "cached-id", FirstRowIndex: 0}
 
 	// No DB or plugin calls when cache has entry
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "GOOG", "", cache, 1, nil)
+	r, err := Resolve(ctx, database, registry, nil, "IBKR", source, "GOOG", "", "", "", nil, cache, 1, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -74,25 +94,22 @@ func TestResolve_CacheHit_NoPluginCall(t *testing.T) {
 	}
 }
 
-func TestResolve_DBMiss_NoPlugins_BrokerDescriptionOnly(t *testing.T) {
+func TestResolve_DBMiss_NoPlugins_ExtractionFailed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	registry := identifier.NewRegistry()
-
+	// nil descRegistry → no hints → extraction failed path
 	ctx := context.Background()
 	source := "IBKR:test:statement"
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), source, "UNKNOWN").
+		FindInstrumentBySourceDescription(gomock.Any(), source, "UNKNOWN").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any()).
-		Return(nil, nil)
-	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: source, Value: "UNKNOWN", Canonical: false}}, "", nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: source, Domain: "", Value: "UNKNOWN", Canonical: false}}, "", nil, nil).
 		Return("broker-only-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "UNKNOWN", "", nil, 0, nil)
+	r, err := Resolve(ctx, database, registry, nil, "IBKR", source, "UNKNOWN", "", "", "", nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -100,10 +117,10 @@ func TestResolve_DBMiss_NoPlugins_BrokerDescriptionOnly(t *testing.T) {
 		t.Errorf("InstrumentID = %q, want broker-only-id", r.InstrumentID)
 	}
 	if r.IdErr == nil {
-		t.Fatal("expected IdErr for broker description only")
+		t.Fatal("expected IdErr for extraction failed")
 	}
-	if r.IdErr.Message != MsgBrokerDescriptionOnly {
-		t.Errorf("IdErr.Message = %q, want %q", r.IdErr.Message, MsgBrokerDescriptionOnly)
+	if r.IdErr.Message != MsgExtractionFailed {
+		t.Errorf("IdErr.Message = %q, want %q", r.IdErr.Message, MsgExtractionFailed)
 	}
 }
 
@@ -113,20 +130,27 @@ func TestResolve_DBMiss_AllPluginsErrNotIdentified_BrokerDescriptionOnly(t *test
 	database := mock.NewMockDB(ctrl)
 	registry := identifier.NewRegistry()
 	registry.Register("p1", &fakePlugin{err: identifier.ErrNotIdentified})
+	descRegistry := descRegistryWithFake()
 
 	ctx := context.Background()
 	source := "IBKR:test:statement"
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), source, "UNKNOWN").
+		FindInstrumentBySourceDescription(gomock.Any(), source, "UNKNOWN").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "UNKNOWN").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any()).
 		Return([]db.PluginConfigRow{{PluginID: "p1", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: source, Value: "UNKNOWN", Canonical: false}}, "", nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: source, Domain: "", Value: "UNKNOWN", Canonical: false}}, "", nil, nil).
 		Return("broker-only-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "UNKNOWN", "", nil, 0, nil)
+	r, err := Resolve(ctx, database, registry, descRegistry, "IBKR", source, "UNKNOWN", "", "", "", nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -146,10 +170,17 @@ func TestResolve_DBMiss_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T
 		ids:  []identifier.Identifier{{Type: source, Value: "AAPL"}, {Type: "ISIN", Value: "US0378331005"}},
 		err:  nil,
 	})
+	descRegistry := descRegistryWithFake()
 
 	ctx := context.Background()
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), source, "AAPL").
+		FindInstrumentBySourceDescription(gomock.Any(), source, "AAPL").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "AAPL").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any()).
@@ -163,7 +194,7 @@ func TestResolve_DBMiss_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T
 			return "resolved-id", nil
 		})
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL", "", nil, 0, nil)
+	r, err := Resolve(ctx, database, registry, descRegistry, "IBKR", source, "AAPL", "", "", "", nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -192,9 +223,16 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 		err:  nil,
 	})
 
+	descRegistry := descRegistryWithFake()
 	ctx := context.Background()
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), source, desc).
+		FindInstrumentBySourceDescription(gomock.Any(), source, desc).
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", desc).
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any()).
@@ -218,7 +256,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 			return "resolved-id", nil
 		})
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, desc, "", nil, 0, nil)
+	r, err := Resolve(ctx, database, registry, descRegistry, "IBKR", source, desc, "", "", "", nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -254,9 +292,16 @@ func TestResolve_PluginReturnsUnderlying_EnsuresUnderlyingThenDerivative(t *test
 		err: nil,
 	})
 
+	descRegistry := descRegistryWithFake()
 	ctx := context.Background()
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), source, "AAPL  20250117C200").
+		FindInstrumentBySourceDescription(gomock.Any(), source, "AAPL  20250117C200").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "AAPL  20250117C200").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any()).
@@ -272,7 +317,7 @@ func TestResolve_PluginReturnsUnderlying_EnsuresUnderlyingThenDerivative(t *test
 		EnsureInstrument(gomock.Any(), "OPTION", "SMART", "USD", "AAPL Call 20250117 200 C", gomock.Any(), "underlying-uuid", nil, nil).
 		Return("option-uuid", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "AAPL  20250117C200", "", nil, 0, nil)
+	r, err := Resolve(ctx, database, registry, descRegistry, "IBKR", source, "AAPL  20250117C200", "", "", "", nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -300,10 +345,17 @@ func TestResolve_TwoPlugins_HigherPrecedenceWins(t *testing.T) {
 		ids:  []identifier.Identifier{{Type: source, Value: "X"}},
 		err:  nil,
 	})
+	descRegistry := descRegistryWithFake()
 
 	ctx := context.Background()
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), source, "X").
+		FindInstrumentBySourceDescription(gomock.Any(), source, "X").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "X").
 		Return("", nil)
 	// ListEnabledPluginConfigs returns precedence desc, so high (20) before low (10)
 	database.EXPECT().
@@ -316,7 +368,7 @@ func TestResolve_TwoPlugins_HigherPrecedenceWins(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "High", gomock.Any(), "", nil, nil).
 		Return("high-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "X", "", nil, 0, nil)
+	r, err := Resolve(ctx, database, registry, descRegistry, "IBKR", source, "X", "", "", "", nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -343,10 +395,17 @@ func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
 		ids:  []identifier.Identifier{{Type: source, Value: "Y"}, {Type: "ISIN", Value: "US0000000000"}},
 		err:  nil,
 	})
+	descRegistry := descRegistryWithFake()
 
 	ctx := context.Background()
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), source, "Y").
+		FindInstrumentBySourceDescription(gomock.Any(), source, "Y").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "Y").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any()).
@@ -368,7 +427,7 @@ func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
 			return "merged-id", nil
 		})
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "Y", "", nil, 0, nil)
+	r, err := Resolve(ctx, database, registry, descRegistry, "IBKR", source, "Y", "", "", "", nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -394,10 +453,17 @@ func TestResolve_TwoPlugins_SameType_HighPrecedenceWins(t *testing.T) {
 		ids:  []identifier.Identifier{{Type: source, Value: "Z"}, {Type: "ISIN", Value: "HIGH-ISIN"}},
 		err:  nil,
 	})
+	descRegistry := descRegistryWithFake()
 
 	ctx := context.Background()
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), source, "Z").
+		FindInstrumentBySourceDescription(gomock.Any(), source, "Z").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "Z").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any()).
@@ -416,7 +482,7 @@ func TestResolve_TwoPlugins_SameType_HighPrecedenceWins(t *testing.T) {
 			return "id", nil
 		})
 
-	_, err := Resolve(ctx, database, registry, "IBKR", source, "Z", "", nil, 0, nil)
+	_, err := Resolve(ctx, database, registry, descRegistry, "IBKR", source, "Z", "", "", "", nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -430,19 +496,26 @@ func TestResolve_PluginTimeout_FallbackAndMessage(t *testing.T) {
 	source := "IBKR:test:statement"
 	// Plugin that returns context.DeadlineExceeded (simulate timeout)
 	registry.Register("slow", &fakePlugin{err: context.DeadlineExceeded})
+	descRegistry := descRegistryWithFake()
 
 	ctx := context.Background()
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), source, "SLOW").
+		FindInstrumentBySourceDescription(gomock.Any(), source, "SLOW").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "SLOW").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any()).
 		Return([]db.PluginConfigRow{{PluginID: "slow", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "SLOW", []db.IdentifierInput{{Type: source, Value: "SLOW", Canonical: false}}, "", nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "SLOW", []db.IdentifierInput{{Type: source, Domain: "", Value: "SLOW", Canonical: false}}, "", nil, nil).
 		Return("fallback-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "SLOW", "", nil, 0, nil)
+	r, err := Resolve(ctx, database, registry, descRegistry, "IBKR", source, "SLOW", "", "", "", nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -458,19 +531,26 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 	registry := identifier.NewRegistry()
 	source := "IBKR:test:statement"
 	registry.Register("bad", &fakePlugin{err: errors.New("connection refused")})
+	descRegistry := descRegistryWithFake()
 
 	ctx := context.Background()
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), source, "BAD").
+		FindInstrumentBySourceDescription(gomock.Any(), source, "BAD").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "BAD").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any()).
 		Return([]db.PluginConfigRow{{PluginID: "bad", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "BAD", []db.IdentifierInput{{Type: source, Value: "BAD", Canonical: false}}, "", nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "BAD", []db.IdentifierInput{{Type: source, Domain: "", Value: "BAD", Canonical: false}}, "", nil, nil).
 		Return("fallback-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "BAD", "", nil, 0, nil)
+	r, err := Resolve(ctx, database, registry, descRegistry, "IBKR", source, "BAD", "", "", "", nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -517,7 +597,7 @@ type retryPlugin struct {
 	ids       []identifier.Identifier
 }
 
-func (p *retryPlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription, exchangeCodeHint string) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *retryPlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint string, identifierHints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
 	p.callCount++
 	if p.callCount == 1 {
 		return nil, nil, errors.New("temporary failure")
@@ -537,10 +617,17 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 		inst: &identifier.Instrument{Name: "Retried"},
 		ids:  []identifier.Identifier{{Type: source, Value: "RETRY"}},
 	})
+	descRegistry := descRegistryWithFake()
 
 	ctx := context.Background()
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), source, "RETRY").
+		FindInstrumentBySourceDescription(gomock.Any(), source, "RETRY").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "RETRY").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any()).
@@ -549,7 +636,7 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "Retried", gomock.Any(), "", nil, nil).
 		Return("retried-id", nil)
 
-	r, err := Resolve(ctx, database, registry, "IBKR", source, "RETRY", "", nil, 0, nil)
+	r, err := Resolve(ctx, database, registry, descRegistry, "IBKR", source, "RETRY", "", "", "", nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

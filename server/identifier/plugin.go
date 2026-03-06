@@ -12,13 +12,12 @@ var ErrNotIdentified = errors.New("instrument not identified by plugin")
 // Plugin is the instrument identification plugin interface.
 // Implementations live under server/plugins/<datasource>/identifier (e.g. server/plugins/local/identifier).
 type Plugin interface {
-	// Identify resolves (source, instrument_description) to canonical instrument data and identifiers.
-	// config is the plugin's JSON config from identifier_plugin_config.config (may be nil); plugins may use it for API keys and options.
+	// Identify resolves to canonical instrument data and identifiers. When identifierHints is non-empty, resolution is from those hints (e.g. mapping by TICKER/FIGI); when empty, the plugin may use instrumentDescription only if it can do so safely (e.g. no raw search with long text).
+	// config is the plugin's JSON config from identifier_plugin_config.config (may be nil).
 	// Returns (instrument, identifiers, nil) when resolved, or (nil, nil, ErrNotIdentified) when the plugin cannot resolve.
-	// broker is the broker name (e.g. "IBKR", "SCHB"); source is opaque (e.g. "<broker>:<client>:<source>"); instrument_description is the broker's description string.
-	// exchangeCodeHint is an optional hint from the upload (e.g. transaction) to narrow mapping/search; it must not be stored as canonical—only API-confirmed data (e.g. OpenFIGI exchCode) is written to the instrument.
-	// Plugins must not rely on extracting broker from source; both are passed. The caller ensures identifiers include at least (Type=source, Value=instrument_description) when creating a new instrument.
-	Identify(ctx context.Context, config []byte, broker, source, instrumentDescription, exchangeCodeHint string) (*Instrument, []Identifier, error)
+	// Hints (exchangeCodeHint, currencyHint, micHint) are optional and must not be stored as canonical—only API-confirmed data is written to the instrument.
+	// The caller ensures identifiers include at least (Type=source, Domain="", Value=instrument_description) when creating a new instrument from description path.
+	Identify(ctx context.Context, config []byte, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint string, identifierHints []Identifier) (*Instrument, []Identifier, error)
 
 	// DefaultConfig returns the plugin's default config JSON (keys the plugin uses, with dummy/empty values).
 	// The server calls this on startup when no row exists for the plugin and inserts the result so the user can edit it via the Admin UI. Return nil or empty slice to insert {}.

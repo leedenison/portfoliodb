@@ -97,22 +97,38 @@ CREATE TABLE instruments (
 
 CREATE INDEX idx_instruments_underlying_id ON instruments (underlying_id);
 
--- Identifiers for an instrument. (identifier_type, value) is unique globally.
+-- Identifiers for an instrument. (identifier_type, domain, value) is unique globally.
+-- domain is NULL for broker-description and for identifiers that have no domain (e.g. ISIN, CUSIP).
 -- canonical = false only for broker-description identifiers; canonical = true for standard identifiers (ISIN, CUSIP, etc.).
--- Broker descriptions: identifier_type = broker name ('IBKR', 'SCHB'), value = full instrument_description.
+-- Broker descriptions: identifier_type = source (e.g. 'IBKR:<client>:statement'), domain = NULL, value = full instrument_description.
+-- Surrogate PK so domain can be NULL (PostgreSQL PK columns are NOT NULL).
 CREATE TABLE instrument_identifiers (
+  id              UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   instrument_id   UUID NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
   identifier_type TEXT NOT NULL,
+  domain          TEXT,
   value           TEXT NOT NULL,
-  canonical       BOOLEAN NOT NULL DEFAULT true,
-  PRIMARY KEY (instrument_id, identifier_type, value),
-  UNIQUE (identifier_type, value)
+  canonical       BOOLEAN NOT NULL DEFAULT true
 );
 
-CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identifier_type, value);
+-- Per-instrument uniqueness: one row per (instrument_id, identifier_type, domain, value).
+CREATE UNIQUE INDEX idx_instrument_identifiers_inst_unique_null_domain ON instrument_identifiers (instrument_id, identifier_type, value) WHERE domain IS NULL;
+CREATE UNIQUE INDEX idx_instrument_identifiers_inst_unique_non_null_domain ON instrument_identifiers (instrument_id, identifier_type, domain, value) WHERE domain IS NOT NULL;
+-- Global uniqueness: (identifier_type, domain, value) unique across the table.
+CREATE UNIQUE INDEX idx_instrument_identifiers_unique_null_domain ON instrument_identifiers (identifier_type, value) WHERE domain IS NULL;
+CREATE UNIQUE INDEX idx_instrument_identifiers_unique_non_null_domain ON instrument_identifiers (identifier_type, domain, value) WHERE domain IS NOT NULL;
+CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identifier_type, COALESCE(domain, ''), value);
 
 -- Plugin config: which plugins are enabled, precedence (unique), plugin-specific config.
 CREATE TABLE identifier_plugin_config (
+  plugin_id   TEXT PRIMARY KEY,
+  enabled     BOOLEAN NOT NULL DEFAULT true,
+  precedence  INT NOT NULL UNIQUE,
+  config      JSONB
+);
+
+-- Description plugin config: plugins that extract identifier hints from broker descriptions.
+CREATE TABLE description_plugin_config (
   plugin_id   TEXT PRIMARY KEY,
   enabled     BOOLEAN NOT NULL DEFAULT true,
   precedence  INT NOT NULL UNIQUE,

@@ -23,9 +23,10 @@ type Instrument struct {
 	ValidTo   *time.Time
 }
 
-// Identifier is an opaque (type, value) pair for an instrument (e.g. CUSIP, ISIN, broker description).
-// Broker descriptions use Type = broker name (e.g. "IBKR", "SCHB"), Value = full instrument_description.
+// Identifier is an opaque (type, domain, value) for an instrument (e.g. CUSIP, ISIN, TICKER+exchange, broker description).
+// Domain is optional (e.g. exchange code for TICKER). Broker descriptions use Type = source, Domain = "", Value = full instrument_description.
 type Identifier struct {
-	Type  string // e.g. "CUSIP", "ISIN", "IBKR", "SCHB"
-	Value string
+	Type   string // e.g. "CUSIP", "ISIN", "TICKER", "FIGI"
+	Domain string // optional; e.g. exchange code for TICKER
+	Value  string
 }

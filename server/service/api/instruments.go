@@ -72,7 +72,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 		}
 		idns := make([]db.IdentifierInput, 0, len(inst.GetIdentifiers()))
 		for _, idf := range inst.GetIdentifiers() {
-			idns = append(idns, db.IdentifierInput{Type: idf.GetType(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
+			idns = append(idns, db.IdentifierInput{Type: idf.GetType(), Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
 		_, err := s.db.EnsureInstrument(ctx, inst.GetAssetClass(), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), idns, "", protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()))
 		if err != nil {
@@ -96,7 +96,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 		u := inst.GetUnderlying()
 		uIdns := make([]db.IdentifierInput, 0, len(u.GetIdentifiers()))
 		for _, idf := range u.GetIdentifiers() {
-			uIdns = append(uIdns, db.IdentifierInput{Type: idf.GetType(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
+			uIdns = append(uIdns, db.IdentifierInput{Type: idf.GetType(), Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
 		underlyingID, err := s.db.EnsureInstrument(ctx, u.GetAssetClass(), u.GetExchange(), u.GetCurrency(), u.GetName(), uIdns, "", protoValidFrom(u.GetValidFrom()), protoValidTo(u.GetValidTo()))
 		if err != nil {
@@ -135,7 +135,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 		}
 		idns := make([]db.IdentifierInput, 0, len(inst.GetIdentifiers()))
 		for _, idf := range inst.GetIdentifiers() {
-			idns = append(idns, db.IdentifierInput{Type: idf.GetType(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
+			idns = append(idns, db.IdentifierInput{Type: idf.GetType(), Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
 		_, err := s.db.EnsureInstrument(ctx, inst.GetAssetClass(), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), idns, underlyingID, protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()))
 		if err != nil {

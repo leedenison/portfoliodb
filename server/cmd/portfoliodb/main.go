@@ -22,8 +22,10 @@ import (
 	"github.com/leedenison/portfoliodb/server/db/migrate"
 	"github.com/leedenison/portfoliodb/server/db/postgres"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/identifier/description"
 	"github.com/leedenison/portfoliodb/server/migrations"
 	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
+	openaidesc "github.com/leedenison/portfoliodb/server/plugins/openai/description"
 	"github.com/leedenison/portfoliodb/server/service/api"
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
 	"github.com/leedenison/portfoliodb/server/service/ingestion"
@@ -143,10 +145,15 @@ func main() {
 	if err := ensurePluginConfigs(context.Background(), database, pluginRegistry); err != nil {
 		log.Fatalf("ensure plugin configs: %v", err)
 	}
+	descRegistry := description.NewRegistry()
+	descRegistry.Register(openaidesc.PluginID, openaidesc.NewPlugin())
+	if err := ensureDescriptionPluginConfigs(context.Background(), database, descRegistry); err != nil {
+		log.Fatalf("ensure description plugin configs: %v", err)
+	}
 	queue := make(chan *ingestion.JobRequest, 256)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, counter)
+	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter)
 	svc := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(interceptorConfig)),
 		grpc.ChainStreamInterceptor(auth.StreamInterceptor(interceptorConfig)),
@@ -232,6 +239,28 @@ func ensurePluginConfigs(ctx context.Context, database db.InstrumentDB, registry
 			defaultConfig := p.DefaultConfig()
 			precedence := 10 * (i + 1)
 			if _, err := database.InsertPluginConfig(ctx, id, false, precedence, defaultConfig); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// ensureDescriptionPluginConfigs creates a description_plugin_config row for each registered description plugin that does not yet have one.
+func ensureDescriptionPluginConfigs(ctx context.Context, database db.DescriptionPluginDB, registry *description.Registry) error {
+	for i, id := range registry.ListIDs() {
+		_, err := database.GetDescriptionPluginConfig(ctx, id)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			p := registry.Get(id)
+			if p == nil {
+				continue
+			}
+			defaultConfig := p.DefaultConfig()
+			precedence := 10 * (i + 1)
+			if _, err := database.InsertDescriptionPluginConfig(ctx, id, false, precedence, defaultConfig); err != nil {
 				return err
 			}
 		}

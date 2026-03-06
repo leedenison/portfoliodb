@@ -28,7 +28,7 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	}
 	identifiers := make([]*apiv1.InstrumentIdentifier, 0, len(row.Identifiers))
 	for _, idn := range row.Identifiers {
-		identifiers = append(identifiers, &apiv1.InstrumentIdentifier{Type: idn.Type, Value: idn.Value, Canonical: idn.Canonical})
+		identifiers = append(identifiers, &apiv1.InstrumentIdentifier{Type: idn.Type, Domain: idn.Domain, Value: idn.Value, Canonical: idn.Canonical})
 	}
 	out := &apiv1.Instrument{
 		Id:           row.ID,

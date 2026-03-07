@@ -79,4 +79,6 @@ make run
 
 The gRPC server listens on `localhost:50051` behind Envoy on `http://localhost:8080` for gRPC-Web.
 
-**GOOGLE_OAUTH_CLIENT_ID** is required for Auth (server uses it to verify Google ID tokens). Create a **OAuth 2.0 Client ID** (Web application) in [Google Cloud Console](https://console.cloud.google.com/apis/credentials). 
+**GOOGLE_OAUTH_CLIENT_ID** is required for Auth (server uses it to verify Google ID tokens). Create a **OAuth 2.0 Client ID** (Web application) in [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+
+**DB_INITIALISE_SCRIPT** (optional) — Path to a SQL file run against the database after Postgres is up, when you use `make run`. Set it in `.env` (e.g. `DB_INITIALISE_SCRIPT=local/dev-init.sql`). Use it to load seed data, create test users, or run one-off migrations. If unset or the file is missing, the step is skipped. 

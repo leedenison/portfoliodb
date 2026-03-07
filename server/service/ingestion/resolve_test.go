@@ -592,6 +592,26 @@ func TestCacheKey(t *testing.T) {
 	}
 }
 
+func TestHintsByType(t *testing.T) {
+	hints := []identifier.Identifier{
+		{Type: "TICKER", Value: "EQQQ"},
+		{Type: "SHARE_CLASS_FIGI", Value: "BBG123"},
+		{Type: "TICKER", Value: "VUSA"},
+	}
+	ticker := hintsByType(hints, "TICKER")
+	if len(ticker) != 2 || ticker[0].Value != "EQQQ" || ticker[1].Value != "VUSA" {
+		t.Errorf("hintsByType(TICKER) = %+v; want two TICKER hints", ticker)
+	}
+	figi := hintsByType(hints, "SHARE_CLASS_FIGI")
+	if len(figi) != 1 || figi[0].Value != "BBG123" {
+		t.Errorf("hintsByType(SHARE_CLASS_FIGI) = %+v; want one SHARE_CLASS_FIGI hint", figi)
+	}
+	empty := hintsByType(hints, "ISIN")
+	if len(empty) != 0 {
+		t.Errorf("hintsByType(ISIN) = %+v; want empty", empty)
+	}
+}
+
 // retryPlugin fails once with a non-ErrNotIdentified error, then succeeds on retry.
 type retryPlugin struct {
 	callCount int

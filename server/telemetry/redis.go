@@ -34,6 +34,15 @@ func (r *RedisCounter) Incr(ctx context.Context, name string) {
 	_ = r.client.Incr(ctx, key).Err()
 }
 
+// IncrBy adds delta to the counter for the given name. Used for running totals (e.g. token usage).
+func (r *RedisCounter) IncrBy(ctx context.Context, name string, delta int64) {
+	if r == nil || r.client == nil || name == "" || delta == 0 {
+		return
+	}
+	key := r.prefix + name
+	_ = r.client.IncrBy(ctx, key, delta).Err()
+}
+
 // CounterEntry is one counter name and its current value (for admin list).
 type CounterEntry struct {
 	Name  string

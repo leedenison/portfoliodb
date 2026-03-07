@@ -237,8 +237,42 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		return r, nil
 	}
 
-	// Resolve by extracted hints; always store (source, description) when ensuring.
-	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint, extractedHints, cache, key, rowIndex, counter, true)
+	// When extraction returned both TICKER and SHARE_CLASS_FIGI, resolve each separately and validate they match.
+	// If they resolve to different instruments, increment counter, log error, and use TICKER (OpenAI more likely correct on TICKER).
+	hintsToUse := extractedHints
+	tickerHints := hintsByType(extractedHints, "TICKER")
+	figiHints := hintsByType(extractedHints, "SHARE_CLASS_FIGI")
+	if len(tickerHints) > 0 && len(figiHints) > 0 {
+		// Resolve with nil cache and nil counter so we don't pollute cache or double-count identify attempts.
+		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint, tickerHints, nil, key, rowIndex, nil, true)
+		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint, figiHints, nil, key, rowIndex, nil, true)
+		idByTicker := resultByTicker.InstrumentID
+		idByFigi := resultByFigi.InstrumentID
+		// Consider "unresolved" (broker-description-only) as empty for mismatch check
+		if idByTicker != "" && idByFigi != "" && idByTicker != idByFigi {
+			if counter != nil {
+				counter.Incr(ctx, "description.extraction.identifier_mismatch")
+			}
+			slog.ErrorContext(ctx, "TICKER and SHARE_CLASS_FIGI resolved to different instruments; using TICKER",
+				"source", source, "instrument_description", instrumentDescription,
+				"instrument_id_by_ticker", idByTicker, "instrument_id_by_figi", idByFigi)
+			hintsToUse = tickerHints
+		}
+	}
+
+	// Resolve by (validated) hints; always store (source, description) when ensuring.
+	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint, hintsToUse, cache, key, rowIndex, counter, true)
+}
+
+// hintsByType returns hints whose Type equals typ (e.g. "TICKER", "SHARE_CLASS_FIGI").
+func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identifier {
+	var out []identifier.Identifier
+	for _, h := range hints {
+		if h.Type == typ {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // resolveWithIdentifierPlugins calls enabled identifier plugins with the given hints, merges results, and ensures instrument.

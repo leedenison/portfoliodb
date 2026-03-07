@@ -40,74 +40,74 @@ func NewClient(apiKey, model, baseURL string) *Client {
 	}
 }
 
-// NormalizedIdentifier is the structured result of normalizing a broker description.
-// Type is one of TICKER, ISIN, CUSIP, SHARE_CLASS_FIGI; Value is the identifier value.
-type NormalizedIdentifier struct {
-	Type  string // TICKER, ISIN, CUSIP, or SHARE_CLASS_FIGI
-	Value string
+// NormalizedIdentifiers is the structured result of normalizing a broker description (JSON response).
+// At least one of Ticker or ShareClassFIGI should be set for the result to be useful.
+type NormalizedIdentifiers struct {
+	Ticker        string // primary exchange symbol (e.g. EQQQ)
+	ShareClassFIGI string // OpenFIGI share-class FIGI (12-char, e.g. BBG...)
 }
 
-// Allowed identifier types for mapping (must match OpenFIGI Mapping API idTypes).
-var allowedTypes = map[string]bool{"TICKER": true, "ISIN": true, "CUSIP": true, "SHARE_CLASS_FIGI": true}
-
-// parseStructuredResponse parses a line in the form "TYPE: VALUE" (e.g. "TICKER: AAPL").
-// Returns (type, value, true) on success, or ("", "", false) if the format is invalid or type not allowed.
-func parseStructuredResponse(line string) (idType, value string, ok bool) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return "", "", false
-	}
-	before, after, found := strings.Cut(line, ":")
-	if !found {
-		return "", "", false
-	}
-	idType = strings.TrimSpace(strings.ToUpper(before))
-	value = strings.TrimSpace(after)
-	if !allowedTypes[idType] || value == "" {
-		return "", "", false
-	}
-	return idType, value, true
+// openAIJSONResponse is the shape of the model's JSON response.
+type openAIJSONResponse struct {
+	TICKER          string `json:"TICKER"`
+	SHARE_CLASS_FIGI string `json:"SHARE_CLASS_FIGI"`
 }
 
-// NormalizeDescription asks the model to return a structured identifier (type + value) for instrument mapping.
-// The prompt requires the format "TYPE: VALUE" where TYPE is TICKER, ISIN, CUSIP, or SHARE_CLASS_FIGI.
-// Returns the parsed identifier or an error.
-func (c *Client) NormalizeDescription(ctx context.Context, brokerDescription string) (*NormalizedIdentifier, error) {
+// stripJSONFromContent removes markdown code fences if present and returns trimmed JSON string.
+func stripJSONFromContent(raw string) string {
+	raw = strings.TrimSpace(raw)
+	// Remove ```json ... ``` or ``` ... ```
+	for _, prefix := range []string{"```json", "```"} {
+		if strings.HasPrefix(raw, prefix) {
+			raw = raw[len(prefix):]
+			if idx := strings.Index(raw, "```"); idx >= 0 {
+				raw = raw[:idx]
+			}
+			break
+		}
+	}
+	return strings.TrimSpace(raw)
+}
+
+// NormalizeDescription asks the model to return JSON with TICKER and SHARE_CLASS_FIGI.
+// Returns identifiers, optional usage (token counts), and an error. Usage may be nil if the response omitted it.
+func (c *Client) NormalizeDescription(ctx context.Context, brokerDescription string) (*NormalizedIdentifiers, *Usage, error) {
 	if c.apiKey == "" {
-		return nil, fmt.Errorf("openai api key required")
+		return nil, nil, fmt.Errorf("openai api key required")
 	}
-	systemPrompt := `You convert broker security descriptions into a single identifier for instrument mapping.
-Reply with exactly one line in this format: TYPE: VALUE
-- TYPE must be exactly one of: TICKER, ISIN, CUSIP, SHARE_CLASS_FIGI (use the one that best matches the description).
-- VALUE: for TICKER use primary exchange symbol (e.g. AAPL); for ISIN use 12-character ISIN (e.g. US0378331005); for CUSIP use 9-character CUSIP; for SHARE_CLASS_FIGI use the 12-character OpenFIGI share-class FIGI (e.g. BBG001234567).
-No other text, no explanation, no markdown. Example: TICKER: AAPL`
+	systemPrompt := `Here is a description of a financial security provided by a broker.  Identify it and provide a response in the following JSON format:
+	{
+		"TICKER": "<TICKER>",
+		"SHARE_CLASS_FIGI": "<SHARE_CLASS_FIGI>"
+	}
+	Do not include any other text in your response.  If you cannot identify the security, return an empty object: {}.  If you do not know the value of a field, leave it empty.  Example: { "TICKER": "AAPL", "SHARE_CLASS_FIGI": "" }`
 	reqBody := map[string]interface{}{
 		"model": c.model,
 		"messages": []map[string]string{
 			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": brokerDescription},
 		},
-		"max_tokens":  40,
-		"temperature": 0,
+		"max_completion_tokens": 80,
+		"temperature":            0,
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		slurp, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("openai %d: %s", resp.StatusCode, string(slurp))
+		return nil, nil, fmt.Errorf("openai %d: %s", resp.StatusCode, string(slurp))
 	}
 	var out struct {
 		Choices []struct {
@@ -115,21 +115,42 @@ No other text, no explanation, no markdown. Example: TICKER: AAPL`
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage *struct {
+			PromptTokens     int64 `json:"prompt_tokens"`
+			CompletionTokens int64 `json:"completion_tokens"`
+			TotalTokens      int64 `json:"total_tokens"`
+		} `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(out.Choices) == 0 {
-		return nil, fmt.Errorf("openai: no choices")
+		return nil, nil, fmt.Errorf("openai: no choices")
 	}
-	raw := strings.TrimSpace(out.Choices[0].Message.Content)
-	// Take first line only in case the model adds extra lines
-	if idx := strings.Index(raw, "\n"); idx >= 0 {
-		raw = strings.TrimSpace(raw[:idx])
+	raw := stripJSONFromContent(out.Choices[0].Message.Content)
+	var parsed openAIJSONResponse
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return nil, nil, fmt.Errorf("openai: invalid JSON response: %w", err)
 	}
-	idType, value, ok := parseStructuredResponse(raw)
-	if !ok {
-		return nil, fmt.Errorf("openai: invalid response format (expected TYPE: VALUE), got %q", raw)
+	ticker := strings.TrimSpace(parsed.TICKER)
+	shareClassFIGI := strings.TrimSpace(parsed.SHARE_CLASS_FIGI)
+	if ticker == "" && shareClassFIGI == "" {
+		return nil, nil, fmt.Errorf("openai: response has no TICKER or SHARE_CLASS_FIGI")
 	}
-	return &NormalizedIdentifier{Type: idType, Value: value}, nil
+	var usage *Usage
+	if out.Usage != nil {
+		usage = &Usage{
+			PromptTokens:     out.Usage.PromptTokens,
+			CompletionTokens: out.Usage.CompletionTokens,
+			TotalTokens:      out.Usage.TotalTokens,
+		}
+	}
+	return &NormalizedIdentifiers{Ticker: ticker, ShareClassFIGI: shareClassFIGI}, usage, nil
+}
+
+// Usage holds token counts from an OpenAI completion response.
+type Usage struct {
+	PromptTokens     int64
+	CompletionTokens int64
+	TotalTokens      int64
 }

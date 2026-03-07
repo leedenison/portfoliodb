@@ -146,7 +146,7 @@ func main() {
 		log.Fatalf("ensure plugin configs: %v", err)
 	}
 	descRegistry := description.NewRegistry()
-	descRegistry.Register(openaidesc.PluginID, openaidesc.NewPlugin())
+	descRegistry.Register(openaidesc.PluginID, openaidesc.NewPlugin(counter, serverLogger))
 	if err := ensureDescriptionPluginConfigs(context.Background(), database, descRegistry); err != nil {
 		log.Fatalf("ensure description plugin configs: %v", err)
 	}

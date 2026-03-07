@@ -30,6 +30,7 @@ export default function UploadPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<Awaited<ReturnType<typeof getJob>> | null>(null);
+  const [fileInputActive, setFileInputActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const formats = useMemo(() => getFormatsForBroker(broker), [broker]);
@@ -288,8 +289,29 @@ export default function UploadPage() {
                   type="file"
                   accept=".csv"
                   onChange={handleFileChange}
-                  className="block w-full text-sm text-text-muted file:mr-4 file:rounded-lg file:border-0 file:bg-primary-light/30 file:px-4 file:py-2 file:text-text-primary"
+                  className="sr-only"
+                  aria-label="Choose CSV file"
                 />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFileInputActive(true);
+                    fileInputRef.current?.click();
+                    setTimeout(() => setFileInputActive(false), 400);
+                  }}
+                  className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                    fileInputActive
+                      ? "border-primary bg-primary text-white"
+                      : "border-border bg-primary-light/30 text-text-primary hover:bg-primary-light/50 active:border-primary active:bg-primary active:text-white"
+                  }`}
+                >
+                  {fileInputActive ? "Opening…" : "Choose file"}
+                </button>
+                {file && (
+                  <p className="text-sm text-text-muted">
+                    Selected: {file.name}
+                  </p>
+                )}
               </div>
               {parseResult && (
                 <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">

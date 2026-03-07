@@ -83,3 +83,36 @@ Plugins implement a single interface that accepts all hints, e.g. `Identify(ctx,
 **Resolution flow**: If the DB or in-batch cache already has an instrument for (source, instrument_description), do not call plugins. Otherwise call **all enabled plugins in parallel**, then merge results: instrument metadata (name, asset class, etc.) from the highest-precedence plugin that succeeded; **identifiers merged** from all successful plugins—for each identifier **type**, the value from the highest-precedence plugin that returned that type is used (non-overlapping types are combined; same-type conflicts resolved by precedence). The resolver **must always** ensure the (source, instrument_description) identifier is stored on the instrument (whether from plugin results or as the only identifier when no plugin resolves). That way future uploads with the same (source, description) resolve by DB lookup and do not call plugins again. Then find or create an instrument (with at least the broker identifier) and set the transaction’s instrument_id. If no plugin resolves (e.g. returns a “not identified” sentinel), the service still ensures a broker-description-only instrument exists and attaches it. Record identification errors/warnings (e.g. plugin timeout, broker-description-only) for GetJob and UI.
 
 Plugins can own database migrations (e.g. reference tables). Plugin migrations live in the plugin directory (eg. `server/plugins/<datasource>/identifier/migrations`). Example: the local reference-data plugin uses a Postgres reference table.
+
+## Troubleshooting: identification not running
+
+**Identification runs only during ingestion.** Instrument resolution (description plugins → identifier plugins) is performed by the ingestion worker when transactions are submitted via the **Ingestion gRPC API** (UpsertTxs or CreateTx). If transactions were loaded by another route (e.g. direct SQL into `txs`, or a script that does not use the ingestion API), no jobs are created and the worker never runs, so no identification and no Redis counters.
+
+**Identifier plugins run only when there are hints.** The flow is: DB lookup by (source, description) → if miss, run **description plugins** to get identifier hints → then run **identifier plugins** with those hints. If the description plugin returns **no hints** (e.g. OpenAI API error or invalid model), the server creates a broker-description-only instrument, records the identification error as "description extraction failed", and **never** calls identifier plugins. So no Redis counters (e.g. `instrument.identify.attempts`) and no OpenFIGI calls.
+
+**Diagnosis steps:**
+
+1. **Confirm transactions were ingested via the API**  
+   If there are no ingestion jobs, or no recent jobs for your upload, identification did not run:
+   ```sql
+   SELECT id, user_id, broker, source, status, created_at FROM ingestion_jobs ORDER BY created_at DESC LIMIT 20;
+   ```
+
+2. **Check identification errors**  
+   If jobs exist and completed, look at stored identification errors. Message `description extraction failed` means no description plugin returned hints (e.g. OpenAI failing); other messages indicate identifier plugin timeouts or "broker description only":
+   ```sql
+   SELECT j.id, j.status, e.row_index, e.instrument_description, e.message
+   FROM ingestion_jobs j
+   JOIN identification_errors e ON e.job_id = j.id
+   ORDER BY j.created_at DESC, e.row_index
+   LIMIT 50;
+   ```
+
+3. **Server logs**  
+   With `LOG_LEVEL=debug`, the server logs:
+   - `description plugin returned error` — a description plugin (e.g. OpenAI) failed; the `err` field shows the cause.
+   - `description extraction: no plugin returned hints` — no description plugin returned any hints.
+   - `instrument resolution: description extraction failed, using broker description only` — we are creating broker-description-only instruments and not calling identifier plugins.
+
+4. **OpenAI description plugin**  
+   Ensure `description_plugin_config.config` uses a **valid model** (e.g. `gpt-4o-mini`, `gpt-4o`). An invalid model (e.g. `gpt-5.2`) causes the API to return an error; the plugin then returns no hints and identifier plugins are never called.

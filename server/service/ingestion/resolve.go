@@ -81,7 +81,8 @@ func resolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 
 // runDescriptionPlugins runs enabled description plugins in series by precedence; returns hints from the first that returns ≥1.
 // If descRegistry is nil, returns nil (no hints) without calling the database.
-func runDescriptionPlugins(ctx context.Context, database db.DescriptionPluginDB, descRegistry *description.Registry, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint string) ([]identifier.Identifier, error) {
+// When counter is non-nil, increments description.extraction.plugin_error on plugin errors and description.extraction.no_hints when no plugin returns hints.
+func runDescriptionPlugins(ctx context.Context, database db.DescriptionPluginDB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint string) ([]identifier.Identifier, error) {
 	if descRegistry == nil {
 		return nil, nil
 	}
@@ -96,12 +97,20 @@ func runDescriptionPlugins(ctx context.Context, database db.DescriptionPluginDB,
 		}
 		hints, err := p.Extract(ctx, c.Config, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint)
 		if err != nil {
+			if counter != nil {
+				counter.Incr(ctx, "description.extraction.plugin_error")
+			}
+			slog.DebugContext(ctx, "description plugin returned error", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "err", err)
 			continue // try next plugin
 		}
 		if len(hints) > 0 {
 			return hints, nil
 		}
 	}
+	if counter != nil {
+		counter.Incr(ctx, "description.extraction.no_hints")
+	}
+	slog.DebugContext(ctx, "description extraction: no plugin returned hints", "source", source, "instrument_description", instrumentDescription)
 	return nil, nil
 }
 
@@ -202,12 +211,17 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	}
 
 	// Run description plugins in series; first that returns ≥1 hint wins.
-	extractedHints, err := runDescriptionPlugins(ctx, database, descRegistry, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint)
+	extractedHints, err := runDescriptionPlugins(ctx, database, descRegistry, counter, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint)
 	if err != nil {
 		return resolveResult{}, err
 	}
 	if len(extractedHints) == 0 {
 		// Extraction failed: ensure broker-description-only and record error.
+		// Identifier plugins are never called in this path, so no Redis counters and no OpenFIGI.
+		if counter != nil {
+			counter.Incr(ctx, "instrument.resolution.description_extraction_failed")
+		}
+		slog.InfoContext(ctx, "instrument resolution: description extraction failed, using broker description only", "source", source, "instrument_description", instrumentDescription)
 		id, err = database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: source, Domain: "", Value: instrumentDescription, Canonical: false}}, "", nil, nil)
 		if err != nil {
 			return resolveResult{}, err

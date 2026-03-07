@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   unaryFetch,
+  SessionLostError,
   AuthServiceMethod,
   GetSessionServiceMethod,
   LogoutServiceMethod,
@@ -130,6 +131,16 @@ describe("grpc-web", () => {
       await expect(
         unaryFetch("https://api.example.com", "S/M", new Uint8Array(0))
       ).rejects.toThrow("response truncated");
+    });
+
+    it("throws SessionLostError on HTTP 401", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(null, { status: 401 })
+      );
+
+      const p = unaryFetch("https://api.example.com", "S/M", new Uint8Array(0));
+      await expect(p).rejects.toThrow(SessionLostError);
+      await expect(p).rejects.toThrow("HTTP 401");
     });
   });
 

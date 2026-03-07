@@ -15,6 +15,8 @@ type AuthContextValue = {
   clearAuthError: () => void;
   signIn: (googleIdToken: string) => Promise<{ ok: boolean; error?: string }>;
   signOut: () => Promise<void>;
+  /** Mark session as invalid (e.g. after 401/403 from API). Redirect is handled by SessionLostHandler. */
+  invalidateSession: () => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -75,8 +77,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearAuthError = useCallback(() => setAuthError(null), []);
 
+  const invalidateSession = useCallback(() => {
+    setState({ status: "unauthenticated" });
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ state, authError, clearAuthError, signIn, signOut }}>
+    <AuthContext.Provider value={{ state, authError, clearAuthError, signIn, signOut, invalidateSession }}>
       {children}
     </AuthContext.Provider>
   );

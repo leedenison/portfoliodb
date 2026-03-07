@@ -34,6 +34,31 @@ func (p *Postgres) ListEnabledDescriptionPluginConfigs(ctx context.Context) ([]d
 	return out, rows.Err()
 }
 
+// ListDescriptionPluginConfigs implements db.DescriptionPluginDB.
+func (p *Postgres) ListDescriptionPluginConfigs(ctx context.Context) ([]db.PluginConfigRowFull, error) {
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT plugin_id, enabled, precedence, config FROM description_plugin_config
+		ORDER BY precedence DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list description plugin configs: %w", err)
+	}
+	defer rows.Close()
+	var out []db.PluginConfigRowFull
+	for rows.Next() {
+		var r db.PluginConfigRowFull
+		var configVal sql.NullString
+		if err := rows.Scan(&r.PluginID, &r.Enabled, &r.Precedence, &configVal); err != nil {
+			return nil, err
+		}
+		if configVal.Valid {
+			r.Config = []byte(configVal.String)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // GetDescriptionPluginConfig implements db.DescriptionPluginDB.
 func (p *Postgres) GetDescriptionPluginConfig(ctx context.Context, pluginID string) (*db.PluginConfigRowFull, error) {
 	var r db.PluginConfigRowFull

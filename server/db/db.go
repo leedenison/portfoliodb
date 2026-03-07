@@ -25,6 +25,8 @@ type DB interface {
 type DescriptionPluginDB interface {
 	// ListEnabledDescriptionPluginConfigs returns enabled description plugins ordered by precedence descending.
 	ListEnabledDescriptionPluginConfigs(ctx context.Context) ([]PluginConfigRow, error)
+	// ListDescriptionPluginConfigs returns all description plugin config rows (for admin UI). Order by precedence descending.
+	ListDescriptionPluginConfigs(ctx context.Context) ([]PluginConfigRowFull, error)
 	// GetDescriptionPluginConfig returns the config row for pluginID. Returns (nil, sql.ErrNoRows) when no row exists.
 	GetDescriptionPluginConfig(ctx context.Context, pluginID string) (*PluginConfigRowFull, error)
 	// InsertDescriptionPluginConfig creates a new description plugin config row.

@@ -1,30 +1,104 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import {
+  listIdentifierPlugins,
+  listDescriptionPlugins,
+} from "@/lib/portfolio-api";
 
-export default function AdminPage() {
+const dashboardCards = [
+  {
+    id: "identifier",
+    title: "Identifier plugins",
+    href: "/admin/plugins/identifier",
+    description:
+      "Enable/disable identification plugins and edit config (API keys, precedence).",
+  },
+  {
+    id: "description",
+    title: "Description plugins",
+    href: "/admin/plugins/description",
+    description:
+      "Enable/disable description plugins that extract identifier hints from broker text.",
+  },
+  {
+    id: "telemetry",
+    title: "Telemetry",
+    href: "/admin/telemetry",
+    description: "View Redis-backed counters (portfoliodb:counters:*).",
+  },
+  {
+    id: "id-token",
+    title: "ID token",
+    href: "/admin/id-token",
+    description: "Fetch a Google ID token for scripts (x-session-id or Auth).",
+  },
+];
+
+export default function AdminDashboardPage() {
+  const [identifierPlugins, setIdentifierPlugins] = useState<
+    { displayName: string }[]
+  >([]);
+  const [descriptionPlugins, setDescriptionPlugins] = useState<
+    { displayName: string }[]
+  >([]);
+
+  const load = useCallback(async () => {
+    try {
+      const [idList, descList] = await Promise.all([
+        listIdentifierPlugins(),
+        listDescriptionPlugins(),
+      ]);
+      setIdentifierPlugins(idList.map((p) => ({ displayName: p.displayName || p.pluginId })));
+      setDescriptionPlugins(descList.map((p) => ({ displayName: p.displayName || p.pluginId })));
+    } catch {
+      // Non-blocking: cards still work without the summary
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  function pluginSummary(
+    id: string
+  ): string | null {
+    if (id === "identifier" && identifierPlugins.length > 0) {
+      return identifierPlugins.map((p) => p.displayName).join(", ");
+    }
+    if (id === "description" && descriptionPlugins.length > 0) {
+      return descriptionPlugins.map((p) => p.displayName).join(", ");
+    }
+    return null;
+  }
+
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-text-primary">Admin</h1>
-      <p className="text-text-muted">
-        Use the links in the sidebar to access admin tools.
+    <div className="space-y-6">
+      <h1 className="text-xl font-semibold text-text-primary">Dashboard</h1>
+      <p className="text-sm text-text-muted">
+        Quick links to admin tools. Use the sidebar for full navigation.
       </p>
-      <ul className="list-inside list-disc space-y-1 text-sm text-text-primary">
-        <li>
-          <Link href="/admin/plugins" className="underline hover:text-primary">
-            Identifier plugins
-          </Link>
-          — enable/disable identification plugins and edit config (API keys, precedence).
-        </li>
-        <li>
-          <Link href="/admin/id-token" className="underline hover:text-primary">
-            ID token
-          </Link>
-          — fetch a Google ID token for use in scripts (e.g. calling the API with
-          <code className="mx-1 rounded bg-primary-light/20 px-1 font-mono text-xs">x-session-id</code>
-          or for Auth).
-        </li>
-      </ul>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {dashboardCards.map((card) => {
+          const summary = pluginSummary(card.id);
+          return (
+            <Link
+              key={card.href}
+              href={card.href}
+              className="block rounded-lg border border-border bg-card p-4 shadow-sm transition hover:border-primary/50 hover:shadow-md"
+            >
+              <h2 className="font-medium text-text-primary">{card.title}</h2>
+              <p className="mt-1 text-sm text-text-muted">{card.description}</p>
+              {summary && (
+                <p className="mt-2 text-xs text-text-muted">
+                  Installed: {summary}
+                </p>
+              )}
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }

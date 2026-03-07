@@ -28,6 +28,7 @@ func (p *fakePlugin) Identify(ctx context.Context, config []byte, broker, source
 }
 
 func (p *fakePlugin) DefaultConfig() []byte { return nil }
+func (p *fakePlugin) DisplayName() string   { return "Fake" }
 
 // fakeDescPlugin is a description plugin that returns one TICKER hint with the given instrument description.
 type fakeDescPlugin struct{}
@@ -40,6 +41,7 @@ func (p *fakeDescPlugin) Extract(ctx context.Context, config []byte, broker, sou
 }
 
 func (p *fakeDescPlugin) DefaultConfig() []byte { return nil }
+func (p *fakeDescPlugin) DisplayName() string   { return "Fake" }
 
 // descRegistryWithFake returns a description registry with the fake plugin registered for use in tests that need extraction to return hints.
 func descRegistryWithFake() *description.Registry {
@@ -606,6 +608,7 @@ func (p *retryPlugin) Identify(ctx context.Context, config []byte, broker, sourc
 }
 
 func (p *retryPlugin) DefaultConfig() []byte { return nil }
+func (p *retryPlugin) DisplayName() string   { return "Retry" }
 
 func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 	ctrl := gomock.NewController(t)

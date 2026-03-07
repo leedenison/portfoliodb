@@ -45,3 +45,12 @@ func (r *Registry) Get(id string) Plugin {
 	defer r.mu.RUnlock()
 	return r.byID[id]
 }
+
+// GetDisplayName returns the plugin's display name for id, or id if not registered.
+func (r *Registry) GetDisplayName(id string) string {
+	p := r.Get(id)
+	if p == nil {
+		return id
+	}
+	return p.DisplayName()
+}

@@ -28,6 +28,11 @@ func NewPlugin() *Plugin {
 	return &Plugin{}
 }
 
+// DisplayName returns a human-readable name for the plugin.
+func (p *Plugin) DisplayName() string {
+	return "OpenAI"
+}
+
 // DefaultConfig returns default config JSON with the keys the plugin uses.
 func (p *Plugin) DefaultConfig() []byte {
 	cfg := configJSON{

@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/auth"
@@ -25,11 +27,16 @@ func (s *Server) ListIdentifierPlugins(ctx context.Context, req *apiv1.ListIdent
 		if len(r.Config) > 0 {
 			configJSON = string(r.Config)
 		}
+		displayName := r.PluginID
+		if s.pluginRegistry != nil {
+			displayName = s.pluginRegistry.GetDisplayName(r.PluginID)
+		}
 		plugins = append(plugins, &apiv1.IdentifierPluginConfig{
-			PluginId:   r.PluginID,
-			Enabled:    r.Enabled,
-			Precedence: int32(r.Precedence),
-			ConfigJson: configJSON,
+			PluginId:    r.PluginID,
+			Enabled:     r.Enabled,
+			Precedence:  int32(r.Precedence),
+			ConfigJson:  configJSON,
+			DisplayName: displayName,
 		})
 	}
 	return &apiv1.ListIdentifierPluginsResponse{Plugins: plugins}, nil
@@ -67,12 +74,94 @@ func (s *Server) UpdateIdentifierPlugin(ctx context.Context, req *apiv1.UpdateId
 	if len(row.Config) > 0 {
 		configJSON = string(row.Config)
 	}
+	displayName := row.PluginID
+	if s.pluginRegistry != nil {
+		displayName = s.pluginRegistry.GetDisplayName(row.PluginID)
+	}
 	return &apiv1.UpdateIdentifierPluginResponse{
 		Plugin: &apiv1.IdentifierPluginConfig{
-			PluginId:   row.PluginID,
-			Enabled:    row.Enabled,
-			Precedence: int32(row.Precedence),
-			ConfigJson: configJSON,
+			PluginId:    row.PluginID,
+			Enabled:     row.Enabled,
+			Precedence:  int32(row.Precedence),
+			ConfigJson:  configJSON,
+			DisplayName: displayName,
+		},
+	}, nil
+}
+
+// ListDescriptionPlugins returns all description plugin configs. Admin only.
+func (s *Server) ListDescriptionPlugins(ctx context.Context, req *apiv1.ListDescriptionPluginsRequest) (*apiv1.ListDescriptionPluginsResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	rows, err := s.db.ListDescriptionPluginConfigs(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	plugins := make([]*apiv1.DescriptionPluginConfig, 0, len(rows))
+	for _, r := range rows {
+		configJSON := ""
+		if len(r.Config) > 0 {
+			configJSON = string(r.Config)
+		}
+		displayName := r.PluginID
+		if s.descRegistry != nil {
+			displayName = s.descRegistry.GetDisplayName(r.PluginID)
+		}
+		plugins = append(plugins, &apiv1.DescriptionPluginConfig{
+			PluginId:    r.PluginID,
+			Enabled:     r.Enabled,
+			Precedence:  int32(r.Precedence),
+			ConfigJson:  configJSON,
+			DisplayName: displayName,
+		})
+	}
+	return &apiv1.ListDescriptionPluginsResponse{Plugins: plugins}, nil
+}
+
+// UpdateDescriptionPlugin updates enabled, precedence, and/or config for a description plugin. Admin only.
+func (s *Server) UpdateDescriptionPlugin(ctx context.Context, req *apiv1.UpdateDescriptionPluginRequest) (*apiv1.UpdateDescriptionPluginResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	if req.GetPluginId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "plugin_id required")
+	}
+	var enabled *bool
+	if req.Enabled != nil {
+		enabled = req.Enabled
+	}
+	var precedence *int
+	if req.Precedence != nil {
+		p := int(*req.Precedence)
+		precedence = &p
+	}
+	var config []byte
+	if req.ConfigJson != nil {
+		config = []byte(*req.ConfigJson)
+	}
+	row, err := s.db.UpdateDescriptionPluginConfig(ctx, req.GetPluginId(), enabled, precedence, config)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, status.Error(codes.NotFound, "plugin not found")
+		}
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	configJSON := ""
+	if len(row.Config) > 0 {
+		configJSON = string(row.Config)
+	}
+	displayName := row.PluginID
+	if s.descRegistry != nil {
+		displayName = s.descRegistry.GetDisplayName(row.PluginID)
+	}
+	return &apiv1.UpdateDescriptionPluginResponse{
+		Plugin: &apiv1.DescriptionPluginConfig{
+			PluginId:    row.PluginID,
+			Enabled:     row.Enabled,
+			Precedence:  int32(row.Precedence),
+			ConfigJson:  configJSON,
+			DisplayName: displayName,
 		},
 	}, nil
 }

@@ -159,7 +159,7 @@ func main() {
 		grpc.ChainStreamInterceptor(auth.StreamInterceptor(interceptorConfig)),
 	)
 	authv1.RegisterAuthServiceServer(svc, authServer)
-	apiv1.RegisterApiServiceServer(svc, api.NewServer(database, rdb, counterPrefix))
+	apiv1.RegisterApiServiceServer(svc, api.NewServer(database, rdb, counterPrefix, pluginRegistry, descRegistry))
 	ingestionv1.RegisterIngestionServiceServer(svc, ingestion.NewServer(database, queue))
 	reflection.Register(svc)
 	lis, err := net.Listen("tcp", *grpcAddr)

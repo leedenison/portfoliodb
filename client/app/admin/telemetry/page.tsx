@@ -42,7 +42,7 @@ export default function AdminTelemetryPage() {
           type="button"
           onClick={load}
           disabled={loading}
-          className="rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary-dark disabled:opacity-50"
+          className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
         >
           {loading ? "Refreshing…" : "Refresh"}
         </button>

@@ -6,11 +6,21 @@ import { AppHeader } from "../components/app-header";
 import { useAuth } from "@/contexts/auth-context";
 
 const adminNav = [
-  { href: "/admin", label: "Overview" },
-  { href: "/admin/plugins", label: "Identifier plugins" },
+  { href: "/admin", label: "Dashboard" },
+  {
+    label: "Plugins",
+    children: [
+      { href: "/admin/plugins/description", label: "Description" },
+      { href: "/admin/plugins/identifier", label: "Identifier" },
+    ],
+  },
   { href: "/admin/telemetry", label: "Telemetry" },
   { href: "/admin/id-token", label: "ID token" },
 ];
+
+function isPluginsActive(pathname: string) {
+  return pathname.startsWith("/admin/plugins");
+}
 
 export default function AdminLayout({
   children,
@@ -54,25 +64,60 @@ export default function AdminLayout({
     <main className="flex min-h-screen flex-col bg-background">
       <AppHeader />
       <div className="flex flex-1 gap-8 px-4 py-8">
-        <nav className="w-40 shrink-0 border-r border-border pr-6">
-          <ul className="space-y-2">
-            {adminNav.map(({ href, label }) => (
-              <li key={href}>
-                <Link
-                  href={href}
-                  className={`block text-sm ${
-                    pathname === href
-                      ? "font-medium text-primary-dark"
-                      : "text-text-muted underline hover:text-primary"
-                  }`}
-                >
-                  {label}
-                </Link>
-              </li>
-            ))}
+        <nav className="w-48 shrink-0 border-r border-border pr-6">
+          <ul className="space-y-1">
+            {adminNav.map((item) => {
+              if ("children" in item) {
+                const active = isPluginsActive(pathname);
+                return (
+                  <li key={item.label}>
+                    <span
+                      className={`block py-1 text-xs font-medium uppercase tracking-wider ${
+                        active ? "text-primary-dark" : "text-text-muted"
+                      }`}
+                    >
+                      {item.label}
+                    </span>
+                    <ul className="mt-1 space-y-0.5 border-l border-border pl-3">
+                      {item.children.map(({ href, label }) => (
+                        <li key={href}>
+                          <Link
+                            href={href}
+                            className={`block text-sm ${
+                              pathname === href
+                                ? "font-medium text-primary-dark"
+                                : "text-text-muted underline hover:text-primary"
+                            }`}
+                          >
+                            {label}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                );
+              }
+              const link = item as { href: string; label: string };
+              return (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className={`block py-1 text-sm ${
+                      pathname === link.href
+                        ? "font-medium text-primary-dark"
+                        : "text-text-muted underline hover:text-primary"
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </nav>
-        <div className="min-w-0 flex-1">{children}</div>
+        <div className="min-w-0 flex-1">
+          <div className="mx-auto max-w-4xl">{children}</div>
+        </div>
       </div>
     </main>
   );

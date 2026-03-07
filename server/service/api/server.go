@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/identifier/description"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"github.com/redis/go-redis/v9"
@@ -15,11 +17,20 @@ type Server struct {
 	db             db.DB
 	rdb            *redis.Client
 	counterPrefix  string
+	pluginRegistry *identifier.Registry
+	descRegistry   *description.Registry
 }
 
 // NewServer returns a new API server. rdb and counterPrefix are used for ListTelemetryCounters (admin).
-func NewServer(database db.DB, rdb *redis.Client, counterPrefix string) *Server {
-	return &Server{db: database, rdb: rdb, counterPrefix: counterPrefix}
+// pluginRegistry and descRegistry are optional; when set, list plugin responses include display_name from the plugins.
+func NewServer(database db.DB, rdb *redis.Client, counterPrefix string, pluginRegistry *identifier.Registry, descRegistry *description.Registry) *Server {
+	return &Server{
+		db:              database,
+		rdb:             rdb,
+		counterPrefix:   counterPrefix,
+		pluginRegistry:  pluginRegistry,
+		descRegistry:    descRegistry,
+	}
 }
 
 func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {

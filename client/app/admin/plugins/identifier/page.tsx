@@ -23,7 +23,7 @@ function getConfigEntries(configJson: string | undefined): [string, string][] {
   }
 }
 
-export default function AdminPluginsPage() {
+export default function AdminIdentifierPluginsPage() {
   const [plugins, setPlugins] = useState<IdentifierPluginConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -182,7 +182,7 @@ export default function AdminPluginsPage() {
                     <dt className="shrink-0 font-medium text-text-muted after:content-[':']">
                       {key}
                     </dt>
-                    <dd className="min-w-0 text-text-primary">{value}</dd>
+                    <dd className="min-w-0 break-all text-text-primary">{value}</dd>
                   </div>
                 ))}
               </dl>

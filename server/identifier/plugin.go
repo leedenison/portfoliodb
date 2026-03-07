@@ -12,6 +12,9 @@ var ErrNotIdentified = errors.New("instrument not identified by plugin")
 // Plugin is the instrument identification plugin interface.
 // Implementations live under server/plugins/<datasource>/identifier (e.g. server/plugins/local/identifier).
 type Plugin interface {
+	// DisplayName returns a human-readable name for the plugin (e.g. "OpenFIGI"). Shown in the admin UI.
+	DisplayName() string
+
 	// Identify resolves to canonical instrument data and identifiers. When identifierHints is non-empty, resolution is from those hints (e.g. mapping by TICKER/FIGI); when empty, the plugin may use instrumentDescription only if it can do so safely (e.g. no raw search with long text).
 	// config is the plugin's JSON config from identifier_plugin_config.config (may be nil).
 	// Returns (instrument, identifiers, nil) when resolved, or (nil, nil, ErrNotIdentified) when the plugin cannot resolve.

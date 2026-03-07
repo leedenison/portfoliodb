@@ -33,6 +33,11 @@ func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger) *Plugin {
 	return &Plugin{counter: counter, log: log}
 }
 
+// DisplayName returns a human-readable name for the plugin.
+func (p *Plugin) DisplayName() string {
+	return "OpenFIGI"
+}
+
 // DefaultConfig returns default config JSON with the keys the plugin uses and empty/dummy values for the user to fill in via Admin UI.
 func (p *Plugin) DefaultConfig() []byte {
 	cfg := configJSON{

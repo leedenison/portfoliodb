@@ -16,6 +16,8 @@ import {
   GetPortfolioResponseSchema,
   GetPortfolioFiltersRequestSchema,
   GetPortfolioFiltersResponseSchema,
+  ListDescriptionPluginsRequestSchema,
+  ListDescriptionPluginsResponseSchema,
   ListIdentifierPluginsRequestSchema,
   ListIdentifierPluginsResponseSchema,
   ListPortfoliosRequestSchema,
@@ -26,6 +28,8 @@ import {
   ListTxsResponseSchema,
   SetPortfolioFiltersRequestSchema,
   SetPortfolioFiltersResponseSchema,
+  UpdateDescriptionPluginRequestSchema,
+  UpdateDescriptionPluginResponseSchema,
   UpdateIdentifierPluginRequestSchema,
   UpdateIdentifierPluginResponseSchema,
   UpdatePortfolioRequestSchema,
@@ -33,6 +37,7 @@ import {
   JobStatus,
 } from "@/gen/api/v1/api_pb";
 import type {
+  DescriptionPluginConfig,
   Holding,
   IdentificationError,
   IdentifierPluginConfig,
@@ -260,6 +265,36 @@ export async function updateIdentifierPlugin(
     credentials: "include",
   });
   const res = fromBinary(UpdateIdentifierPluginResponseSchema, resBytes);
+  return res.plugin!;
+}
+
+/** List description plugin configs (admin only). */
+export async function listDescriptionPlugins(): Promise<DescriptionPluginConfig[]> {
+  const base = getBaseUrl();
+  const req = create(ListDescriptionPluginsRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListDescriptionPlugins", toBinary(ListDescriptionPluginsRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(ListDescriptionPluginsResponseSchema, resBytes);
+  return res.plugins;
+}
+
+/** Update description plugin (admin only). Pass only fields to update. */
+export async function updateDescriptionPlugin(
+  pluginId: string,
+  opts: { enabled?: boolean; precedence?: number; configJson?: string }
+): Promise<DescriptionPluginConfig> {
+  const base = getBaseUrl();
+  const reqMsg = create(UpdateDescriptionPluginRequestSchema, {
+    pluginId,
+    ...(opts.enabled !== undefined && { enabled: opts.enabled }),
+    ...(opts.precedence !== undefined && { precedence: opts.precedence }),
+    ...(opts.configJson !== undefined && { configJson: opts.configJson }),
+  });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "UpdateDescriptionPlugin", toBinary(UpdateDescriptionPluginRequestSchema, reqMsg), {
+    credentials: "include",
+  });
+  const res = fromBinary(UpdateDescriptionPluginResponseSchema, resBytes);
   return res.plugin!;
 }
 

@@ -1,5 +1,9 @@
 .PHONY: tools generate build server-test db-test client-test run run-server init-db init-test-db stop clean clean-generated clean-docker clean-next test
 
+# Load .env so DB_INITIALISE_SCRIPT etc. are available to run/init-db
+-include .env
+export
+
 # Compose file and env for local stack (run from repo root so .env is found)
 COMPOSE_RUN = docker compose -f docker/server/docker-compose.yml --env-file .env
 # Dev stack: same as above plus override with source mounts and live-reload (Air + next dev)
@@ -40,11 +44,14 @@ build: generate
 run:
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) up -d --build
 	@echo "Waiting for Postgres..."
-	@for i in 1 2 3 4 5 6 7 8 9 10; do \
-		if $(COMPOSE_DEV) exec -T postgres pg_isready -U portfoliodb 2>/dev/null; then break; fi; \
-		sleep 1; \
-		if [ $$i -eq 10 ]; then echo "Postgres not ready"; exit 1; fi; \
-	done
+	@scripts/postgres-ready.sh "$(COMPOSE_DEV)"
+	@echo "Waiting for portfoliodb (gRPC)..."
+	@scripts/server-ready.sh
+	@$(MAKE) init-db
+
+# Run the DB initialise script when DB_INITIALISE_SCRIPT is set and the file exists. Used by 'make run'.
+init-db:
+	@scripts/init-db.sh "$(COMPOSE_DEV)" "$(DB_INITIALISE_SCRIPT)"
 
 # Stop containers started by 'make run'.
 stop:
@@ -59,11 +66,7 @@ client-test:
 db-test:
 	docker compose -f docker/server/docker-compose.test.yml up -d
 	@echo "Waiting for Postgres..."
-	@for i in 1 2 3 4 5 6 7 8 9 10; do \
-		if docker compose -f docker/server/docker-compose.test.yml exec -T postgres pg_isready -U portfoliodb 2>/dev/null; then break; fi; \
-		sleep 1; \
-		if [ $$i -eq 10 ]; then echo "Postgres not ready"; exit 1; fi; \
-	done
+	@scripts/postgres-ready.sh "docker compose -f docker/server/docker-compose.test.yml"
 	TEST_DATABASE_URL="postgres://portfoliodb:portfoliodb@localhost:5433/portfoliodb_test?sslmode=disable" go test -v ./server/db/postgres/...
 	@docker compose -f docker/server/docker-compose.test.yml down
 

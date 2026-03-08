@@ -33,7 +33,8 @@ describe("convertFidelityToStandard", () => {
     expect(result.txs[0]!.instrumentDescription).toContain("INVESCO");
     expect(result.txs[0]!.quantity).toBe(-70);
     expect(result.txs[0]!.type).toBe(10); // SELLSTOCK
-    expect(result.txs[0]!.currency).toBe("GBP");
+    expect(result.txs[0]!.settlementCurrency).toBe("GBP");
+    expect(result.txs[0]!.tradingCurrency).toBe(""); // Sell is not Cash type
     expect(result.txs[0]!.account).toBe("AG10041188");
     expect(result.periodFrom.getFullYear()).toBe(2026);
     expect(result.periodFrom.getMonth()).toBe(0); // Jan
@@ -50,7 +51,7 @@ describe("convertFidelityToStandard", () => {
     expect(result.txs.length).toBe(1);
     expect(result.txs[0]!.type).toBe(11); // INCOME
     expect(result.txs[0]!.quantity).toBe(3.27);
-    expect(result.txs[0]!.currency).toBe("USD");
+    expect(result.txs[0]!.settlementCurrency).toBe("USD");
   });
 
   it("parses Buy with positive quantity", () => {
@@ -63,5 +64,7 @@ describe("convertFidelityToStandard", () => {
     expect(result.txs.length).toBe(1);
     expect(result.txs[0]!.type).toBe(5); // BUYSTOCK
     expect(result.txs[0]!.quantity).toBe(12783);
+    expect(result.txs[0]!.settlementCurrency).toBe("GBP");
+    expect(result.txs[0]!.tradingCurrency).toBe(""); // Buy is not Cash type
   });
 });

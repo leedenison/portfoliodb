@@ -15,7 +15,7 @@ describe("parseStandardCSV", () => {
     expect(result.txs[0].instrumentDescription).toBe("AAPL - Apple Inc.");
     expect(result.txs[0].type).toBe(TxType.BUYSTOCK);
     expect(result.txs[0].quantity).toBe(10);
-    expect(result.txs[0].currency).toBe("USD");
+    expect(result.txs[0].settlementCurrency).toBe("USD");
     expect(result.txs[0].unitPrice).toBe(185.5);
 
     expect(result.txs[1].instrumentDescription).toBe("MSFT - Microsoft");
@@ -137,7 +137,7 @@ not-a-date,AAPL,BUYSTOCK,10`;
     expect(result.txs[0].quantity).toBe(10);
     expect(result.txs[0].instrumentDescription).toBe("AAPL");
     // Optional fields may be unset or proto default ("" or 0)
-    expect([undefined, ""]).toContain(result.txs[0].currency);
+    expect([undefined, ""]).toContain(result.txs[0].settlementCurrency);
   });
 
   it("returns error for invalid unit_price when present", () => {

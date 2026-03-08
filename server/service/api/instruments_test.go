@@ -60,7 +60,7 @@ func TestExportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
 func TestImportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
 	ctx := authCtx("user-1", "sub|1")
-	_, err := srv.ImportInstruments(ctx, &apiv1.ImportInstrumentsRequest{Instruments: []*apiv1.Instrument{{Identifiers: []*apiv1.InstrumentIdentifier{{Type: "ISIN", Value: "x", Canonical: true}}}}})
+	_, err := srv.ImportInstruments(ctx, &apiv1.ImportInstrumentsRequest{Instruments: []*apiv1.Instrument{{Identifiers: []*apiv1.InstrumentIdentifier{{Type: apiv1.IdentifierType_ISIN, Value: "x", Canonical: true}}}}})
 	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 }
 
@@ -79,8 +79,8 @@ func TestImportInstruments_Success(t *testing.T) {
 		Instruments: []*apiv1.Instrument{{
 			AssetClass: "equity", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc.",
 			Identifiers: []*apiv1.InstrumentIdentifier{
-				{Type: "ISIN", Value: "US0378331005", Canonical: true},
-				{Type: "IBKR", Value: "AAPL", Canonical: false},
+				{Type: apiv1.IdentifierType_ISIN, Value: "US0378331005", Canonical: true},
+				{Type: apiv1.IdentifierType_BROKER_DESCRIPTION, Domain: "IBKR", Value: "AAPL", Canonical: false},
 			},
 		}},
 	}
@@ -120,8 +120,8 @@ func TestImportInstruments_DuplicateTypeValueInPayload(t *testing.T) {
 	ctx := adminCtx("user-1", "sub|1")
 	req := &apiv1.ImportInstrumentsRequest{
 		Instruments: []*apiv1.Instrument{
-			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: "ISIN", Value: "1", Canonical: true}}},
-			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: "ISIN", Value: "1", Canonical: true}}},
+			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: apiv1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
+			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: apiv1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
 		},
 	}
 	resp, err := srv.ImportInstruments(ctx, req)

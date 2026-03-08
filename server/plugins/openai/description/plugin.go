@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/identifier"
+	descpkg "github.com/leedenison/portfoliodb/server/identifier/description"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
@@ -58,9 +59,13 @@ func (p *Plugin) DefaultConfig() []byte {
 	return out
 }
 
-// Extract normalizes the broker description via OpenAI and returns identifier hints (TICKER and SHARE_CLASS_FIGI).
-// The model returns JSON with both; we return both to the caller so the resolver can validate they match and prefer TICKER on mismatch.
-func (p *Plugin) Extract(ctx context.Context, config []byte, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint string) ([]identifier.Identifier, error) {
+// AcceptableSecurityTypes returns the security types this plugin can attempt extraction for (Equity, Bond, Mutual Fund, Option; not Cash or Unknown).
+func (p *Plugin) AcceptableSecurityTypes() []string {
+	return []string{"Equity", "Bond", "Mutual Fund", "Option"}
+}
+
+// ExtractBatch implements descpkg.Plugin. Chunks items into groups of 50 and calls the API per chunk; merges results keyed by ID.
+func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source string, items []descpkg.BatchItem) (map[string][]identifier.Identifier, error) {
 	var cfg configJSON
 	if len(config) > 0 {
 		if err := json.Unmarshal(config, &cfg); err != nil {
@@ -72,10 +77,14 @@ func (p *Plugin) Extract(ctx context.Context, config []byte, broker, source, ins
 		return nil, nil
 	}
 	p.client = NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel, cfg.OpenAIBaseURL)
-	norm, usage, err := p.client.NormalizeDescription(ctx, instrumentDescription)
-	if err != nil || norm == nil {
-		if err != nil {
-			p.handleOpenAIError(ctx, instrumentDescription, err)
+	clientItems := make([]BatchItemForClient, len(items))
+	for i := range items {
+		clientItems[i] = BatchItemForClient{ID: items[i].ID, Description: items[i].InstrumentDescription}
+	}
+	byID, usage, err := p.client.NormalizeDescriptionsBatch(ctx, clientItems)
+	if err != nil {
+		for _, item := range items {
+			p.handleOpenAIError(ctx, item.InstrumentDescription, err)
 		}
 		return nil, nil
 	}
@@ -84,17 +93,14 @@ func (p *Plugin) Extract(ctx context.Context, config []byte, broker, source, ins
 		p.counter.IncrBy(ctx, CounterCompletionTokens, usage.CompletionTokens)
 		p.counter.IncrBy(ctx, CounterTotalTokens, usage.TotalTokens)
 	}
-	var hints []identifier.Identifier
-	if norm.Ticker != "" {
-		hints = append(hints, identifier.Identifier{Type: "TICKER", Domain: "", Value: norm.Ticker})
+	out := make(map[string][]identifier.Identifier)
+	for id, norm := range byID {
+		if norm == nil || norm.Ticker == "" {
+			continue
+		}
+		out[id] = []identifier.Identifier{{Type: "TICKER", Domain: "", Value: norm.Ticker}}
 	}
-	if norm.ShareClassFIGI != "" {
-		hints = append(hints, identifier.Identifier{Type: "SHARE_CLASS_FIGI", Domain: "", Value: norm.ShareClassFIGI})
-	}
-	if len(hints) == 0 {
-		return nil, nil
-	}
-	return hints, nil
+	return out, nil
 }
 
 // handleOpenAIError logs and increments path-specific counters for model-not-found and quota-exceeded errors.

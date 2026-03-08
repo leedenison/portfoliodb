@@ -73,6 +73,17 @@ const FIDELITY_TYPE_TO_OFX: Record<string, TxType> = {
   "Cash Out For Buy": TxType.JRNLFUND,
 };
 
+function isCashTxType(type: TxType): boolean {
+  return (
+    type === TxType.INCOME ||
+    type === TxType.INVEXPENSE ||
+    type === TxType.REINVEST ||
+    type === TxType.TRANSFER ||
+    type === TxType.MARGININTEREST ||
+    type === TxType.RETOFCAP
+  );
+}
+
 export function convertFidelityToStandard(
   csvText: string,
   options: { currency: string }
@@ -184,7 +195,8 @@ export function convertFidelityToStandard(
         type: ofxType,
         quantity,
         account,
-        currency,
+        settlementCurrency: currency,
+        ...(isCashTxType(ofxType) ? { tradingCurrency: currency } : {}),
         ...(unitPrice !== undefined && !Number.isNaN(unitPrice) ? { unitPrice } : {}),
       })
     );

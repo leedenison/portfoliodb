@@ -105,5 +105,3 @@ API integrations are likely to be paid for and have quota limits.  PortfolioDB s
 ## Datamodel Migration
 
 Datamodel definitions should follow the industry standard migrations pattern.
-
-A 'version' file stored in the migrations directory (see docs/layout.md) should contain the numerical index of the latest migration file being edited.  Agents should not update this file; it will only be updated by human editors.  Agents should only create a new migration file when the numerical index has been updated to a non-existant file.  Otherwise changes should be made in place to the existing file identified by the index.

@@ -155,6 +155,13 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
     if (ts < minTime) minTime = ts;
     if (ts > maxTime) maxTime = ts;
 
+    const isCash =
+      txType === TxType.INCOME ||
+      txType === TxType.INVEXPENSE ||
+      txType === TxType.REINVEST ||
+      txType === TxType.TRANSFER ||
+      txType === TxType.MARGININTEREST ||
+      txType === TxType.RETOFCAP;
     txs.push(
       create(TxSchema, {
         timestamp: timestampFromDate(date),
@@ -162,7 +169,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
         type: txType,
         quantity,
         account,
-        ...(currency ? { currency } : {}),
+        ...(currency ? { settlementCurrency: currency, ...(isCash ? { tradingCurrency: currency } : {}) } : {}),
         ...(unitPrice !== undefined && !Number.isNaN(unitPrice) ? { unitPrice } : {}),
       })
     );

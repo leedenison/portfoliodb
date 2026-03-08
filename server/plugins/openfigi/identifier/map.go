@@ -55,10 +55,16 @@ func openFIGIResultToInstrument(r *OpenFIGIResult) (*identifier.Instrument, []id
 	}
 	var ids []identifier.Identifier
 	if r.FIGI != "" {
-		ids = append(ids, identifier.Identifier{Type: "FIGI", Value: r.FIGI})
+		ids = append(ids, identifier.Identifier{Type: "OPENFIGI_GLOBAL", Value: r.FIGI})
+	}
+	if r.ShareClassFIGI != nil && *r.ShareClassFIGI != "" {
+		ids = append(ids, identifier.Identifier{Type: "OPENFIGI_SHARE_CLASS", Value: *r.ShareClassFIGI})
+	}
+	if r.CompositeFIGI != nil && *r.CompositeFIGI != "" {
+		ids = append(ids, identifier.Identifier{Type: "OPENFIGI_COMPOSITE", Value: *r.CompositeFIGI})
 	}
 	if r.Ticker != "" {
-		ids = append(ids, identifier.Identifier{Type: "SYMBOL", Value: r.Ticker})
+		ids = append(ids, identifier.Identifier{Type: "TICKER", Domain: r.ExchCode, Value: r.Ticker})
 	}
 	// OpenFIGI mapping/search response does not include ISIN in the standard fields; skip unless we add a separate lookup
 	return inst, ids

@@ -24,6 +24,8 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
 	"github.com/leedenison/portfoliodb/server/migrations"
+	cashdesc "github.com/leedenison/portfoliodb/server/plugins/cash/description"
+	cashid "github.com/leedenison/portfoliodb/server/plugins/cash/identifier"
 	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
 	openaidesc "github.com/leedenison/portfoliodb/server/plugins/openai/description"
 	"github.com/leedenison/portfoliodb/server/service/api"
@@ -142,11 +144,13 @@ func main() {
 
 	pluginRegistry := identifier.NewRegistry()
 	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin(counter, serverLogger))
+	pluginRegistry.Register(cashid.PluginID, cashid.NewPlugin(database))
 	if err := ensurePluginConfigs(context.Background(), database, pluginRegistry); err != nil {
 		log.Fatalf("ensure plugin configs: %v", err)
 	}
 	descRegistry := description.NewRegistry()
 	descRegistry.Register(openaidesc.PluginID, openaidesc.NewPlugin(counter, serverLogger))
+	descRegistry.Register(cashdesc.PluginID, cashdesc.NewPlugin())
 	if err := ensureDescriptionPluginConfigs(context.Background(), database, descRegistry); err != nil {
 		log.Fatalf("ensure description plugin configs: %v", err)
 	}

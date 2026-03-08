@@ -25,17 +25,9 @@ type OpenFIGIClient struct {
 }
 
 // NewOpenFIGIClient creates a client. apiKey may be empty (lower rate limits).
-func NewOpenFIGIClient(apiKey string) *OpenFIGIClient {
-	return NewOpenFIGIClientWithBaseURL(apiKey, openFIGIBaseURL)
-}
-
-// NewOpenFIGIClientWithBaseURL creates a client with a custom base URL (for testing).
-func NewOpenFIGIClientWithBaseURL(apiKey, baseURL string) *OpenFIGIClient {
-	return NewOpenFIGIClientWithTelemetry(apiKey, baseURL, nil, nil)
-}
-
-// NewOpenFIGIClientWithTelemetry creates a client with optional counter and logger for metrics and logging.
-func NewOpenFIGIClientWithTelemetry(apiKey, baseURL string, counter telemetry.CounterIncrementer, log *slog.Logger) *OpenFIGIClient {
+// baseURL may be empty to use the default OpenFIGI API URL; pass a custom URL for testing.
+// counter and log are optional (nil allowed) for metrics and logging.
+func NewOpenFIGIClient(apiKey, baseURL string, counter telemetry.CounterIncrementer, log *slog.Logger) *OpenFIGIClient {
 	if baseURL == "" {
 		baseURL = openFIGIBaseURL
 	}
@@ -52,11 +44,12 @@ func NewOpenFIGIClientWithTelemetry(apiKey, baseURL string, counter telemetry.Co
 
 // MappingJob is one job in a mapping request.
 type MappingJob struct {
-	IDType   string   `json:"idType"`
-	IDValue  string   `json:"idValue"`
-	ExchCode string   `json:"exchCode,omitempty"`
-	Currency string   `json:"currency,omitempty"`
-	MICCode  string   `json:"micCode,omitempty"`
+	IDType        string `json:"idType"`
+	IDValue       string `json:"idValue"`
+	ExchCode      string `json:"exchCode,omitempty"`
+	Currency      string `json:"currency,omitempty"`
+	MICCode       string `json:"micCode,omitempty"`
+	SecurityType2 string `json:"securityType2,omitempty"`
 }
 
 // MappingResponseItem is one element in the mapping response array (per job).
@@ -182,7 +175,11 @@ func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIG
 		}
 	}
 	if c.log != nil {
-		c.log.DebugContext(ctx, "OpenFIGI mapping succeeded", "results", len(item.Data))
+		if len(item.Data) > 0 {
+			c.log.DebugContext(ctx, "OpenFIGI mapping succeeded", "results", len(item.Data))
+		} else {
+			c.log.DebugContext(ctx, "OpenFIGI mapping returned no results")
+		}
 	}
 	return item.Data, nil
 }

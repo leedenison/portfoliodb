@@ -52,9 +52,9 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string
 			}
 			acc := t.GetAccount()
 			_, err = exec.ExecContext(ctx, `
-				INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-			`, userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, t.Quantity, nullStr(t.Currency), nullFloat(t.UnitPrice), instUUID)
+				INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, settlement_currency, unit_price, instrument_id)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			`, userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, t.Quantity, nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullFloat(t.UnitPrice), instUUID)
 			if err != nil {
 				return fmt.Errorf("insert tx: %w", err)
 			}
@@ -82,9 +82,9 @@ func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account string,
 		return err
 	}
 	_, err = p.q.ExecContext(ctx, `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, userUUID, broker, account, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity, nullStr(tx.Currency), nullFloat(tx.UnitPrice), instUUID)
+		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, settlement_currency, unit_price, instrument_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, userUUID, broker, account, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity, nullStr(tx.TradingCurrency), nullStr(tx.SettlementCurrency), nullFloat(tx.UnitPrice), instUUID)
 	if err != nil {
 		return fmt.Errorf("create tx: %w", err)
 	}
@@ -102,7 +102,7 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 		limit = 50
 	}
 	q := `
-		SELECT broker, account, timestamp, instrument_description, tx_type, quantity, currency, unit_price, instrument_id
+		SELECT broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, settlement_currency, unit_price, instrument_id
 		FROM txs WHERE user_id = $1
 	`
 	args := []interface{}{userUUID}
@@ -160,10 +160,10 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 		var ts time.Time
 		var instDesc, txTypeStr string
 		var qty float64
-		var currency sql.NullString
+		var tradingCurrency, settlementCurrency sql.NullString
 		var unitPrice sql.NullFloat64
 		var instrumentID sql.NullString
-		if err := rows.Scan(&brokerStr, &accStr, &ts, &instDesc, &txTypeStr, &qty, &currency, &unitPrice, &instrumentID); err != nil {
+		if err := rows.Scan(&brokerStr, &accStr, &ts, &instDesc, &txTypeStr, &qty, &tradingCurrency, &settlementCurrency, &unitPrice, &instrumentID); err != nil {
 			return nil, "", err
 		}
 		tx := &apiv1.Tx{
@@ -173,8 +173,11 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 			Quantity:              qty,
 			Account:               accStr,
 		}
-		if currency.Valid {
-			tx.Currency = currency.String
+		if tradingCurrency.Valid {
+			tx.TradingCurrency = tradingCurrency.String
+		}
+		if settlementCurrency.Valid {
+			tx.SettlementCurrency = settlementCurrency.String
 		}
 		if unitPrice.Valid {
 			tx.UnitPrice = unitPrice.Float64
@@ -221,7 +224,7 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, p
 				)
 			WHERE t.user_id = (SELECT user_id FROM portfolios WHERE id = $2::uuid)
 		)
-		SELECT t.broker, t.account, t.timestamp, t.instrument_description, t.tx_type, t.quantity, t.currency, t.unit_price, t.instrument_id
+		SELECT t.broker, t.account, t.timestamp, t.instrument_description, t.tx_type, t.quantity, t.trading_currency, t.settlement_currency, t.unit_price, t.instrument_id
 		FROM txs t
 		INNER JOIN matched m ON m.id = t.id
 		WHERE 1=1
@@ -267,10 +270,10 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, p
 		var ts time.Time
 		var instDesc, txTypeStr string
 		var qty float64
-		var currency sql.NullString
+		var tradingCurrency, settlementCurrency sql.NullString
 		var unitPrice sql.NullFloat64
 		var instrumentID sql.NullString
-		if err := rows.Scan(&brokerStr, &accStr, &ts, &instDesc, &txTypeStr, &qty, &currency, &unitPrice, &instrumentID); err != nil {
+		if err := rows.Scan(&brokerStr, &accStr, &ts, &instDesc, &txTypeStr, &qty, &tradingCurrency, &settlementCurrency, &unitPrice, &instrumentID); err != nil {
 			return nil, "", err
 		}
 		tx := &apiv1.Tx{
@@ -280,8 +283,11 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, p
 			Quantity:              qty,
 			Account:               accStr,
 		}
-		if currency.Valid {
-			tx.Currency = currency.String
+		if tradingCurrency.Valid {
+			tx.TradingCurrency = tradingCurrency.String
+		}
+		if settlementCurrency.Valid {
+			tx.SettlementCurrency = settlementCurrency.String
 		}
 		if unitPrice.Valid {
 			tx.UnitPrice = unitPrice.Float64

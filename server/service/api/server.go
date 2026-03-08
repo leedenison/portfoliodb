@@ -33,13 +33,21 @@ func NewServer(database db.DB, rdb *redis.Client, counterPrefix string, pluginRe
 	}
 }
 
+// identifierTypeFromString maps DB identifier_type string to proto enum; returns UNSPECIFIED for unknown.
+func identifierTypeFromString(s string) apiv1.IdentifierType {
+	if v, ok := apiv1.IdentifierType_value[s]; ok {
+		return apiv1.IdentifierType(v)
+	}
+	return apiv1.IdentifierType_IDENTIFIER_TYPE_UNSPECIFIED
+}
+
 func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	if row == nil {
 		return nil
 	}
 	identifiers := make([]*apiv1.InstrumentIdentifier, 0, len(row.Identifiers))
 	for _, idn := range row.Identifiers {
-		identifiers = append(identifiers, &apiv1.InstrumentIdentifier{Type: idn.Type, Domain: idn.Domain, Value: idn.Value, Canonical: idn.Canonical})
+		identifiers = append(identifiers, &apiv1.InstrumentIdentifier{Type: identifierTypeFromString(idn.Type), Domain: idn.Domain, Value: idn.Value, Canonical: idn.Canonical})
 	}
 	out := &apiv1.Instrument{
 		Id:           row.ID,

@@ -54,7 +54,7 @@ Go code for the PortfolioDB backend: one main service binary, DB abstraction, an
 - **server/identifier/**  
   Instrument identification plugin API: interface (e.g. `Identify(ctx, config, broker, source, instrument_description, hints...)`), canonical types (Instrument, Identifier with optional domain), and plugin registry. Plugin implementations live under `server/plugins/<datasource>/identifier`. The **server/identifier/description** subpackage defines the description plugin interface (`Extract(...)` returning identifier hints) and registry; config is stored in the **description_plugin_config** table (enabled, precedence, config JSONB).
 - **server/migrations/**  
-  SQL migrations for the Postgres/TimescaleDB datamodel. Industry-standard migrations pattern. A **version** file in this directory holds the numerical index of the latest migration; only human editors update it. See docs/portfoliodb-spec.md (Datamodel Migration). Plugin-owned migrations (e.g. reference tables) live in the plugin directory (eg. `server/plugins/<datasource>/identifier/migrations`).
+  SQL migrations for the Postgres/TimescaleDB datamodel. Industry-standard migrations pattern. Plugin-owned migrations (e.g. reference tables) live in the plugin directory (eg. `server/plugins/<datasource>/identifier/migrations`).
 - **server/plugins/&lt;datasource&gt;/identifier**  
   Go libraries (compiled into the service binary) that identify instruments from broker data for a given datasource (e.g. OpenFIGI, IBKR). One subdir per datasource under `server/plugins/`. Each implements the interface in `server/identifier`.
 - **server/plugins/&lt;datasource&gt;/description**  

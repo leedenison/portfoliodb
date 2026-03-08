@@ -48,9 +48,14 @@ func (p *Plugin) DefaultConfig() []byte {
 	return out
 }
 
+// AcceptableSecurityTypes returns the security types this plugin can attempt identification for (Equity, Bond, Mutual Fund, Option; not Cash or Unknown).
+func (p *Plugin) AcceptableSecurityTypes() []string {
+	return []string{"Equity", "Bond", "Mutual Fund", "Option"}
+}
+
 // Identify resolves using identifier hints (mapping) or returns ErrNotIdentified. Does not use Search API or OpenAI.
 // When identifierHints is empty, returns ErrNotIdentified. When non-empty, uses OpenFIGI Mapping only.
-func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription, exchangeCodeHint, currencyHint, micHint string, identifierHints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
 	var cfg configJSON
 	if len(config) > 0 {
 		if err := json.Unmarshal(config, &cfg); err != nil {
@@ -62,13 +67,13 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	if cfg.OpenFIGIBaseURL != "" {
 		baseURL = cfg.OpenFIGIBaseURL
 	}
-	p.openfigi = NewOpenFIGIClientWithTelemetry(cfg.OpenFIGIAPIKey, baseURL, p.counter, p.log)
+	p.openfigi = NewOpenFIGIClient(cfg.OpenFIGIAPIKey, baseURL, p.counter, p.log)
 
 	if len(identifierHints) == 0 {
 		return nil, nil, identifier.ErrNotIdentified
 	}
 	// Use OpenFIGI Mapping only (no Search API); try first hint that we can map
-	results, err := p.tryOpenFIGIFromHints(ctx, identifierHints, exchangeCodeHint, currencyHint, micHint)
+	results, err := p.tryOpenFIGIFromHints(ctx, identifierHints, hints)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -107,18 +112,22 @@ func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, f
 	return inst, ids, true
 }
 
-// openFIGIMappingIDTypes are identifier types that OpenFIGI Mapping API accepts.
-var openFIGIMappingIDTypes = map[string]bool{
-	"TICKER": true, "FIGI": true, "ISIN": true, "CUSIP": true, "SEDOL": true,
-	"COMPOSITE_FIGI": true, "SHARE_CLASS_FIGI": true, "WKN": true, "QUOTE_LISTED": true,
+// openFIGIIDTypeFromHint maps our identifier type (proto IdentifierType name) to OpenFIGI Mapping API idType.
+// Returns empty string if the hint type is not supported by OpenFIGI Mapping.
+var openFIGIIDTypeFromHint = map[string]string{
+	"TICKER": "TICKER", "ISIN": "ID_ISIN", "CUSIP": "ID_CUSIP", "SEDOL": "ID_SEDOL", "CINS": "ID_CINS", "WERTPAPIER": "ID_WERTPAPIER",
+	"OCC": "OCC_SYMBOL", "OPRA": "OPRA_SYMBOL", "FUT_OPT": "UNIQUE_ID_FUT_OPT",
+	"OPENFIGI_GLOBAL": "ID_BB_GLOBAL", "OPENFIGI_SHARE_CLASS": "ID_BB_GLOBAL_SHARE_CLASS_LEVEL", "OPENFIGI_COMPOSITE": "COMPOSITE_ID_BB_GLOBAL",
 }
 
 // tryOpenFIGIFromHints tries OpenFIGI Mapping for each hint (in order); returns first non-empty result set.
-// Uses only Mapping API (no Search). exchangeCodeHint, currencyHint, and micHint narrow results when the hint has no domain.
-func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, hints []identifier.Identifier, exchangeCodeHint, currencyHint, micHint string) ([]OpenFIGIResult, error) {
-	for _, h := range hints {
-		idType := strings.ToUpper(strings.TrimSpace(h.Type))
-		if idType == "" || !openFIGIMappingIDTypes[idType] {
+// Uses only Mapping API (no Search). hints.ExchangeCode, Currency (trading currency), MIC narrow results when the hint has no domain.
+// We do not use the security type hint as securityType2 (our vocabulary does not match OpenFIGI's). The plugin already prefers EQUITY+common when multiple results exist.
+func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []identifier.Identifier, hints identifier.Hints) ([]OpenFIGIResult, error) {
+	for _, h := range identifierHints {
+		ourType := strings.TrimSpace(h.Type)
+		idType := openFIGIIDTypeFromHint[ourType]
+		if idType == "" || ourType == "" {
 			continue
 		}
 		value := strings.TrimSpace(h.Value)
@@ -128,14 +137,14 @@ func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, hints []identifier.Id
 		job := MappingJob{IDType: idType, IDValue: value}
 		if h.Domain != "" {
 			job.ExchCode = h.Domain
-		} else if exchangeCodeHint != "" {
-			job.ExchCode = exchangeCodeHint
+		} else if hints.ExchangeCode != "" {
+			job.ExchCode = hints.ExchangeCode
 		}
-		if currencyHint != "" {
-			job.Currency = currencyHint
+		if hints.Currency != "" {
+			job.Currency = hints.Currency
 		}
-		if micHint != "" {
-			job.MICCode = micHint
+		if hints.MIC != "" {
+			job.MICCode = hints.MIC
 		}
 		results, err := p.openfigi.Mapping(ctx, job)
 		if err != nil {

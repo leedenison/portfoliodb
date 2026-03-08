@@ -44,7 +44,8 @@ CREATE TABLE txs (
   instrument_description TEXT NOT NULL,
   tx_type               TEXT NOT NULL,
   quantity              DOUBLE PRECISION NOT NULL,
-  currency              TEXT,
+  trading_currency      TEXT,
+  settlement_currency   TEXT,
   unit_price            DOUBLE PRECISION,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -98,9 +99,9 @@ CREATE TABLE instruments (
 CREATE INDEX idx_instruments_underlying_id ON instruments (underlying_id);
 
 -- Identifiers for an instrument. (identifier_type, domain, value) is unique globally.
--- domain is NULL for broker-description and for identifiers that have no domain (e.g. ISIN, CUSIP).
--- canonical = false only for broker-description identifiers; canonical = true for standard identifiers (ISIN, CUSIP, etc.).
--- Broker descriptions: identifier_type = source (e.g. 'IBKR:<client>:statement'), domain = NULL, value = full instrument_description.
+-- identifier_type: proto IdentifierType name (ISIN, CUSIP, TICKER, OPENFIGI_GLOBAL, OPENFIGI_SHARE_CLASS, OPENFIGI_COMPOSITE, BROKER_DESCRIPTION, etc.).
+-- domain: optional; for BROKER_DESCRIPTION = source (e.g. 'Fidelity:web:fidelity-csv'); for TICKER = exchange code when present.
+-- canonical = false only for BROKER_DESCRIPTION identifiers; canonical = true for standard identifiers.
 -- Surrogate PK so domain can be NULL (PostgreSQL PK columns are NOT NULL).
 CREATE TABLE instrument_identifiers (
   id              UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,

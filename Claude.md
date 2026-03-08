@@ -4,6 +4,10 @@ PortfolioDB is portfolio tracking software which consists of backend services ho
 
 PortfolioDBs purpose is to track the holdings (the quantity held) of equities, options and futures for users portfolios.  In addition, PortfolioDB tries to automatically identify the instruments held in the portfolio and, if successful, it can fetch current and historical prices for those instruments in order to provide current and historical portfolio values.  It can also calculate performance metrics such as the time weighted return and the money weighted return.
 
+## **Project Status**
+
+This project is pre-release.  Datamodels, APIs, protobuf definitions, plugin APIs, etc are not considered stable.  Changes to these artifacts should not create migrations or account for backwards compatibility.
+
 ## Tech Stack
 
 ### Front End

@@ -113,7 +113,7 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// Instrument with only broker description (canonical=false) - should be excluded.
-	brokerOnlyID, err := p.EnsureInstrument(ctx, "", "", "", "BrokerOnly", []db.IdentifierInput{{Type: "IBKR", Value: "BRK", Canonical: false}}, "", nil, nil)
+	brokerOnlyID, err := p.EnsureInstrument(ctx, "", "", "", "BrokerOnly", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "BRK", Canonical: false}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure broker-only: %v", err)
 	}
@@ -129,16 +129,22 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport: %v", err)
 	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1 instrument (exclude broker-only), got %d", len(list))
+	// List includes seeded CASH instruments (migration 002) plus any we create; broker-only must be excluded.
+	var foundApple bool
+	for _, row := range list {
+		if row.ID == brokerOnlyID {
+			t.Fatalf("broker-only instrument %s should be excluded from export", brokerOnlyID)
+		}
+		if row.ID == withCanonID {
+			foundApple = true
+			if row.Name != "Apple" || len(row.Identifiers) != 2 {
+				t.Fatalf("expected Apple with 2 identifiers, got %+v", row)
+			}
+		}
 	}
-	if list[0].ID != withCanonID {
-		t.Fatalf("expected instrument %s, got %s", withCanonID, list[0].ID)
+	if !foundApple {
+		t.Fatalf("expected instrument %s (Apple) in export list (len=%d)", withCanonID, len(list))
 	}
-	if list[0].Name != "Apple" || len(list[0].Identifiers) != 2 {
-		t.Fatalf("expected Apple with 2 identifiers, got %+v", list[0])
-	}
-	_ = brokerOnlyID
 }
 
 func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
@@ -156,6 +162,7 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport: %v", err)
 	}
+	// XNAS filter: seeded CASH instruments have exchange NULL so only our Nasdaq instrument matches.
 	if len(list) != 1 || list[0].Exchange != "XNAS" {
 		t.Fatalf("expected 1 instrument with exchange XNAS, got %d (first exchange %q)", len(list), list[0].Exchange)
 	}
@@ -163,8 +170,21 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport all: %v", err)
 	}
-	if len(listAll) != 2 {
-		t.Fatalf("expected 2 instruments with no filter, got %d", len(listAll))
+	// No filter: seeded CASH instruments (canonical CURRENCY) plus our 2 EQUITY instruments.
+	if len(listAll) < 2 {
+		t.Fatalf("expected at least 2 instruments with no filter, got %d", len(listAll))
+	}
+	var foundNasdaq, foundNYSE bool
+	for _, row := range listAll {
+		if row.Name == "Nasdaq" && row.Exchange == "XNAS" {
+			foundNasdaq = true
+		}
+		if row.Name == "NYSE" && row.Exchange == "XNYS" {
+			foundNYSE = true
+		}
+	}
+	if !foundNasdaq || !foundNYSE {
+		t.Fatalf("expected Nasdaq (XNAS) and NYSE (XNYS) in list (foundNasdaq=%v foundNYSE=%v)", foundNasdaq, foundNYSE)
 	}
 }
 
@@ -232,5 +252,41 @@ func TestEnsureInstrument_InvalidAssetClass_Rejected(t *testing.T) {
 	}, "", nil, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid asset_class")
+	}
+}
+
+// TestSeedCurrencyInstruments verifies migration 002_seed_currency_instruments populated CASH instruments
+// and CURRENCY identifiers (USD, EUR, etc.). Requires TEST_DATABASE_URL and migrations applied.
+func TestSeedCurrencyInstruments(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	for _, code := range []string{"USD", "EUR", "JPY", "GBP", "CHF"} {
+		id, err := p.FindInstrumentByIdentifier(ctx, "CURRENCY", "", code)
+		if err != nil {
+			t.Fatalf("FindInstrumentByIdentifier CURRENCY %s: %v", code, err)
+		}
+		if id == "" {
+			t.Fatalf("FindInstrumentByIdentifier CURRENCY %s: not found (migration 002 may not have run)", code)
+		}
+		row, err := p.GetInstrument(ctx, id)
+		if err != nil || row == nil {
+			t.Fatalf("GetInstrument %s: %v", id, err)
+		}
+		if row.AssetClass != "CASH" {
+			t.Errorf("instrument %s asset_class = %q, want CASH", id, row.AssetClass)
+		}
+		if row.Currency != code {
+			t.Errorf("instrument %s currency = %q, want %s", id, row.Currency, code)
+		}
+		hasCurrencyId := false
+		for _, idn := range row.Identifiers {
+			if idn.Type == "CURRENCY" && idn.Value == code {
+				hasCurrencyId = true
+				break
+			}
+		}
+		if !hasCurrencyId {
+			t.Errorf("instrument %s missing CURRENCY identifier %s", id, code)
+		}
 	}
 }

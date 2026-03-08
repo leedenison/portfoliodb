@@ -43,13 +43,34 @@ enum TxType {
   CLOSUREOPT     = 20;
 }
 
-// InstrumentIdentifier is one (type, domain, value) for an instrument (e.g. CUSIP, ISIN, TICKER+exchange, broker description).
-// domain is optional (e.g. exchange code for TICKER). canonical = false only for broker-description identifiers.
+// IdentifierType is the controlled vocabulary for instrument identifier types.
+// Stored in instrument_identifiers.identifier_type. Broker description identifiers use BROKER_DESCRIPTION with domain = source (e.g. "Fidelity:web:fidelity-csv").
+enum IdentifierType {
+  IDENTIFIER_TYPE_UNSPECIFIED = 0;
+  ISIN = 1;
+  CUSIP = 2;
+  SEDOL = 3;
+  CINS = 4;
+  WERTPAPIER = 5;
+  OCC = 6;
+  OPRA = 7;
+  FUT_OPT = 8;
+  OPENFIGI_GLOBAL = 9;
+  OPENFIGI_SHARE_CLASS = 10;
+  OPENFIGI_COMPOSITE = 11;
+  TICKER = 12;
+  BROKER_DESCRIPTION = 13;
+  CURRENCY = 14;
+}
+
+// InstrumentIdentifier is one (type, domain, value) for an instrument.
+// For BROKER_DESCRIPTION, domain is the source (e.g. "Fidelity:web:fidelity-csv") and value is the instrument_description.
+// For TICKER, domain is the exchange code when present. canonical = false only for broker-description identifiers.
 message InstrumentIdentifier {
-  string type = 1;   // e.g. "CUSIP", "ISIN", "TICKER", "FIGI"
+  IdentifierType type = 1;
   string value = 2;
   bool canonical = 3;
-  string domain = 4; // optional; e.g. exchange code for TICKER
+  string domain = 4; // optional; e.g. exchange code for TICKER, source for BROKER_DESCRIPTION
 }
 
 // Instrument is canonical security-master data for an instrument, with its identifiers.
@@ -73,14 +94,15 @@ message Tx {
   // Time of the transaction (date or time as provided by broker). Required.
   google.protobuf.Timestamp timestamp = 1;
   // Broker's instrument description string. Required.
-  string instrument_description = 3;
+  string instrument_description = 2;
   // OFX transaction type. Required.
-  TxType type = 4;
+  TxType type = 3;
   // Signed quantity: positive for buys/adds, negative for sells/reductions.
-  double quantity = 5;
-  // Currency code (e.g. USD). Optional; validation may report unknown currency
-  // in async job.
-  string currency = 6;
+  double quantity = 4;
+  // Currency in which the instrument is denominated (trading currency, e.g. EUR for SAF). Optional. Passed to plugins as the currency hint. For cash transactions only, set this (same as settlement when user selects one currency).
+  string trading_currency = 5;
+  // Currency used to pay/settle the transaction (e.g. GBP when buying in a UK account). Optional. Set from user input (e.g. Fidelity converter) for all transactions.
+  string settlement_currency = 6;
   // Unit price as reported by broker. Optional; not used for valuation.
   double unit_price = 7;
   // Resolved instrument id (UUID). Set by identification during ingestion.
@@ -89,12 +111,10 @@ message Tx {
   string account = 9;
   // Optional exchange code hint to narrow identification (e.g. "US"). Not stored as canonical; only API-confirmed exchange is written to the instrument.
   string exchange_code_hint = 10;
-  // Optional currency hint (e.g. "USD"). Not stored as canonical; used only to narrow resolution.
-  string currency_hint = 11;
   // Optional MIC (market identifier code) hint. Not stored as canonical; used only to narrow resolution.
-  string mic_hint = 12;
+  string mic_hint = 11;
   // Optional external identifier hints (e.g. ISIN, CUSIP, FIGI, TICKER). When supplied, resolution uses these and does not store (source, description) on the instrument.
-  repeated InstrumentIdentifier identifier_hints = 13;
+  repeated InstrumentIdentifier identifier_hints = 12;
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,
@@ -211,11 +231,11 @@ message PortfolioTx {
 }
 
 message ListTxsRequest {
-  string portfolio_id = 7;  // if set, list txs in this portfolio view; otherwise all user transactions
-  google.protobuf.Timestamp period_from = 3;
-  google.protobuf.Timestamp period_to = 4;
-  int32 page_size = 5;
-  string page_token = 6;
+  string portfolio_id = 1;  // if set, list txs in this portfolio view; otherwise all user transactions
+  google.protobuf.Timestamp period_from = 2;
+  google.protobuf.Timestamp period_to = 3;
+  int32 page_size = 4;
+  string page_token = 5;
 }
 
 message ListTxsResponse {

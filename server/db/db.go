@@ -155,6 +155,8 @@ type InstrumentDB interface {
 	EnsureInstrument(ctx context.Context, assetClass, exchange, currency, name string, identifiers []IdentifierInput, underlyingID string, validFrom, validTo *time.Time) (string, error)
 	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
 	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
+	// FindInstrumentByTypeAndValue looks up instrument_id by (identifier_type, value) with any domain. Returns "" if not found or if multiple instruments match (ambiguous).
+	FindInstrumentByTypeAndValue(ctx context.Context, identifierType, value string) (string, error)
 	// FindInstrumentBySourceDescription looks up instrument_id by (source, NULL domain, instrument_description). Returns "" if not found.
 	FindInstrumentBySourceDescription(ctx context.Context, source, description string) (string, error)
 	// GetInstrument returns an instrument by ID with its identifiers, or nil if not found.

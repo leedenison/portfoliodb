@@ -154,9 +154,44 @@ func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierTyp
 	return id.String(), nil
 }
 
+// FindInstrumentByTypeAndValue implements db.InstrumentDB.
+// Returns "" if no row matches or if more than one instrument has the same (type, value) with different domains (ambiguous).
+func (p *Postgres) FindInstrumentByTypeAndValue(ctx context.Context, identifierType, value string) (string, error) {
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT instrument_id FROM instrument_identifiers
+		WHERE identifier_type = $1 AND value = $2
+	`, identifierType, value)
+	if err != nil {
+		return "", fmt.Errorf("find instrument by type and value: %w", err)
+	}
+	defer rows.Close()
+	var id uuid.UUID
+	var count int
+	for rows.Next() {
+		var next uuid.UUID
+		if err := rows.Scan(&next); err != nil {
+			return "", err
+		}
+		count++
+		if count == 1 {
+			id = next
+		} else if count > 1 && next != id {
+			return "", nil // ambiguous: same (type, value) for different instruments
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if count == 0 {
+		return "", nil
+	}
+	return id.String(), nil
+}
+
 // FindInstrumentBySourceDescription implements db.InstrumentDB.
+// Broker descriptions are stored as identifier_type = BROKER_DESCRIPTION, domain = source, value = description.
 func (p *Postgres) FindInstrumentBySourceDescription(ctx context.Context, source, description string) (string, error) {
-	return p.FindInstrumentByIdentifier(ctx, source, "", description)
+	return p.FindInstrumentByIdentifier(ctx, "BROKER_DESCRIPTION", source, description)
 }
 
 // GetInstrument implements db.InstrumentDB.

@@ -6,11 +6,11 @@
 | ------------ | -------------------------------------------------------------------------------------------------------------------- | ------ |
 | M01          | Track holdings of instruments using broker-description only (no identification or prices, investment instruments).   | Done   |
 | M02          | Google sign-in authentication and admin role.                                                                        | Done   |
-| M03          | Add basic support for derivatives, multiple accounts, portfolios.                                                    |        |
-| M04          | Implement transaction importing using in-codebase, broker specific converters.                                       |        |
-| M05          | Add telemetry (counters, logging).                                                                                   |        |
+| M03          | Add basic support for derivatives, multiple accounts, portfolios.                                                    | Done   |
+| M04          | Implement transaction importing using in-codebase, broker specific converters.                                       | Done   |
+| M05          | Add telemetry (counters, logging).                                                                                   | Done   |
 | M06          | Import / export of instrument identities                                                                             |        |
-| M07          | Instruments can be identified from broker descriptions.                                                              |        |
+| M07          | Instruments can be identified from broker descriptions.                                                              | Done   |
 | M08          | Historical prices can be fetched for identified instruments.                                                         |        |
 
 

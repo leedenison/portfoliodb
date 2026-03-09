@@ -3,6 +3,7 @@ package ingestion
 import (
 	"context"
 	"log"
+	"log/slog"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -11,9 +12,15 @@ import (
 	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
+// ingestionLog is the logger for resolution and plugin orchestration (category server/service/ingestion).
+// Set by RunWorker; when nil, resolve.go falls back to slog.Default().
+var ingestionLog *slog.Logger
+
 // RunWorker processes job requests from the channel until it is closed.
 // Resolution uses DB, then in-batch cache, then description plugins (extract hints) and identifier plugins (timeout from config, retry once with backoff).
-func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer) {
+// ingestionLogger is the logger for ingestion/resolution (typically with category server/service/ingestion); may be nil.
+func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, ingestionLogger *slog.Logger) {
+	ingestionLog = ingestionLogger
 	for {
 		select {
 		case <-ctx.Done():

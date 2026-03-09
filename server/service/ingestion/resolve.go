@@ -51,7 +51,7 @@ func filterIdentifierHints(ctx context.Context, hints []identifier.Identifier) [
 		if identifier.AllowedIdentifierTypes[typ] {
 			out = append(out, h)
 		} else {
-			slog.DebugContext(ctx, "identifier hint discarded: type not in vocabulary", "type", typ, "value", h.Value)
+			ingestionLogger().DebugContext(ctx, "identifier hint discarded: type not in vocabulary", "type", typ, "value", h.Value)
 		}
 	}
 	return out
@@ -60,6 +60,44 @@ func filterIdentifierHints(ctx context.Context, hints []identifier.Identifier) [
 // Resolution order: (1) DB lookup by (source, instrument_description), (2) in-batch cache,
 // (3) if still unresolved, call enabled plugins in parallel (timeout from config, retry once with backoff).
 // Identification errors are recorded for fallbacks and do not fail the job.
+
+// ingestionLogger returns the logger for plugin/resolution logs (category server/service/ingestion when set).
+func ingestionLogger() *slog.Logger {
+	if ingestionLog != nil {
+		return ingestionLog
+	}
+	return slog.Default()
+}
+
+// hintsSummary returns a short summary of hints for debug logging (e.g. "TICKER:AAPL, FIGI:...").
+func hintsSummary(hints []identifier.Identifier) string {
+	if len(hints) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, h := range hints {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(h.Type)
+		if h.Domain != "" {
+			b.WriteString("(")
+			b.WriteString(h.Domain)
+			b.WriteString(")")
+		}
+		b.WriteString(":")
+		b.WriteString(h.Value)
+	}
+	return b.String()
+}
+
+// instrumentSummary returns a short summary of an instrument for debug logging.
+func instrumentSummary(inst *identifier.Instrument) string {
+	if inst == nil {
+		return ""
+	}
+	return inst.Name + " (" + inst.AssetClass + "/" + inst.Exchange + ")"
+}
 
 const (
 	defaultPluginTimeout = 30 * time.Second
@@ -160,10 +198,11 @@ func runDescriptionPlugins(ctx context.Context, database db.DescriptionPluginDB,
 			if counter != nil {
 				counter.Incr(ctx, "description.extraction.plugin_error")
 			}
-			slog.DebugContext(ctx, "description plugin returned error", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "err", err)
+			ingestionLogger().DebugContext(ctx, "description plugin returned error", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "err", err)
 			continue
 		}
 		if extracted := out[singleItemBatchID]; len(extracted) > 0 {
+			ingestionLogger().DebugContext(ctx, "description plugin returned hints", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "hints", hintsSummary(extracted))
 			return filterIdentifierHints(ctx, extracted), nil
 		}
 	}
@@ -171,7 +210,7 @@ func runDescriptionPlugins(ctx context.Context, database db.DescriptionPluginDB,
 		if counter != nil {
 			counter.Incr(ctx, "description.extraction.no_hints")
 		}
-		slog.DebugContext(ctx, "description extraction: no plugin returned hints", "source", source, "instrument_description", instrumentDescription)
+		ingestionLogger().DebugContext(ctx, "description extraction: no plugin returned hints", "source", source, "instrument_description", instrumentDescription)
 	}
 	return nil, nil
 }
@@ -205,7 +244,7 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.DescriptionPlug
 			if counter != nil {
 				counter.Incr(ctx, "description.extraction.plugin_error")
 			}
-			slog.DebugContext(ctx, "description plugin batch returned error", "plugin_id", c.PluginID, "err", err)
+			ingestionLogger().DebugContext(ctx, "description plugin batch returned error", "plugin_id", c.PluginID, "err", err)
 			continue
 		}
 		hasAny := false
@@ -217,6 +256,9 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.DescriptionPlug
 			}
 		}
 		if hasAny {
+			for id, hints := range out {
+				ingestionLogger().DebugContext(ctx, "description plugin batch returned hints", "plugin_id", c.PluginID, "batch_id", id, "hints", hintsSummary(hints))
+			}
 			return out, nil
 		}
 	}
@@ -348,7 +390,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		if counter != nil {
 			counter.Incr(ctx, "instrument.resolution.description_extraction_failed")
 		}
-		slog.InfoContext(ctx, "instrument resolution: description extraction failed, using broker description only", "source", source, "instrument_description", instrumentDescription)
+		ingestionLogger().InfoContext(ctx, "instrument resolution: description extraction failed, using broker description only", "source", source, "instrument_description", instrumentDescription)
 		var ensureErr error
 		id, ensureErr = database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil)
 		if ensureErr != nil {
@@ -381,7 +423,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			if counter != nil {
 				counter.Incr(ctx, "description.extraction.identifier_mismatch")
 			}
-			slog.ErrorContext(ctx, "TICKER and OPENFIGI_SHARE_CLASS resolved to different instruments; using TICKER",
+			ingestionLogger().ErrorContext(ctx, "TICKER and OPENFIGI_SHARE_CLASS resolved to different instruments; using TICKER",
 				"source", source, "instrument_description", instrumentDescription,
 				"instrument_id_by_ticker", idByTicker, "instrument_id_by_figi", idByFigi)
 			hintsToUse = tickerHints
@@ -442,7 +484,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 		counter.Incr(ctx, "instrument.identify.attempts")
 	}
 	if len(inputs) == 0 {
-		slog.DebugContext(ctx, "instrument resolution: no enabled identifier plugins", "source", source, "instrument_description", instrumentDescription)
+		ingestionLogger().DebugContext(ctx, "instrument resolution: no enabled identifier plugins", "source", source, "instrument_description", instrumentDescription)
 	}
 
 	type result struct {
@@ -464,6 +506,18 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 		}(i)
 	}
 	wg.Wait()
+
+	for i := range results {
+		in := inputs[i]
+		r := &results[i]
+		if r.err != nil {
+			ingestionLogger().DebugContext(ctx, "identifier plugin returned", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "err", r.err)
+		} else if r.inst != nil {
+			ingestionLogger().DebugContext(ctx, "identifier plugin returned", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "instrument", instrumentSummary(r.inst), "identifiers", hintsSummary(r.ids))
+		} else {
+			ingestionLogger().DebugContext(ctx, "identifier plugin returned", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "result", "nil")
+		}
+	}
 
 	var winner *result
 	var hadTimeout, hadOtherErr bool

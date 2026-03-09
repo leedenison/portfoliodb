@@ -38,6 +38,8 @@ services:
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-local-dev}
       ACCOUNT_CREATE_EMAIL_ALLOWLIST: ${ACCOUNT_CREATE_EMAIL_ALLOWLIST:-*@*}
       ADMIN_AUTH_SUB: ${ADMIN_AUTH_SUB:-}
+      # Single level (info, warn, error, debug) or JSON e.g. {"server/plugins": "debug", "default": "info"}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "50051:50051"
     command: ["/portfoliodb", "-grpc-addr", ":50051", "-db-url", "postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable"]

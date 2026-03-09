@@ -23,6 +23,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db/postgres"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
+	"github.com/leedenison/portfoliodb/server/logger"
 	"github.com/leedenison/portfoliodb/server/migrations"
 	cashdesc "github.com/leedenison/portfoliodb/server/plugins/cash/description"
 	cashid "github.com/leedenison/portfoliodb/server/plugins/cash/identifier"
@@ -82,9 +83,13 @@ func main() {
 
 	counterPrefix := "portfoliodb:counters:"
 	counter := telemetry.NewRedisCounter(rdb, counterPrefix)
-	logLevel := parseLogLevel(envOrDefault("LOG_LEVEL", "debug"))
-	serverLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
-	slog.SetDefault(serverLogger)
+	inner := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level:     slog.LevelDebug,
+		AddSource: false,
+	})
+	h := logger.NewHandler(inner, envOrDefault("LOG_LEVEL", "debug"))
+	slog.SetDefault(slog.New(h))
+	serverLogger := slog.Default()
 
 	// Google ID token verifier
 	googleClientID := os.Getenv("GOOGLE_OAUTH_CLIENT_ID")
@@ -143,13 +148,13 @@ func main() {
 	}
 
 	pluginRegistry := identifier.NewRegistry()
-	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin(counter, serverLogger))
+	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openfigi")))
 	pluginRegistry.Register(cashid.PluginID, cashid.NewPlugin(database))
 	if err := ensurePluginConfigs(context.Background(), database, pluginRegistry); err != nil {
 		log.Fatalf("ensure plugin configs: %v", err)
 	}
 	descRegistry := description.NewRegistry()
-	descRegistry.Register(openaidesc.PluginID, openaidesc.NewPlugin(counter, serverLogger))
+	descRegistry.Register(openaidesc.PluginID, openaidesc.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openai")))
 	descRegistry.Register(cashdesc.PluginID, cashdesc.NewPlugin())
 	if err := ensureDescriptionPluginConfigs(context.Background(), database, descRegistry); err != nil {
 		log.Fatalf("ensure description plugin configs: %v", err)
@@ -157,7 +162,8 @@ func main() {
 	queue := make(chan *ingestion.JobRequest, 256)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter)
+	ingestionLogger := logger.WithCategory(serverLogger, "server/service/ingestion")
+	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter, ingestionLogger)
 	svc := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(interceptorConfig)),
 		grpc.ChainStreamInterceptor(auth.StreamInterceptor(interceptorConfig)),
@@ -213,19 +219,6 @@ func parseAllowlist(env string) []string {
 		}
 	}
 	return out
-}
-
-func parseLogLevel(s string) slog.Level {
-	switch strings.ToLower(s) {
-	case "info":
-		return slog.LevelInfo
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelDebug
-	}
 }
 
 // ensurePluginConfigs creates a config row for each registered plugin that does not yet have one (from plugin.DefaultConfig(), enabled=false, precedence by order).

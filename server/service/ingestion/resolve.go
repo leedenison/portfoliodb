@@ -208,8 +208,9 @@ func runDescriptionPlugins(ctx context.Context, database db.DescriptionPluginDB,
 		if p == nil {
 			continue
 		}
-		if !SecurityTypeAcceptable(hints.SecurityType, p.AcceptableSecurityTypes()) {
-			ingestionLogger().DebugContext(ctx, "description plugin skipped (security type not acceptable)", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "security_type", hints.SecurityType)
+		acceptable := p.AcceptableSecurityTypes()
+		if len(acceptable) > 0 && !acceptable[hints.SecurityTypeHint] {
+			ingestionLogger().DebugContext(ctx, "description plugin skipped (security type not acceptable)", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "security_type_hint", hints.SecurityTypeHint)
 			continue
 		}
 		tried++
@@ -254,7 +255,7 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.DescriptionPlug
 		acceptable := p.AcceptableSecurityTypes()
 		var filtered []description.BatchItem
 		for _, item := range items {
-			if SecurityTypeAcceptable(item.Hints.SecurityType, acceptable) {
+			if len(acceptable) == 0 || acceptable[item.Hints.SecurityTypeHint] {
 				filtered = append(filtered, item)
 			}
 		}
@@ -499,7 +500,8 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 		if p == nil {
 			continue
 		}
-		if !SecurityTypeAcceptable(hints.SecurityType, p.AcceptableSecurityTypes()) {
+		acceptable := p.AcceptableSecurityTypes()
+		if len(acceptable) > 0 && !acceptable[hints.SecurityTypeHint] {
 			continue
 		}
 		inputs = append(inputs, pluginInput{config: c, plugin: p})

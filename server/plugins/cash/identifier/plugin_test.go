@@ -87,15 +87,8 @@ func TestPlugin_AcceptableSecurityTypes_IncludesCash(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	p := NewPlugin(database)
-	types := p.AcceptableSecurityTypes()
-	found := false
-	for _, s := range types {
-		if s == "Cash" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("AcceptableSecurityTypes = %v, want to include Cash", types)
+	set := p.AcceptableSecurityTypes()
+	if !set[identifier.SecurityTypeHintCash] {
+		t.Errorf("AcceptableSecurityTypes = %v, want to include Cash", set)
 	}
 }

@@ -82,7 +82,7 @@ CREATE INDEX idx_validation_errors_job_id ON validation_errors (job_id);
 -- asset_class: controlled vocabulary. OPTION and FUTURE require underlying_id.
 CREATE TABLE instruments (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  asset_class  TEXT CHECK (asset_class IS NULL OR asset_class IN ('EQUITY','ETF','MF','CASH','FIXED_INCOME','OPTION','FUTURE')),
+  asset_class  TEXT CHECK (asset_class IS NULL OR asset_class IN ('STOCK','ETF','FIXED_INCOME','MUTUAL_FUND','OPTION','FUTURE','CASH','UNKNOWN')),
   exchange     TEXT,
   currency     TEXT,
   name         TEXT,

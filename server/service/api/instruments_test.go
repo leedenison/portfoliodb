@@ -67,7 +67,7 @@ func TestImportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
 func TestImportInstruments_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
-		EnsureInstrument(gomock.Any(), "equity", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
 		DoAndReturn(func(_ context.Context, _, _, _, _ string, idns []dbpkg.IdentifierInput, _ string, _, _ interface{}) (string, error) {
 			if len(idns) < 2 {
 				t.Errorf("expected at least 2 identifiers, got %d", len(idns))
@@ -77,7 +77,7 @@ func TestImportInstruments_Success(t *testing.T) {
 	ctx := adminCtx("user-1", "sub|1")
 	req := &apiv1.ImportInstrumentsRequest{
 		Instruments: []*apiv1.Instrument{{
-			AssetClass: "equity", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc.",
+			AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc.",
 			Identifiers: []*apiv1.InstrumentIdentifier{
 				{Type: apiv1.IdentifierType_ISIN, Value: "US0378331005", Canonical: true},
 				{Type: apiv1.IdentifierType_BROKER_DESCRIPTION, Domain: "IBKR", Value: "AAPL", Canonical: false},

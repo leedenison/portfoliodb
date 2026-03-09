@@ -5,41 +5,36 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
-// Security type hint strings passed to identifier plugins (e.g. OpenFIGI securityType2).
-const (
-	SecurityTypeBond       = "Bond"
-	SecurityTypeMutualFund = "Mutual Fund"
-	SecurityTypeOption     = "Option"
-	SecurityTypeEquity     = "Equity"
-	SecurityTypeCash       = "Cash"
-	SecurityTypeNone       = "None"
-	SecurityTypeUnknown    = "Unknown Security Type"
-)
+// TxTypeStored returns whether transactions of this type are stored. When false (e.g. SPLIT), the transaction is dropped before resolution.
+func TxTypeStored(t apiv1.TxType) bool {
+	switch t {
+	case apiv1.TxType_SPLIT:
+		return false
+	default:
+		return true
+	}
+}
 
-// TxTypeToSecurityType maps transaction type to the security type hint vocabulary.
-func TxTypeToSecurityType(t apiv1.TxType) string {
+// TxTypeToSecurityTypeHint maps transaction type to the security type hint vocabulary (identifier package constants).
+func TxTypeToSecurityTypeHint(t apiv1.TxType) string {
 	switch t {
 	case apiv1.TxType_BUYDEBT, apiv1.TxType_SELLDEBT:
-		return SecurityTypeBond
+		return identifier.SecurityTypeHintFixedIncome
 	case apiv1.TxType_BUYMF, apiv1.TxType_SELLMF:
-		return SecurityTypeMutualFund
+		return identifier.SecurityTypeHintMutualFund
 	case apiv1.TxType_BUYOPT, apiv1.TxType_SELLOPT, apiv1.TxType_CLOSUREOPT:
-		return SecurityTypeOption
+		return identifier.SecurityTypeHintOption
 	case apiv1.TxType_BUYOTHER, apiv1.TxType_SELLOTHER:
-		return SecurityTypeUnknown
-	case apiv1.TxType_BUYSTOCK, apiv1.TxType_SELLSTOCK:
-		return SecurityTypeEquity
+		return identifier.SecurityTypeHintUnknown
+	case apiv1.TxType_BUYSTOCK, apiv1.TxType_SELLSTOCK, apiv1.TxType_JRNLSEC:
+		return identifier.SecurityTypeHintStock
 	case apiv1.TxType_INCOME, apiv1.TxType_INVEXPENSE, apiv1.TxType_REINVEST,
-		apiv1.TxType_TRANSFER, apiv1.TxType_MARGININTEREST, apiv1.TxType_RETOFCAP:
-		return SecurityTypeCash
-	case apiv1.TxType_JRNLFUND:
-		return SecurityTypeCash
-	case apiv1.TxType_JRNLSEC:
-		return SecurityTypeEquity
+		apiv1.TxType_TRANSFER, apiv1.TxType_MARGININTEREST, apiv1.TxType_RETOFCAP, apiv1.TxType_JRNLFUND:
+		return identifier.SecurityTypeHintCash
 	case apiv1.TxType_SPLIT:
-		return SecurityTypeNone
+		return identifier.SecurityTypeHintUnknown
 	default:
-		return SecurityTypeUnknown
+		return identifier.SecurityTypeHintUnknown
 	}
 }
 
@@ -49,23 +44,10 @@ func HintsFromTx(tx *apiv1.Tx) identifier.Hints {
 		return identifier.Hints{}
 	}
 	return identifier.Hints{
-		ExchangeCode: tx.GetExchangeCodeHint(),
-		Currency:     tx.GetTradingCurrency(),
-		MIC:          tx.GetMicHint(),
-		SecurityType: TxTypeToSecurityType(tx.GetType()),
+		ExchangeCode:     tx.GetExchangeCodeHint(),
+		Currency:         tx.GetTradingCurrency(),
+		MIC:              tx.GetMicHint(),
+		SecurityTypeHint: TxTypeToSecurityTypeHint(tx.GetType()),
 	}
 }
 
-// SecurityTypeAcceptable returns whether the given security type is in the plugin's acceptable list.
-// If acceptable is nil or empty, all types are accepted.
-func SecurityTypeAcceptable(securityType string, acceptable []string) bool {
-	if len(acceptable) == 0 {
-		return true
-	}
-	for _, a := range acceptable {
-		if a == securityType {
-			return true
-		}
-	}
-	return false
-}

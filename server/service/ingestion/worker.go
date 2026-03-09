@@ -50,11 +50,11 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return
 	}
-	// Drop SecurityTypeNone txs (e.g. SPLIT); they are not stored.
+	// Drop txs that are not stored (e.g. SPLIT); decision is by TxType.
 	var txsToProcess []*apiv1.Tx
 	var originalIndices []int
 	for i, tx := range j.Txs {
-		if TxTypeToSecurityType(tx.Type) == SecurityTypeNone {
+		if !TxTypeStored(tx.Type) {
 			continue
 		}
 		txsToProcess = append(txsToProcess, tx)
@@ -147,7 +147,7 @@ func processSingle(ctx context.Context, database db.DB, registry *identifier.Reg
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return
 	}
-	if TxTypeToSecurityType(j.Tx.Type) == SecurityTypeNone {
+	if !TxTypeStored(j.Tx.Type) {
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
 		return
 	}

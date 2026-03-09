@@ -74,7 +74,7 @@ const batchChunkSize = 50
 type BatchItemForClient struct {
 	ID          string
 	Description string
-	TypeHint    string // SecurityType from the request (e.g. "Option", "Equity"); used to choose TICKER vs OCC
+	TypeHint    string // SecurityTypeHint from the request (e.g. Option, Stock); used to choose TICKER vs OCC
 }
 
 // NormalizeDescriptionsBatch asks the model to identify multiple descriptions in one (or chunked) request(s).
@@ -87,7 +87,7 @@ func (c *Client) NormalizeDescriptionsBatch(ctx context.Context, items []BatchIt
 	if len(items) == 0 {
 		return nil, nil, nil
 	}
-	systemPrompt := `Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is "Option", extract and return the OCC symbol (21-character standard option symbol) in "OCC". Otherwise extract and return the primary exchange ticker in "TICKER". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { "a1b2c3d4": { "TICKER": "AAPL" }, "e5f6g7h8": { "OCC": "AAPL250117C00150000" } }`
+	systemPrompt := `Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is "OPTION", extract and return the OCC symbol (21-character standard option symbol) in "OCC". Otherwise extract and return the primary exchange ticker in "TICKER". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { "a1b2c3d4": { "TICKER": "AAPL" }, "e5f6g7h8": { "OCC": "AAPL250117C00150000" } }`
 	merged := make(map[string]*NormalizedIdentifiers)
 	var totalUsage *Usage
 	for start := 0; start < len(items); start += batchChunkSize {

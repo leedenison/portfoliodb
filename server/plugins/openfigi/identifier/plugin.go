@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/telemetry"
@@ -48,9 +49,15 @@ func (p *Plugin) DefaultConfig() []byte {
 	return out
 }
 
-// AcceptableSecurityTypes returns the security types this plugin can attempt identification for (Equity, Bond, Mutual Fund, Option; not Cash or Unknown).
-func (p *Plugin) AcceptableSecurityTypes() []string {
-	return []string{"Equity", "Bond", "Mutual Fund", "Option"}
+// AcceptableSecurityTypes returns the security type hints this plugin can attempt identification for (STOCK, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE; not CASH or UNKNOWN).
+func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
+	return map[string]bool{
+		identifier.SecurityTypeHintStock:       true,
+		identifier.SecurityTypeHintFixedIncome: true,
+		identifier.SecurityTypeHintMutualFund:  true,
+		identifier.SecurityTypeHintOption:      true,
+		identifier.SecurityTypeHintFuture:      true,
+	}
 }
 
 // Identify resolves using identifier hints (mapping) or returns ErrNotIdentified. Does not use Search API or OpenAI.
@@ -84,7 +91,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 }
 
 // resolveResults picks a result from the slice, converts it to an instrument, and ensures underlying.
-// If fallbackFirst is true and there are multiple results with no EQUITY+common match, the first result is used.
+// If fallbackFirst is true and there are multiple results with no STOCK+common match, the first result is used.
 // It returns (inst, ids, true) when a result was chosen, (nil, nil, false) otherwise.
 func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, fallbackFirst bool) (*identifier.Instrument, []identifier.Identifier, bool) {
 	if len(results) == 0 {
@@ -95,8 +102,8 @@ func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, f
 		idx = 0
 	} else {
 		for i := range results {
-			ac := assetClassFromOpenFIGI(results[i].SecurityType, results[i].SecurityType2, results[i].MarketSector)
-			if ac == "EQUITY" && strings.Contains(strings.ToLower(results[i].SecurityType2), "common") {
+			ac := assetClassFromOpenFIGI(results[i].SecurityType, results[i].SecurityType2, results[i].MarketSector, p.log)
+			if ac == db.AssetClassStock && strings.Contains(strings.ToLower(results[i].SecurityType2), "common") {
 				idx = i
 				break
 			}
@@ -107,7 +114,7 @@ func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, f
 			return nil, nil, false
 		}
 	}
-	inst, ids := openFIGIResultToInstrument(&results[idx])
+	inst, ids := openFIGIResultToInstrument(&results[idx], p.log)
 	EnsureUnderlying(ctx, p.openfigi, inst, &results[idx], p.getUnderlyingSymbol)
 	return inst, ids, true
 }

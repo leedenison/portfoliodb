@@ -104,7 +104,7 @@ func (e *errWithMessage) Error() string { return e.msg }
 var _ telemetry.CounterIncrementer = (*recordingCounter)(nil)
 
 func TestExtractBatch_TypeHintPassedToClient(t *testing.T) {
-	// BatchItemForClient must include TypeHint from Hints.SecurityType; when server returns OCC, plugin emits OCC identifier.
+	// BatchItemForClient must include TypeHint from Hints.SecurityTypeHint; when server returns OCC, plugin emits OCC identifier.
 	var receivedContent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -138,7 +138,7 @@ func TestExtractBatch_TypeHintPassedToClient(t *testing.T) {
 	ctx := context.Background()
 	p := NewPlugin(nil, nil)
 	items := []descpkg.BatchItem{
-		{ID: "ab12", InstrumentDescription: "BRKB 241115P00390000 BRK B 15NOV24 390 P", Hints: identifier.Hints{SecurityType: "Option"}},
+		{ID: "ab12", InstrumentDescription: "BRKB 241115P00390000 BRK B 15NOV24 390 P", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}},
 	}
 	out, err := p.ExtractBatch(ctx, config, "IBKR", "IBKR:test:statement", items)
 	if err != nil {
@@ -154,7 +154,7 @@ func TestExtractBatch_TypeHintPassedToClient(t *testing.T) {
 	if ids[0].Type != "OCC" || ids[0].Value != "BRKB241115P00390000" {
 		t.Errorf("out[ab12] = %+v, want Type=OCC Value=BRKB241115P00390000", ids[0])
 	}
-	if receivedContent != "" && !strings.Contains(receivedContent, "Option") {
-		t.Errorf("user content should include type Option, got: %s", receivedContent)
+	if receivedContent != "" && !strings.Contains(receivedContent, "OPTION") {
+		t.Errorf("user content should include type OPTION, got: %s", receivedContent)
 	}
 }

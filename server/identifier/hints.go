@@ -1,12 +1,26 @@
 package identifier
 
+import "github.com/leedenison/portfoliodb/server/db"
+
+// Security type hint vocabulary. Same as asset class (type alias). Plugins use these as keys in AcceptableSecurityTypes() and compare against Hints.SecurityTypeHint.
+const (
+	SecurityTypeHintStock       = db.AssetClassStock
+	SecurityTypeHintETF         = db.AssetClassETF
+	SecurityTypeHintFixedIncome = db.AssetClassFixedIncome
+	SecurityTypeHintMutualFund  = db.AssetClassMutualFund
+	SecurityTypeHintOption      = db.AssetClassOption
+	SecurityTypeHintFuture      = db.AssetClassFuture
+	SecurityTypeHintCash        = db.AssetClassCash
+	SecurityTypeHintUnknown     = db.AssetClassUnknown
+)
+
 // Hints are optional resolution hints passed to description and identifier plugins.
-// SecurityType is derived from the transaction type (e.g. Bond, Option, Equity) and may be sent to OpenFIGI as securityType2.
+// SecurityTypeHint is derived from the transaction type and used for plugin routing; vocabulary is the same as asset class.
 type Hints struct {
-	ExchangeCode string
-	Currency     string
-	MIC          string
-	SecurityType string
+	ExchangeCode   string
+	Currency       string
+	MIC            string
+	SecurityTypeHint string
 }
 
 // AllowedIdentifierTypes is the controlled vocabulary for identifier hint types (proto IdentifierType names).

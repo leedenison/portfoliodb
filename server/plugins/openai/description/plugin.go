@@ -59,9 +59,14 @@ func (p *Plugin) DefaultConfig() []byte {
 	return out
 }
 
-// AcceptableSecurityTypes returns the security types this plugin can attempt extraction for (Equity, Bond, Mutual Fund, Option; not Cash or Unknown).
-func (p *Plugin) AcceptableSecurityTypes() []string {
-	return []string{"Equity", "Bond", "Mutual Fund", "Option"}
+// AcceptableSecurityTypes returns the security type hints this plugin can attempt extraction for (STOCK, FIXED_INCOME, MUTUAL_FUND, OPTION; not CASH or UNKNOWN).
+func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
+	return map[string]bool{
+		identifier.SecurityTypeHintStock:       true,
+		identifier.SecurityTypeHintFixedIncome: true,
+		identifier.SecurityTypeHintMutualFund:  true,
+		identifier.SecurityTypeHintOption:     true,
+	}
 }
 
 // ExtractBatch implements descpkg.Plugin. Chunks items into groups of 50 and calls the API per chunk; merges results keyed by ID.
@@ -82,7 +87,7 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 		clientItems[i] = BatchItemForClient{
 			ID:          items[i].ID,
 			Description: items[i].InstrumentDescription,
-			TypeHint:    items[i].Hints.SecurityType,
+			TypeHint:    items[i].Hints.SecurityTypeHint,
 		}
 	}
 	byID, usage, err := p.client.NormalizeDescriptionsBatch(ctx, clientItems)

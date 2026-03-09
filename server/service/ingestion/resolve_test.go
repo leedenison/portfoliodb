@@ -27,7 +27,7 @@ func (p *fakePlugin) Identify(ctx context.Context, config []byte, broker, source
 	return p.inst, p.ids, p.err
 }
 
-func (p *fakePlugin) AcceptableSecurityTypes() []string { return nil }
+func (p *fakePlugin) AcceptableSecurityTypes() map[string]bool { return nil }
 func (p *fakePlugin) DefaultConfig() []byte             { return nil }
 func (p *fakePlugin) DisplayName() string               { return "Fake" }
 
@@ -44,7 +44,7 @@ func (p *fakeDescPlugin) ExtractBatch(ctx context.Context, config []byte, broker
 	return out, nil
 }
 
-func (p *fakeDescPlugin) AcceptableSecurityTypes() []string { return nil }
+func (p *fakeDescPlugin) AcceptableSecurityTypes() map[string]bool { return nil }
 func (p *fakeDescPlugin) DefaultConfig() []byte             { return nil }
 func (p *fakeDescPlugin) DisplayName() string               { return "Fake" }
 
@@ -215,7 +215,7 @@ func TestResolve_DBMiss_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T
 	registry := identifier.NewRegistry()
 	source := "IBKR:test:statement"
 	registry.Register("local", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "EQUITY", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
 		ids:  []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "AAPL"}, {Type: "ISIN", Value: "US0378331005"}},
 		err:  nil,
 	})
@@ -238,7 +238,7 @@ func TestResolve_DBMiss_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T
 		ListEnabledPluginConfigs(gomock.Any()).
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "EQUITY", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
 		DoAndReturn(func(_ context.Context, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time) (string, error) {
 			if len(idns) < 2 {
 				t.Errorf("expected at least 2 identifiers (broker + ISIN), got %d", len(idns))
@@ -270,7 +270,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 	desc := "APPLE INC COM"
 	// Plugin returns only canonical ids; does not include (source, desc).
 	registry.Register("local", &fakePlugin{
-		inst: &identifier.Instrument{AssetClass: "EQUITY", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "OPENFIGI_GLOBAL", Value: "BBG000B9XRY4"}},
 		err:  nil,
 	})
@@ -293,7 +293,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any()).
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "EQUITY", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
 		DoAndReturn(func(_ context.Context, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time) (string, error) {
 			hasSource := false
 			for _, idn := range idns {
@@ -333,7 +333,7 @@ func TestResolve_PluginReturnsUnderlying_EnsuresUnderlyingThenDerivative(t *test
 			Currency:   "USD",
 			Name:       "AAPL Call 20250117 200 C",
 			Underlying: &identifier.Instrument{
-				AssetClass: "EQUITY",
+				AssetClass: "STOCK",
 				Exchange:   "XNAS",
 				Currency:   "USD",
 				Name:       "Apple Inc.",
@@ -364,9 +364,9 @@ func TestResolve_PluginReturnsUnderlying_EnsuresUnderlyingThenDerivative(t *test
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any()).
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10, Config: nil}}, nil)
-	// First call: ensure underlying (EQUITY).
+	// First call: ensure underlying (STOCK).
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "EQUITY", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
 		DoAndReturn(func(_ context.Context, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time) (string, error) {
 			return "underlying-uuid", nil
 		})
@@ -698,7 +698,7 @@ func (p *retryPlugin) Identify(ctx context.Context, config []byte, broker, sourc
 	return p.inst, p.ids, nil
 }
 
-func (p *retryPlugin) AcceptableSecurityTypes() []string { return nil }
+func (p *retryPlugin) AcceptableSecurityTypes() map[string]bool { return nil }
 func (p *retryPlugin) DefaultConfig() []byte             { return nil }
 func (p *retryPlugin) DisplayName() string               { return "Retry" }
 

@@ -120,7 +120,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	processJob(ctx, database, registry, nil, nil, j)
 }
 
-func TestProcessBulk_DropsSecurityTypeNoneTransactions(t *testing.T) {
+func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -172,7 +172,7 @@ func TestProcessBulk_DropsSecurityTypeNoneTransactions(t *testing.T) {
 	processJob(ctx, database, registry, nil, nil, j)
 }
 
-func TestProcessSingle_DropsSecurityTypeNoneTransaction(t *testing.T) {
+func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)

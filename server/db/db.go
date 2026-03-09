@@ -121,19 +121,20 @@ type PluginConfigRowFull struct {
 
 // Valid asset class values (controlled vocabulary).
 const (
-	AssetClassEquity       = "EQUITY"
+	AssetClassStock       = "STOCK"
 	AssetClassETF         = "ETF"
-	AssetClassMF          = "MF"
-	AssetClassCash        = "CASH"
 	AssetClassFixedIncome = "FIXED_INCOME"
+	AssetClassMutualFund  = "MUTUAL_FUND"
 	AssetClassOption      = "OPTION"
 	AssetClassFuture      = "FUTURE"
+	AssetClassCash        = "CASH"
+	AssetClassUnknown     = "UNKNOWN"
 )
 
 // ValidAssetClasses is the set of allowed asset_class values for validation.
 var ValidAssetClasses = map[string]bool{
-	AssetClassEquity: true, AssetClassETF: true, AssetClassMF: true,
-	AssetClassCash: true, AssetClassFixedIncome: true, AssetClassOption: true, AssetClassFuture: true,
+	AssetClassStock: true, AssetClassETF: true, AssetClassFixedIncome: true, AssetClassMutualFund: true,
+	AssetClassOption: true, AssetClassFuture: true, AssetClassCash: true, AssetClassUnknown: true,
 }
 
 // InstrumentRow is a single instrument with its identifiers (for API responses).

@@ -21,9 +21,9 @@ type Plugin interface {
 	// DisplayName returns a human-readable name for the plugin (e.g. "OpenAI"). Shown in the admin UI.
 	DisplayName() string
 
-	// AcceptableSecurityTypes returns the security types this plugin can attempt extraction for (e.g. "Equity", "Bond").
-	// Values must match the ingestion layer vocabulary. Nil or empty means all types.
-	AcceptableSecurityTypes() []string
+	// AcceptableSecurityTypes returns the set of security type hints this plugin can attempt extraction for (e.g. Stock, Bond).
+	// Keys must be from the identifier package constants (SecurityTypeHintStock, etc.). Nil or empty map means all types.
+	AcceptableSecurityTypes() map[string]bool
 
 	// ExtractBatch runs extraction on all items. config is the plugin's JSON config (may be nil).
 	// Result map is keyed by BatchItem.ID. Returns (nil, nil) or empty map when nothing could be extracted; no DB access.

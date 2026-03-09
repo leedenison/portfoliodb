@@ -37,8 +37,8 @@ func (p *Plugin) DefaultConfig() []byte {
 }
 
 // AcceptableSecurityTypes returns only Cash; the plugin looks up by CURRENCY identifier.
-func (p *Plugin) AcceptableSecurityTypes() []string {
-	return []string{"Cash"}
+func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
+	return map[string]bool{identifier.SecurityTypeHintCash: true}
 }
 
 // Identify looks up an instrument by CURRENCY identifier. When identifierHints contain a CURRENCY type with non-empty value,

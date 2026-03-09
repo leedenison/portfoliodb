@@ -30,9 +30,9 @@ func (p *Plugin) DefaultConfig() []byte {
 	return []byte("{}")
 }
 
-// AcceptableSecurityTypes returns only Cash; the plugin turns hints.Currency into a CURRENCY identifier.
-func (p *Plugin) AcceptableSecurityTypes() []string {
-	return []string{"Cash"}
+// AcceptableSecurityTypes returns only Cash; the plugin turns Hints.Currency into a CURRENCY identifier.
+func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
+	return map[string]bool{identifier.SecurityTypeHintCash: true}
 }
 
 // ExtractBatch returns one CURRENCY identifier per item when Hints.Currency is set (from tx.trading_currency).

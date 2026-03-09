@@ -1,6 +1,6 @@
 # Instruments
 
-An **instrument** holds canonical data (id, asset class, exchange, currency, name, etc.) independent of how it was identified. **Asset class** is a controlled vocabulary: one of `EQUITY`, `ETF`, `MF`, `CASH`, `FIXED_INCOME`, `OPTION`, or `FUTURE` (or null if unknown). Instruments with asset class `OPTION` or `FUTURE` must reference an underlying instrument. 
+An **instrument** holds canonical data (id, asset class, exchange, currency, name, etc.) independent of how it was identified. **Asset class** is a controlled vocabulary: one of `STOCK`, `ETF`, `FIXED_INCOME`, `MUTUAL_FUND`, `OPTION`, `FUTURE`, `CASH`, or `UNKNOWN` (or null if unknown). Instruments with asset class `OPTION` or `FUTURE` must reference an underlying instrument. 
 
 **Instrument tags**: Instruments support **tags** (tag type / tag value). Datasource-specific metadata such as market sector, security type, or similar fields returned by identification or price plugins (e.g. OpenFIGI’s marketSector, securityType) will be stored as tags on the instrument.
 
@@ -70,7 +70,15 @@ A user may believe the system has mis-identified an instrument. It should be pos
 
 ### Security type and transaction handling
 
-The ingestion layer maps each transaction type to a **security type** hint (Cash, Equity, Option, Bond, Mutual Fund, Unknown, or None). This hint is passed to description and identifier plugins so they can accept or skip items (e.g. the cash plugin only accepts Cash). Security type **None** means the transaction is not stored: it is dropped on upload (e.g. SPLIT). No resolution or DB insert is performed for such transactions.
+Transactions that are **not stored** (e.g. SPLIT) are determined by **TxType** and are dropped before resolution. No resolution or DB insert is performed for such transactions.
+
+For transactions that are stored, the ingestion layer maps TxType to a **security type hint**. This hint is passed to description and identifier plugins for routing only (e.g. the cash plugin only accepts CASH). The hint vocabulary is the **same as asset class** (type alias).
+
+#### Type layers
+
+- **TxType** (broker/proto): Transaction classification (BUYSTOCK, SPLIT, INCOME, …). Some TxTypes are not stored (e.g. SPLIT).
+- **Security type hint** (routing): Derived from TxType; vocabulary is the same as asset class: STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN. TxType cannot distinguish stock from ETF, so stock-like TxTypes map to STOCK (never ETF).
+- **Asset class** (canonical): STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN. Set by identifier plugins and stored on instruments.
 
 ### Description Plugins
 

@@ -118,7 +118,7 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 		t.Fatalf("ensure broker-only: %v", err)
 	}
 	// Instrument with canonical identifier - should be included.
-	withCanonID, err := p.EnsureInstrument(ctx, "EQUITY", "XNAS", "USD", "Apple", []db.IdentifierInput{
+	withCanonID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", []db.IdentifierInput{
 		{Type: "ISIN", Value: "US0378331005", Canonical: true},
 		{Type: "IBKR", Value: "AAPL", Canonical: false},
 	}, "", nil, nil)
@@ -150,11 +150,11 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	_, err := p.EnsureInstrument(ctx, "EQUITY", "XNAS", "USD", "Nasdaq", []db.IdentifierInput{{Type: "ISIN", Value: "N1", Canonical: true}}, "", nil, nil)
+	_, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Nasdaq", []db.IdentifierInput{{Type: "ISIN", Value: "N1", Canonical: true}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure XNAS: %v", err)
 	}
-	_, err = p.EnsureInstrument(ctx, "EQUITY", "XNYS", "USD", "NYSE", []db.IdentifierInput{{Type: "ISIN", Value: "Y1", Canonical: true}}, "", nil, nil)
+	_, err = p.EnsureInstrument(ctx, "STOCK", "XNYS", "USD", "NYSE", []db.IdentifierInput{{Type: "ISIN", Value: "Y1", Canonical: true}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure XNYS: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport all: %v", err)
 	}
-	// No filter: seeded CASH instruments (canonical CURRENCY) plus our 2 EQUITY instruments.
+	// No filter: seeded CASH instruments (canonical CURRENCY) plus our 2 STOCK instruments.
 	if len(listAll) < 2 {
 		t.Fatalf("expected at least 2 instruments with no filter, got %d", len(listAll))
 	}
@@ -191,8 +191,8 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	// Create underlying first (EQUITY).
-	underlyingID, err := p.EnsureInstrument(ctx, "EQUITY", "XNAS", "USD", "Apple Inc.", []db.IdentifierInput{
+	// Create underlying first (STOCK).
+	underlyingID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple Inc.", []db.IdentifierInput{
 		{Type: "ISIN", Value: "US0378331005", Canonical: true},
 	}, "", nil, nil)
 	if err != nil {

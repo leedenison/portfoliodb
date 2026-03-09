@@ -15,14 +15,14 @@ type Plugin interface {
 	// DisplayName returns a human-readable name for the plugin (e.g. "OpenFIGI"). Shown in the admin UI.
 	DisplayName() string
 
-	// AcceptableSecurityTypes returns the security types this plugin can attempt identification for (e.g. "Equity", "Bond").
-	// Values must match the ingestion layer vocabulary. Nil or empty means all types.
-	AcceptableSecurityTypes() []string
+	// AcceptableSecurityTypes returns the set of security type hints this plugin can attempt identification for (e.g. Stock, Bond).
+	// Keys must be from the identifier package constants (SecurityTypeHintStock, etc.). Nil or empty map means all types.
+	AcceptableSecurityTypes() map[string]bool
 
 	// Identify resolves to canonical instrument data and identifiers. When identifierHints is non-empty, resolution is from those hints (e.g. mapping by TICKER/FIGI); when empty, the plugin may use instrumentDescription only if it can do so safely (e.g. no raw search with long text).
 	// config is the plugin's JSON config from identifier_plugin_config.config (may be nil).
 	// Returns (instrument, identifiers, nil) when resolved, or (nil, nil, ErrNotIdentified) when the plugin cannot resolve.
-	// hints are optional (exchange, currency, MIC, security type) and must not be stored as canonical—only API-confirmed data is written to the instrument.
+	// hints are optional (exchange, currency, MIC, security type hint) and must not be stored as canonical—only API-confirmed data is written to the instrument.
 	// The caller ensures identifiers include at least (Type=BROKER_DESCRIPTION, Domain=source, Value=instrument_description) when creating a new instrument from description path.
 	Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints Hints, identifierHints []Identifier) (*Instrument, []Identifier, error)
 

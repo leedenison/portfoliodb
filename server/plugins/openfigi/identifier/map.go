@@ -2,44 +2,68 @@ package identifier
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
+	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
-// Map OpenFIGI securityType / marketSector to PortfolioDB asset class.
-func assetClassFromOpenFIGI(securityType, securityType2, marketSector string) string {
-	s := strings.ToLower(securityType)
-	s2 := strings.ToLower(securityType2)
-	m := strings.ToLower(marketSector)
+// openFIGIFutureSecurityTypes is the allowlist for FUTURE asset class (exact match, case-insensitive).
+// Values from OpenFIGI securityType/securityType2.
+var openFIGIFutureSecurityTypes = map[string]bool{
+	"future": true, "currency future": true, "financial commodity future": true,
+	"financial index future": true, "generic currency future": true, "generic index future": true,
+	"financial commodity generic": true, "dividend neutral stock future": true,
+}
+
+// assetClassFromOpenFIGI maps OpenFIGI securityType/securityType2/marketSector to PortfolioDB asset class.
+// Order: Option → Future (allowlist) → ETP+Mutual Fund→ETF, Mutual Fund→MUTUAL_FUND, ETP→ETF → STOCK → FIXED_INCOME → CASH → fall-through.
+// When no rule matches, returns "" and if log != nil logs that asset class could not be determined.
+func assetClassFromOpenFIGI(securityType, securityType2, marketSector string, log *slog.Logger) string {
+	s := strings.TrimSpace(strings.ToLower(securityType))
+	s2 := strings.TrimSpace(strings.ToLower(securityType2))
+	m := strings.TrimSpace(strings.ToLower(marketSector))
+
 	if strings.Contains(s2, "option") || strings.Contains(s, "option") {
-		return "OPTION"
+		return db.AssetClassOption
 	}
-	if strings.Contains(s2, "future") || strings.Contains(s, "future") {
-		return "FUTURE"
+	if openFIGIFutureSecurityTypes[s] || openFIGIFutureSecurityTypes[s2] {
+		return db.AssetClassFuture
 	}
-	if strings.Contains(s, "etf") || strings.Contains(m, "etf") {
-		return "ETF"
+	if s == "etp" && s2 == "mutual fund" {
+		return db.AssetClassETF
 	}
-	if strings.Contains(s, "mutual") || strings.Contains(s, "fund") {
-		return "MF"
+	if s == "mutual fund" {
+		return db.AssetClassMutualFund
 	}
-	if strings.Contains(m, "equity") || strings.Contains(s, "common stock") || strings.Contains(s2, "common stock") {
-		return "EQUITY"
+	if s == "etp" {
+		return db.AssetClassETF
+	}
+	if strings.Contains(s, "common stock") || strings.Contains(s2, "common stock") ||
+		strings.Contains(s, "preferred stock") || strings.Contains(s2, "preferred stock") ||
+		strings.Contains(s, "ordinary shares") || strings.Contains(s2, "ordinary shares") ||
+		m == "equity" {
+		return db.AssetClassStock
 	}
 	if strings.Contains(m, "govt") || strings.Contains(m, "corp") || strings.Contains(m, "municipal") || strings.Contains(m, "mtge") {
-		return "FIXED_INCOME"
+		return db.AssetClassFixedIncome
 	}
 	if strings.Contains(m, "curncy") || strings.Contains(s, "currency") {
-		return "CASH"
+		return db.AssetClassCash
+	}
+	if log != nil {
+		log.Debug("asset class could not be determined from OpenFIGI response",
+			"securityType", securityType, "securityType2", securityType2, "marketSector", marketSector)
 	}
 	return ""
 }
 
 // openFIGIResultToInstrument converts one OpenFIGI result to identifier.Instrument and identifiers.
 // If the result is a derivative (option/future), underlying is resolved separately and set on inst.
-func openFIGIResultToInstrument(r *OpenFIGIResult) (*identifier.Instrument, []identifier.Identifier) {
-	assetClass := assetClassFromOpenFIGI(r.SecurityType, r.SecurityType2, r.MarketSector)
+// log is optional; when non-nil and asset class cannot be determined, a debug message is logged.
+func openFIGIResultToInstrument(r *OpenFIGIResult, log *slog.Logger) (*identifier.Instrument, []identifier.Identifier) {
+	assetClass := assetClassFromOpenFIGI(r.SecurityType, r.SecurityType2, r.MarketSector, log)
 	name := r.Name
 	if name == "" {
 		name = r.SecurityDescription
@@ -72,8 +96,8 @@ func openFIGIResultToInstrument(r *OpenFIGIResult) (*identifier.Instrument, []id
 
 // isDerivative returns true if the result is an option or future.
 func isDerivative(r *OpenFIGIResult) bool {
-	ac := assetClassFromOpenFIGI(r.SecurityType, r.SecurityType2, r.MarketSector)
-	return ac == "OPTION" || ac == "FUTURE"
+	ac := assetClassFromOpenFIGI(r.SecurityType, r.SecurityType2, r.MarketSector, nil)
+	return ac == db.AssetClassOption || ac == db.AssetClassFuture
 }
 
 // UnderlyingResolver returns the underlying symbol and optional exchange hint for a derivative ticker.
@@ -102,7 +126,7 @@ func EnsureUnderlying(ctx context.Context, client *OpenFIGIClient, inst *identif
 			return
 		}
 		for i := range sr.Data {
-			if assetClassFromOpenFIGI(sr.Data[i].SecurityType, sr.Data[i].SecurityType2, sr.Data[i].MarketSector) == "EQUITY" {
+			if assetClassFromOpenFIGI(sr.Data[i].SecurityType, sr.Data[i].SecurityType2, sr.Data[i].MarketSector, nil) == db.AssetClassStock {
 				underlyingResults = sr.Data[i : i+1]
 				break
 			}
@@ -112,7 +136,7 @@ func EnsureUnderlying(ctx context.Context, client *OpenFIGIClient, inst *identif
 		}
 	}
 	u := underlyingResults[0]
-	underlyingInst, underlyingIds := openFIGIResultToInstrument(&u)
+	underlyingInst, underlyingIds := openFIGIResultToInstrument(&u, nil)
 	inst.Underlying = underlyingInst
 	inst.UnderlyingIdentifiers = underlyingIds
 }

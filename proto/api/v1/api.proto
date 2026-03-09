@@ -74,7 +74,7 @@ message InstrumentIdentifier {
 }
 
 // Instrument is canonical security-master data for an instrument, with its identifiers.
-// asset_class must be one of: EQUITY, ETF, MF, CASH, FIXED_INCOME, OPTION, FUTURE.
+// asset_class must be one of: STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN.
 // When asset_class is OPTION or FUTURE, underlying_id must be set.
 message Instrument {
   string id = 1;

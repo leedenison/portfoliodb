@@ -12,7 +12,7 @@ func TestPlugin_ExtractBatch_ReturnsCurrency(t *testing.T) {
 	p := NewPlugin()
 	ctx := context.Background()
 	items := []descpkg.BatchItem{
-		{ID: "1", InstrumentDescription: "USD Cash", Hints: identifier.Hints{Currency: "USD", SecurityType: "Cash"}},
+		{ID: "1", InstrumentDescription: "USD Cash", Hints: identifier.Hints{Currency: "USD", SecurityTypeHint: identifier.SecurityTypeHintCash}},
 	}
 	out, err := p.ExtractBatch(ctx, nil, "IBKR", "IBKR:test", items)
 	if err != nil {
@@ -34,7 +34,7 @@ func TestPlugin_ExtractBatch_NormalizesCurrencyCode(t *testing.T) {
 	p := NewPlugin()
 	ctx := context.Background()
 	items := []descpkg.BatchItem{
-		{ID: "1", Hints: identifier.Hints{Currency: "  usd  ", SecurityType: "Cash"}},
+		{ID: "1", Hints: identifier.Hints{Currency: "  usd  ", SecurityTypeHint: identifier.SecurityTypeHintCash}},
 	}
 	out, err := p.ExtractBatch(ctx, nil, "", "", items)
 	if err != nil {
@@ -49,7 +49,7 @@ func TestPlugin_ExtractBatch_EmptyCurrency_ReturnsNothing(t *testing.T) {
 	p := NewPlugin()
 	ctx := context.Background()
 	items := []descpkg.BatchItem{
-		{ID: "1", Hints: identifier.Hints{SecurityType: "Cash"}},
+		{ID: "1", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintCash}},
 	}
 	out, err := p.ExtractBatch(ctx, nil, "", "", items)
 	if err != nil {
@@ -62,8 +62,8 @@ func TestPlugin_ExtractBatch_EmptyCurrency_ReturnsNothing(t *testing.T) {
 
 func TestPlugin_AcceptableSecurityTypes_OnlyCash(t *testing.T) {
 	p := NewPlugin()
-	types := p.AcceptableSecurityTypes()
-	if len(types) != 1 || types[0] != "Cash" {
-		t.Errorf("AcceptableSecurityTypes = %v, want [Cash]", types)
+	set := p.AcceptableSecurityTypes()
+	if len(set) != 1 || !set[identifier.SecurityTypeHintCash] {
+		t.Errorf("AcceptableSecurityTypes = %v, want set containing %s", set, identifier.SecurityTypeHintCash)
 	}
 }

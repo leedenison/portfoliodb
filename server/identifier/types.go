@@ -2,14 +2,14 @@ package identifier
 
 import "time"
 
-// Asset class must be one of: EQUITY, ETF, MF, CASH, FIXED_INCOME, OPTION, FUTURE.
+// Asset class must be one of: STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN.
 // When AssetClass is OPTION or FUTURE, Underlying and UnderlyingIdentifiers should be set so the service can set underlying_id.
 
 // Instrument holds canonical security-master data for an instrument.
 // Identification plugins return enough data to find or create this in the DB.
 type Instrument struct {
 	ID         string  // UUID; may be empty when creating new
-	AssetClass string  // one of EQUITY, ETF, MF, CASH, FIXED_INCOME, OPTION, FUTURE
+	AssetClass string  // one of STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN
 	Exchange   string
 	Currency   string
 	Name       string  // optional display name

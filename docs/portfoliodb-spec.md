@@ -49,6 +49,60 @@ Every valid transaction must end up with an **instrument_id**: either from plugi
 
 Identifying an instrument means associating the canonical **instrument** (security master) with zero or more **identifiers** (opaque type + domain + value, e.g. ISIN, CUSIP, EXCHANGE + TICKER, FIGI, broker description, etc).  The process of identifying instruments happens during transaction upload processing and periodically (see docs/identifiers.md).
 
+### Transaction ingestion: resolution cases
+
+The following diagram illustrates how each transaction is resolved to an instrument during upload. Optional client **hints** (exchange, currency, MIC, security type) are used only to narrow resolution; the decision tree is driven by whether the client supplies **identifier hints** (e.g. ISIN, TICKER) and by the outcomes of the **description** and **identifier** plugins.
+
+```mermaid
+flowchart TD
+    Start([Tx upload: source + description + optional hints])
+    Start --> HasIdHints{Client supplied identifier hints?}
+
+    HasIdHints -->|Yes| LookupByHints[DB lookup by identifier hints]
+    LookupByHints --> HintsOneId{Exactly one instrument?}
+    HintsOneId -->|Yes| DoneNoStore[Use instrument (do not store source, description)]
+    HintsOneId -->|No, 0 or >1| IdPluginsWithHints[Call identifier plugins with hints]
+    IdPluginsWithHints --> IdResolveClient{Plugin(s) resolved?}
+    IdResolveClient -->|Yes| CanonicalFromClient[Canonical instrument (no source/desc stored)]
+    IdResolveClient -->|No / timeout / unavailable| BrokerOnlyFromClient[Broker-description-only instrument + identification error]
+
+    HasIdHints -->|No| LookupByDesc[DB lookup by source + description]
+    LookupByDesc --> DescHit{Cache hit?}
+    DescHit -->|Yes| DoneCached[Use existing instrument]
+
+    DescHit -->|No| RunDescPlugins[Run description plugins in series by precedence]
+    RunDescPlugins --> DescReturned{Description plugin(s) return identifiers?}
+    DescReturned -->|No| NoExtraction[Broker-description-only instrument + description extraction failed (identifier plugins not called)]
+    DescReturned -->|Yes| MaybeDbByHints[DB lookup by extracted hints]
+    MaybeDbByHints --> ExtHintsOne{Exactly one instrument?}
+    ExtHintsOne -->|Yes| DoneWithStore[Use instrument, store source and description on instrument]
+    ExtHintsOne -->|No| IdPluginsExtracted[Call identifier plugins with extracted hints]
+    IdPluginsExtracted --> IdResolveExt{Plugin(s) resolved?}
+    IdResolveExt -->|Yes| CanonicalFromExt[Canonical instrument + store source, description]
+    IdResolveExt -->|No / timeout / unavailable| BrokerOnlyFromExt[Broker-description-only instrument + broker description only or timeout/unavailable]
+
+    DoneNoStore --> End([Tx linked to instrument])
+    CanonicalFromClient --> End
+    BrokerOnlyFromClient --> End
+    DoneCached --> End
+    NoExtraction --> End
+    DoneWithStore --> End
+    CanonicalFromExt --> End
+    BrokerOnlyFromExt --> End
+```
+
+**Cases summarised:**
+
+| Upload shape | Description plugins | Identifier plugins | Outcome |
+|--------------|--------------------|--------------------|---------|
+| Txs with **identifiers** (no description-only path) | Not used | Resolve by hints (DB or plugins) | Canonical instrument or broker-description-only; source/description not stored when resolved by client hints. |
+| Txs with **description + hints only** | Not run if DB hit by (source, description) | Not run if no extracted hints | Re-upload: use cached instrument. |
+| Txs with **description + hints only** | Return **no** identifiers | Not called | Broker-description-only; error "description extraction failed". |
+| Txs with **description + hints only** | Return identifiers | Resolve (DB or plugins) | Canonical instrument; (source, description) stored. |
+| Txs with **description + hints only** | Return identifiers | Do **not** resolve / timeout / unavailable | Broker-description-only; error "broker description only" or "plugin timeout" / "plugin unavailable". |
+
+Other behaviours (see docs/identifiers.md): conflicting client identifiers → validation error; same (source, description) in batch → resolved once and cached; instrument merge when plugins link two existing instruments.
+
 ## Fetching Prices
 
 The system should support the ability to fetch current and historical prices for identified instruments.  Actual API / datasource integrations should be implemented as plugins.  The system should support manual entry by admin users if no automatic data source is available.

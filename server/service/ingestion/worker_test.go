@@ -119,3 +119,82 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 
 	processJob(ctx, database, registry, nil, nil, j)
 }
+
+func TestProcessBulk_DropsSecurityTypeNoneTransactions(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	from := timestamppb.Now()
+	to := timestamppb.Now()
+	txs := []*apiv1.Tx{
+		{Timestamp: from, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: ""},
+		{Timestamp: from, InstrumentDescription: "SPLIT", Type: apiv1.TxType_SPLIT, Quantity: 1, Account: ""},
+	}
+	j := &JobRequest{
+		JobID:      "job-split",
+		UserID:     "user-1",
+		Broker:     "IBKR",
+		Source:     "IBKR:test:statement",
+		Bulk:       true,
+		PeriodFrom: from,
+		PeriodTo:   to,
+		Txs:        txs,
+	}
+
+	database.EXPECT().
+		SetJobStatus(gomock.Any(), "job-split", apiv1.JobStatus_RUNNING).
+		Return(nil)
+	database.EXPECT().
+		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "AAPL").
+		Return("", nil)
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "", "", "", "AAPL", gomock.Any(), "", nil, nil).
+		Return("aapl-id", nil)
+	database.EXPECT().
+		AppendIdentificationErrors(gomock.Any(), "job-split", gomock.Any()).
+		Return(nil)
+	// ReplaceTxsInPeriod must be called with only the non-None tx (AAPL), not the SPLIT
+	database.EXPECT().
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", from, to, gomock.Len(1), []string{"aapl-id"}).
+		DoAndReturn(func(_ context.Context, _, _ string, _, _ *timestamppb.Timestamp, storedTxs []*apiv1.Tx, ids []string) error {
+			if len(storedTxs) != 1 || storedTxs[0].InstrumentDescription != "AAPL" || storedTxs[0].Type != apiv1.TxType_BUYSTOCK {
+				t.Errorf("ReplaceTxsInPeriod called with %d txs, expected 1 (AAPL BUYSTOCK)", len(storedTxs))
+			}
+			return nil
+		})
+	database.EXPECT().
+		SetJobStatus(gomock.Any(), "job-split", apiv1.JobStatus_SUCCESS).
+		Return(nil)
+
+	processJob(ctx, database, registry, nil, nil, j)
+}
+
+func TestProcessSingle_DropsSecurityTypeNoneTransaction(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	j := &JobRequest{
+		JobID:  "job-single-split",
+		UserID: "user-1",
+		Broker: "IBKR",
+		Source: "IBKR:test:statement",
+		Bulk:   false,
+		Tx:     &apiv1.Tx{Timestamp: timestamppb.Now(), InstrumentDescription: "SPLIT", Type: apiv1.TxType_SPLIT, Quantity: 1, Account: ""},
+	}
+
+	database.EXPECT().
+		SetJobStatus(gomock.Any(), "job-single-split", apiv1.JobStatus_RUNNING).
+		Return(nil)
+	database.EXPECT().
+		SetJobStatus(gomock.Any(), "job-single-split", apiv1.JobStatus_SUCCESS).
+		Return(nil)
+	// No Resolve, no CreateTx - SPLIT is dropped
+
+	processJob(ctx, database, registry, nil, nil, j)
+}

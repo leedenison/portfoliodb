@@ -79,7 +79,11 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 	p.client = NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel, cfg.OpenAIBaseURL)
 	clientItems := make([]BatchItemForClient, len(items))
 	for i := range items {
-		clientItems[i] = BatchItemForClient{ID: items[i].ID, Description: items[i].InstrumentDescription}
+		clientItems[i] = BatchItemForClient{
+			ID:          items[i].ID,
+			Description: items[i].InstrumentDescription,
+			TypeHint:    items[i].Hints.SecurityType,
+		}
 	}
 	byID, usage, err := p.client.NormalizeDescriptionsBatch(ctx, clientItems)
 	if err != nil {
@@ -95,10 +99,14 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 	}
 	out := make(map[string][]identifier.Identifier)
 	for id, norm := range byID {
-		if norm == nil || norm.Ticker == "" {
+		if norm == nil {
 			continue
 		}
-		out[id] = []identifier.Identifier{{Type: "TICKER", Domain: "", Value: norm.Ticker}}
+		if norm.OCC != "" {
+			out[id] = []identifier.Identifier{{Type: "OCC", Domain: "", Value: norm.OCC}}
+		} else if norm.Ticker != "" {
+			out[id] = []identifier.Identifier{{Type: "TICKER", Domain: "", Value: norm.Ticker}}
+		}
 	}
 	return out, nil
 }

@@ -68,6 +68,10 @@ PortfolioDB should periodically attempt to identify instruments in case datasour
 
 A user may believe the system has mis-identified an instrument. It should be possible for a user to override the identity for their portfolio. They do this by ensuring that the client provides an external identifier hint for the transactions they want to override.  This will then be looked up directly rather than using identifiers extracted from the description.  Admin users can correct shared instrument identities in the admin UI.
 
+### Security type and transaction handling
+
+The ingestion layer maps each transaction type to a **security type** hint (Cash, Equity, Option, Bond, Mutual Fund, Unknown, or None). This hint is passed to description and identifier plugins so they can accept or skip items (e.g. the cash plugin only accepts Cash). Security type **None** means the transaction is not stored: it is dropped on upload (e.g. SPLIT). No resolution or DB insert is performed for such transactions.
+
 ### Description Plugins
 
 When the client supplies only broker, source and instrument description (no external identifier hints), the system uses **description plugins** to **extract** candidate identifiers from the raw broker description. Description plugins live at `server/plugins/<datasource>/description` (e.g. `server/plugins/ibkr/description`). They parse the free-text instrument description (e.g. from a broker statement or confirmation) and return zero or more identifier hints (type, domain, value) that are then passed to the identifier resolution step. If a description plugin successfully extracts one or more identifiers, resolution continues using those extracted identifiers and a (source, NULL, description) identifier is stored as the authoritative mapping from the broker description. If extraction fails (no plugin returns identifiers, or the description is unparseable), the system treats it as an identity lookup failure: a (source, NULL, description) identifier is still stored and the instrument is created or found as broker-description-only.

@@ -7,12 +7,13 @@ import (
 
 // Security type hint strings passed to identifier plugins (e.g. OpenFIGI securityType2).
 const (
-	SecurityTypeBond               = "Bond"
-	SecurityTypeMutualFund         = "Mutual Fund"
-	SecurityTypeOption             = "Option"
-	SecurityTypeEquity             = "Equity"
-	SecurityTypeCash               = "Cash"
-	SecurityTypeUnknown            = "Unknown Security Type"
+	SecurityTypeBond       = "Bond"
+	SecurityTypeMutualFund = "Mutual Fund"
+	SecurityTypeOption     = "Option"
+	SecurityTypeEquity     = "Equity"
+	SecurityTypeCash       = "Cash"
+	SecurityTypeNone       = "None"
+	SecurityTypeUnknown    = "Unknown Security Type"
 )
 
 // TxTypeToSecurityType maps transaction type to the security type hint vocabulary.
@@ -31,8 +32,12 @@ func TxTypeToSecurityType(t apiv1.TxType) string {
 	case apiv1.TxType_INCOME, apiv1.TxType_INVEXPENSE, apiv1.TxType_REINVEST,
 		apiv1.TxType_TRANSFER, apiv1.TxType_MARGININTEREST, apiv1.TxType_RETOFCAP:
 		return SecurityTypeCash
-	case apiv1.TxType_SPLIT, apiv1.TxType_JRNLFUND, apiv1.TxType_JRNLSEC:
-		return SecurityTypeUnknown
+	case apiv1.TxType_JRNLFUND:
+		return SecurityTypeCash
+	case apiv1.TxType_JRNLSEC:
+		return SecurityTypeEquity
+	case apiv1.TxType_SPLIT:
+		return SecurityTypeNone
 	default:
 		return SecurityTypeUnknown
 	}

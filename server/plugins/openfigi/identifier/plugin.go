@@ -134,7 +134,11 @@ func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []ide
 		if value == "" {
 			continue
 		}
-		job := MappingJob{IDType: idType, IDValue: value}
+		idValue := value
+		if idType == "TICKER" && strings.Contains(value, ".") {
+			idValue = strings.ReplaceAll(value, ".", "/")
+		}
+		job := MappingJob{IDType: idType, IDValue: idValue}
 		if h.Domain != "" {
 			job.ExchCode = h.Domain
 		} else if hints.ExchangeCode != "" {

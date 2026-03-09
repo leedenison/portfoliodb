@@ -43,11 +43,13 @@ func NewClient(apiKey, model, baseURL string) *Client {
 // NormalizedIdentifiers is the structured result of normalizing a broker description (JSON response).
 type NormalizedIdentifiers struct {
 	Ticker string // primary exchange symbol (e.g. EQQQ)
+	OCC    string // OCC option symbol (21-character), when type is Option
 }
 
-// openAIJSONResponse is the shape of the model's JSON response (TICKER only).
+// openAIJSONResponse is the shape of the model's JSON response (TICKER and/or OCC).
 type openAIJSONResponse struct {
 	TICKER string `json:"TICKER"`
+	OCC    string `json:"OCC"`
 }
 
 // stripJSONFromContent removes markdown code fences if present and returns trimmed JSON string.
@@ -68,10 +70,11 @@ func stripJSONFromContent(raw string) string {
 
 const batchChunkSize = 50
 
-// BatchItemForClient is the input for NormalizeDescriptionsBatch (id + description only).
+// BatchItemForClient is the input for NormalizeDescriptionsBatch (id, description, and security type hint).
 type BatchItemForClient struct {
 	ID          string
 	Description string
+	TypeHint    string // SecurityType from the request (e.g. "Option", "Equity"); used to choose TICKER vs OCC
 }
 
 // NormalizeDescriptionsBatch asks the model to identify multiple descriptions in one (or chunked) request(s).
@@ -84,7 +87,7 @@ func (c *Client) NormalizeDescriptionsBatch(ctx context.Context, items []BatchIt
 	if len(items) == 0 {
 		return nil, nil, nil
 	}
-	systemPrompt := `Here is a list of broker instrument descriptions. Each has an id (short hash). Return a JSON object whose keys are exactly those ids and whose values are objects with "TICKER" (primary exchange symbol). You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { "a1b2c3d4": { "TICKER": "AAPL" }, "e5f6g7h8": {} }`
+	systemPrompt := `Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is "Option", extract and return the OCC symbol (21-character standard option symbol) in "OCC". Otherwise extract and return the primary exchange ticker in "TICKER". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { "a1b2c3d4": { "TICKER": "AAPL" }, "e5f6g7h8": { "OCC": "AAPL250117C00150000" } }`
 	merged := make(map[string]*NormalizedIdentifiers)
 	var totalUsage *Usage
 	for start := 0; start < len(items); start += batchChunkSize {
@@ -97,6 +100,8 @@ func (c *Client) NormalizeDescriptionsBatch(ctx context.Context, items []BatchIt
 		for _, it := range chunk {
 			sb.WriteString("id: ")
 			sb.WriteString(it.ID)
+			sb.WriteString("\ntype: ")
+			sb.WriteString(it.TypeHint)
 			sb.WriteString("\nDescription: ")
 			sb.WriteString(it.Description)
 			sb.WriteString("\n\n")
@@ -155,8 +160,9 @@ func (c *Client) NormalizeDescriptionsBatch(ctx context.Context, items []BatchIt
 		}
 		for id, v := range parsed {
 			ticker := strings.TrimSpace(v.TICKER)
-			if ticker != "" {
-				merged[id] = &NormalizedIdentifiers{Ticker: ticker}
+			occ := strings.TrimSpace(v.OCC)
+			if occ != "" || ticker != "" {
+				merged[id] = &NormalizedIdentifiers{Ticker: ticker, OCC: occ}
 			}
 		}
 		if out.Usage != nil {

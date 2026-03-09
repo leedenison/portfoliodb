@@ -50,6 +50,16 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return
 	}
+	// Drop SecurityTypeNone txs (e.g. SPLIT); they are not stored.
+	var txsToProcess []*apiv1.Tx
+	var originalIndices []int
+	for i, tx := range j.Txs {
+		if TxTypeToSecurityType(tx.Type) == SecurityTypeNone {
+			continue
+		}
+		txsToProcess = append(txsToProcess, tx)
+		originalIndices = append(originalIndices, i)
+	}
 	cache := make(map[string]resolveResult)
 	var extractedHintsCache map[string][]identifier.Identifier
 	sourceDescriptionCheckedMiss := make(map[string]bool) // keys we looked up and got ""; Resolve will skip duplicate DB lookup
@@ -57,7 +67,7 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 	seen := make(map[string]bool)
 	var batchItems []description.BatchItem
 	idByKey := make(map[string]string)
-	for _, tx := range j.Txs {
+	for _, tx := range txsToProcess {
 		desc := tx.GetInstrumentDescription()
 		key := cacheKey(j.Source, desc)
 		if !seen[key] {
@@ -94,14 +104,15 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 			}
 		}
 	}
-	instrumentIDs := make([]string, len(j.Txs))
-	for i, tx := range j.Txs {
+	instrumentIDs := make([]string, len(txsToProcess))
+	for i, tx := range txsToProcess {
 		desc := tx.GetInstrumentDescription()
-		r, err := Resolve(ctx, database, registry, descRegistry, j.Broker, j.Source, desc, HintsFromTx(tx), identifierHintsFromTx(ctx, tx), cache, int32(i), counter, extractedHintsCache, sourceDescriptionCheckedMiss)
+		rowIndex := int32(originalIndices[i])
+		r, err := Resolve(ctx, database, registry, descRegistry, j.Broker, j.Source, desc, HintsFromTx(tx), identifierHintsFromTx(ctx, tx), cache, rowIndex, counter, extractedHintsCache, sourceDescriptionCheckedMiss)
 		if err != nil {
 			log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
 			_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
-				{RowIndex: int32(i), Field: "instrument_description", Message: err.Error()},
+				{RowIndex: rowIndex, Field: "instrument_description", Message: err.Error()},
 			})
 			_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 			return
@@ -117,7 +128,7 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 	if len(idErrs) > 0 {
 		_ = database.AppendIdentificationErrors(ctx, j.JobID, idErrs)
 	}
-	err := database.ReplaceTxsInPeriod(ctx, j.UserID, j.Broker, j.PeriodFrom, j.PeriodTo, j.Txs, instrumentIDs)
+	err := database.ReplaceTxsInPeriod(ctx, j.UserID, j.Broker, j.PeriodFrom, j.PeriodTo, txsToProcess, instrumentIDs)
 	if err != nil {
 		log.Printf("ingestion job %s: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
@@ -134,6 +145,10 @@ func processSingle(ctx context.Context, database db.DB, registry *identifier.Reg
 	if len(errs) > 0 {
 		_ = database.AppendValidationErrors(ctx, j.JobID, errs)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		return
+	}
+	if TxTypeToSecurityType(j.Tx.Type) == SecurityTypeNone {
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
 		return
 	}
 	desc := j.Tx.GetInstrumentDescription()

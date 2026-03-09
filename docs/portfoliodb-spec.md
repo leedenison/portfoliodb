@@ -51,12 +51,14 @@ Identifying an instrument means associating the canonical **instrument** (securi
 
 ### Transaction ingestion: resolution cases
 
-The following diagram illustrates how each transaction is resolved to an instrument during upload. Optional client **hints** (exchange, currency, MIC, security type) are used only to narrow resolution; the decision tree is driven by whether the client supplies **identifier hints** (e.g. ISIN, TICKER) and by the outcomes of the **description** and **identifier** plugins.
+The following diagram illustrates how each transaction is resolved to an instrument during upload. Optional client **hints** (exchange, currency, MIC, security type) are used only to narrow resolution; the decision tree is driven by whether the client supplies **identifier hints** (e.g. ISIN, TICKER) and by the outcomes of the **description** and **identifier** plugins. Transactions whose type maps to security type **None** (e.g. SPLIT) are not persisted.
 
 ```mermaid
 flowchart TD
     Start([Tx upload: source + description + optional hints])
-    Start --> HasIdHints{Client supplied identifier hints?}
+    Start --> SecurityNone{Type maps to SecurityType None?}
+    SecurityNone -->|Yes| Drop[Drop tx, do not store]
+    SecurityNone -->|No| HasIdHints{Client supplied identifier hints?}
 
     HasIdHints -->|Yes| LookupByHints[DB lookup by identifier hints]
     LookupByHints --> HintsOneId{Exactly one instrument?}
@@ -89,6 +91,7 @@ flowchart TD
     DoneWithStore --> End
     CanonicalFromExt --> End
     BrokerOnlyFromExt --> End
+    Drop --> EndDropped([Tx not stored])
 ```
 
 **Cases summarised:**
@@ -134,6 +137,8 @@ Portfoliodb should support OFX style transaction types.  For investments:
 * Buys: BUYDEBT, BUYMF, BUYOPT, BUYOTHER, BUYSTOCK
 * Sells: SELLDEBT, SELLMF, SELLOPT, SELLOTHER, SELLSTOCK
 * Other actions: INCOME, INVEXPENSE, REINVEST, RETOFCAP, SPLIT, TRANSFER, JRNLFUND, JRNLSEC, MARGININTEREST, CLOSUREOPT
+
+For instrument resolution, JRNLFUND is treated as security type Cash and JRNLSEC as Equity. Transaction types that map to security type **None** (e.g. SPLIT) are not stored on upload; they are dropped.
 
 For cash accounts (when support is added):
 

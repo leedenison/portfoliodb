@@ -87,9 +87,11 @@ func main() {
 		Level:     slog.LevelDebug,
 		AddSource: false,
 	})
-	h := logger.NewHandler(inner, envOrDefault("LOG_LEVEL", "debug"))
+	logLevelEnv := envOrDefault("LOG_LEVEL", "debug")
+	h := logger.NewHandler(inner, logLevelEnv)
 	slog.SetDefault(slog.New(h))
 	serverLogger := slog.Default()
+	serverLogger.Info("LOG_LEVEL configured", "levels", logger.Summary(logLevelEnv))
 
 	// Google ID token verifier
 	googleClientID := os.Getenv("GOOGLE_OAUTH_CLIENT_ID")

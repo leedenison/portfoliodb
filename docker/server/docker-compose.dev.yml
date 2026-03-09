@@ -24,7 +24,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-debug}
     volumes:
       - ../../:/app
-    command: ["air"]
+    command: [ "air" ]
 
   client:
     build:
@@ -41,7 +41,7 @@ services:
     volumes:
       - ../..:/app
     working_dir: /app/client
-    command: ["sh", "/app/client/scripts/dev-with-codegen.sh"]
+    command: [ "sh", "/app/client/scripts/dev-with-codegen.sh" ]
 
 volumes:
   postgres_data:

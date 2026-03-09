@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sort"
 	"strings"
 )
 
@@ -69,12 +70,29 @@ func parseLevel(s string) slog.Level {
 	}
 }
 
+// stripQuoted removes one layer of surrounding single or double quotes so that
+// values like '{"key": "value"}' from .env (where Docker Compose can leave the
+// quotes in the value) are parsed as JSON.
+func stripQuoted(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) < 2 {
+		return s
+	}
+	if (s[0] == '\'' && s[len(s)-1] == '\'') || (s[0] == '"' && s[len(s)-1] == '"') {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
 // ParseLOGLevel parses the LOG_LEVEL env value. If it is a single word (no "{"),
 // returns global set and prefixMap nil. If it starts with "{", parses as JSON:
 // keys are category prefixes, values are level names; optional "default" key.
 // On parse error (JSON invalid), returns global info and empty prefixMap.
+// Surrounding single or double quotes are stripped so .env values like
+// LOG_LEVEL='{"server/service/ingestion": "debug"}' work when the quotes are
+// passed through into the container.
 func ParseLOGLevel(env string) (global *slog.Level, prefixMap map[string]slog.Level, defaultLevel slog.Level) {
-	env = strings.TrimSpace(env)
+	env = stripQuoted(strings.TrimSpace(env))
 	defaultLevel = slog.LevelInfo
 	if env == "" {
 		l := slog.LevelInfo
@@ -109,6 +127,64 @@ func ParseLOGLevel(env string) (global *slog.Level, prefixMap map[string]slog.Le
 	return nil, prefixMap, defaultLevel
 }
 
+// Summary returns a short summary of the configured log levels for startup logging,
+// e.g. "global=DEBUG" or "default=INFO server/plugins=DEBUG server/service/ingestion=DEBUG".
+// Category keys are sorted for deterministic output.
+func Summary(env string) string {
+	global, prefixMap, defaultLevel := ParseLOGLevel(env)
+	if global != nil {
+		return "global=" + levelString(*global)
+	}
+	var b strings.Builder
+	b.WriteString("default=")
+	b.WriteString(levelString(defaultLevel))
+	keys := make([]string, 0, len(prefixMap))
+	for k := range prefixMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		b.WriteString(" ")
+		b.WriteString(k)
+		b.WriteString("=")
+		b.WriteString(levelString(prefixMap[k]))
+	}
+	return b.String()
+}
+
+func levelString(l slog.Level) string {
+	switch l {
+	case slog.LevelDebug:
+		return "DEBUG"
+	case slog.LevelInfo:
+		return "INFO"
+	case slog.LevelWarn:
+		return "WARN"
+	case slog.LevelError:
+		return "ERROR"
+	default:
+		return "INFO"
+	}
+}
+
+// EffectiveLevel returns the effective slog level for the given category when using
+// the same parsing as NewHandler. It is used for startup logging so we can verify
+// LOG_LEVEL is applied (e.g. that "server/service/ingestion" gets debug when configured).
+func EffectiveLevel(env string, category string) slog.Level {
+	global, prefixMap, defaultLevel := ParseLOGLevel(env)
+	if global != nil {
+		return *global
+	}
+	if len(prefixMap) == 0 {
+		return defaultLevel
+	}
+	prefixSegments := make(map[string][]string)
+	for key := range prefixMap {
+		prefixSegments[key] = normalizePath(key)
+	}
+	return levelForCategory(category, prefixMap, prefixSegments, defaultLevel)
+}
+
 // levelForCategory returns the effective level for the given category using
 // longest matching prefix. category is normalized for comparison.
 func levelForCategory(category string, prefixMap map[string]slog.Level, prefixSegments map[string][]string, defaultLevel slog.Level) slog.Level {
@@ -137,6 +213,7 @@ func levelForCategory(category string, prefixMap map[string]slog.Level, prefixSe
 type categoryHandler struct {
 	inner  slog.Handler
 	config *config
+	attrs  []slog.Attr // from WithAttrs (Logger.With); Record in Handle does not include these
 }
 
 func (h *categoryHandler) Enabled(ctx context.Context, level slog.Level) bool {
@@ -145,14 +222,16 @@ func (h *categoryHandler) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (h *categoryHandler) Handle(ctx context.Context, r slog.Record) error {
-	var category string
-	r.Attrs(func(a slog.Attr) bool {
-		if a.Key == categoryKey && a.Value.Kind() == slog.KindString {
-			category = a.Value.String()
-			return false
-		}
-		return true
-	})
+	category := findCategoryInAttrs(h.attrs)
+	if category == "" {
+		r.Attrs(func(a slog.Attr) bool {
+			if a.Key == categoryKey && a.Value.Kind() == slog.KindString {
+				category = a.Value.String()
+				return false
+			}
+			return true
+		})
+	}
 	var effective slog.Level
 	if h.config.globalLevel != nil {
 		effective = *h.config.globalLevel
@@ -165,8 +244,24 @@ func (h *categoryHandler) Handle(ctx context.Context, r slog.Record) error {
 	return h.inner.Handle(ctx, r)
 }
 
+func findCategoryInAttrs(attrs []slog.Attr) string {
+	for _, a := range attrs {
+		if a.Key == categoryKey && a.Value.Kind() == slog.KindString {
+			return a.Value.String()
+		}
+	}
+	return ""
+}
+
 func (h *categoryHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &categoryHandler{inner: h.inner.WithAttrs(attrs), config: h.config}
+	merged := make([]slog.Attr, 0, len(h.attrs)+len(attrs))
+	merged = append(merged, h.attrs...)
+	merged = append(merged, attrs...)
+	return &categoryHandler{
+		inner:  h.inner.WithAttrs(attrs),
+		config: h.config,
+		attrs:  merged,
+	}
 }
 
 func (h *categoryHandler) WithGroup(name string) slog.Handler {

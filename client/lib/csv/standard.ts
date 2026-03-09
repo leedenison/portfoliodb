@@ -6,7 +6,12 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import type { Tx } from "@/gen/api/v1/api_pb";
-import { TxSchema, TxType } from "@/gen/api/v1/api_pb";
+import {
+  IdentifierType,
+  InstrumentIdentifierSchema,
+  TxSchema,
+  TxType,
+} from "@/gen/api/v1/api_pb";
 
 export interface ParseError {
   rowIndex: number;
@@ -72,7 +77,8 @@ function parseCSVLine(line: string): string[] {
 
 /**
  * Parse standard-format CSV text into Tx array and period.
- * Header names are case-insensitive. Columns: date (or timestamp), instrument_description, type, quantity, currency (optional), unit_price (optional), account (optional).
+ * Header names are case-insensitive. Required: date (or timestamp), instrument_description, type, quantity.
+ * Optional: trading_currency, settlement_currency, unit_price, account, exchange_code_hint (or exchange), mic_hint (or mic), isin, ticker, ticker_exchange (or ticker_domain), openfigi_share_class, occ.
  */
 export function parseStandardCSV(csvText: string): StandardParseResult {
   const errors: ParseError[] = [];
@@ -95,9 +101,17 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
   const descCol = col("instrument_description");
   const typeCol = col("type");
   const qtyCol = col("quantity");
-  const currencyCol = col("currency");
+  const tradingCurrencyCol = col("trading_currency");
+  const settlementCurrencyCol = col("settlement_currency");
   const priceCol = col("unit_price");
   const accountCol = col("account");
+  const exchangeHintCol = col("exchange_code_hint") >= 0 ? col("exchange_code_hint") : col("exchange");
+  const micHintCol = col("mic_hint") >= 0 ? col("mic_hint") : col("mic");
+  const isinCol = col("isin");
+  const tickerCol = col("ticker");
+  const tickerExchangeCol = col("ticker_exchange") >= 0 ? col("ticker_exchange") : col("ticker_domain");
+  const openfigiShareClassCol = col("openfigi_share_class");
+  const occCol = col("occ");
 
   if (dateCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: date or timestamp" });
   if (descCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: instrument_description" });
@@ -141,7 +155,8 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
       continue;
     }
 
-    const currency = get(currencyCol) || undefined;
+    const tradingCurrency = tradingCurrencyCol >= 0 ? get(tradingCurrencyCol) || undefined : undefined;
+    const settlementCurrency = settlementCurrencyCol >= 0 ? get(settlementCurrencyCol) || undefined : undefined;
     const unitPriceStr = get(priceCol);
     const unitPrice = unitPriceStr ? parseFloat(unitPriceStr) : undefined;
     if (unitPriceStr && (Number.isNaN(unitPrice!) || unitPrice === undefined)) {
@@ -150,18 +165,34 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
     }
 
     const account = accountCol >= 0 ? get(accountCol) : "";
+    const exchangeCodeHint = exchangeHintCol >= 0 ? get(exchangeHintCol) || undefined : undefined;
+    const micHint = micHintCol >= 0 ? get(micHintCol) || undefined : undefined;
+
+    const identifierHints: Array<{ type: IdentifierType; value: string; domain?: string }> = [];
+    if (isinCol >= 0) {
+      const v = get(isinCol);
+      if (v) identifierHints.push({ type: IdentifierType.ISIN, value: v });
+    }
+    if (tickerCol >= 0) {
+      const v = get(tickerCol);
+      if (v) {
+        const domain = tickerExchangeCol >= 0 ? get(tickerExchangeCol) || undefined : undefined;
+        identifierHints.push({ type: IdentifierType.TICKER, value: v, ...(domain ? { domain } : {}) });
+      }
+    }
+    if (openfigiShareClassCol >= 0) {
+      const v = get(openfigiShareClassCol);
+      if (v) identifierHints.push({ type: IdentifierType.OPENFIGI_SHARE_CLASS, value: v });
+    }
+    if (occCol >= 0) {
+      const v = get(occCol);
+      if (v) identifierHints.push({ type: IdentifierType.OCC, value: v });
+    }
 
     const ts = date.getTime();
     if (ts < minTime) minTime = ts;
     if (ts > maxTime) maxTime = ts;
 
-    const isCash =
-      txType === TxType.INCOME ||
-      txType === TxType.INVEXPENSE ||
-      txType === TxType.REINVEST ||
-      txType === TxType.TRANSFER ||
-      txType === TxType.MARGININTEREST ||
-      txType === TxType.RETOFCAP;
     txs.push(
       create(TxSchema, {
         timestamp: timestampFromDate(date),
@@ -169,8 +200,18 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
         type: txType,
         quantity,
         account,
-        ...(currency ? { settlementCurrency: currency, ...(isCash ? { tradingCurrency: currency } : {}) } : {}),
+        ...(tradingCurrency ? { tradingCurrency } : {}),
+        ...(settlementCurrency ? { settlementCurrency } : {}),
         ...(unitPrice !== undefined && !Number.isNaN(unitPrice) ? { unitPrice } : {}),
+        ...(exchangeCodeHint ? { exchangeCodeHint } : {}),
+        ...(micHint ? { micHint } : {}),
+        ...(identifierHints.length > 0
+          ? {
+              identifierHints: identifierHints.map((h) =>
+                create(InstrumentIdentifierSchema, { type: h.type, value: h.value, canonical: false, ...(h.domain ? { domain: h.domain } : {}) })
+              ),
+            }
+          : {}),
       })
     );
   }

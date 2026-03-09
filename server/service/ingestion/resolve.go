@@ -130,6 +130,25 @@ func shortHashForBatch(key string) string {
 	return hex.EncodeToString(h[:])[:8]
 }
 
+// batchItemIDs returns the IDs of batch items for debug logging.
+func batchItemIDs(items []description.BatchItem) []string {
+	ids := make([]string, len(items))
+	for i := range items {
+		ids[i] = items[i].ID
+	}
+	return ids
+}
+
+// batchItemDescByID returns the instrument description for the batch item with the given ID, or "" if not found.
+func batchItemDescByID(items []description.BatchItem, id string) string {
+	for i := range items {
+		if items[i].ID == id {
+			return items[i].InstrumentDescription
+		}
+	}
+	return ""
+}
+
 // resolveByHintsDBOnly looks up each hint by (type, domain, value) and returns unique instrument IDs (in order of first occurrence).
 //
 // Fallback when domain is empty: If the hint has domain == "" and the exact (type, domain, value) lookup finds nothing,
@@ -190,6 +209,7 @@ func runDescriptionPlugins(ctx context.Context, database db.DescriptionPluginDB,
 			continue
 		}
 		if !SecurityTypeAcceptable(hints.SecurityType, p.AcceptableSecurityTypes()) {
+			ingestionLogger().DebugContext(ctx, "description plugin skipped (security type not acceptable)", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "security_type", hints.SecurityType)
 			continue
 		}
 		tried++
@@ -198,13 +218,15 @@ func runDescriptionPlugins(ctx context.Context, database db.DescriptionPluginDB,
 			if counter != nil {
 				counter.Incr(ctx, "description.extraction.plugin_error")
 			}
-			ingestionLogger().DebugContext(ctx, "description plugin returned error", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "err", err)
+			ingestionLogger().DebugContext(ctx, "description plugin result: error", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "err", err)
 			continue
 		}
-		if extracted := out[singleItemBatchID]; len(extracted) > 0 {
-			ingestionLogger().DebugContext(ctx, "description plugin returned hints", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "hints", hintsSummary(extracted))
+		extracted := out[singleItemBatchID]
+		if len(extracted) > 0 {
+			ingestionLogger().DebugContext(ctx, "description plugin result: hints", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "hints", hintsSummary(extracted))
 			return filterIdentifierHints(ctx, extracted), nil
 		}
+		ingestionLogger().DebugContext(ctx, "description plugin result: no hints", "plugin_id", c.PluginID, "instrument_description", instrumentDescription)
 	}
 	if tried > 0 {
 		if counter != nil {
@@ -237,6 +259,7 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.DescriptionPlug
 			}
 		}
 		if len(filtered) == 0 {
+			ingestionLogger().DebugContext(ctx, "description plugin batch skipped (no items with acceptable security type)", "plugin_id", c.PluginID)
 			continue
 		}
 		out, err := p.ExtractBatch(ctx, c.Config, broker, source, filtered)
@@ -244,7 +267,7 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.DescriptionPlug
 			if counter != nil {
 				counter.Incr(ctx, "description.extraction.plugin_error")
 			}
-			ingestionLogger().DebugContext(ctx, "description plugin batch returned error", "plugin_id", c.PluginID, "err", err)
+			ingestionLogger().DebugContext(ctx, "description plugin batch result: error", "plugin_id", c.PluginID, "err", err)
 			continue
 		}
 		hasAny := false
@@ -257,10 +280,11 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.DescriptionPlug
 		}
 		if hasAny {
 			for id, hints := range out {
-				ingestionLogger().DebugContext(ctx, "description plugin batch returned hints", "plugin_id", c.PluginID, "batch_id", id, "hints", hintsSummary(hints))
+				ingestionLogger().DebugContext(ctx, "description plugin batch result: hints", "plugin_id", c.PluginID, "batch_id", id, "instrument_description", batchItemDescByID(filtered, id), "hints", hintsSummary(hints))
 			}
 			return out, nil
 		}
+		ingestionLogger().DebugContext(ctx, "description plugin batch result: no hints", "plugin_id", c.PluginID, "batch_ids", batchItemIDs(filtered))
 	}
 	if counter != nil {
 		counter.Incr(ctx, "description.extraction.no_hints")
@@ -511,21 +535,23 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 		in := inputs[i]
 		r := &results[i]
 		if r.err != nil {
-			ingestionLogger().DebugContext(ctx, "identifier plugin returned", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "err", r.err)
+			ingestionLogger().DebugContext(ctx, "identifier plugin result", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "err", r.err)
 		} else if r.inst != nil {
-			ingestionLogger().DebugContext(ctx, "identifier plugin returned", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "instrument", instrumentSummary(r.inst), "identifiers", hintsSummary(r.ids))
+			ingestionLogger().DebugContext(ctx, "identifier plugin result", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "instrument_name", r.inst.Name, "instrument", instrumentSummary(r.inst), "identifiers", hintsSummary(r.ids))
 		} else {
-			ingestionLogger().DebugContext(ctx, "identifier plugin returned", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "result", "nil")
+			ingestionLogger().DebugContext(ctx, "identifier plugin result", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "result", "not_identified")
 		}
 	}
 
 	var winner *result
+	var winnerIdx int
 	var hadTimeout, hadOtherErr bool
 	for i := range results {
 		r := &results[i]
 		if r.err == nil && r.inst != nil {
 			if winner == nil {
 				winner = r
+				winnerIdx = i
 			}
 			continue
 		}
@@ -540,6 +566,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 	}
 
 	if winner != nil {
+		ingestionLogger().DebugContext(ctx, "identifier plugin chosen", "plugin_id", inputs[winnerIdx].config.PluginID, "instrument_description", instrumentDescription, "instrument_name", winner.inst.Name)
 		seenType := make(map[string]bool)
 		var mergedIds []identifier.Identifier
 		for i := range results {

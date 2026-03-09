@@ -8,7 +8,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U portfoliodb"]
+      test: [ "CMD-SHELL", "pg_isready -U portfoliodb" ]
       interval: 2s
       timeout: 2s
       retries: 10
@@ -18,7 +18,7 @@ services:
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 2s
       timeout: 2s
       retries: 10
@@ -42,7 +42,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "50051:50051"
-    command: ["/portfoliodb", "-grpc-addr", ":50051", "-db-url", "postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable"]
+    command: [ "/portfoliodb", "-grpc-addr", ":50051", "-db-url", "postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable" ]
 
   client:
     build:
@@ -59,7 +59,7 @@ services:
     ports:
       - "8080:8080"
       - "9901:9901"
-    command: ["-c", "/etc/envoy/envoy.yaml", "-l", "info"]
+    command: [ "-c", "/etc/envoy/envoy.yaml", "-l", "info" ]
     depends_on:
       - portfoliodb
       - client

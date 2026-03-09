@@ -4,6 +4,7 @@ proto/**/*.pb.go
 
 # Binaries
 /portfoliodb
+server/portfoliodb
 *.exe
 
 # Go

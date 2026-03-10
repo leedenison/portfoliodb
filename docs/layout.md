@@ -41,7 +41,7 @@ Generated bindings are produced by buf/protoc: Go code under **proto/** (e.g. `p
 Go code for the PortfolioDB backend: one main service binary, DB abstraction, and pluggable datasource integrations.
 
 
-- **cmd/**
+- **server/cmd/**
   Go command entrypoint for the server.
 - **server/service/**  
   Main PortfolioDB service: wiring, config, and request routing. The runnable service that speaks gRPC and uses the DB and plugins.
@@ -68,6 +68,16 @@ Go code for the PortfolioDB backend: one main service binary, DB abstraction, an
 
 Other server packages (e.g. **server/auth** for auth helpers) live under **server/** as needed; business logic should go under **server/service** or the DB layer.
 
+---
+
+## cli/
+
+Go code for the PortfolioDB command line tools.
+
+
+- **cli/dbio**
+  Go cli for importing and exporting instrument identities, price data and transaction data via the server gRPC interface.
+  
 ---
 
 ## docs/

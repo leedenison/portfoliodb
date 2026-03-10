@@ -31,17 +31,18 @@
 | T11     | Define a standard, broker independent CSV upload format.                            |                    | M04       | Done   |
 | T12     | Create UI to upload a CSV of transactions and select the 'standard' format.         | T11                | M04       | Done   |
 | T13     | Upload and conversion from Fidelity CSV to the standard format.                     | T11                | M04       | Done   |
-| T14     | Redis-backed counters for notable code paths; admin page to view counters (discovery from Redis). |                    | M05       | Done   |
-| T15     | Server logger (stdout, LOG_LEVEL env); log OpenFIGI invocations and outcomes.      |                    | M05       | Done   |
+| T14     | Redis-backed counters for notable code paths; admin page to view counters.          |                    | M05       | Done   |
+| T15     | Server logger (stdout, LOG_LEVEL env); log OpenFIGI invocations and outcomes.       |                    | M05       | Done   |
 | T16     | Export/import API for instrument information.                                       |                    | M06       | Done   |
 | T17     | Filter instrument export by broker and exchange.                                    | T16                | M06       |        |
 | T18     | Instrument identification plugin Go API.                                            |                    | M07       | Done   |
 | T19     | Implement network based identification plugin based on ChatGPT and OpenFigi data.   | T18                | M07       | Done   |
 | T20     | Admin UI for configuring identification plugins.                                    | T19                | M07       | Done   |
 | T21     | Implement UI for showing instrument identities and errors that occurred.            | T19                | M07       |        |
-| T22     | Price storage (table/schema) and API for current and historical prices per instrument (and date). |                    | M08       |        |
-| T23     | Price plugin Go API (e.g. FetchPrices) and at least one plugin implementation.    | T22                | M08       |        |
-| T24     | Admin UI (or API) for manual price entry when no automatic source is available.    | T22                | M08       |        |
+| T22     | Price storage schema and API for current and historical prices per instrument.      |                    | M08       |        |
+| T23     | Price plugin Go API (e.g. FetchPrices) and at least one plugin implementation.      | T22                | M08       |        |
+| T24     | Admin UI (or API) for manual price entry when no automatic source is available.     | T22                | M08       |        |
+| T25     | Create CLI for importing / exporting instrument identities to and from CSV.         |                    | M06       |        |
 
 ### Unscheduled Milestones
 

@@ -32,7 +32,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       ? "bg-primary-dark/5 font-semibold text-primary-dark before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[3px] before:rounded-full before:bg-accent"
                       : "text-text-muted hover:bg-primary-light/15 hover:text-text-primary")
                   }
-                  style={{ animationDelay: `${i * 50}ms` }}
                 >
                   {label}
                 </Link>

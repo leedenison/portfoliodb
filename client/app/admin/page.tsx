@@ -87,7 +87,6 @@ export default function AdminDashboardPage() {
               key={card.href}
               href={card.href}
               className="group block rounded-md border border-border bg-surface p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
-              style={{ animationDelay: `${i * 50}ms` }}
             >
               <h2 className="font-display font-semibold text-text-primary group-hover:text-primary-dark">{card.title}</h2>
               <p className="mt-1.5 text-sm text-text-muted">{card.description}</p>

@@ -31,3 +31,4 @@ local/
 client/node_modules/
 client/.next/
 client/gen/
+*.tsbuildinfo

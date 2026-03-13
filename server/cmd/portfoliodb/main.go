@@ -167,8 +167,14 @@ func main() {
 	ingestionLogger := logger.WithCategory(serverLogger, "server/service/ingestion")
 	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter, ingestionLogger)
 	svc := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(interceptorConfig)),
-		grpc.ChainStreamInterceptor(auth.StreamInterceptor(interceptorConfig)),
+		grpc.ChainUnaryInterceptor(
+			logger.UnaryErrorInterceptor(serverLogger),
+			auth.UnaryInterceptor(interceptorConfig),
+		),
+		grpc.ChainStreamInterceptor(
+			logger.StreamErrorInterceptor(serverLogger),
+			auth.StreamInterceptor(interceptorConfig),
+		),
 	)
 	authv1.RegisterAuthServiceServer(svc, authServer)
 	apiv1.RegisterApiServiceServer(svc, api.NewServer(database, rdb, counterPrefix, pluginRegistry, descRegistry))

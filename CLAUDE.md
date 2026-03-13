@@ -52,6 +52,8 @@ Prefer smaller, focused PRs to reduce review burden:
 
 Smaller PRs are easier to review, less likely to introduce bugs, and create cleaner git history.
 
+When merging PRs always squash the commits and remove the feature branch.
+
 ## UI Mocks
 
 Use text placeholders for unimplemented functionality as development progresses.  It should always be possible to see where UI elements will be displayed even if they are not yet implemented.

@@ -26,6 +26,10 @@ services:
       - ../../:/app
     command: [ "air" ]
 
+  envoy:
+    volumes:
+      - ./envoy.dev.yaml:/etc/envoy/envoy.yaml:ro
+
   client:
     build:
       context: ../../client

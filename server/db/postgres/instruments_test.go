@@ -290,3 +290,140 @@ func TestSeedCurrencyInstruments(t *testing.T) {
 		}
 	}
 }
+
+func TestListInstruments_NullAssetClassMatchesUnknown(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	// Create an instrument with no asset class (empty string stored as NULL).
+	nullID, err := p.EnsureInstrument(ctx, "", "", "", "NoClass", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "test", Value: "NOCLASS", Canonical: false},
+	}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("ensure null-class: %v", err)
+	}
+	// Create a STOCK instrument for comparison.
+	stockID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "StockCo", []db.IdentifierInput{
+		{Type: "ISIN", Value: "US1234567890", Canonical: true},
+	}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("ensure stock: %v", err)
+	}
+
+	// Filter by UNKNOWN should include the null-class instrument.
+	rows, total, _, err := p.ListInstruments(ctx, "", []string{"UNKNOWN"}, 100, "")
+	if err != nil {
+		t.Fatalf("ListInstruments UNKNOWN: %v", err)
+	}
+	found := false
+	for _, r := range rows {
+		if r.ID == nullID {
+			found = true
+		}
+		if r.ID == stockID {
+			t.Fatal("STOCK instrument should not appear in UNKNOWN filter")
+		}
+	}
+	if !found {
+		t.Fatalf("expected null-class instrument %s in UNKNOWN results (total=%d, rows=%d)", nullID, total, len(rows))
+	}
+
+	// Filter by STOCK should include stock but not null-class.
+	rows, _, _, err = p.ListInstruments(ctx, "", []string{"STOCK"}, 100, "")
+	if err != nil {
+		t.Fatalf("ListInstruments STOCK: %v", err)
+	}
+	foundStock, foundNull := false, false
+	for _, r := range rows {
+		if r.ID == stockID {
+			foundStock = true
+		}
+		if r.ID == nullID {
+			foundNull = true
+		}
+	}
+	if !foundStock {
+		t.Fatal("expected STOCK instrument in STOCK filter")
+	}
+	if foundNull {
+		t.Fatal("null-class instrument should not appear in STOCK filter")
+	}
+
+	// Filter by both STOCK and UNKNOWN should include both.
+	rows, _, _, err = p.ListInstruments(ctx, "", []string{"STOCK", "UNKNOWN"}, 100, "")
+	if err != nil {
+		t.Fatalf("ListInstruments STOCK+UNKNOWN: %v", err)
+	}
+	foundStock, foundNull = false, false
+	for _, r := range rows {
+		if r.ID == stockID {
+			foundStock = true
+		}
+		if r.ID == nullID {
+			foundNull = true
+		}
+	}
+	if !foundStock || !foundNull {
+		t.Fatalf("expected both instruments in STOCK+UNKNOWN filter (stock=%v, null=%v)", foundStock, foundNull)
+	}
+}
+
+func TestListInstruments_PaginationPastEnd(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	// Create 3 instruments so we have a known small set (plus seeded CASH instruments).
+	for i, name := range []string{"Alpha", "Beta", "Gamma"} {
+		_, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", name, []db.IdentifierInput{
+			{Type: "ISIN", Value: "TEST" + string(rune('A'+i)), Canonical: true},
+		}, "", nil, nil)
+		if err != nil {
+			t.Fatalf("ensure %s: %v", name, err)
+		}
+	}
+
+	// Page 1: fetch with small page size to get a next token.
+	rows, total, nextToken, err := p.ListInstruments(ctx, "", []string{"STOCK"}, 2, "")
+	if err != nil {
+		t.Fatalf("page 1: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("page 1: expected 2 rows, got %d", len(rows))
+	}
+	if total != 3 {
+		t.Fatalf("page 1: expected total=3, got %d", total)
+	}
+	if nextToken == "" {
+		t.Fatal("page 1: expected next_page_token")
+	}
+
+	// Page 2: use the token; should get 1 result and no next token.
+	rows, total, nextToken, err = p.ListInstruments(ctx, "", []string{"STOCK"}, 2, nextToken)
+	if err != nil {
+		t.Fatalf("page 2: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("page 2: expected 1 row, got %d", len(rows))
+	}
+	if total != 3 {
+		t.Fatalf("page 2: expected total=3, got %d", total)
+	}
+	if nextToken != "" {
+		t.Fatalf("page 2: expected empty next_page_token, got %q", nextToken)
+	}
+
+	// Page 3 (past end): use a fabricated token for offset beyond total.
+	pastEndToken := "OTk5" // base64("999")
+	rows, total, nextToken, err = p.ListInstruments(ctx, "", []string{"STOCK"}, 2, pastEndToken)
+	if err != nil {
+		t.Fatalf("past-end page: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("past-end page: expected 0 rows, got %d", len(rows))
+	}
+	if nextToken != "" {
+		t.Fatalf("past-end page: expected empty next_page_token, got %q", nextToken)
+	}
+	// Total should still reflect the full count.
+	if total != 3 {
+		t.Fatalf("past-end page: expected total=3, got %d", total)
+	}
+}

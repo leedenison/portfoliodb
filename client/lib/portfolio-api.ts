@@ -20,6 +20,8 @@ import {
   ListDescriptionPluginsResponseSchema,
   ListIdentifierPluginsRequestSchema,
   ListIdentifierPluginsResponseSchema,
+  ListInstrumentsRequestSchema,
+  ListInstrumentsResponseSchema,
   ListPortfoliosRequestSchema,
   ListPortfoliosResponseSchema,
   ListTelemetryCountersRequestSchema,
@@ -41,6 +43,7 @@ import type {
   Holding,
   IdentificationError,
   IdentifierPluginConfig,
+  Instrument,
   Portfolio as GenPortfolio,
   PortfolioFilterProto,
   PortfolioTx,
@@ -296,6 +299,39 @@ export async function updateDescriptionPlugin(
   });
   const res = fromBinary(UpdateDescriptionPluginResponseSchema, resBytes);
   return res.plugin!;
+}
+
+/** Result of ListInstruments for the instruments page. */
+export interface ListInstrumentsResult {
+  instruments: Instrument[];
+  nextPageToken: string | null;
+  totalCount: number;
+}
+
+export async function listInstruments(params?: {
+  search?: string;
+  assetClasses?: string[];
+  pageToken?: string | null;
+}): Promise<ListInstrumentsResult> {
+  const base = getBaseUrl();
+  const req = create(ListInstrumentsRequestSchema, {
+    search: params?.search ?? "",
+    assetClasses: params?.assetClasses ?? [],
+    pageSize: PAGE_SIZE,
+    pageToken: params?.pageToken ?? "",
+  });
+  const resBytes = await unaryFetch(
+    base,
+    ApiServicePrefix + "ListInstruments",
+    toBinary(ListInstrumentsRequestSchema, req),
+    { credentials: "include" }
+  );
+  const res = fromBinary(ListInstrumentsResponseSchema, resBytes);
+  return {
+    instruments: res.instruments,
+    nextPageToken: res.nextPageToken || null,
+    totalCount: res.totalCount,
+  };
 }
 
 export interface TelemetryCounterRow {

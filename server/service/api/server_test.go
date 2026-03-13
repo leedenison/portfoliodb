@@ -79,6 +79,7 @@ func TestAPI_Unauthenticated(t *testing.T) {
 			return srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream)
 		}},
 		{"ImportInstruments", func() error { _, err := srv.ImportInstruments(ctx, &apiv1.ImportInstrumentsRequest{}); return err }},
+		{"ListInstruments", func() error { _, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{}); return err }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

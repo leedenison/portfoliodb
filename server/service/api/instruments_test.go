@@ -11,6 +11,102 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+func TestListInstruments_Unauthenticated(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	_, err := srv.ListInstruments(context.Background(), &apiv1.ListInstrumentsRequest{})
+	testutil.RequireGRPCCode(t, err, codes.Unauthenticated)
+}
+
+func TestListInstruments_Success(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	rows := []*dbpkg.InstrumentRow{
+		{ID: "id-1", Name: "Apple", AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD",
+			Identifiers: []dbpkg.IdentifierInput{
+				{Type: "TICKER", Value: "AAPL", Domain: "XNAS", Canonical: true},
+				{Type: "ISIN", Value: "US0378331005", Canonical: true},
+			}},
+	}
+	db.EXPECT().
+		ListInstruments(gomock.Any(), "", []string(nil), int32(30), "").
+		Return(rows, int32(1), "", nil)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{})
+	if err != nil {
+		t.Fatalf("ListInstruments: %v", err)
+	}
+	if len(resp.GetInstruments()) != 1 {
+		t.Fatalf("expected 1 instrument, got %d", len(resp.GetInstruments()))
+	}
+	inst := resp.GetInstruments()[0]
+	if inst.GetId() != "id-1" || inst.GetName() != "Apple" {
+		t.Fatalf("got %v", inst)
+	}
+	if resp.GetTotalCount() != 1 {
+		t.Fatalf("expected total_count=1, got %d", resp.GetTotalCount())
+	}
+}
+
+func TestListInstruments_WithSearch(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().
+		ListInstruments(gomock.Any(), "AAPL", []string(nil), int32(30), "").
+		Return(nil, int32(0), "", nil)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{Search: "AAPL"})
+	if err != nil {
+		t.Fatalf("ListInstruments: %v", err)
+	}
+	if len(resp.GetInstruments()) != 0 {
+		t.Fatalf("expected 0 instruments, got %d", len(resp.GetInstruments()))
+	}
+}
+
+func TestListInstruments_PageSizeClamping(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().
+		ListInstruments(gomock.Any(), "", []string(nil), int32(100), "").
+		Return(nil, int32(0), "", nil)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{PageSize: 200})
+	if err != nil {
+		t.Fatalf("ListInstruments: %v", err)
+	}
+}
+
+func TestListInstruments_AssetClassFilter(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().
+		ListInstruments(gomock.Any(), "", []string{"STOCK", "ETF"}, int32(30), "").
+		Return(nil, int32(0), "", nil)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{AssetClasses: []string{"STOCK", "ETF"}})
+	if err != nil {
+		t.Fatalf("ListInstruments: %v", err)
+	}
+}
+
+func TestListInstruments_UnknownAssetClassFilter(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().
+		ListInstruments(gomock.Any(), "", []string{"UNKNOWN"}, int32(30), "").
+		Return(nil, int32(0), "", nil)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{AssetClasses: []string{"UNKNOWN"}})
+	if err != nil {
+		t.Fatalf("ListInstruments: %v", err)
+	}
+}
+
+func TestListInstruments_DBError(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().
+		ListInstruments(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, int32(0), "", context.DeadlineExceeded)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{})
+	testutil.RequireGRPCCode(t, err, codes.Internal)
+}
+
 func TestExportInstruments_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	rows := []*dbpkg.InstrumentRow{

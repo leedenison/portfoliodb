@@ -28,7 +28,7 @@ export default function AdminTelemetryPage() {
   if (loading && counters.length === 0) {
     return (
       <div>
-        <h1 className="text-xl font-semibold text-text-primary">Telemetry</h1>
+        <h1 className="font-display text-xl font-bold text-text-primary">Telemetry</h1>
         <p className="mt-2 text-text-muted">Loading counters…</p>
       </div>
     );
@@ -37,7 +37,7 @@ export default function AdminTelemetryPage() {
   return (
     <div>
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold text-text-primary">Telemetry</h1>
+        <h1 className="font-display text-xl font-bold text-text-primary">Telemetry</h1>
         <button
           type="button"
           onClick={load}
@@ -62,7 +62,7 @@ export default function AdminTelemetryPage() {
           {counters.map((c) => (
             <li
               key={c.name}
-              className="flex items-baseline justify-between gap-4 rounded border border-border bg-card px-3 py-2"
+              className="flex items-baseline justify-between gap-4 rounded-md border border-border bg-surface px-3 py-2.5 transition-colors hover:bg-primary-light/10"
             >
               <span className="font-mono text-sm text-text-primary">{c.name}</span>
               <span className="tabular-nums text-text-secondary">{c.value.toLocaleString()}</span>

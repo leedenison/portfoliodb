@@ -75,24 +75,25 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-text-primary">Dashboard</h1>
+      <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary">Dashboard</h1>
       <p className="text-sm text-text-muted">
         Quick links to admin tools. Use the sidebar for full navigation.
       </p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {dashboardCards.map((card) => {
+        {dashboardCards.map((card, i) => {
           const summary = pluginSummary(card.id);
           return (
             <Link
               key={card.href}
               href={card.href}
-              className="block rounded-lg border border-border bg-card p-4 shadow-sm transition hover:border-primary/50 hover:shadow-md"
+              className="group block rounded-md border border-border bg-surface p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+              style={{ animationDelay: `${i * 50}ms` }}
             >
-              <h2 className="font-medium text-text-primary">{card.title}</h2>
-              <p className="mt-1 text-sm text-text-muted">{card.description}</p>
+              <h2 className="font-display font-semibold text-text-primary group-hover:text-primary-dark">{card.title}</h2>
+              <p className="mt-1.5 text-sm text-text-muted">{card.description}</p>
               {summary && (
-                <p className="mt-2 text-xs text-text-muted">
-                  Installed: {summary}
+                <p className="mt-3 font-mono text-xs text-text-muted">
+                  {summary}
                 </p>
               )}
             </Link>

@@ -11,7 +11,7 @@ export default function IdTokenPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-text-primary">ID token</h1>
+      <h1 className="font-display text-xl font-bold text-text-primary">ID token</h1>
       <p className="text-text-muted">
         Use the button below to sign in with Google and obtain an ID token. You
         can copy the token for use in scripts (e.g. to call the Auth API or to
@@ -40,7 +40,7 @@ export default function IdTokenPage() {
       </div>
 
       {error && (
-        <p className="rounded-lg bg-accent-soft/50 px-3 py-2 text-sm text-accent-dark">
+        <p className="rounded-md bg-accent-soft/50 px-3 py-2 text-sm text-accent-dark">
           {error}
         </p>
       )}
@@ -57,7 +57,7 @@ export default function IdTokenPage() {
             id="id-token-value"
             readOnly
             rows={6}
-            className="w-full rounded-lg border border-border bg-primary-light/10 p-3 font-mono text-xs text-text-primary"
+            className="w-full rounded-md border border-border bg-primary-dark/[0.03] p-3 font-mono text-xs text-text-primary"
             value={idToken}
           />
         </div>

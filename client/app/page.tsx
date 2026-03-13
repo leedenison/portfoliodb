@@ -32,13 +32,16 @@ export default function Home() {
   return (
     <main className="flex min-h-screen flex-col bg-background">
       <AppHeader />
-      <div className="flex flex-1 flex-col items-center px-4 py-12 md:py-20">
+      <div className="bg-grid relative flex flex-1 flex-col items-center px-4 py-16 md:py-24">
+        {/* Gradient fade over grid */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-background via-background/80 to-background" />
+
         {state.status === "loading" && (
-          <p className="text-text-muted">Loading…</p>
+          <p className="relative text-text-muted">Loading…</p>
         )}
         {state.status === "unauthenticated" && (
-          <section className="flex max-w-2xl flex-col items-center text-center">
-            <div className="mb-6 flex justify-center">
+          <section className="relative flex max-w-2xl flex-col items-center text-center">
+            <div className="mb-8 flex animate-fade-in justify-center">
               <Image
                 src="/logo.png"
                 alt=""
@@ -47,14 +50,17 @@ export default function Home() {
                 className="h-20 w-20 object-contain"
               />
             </div>
-            <h1 className="text-4xl font-bold tracking-tight text-text-primary md:text-5xl">
+            <h1 className="animate-fade-in-d1 font-display text-4xl font-bold tracking-tight text-text-primary md:text-5xl lg:text-6xl">
               Portfolio tracking for equities, options and futures
             </h1>
-            <p className="mt-4 text-lg text-text-muted">
+            <p className="mt-5 animate-fade-in-d2 text-lg text-text-muted">
               Manage holdings, upload transactions, and keep your portfolios in one place.
             </p>
+            <div className="mt-8 animate-fade-in-d3">
+              <SignInButton />
+            </div>
             {authError && (
-              <p className="mt-6 rounded-lg bg-accent-soft/50 px-4 py-2 text-sm text-accent-dark">
+              <p className="mt-6 animate-fade-in-d4 rounded-lg bg-accent-soft/50 px-4 py-2 text-sm text-accent-dark">
                 {authError}
               </p>
             )}

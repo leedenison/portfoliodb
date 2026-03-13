@@ -47,7 +47,7 @@ export default function AdminLayout({
       <main className="flex min-h-screen flex-col bg-background">
         <AppHeader />
         <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center">
-          <h1 className="text-xl font-semibold text-text-primary">Access denied</h1>
+          <h1 className="font-display text-xl font-bold text-text-primary">Access denied</h1>
           <p className="mt-2 text-text-muted">Admin role required.</p>
           <Link
             href="/"
@@ -65,28 +65,28 @@ export default function AdminLayout({
       <AppHeader />
       <div className="flex flex-1 gap-8 px-4 py-8">
         <nav className="w-48 shrink-0 border-r border-border pr-6">
-          <ul className="space-y-1">
+          <ul className="space-y-1.5">
             {adminNav.map((item) => {
-              if ("children" in item) {
+              if ("children" in item && item.children) {
                 const active = isPluginsActive(pathname);
                 return (
                   <li key={item.label}>
                     <span
-                      className={`block py-1 text-xs font-medium uppercase tracking-wider ${
+                      className={`block py-1 text-xs font-semibold uppercase tracking-wider ${
                         active ? "text-primary-dark" : "text-text-muted"
                       }`}
                     >
                       {item.label}
                     </span>
-                    <ul className="mt-1 space-y-0.5 border-l border-border pl-3">
+                    <ul className="mt-1 space-y-0.5 border-l-2 border-border pl-3">
                       {item.children.map(({ href, label }) => (
                         <li key={href}>
                           <Link
                             href={href}
-                            className={`block text-sm ${
+                            className={`block py-0.5 text-sm transition-colors ${
                               pathname === href
-                                ? "font-medium text-primary-dark"
-                                : "text-text-muted underline hover:text-primary"
+                                ? "font-semibold text-primary-dark"
+                                : "text-text-muted hover:text-primary"
                             }`}
                           >
                             {label}
@@ -102,10 +102,10 @@ export default function AdminLayout({
                 <li key={link.href}>
                   <Link
                     href={link.href}
-                    className={`block py-1 text-sm ${
+                    className={`relative block py-1 text-sm transition-colors ${
                       pathname === link.href
-                        ? "font-medium text-primary-dark"
-                        : "text-text-muted underline hover:text-primary"
+                        ? "font-semibold text-primary-dark before:absolute before:-left-[1px] before:top-0 before:bottom-0 before:w-[3px] before:rounded-full before:bg-accent"
+                        : "text-text-muted hover:text-primary"
                     }`}
                   >
                     {link.label}
@@ -115,7 +115,7 @@ export default function AdminLayout({
             })}
           </ul>
         </nav>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 animate-fade-in">
           <div className="mx-auto max-w-4xl">{children}</div>
         </div>
       </div>

@@ -545,9 +545,6 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchange, c
 // ListInstruments implements db.InstrumentDB.
 func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClasses []string, pageSize int32, pageToken string) ([]*db.InstrumentRow, int32, string, error) {
 	limit := pageSize
-	if limit <= 0 || limit > 100 {
-		limit = 30
-	}
 	var offset int64
 	if pageToken != "" {
 		b, err := base64.StdEncoding.DecodeString(pageToken)

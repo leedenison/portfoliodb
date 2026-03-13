@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { useAuth } from "@/contexts/auth-context";
 import { listInstruments } from "@/lib/portfolio-api";
@@ -33,11 +33,12 @@ function displayName(inst: Instrument): string {
     (id) => id.type === IdentifierType.TICKER
   );
   if (ticker) return ticker.value;
+  if (inst.name) return inst.name;
   const desc = inst.identifiers.find(
     (id) => id.type === IdentifierType.BROKER_DESCRIPTION
   );
   if (desc) return desc.value;
-  return inst.name || inst.id;
+  return inst.id;
 }
 
 function isIdentified(inst: Instrument): boolean {
@@ -99,7 +100,10 @@ export default function InstrumentsPage() {
   };
 
   // Memoize the sorted array so the effect dep is stable when the set contents haven't changed.
-  const assetClassesKey = [...activeClasses].sort().join(",");
+  const assetClassesKey = useMemo(
+    () => [...activeClasses].sort().join(","),
+    [activeClasses]
+  );
 
   const fetchPage = useCallback(
     async (
@@ -193,7 +197,7 @@ export default function InstrumentsPage() {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by identifier…"
+                placeholder="Search by name or ticker…"
                 className="w-full max-w-sm rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
               <div className="flex flex-wrap gap-1.5">
@@ -418,9 +422,9 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
             Identifiers
           </h4>
           <div className="flex flex-wrap gap-1.5">
-            {canonicalIds.map((id, i) => (
+            {canonicalIds.map((id) => (
               <span
-                key={i}
+                key={`${id.type}-${id.value}`}
                 className="inline-flex items-center gap-1 rounded bg-primary-dark/10 px-1.5 py-0.5 font-mono text-xs"
               >
                 <span className="font-semibold text-primary-dark">
@@ -443,9 +447,9 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
             Broker Descriptions
           </h4>
           <div className="flex flex-wrap gap-1.5">
-            {brokerDescs.map((id, i) => (
+            {brokerDescs.map((id) => (
               <span
-                key={i}
+                key={`${id.domain}-${id.value}`}
                 className="inline-flex items-center gap-1 rounded bg-accent-soft/30 px-1.5 py-0.5 font-mono text-xs"
               >
                 <span className="text-text-primary">{id.value}</span>

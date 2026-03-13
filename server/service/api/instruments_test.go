@@ -11,6 +11,12 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+func TestListInstruments_Unauthenticated(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	_, err := srv.ListInstruments(context.Background(), &apiv1.ListInstrumentsRequest{})
+	testutil.RequireGRPCCode(t, err, codes.Unauthenticated)
+}
+
 func TestListInstruments_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	rows := []*dbpkg.InstrumentRow{

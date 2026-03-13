@@ -13,6 +13,7 @@ import {
 } from "@/lib/portfolio-api";
 import type { Portfolio, PortfolioFilter } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
+import { IdentifierType } from "@/gen/api/v1/api_pb";
 
 export default function PortfolioHoldingsPage() {
   const params = useParams();
@@ -197,16 +198,19 @@ export default function PortfolioHoldingsPage() {
                     <thead>
                       <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/[0.03]">
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
-                          Instrument
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-muted">
-                          Quantity
+                          Broker
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                           Account
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
-                          Broker
+                          Exchange
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
+                          Instrument
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-muted">
+                          Quantity
                         </th>
                       </tr>
                     </thead>
@@ -214,32 +218,40 @@ export default function PortfolioHoldingsPage() {
                       {holdings.holdings.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={4}
+                            colSpan={5}
                             className="px-4 py-8 text-center text-text-muted"
                           >
                             No holdings.
                           </td>
                         </tr>
                       ) : (
-                        holdings.holdings.map((h, i) => (
-                          <tr
-                            key={i}
-                            className="border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10"
-                          >
-                            <td className="px-4 py-3 font-medium text-text-primary">
-                              {h.instrumentDescription || "—"}
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
-                              {h.quantity}
-                            </td>
-                            <td className="px-4 py-3 text-text-muted">
-                              {h.account || "—"}
-                            </td>
-                            <td className="px-4 py-3 text-text-muted">
-                              {getBrokerLabel(h.broker)}
-                            </td>
-                          </tr>
-                        ))
+                        holdings.holdings.map((h, i) => {
+                          const ticker = h.instrument?.identifiers?.find(
+                            (id) => id.type === IdentifierType.TICKER
+                          )?.value;
+                          return (
+                            <tr
+                              key={i}
+                              className="border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10"
+                            >
+                              <td className="px-4 py-3 text-text-muted">
+                                {getBrokerLabel(h.broker)}
+                              </td>
+                              <td className="px-4 py-3 text-text-muted">
+                                {h.account || "—"}
+                              </td>
+                              <td className="px-4 py-3 text-text-muted">
+                                {h.instrument?.exchange || "—"}
+                              </td>
+                              <td className="px-4 py-3 font-medium text-text-primary">
+                                {ticker || h.instrumentDescription || "—"}
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
+                                {h.quantity}
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>

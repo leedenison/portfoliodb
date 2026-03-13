@@ -2,8 +2,10 @@ import { create, toBinary } from "@bufbuild/protobuf";
 import {
   CreatePortfolioResponseSchema,
   GetJobResponseSchema,
+  ListInstrumentsResponseSchema,
   ListPortfoliosResponseSchema,
   UpdatePortfolioResponseSchema,
+  IdentifierType,
 } from "@/gen/api/v1/api_pb";
 import { JobStatus } from "@/gen/api/v1/api_pb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +15,7 @@ import {
   updatePortfolio,
   deletePortfolio,
   getJob,
+  listInstruments,
 } from "./portfolio-api";
 import * as grpcWeb from "./grpc-web";
 
@@ -154,6 +157,64 @@ describe("portfolio-api", () => {
         expect.any(Uint8Array),
         { credentials: "include" }
       );
+    });
+  });
+
+  describe("listInstruments", () => {
+    it("returns instruments, nextPageToken, and totalCount", async () => {
+      mockUnaryFetch.mockResolvedValue(
+        toBinary(
+          ListInstrumentsResponseSchema,
+          create(ListInstrumentsResponseSchema, {
+            instruments: [
+              {
+                id: "inst-1",
+                name: "Apple Inc.",
+                assetClass: "STOCK",
+                exchange: "XNAS",
+                currency: "USD",
+                identifiers: [
+                  { type: IdentifierType.TICKER, value: "AAPL", domain: "XNAS", canonical: true },
+                ],
+              },
+            ],
+            nextPageToken: "page-2",
+            totalCount: 42,
+          })
+        )
+      );
+
+      const result = await listInstruments({ search: "AAPL" });
+
+      expect(result.instruments).toHaveLength(1);
+      expect(result.instruments[0].id).toBe("inst-1");
+      expect(result.nextPageToken).toBe("page-2");
+      expect(result.totalCount).toBe(42);
+      expect(mockUnaryFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        "portfoliodb.api.v1.ApiService/ListInstruments",
+        expect.any(Uint8Array),
+        { credentials: "include" }
+      );
+    });
+
+    it("returns null nextPageToken when empty", async () => {
+      mockUnaryFetch.mockResolvedValue(
+        toBinary(
+          ListInstrumentsResponseSchema,
+          create(ListInstrumentsResponseSchema, {
+            instruments: [],
+            nextPageToken: "",
+            totalCount: 0,
+          })
+        )
+      );
+
+      const result = await listInstruments();
+
+      expect(result.instruments).toHaveLength(0);
+      expect(result.nextPageToken).toBeNull();
+      expect(result.totalCount).toBe(0);
     });
   });
 

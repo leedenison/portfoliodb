@@ -3,9 +3,11 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -538,4 +540,171 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchange, c
 		return "", err
 	}
 	return newID.String(), nil
+}
+
+// ListInstruments implements db.InstrumentDB.
+func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClasses []string, pageSize int32, pageToken string) ([]*db.InstrumentRow, int32, string, error) {
+	limit := pageSize
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	var offset int64
+	if pageToken != "" {
+		b, err := base64.StdEncoding.DecodeString(pageToken)
+		if err == nil {
+			offset, _ = strconv.ParseInt(string(b), 10, 64)
+		}
+	}
+
+	// Display name: prefer TICKER, then instrument.name, then BROKER_DESCRIPTION, then id::text.
+	displayName := `COALESCE(
+		(SELECT ii.value FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.identifier_type = 'TICKER' ORDER BY ii.domain, ii.value LIMIT 1),
+		NULLIF(i.name, ''),
+		(SELECT ii.value FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.identifier_type = 'BROKER_DESCRIPTION' ORDER BY ii.domain, ii.value LIMIT 1),
+		i.id::text
+	)`
+
+	// Build WHERE clauses for optional filters.
+	var conditions []string
+	var args []interface{}
+	argIdx := 1
+	if search != "" {
+		conditions = append(conditions, fmt.Sprintf(`(%s) ILIKE '%%' || $%d || '%%'`, displayName, argIdx))
+		args = append(args, search)
+		argIdx++
+	}
+	if len(assetClasses) > 0 {
+		var filtered []string
+		includeEmpty := false
+		for _, ac := range assetClasses {
+			if ac == "UNKNOWN" {
+				includeEmpty = true
+			} else {
+				filtered = append(filtered, ac)
+			}
+		}
+		var parts []string
+		if len(filtered) > 0 {
+			placeholders := make([]string, len(filtered))
+			for i, ac := range filtered {
+				placeholders[i] = fmt.Sprintf("$%d", argIdx)
+				args = append(args, ac)
+				argIdx++
+			}
+			parts = append(parts, fmt.Sprintf("i.asset_class IN (%s)", strings.Join(placeholders, ",")))
+		}
+		if includeEmpty {
+			parts = append(parts, "(i.asset_class IS NULL OR i.asset_class = '')")
+		}
+		conditions = append(conditions, "("+strings.Join(parts, " OR ")+")")
+	}
+	where := ""
+	if len(conditions) > 0 {
+		where = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	// Count total matching instruments.
+	var total int32
+	countQ := fmt.Sprintf(`SELECT COUNT(*) FROM instruments i %s`, where)
+	if err := p.q.QueryRowContext(ctx, countQ, args...).Scan(&total); err != nil {
+		return nil, 0, "", fmt.Errorf("count instruments: %w", err)
+	}
+	if total == 0 {
+		return nil, 0, "", nil
+	}
+
+	q := fmt.Sprintf(`
+		SELECT i.id, i.asset_class, i.exchange, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to
+		FROM instruments i
+		%s
+		ORDER BY lower(%s)
+		LIMIT $%d OFFSET $%d
+	`, where, displayName, argIdx, argIdx+1)
+	args = append(args, limit+1, offset)
+
+	rows, err := p.q.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("list instruments: %w", err)
+	}
+	defer rows.Close()
+	var results []*db.InstrumentRow
+	var ids []uuid.UUID
+	for rows.Next() {
+		var row db.InstrumentRow
+		var id uuid.UUID
+		var assetClass, exchange, currency, name sql.NullString
+		var underlyingID sql.NullString
+		var validFrom, validTo sql.NullTime
+		if err := rows.Scan(&id, &assetClass, &exchange, &currency, &name, &underlyingID, &validFrom, &validTo); err != nil {
+			return nil, 0, "", err
+		}
+		row.ID = id.String()
+		row.AssetClass = strFromNull(assetClass)
+		row.Exchange = strFromNull(exchange)
+		row.Currency = strFromNull(currency)
+		row.Name = strFromNull(name)
+		row.UnderlyingID = strFromNull(underlyingID)
+		row.ValidFrom = timeFromNull(validFrom)
+		row.ValidTo = timeFromNull(validTo)
+		results = append(results, &row)
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, "", err
+	}
+
+	// Compute next page token (we fetched limit+1 to detect more pages).
+	var nextToken string
+	if int32(len(results)) > limit {
+		results = results[:limit]
+		ids = ids[:limit]
+		nextOffset := offset + int64(limit)
+		nextToken = base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(nextOffset, 10)))
+	}
+
+	if len(ids) == 0 {
+		return results, total, nextToken, nil
+	}
+	// Batch-load identifiers.
+	placeholders := make([]string, len(ids))
+	idArgs := make([]interface{}, len(ids))
+	for i := range ids {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		idArgs[i] = ids[i]
+	}
+	idRows, err := p.q.QueryContext(ctx, fmt.Sprintf(`
+		SELECT instrument_id, identifier_type, domain, value, canonical
+		FROM instrument_identifiers
+		WHERE instrument_id IN (%s)
+		ORDER BY instrument_id
+	`, strings.Join(placeholders, ",")), idArgs...)
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("list instrument identifiers: %w", err)
+	}
+	defer idRows.Close()
+	byID := make(map[string]*db.InstrumentRow)
+	for _, r := range results {
+		byID[r.ID] = r
+	}
+	for idRows.Next() {
+		var instID uuid.UUID
+		var idType, val string
+		var domain sql.NullString
+		var canonical bool
+		if err := idRows.Scan(&instID, &idType, &domain, &val, &canonical); err != nil {
+			return nil, 0, "", err
+		}
+		idn := db.IdentifierInput{Type: idType, Value: val, Canonical: canonical}
+		if domain.Valid {
+			idn.Domain = domain.String
+		}
+		row := byID[instID.String()]
+		if row != nil {
+			row.Identifiers = append(row.Identifiers, idn)
+		}
+	}
+	if err := idRows.Err(); err != nil {
+		return nil, 0, "", err
+	}
+	return results, total, nextToken, nil
 }

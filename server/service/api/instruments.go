@@ -10,6 +10,33 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// ListInstruments returns instruments sorted alphabetically with optional search. Any authenticated user.
+func (s *Server) ListInstruments(ctx context.Context, req *apiv1.ListInstrumentsRequest) (*apiv1.ListInstrumentsResponse, error) {
+	if _, authErr := auth.RequireUser(ctx); authErr != nil {
+		return nil, authErr
+	}
+	pageSize := req.GetPageSize()
+	if pageSize <= 0 {
+		pageSize = 30
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	rows, totalCount, nextToken, err := s.db.ListInstruments(ctx, req.GetSearch(), req.GetAssetClasses(), pageSize, req.GetPageToken())
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	instruments := make([]*apiv1.Instrument, 0, len(rows))
+	for _, row := range rows {
+		instruments = append(instruments, instrumentRowToProto(row))
+	}
+	return &apiv1.ListInstrumentsResponse{
+		Instruments:   instruments,
+		NextPageToken: nextToken,
+		TotalCount:    totalCount,
+	}, nil
+}
+
 // ExportInstruments streams instruments that have at least one canonical identifier. Optional exchange filter. Admin only.
 func (s *Server) ExportInstruments(req *apiv1.ExportInstrumentsRequest, stream apiv1.ApiService_ExportInstrumentsServer) error {
 	ctx := stream.Context()

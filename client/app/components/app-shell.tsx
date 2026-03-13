@@ -7,6 +7,7 @@ import { AppHeader } from "./app-header";
 const navItems = [
   { href: "/holdings", label: "Holdings" },
   { href: "/portfolios", label: "Portfolios" },
+  { href: "/instruments", label: "Instruments" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

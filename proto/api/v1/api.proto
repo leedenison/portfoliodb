@@ -136,6 +136,9 @@ service ApiService {
   // Async ingestion job status and validation errors
   rpc GetJob(GetJobRequest) returns (GetJobResponse);
 
+  // Instruments: browse and search (any authenticated user).
+  rpc ListInstruments(ListInstrumentsRequest) returns (ListInstrumentsResponse);
+
   // Instrument export/import (admin-only). Export streams instruments with at least one canonical identifier; optional exchange filter.
   rpc ExportInstruments(ExportInstrumentsRequest) returns (stream Instrument);
   rpc ImportInstruments(ImportInstrumentsRequest) returns (ImportInstrumentsResponse);
@@ -294,6 +297,21 @@ message GetJobResponse {
   JobStatus status = 1;
   repeated ValidationError validation_errors = 2;
   repeated IdentificationError identification_errors = 3;
+}
+
+// ListInstruments returns instruments sorted alphabetically by display name (ticker, name, or broker description).
+// Optional search filters by identifier value (case-insensitive substring match).
+message ListInstrumentsRequest {
+  string search = 1;       // optional; matched against identifier values
+  int32 page_size = 2;
+  string page_token = 3;
+  repeated string asset_classes = 4;  // optional; filter by asset class (e.g. "STOCK", "ETF"). Empty = all.
+}
+
+message ListInstrumentsResponse {
+  repeated Instrument instruments = 1;
+  string next_page_token = 2;
+  int32 total_count = 3;  // total matching instruments (for UI pagination display)
 }
 
 // ExportInstruments streams all instruments that have at least one canonical identifier. Optional exchange filter.

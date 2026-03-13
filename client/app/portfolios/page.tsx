@@ -15,7 +15,7 @@ export default function PortfoliosPage() {
         )}
         {state.status === "unauthenticated" && (
           <div className="flex flex-1 flex-col items-center justify-center text-center">
-            <h1 className="text-4xl font-bold tracking-tight text-text-primary">
+            <h1 className="font-display text-4xl font-bold tracking-tight text-text-primary">
               Portfolios
             </h1>
             <p className="mt-3 text-text-muted">Sign in to view portfolios.</p>

@@ -122,14 +122,14 @@ export function PortfolioList() {
   const hasNext = !!nextPageToken;
 
   return (
-    <div className="w-full max-w-2xl space-y-4">
+    <div className="w-full max-w-4xl animate-fade-in space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-text-primary">Your portfolios</h2>
+        <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">Your portfolios</h2>
         {!creating && (
           <button
             type="button"
             onClick={() => setCreating(true)}
-            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-dark"
+            className="rounded-md bg-accent px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark"
           >
             New portfolio
           </button>
@@ -137,25 +137,25 @@ export function PortfolioList() {
       </div>
 
       {creating && (
-        <form onSubmit={handleCreate} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-3 shadow-sm">
+        <form onSubmit={handleCreate} className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface p-3 shadow-sm">
           <input
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Portfolio name"
-            className="min-w-[200px] rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text-primary placeholder:text-text-muted"
+            className="min-w-[200px] rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
             autoFocus
           />
           <button
             type="submit"
-            className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary-dark"
+            className="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
           >
             Create
           </button>
           <button
             type="button"
             onClick={() => { setCreating(false); setNewName(""); }}
-            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-text-primary transition-colors hover:bg-primary-light/20"
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary transition-colors hover:bg-primary-light/15"
           >
             Cancel
           </button>
@@ -163,21 +163,21 @@ export function PortfolioList() {
       )}
 
       {error && (
-        <p className="rounded-lg bg-accent-soft/50 px-3 py-2 text-sm text-accent-dark">{error}</p>
+        <p className="rounded-md bg-accent-soft/50 px-3 py-2 text-sm text-accent-dark">{error}</p>
       )}
 
       {loading ? (
         <p className="text-text-muted">Loading portfolios…</p>
       ) : (
         <>
-          <ul className="divide-y divide-border rounded-lg border border-border bg-surface shadow-sm">
+          <ul className="divide-y divide-border/60 rounded-md border border-border bg-surface shadow-sm">
             {portfolios.length === 0 && !creating ? (
-              <li className="px-4 py-6 text-center text-text-muted">
+              <li className="px-4 py-8 text-center text-text-muted">
                 No portfolios yet. Create one above.
               </li>
             ) : (
               portfolios.map((p) => (
-                <li key={p.id} className="flex items-center justify-between gap-2 px-4 py-3">
+                <li key={p.id} className="flex items-center justify-between gap-2 px-4 py-3.5 transition-colors hover:bg-primary-light/10">
                   {renamingId === p.id ? (
                     <form
                       onSubmit={(e) => handleRename(e, p.id)}
@@ -187,19 +187,19 @@ export function PortfolioList() {
                         type="text"
                         value={renameValue}
                         onChange={(e) => setRenameValue(e.target.value)}
-                        className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-sm text-text-primary"
+                        className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
                         autoFocus
                       />
                       <button
                         type="submit"
-                        className="rounded-lg bg-primary px-2 py-1 text-sm font-medium text-white hover:bg-primary-dark"
+                        className="rounded-md bg-primary px-2.5 py-1 text-sm font-semibold text-white hover:bg-primary-dark"
                       >
                         Save
                       </button>
                       <button
                         type="button"
                         onClick={() => { setRenamingId(null); setRenameValue(""); }}
-                        className="rounded-lg border border-border px-2 py-1 text-sm hover:bg-primary-light/20"
+                        className="rounded-md border border-border px-2.5 py-1 text-sm hover:bg-primary-light/15"
                       >
                         Cancel
                       </button>
@@ -212,14 +212,14 @@ export function PortfolioList() {
                       <button
                         type="button"
                         onClick={() => handleDelete(p.id)}
-                        className="rounded-lg bg-accent-dark px-2 py-1 text-sm font-medium text-white hover:bg-accent"
+                        className="rounded-md bg-accent-dark px-2.5 py-1 text-sm font-semibold text-white hover:bg-accent"
                       >
                         Yes, delete
                       </button>
                       <button
                         type="button"
                         onClick={() => setDeletingId(null)}
-                        className="rounded-lg border border-border px-2 py-1 text-sm hover:bg-primary-light/20"
+                        className="rounded-md border border-border px-2.5 py-1 text-sm hover:bg-primary-light/15"
                       >
                         Cancel
                       </button>
@@ -229,12 +229,12 @@ export function PortfolioList() {
                       <div className="min-w-0 flex-1">
                         <Link
                           href={`/portfolios/${p.id}`}
-                          className="font-medium text-primary underline transition-colors hover:text-primary-dark"
+                          className="font-semibold text-primary-dark transition-colors hover:text-accent"
                         >
                           {p.name}
                         </Link>
                         {p.createdAt && (
-                          <span className="ml-2 text-xs text-text-muted">
+                          <span className="ml-3 font-mono text-xs text-text-muted">
                             {p.createdAt.toLocaleDateString()}
                           </span>
                         )}
@@ -243,14 +243,14 @@ export function PortfolioList() {
                         <button
                           type="button"
                           onClick={() => startRename(p)}
-                          className="rounded-lg border border-border px-2 py-1 text-xs transition-colors hover:bg-primary-light/20"
+                          className="rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-primary-light/15"
                         >
                           Rename
                         </button>
                         <button
                           type="button"
                           onClick={() => confirmDelete(p)}
-                          className="rounded-lg border border-accent-soft px-2 py-1 text-xs text-accent-dark hover:bg-accent-soft/50"
+                          className="rounded-md border border-accent-soft px-2.5 py-1 text-xs font-medium text-accent-dark hover:bg-accent-soft/50"
                         >
                           Delete
                         </button>
@@ -263,23 +263,23 @@ export function PortfolioList() {
           </ul>
 
           {(hasPrev || hasNext) && (
-            <div className="flex items-center justify-between border-t border-border pt-2">
+            <div className="flex items-center justify-between pt-2">
               <button
                 type="button"
                 onClick={goPrev}
                 disabled={!hasPrev}
-                className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm disabled:opacity-50 hover:enabled:bg-primary-light/20"
+                className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium disabled:opacity-40 hover:enabled:bg-primary-light/15"
               >
                 Previous
               </button>
-              <span className="text-sm text-text-muted">
-                Page {pageIndex + 1} (up to {PAGE_SIZE} per page)
+              <span className="font-mono text-xs text-text-muted">
+                Page {pageIndex + 1}
               </span>
               <button
                 type="button"
                 onClick={goNext}
                 disabled={!hasNext}
-                className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm disabled:opacity-50 hover:enabled:bg-primary-light/20"
+                className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium disabled:opacity-40 hover:enabled:bg-primary-light/15"
               >
                 Next
               </button>

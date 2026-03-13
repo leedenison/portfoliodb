@@ -11,10 +11,10 @@ export function AppHeader() {
   const isAdmin = state.status === "authenticated" && state.role === "admin";
 
   return (
-    <header className="flex items-center justify-between border-b border-primary-dark bg-primary px-6 py-3 text-white shadow-sm">
+    <header className="header-geo accent-bar flex items-center justify-between bg-primary-dark px-6 py-3.5 text-white">
       <Link
         href="/"
-        className="flex items-center gap-2 transition-opacity hover:opacity-90"
+        className="flex items-center gap-3 transition-opacity hover:opacity-90"
       >
         <Image
           src="/logo-inverted.png"
@@ -23,7 +23,7 @@ export function AppHeader() {
           height={36}
           className="h-9 w-9 object-contain"
         />
-        <span className="text-lg font-semibold tracking-tight">
+        <span className="font-display text-lg font-bold tracking-tight">
           PortfolioDB
         </span>
       </Link>
@@ -31,13 +31,13 @@ export function AppHeader() {
         {isAdmin && (
           <Link
             href="/admin"
-            className="text-sm font-medium transition-colors hover:opacity-90"
+            className="text-sm font-medium tracking-wide uppercase transition-colors hover:text-accent"
           >
             Admin
           </Link>
         )}
         <UserMenu inverted />
-        <SignInButton inverted />
+        <SignInButton />
       </nav>
     </header>
   );

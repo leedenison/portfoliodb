@@ -20,8 +20,8 @@ All frontend code must use these technologies. Use Tailwind utility classes for 
 
 Before coding, understand the context and commit to a BOLD aesthetic direction:
 - **Purpose**: This interface is for individual investors to track their overall financial position (including stock portfolios, cash accounts and other assets), view performance metrics, and set financial goals. The design should make complex financial data feel approachable and even delightful, while conveying trustworthiness and sophistication.
-- **Tone**: Minimal, art deco/geometric.
-- **Constraints**: Use the tech stack described above.  Ensure that animations are performant and do not cause jank. Animations should be shortcut when run in testing mode.  The interface should be responsive and look great on both desktop and mobile.
+- **Tone**: Minimal, industrial, geometric.
+- **Constraints**: Take inspiration from Google's material design principles. Use the tech stack described above.  Ensure that animations are performant and do not cause jank. Animations should be shortcut when run in testing mode.  The interface should be responsive and look great on both desktop and mobile.
 - **Differentiation**: This interface should have bold, clear graphs which make headline data feel obvious and available.
 
 **CRITICAL**: Choose a clear conceptual direction and execute it with precision. Bold maximalism and refined minimalism both work - the key is intentionality, not intensity.

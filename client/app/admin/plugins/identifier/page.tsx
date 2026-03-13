@@ -102,7 +102,7 @@ export default function AdminIdentifierPluginsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-text-primary">
+      <h1 className="font-display text-xl font-bold text-text-primary">
         Identifier plugins
       </h1>
       <p className="text-sm text-text-muted">
@@ -121,7 +121,7 @@ export default function AdminIdentifierPluginsPage() {
           return (
           <li
             key={plugin.pluginId}
-            className="rounded-lg border border-border bg-background p-4 shadow-sm"
+            className="rounded-md border border-border bg-surface p-4 shadow-sm"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>

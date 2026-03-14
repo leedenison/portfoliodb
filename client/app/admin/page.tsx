@@ -7,7 +7,28 @@ import {
   listDescriptionPlugins,
 } from "@/lib/portfolio-api";
 
-const dashboardCards = [
+const dashboardCards: {
+  id: string;
+  title: string;
+  href: string;
+  description: string;
+  disabled?: boolean;
+}[] = [
+  {
+    id: "instruments",
+    title: "Instruments",
+    href: "/admin/instruments",
+    description:
+      "Browse and inspect instrument reference data, identifiers and status.",
+  },
+  {
+    id: "prices",
+    title: "Prices",
+    href: "/admin/prices",
+    description:
+      "View price data coverage and retrieval status for instruments.",
+    disabled: true,
+  },
   {
     id: "identifier",
     title: "Identifier plugins",
@@ -29,14 +50,21 @@ const dashboardCards = [
     description: "View Redis-backed counters (portfoliodb:counters:*).",
   },
   {
-    id: "id-token",
-    title: "ID token",
-    href: "/admin/id-token",
+    id: "tools",
+    title: "Tools",
+    href: "/admin/tools",
     description: "Fetch a Google ID token for scripts (x-session-id or Auth).",
+  },
+  {
+    id: "logs",
+    title: "Logs",
+    href: "/admin/logs",
+    description: "View system logs and notable events.",
+    disabled: true,
   },
 ];
 
-export default function AdminDashboardPage() {
+export default function AdminOverviewPage() {
   const [identifierPlugins, setIdentifierPlugins] = useState<
     { displayName: string }[]
   >([]);
@@ -80,11 +108,22 @@ export default function AdminDashboardPage() {
         Quick links to admin tools. Use the sidebar for full navigation.
       </p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {dashboardCards.map((card, i) => {
+        {dashboardCards.map((card) => {
           const summary = pluginSummary(card.id);
+          if (card.disabled) {
+            return (
+              <div
+                key={card.id}
+                className="block cursor-default rounded-md border border-border bg-surface p-5 opacity-40 shadow-sm"
+              >
+                <h2 className="font-display font-semibold text-text-primary">{card.title}</h2>
+                <p className="mt-1.5 text-sm text-text-muted">{card.description}</p>
+              </div>
+            );
+          }
           return (
             <Link
-              key={card.href}
+              key={card.id}
               href={card.href}
               className="group block rounded-md border border-border bg-surface p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
             >

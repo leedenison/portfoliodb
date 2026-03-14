@@ -46,13 +46,26 @@ Important: Before implementing any feature or making architectural decisions, co
 
 Prefer smaller, focused PRs to reduce review burden:
 
-* Target size: 500-800 lines changed  
-* Maximum: Going over is acceptable when necessary, but avoid PRs exceeding 1000 lines if they can be split  
+* Target size: 500-800 lines changed
+* Maximum: Going over is acceptable when necessary, but avoid PRs exceeding 1000 lines if they can be split
 * Approach: Break large features into logical increments (e.g., models first, then implementation, then tests)
 
 Smaller PRs are easier to review, less likely to introduce bugs, and create cleaner git history.
 
 When merging PRs always squash the commits and remove the feature branch.
+
+### Branching Workflow
+
+When a plan calls for multiple PRs, create and complete each PR on its own feature branch before starting the next. Do not implement all changes on a single branch or on main and attempt to separate them afterward -- this is error-prone and creates unnecessary rework.
+
+Workflow for multi-PR plans:
+
+1. Create a feature branch from main for PR 1
+2. Implement, commit, push, and open the PR
+3. Switch back to main before starting PR 2
+4. If PR 2 depends on PR 1, branch from the PR 1 branch instead and note the dependency in the PR description
+
+If the changes cannot be cleanly separated into independent PRs (e.g., extensive cross-cutting modifications), it is acceptable to use a single PR. State in the PR description why it was not split.
 
 ## User Interface
 

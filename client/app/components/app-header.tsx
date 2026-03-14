@@ -12,21 +12,28 @@ export function AppHeader() {
 
   return (
     <header className="header-geo accent-bar flex items-center justify-between bg-primary-dark px-6 py-3.5 text-white">
-      <Link
-        href="/"
-        className="flex items-center gap-3 transition-opacity hover:opacity-90"
-      >
-        <Image
-          src="/logo-inverted.png"
-          alt="PortfolioDB"
-          width={36}
-          height={36}
-          className="h-9 w-9 object-contain"
-        />
-        <span className="font-display text-lg font-bold tracking-tight">
-          PortfolioDB
-        </span>
-      </Link>
+      <div className="flex items-center gap-4">
+        <Link
+          href="/"
+          className="flex items-center gap-3 transition-opacity hover:opacity-90"
+        >
+          <Image
+            src="/logo-inverted.png"
+            alt="PortfolioDB"
+            width={36}
+            height={36}
+            className="h-9 w-9 object-contain"
+          />
+          <span className="font-display text-lg font-bold tracking-tight">
+            PortfolioDB
+          </span>
+        </Link>
+        {state.status === "authenticated" && (
+          <span className="rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium">
+            All Holdings
+          </span>
+        )}
+      </div>
       <nav className="flex items-center gap-6">
         {isAdmin && (
           <Link

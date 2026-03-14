@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { useAuth } from "@/contexts/auth-context";
 import { usePortfolio } from "@/contexts/portfolio-context";
+import { useUploadModal } from "@/contexts/upload-modal-context";
 import { getHoldings } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
 import { IdentifierType } from "@/gen/api/v1/api_pb";
@@ -12,6 +12,7 @@ import { IdentifierType } from "@/gen/api/v1/api_pb";
 export default function UserHoldingsPage() {
   const { state, authError } = useAuth();
   const { selected: selectedPortfolio } = usePortfolio();
+  const { openUploadModal } = useUploadModal();
   const [holdings, setHoldings] = useState<Awaited<ReturnType<typeof getHoldings>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,19 +59,20 @@ export default function UserHoldingsPage() {
           <div className="mx-auto w-full max-w-4xl animate-fade-in space-y-5">
             <div className="flex flex-wrap items-baseline gap-3">
               <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">
-                Holdings
+                {selectedPortfolio?.name ?? "All Holdings"}
               </h2>
               {holdings?.asOf && (
                 <span className="font-mono text-xs text-text-muted">
                   as of {holdings.asOf.toLocaleString()}
                 </span>
               )}
-              <Link
-                href="/upload"
+              <button
+                type="button"
+                onClick={() => openUploadModal(() => fetchData(selectedPortfolio?.id))}
                 className="ml-auto rounded-md bg-accent px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark"
               >
                 Upload transactions
-              </Link>
+              </button>
             </div>
             {loading && (
               <p className="text-text-muted">Loading holdings…</p>

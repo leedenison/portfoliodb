@@ -26,6 +26,7 @@ export interface UpsertTxsParams {
   periodFrom?: Timestamp;
   periodTo?: Timestamp;
   txs: Tx[];
+  filename?: string;
 }
 
 export async function upsertTxs(params: UpsertTxsParams): Promise<IngestionResponse> {
@@ -36,6 +37,7 @@ export async function upsertTxs(params: UpsertTxsParams): Promise<IngestionRespo
     periodFrom: params.periodFrom,
     periodTo: params.periodTo,
     txs: params.txs,
+    filename: params.filename ?? "",
   });
   const resBytes = await unaryFetch(
     base,

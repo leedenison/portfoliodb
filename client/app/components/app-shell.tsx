@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AppHeader } from "./app-header";
+import { UploadModal } from "./upload-modal";
 
 const navItems = [
   { href: "/holdings", label: "Holdings" },
@@ -52,6 +53,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </aside>
         <main className="flex flex-1 flex-col">{children}</main>
       </div>
+      <UploadModal />
     </div>
   );
 }

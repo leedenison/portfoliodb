@@ -3,6 +3,7 @@
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AuthProvider } from "@/contexts/auth-context";
 import { PortfolioProvider } from "@/contexts/portfolio-context";
+import { UploadModalProvider } from "@/contexts/upload-modal-context";
 import { SessionLostHandler } from "@/app/components/session-lost-handler";
 
 const googleClientId =
@@ -13,8 +14,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <GoogleOAuthProvider clientId={googleClientId}>
       <AuthProvider>
         <PortfolioProvider>
-          <SessionLostHandler />
-          {children}
+          <UploadModalProvider>
+            <SessionLostHandler />
+            {children}
+          </UploadModalProvider>
         </PortfolioProvider>
       </AuthProvider>
     </GoogleOAuthProvider>

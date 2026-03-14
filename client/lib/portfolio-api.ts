@@ -22,6 +22,8 @@ import {
   ListIdentifierPluginsResponseSchema,
   ListInstrumentsRequestSchema,
   ListInstrumentsResponseSchema,
+  ListJobsRequestSchema,
+  ListJobsResponseSchema,
   ListPortfoliosRequestSchema,
   ListPortfoliosResponseSchema,
   ListTelemetryCountersRequestSchema,
@@ -348,4 +350,49 @@ export async function listTelemetryCounters(): Promise<TelemetryCounterRow[]> {
   });
   const res = fromBinary(ListTelemetryCountersResponseSchema, resBytes);
   return (res.counters ?? []).map((c) => ({ name: c.name ?? "", value: Number(c.value ?? 0) }));
+}
+
+/** Job summary for the uploads list page. */
+export interface JobSummary {
+  id: string;
+  filename: string;
+  broker: string;
+  status: JobStatus;
+  createdAt?: Date;
+  validationErrorCount: number;
+  identificationErrorCount: number;
+}
+
+export interface ListJobsResult {
+  jobs: JobSummary[];
+  nextPageToken: string | null;
+  totalCount: number;
+}
+
+export async function listJobs(pageToken?: string | null): Promise<ListJobsResult> {
+  const base = getBaseUrl();
+  const req = create(ListJobsRequestSchema, {
+    pageSize: PAGE_SIZE,
+    pageToken: pageToken ?? "",
+  });
+  const resBytes = await unaryFetch(
+    base,
+    ApiServicePrefix + "ListJobs",
+    toBinary(ListJobsRequestSchema, req),
+    { credentials: "include" }
+  );
+  const res = fromBinary(ListJobsResponseSchema, resBytes);
+  return {
+    jobs: res.jobs.map((j) => ({
+      id: j.id,
+      filename: j.filename,
+      broker: j.broker,
+      status: j.status,
+      createdAt: j.createdAt ? timestampDate(j.createdAt) : undefined,
+      validationErrorCount: j.validationErrorCount,
+      identificationErrorCount: j.identificationErrorCount,
+    })),
+    nextPageToken: res.nextPageToken || null,
+    totalCount: res.totalCount,
+  };
 }

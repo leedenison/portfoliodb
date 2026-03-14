@@ -1,15 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { AppShell } from "@/app/components/app-shell";
+import { useUploadModal } from "@/contexts/upload-modal-context";
 import { useAuth } from "@/contexts/auth-context";
 import { getJob } from "@/lib/portfolio-api";
 import { upsertTxs } from "@/lib/ingestion-api";
 import { parseStandardCSV } from "@/lib/csv/standard";
-import { Broker } from "@/gen/api/v1/api_pb";
+import { Broker, JobStatus } from "@/gen/api/v1/api_pb";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { JobStatus } from "@/gen/api/v1/api_pb";
 import {
   getBrokerOptionsForUpload,
   getFormatsForBroker,
@@ -19,8 +17,9 @@ import {
 const BROKER_OPTIONS = getBrokerOptionsForUpload();
 const DEFAULT_BROKER = BROKER_OPTIONS[0]?.value ?? Broker.FIDELITY;
 
-export default function UploadPage() {
-  const { state, authError } = useAuth();
+export function UploadModal() {
+  const { isOpen, closeUploadModal, onComplete } = useUploadModal();
+  const { state } = useAuth();
   const [step, setStep] = useState<1 | 2>(1);
   const [broker, setBroker] = useState<Broker>(DEFAULT_BROKER);
   const [formatId, setFormatId] = useState<string>("standard");
@@ -32,12 +31,38 @@ export default function UploadPage() {
   const [jobStatus, setJobStatus] = useState<Awaited<ReturnType<typeof getJob>> | null>(null);
   const [fileInputActive, setFileInputActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
 
   const formats = useMemo(() => getFormatsForBroker(broker), [broker]);
   const selectedFormat = useMemo(() => formats.find((f) => f.id === formatId), [formats, formatId]);
   const optionsValid =
     selectedFormat?.OptionsComponent == null ||
     (converterOptions?.currency != null && converterOptions?.currency !== "");
+
+  // Reset state when modal opens.
+  useEffect(() => {
+    if (isOpen) {
+      setStep(1);
+      setBroker(DEFAULT_BROKER);
+      setFormatId("standard");
+      setConverterOptions({});
+      setFile(null);
+      setParseResult(null);
+      setSubmitError(null);
+      setJobId(null);
+      setJobStatus(null);
+    }
+  }, [isOpen]);
+
+  // Close on Escape (only when not processing).
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !jobId) closeUploadModal();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isOpen, jobId, closeUploadModal]);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,8 +75,7 @@ export default function UploadPage() {
       reader.onload = () => {
         const text = typeof reader.result === "string" ? reader.result : "";
         if (selectedFormat?.convert) {
-          const result = selectedFormat.convert!(text, converterOptions);
-          setParseResult(result);
+          setParseResult(selectedFormat.convert(text, converterOptions));
         } else {
           setParseResult(parseStandardCSV(text));
         }
@@ -73,27 +97,27 @@ export default function UploadPage() {
         periodFrom: timestampFromDate(parseResult.periodFrom),
         periodTo: timestampFromDate(parseResult.periodTo),
         txs: parseResult.txs,
+        filename: file?.name,
       });
       setJobId(res.jobId);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : String(e));
     }
-  }, [broker, formatId, parseResult]);
+  }, [broker, formatId, parseResult, file]);
 
+  // Clear parse result when broker/format/options change.
   useEffect(() => {
     setParseResult(null);
   }, [broker, formatId, converterOptions]);
 
-  // Re-parse when format or converter options change and we already have a file
-  // (e.g. user picked file with "standard", then switched to "Fidelity CSV" and selected currency)
+  // Re-parse when format or converter options change and we already have a file.
   useEffect(() => {
     if (!file || !selectedFormat || !optionsValid) return;
     const reader = new FileReader();
     reader.onload = () => {
       const text = typeof reader.result === "string" ? reader.result : "";
       if (selectedFormat.convert) {
-        const result = selectedFormat.convert(text, converterOptions);
-        setParseResult(result);
+        setParseResult(selectedFormat.convert(text, converterOptions));
       } else {
         setParseResult(parseStandardCSV(text));
       }
@@ -101,14 +125,21 @@ export default function UploadPage() {
     reader.readAsText(file);
   }, [file, formatId, selectedFormat, converterOptions, optionsValid]);
 
+  // Poll job status; auto-close on success.
   useEffect(() => {
     if (!jobId || state.status !== "authenticated") return;
     let cancelled = false;
     const poll = async () => {
       try {
         const result = await getJob(jobId);
-        if (!cancelled) setJobStatus(result);
-        return result.status === JobStatus.SUCCESS || result.status === JobStatus.FAILED;
+        if (cancelled) return false;
+        setJobStatus(result);
+        if (result.status === JobStatus.SUCCESS) {
+          onComplete?.();
+          closeUploadModal();
+          return true;
+        }
+        return result.status === JobStatus.FAILED;
       } catch {
         return false;
       }
@@ -123,31 +154,9 @@ export default function UploadPage() {
       cancelled = true;
       clearInterval(t);
     };
-  }, [jobId, state.status]);
+  }, [jobId, state.status, onComplete, closeUploadModal]);
 
-  if (state.status === "loading") {
-    return (
-      <AppShell>
-        <div className="flex flex-1 items-center justify-center px-4 py-8">
-          <p className="text-text-muted">Loading…</p>
-        </div>
-      </AppShell>
-    );
-  }
-
-  if (state.status === "unauthenticated") {
-    return (
-      <AppShell>
-        <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center">
-          <h1 className="font-display text-4xl font-bold tracking-tight text-text-primary">Upload transactions</h1>
-          <p className="mt-3 text-text-muted">Sign in to upload.</p>
-          {authError && (
-            <p className="mt-4 rounded-lg bg-accent-soft/50 px-4 py-2 text-sm text-accent-dark">{authError}</p>
-          )}
-        </div>
-      </AppShell>
-    );
-  }
+  if (!isOpen) return null;
 
   const canUpload =
     parseResult &&
@@ -156,86 +165,108 @@ export default function UploadPage() {
     optionsValid &&
     !jobId;
 
+  const handleClose = () => {
+    if (!jobId) closeUploadModal();
+  };
+
   return (
-    <AppShell>
-      <div className="flex flex-1 flex-col items-center px-4 py-8">
-        <div className="w-full max-w-4xl animate-fade-in space-y-5">
-          <Link
-            href="/holdings"
-            className="inline-flex items-center gap-1 text-sm font-medium text-text-muted transition-colors hover:text-primary"
-          >
-            <span aria-hidden="true">&larr;</span> Holdings
-          </Link>
-          <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">
-            Upload transactions
-          </h2>
-
-          {/* Step indicator */}
+    <div
+      ref={backdropRef}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => { if (e.target === backdropRef.current) handleClose(); }}
+    >
+      <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-lg bg-surface shadow-xl sm:max-h-[600px]">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <h2 className="font-display text-lg font-bold text-text-primary">Upload transactions</h2>
           {!jobId && (
-            <div className="flex items-center gap-2 text-xs font-medium">
-              <span className={step === 1 ? "text-primary-dark" : "text-text-muted"}>
-                1. Broker
-              </span>
-              <span className="h-px w-4 bg-border" />
-              <span className={step === 2 ? "text-primary-dark" : "text-text-muted"}>
-                2. File
-              </span>
-            </div>
+            <button
+              type="button"
+              onClick={closeUploadModal}
+              className="rounded-md p-1 text-text-muted transition-colors hover:bg-primary-light/15 hover:text-text-primary"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           )}
+        </div>
 
-          {jobId && jobStatus && (jobStatus.status === JobStatus.SUCCESS || jobStatus.status === JobStatus.FAILED) ? (
-            <div className="space-y-3 rounded-md border border-border bg-surface p-4 shadow-sm">
-              {jobStatus.status === JobStatus.SUCCESS ? (
-                <>
-                  <p className="text-text-primary">Upload completed successfully.</p>
-                  <Link
-                    href="/holdings"
-                    className="inline-block text-sm text-primary underline hover:text-primary-dark"
-                  >
-                    View holdings
-                  </Link>
-                </>
-              ) : (
-                <>
-                  <p className="font-medium text-accent-dark">Upload failed</p>
-                  {jobStatus.validationErrors.length > 0 && (
-                    <div>
-                      <p className="text-sm font-medium text-text-primary">Validation errors</p>
-                      <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
-                        {jobStatus.validationErrors.map((e, i) => (
-                          <li key={i}>
-                            Row {e.rowIndex + 1}: {e.field} – {e.message}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {jobStatus.identificationErrors.length > 0 && (
-                    <div>
-                      <p className="text-sm font-medium text-text-primary">Identification errors</p>
-                      <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
-                        {jobStatus.identificationErrors.map((e, i) => (
-                          <li key={i}>
-                            Row {e.rowIndex + 1}: {e.instrumentDescription} – {e.message}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </>
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {jobId && jobStatus?.status === JobStatus.FAILED ? (
+            <div className="space-y-3">
+              <p className="font-medium text-accent-dark">Upload failed</p>
+              {jobStatus.validationErrors.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-text-primary">Validation errors</p>
+                  <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
+                    {jobStatus.validationErrors.map((e, i) => (
+                      <li key={i}>
+                        Row {e.rowIndex + 1}: {e.field} &ndash; {e.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
+              {jobStatus.identificationErrors.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-text-primary">Identification errors</p>
+                  <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
+                    {jobStatus.identificationErrors.map((e, i) => (
+                      <li key={i}>
+                        Row {e.rowIndex + 1}: {e.instrumentDescription} &ndash; {e.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={closeUploadModal}
+                className="rounded-md border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-primary-light/15"
+              >
+                Close
+              </button>
             </div>
           ) : jobId ? (
-            <p className="text-text-muted">Processing…</p>
+            <div className="flex flex-col items-center gap-3 py-6">
+              <svg
+                className="h-8 w-8 animate-spin text-primary"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"
+                />
+              </svg>
+              <p className="text-sm text-text-muted">Processing&hellip;</p>
+            </div>
           ) : step === 1 ? (
-            <>
-              <p className="text-text-muted">Select the broker for this transaction file.</p>
+            <div className="space-y-4">
+              {/* Step indicator */}
+              <div className="flex items-center gap-2 text-xs font-medium">
+                <span className="text-primary-dark">1. Broker</span>
+                <span className="h-px w-4 bg-border" />
+                <span className="text-text-muted">2. File</span>
+              </div>
+              <p className="text-sm text-text-muted">Select the broker for this transaction file.</p>
               <div className="space-y-2">
-                <label htmlFor="broker" className="block text-sm font-medium text-text-primary">
+                <label htmlFor="upload-broker" className="block text-sm font-medium text-text-primary">
                   Broker
                 </label>
                 <select
-                  id="broker"
+                  id="upload-broker"
                   value={broker}
                   onChange={(e) => {
                     setBroker(Number(e.target.value) as Broker);
@@ -258,18 +289,22 @@ export default function UploadPage() {
               >
                 Next
               </button>
-            </>
+            </div>
           ) : (
-            <>
-              <p className="text-text-muted">
-                Choose format and select your CSV file.
-              </p>
+            <div className="space-y-4">
+              {/* Step indicator */}
+              <div className="flex items-center gap-2 text-xs font-medium">
+                <span className="text-text-muted">1. Broker</span>
+                <span className="h-px w-4 bg-border" />
+                <span className="text-primary-dark">2. File</span>
+              </div>
+              <p className="text-sm text-text-muted">Choose format and select your CSV file.</p>
               <div className="space-y-2">
-                <label htmlFor="format" className="block text-sm font-medium text-text-primary">
+                <label htmlFor="upload-format" className="block text-sm font-medium text-text-primary">
                   Format
                 </label>
                 <select
-                  id="format"
+                  id="upload-format"
                   value={formatId}
                   onChange={(e) => setFormatId(e.target.value)}
                   className="block w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary focus:border-primary focus:outline-none"
@@ -293,12 +328,12 @@ export default function UploadPage() {
                 );
               })()}
               <div className="space-y-2">
-                <label htmlFor="file" className="block text-sm font-medium text-text-primary">
+                <label htmlFor="upload-file" className="block text-sm font-medium text-text-primary">
                   CSV file
                 </label>
                 <input
                   ref={fileInputRef}
-                  id="file"
+                  id="upload-file"
                   type="file"
                   accept=".csv"
                   onChange={handleFileChange}
@@ -318,7 +353,7 @@ export default function UploadPage() {
                       : "border-border bg-primary-light/20 text-text-primary hover:bg-primary-light/40 active:border-primary active:bg-primary active:text-white"
                   }`}
                 >
-                  {fileInputActive ? "Opening…" : "Choose file"}
+                  {fileInputActive ? "Opening\u2026" : "Choose file"}
                 </button>
                 {file && (
                   <p className="text-sm text-text-muted">
@@ -327,21 +362,21 @@ export default function UploadPage() {
                 )}
               </div>
               {parseResult && (
-                <div className="rounded-md border border-border bg-surface p-4 shadow-sm">
+                <div className="rounded-md border border-border bg-background p-4">
                   {parseResult.errors.length > 0 ? (
                     <>
                       <p className="font-medium text-accent-dark">Parse errors</p>
                       <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
                         {parseResult.errors.map((e, i) => (
                           <li key={i}>
-                            Row {e.rowIndex}: {e.field} – {e.message}
+                            Row {e.rowIndex}: {e.field} &ndash; {e.message}
                           </li>
                         ))}
                       </ul>
                     </>
                   ) : (
                     <>
-                      <p className="text-text-primary">
+                      <p className="text-sm text-text-primary">
                         {parseResult.txs.length} transaction(s), from{" "}
                         {parseResult.periodFrom.toLocaleDateString()} to{" "}
                         {parseResult.periodTo.toLocaleDateString()}.
@@ -368,10 +403,10 @@ export default function UploadPage() {
               >
                 Back
               </button>
-            </>
+            </div>
           )}
         </div>
       </div>
-    </AppShell>
+    </div>
   );
 }

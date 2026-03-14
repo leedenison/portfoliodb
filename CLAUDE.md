@@ -54,7 +54,11 @@ Smaller PRs are easier to review, less likely to introduce bugs, and create clea
 
 When merging PRs always squash the commits and remove the feature branch.
 
-## UI Mocks
+## User Interface
+
+The informantion architecture of the user interface is described in docs/ui/information-architecture.md.  It describes key concepts for users (and admin users), how they relate to each other, the relative importance they carry for the user and gives the example of how the information architecture should impact global navigation.
+
+Descriptions of different elements of the UI are in docs/ui.
 
 Use text placeholders for unimplemented functionality as development progresses.  It should always be possible to see where UI elements will be displayed even if they are not yet implemented.
 

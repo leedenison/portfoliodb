@@ -7,7 +7,6 @@ import { AppHeader } from "./app-header";
 const navItems = [
   { href: "/holdings", label: "Holdings" },
   { href: "/transactions", label: "Transactions", disabled: true },
-  { href: "/uploads", label: "Uploads", disabled: true },
   { href: "/performance", label: "Performance", disabled: true },
   { href: "/analysis", label: "Analysis", disabled: true },
 ];
@@ -18,7 +17,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <AppHeader />
-      <div className="flex flex-1">
+      <div className="relative z-0 flex flex-1">
         <aside className="w-52 shrink-0 border-r border-border bg-surface py-8">
           <nav className="flex flex-col gap-1 px-3">
             {navItems.map(({ href, label, disabled }) => {

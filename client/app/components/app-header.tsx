@@ -10,11 +10,10 @@ import { useAuth } from "@/contexts/auth-context";
 
 export function AppHeader() {
   const { state } = useAuth();
-  const isAdmin = state.status === "authenticated" && state.role === "admin";
 
   return (
     <>
-      <header className="header-geo accent-bar flex items-center justify-between bg-primary-dark px-6 py-3.5 text-white">
+      <header className="header-geo accent-bar relative z-50 flex items-center justify-between bg-primary-dark px-6 py-3.5 text-white">
         <div className="flex items-center gap-4">
           <Link
             href="/"
@@ -34,14 +33,6 @@ export function AppHeader() {
           {state.status === "authenticated" && <PortfolioSelectorChip />}
         </div>
         <nav className="flex items-center gap-6">
-          {isAdmin && (
-            <Link
-              href="/admin"
-              className="text-sm font-medium tracking-wide uppercase transition-colors hover:text-accent"
-            >
-              Admin
-            </Link>
-          )}
           <UserMenu inverted />
           <SignInButton />
         </nav>

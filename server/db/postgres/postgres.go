@@ -3,7 +3,10 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -185,4 +188,94 @@ func nullFloat(f float64) interface{} {
 		return nil
 	}
 	return f
+}
+
+func decodePageToken(token string) int64 {
+	if token == "" {
+		return 0
+	}
+	b, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return 0
+	}
+	offset, _ := strconv.ParseInt(string(b), 10, 64)
+	return offset
+}
+
+func encodePageToken(offset int64) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(offset, 10)))
+}
+
+// inClauseUUIDs builds a SQL IN clause placeholder string and args for a slice of UUIDs, numbered from $1.
+func inClauseUUIDs(ids []uuid.UUID) (string, []interface{}) {
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i := range ids {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = ids[i]
+	}
+	return strings.Join(placeholders, ","), args
+}
+
+// scanner is satisfied by *sql.Row and *sql.Rows.
+type scanner interface {
+	Scan(dest ...interface{}) error
+}
+
+func scanInstrumentRow(s scanner) (*db.InstrumentRow, uuid.UUID, error) {
+	var row db.InstrumentRow
+	var id uuid.UUID
+	var assetClass, exchange, currency, name, underlyingID sql.NullString
+	var validFrom, validTo sql.NullTime
+	if err := s.Scan(&id, &assetClass, &exchange, &currency, &name, &underlyingID, &validFrom, &validTo); err != nil {
+		return nil, uuid.Nil, err
+	}
+	row.ID = id.String()
+	row.AssetClass = strFromNull(assetClass)
+	row.Exchange = strFromNull(exchange)
+	row.Currency = strFromNull(currency)
+	row.Name = strFromNull(name)
+	row.UnderlyingID = strFromNull(underlyingID)
+	row.ValidFrom = timeFromNull(validFrom)
+	row.ValidTo = timeFromNull(validTo)
+	return &row, id, nil
+}
+
+// loadIdentifiers batch-loads instrument identifiers for the given IDs and attaches them to the corresponding rows.
+func loadIdentifiers(ctx context.Context, q queryable, ids []uuid.UUID, rows []*db.InstrumentRow) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	inClause, args := inClauseUUIDs(ids)
+	idRows, err := q.QueryContext(ctx, fmt.Sprintf(`
+		SELECT instrument_id, identifier_type, domain, value, canonical
+		FROM instrument_identifiers
+		WHERE instrument_id IN (%s)
+		ORDER BY instrument_id
+	`, inClause), args...)
+	if err != nil {
+		return err
+	}
+	defer idRows.Close()
+	byID := make(map[string]*db.InstrumentRow, len(rows))
+	for _, r := range rows {
+		byID[r.ID] = r
+	}
+	for idRows.Next() {
+		var instID uuid.UUID
+		var idType, val string
+		var domain sql.NullString
+		var canonical bool
+		if err := idRows.Scan(&instID, &idType, &domain, &val, &canonical); err != nil {
+			return err
+		}
+		idn := db.IdentifierInput{Type: idType, Value: val, Canonical: canonical}
+		if domain.Valid {
+			idn.Domain = domain.String
+		}
+		if r := byID[instID.String()]; r != nil {
+			r.Identifiers = append(r.Identifiers, idn)
+		}
+	}
+	return idRows.Err()
 }

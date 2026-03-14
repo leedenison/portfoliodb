@@ -3,11 +3,9 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -81,14 +79,7 @@ func pickSurvivor(ctx context.Context, q queryable, ids []uuid.UUID) (uuid.UUID,
 	if len(ids) == 1 {
 		return ids[0], nil
 	}
-	// Build placeholders for IN clause to avoid pq.Array uuid handling
-	placeholders := make([]string, len(ids))
-	args := make([]interface{}, len(ids))
-	for i := range ids {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		args[i] = ids[i]
-	}
-	inClause := strings.Join(placeholders, ",")
+	inClause, args := inClauseUUIDs(ids)
 	query := fmt.Sprintf(`
 		SELECT i.id, i.created_at, (SELECT count(*) FROM instrument_identifiers WHERE instrument_id = i.id) AS n
 		FROM instruments i WHERE i.id IN (%s)
@@ -202,46 +193,17 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 	if err != nil {
 		return nil, fmt.Errorf("invalid instrument id: %w", err)
 	}
-	var row db.InstrumentRow
-	row.ID = instrumentID
-	var assetClass, exchange, currency, name sql.NullString
-	var underlyingID sql.NullString
-	var validFrom, validTo sql.NullTime
-	err = p.q.QueryRowContext(ctx, `SELECT asset_class, exchange, currency, name, underlying_id, valid_from, valid_to FROM instruments WHERE id = $1`, instUUID).
-		Scan(&assetClass, &exchange, &currency, &name, &underlyingID, &validFrom, &validTo)
+	row, id, err := scanInstrumentRow(p.q.QueryRowContext(ctx, `SELECT id, asset_class, exchange, currency, name, underlying_id, valid_from, valid_to FROM instruments WHERE id = $1`, instUUID))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get instrument: %w", err)
 	}
-	row.AssetClass = strFromNull(assetClass)
-	row.Exchange = strFromNull(exchange)
-	row.Currency = strFromNull(currency)
-	row.Name = strFromNull(name)
-	row.UnderlyingID = strFromNull(underlyingID)
-	row.ValidFrom = timeFromNull(validFrom)
-	row.ValidTo = timeFromNull(validTo)
-	idRows, err := p.q.QueryContext(ctx, `SELECT identifier_type, domain, value, canonical FROM instrument_identifiers WHERE instrument_id = $1`, instUUID)
-	if err != nil {
+	if err := loadIdentifiers(ctx, p.q, []uuid.UUID{id}, []*db.InstrumentRow{row}); err != nil {
 		return nil, fmt.Errorf("get instrument identifiers: %w", err)
 	}
-	defer idRows.Close()
-	for idRows.Next() {
-		var idn db.IdentifierInput
-		var domain sql.NullString
-		if err := idRows.Scan(&idn.Type, &domain, &idn.Value, &idn.Canonical); err != nil {
-			return nil, err
-		}
-		if domain.Valid {
-			idn.Domain = domain.String
-		}
-		row.Identifiers = append(row.Identifiers, idn)
-	}
-	if err := idRows.Err(); err != nil {
-		return nil, err
-	}
-	return &row, nil
+	return row, nil
 }
 
 // ListInstrumentsForExport implements db.InstrumentDB.
@@ -271,71 +233,18 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 	var results []*db.InstrumentRow
 	var ids []uuid.UUID
 	for rows.Next() {
-		var row db.InstrumentRow
-		var id uuid.UUID
-		var assetClass, exchange, currency, name sql.NullString
-		var underlyingID sql.NullString
-		var validFrom, validTo sql.NullTime
-		if err := rows.Scan(&id, &assetClass, &exchange, &currency, &name, &underlyingID, &validFrom, &validTo); err != nil {
+		row, id, err := scanInstrumentRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		row.ID = id.String()
-		row.AssetClass = strFromNull(assetClass)
-		row.Exchange = strFromNull(exchange)
-		row.Currency = strFromNull(currency)
-		row.Name = strFromNull(name)
-		row.UnderlyingID = strFromNull(underlyingID)
-		row.ValidFrom = timeFromNull(validFrom)
-		row.ValidTo = timeFromNull(validTo)
-		results = append(results, &row)
+		results = append(results, row)
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(ids) == 0 {
-		return results, nil
-	}
-	// Load all identifiers for these instruments (build placeholders to avoid pq.Array uuid handling).
-	placeholders := make([]string, len(ids))
-	args := make([]interface{}, len(ids))
-	for i := range ids {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		args[i] = ids[i]
-	}
-	idRows, err := p.q.QueryContext(ctx, fmt.Sprintf(`
-		SELECT instrument_id, identifier_type, domain, value, canonical
-		FROM instrument_identifiers
-		WHERE instrument_id IN (%s)
-		ORDER BY instrument_id
-	`, strings.Join(placeholders, ",")), args...)
-	if err != nil {
+	if err := loadIdentifiers(ctx, p.q, ids, results); err != nil {
 		return nil, fmt.Errorf("list identifiers for export: %w", err)
-	}
-	defer idRows.Close()
-	byID := make(map[string]*db.InstrumentRow)
-	for _, r := range results {
-		byID[r.ID] = r
-	}
-	for idRows.Next() {
-		var instID uuid.UUID
-		var idType, val string
-		var domain sql.NullString
-		var canonical bool
-		if err := idRows.Scan(&instID, &idType, &domain, &val, &canonical); err != nil {
-			return nil, err
-		}
-		idn := db.IdentifierInput{Type: idType, Value: val, Canonical: canonical}
-		if domain.Valid {
-			idn.Domain = domain.String
-		}
-		row := byID[instID.String()]
-		if row != nil {
-			row.Identifiers = append(row.Identifiers, idn)
-		}
-	}
-	if err := idRows.Err(); err != nil {
-		return nil, err
 	}
 	return results, nil
 }
@@ -361,16 +270,11 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	if len(uuids) == 0 {
 		return nil, nil
 	}
-	placeholders := make([]string, len(uuids))
-	args := make([]interface{}, len(uuids))
-	for i := range uuids {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		args[i] = uuids[i]
-	}
+	inClause, args := inClauseUUIDs(uuids)
 	rows, err := p.q.QueryContext(ctx, fmt.Sprintf(`
 		SELECT i.id, i.asset_class, i.exchange, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to
 		FROM instruments i WHERE i.id IN (%s)
-	`, strings.Join(placeholders, ",")), args...)
+	`, inClause), args...)
 	if err != nil {
 		return nil, fmt.Errorf("list instruments by ids: %w", err)
 	}
@@ -378,67 +282,20 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	var results []*db.InstrumentRow
 	var resultIDs []uuid.UUID
 	for rows.Next() {
-		var row db.InstrumentRow
-		var id uuid.UUID
-		var assetClass, exchange, currency, name sql.NullString
-		var underlyingID sql.NullString
-		var validFrom, validTo sql.NullTime
-		if err := rows.Scan(&id, &assetClass, &exchange, &currency, &name, &underlyingID, &validFrom, &validTo); err != nil {
+		row, id, err := scanInstrumentRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		row.ID = id.String()
-		row.AssetClass = strFromNull(assetClass)
-		row.Exchange = strFromNull(exchange)
-		row.Currency = strFromNull(currency)
-		row.Name = strFromNull(name)
-		row.UnderlyingID = strFromNull(underlyingID)
-		row.ValidFrom = timeFromNull(validFrom)
-		row.ValidTo = timeFromNull(validTo)
-		results = append(results, &row)
+		results = append(results, row)
 		resultIDs = append(resultIDs, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(resultIDs) == 0 {
-		return results, nil
-	}
-	// Load identifiers for these instruments.
-	idPlaceholders := make([]string, len(resultIDs))
-	idArgs := make([]interface{}, len(resultIDs))
-	for i := range resultIDs {
-		idPlaceholders[i] = fmt.Sprintf("$%d", i+1)
-		idArgs[i] = resultIDs[i]
-	}
-	idRows, err := p.q.QueryContext(ctx, fmt.Sprintf(`
-		SELECT instrument_id, identifier_type, domain, value, canonical
-		FROM instrument_identifiers WHERE instrument_id IN (%s) ORDER BY instrument_id
-	`, strings.Join(idPlaceholders, ",")), idArgs...)
-	if err != nil {
+	if err := loadIdentifiers(ctx, p.q, resultIDs, results); err != nil {
 		return nil, fmt.Errorf("list identifiers for instruments: %w", err)
 	}
-	defer idRows.Close()
-	byID := make(map[string]*db.InstrumentRow)
-	for _, r := range results {
-		byID[r.ID] = r
-	}
-	for idRows.Next() {
-		var instID uuid.UUID
-		var idType, val string
-		var domain sql.NullString
-		var canonical bool
-		if err := idRows.Scan(&instID, &idType, &domain, &val, &canonical); err != nil {
-			return nil, err
-		}
-		idn := db.IdentifierInput{Type: idType, Value: val, Canonical: canonical}
-		if domain.Valid {
-			idn.Domain = domain.String
-		}
-		if row := byID[instID.String()]; row != nil {
-			row.Identifiers = append(row.Identifiers, idn)
-		}
-	}
-	return results, idRows.Err()
+	return results, nil
 }
 
 // EnsureInstrument implements db.InstrumentDB.
@@ -545,13 +402,7 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchange, c
 // ListInstruments implements db.InstrumentDB.
 func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClasses []string, pageSize int32, pageToken string) ([]*db.InstrumentRow, int32, string, error) {
 	limit := pageSize
-	var offset int64
-	if pageToken != "" {
-		b, err := base64.StdEncoding.DecodeString(pageToken)
-		if err == nil {
-			offset, _ = strconv.ParseInt(string(b), 10, 64)
-		}
-	}
+	offset := decodePageToken(pageToken)
 
 	// Display name: prefer TICKER, then instrument.name, then BROKER_DESCRIPTION, then id::text.
 	displayName := `COALESCE(
@@ -627,23 +478,11 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	var results []*db.InstrumentRow
 	var ids []uuid.UUID
 	for rows.Next() {
-		var row db.InstrumentRow
-		var id uuid.UUID
-		var assetClass, exchange, currency, name sql.NullString
-		var underlyingID sql.NullString
-		var validFrom, validTo sql.NullTime
-		if err := rows.Scan(&id, &assetClass, &exchange, &currency, &name, &underlyingID, &validFrom, &validTo); err != nil {
+		row, id, err := scanInstrumentRow(rows)
+		if err != nil {
 			return nil, 0, "", err
 		}
-		row.ID = id.String()
-		row.AssetClass = strFromNull(assetClass)
-		row.Exchange = strFromNull(exchange)
-		row.Currency = strFromNull(currency)
-		row.Name = strFromNull(name)
-		row.UnderlyingID = strFromNull(underlyingID)
-		row.ValidFrom = timeFromNull(validFrom)
-		row.ValidTo = timeFromNull(validTo)
-		results = append(results, &row)
+		results = append(results, row)
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
@@ -655,53 +494,11 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	if int32(len(results)) > limit {
 		results = results[:limit]
 		ids = ids[:limit]
-		nextOffset := offset + int64(limit)
-		nextToken = base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(nextOffset, 10)))
+		nextToken = encodePageToken(offset + int64(limit))
 	}
 
-	if len(ids) == 0 {
-		return results, total, nextToken, nil
-	}
-	// Batch-load identifiers.
-	placeholders := make([]string, len(ids))
-	idArgs := make([]interface{}, len(ids))
-	for i := range ids {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		idArgs[i] = ids[i]
-	}
-	idRows, err := p.q.QueryContext(ctx, fmt.Sprintf(`
-		SELECT instrument_id, identifier_type, domain, value, canonical
-		FROM instrument_identifiers
-		WHERE instrument_id IN (%s)
-		ORDER BY instrument_id
-	`, strings.Join(placeholders, ",")), idArgs...)
-	if err != nil {
+	if err := loadIdentifiers(ctx, p.q, ids, results); err != nil {
 		return nil, 0, "", fmt.Errorf("list instrument identifiers: %w", err)
-	}
-	defer idRows.Close()
-	byID := make(map[string]*db.InstrumentRow)
-	for _, r := range results {
-		byID[r.ID] = r
-	}
-	for idRows.Next() {
-		var instID uuid.UUID
-		var idType, val string
-		var domain sql.NullString
-		var canonical bool
-		if err := idRows.Scan(&instID, &idType, &domain, &val, &canonical); err != nil {
-			return nil, 0, "", err
-		}
-		idn := db.IdentifierInput{Type: idType, Value: val, Canonical: canonical}
-		if domain.Valid {
-			idn.Domain = domain.String
-		}
-		row := byID[instID.String()]
-		if row != nil {
-			row.Identifiers = append(row.Identifiers, idn)
-		}
-	}
-	if err := idRows.Err(); err != nil {
-		return nil, 0, "", err
 	}
 	return results, total, nextToken, nil
 }

@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
 	"strconv"
 	"time"
@@ -12,6 +11,43 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func scanTxRow(s scanner) (*apiv1.PortfolioTx, error) {
+	var brokerStr, accStr string
+	var ts time.Time
+	var instDesc, txTypeStr string
+	var qty float64
+	var tradingCurrency, settlementCurrency sql.NullString
+	var unitPrice sql.NullFloat64
+	var instrumentID sql.NullString
+	if err := s.Scan(&brokerStr, &accStr, &ts, &instDesc, &txTypeStr, &qty, &tradingCurrency, &settlementCurrency, &unitPrice, &instrumentID); err != nil {
+		return nil, err
+	}
+	tx := &apiv1.Tx{
+		Timestamp:             timeToTs(ts),
+		InstrumentDescription: instDesc,
+		Type:                  strToTxType(txTypeStr),
+		Quantity:              qty,
+		Account:               accStr,
+	}
+	if tradingCurrency.Valid {
+		tx.TradingCurrency = tradingCurrency.String
+	}
+	if settlementCurrency.Valid {
+		tx.SettlementCurrency = settlementCurrency.String
+	}
+	if unitPrice.Valid {
+		tx.UnitPrice = unitPrice.Float64
+	}
+	if instrumentID.Valid {
+		tx.InstrumentId = instrumentID.String
+	}
+	return &apiv1.PortfolioTx{
+		Broker:  strToBroker(brokerStr),
+		Tx:      tx,
+		Account: accStr,
+	}, nil
+}
 
 // ReplaceTxsInPeriod implements db.TxDB.
 func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string) error {
@@ -140,13 +176,7 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 		argNum++
 	}
 	q += " ORDER BY timestamp LIMIT $" + strconv.Itoa(argNum) + " OFFSET $" + strconv.Itoa(argNum+1)
-	offset := int64(0)
-	if pageToken != "" {
-		b, err := base64.StdEncoding.DecodeString(pageToken)
-		if err == nil {
-			offset, _ = strconv.ParseInt(string(b), 10, 64)
-		}
-	}
+	offset := decodePageToken(pageToken)
 	args = append(args, limit+1, offset)
 	rows, err := p.q.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -156,45 +186,16 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 	var out []*apiv1.PortfolioTx
 	var n int32
 	for rows.Next() && n < limit {
-		var brokerStr, accStr string
-		var ts time.Time
-		var instDesc, txTypeStr string
-		var qty float64
-		var tradingCurrency, settlementCurrency sql.NullString
-		var unitPrice sql.NullFloat64
-		var instrumentID sql.NullString
-		if err := rows.Scan(&brokerStr, &accStr, &ts, &instDesc, &txTypeStr, &qty, &tradingCurrency, &settlementCurrency, &unitPrice, &instrumentID); err != nil {
+		ptx, err := scanTxRow(rows)
+		if err != nil {
 			return nil, "", err
 		}
-		tx := &apiv1.Tx{
-			Timestamp:             timeToTs(ts),
-			InstrumentDescription: instDesc,
-			Type:                  strToTxType(txTypeStr),
-			Quantity:              qty,
-			Account:               accStr,
-		}
-		if tradingCurrency.Valid {
-			tx.TradingCurrency = tradingCurrency.String
-		}
-		if settlementCurrency.Valid {
-			tx.SettlementCurrency = settlementCurrency.String
-		}
-		if unitPrice.Valid {
-			tx.UnitPrice = unitPrice.Float64
-		}
-		if instrumentID.Valid {
-			tx.InstrumentId = instrumentID.String
-		}
-		out = append(out, &apiv1.PortfolioTx{
-			Broker:  strToBroker(brokerStr),
-			Tx:      tx,
-			Account: accStr,
-		})
+		out = append(out, ptx)
 		n++
 	}
 	nextToken := ""
 	if n == limit {
-		nextToken = base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(offset+int64(limit), 10)))
+		nextToken = encodePageToken(offset + int64(limit))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", err
@@ -250,13 +251,7 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, p
 		argNum++
 	}
 	q += " ORDER BY t.timestamp LIMIT $" + strconv.Itoa(argNum) + " OFFSET $" + strconv.Itoa(argNum+1)
-	offset := int64(0)
-	if pageToken != "" {
-		b, err := base64.StdEncoding.DecodeString(pageToken)
-		if err == nil {
-			offset, _ = strconv.ParseInt(string(b), 10, 64)
-		}
-	}
+	offset := decodePageToken(pageToken)
 	args = append(args, limit+1, offset)
 	rows, err := p.q.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -266,45 +261,16 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, p
 	var out []*apiv1.PortfolioTx
 	var n int32
 	for rows.Next() && n < limit {
-		var brokerStr, accStr string
-		var ts time.Time
-		var instDesc, txTypeStr string
-		var qty float64
-		var tradingCurrency, settlementCurrency sql.NullString
-		var unitPrice sql.NullFloat64
-		var instrumentID sql.NullString
-		if err := rows.Scan(&brokerStr, &accStr, &ts, &instDesc, &txTypeStr, &qty, &tradingCurrency, &settlementCurrency, &unitPrice, &instrumentID); err != nil {
+		ptx, err := scanTxRow(rows)
+		if err != nil {
 			return nil, "", err
 		}
-		tx := &apiv1.Tx{
-			Timestamp:             timeToTs(ts),
-			InstrumentDescription: instDesc,
-			Type:                  strToTxType(txTypeStr),
-			Quantity:              qty,
-			Account:               accStr,
-		}
-		if tradingCurrency.Valid {
-			tx.TradingCurrency = tradingCurrency.String
-		}
-		if settlementCurrency.Valid {
-			tx.SettlementCurrency = settlementCurrency.String
-		}
-		if unitPrice.Valid {
-			tx.UnitPrice = unitPrice.Float64
-		}
-		if instrumentID.Valid {
-			tx.InstrumentId = instrumentID.String
-		}
-		out = append(out, &apiv1.PortfolioTx{
-			Broker:  strToBroker(brokerStr),
-			Tx:      tx,
-			Account: accStr,
-		})
+		out = append(out, ptx)
 		n++
 	}
 	nextToken := ""
 	if n == limit {
-		nextToken = base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(offset+int64(limit), 10)))
+		nextToken = encodePageToken(offset + int64(limit))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", err

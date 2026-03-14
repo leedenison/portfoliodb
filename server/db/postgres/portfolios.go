@@ -3,9 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,13 +21,7 @@ func (p *Postgres) ListPortfolios(ctx context.Context, userID string, pageSize i
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	offset := int64(0)
-	if pageToken != "" {
-		b, err := base64.StdEncoding.DecodeString(pageToken)
-		if err == nil {
-			offset, _ = strconv.ParseInt(string(b), 10, 64)
-		}
-	}
+	offset := decodePageToken(pageToken)
 	rows, err := p.q.QueryContext(ctx, `
 		SELECT id, name, created_at FROM portfolios
 		WHERE user_id = $1
@@ -58,7 +50,7 @@ func (p *Postgres) ListPortfolios(ctx context.Context, userID string, pageSize i
 	}
 	var nextToken string
 	if n == limit+1 || (rows.Next() && n == limit) {
-		nextToken = base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(offset+int64(limit), 10)))
+		nextToken = encodePageToken(offset + int64(limit))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", err

@@ -5,6 +5,7 @@ import { AppShell } from "@/app/components/app-shell";
 import { useAuth } from "@/contexts/auth-context";
 import { usePortfolio } from "@/contexts/portfolio-context";
 import { useUploadModal } from "@/contexts/upload-modal-context";
+import { ErrorAlert } from "@/app/components/error-alert";
 import { getHoldings } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
 import { IdentifierType } from "@/gen/api/v1/api_pb";
@@ -77,11 +78,7 @@ export default function UserHoldingsPage() {
             {loading && (
               <p className="text-text-muted">Loading holdings…</p>
             )}
-            {!loading && error && (
-              <p className="rounded-md bg-accent-soft/50 px-3 py-2 text-sm text-accent-dark">
-                {error}
-              </p>
-            )}
+            {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
             {!loading && !error && holdings && (
               <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
                 <table className="w-full min-w-[320px] border-collapse text-sm">

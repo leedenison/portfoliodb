@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ErrorAlert } from "@/app/components/error-alert";
+import { Modal } from "@/app/components/modal";
 import { useUploadModal } from "@/contexts/upload-modal-context";
 import { useAuth } from "@/contexts/auth-context";
 import { getJob } from "@/lib/portfolio-api";
@@ -31,7 +33,6 @@ export function UploadModal() {
   const [jobStatus, setJobStatus] = useState<Awaited<ReturnType<typeof getJob>> | null>(null);
   const [fileInputActive, setFileInputActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const backdropRef = useRef<HTMLDivElement>(null);
 
   const formats = useMemo(() => getFormatsForBroker(broker), [broker]);
   const selectedFormat = useMemo(() => formats.find((f) => f.id === formatId), [formats, formatId]);
@@ -53,16 +54,6 @@ export function UploadModal() {
       setJobStatus(null);
     }
   }, [isOpen]);
-
-  // Close on Escape (only when not processing).
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !jobId) closeUploadModal();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [isOpen, jobId, closeUploadModal]);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -156,8 +147,6 @@ export function UploadModal() {
     };
   }, [jobId, state.status, onComplete, closeUploadModal]);
 
-  if (!isOpen) return null;
-
   const canUpload =
     parseResult &&
     parseResult.errors.length === 0 &&
@@ -165,248 +154,227 @@ export function UploadModal() {
     optionsValid &&
     !jobId;
 
-  const handleClose = () => {
-    if (!jobId) closeUploadModal();
-  };
-
   return (
-    <div
-      ref={backdropRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={(e) => { if (e.target === backdropRef.current) handleClose(); }}
+    <Modal
+      open={isOpen}
+      onClose={closeUploadModal}
+      title="Upload transactions"
+      closable={!jobId}
     >
-      <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-lg bg-surface shadow-xl sm:max-h-[600px]">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="font-display text-lg font-bold text-text-primary">Upload transactions</h2>
-          {!jobId && (
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-5 py-4">
+        {jobId && jobStatus?.status === JobStatus.FAILED ? (
+          <div className="space-y-3">
+            <p className="font-medium text-accent-dark">Upload failed</p>
+            {jobStatus.validationErrors.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-text-primary">Validation errors</p>
+                <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
+                  {jobStatus.validationErrors.map((e, i) => (
+                    <li key={i}>
+                      Row {e.rowIndex + 1}: {e.field} &ndash; {e.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {jobStatus.identificationErrors.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-text-primary">Identification errors</p>
+                <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
+                  {jobStatus.identificationErrors.map((e, i) => (
+                    <li key={i}>
+                      Row {e.rowIndex + 1}: {e.instrumentDescription} &ndash; {e.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <button
               type="button"
               onClick={closeUploadModal}
-              className="rounded-md p-1 text-text-muted transition-colors hover:bg-primary-light/15 hover:text-text-primary"
+              className="rounded-md border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-primary-light/15"
             >
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              Close
             </button>
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          {jobId && jobStatus?.status === JobStatus.FAILED ? (
-            <div className="space-y-3">
-              <p className="font-medium text-accent-dark">Upload failed</p>
-              {jobStatus.validationErrors.length > 0 && (
-                <div>
-                  <p className="text-sm font-medium text-text-primary">Validation errors</p>
-                  <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
-                    {jobStatus.validationErrors.map((e, i) => (
-                      <li key={i}>
-                        Row {e.rowIndex + 1}: {e.field} &ndash; {e.message}
-                      </li>
-                    ))}
-                  </ul>
+          </div>
+        ) : jobId ? (
+          <div className="flex flex-col items-center gap-3 py-6">
+            <svg
+              className="h-8 w-8 animate-spin text-primary"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="3"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"
+              />
+            </svg>
+            <p className="text-sm text-text-muted">Processing&hellip;</p>
+          </div>
+        ) : step === 1 ? (
+          <div className="space-y-4">
+            {/* Step indicator */}
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <span className="text-primary-dark">1. Broker</span>
+              <span className="h-px w-4 bg-border" />
+              <span className="text-text-muted">2. File</span>
+            </div>
+            <p className="text-sm text-text-muted">Select the broker for this transaction file.</p>
+            <div className="space-y-2">
+              <label htmlFor="upload-broker" className="block text-sm font-medium text-text-primary">
+                Broker
+              </label>
+              <select
+                id="upload-broker"
+                value={broker}
+                onChange={(e) => {
+                  setBroker(Number(e.target.value) as Broker);
+                  setFormatId("standard");
+                  setConverterOptions({});
+                }}
+                className="block w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary focus:border-primary focus:outline-none"
+              >
+                {BROKER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => setStep(2)}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+            >
+              Next
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Step indicator */}
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <span className="text-text-muted">1. Broker</span>
+              <span className="h-px w-4 bg-border" />
+              <span className="text-primary-dark">2. File</span>
+            </div>
+            <p className="text-sm text-text-muted">Choose format and select your CSV file.</p>
+            <div className="space-y-2">
+              <label htmlFor="upload-format" className="block text-sm font-medium text-text-primary">
+                Format
+              </label>
+              <select
+                id="upload-format"
+                value={formatId}
+                onChange={(e) => setFormatId(e.target.value)}
+                className="block w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary focus:border-primary focus:outline-none"
+              >
+                {formats.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {selectedFormat?.OptionsComponent && (() => {
+              const OptionsComponent = selectedFormat.OptionsComponent;
+              return (
+                <div className="space-y-2">
+                  <OptionsComponent
+                    onOptionsChange={setConverterOptions}
+                    options={converterOptions}
+                  />
                 </div>
-              )}
-              {jobStatus.identificationErrors.length > 0 && (
-                <div>
-                  <p className="text-sm font-medium text-text-primary">Identification errors</p>
-                  <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
-                    {jobStatus.identificationErrors.map((e, i) => (
-                      <li key={i}>
-                        Row {e.rowIndex + 1}: {e.instrumentDescription} &ndash; {e.message}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              );
+            })()}
+            <div className="space-y-2">
+              <label htmlFor="upload-file" className="block text-sm font-medium text-text-primary">
+                CSV file
+              </label>
+              <input
+                ref={fileInputRef}
+                id="upload-file"
+                type="file"
+                accept=".csv"
+                onChange={handleFileChange}
+                className="sr-only"
+                aria-label="Choose CSV file"
+              />
               <button
                 type="button"
-                onClick={closeUploadModal}
-                className="rounded-md border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-primary-light/15"
+                onClick={() => {
+                  setFileInputActive(true);
+                  fileInputRef.current?.click();
+                  setTimeout(() => setFileInputActive(false), 400);
+                }}
+                className={`rounded-md border px-4 py-2 text-sm font-semibold transition-colors ${
+                  fileInputActive
+                    ? "border-primary bg-primary text-white"
+                    : "border-border bg-primary-light/20 text-text-primary hover:bg-primary-light/40 active:border-primary active:bg-primary active:text-white"
+                }`}
               >
-                Close
+                {fileInputActive ? "Opening\u2026" : "Choose file"}
               </button>
+              {file && (
+                <p className="text-sm text-text-muted">
+                  Selected: {file.name}
+                </p>
+              )}
             </div>
-          ) : jobId ? (
-            <div className="flex flex-col items-center gap-3 py-6">
-              <svg
-                className="h-8 w-8 animate-spin text-primary"
-                viewBox="0 0 24 24"
-                fill="none"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"
-                />
-              </svg>
-              <p className="text-sm text-text-muted">Processing&hellip;</p>
-            </div>
-          ) : step === 1 ? (
-            <div className="space-y-4">
-              {/* Step indicator */}
-              <div className="flex items-center gap-2 text-xs font-medium">
-                <span className="text-primary-dark">1. Broker</span>
-                <span className="h-px w-4 bg-border" />
-                <span className="text-text-muted">2. File</span>
-              </div>
-              <p className="text-sm text-text-muted">Select the broker for this transaction file.</p>
-              <div className="space-y-2">
-                <label htmlFor="upload-broker" className="block text-sm font-medium text-text-primary">
-                  Broker
-                </label>
-                <select
-                  id="upload-broker"
-                  value={broker}
-                  onChange={(e) => {
-                    setBroker(Number(e.target.value) as Broker);
-                    setFormatId("standard");
-                    setConverterOptions({});
-                  }}
-                  className="block w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary focus:border-primary focus:outline-none"
-                >
-                  {BROKER_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <button
-                type="button"
-                onClick={() => setStep(2)}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
-              >
-                Next
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {/* Step indicator */}
-              <div className="flex items-center gap-2 text-xs font-medium">
-                <span className="text-text-muted">1. Broker</span>
-                <span className="h-px w-4 bg-border" />
-                <span className="text-primary-dark">2. File</span>
-              </div>
-              <p className="text-sm text-text-muted">Choose format and select your CSV file.</p>
-              <div className="space-y-2">
-                <label htmlFor="upload-format" className="block text-sm font-medium text-text-primary">
-                  Format
-                </label>
-                <select
-                  id="upload-format"
-                  value={formatId}
-                  onChange={(e) => setFormatId(e.target.value)}
-                  className="block w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary focus:border-primary focus:outline-none"
-                >
-                  {formats.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {selectedFormat?.OptionsComponent && (() => {
-                const OptionsComponent = selectedFormat.OptionsComponent;
-                return (
-                  <div className="space-y-2">
-                    <OptionsComponent
-                      onOptionsChange={setConverterOptions}
-                      options={converterOptions}
-                    />
-                  </div>
-                );
-              })()}
-              <div className="space-y-2">
-                <label htmlFor="upload-file" className="block text-sm font-medium text-text-primary">
-                  CSV file
-                </label>
-                <input
-                  ref={fileInputRef}
-                  id="upload-file"
-                  type="file"
-                  accept=".csv"
-                  onChange={handleFileChange}
-                  className="sr-only"
-                  aria-label="Choose CSV file"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFileInputActive(true);
-                    fileInputRef.current?.click();
-                    setTimeout(() => setFileInputActive(false), 400);
-                  }}
-                  className={`rounded-md border px-4 py-2 text-sm font-semibold transition-colors ${
-                    fileInputActive
-                      ? "border-primary bg-primary text-white"
-                      : "border-border bg-primary-light/20 text-text-primary hover:bg-primary-light/40 active:border-primary active:bg-primary active:text-white"
-                  }`}
-                >
-                  {fileInputActive ? "Opening\u2026" : "Choose file"}
-                </button>
-                {file && (
-                  <p className="text-sm text-text-muted">
-                    Selected: {file.name}
-                  </p>
+            {parseResult && (
+              <div className="rounded-md border border-border bg-background p-4">
+                {parseResult.errors.length > 0 ? (
+                  <>
+                    <p className="font-medium text-accent-dark">Parse errors</p>
+                    <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
+                      {parseResult.errors.map((e, i) => (
+                        <li key={i}>
+                          Row {e.rowIndex}: {e.field} &ndash; {e.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-text-primary">
+                      {parseResult.txs.length} transaction(s), from{" "}
+                      {parseResult.periodFrom.toLocaleDateString()} to{" "}
+                      {parseResult.periodTo.toLocaleDateString()}.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleUpload}
+                      disabled={!canUpload}
+                      className="mt-3 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-dark disabled:opacity-50"
+                    >
+                      Upload
+                    </button>
+                  </>
                 )}
               </div>
-              {parseResult && (
-                <div className="rounded-md border border-border bg-background p-4">
-                  {parseResult.errors.length > 0 ? (
-                    <>
-                      <p className="font-medium text-accent-dark">Parse errors</p>
-                      <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
-                        {parseResult.errors.map((e, i) => (
-                          <li key={i}>
-                            Row {e.rowIndex}: {e.field} &ndash; {e.message}
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm text-text-primary">
-                        {parseResult.txs.length} transaction(s), from{" "}
-                        {parseResult.periodFrom.toLocaleDateString()} to{" "}
-                        {parseResult.periodTo.toLocaleDateString()}.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={handleUpload}
-                        disabled={!canUpload}
-                        className="mt-3 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-dark disabled:opacity-50"
-                      >
-                        Upload
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-              {submitError && (
-                <p className="rounded-md bg-accent-soft/50 px-3 py-2 text-sm text-accent-dark">{submitError}</p>
-              )}
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="text-sm text-text-muted underline hover:text-primary"
-              >
-                Back
-              </button>
-            </div>
-          )}
-        </div>
+            )}
+            {submitError && (
+              <ErrorAlert>{submitError}</ErrorAlert>
+            )}
+            <button
+              type="button"
+              onClick={() => setStep(1)}
+              className="text-sm text-text-muted underline hover:text-primary"
+            >
+              Back
+            </button>
+          </div>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }

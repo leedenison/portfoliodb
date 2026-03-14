@@ -80,6 +80,7 @@ func TestAPI_Unauthenticated(t *testing.T) {
 		}},
 		{"ImportInstruments", func() error { _, err := srv.ImportInstruments(ctx, &apiv1.ImportInstrumentsRequest{}); return err }},
 		{"ListInstruments", func() error { _, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{}); return err }},
+		{"ListJobs", func() error { _, err := srv.ListJobs(ctx, &apiv1.ListJobsRequest{}); return err }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

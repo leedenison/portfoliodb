@@ -41,7 +41,7 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 		return nil, status.Error(codes.InvalidArgument, periodErrs[0].Message)
 	}
 	brokerStr, _ := brokerToString(req.Broker)
-	jobID, err := s.db.CreateJob(ctx, u.ID, brokerStr, req.GetSource(), req.PeriodFrom, req.PeriodTo)
+	jobID, err := s.db.CreateJob(ctx, u.ID, brokerStr, req.GetSource(), req.GetFilename(), req.PeriodFrom, req.PeriodTo)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -82,7 +82,7 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 		return nil, status.Error(codes.InvalidArgument, "tx required")
 	}
 	brokerStr, _ := brokerToString(req.Broker)
-	jobID, err := s.db.CreateJob(ctx, u.ID, brokerStr, req.GetSource(), nil, nil)
+	jobID, err := s.db.CreateJob(ctx, u.ID, brokerStr, req.GetSource(), "", nil, nil)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

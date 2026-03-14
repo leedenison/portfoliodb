@@ -135,6 +135,7 @@ service ApiService {
 
   // Async ingestion job status and validation errors
   rpc GetJob(GetJobRequest) returns (GetJobResponse);
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
 
   // Instruments: browse and search (any authenticated user).
   rpc ListInstruments(ListInstrumentsRequest) returns (ListInstrumentsResponse);
@@ -297,6 +298,28 @@ message GetJobResponse {
   JobStatus status = 1;
   repeated ValidationError validation_errors = 2;
   repeated IdentificationError identification_errors = 3;
+}
+
+// Job is an ingestion job summary for list views.
+message Job {
+  string id = 1;
+  string filename = 2;
+  string broker = 3;
+  JobStatus status = 4;
+  google.protobuf.Timestamp created_at = 5;
+  int32 validation_error_count = 6;
+  int32 identification_error_count = 7;
+}
+
+message ListJobsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ListJobsResponse {
+  repeated Job jobs = 1;
+  string next_page_token = 2;
+  int32 total_count = 3;
 }
 
 // ListInstruments returns instruments sorted alphabetically by display name (ticker, name, or broker description).

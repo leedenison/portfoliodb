@@ -3,7 +3,9 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
+	"strconv"
 
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
@@ -12,7 +14,7 @@ import (
 )
 
 // CreateJob implements db.JobDB.
-func (p *Postgres) CreateJob(ctx context.Context, userID, broker, source string, periodFrom, periodTo *timestamppb.Timestamp) (string, error) {
+func (p *Postgres) CreateJob(ctx context.Context, userID, broker, source, filename string, periodFrom, periodTo *timestamppb.Timestamp) (string, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return "", fmt.Errorf("invalid user id: %w", err)
@@ -24,12 +26,16 @@ func (p *Postgres) CreateJob(ctx context.Context, userID, broker, source string,
 	if periodTo != nil && periodTo.IsValid() {
 		toT = periodTo.AsTime()
 	}
+	var filenameVal interface{}
+	if filename != "" {
+		filenameVal = filename
+	}
 	var id uuid.UUID
 	err = p.q.QueryRowContext(ctx, `
-		INSERT INTO ingestion_jobs (user_id, broker, source, period_from, period_to, status)
-		VALUES ($1, $2, $3, $4, $5, 'PENDING')
+		INSERT INTO ingestion_jobs (user_id, broker, source, filename, period_from, period_to, status)
+		VALUES ($1, $2, $3, $4, $5, $6, 'PENDING')
 		RETURNING id
-	`, userUUID, broker, source, fromT, toT).Scan(&id)
+	`, userUUID, broker, source, filenameVal, fromT, toT).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("create job: %w", err)
 	}
@@ -149,4 +155,63 @@ func (p *Postgres) ListPendingJobIDs(ctx context.Context) ([]string, error) {
 		ids = append(ids, id.String())
 	}
 	return ids, rows.Err()
+}
+
+// ListJobs implements db.JobDB.
+func (p *Postgres) ListJobs(ctx context.Context, userID string, pageSize int32, pageToken string) ([]db.JobRow, int32, string, error) {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("invalid user id: %w", err)
+	}
+
+	var offset int64
+	if pageToken != "" {
+		b, err := base64.StdEncoding.DecodeString(pageToken)
+		if err == nil {
+			offset, _ = strconv.ParseInt(string(b), 10, 64)
+		}
+	}
+
+	var total int32
+	if err := p.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM ingestion_jobs WHERE user_id = $1`, userUUID).Scan(&total); err != nil {
+		return nil, 0, "", fmt.Errorf("count jobs: %w", err)
+	}
+	if total == 0 {
+		return nil, 0, "", nil
+	}
+
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT j.id, COALESCE(j.filename, ''), j.broker, j.status, j.created_at,
+			(SELECT COUNT(*) FROM validation_errors WHERE job_id = j.id),
+			(SELECT COUNT(*) FROM identification_errors WHERE job_id = j.id)
+		FROM ingestion_jobs j
+		WHERE j.user_id = $1
+		ORDER BY j.created_at DESC
+		LIMIT $2 OFFSET $3
+	`, userUUID, pageSize+1, offset)
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("list jobs: %w", err)
+	}
+	defer rows.Close()
+
+	var result []db.JobRow
+	for rows.Next() {
+		var r db.JobRow
+		var id uuid.UUID
+		if err := rows.Scan(&id, &r.Filename, &r.Broker, &r.Status, &r.CreatedAt, &r.ValidationErrorCount, &r.IdentificationErrorCount); err != nil {
+			return nil, 0, "", err
+		}
+		r.ID = id.String()
+		result = append(result, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, "", err
+	}
+
+	var nextToken string
+	if len(result) > int(pageSize) {
+		result = result[:pageSize]
+		nextToken = base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(offset+int64(pageSize), 10)))
+	}
+	return result, total, nextToken, nil
 }

@@ -34,6 +34,8 @@ message UpsertTxsRequest {
   // Transactions to store. Replaces any existing tx in [period_from, period_to]
   // for this user and broker. Each tx carries its own account.
   repeated portfoliodb.api.v1.Tx txs = 5;
+  // Original filename of the uploaded CSV file.
+  string filename = 6;
 }
 
 // CreateTxRequest appends one transaction.

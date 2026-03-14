@@ -6,6 +6,7 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Broker } from "@/gen/api/v1/api_pb";
+import type { Tx } from "@/gen/api/v1/api_pb";
 import { TxSchema, TxType } from "@/gen/api/v1/api_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/standard";
 import { register } from "./registry";
@@ -86,10 +87,10 @@ function isCashTxType(type: TxType): boolean {
 
 export function convertFidelityToStandard(
   csvText: string,
-  options: { currency: string }
+  options?: Record<string, unknown>
 ): StandardParseResult {
   const errors: ParseError[] = [];
-  const currency = options?.currency ?? "";
+  const currency = (options?.currency as string) ?? "";
   if (!currency) {
     return {
       txs: [],
@@ -150,7 +151,7 @@ export function convertFidelityToStandard(
     };
   }
 
-  const txs: ReturnType<typeof create>[] = [];
+  const txs: Tx[] = [];
   let minTime = Infinity;
   let maxTime = -Infinity;
 

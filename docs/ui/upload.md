@@ -21,8 +21,9 @@ Uploads are **user-level** (transactions are associated with the user, not a por
 
 ## Access
 
-- **Entry point**: From the Holdings page (`/holdings`), an "Upload transactions" button goes to `/upload`.
-- **Auth**: Same as the holdings page; the user must be signed in.
+- **Upload flow**: From the Holdings page (`/holdings`), an "Upload transactions" button goes to `/upload`.
+- **Upload history**: From the user menu dropdown in the top navigation bar, an "Uploads" link goes to `/uploads`.  This page shows a paginated list of past uploads with their status and any errors.
+- **Auth**: The user must be signed in.
 
 ---
 

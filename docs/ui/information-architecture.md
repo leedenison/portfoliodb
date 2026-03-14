@@ -38,9 +38,7 @@ Navigation is split into a top navigation bar and a left sidebar.  The top bar c
 | Position | Item | Type | Status |
 |----------|------|------|--------|
 | Left | **Portfolio selector** | Chip / modal picker | Active |
-| Right | User email | Display only | Active |
-| Right | **Admin** | Link (`/admin`) | Active (admin role only, hidden otherwise) |
-| Right | **Log out** | Action | Active |
+| Right | **User menu** | Dropdown (see below) | Active |
 
 ### Portfolio Selector
 
@@ -54,15 +52,28 @@ The portfolio selector is a chip displayed at the left of the top navigation bar
 
 The selected portfolio defaults to "All Holdings" on sign-in.  The selection is preserved across page navigations within the same session.
 
+### User Menu
+
+The user menu is a dropdown anchored to the user's email address on the right side of the top navigation bar.  Clicking the email opens the dropdown; clicking outside or pressing Escape closes it.
+
+| Item | Type | Visibility |
+|------|------|------------|
+| User email | Display only | Always |
+| **Uploads** | Link (`/uploads`) | Always |
+| **Admin** | Link (`/admin`) | Admin role only |
+| **Log out** | Action | Always |
+
+ * **Uploads** shows all uploads regardless of the selected portfolio, since a single upload can contain transactions spanning multiple portfolios.  However, when a portfolio other than "All Holdings" is selected, rows containing transactions relevant to that portfolio should be visually highlighted.
+ * **Admin** navigates to the admin area.  Only visible to users with the admin role.
+
 ### Left Sidebar
 
-The left sidebar contains the primary working views.  All views except Uploads are scoped to the selected portfolio.
+The left sidebar contains the primary working views.  All views are scoped to the selected portfolio.
 
 | Item | Destination | Status |
 |------|-------------|--------|
 | **Holdings** | `/holdings` | Active |
 | **Transactions** | `/transactions` | Disabled |
-| **Uploads** | `/uploads` | Disabled |
 | **Performance** | `/performance` | Disabled |
 | **Analysis** | `/analysis` | Disabled |
 
@@ -70,7 +81,6 @@ The left sidebar contains the primary working views.  All views except Uploads a
 
  * **Holdings** is the default destination after sign-in.  It shows the holdings for the selected portfolio.
  * **Transactions** shows the transaction history filtered to the selected portfolio -- only transactions for instruments, accounts and brokers that match the portfolio's criteria are displayed.  When the selected portfolio is "All Holdings", all transactions are shown.  Disabled until implemented.
- * **Uploads** shows all uploads regardless of the selected portfolio, since a single upload can contain transactions spanning multiple portfolios.  However, when a portfolio other than "All Holdings" is selected, rows containing transactions relevant to that portfolio should be visually highlighted.  Disabled until implemented.
  * **Performance** shows TWR, MWR and other performance metrics for the selected portfolio.  Disabled until implemented.
  * **Analysis** shows breakdowns (by sector, asset class, geography, etc) for the selected portfolio.  Disabled until implemented.
 

@@ -78,3 +78,4 @@
 | T36     | Populate and use instrument valid_from / valid_to (from plugins or admin); expose in API/UI where relevant. |                    |           |        |
 | T37     | Compute and expose TWR and MWR for a portfolio over a period (requires price data). | T22                |           |        |
 | T38     | Instrument tags (tag type / tag value); store OpenFIGI market sector and related fields as tags when identification plugins provide them. |                    |           |        |
+| T39     | Move Uploads to user dropdown menu; add ListJobs API and paginated upload errors UI. |                    |           |        |

@@ -69,7 +69,6 @@
   /* Header geometric pattern overlay */
   .header-geo {
     position: relative;
-    overflow: hidden;
   }
   .header-geo::before {
     content: '';

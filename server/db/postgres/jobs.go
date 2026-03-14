@@ -3,9 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
-	"strconv"
 
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
@@ -164,13 +162,7 @@ func (p *Postgres) ListJobs(ctx context.Context, userID string, pageSize int32, 
 		return nil, 0, "", fmt.Errorf("invalid user id: %w", err)
 	}
 
-	var offset int64
-	if pageToken != "" {
-		b, err := base64.StdEncoding.DecodeString(pageToken)
-		if err == nil {
-			offset, _ = strconv.ParseInt(string(b), 10, 64)
-		}
-	}
+	offset := decodePageToken(pageToken)
 
 	var total int32
 	if err := p.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM ingestion_jobs WHERE user_id = $1`, userUUID).Scan(&total); err != nil {
@@ -211,7 +203,7 @@ func (p *Postgres) ListJobs(ctx context.Context, userID string, pageSize int32, 
 	var nextToken string
 	if len(result) > int(pageSize) {
 		result = result[:pageSize]
-		nextToken = base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(offset+int64(pageSize), 10)))
+		nextToken = encodePageToken(offset + int64(pageSize))
 	}
 	return result, total, nextToken, nil
 }

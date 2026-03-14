@@ -58,6 +58,7 @@ CREATE TABLE ingestion_jobs (
   user_id      UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   broker       TEXT NOT NULL,
   source       TEXT NOT NULL,
+  filename     TEXT,
   period_from  TIMESTAMPTZ,
   period_to    TIMESTAMPTZ,
   status       TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED')),

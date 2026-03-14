@@ -77,7 +77,7 @@ func TestUpsertTxs_Success(t *testing.T) {
 	defer close(queue)
 	srv, db := newIngestionServerWithMock(t, queue)
 	db.EXPECT().
-		CreateJob(gomock.Any(), "user-1", "IBKR", "IBKR:test:statement", periodFrom, periodTo).
+		CreateJob(gomock.Any(), "user-1", "IBKR", "IBKR:test:statement", "", periodFrom, periodTo).
 		Return("job-123", nil)
 	ctx := authCtx("user-1")
 	resp, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{

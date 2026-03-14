@@ -84,14 +84,27 @@ type HoldingsDB interface {
 	ComputeHoldingsForPortfolio(ctx context.Context, portfolioID string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error)
 }
 
+// JobRow is a job summary for list views.
+type JobRow struct {
+	ID                       string
+	Filename                 string
+	Broker                   string
+	Status                   string
+	CreatedAt                time.Time
+	ValidationErrorCount     int32
+	IdentificationErrorCount int32
+}
+
 // JobDB provides ingestion job operations.
 type JobDB interface {
-	CreateJob(ctx context.Context, userID, broker, source string, periodFrom, periodTo *timestamppb.Timestamp) (string, error)
+	CreateJob(ctx context.Context, userID, broker, source, filename string, periodFrom, periodTo *timestamppb.Timestamp) (string, error)
 	GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []IdentificationError, string, error) // last string is job's user_id for auth
 	SetJobStatus(ctx context.Context, jobID string, status apiv1.JobStatus) error
 	AppendValidationErrors(ctx context.Context, jobID string, errs []*apiv1.ValidationError) error
 	AppendIdentificationErrors(ctx context.Context, jobID string, errs []IdentificationError) error
 	ListPendingJobIDs(ctx context.Context) ([]string, error)
+	// ListJobs returns jobs for a user, newest first, with error counts. Returns (rows, totalCount, nextPageToken, error).
+	ListJobs(ctx context.Context, userID string, pageSize int32, pageToken string) ([]JobRow, int32, string, error)
 }
 
 // IdentifierInput is a single (type, domain, value) for EnsureInstrument.

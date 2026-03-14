@@ -2,6 +2,7 @@
 
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AuthProvider } from "@/contexts/auth-context";
+import { PortfolioProvider } from "@/contexts/portfolio-context";
 import { SessionLostHandler } from "@/app/components/session-lost-handler";
 
 const googleClientId =
@@ -11,8 +12,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <GoogleOAuthProvider clientId={googleClientId}>
       <AuthProvider>
-        <SessionLostHandler />
-        {children}
+        <PortfolioProvider>
+          <SessionLostHandler />
+          {children}
+        </PortfolioProvider>
       </AuthProvider>
     </GoogleOAuthProvider>
   );

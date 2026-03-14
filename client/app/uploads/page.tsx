@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/app/components/app-shell";
+import { ErrorAlert } from "@/app/components/error-alert";
+import { PaginationControls } from "@/app/components/pagination-controls";
 import { useAuth } from "@/contexts/auth-context";
 import { useUploadModal } from "@/contexts/upload-modal-context";
+import { usePagination } from "@/hooks/use-pagination";
 import { listJobs, getJob } from "@/lib/portfolio-api";
 import type { JobSummary, GetJobResult } from "@/lib/portfolio-api";
 import { JobStatus } from "@/gen/api/v1/api_pb";
@@ -25,49 +28,34 @@ const STATUS_STYLE: Record<number, string> = {
 export default function UploadsPage() {
   const { state, authError } = useAuth();
   const { openUploadModal } = useUploadModal();
-  const [jobs, setJobs] = useState<JobSummary[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
-  const [pageTokens, setPageTokens] = useState<(string | null)[]>([null]);
-  const [pageIndex, setPageIndex] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedDetail, setExpandedDetail] = useState<GetJobResult | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  const fetchPage = useCallback(
-    async (pageToken: string | null, forPageIndex: number) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await listJobs(pageToken);
-        setJobs(result.jobs);
-        setTotalCount(result.totalCount);
-        setNextPageToken(result.nextPageToken);
-        if (result.nextPageToken) {
-          setPageTokens((prev) => {
-            const next = [...prev];
-            next[forPageIndex + 1] = result.nextPageToken!;
-            return next;
-          });
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        setJobs([]);
-        setTotalCount(0);
-      } finally {
-        setLoading(false);
-      }
+  const fetchJobs = useCallback(
+    async (pageToken: string | null) => {
+      const result = await listJobs(pageToken);
+      return {
+        items: result.jobs,
+        totalCount: result.totalCount,
+        nextPageToken: result.nextPageToken,
+      };
     },
     []
   );
 
-  useEffect(() => {
-    if (state.status !== "authenticated") return;
-    const token = pageTokens[pageIndex] ?? null;
-    fetchPage(token, pageIndex);
-  }, [pageIndex, state.status, fetchPage]);
+  const {
+    items: jobs,
+    totalCount,
+    loading,
+    error,
+    pageIndex,
+    hasPrev,
+    hasNext,
+    goNext,
+    goPrev,
+    refresh,
+  } = usePagination(fetchJobs);
 
   // Fetch error details when a row is expanded.
   useEffect(() => {
@@ -91,15 +79,6 @@ export default function UploadsPage() {
       cancelled = true;
     };
   }, [expandedId]);
-
-  const goNext = () => {
-    if (nextPageToken) setPageIndex((i) => i + 1);
-  };
-  const goPrev = () => {
-    if (pageIndex > 0) setPageIndex((i) => i - 1);
-  };
-  const hasPrev = pageIndex > 0;
-  const hasNext = !!nextPageToken;
 
   if (state.status === "loading") {
     return (
@@ -146,7 +125,7 @@ export default function UploadsPage() {
             </div>
             <button
               type="button"
-              onClick={() => openUploadModal(() => fetchPage(pageTokens[pageIndex] ?? null, pageIndex))}
+              onClick={() => openUploadModal(() => refresh())}
               className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-dark"
             >
               Upload Transactions
@@ -154,11 +133,7 @@ export default function UploadsPage() {
           </div>
 
           {loading && <p className="text-text-muted">Loading uploads...</p>}
-          {!loading && error && (
-            <p className="rounded-md bg-accent-soft/50 px-3 py-2 text-sm text-accent-dark">
-              {error}
-            </p>
-          )}
+          {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
           {!loading && !error && (
             <>
               <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
@@ -217,29 +192,13 @@ export default function UploadsPage() {
                 </table>
               </div>
 
-              {(hasPrev || hasNext) && (
-                <div className="flex items-center justify-between pt-2">
-                  <button
-                    type="button"
-                    onClick={goPrev}
-                    disabled={!hasPrev}
-                    className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium disabled:opacity-40 hover:enabled:bg-primary-light/15"
-                  >
-                    Previous
-                  </button>
-                  <span className="font-mono text-xs text-text-muted">
-                    Page {pageIndex + 1}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={goNext}
-                    disabled={!hasNext}
-                    className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium disabled:opacity-40 hover:enabled:bg-primary-light/15"
-                  >
-                    Next
-                  </button>
-                </div>
-              )}
+              <PaginationControls
+                pageIndex={pageIndex}
+                hasPrev={hasPrev}
+                hasNext={hasNext}
+                onPrev={goPrev}
+                onNext={goNext}
+              />
             </>
           )}
         </div>

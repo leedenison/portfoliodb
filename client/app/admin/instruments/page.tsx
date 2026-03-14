@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ErrorAlert } from "@/app/components/error-alert";
+import { PaginationControls } from "@/app/components/pagination-controls";
+import { usePagination } from "@/hooks/use-pagination";
 import { listInstruments } from "@/lib/portfolio-api";
 import { IdentifierType } from "@/gen/api/v1/api_pb";
 import type { Instrument, InstrumentIdentifier } from "@/gen/api/v1/api_pb";
@@ -57,18 +60,11 @@ const ALL_ASSET_CLASSES = [
 const DEFAULT_ASSET_CLASSES = new Set(["STOCK", "ETF", "OPTION", "FUTURE"]);
 
 export default function AdminInstrumentsPage() {
-  const [instruments, setInstruments] = useState<Instrument[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeClasses, setActiveClasses] = useState<Set<string>>(
     () => new Set(DEFAULT_ASSET_CLASSES)
   );
-  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
-  const [pageTokens, setPageTokens] = useState<(string | null)[]>([null]);
-  const [pageIndex, setPageIndex] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -77,8 +73,6 @@ export default function AdminInstrumentsPage() {
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setDebouncedSearch(search);
-      setPageIndex(0);
-      setPageTokens([null]);
       setExpandedId(null);
     }, 300);
     return () => clearTimeout(debounceRef.current);
@@ -91,8 +85,6 @@ export default function AdminInstrumentsPage() {
       else next.add(cls);
       return next;
     });
-    setPageIndex(0);
-    setPageTokens([null]);
     setExpandedId(null);
   };
 
@@ -102,56 +94,34 @@ export default function AdminInstrumentsPage() {
     [activeClasses]
   );
 
-  const fetchPage = useCallback(
-    async (
-      pageToken: string | null,
-      forPageIndex: number,
-      searchTerm: string,
-      classes: string[]
-    ) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await listInstruments({
-          search: searchTerm,
-          assetClasses: classes.length < ALL_ASSET_CLASSES.length ? classes : [],
-          pageToken,
-        });
-        setInstruments(result.instruments);
-        setTotalCount(result.totalCount);
-        setNextPageToken(result.nextPageToken);
-        if (result.nextPageToken != null && result.nextPageToken !== "") {
-          setPageTokens((prev) => {
-            const next = [...prev];
-            next[forPageIndex + 1] = result.nextPageToken!;
-            return next;
-          });
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        setInstruments([]);
-        setTotalCount(0);
-      } finally {
-        setLoading(false);
-      }
+  const fetchInstruments = useCallback(
+    async (pageToken: string | null) => {
+      const classes = assetClassesKey ? assetClassesKey.split(",") : [];
+      const result = await listInstruments({
+        search: debouncedSearch,
+        assetClasses: classes.length < ALL_ASSET_CLASSES.length ? classes : [],
+        pageToken,
+      });
+      return {
+        items: result.instruments,
+        totalCount: result.totalCount,
+        nextPageToken: result.nextPageToken,
+      };
     },
-    []
+    [debouncedSearch, assetClassesKey]
   );
 
-  useEffect(() => {
-    const token = pageTokens[pageIndex] ?? null;
-    const classes = assetClassesKey ? assetClassesKey.split(",") : [];
-    fetchPage(token, pageIndex, debouncedSearch, classes);
-  }, [pageIndex, debouncedSearch, assetClassesKey, fetchPage]);
-
-  const goNext = () => {
-    if (nextPageToken) setPageIndex((i) => i + 1);
-  };
-  const goPrev = () => {
-    if (pageIndex > 0) setPageIndex((i) => i - 1);
-  };
-  const hasPrev = pageIndex > 0;
-  const hasNext = !!nextPageToken;
+  const {
+    items: instruments,
+    totalCount,
+    loading,
+    error,
+    pageIndex,
+    hasPrev,
+    hasNext,
+    goNext,
+    goPrev,
+  } = usePagination(fetchInstruments);
 
   return (
     <div className="space-y-5">
@@ -200,11 +170,7 @@ export default function AdminInstrumentsPage() {
       {loading && (
         <p className="text-text-muted">Loading instruments...</p>
       )}
-      {!loading && error && (
-        <p className="rounded-md bg-accent-soft/50 px-3 py-2 text-sm text-accent-dark">
-          {error}
-        </p>
-      )}
+      {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
       {!loading && !error && (
         <>
           <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
@@ -297,29 +263,13 @@ export default function AdminInstrumentsPage() {
             </table>
           </div>
 
-          {(hasPrev || hasNext) && (
-            <div className="flex items-center justify-between pt-2">
-              <button
-                type="button"
-                onClick={goPrev}
-                disabled={!hasPrev}
-                className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium disabled:opacity-40 hover:enabled:bg-primary-light/15"
-              >
-                Previous
-              </button>
-              <span className="font-mono text-xs text-text-muted">
-                Page {pageIndex + 1}
-              </span>
-              <button
-                type="button"
-                onClick={goNext}
-                disabled={!hasNext}
-                className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium disabled:opacity-40 hover:enabled:bg-primary-light/15"
-              >
-                Next
-              </button>
-            </div>
-          )}
+          <PaginationControls
+            pageIndex={pageIndex}
+            hasPrev={hasPrev}
+            hasNext={hasNext}
+            onPrev={goPrev}
+            onNext={goNext}
+          />
         </>
       )}
     </div>

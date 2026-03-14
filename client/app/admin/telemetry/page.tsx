@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ErrorAlert } from "@/app/components/error-alert";
 import { listTelemetryCounters, type TelemetryCounterRow } from "@/lib/portfolio-api";
 
 export default function AdminTelemetryPage() {
@@ -48,9 +49,9 @@ export default function AdminTelemetryPage() {
         </button>
       </div>
       {error && (
-        <p className="mt-2 text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <div className="mt-2">
+          <ErrorAlert>{error}</ErrorAlert>
+        </div>
       )}
       <p className="mt-1 text-sm text-text-muted">
         Counters are discovered from Redis (portfoliodb:counters:*).

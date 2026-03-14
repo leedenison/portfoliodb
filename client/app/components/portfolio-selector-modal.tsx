@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { ErrorAlert } from "@/app/components/error-alert";
+import { Modal } from "@/app/components/modal";
 import { usePortfolio } from "@/contexts/portfolio-context";
 import type { Portfolio } from "@/lib/portfolio-api";
 import {
@@ -21,7 +23,6 @@ export function PortfolioSelectorModal() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const backdropRef = useRef<HTMLDivElement>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -53,16 +54,6 @@ export function PortfolioSelectorModal() {
       setDeletingId(null);
     }
   }, [modalOpen, fetchAll]);
-
-  // Close on Escape.
-  useEffect(() => {
-    if (!modalOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeModal();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [modalOpen, closeModal]);
 
   const handleSelect = (p: Portfolio | null) => {
     setSelected(p);
@@ -115,8 +106,6 @@ export function PortfolioSelectorModal() {
     }
   };
 
-  if (!modalOpen) return null;
-
   const filtered = filter
     ? portfolios.filter((p) => p.name.toLowerCase().includes(filter.toLowerCase()))
     : portfolios;
@@ -124,190 +113,172 @@ export function PortfolioSelectorModal() {
   const isAllHoldings = selected === null;
 
   return (
-    <div
-      ref={backdropRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={(e) => { if (e.target === backdropRef.current) closeModal(); }}
-    >
-      <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-lg bg-surface shadow-xl sm:max-h-[600px]">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="font-display text-lg font-bold text-text-primary">Select portfolio</h2>
+    <Modal open={modalOpen} onClose={closeModal} title="Select portfolio">
+      {/* Search + create */}
+      <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+        <input
+          type="text"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Filter portfolios..."
+          className="min-w-0 flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+          autoFocus
+        />
+        {!creating && (
           <button
             type="button"
-            onClick={closeModal}
-            className="rounded-md p-1 text-text-muted transition-colors hover:bg-primary-light/15 hover:text-text-primary"
+            onClick={() => setCreating(true)}
+            className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark"
           >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            New
           </button>
-        </div>
+        )}
+      </div>
 
-        {/* Search + create */}
-        <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+      {/* Create form */}
+      {creating && (
+        <form onSubmit={handleCreate} className="flex items-center gap-2 border-b border-border px-5 py-3">
           <input
             type="text"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter portfolios..."
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Portfolio name"
             className="min-w-0 flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
             autoFocus
           />
-          {!creating && (
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark"
-            >
-              New
-            </button>
-          )}
+          <button type="submit" className="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-dark">
+            Create
+          </button>
+          <button
+            type="button"
+            onClick={() => { setCreating(false); setNewName(""); }}
+            className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-primary-light/15"
+          >
+            Cancel
+          </button>
+        </form>
+      )}
+
+      {error && (
+        <div className="mx-5 mt-3">
+          <ErrorAlert>{error}</ErrorAlert>
         </div>
+      )}
 
-        {/* Create form */}
-        {creating && (
-          <form onSubmit={handleCreate} className="flex items-center gap-2 border-b border-border px-5 py-3">
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Portfolio name"
-              className="min-w-0 flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
-              autoFocus
-            />
-            <button type="submit" className="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-dark">
-              Create
-            </button>
-            <button
-              type="button"
-              onClick={() => { setCreating(false); setNewName(""); }}
-              className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-primary-light/15"
+      {/* List */}
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <p className="px-5 py-8 text-center text-text-muted">Loading portfolios...</p>
+        ) : (
+          <ul className="divide-y divide-border/60">
+            {/* All Holdings - always pinned at top */}
+            <li
+              className={
+                "flex cursor-pointer items-center gap-3 px-5 py-3 transition-colors hover:bg-primary-light/10" +
+                (isAllHoldings ? " bg-primary-dark/5" : "")
+              }
+              onClick={() => handleSelect(null)}
             >
-              Cancel
-            </button>
-          </form>
-        )}
-
-        {error && (
-          <p className="mx-5 mt-3 rounded-md bg-accent-soft/50 px-3 py-2 text-sm text-accent-dark">{error}</p>
-        )}
-
-        {/* List */}
-        <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <p className="px-5 py-8 text-center text-text-muted">Loading portfolios...</p>
-          ) : (
-            <ul className="divide-y divide-border/60">
-              {/* All Holdings - always pinned at top */}
-              <li
-                className={
-                  "flex cursor-pointer items-center gap-3 px-5 py-3 transition-colors hover:bg-primary-light/10" +
-                  (isAllHoldings ? " bg-primary-dark/5" : "")
-                }
-                onClick={() => handleSelect(null)}
-              >
-                <span className="flex-1 text-sm font-semibold text-text-primary">All Holdings</span>
-                {isAllHoldings && (
-                  <svg className="h-4 w-4 text-primary-dark" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
-              </li>
-
-              {filtered.length === 0 && (
-                <li className="px-5 py-6 text-center text-sm text-text-muted">
-                  {filter ? "No portfolios match your filter." : "No portfolios yet. Create one above."}
-                </li>
+              <span className="flex-1 text-sm font-semibold text-text-primary">All Holdings</span>
+              {isAllHoldings && (
+                <svg className="h-4 w-4 text-primary-dark" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
               )}
+            </li>
 
-              {filtered.map((p) => {
-                const isSelected = selected?.id === p.id;
-                return (
-                  <li
-                    key={p.id}
-                    className={
-                      "flex items-center gap-2 px-5 py-3 transition-colors hover:bg-primary-light/10" +
-                      (isSelected ? " bg-primary-dark/5" : "")
-                    }
-                  >
-                    {renamingId === p.id ? (
-                      <form onSubmit={(e) => handleRename(e, p.id)} className="flex flex-1 items-center gap-2">
-                        <input
-                          type="text"
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
-                          autoFocus
-                        />
-                        <button type="submit" className="rounded-md bg-primary px-2.5 py-1 text-sm font-semibold text-white hover:bg-primary-dark">
-                          Save
+            {filtered.length === 0 && (
+              <li className="px-5 py-6 text-center text-sm text-text-muted">
+                {filter ? "No portfolios match your filter." : "No portfolios yet. Create one above."}
+              </li>
+            )}
+
+            {filtered.map((p) => {
+              const isSelected = selected?.id === p.id;
+              return (
+                <li
+                  key={p.id}
+                  className={
+                    "flex items-center gap-2 px-5 py-3 transition-colors hover:bg-primary-light/10" +
+                    (isSelected ? " bg-primary-dark/5" : "")
+                  }
+                >
+                  {renamingId === p.id ? (
+                    <form onSubmit={(e) => handleRename(e, p.id)} className="flex flex-1 items-center gap-2">
+                      <input
+                        type="text"
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                        autoFocus
+                      />
+                      <button type="submit" className="rounded-md bg-primary px-2.5 py-1 text-sm font-semibold text-white hover:bg-primary-dark">
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRenamingId(null)}
+                        className="rounded-md border border-border px-2.5 py-1 text-sm hover:bg-primary-light/15"
+                      >
+                        Cancel
+                      </button>
+                    </form>
+                  ) : deletingId === p.id ? (
+                    <>
+                      <span className="flex-1 text-sm text-text-primary">Delete &quot;{p.name}&quot;?</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(p.id)}
+                        className="rounded-md bg-accent-dark px-2.5 py-1 text-sm font-semibold text-white hover:bg-accent"
+                      >
+                        Yes, delete
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeletingId(null)}
+                        className="rounded-md border border-border px-2.5 py-1 text-sm hover:bg-primary-light/15"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="flex-1 cursor-pointer text-left text-sm font-medium text-text-primary"
+                        onClick={() => handleSelect(p)}
+                      >
+                        {p.name}
+                      </button>
+                      {isSelected && (
+                        <svg className="h-4 w-4 shrink-0 text-primary-dark" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                      <div className="flex shrink-0 gap-1">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setRenamingId(p.id); setRenameValue(p.name); }}
+                          className="rounded-md border border-border px-2 py-0.5 text-xs font-medium transition-colors hover:bg-primary-light/15"
+                        >
+                          Rename
                         </button>
                         <button
                           type="button"
-                          onClick={() => setRenamingId(null)}
-                          className="rounded-md border border-border px-2.5 py-1 text-sm hover:bg-primary-light/15"
+                          onClick={(e) => { e.stopPropagation(); setDeletingId(p.id); }}
+                          className="rounded-md border border-accent-soft px-2 py-0.5 text-xs font-medium text-accent-dark hover:bg-accent-soft/50"
                         >
-                          Cancel
+                          Delete
                         </button>
-                      </form>
-                    ) : deletingId === p.id ? (
-                      <>
-                        <span className="flex-1 text-sm text-text-primary">Delete &quot;{p.name}&quot;?</span>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(p.id)}
-                          className="rounded-md bg-accent-dark px-2.5 py-1 text-sm font-semibold text-white hover:bg-accent"
-                        >
-                          Yes, delete
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDeletingId(null)}
-                          className="rounded-md border border-border px-2.5 py-1 text-sm hover:bg-primary-light/15"
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          className="flex-1 cursor-pointer text-left text-sm font-medium text-text-primary"
-                          onClick={() => handleSelect(p)}
-                        >
-                          {p.name}
-                        </button>
-                        {isSelected && (
-                          <svg className="h-4 w-4 shrink-0 text-primary-dark" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                        <div className="flex shrink-0 gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setRenamingId(p.id); setRenameValue(p.name); }}
-                            className="rounded-md border border-border px-2 py-0.5 text-xs font-medium transition-colors hover:bg-primary-light/15"
-                          >
-                            Rename
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setDeletingId(p.id); }}
-                            className="rounded-md border border-accent-soft px-2 py-0.5 text-xs font-medium text-accent-dark hover:bg-accent-soft/50"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+                      </div>
+                    </>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }

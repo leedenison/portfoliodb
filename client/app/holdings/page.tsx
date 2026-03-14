@@ -4,21 +4,23 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { useAuth } from "@/contexts/auth-context";
+import { usePortfolio } from "@/contexts/portfolio-context";
 import { getHoldings } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
 import { IdentifierType } from "@/gen/api/v1/api_pb";
 
 export default function UserHoldingsPage() {
   const { state, authError } = useAuth();
+  const { selected: selectedPortfolio } = usePortfolio();
   const [holdings, setHoldings] = useState<Awaited<ReturnType<typeof getHoldings>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (portfolioId?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const h = await getHoldings({});
+      const h = await getHoldings({ portfolioId });
       setHoldings(h);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -30,8 +32,8 @@ export default function UserHoldingsPage() {
 
   useEffect(() => {
     if (state.status !== "authenticated") return;
-    fetchData();
-  }, [state.status, fetchData]);
+    fetchData(selectedPortfolio?.id);
+  }, [state.status, selectedPortfolio, fetchData]);
 
   return (
     <AppShell>

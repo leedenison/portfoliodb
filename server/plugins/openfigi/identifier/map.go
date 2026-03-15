@@ -2,12 +2,15 @@ package identifier
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
+
+var errUnderlyingNotFound = errors.New("underlying instrument not found")
 
 // openFIGIFutureSecurityTypes is the allowlist for FUTURE asset class (exact match, case-insensitive).
 // Values from OpenFIGI securityType/securityType2.
@@ -107,13 +110,15 @@ type UnderlyingResolver func(ctx context.Context, derivativeTicker string) (symb
 
 // EnsureUnderlying performs a second OpenFIGI lookup for the underlying and sets inst.Underlying and inst.UnderlyingIdentifiers.
 // The resolver (e.g. library + OpenAI) provides the underlying symbol and optional exchange hint; the derivative's exchange is not used.
-func EnsureUnderlying(ctx context.Context, client *OpenFIGIClient, inst *identifier.Instrument, result *OpenFIGIResult, resolve UnderlyingResolver) {
+// Returns errUnderlyingNotFound if the result is a derivative but the underlying could not be resolved.
+// Returns nil if the result is not a derivative (no-op) or the underlying was resolved successfully.
+func EnsureUnderlying(ctx context.Context, client *OpenFIGIClient, inst *identifier.Instrument, result *OpenFIGIResult, resolve UnderlyingResolver) error {
 	if !isDerivative(result) || resolve == nil {
-		return
+		return nil
 	}
 	symbol, exchangeHint, ok := resolve(ctx, result.Ticker)
 	if !ok || symbol == "" {
-		return
+		return errUnderlyingNotFound
 	}
 	job := MappingJob{IDType: "TICKER", IDValue: symbol}
 	if exchangeHint != "" {
@@ -123,7 +128,7 @@ func EnsureUnderlying(ctx context.Context, client *OpenFIGIClient, inst *identif
 	if err != nil || len(underlyingResults) == 0 {
 		sr, err2 := client.Search(ctx, symbol, exchangeHint)
 		if err2 != nil || sr == nil || len(sr.Data) == 0 {
-			return
+			return errUnderlyingNotFound
 		}
 		for i := range sr.Data {
 			if assetClassFromOpenFIGI(sr.Data[i].SecurityType, sr.Data[i].SecurityType2, sr.Data[i].MarketSector, nil) == db.AssetClassStock {
@@ -137,6 +142,10 @@ func EnsureUnderlying(ctx context.Context, client *OpenFIGIClient, inst *identif
 	}
 	u := underlyingResults[0]
 	underlyingInst, underlyingIds := openFIGIResultToInstrument(&u, nil)
+	if underlyingInst == nil {
+		return errUnderlyingNotFound
+	}
 	inst.Underlying = underlyingInst
 	inst.UnderlyingIdentifiers = underlyingIds
+	return nil
 }

@@ -115,7 +115,9 @@ func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, f
 		}
 	}
 	inst, ids := openFIGIResultToInstrument(&results[idx], p.log)
-	EnsureUnderlying(ctx, p.openfigi, inst, &results[idx], p.getUnderlyingSymbol)
+	if err := EnsureUnderlying(ctx, p.openfigi, inst, &results[idx], p.getUnderlyingSymbol); err != nil {
+		return nil, nil, false
+	}
 	return inst, ids, true
 }
 

@@ -268,6 +268,131 @@ func TestPlugin_Identify_ErrNotIdentified_WhenMappingReturnsEmpty(t *testing.T) 
 	}
 }
 
+func TestPlugin_Identify_Option_ErrNotIdentified_WhenUnderlyingLookupFails(t *testing.T) {
+	// OpenFIGI mapping returns an option result, but the underlying ticker lookup
+	// (both mapping and search) returns nothing. The plugin should return ErrNotIdentified.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v3/mapping":
+			var jobs []MappingJob
+			if err := json.NewDecoder(r.Body).Decode(&jobs); err != nil || len(jobs) != 1 {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			if jobs[0].IDValue == "AAPL  251219C00200000" {
+				// Return an option result for the OCC symbol.
+				json.NewEncoder(w).Encode([]MappingResponseItem{
+					{Data: []OpenFIGIResult{{
+						FIGI:          "BBG00OPTION1",
+						Ticker:        "AAPL  251219C00200000",
+						Name:          "AAPL Dec 2025 200 Call",
+						ExchCode:      "US",
+						SecurityType:  "Option",
+						SecurityType2: "Equity Option",
+						MarketSector:  "Equity",
+					}}},
+				})
+			} else {
+				// Underlying lookup via mapping: return no results.
+				json.NewEncoder(w).Encode([]MappingResponseItem{{Data: nil}})
+			}
+		case "/v3/search":
+			// Search fallback also returns nothing.
+			json.NewEncoder(w).Encode(SearchResponse{Data: nil})
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{
+		"openfigi_api_key":  "test-key",
+		"openfigi_base_url": server.URL,
+	})
+	ctx := context.Background()
+	p := NewPlugin(nil, nil)
+	hints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL  251219C00200000"}}
+	_, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
+		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
+	if !errors.Is(err, identifier.ErrNotIdentified) {
+		t.Errorf("err = %v, want ErrNotIdentified", err)
+	}
+}
+
+func TestPlugin_Identify_Option_WithUnderlying(t *testing.T) {
+	// OpenFIGI mapping returns an option result, and the underlying ticker lookup
+	// succeeds. The plugin should return the option with a populated Underlying.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/v3/mapping" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		var jobs []MappingJob
+		if err := json.NewDecoder(r.Body).Decode(&jobs); err != nil || len(jobs) != 1 {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if jobs[0].IDValue == "AAPL  251219C00200000" {
+			json.NewEncoder(w).Encode([]MappingResponseItem{
+				{Data: []OpenFIGIResult{{
+					FIGI:          "BBG00OPTION1",
+					Ticker:        "AAPL  251219C00200000",
+					Name:          "AAPL Dec 2025 200 Call",
+					ExchCode:      "US",
+					SecurityType:  "Option",
+					SecurityType2: "Equity Option",
+					MarketSector:  "Equity",
+				}}},
+			})
+		} else if jobs[0].IDValue == "AAPL" {
+			json.NewEncoder(w).Encode([]MappingResponseItem{
+				{Data: []OpenFIGIResult{{
+					FIGI:          "BBG000B9XRY4",
+					Ticker:        "AAPL",
+					Name:          "APPLE INC",
+					ExchCode:      "US",
+					SecurityType:  "Common Stock",
+					SecurityType2: "Common Stock",
+					MarketSector:  "Equity",
+				}}},
+			})
+		} else {
+			json.NewEncoder(w).Encode([]MappingResponseItem{{Data: nil}})
+		}
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{
+		"openfigi_api_key":  "test-key",
+		"openfigi_base_url": server.URL,
+	})
+	ctx := context.Background()
+	p := NewPlugin(nil, nil)
+	hints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL  251219C00200000"}}
+	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
+		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if inst == nil {
+		t.Fatal("expected instrument")
+	}
+	if inst.AssetClass != "OPTION" {
+		t.Errorf("inst.AssetClass = %q, want OPTION", inst.AssetClass)
+	}
+	if inst.Underlying == nil {
+		t.Fatal("expected inst.Underlying to be set")
+	}
+	if inst.Underlying.Name != "APPLE INC" {
+		t.Errorf("inst.Underlying.Name = %q, want APPLE INC", inst.Underlying.Name)
+	}
+	if len(ids) == 0 {
+		t.Error("expected identifiers")
+	}
+}
+
 func mustJSON(v interface{}) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

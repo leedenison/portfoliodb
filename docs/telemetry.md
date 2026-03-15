@@ -42,12 +42,14 @@
 2. **OpenFIGI outcomes** (server/plugins/openfigi/identifier/openfigi.go)
 
    - **Mapping**
+     - `instruments.identification.openfigi.mapping.attempts` -- mapping was attempted.
      - `instruments.identification.openfigi.mapping.succeeded` -- mapping returned at least one result.
      - `instruments.identification.openfigi.mapping.zero_results` -- mapping returned no results (empty data, no API error).
      - `instruments.identification.openfigi.mapping.rate_limit` -- HTTP 429.
      - `instruments.identification.openfigi.mapping.failed` -- any other error (non-200, API error message, etc.).
 
    - **Search**
+     - `instruments.identification.openfigi.search.attempts` -- search was attempted.
      - `instruments.identification.openfigi.search.succeeded` -- search returned at least one result.
      - `instruments.identification.openfigi.search.zero_results` -- search returned no results.
      - `instruments.identification.openfigi.search.rate_limit` -- HTTP 429.
@@ -57,11 +59,14 @@
 
 3. **OpenAI description plugin** (server/plugins/openai/description/plugin.go)
 
-   - `instruments.description.openai.completion.model_not_found` -- model not found error (404 or model_not_found).
-   - `instruments.description.openai.completion.quota_exceeded` -- quota exceeded error (429 or insufficient_quota).
-   - `instruments.description.openai.completion.prompt_tokens` -- prompt token count (uses IncrBy).
-   - `instruments.description.openai.completion.completion_tokens` -- completion token count (uses IncrBy).
-   - `instruments.description.openai.completion.total_tokens` -- total token count (uses IncrBy).
+   - `instruments.description.openai.ticker_extraction.attempted` -- total ticker extractions attempted across all batches (eg. sum of tickers in all batches).
+   - `instruments.description.openai.ticker_extraction.succeeded` -- total ticker extractions that succeeded across all batches (eg. sum of tickers in all batches).
+   - `instruments.description.openai.ticker_extraction.failed` -- total ticker extractions that failed across all batches (eg. sum of tickers in all batches).
+   - `instruments.description.openai.ticker_extraction.model_not_found` -- model not found error (404 or model_not_found).
+   - `instruments.description.openai.ticker_extraction.quota_exceeded` -- quota exceeded error (429 or insufficient_quota).
+   - `instruments.description.openai.ticker_extraction.prompt_tokens` -- prompt token count (uses IncrBy).
+   - `instruments.description.openai.ticker_extraction.completion_tokens` -- completion token count (uses IncrBy).
+   - `instruments.description.openai.ticker_extraction.total_tokens` -- total token count (uses IncrBy).
 
 4. **Massive.com plugin** (server/plugins/massive/client/client.go)
 

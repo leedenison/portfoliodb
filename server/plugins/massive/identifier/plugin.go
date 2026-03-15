@@ -3,6 +3,7 @@ package identifier
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"sync"
 
@@ -62,11 +63,41 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		return nil, nil, err
 	}
 
+	var inst *identifier.Instrument
+	var ids []identifier.Identifier
 	switch hints.SecurityTypeHint {
 	case identifier.SecurityTypeHintOption:
-		return p.identifyOption(ctx, c, identifierHints)
+		inst, ids, err = p.identifyOption(ctx, c, identifierHints)
 	default:
-		return p.identifyStock(ctx, c, identifierHints)
+		inst, ids, err = p.identifyStock(ctx, c, identifierHints)
+	}
+
+	p.reportOutcome(ctx, err)
+	return inst, ids, err
+}
+
+const (
+	counterSucceeded = "instruments.identification.massive.request.succeeded"
+	counterFailed    = "instruments.identification.massive.request.failed"
+	counterRateLimit = "instruments.identification.massive.request.rate_limit"
+)
+
+func (p *Plugin) reportOutcome(ctx context.Context, err error) {
+	if p.counter == nil {
+		return
+	}
+	switch {
+	case err == nil:
+		p.counter.Incr(ctx, counterSucceeded)
+	case errors.Is(err, identifier.ErrNotIdentified):
+		// Not a request outcome; don't count.
+	default:
+		var rl *client.ErrRateLimit
+		if errors.As(err, &rl) {
+			p.counter.Incr(ctx, counterRateLimit)
+		} else {
+			p.counter.Incr(ctx, counterFailed)
+		}
 	}
 }
 
@@ -89,7 +120,7 @@ func (p *Plugin) getClient(config []byte) (*client.Client, error) {
 		perMin = *cfg.CallsPerMin
 	}
 	limiter := client.NewRateLimiter(perMin)
-	p.client = client.New(cfg.MassiveAPIKey, cfg.MassiveBaseURL, limiter, p.counter, p.log)
+	p.client = client.New(cfg.MassiveAPIKey, cfg.MassiveBaseURL, limiter, p.log)
 	p.lastConfig = raw
 	return p.client, nil
 }
@@ -137,6 +168,12 @@ func (p *Plugin) identifyOptionByOCC(ctx context.Context, c *client.Client, occ 
 	if err != nil {
 		if p.log != nil {
 			p.log.WarnContext(ctx, "massive: failed to resolve underlying", "underlying", contract.UnderlyingTicker, "err", err)
+		}
+		// Propagate rate limits so reportOutcome can detect them;
+		// other errors are non-retryable lookup failures.
+		var rl *client.ErrRateLimit
+		if errors.As(err, &rl) {
+			return nil, nil, err
 		}
 		return nil, nil, identifier.ErrNotIdentified
 	}

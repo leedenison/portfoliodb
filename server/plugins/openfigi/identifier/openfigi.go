@@ -89,6 +89,9 @@ type SearchResponse struct {
 
 // Mapping calls POST /v3/mapping with one job. Returns results or error string from API.
 func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIGIResult, error) {
+	if c.counter != nil {
+		c.counter.Incr(ctx, "instruments.identification.openfigi.mapping.attempts")
+	}
 	if c.log != nil {
 		c.log.DebugContext(ctx, "OpenFIGI mapping", "idType", job.IDType, "idValue", job.IDValue, "exchCode", job.ExchCode)
 	}
@@ -186,6 +189,9 @@ func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIG
 
 // Search calls POST /v3/search. Returns first page of results only.
 func (c *OpenFIGIClient) Search(ctx context.Context, query string, exchCode string) (*SearchResponse, error) {
+	if c.counter != nil {
+		c.counter.Incr(ctx, "instruments.identification.openfigi.search.attempts")
+	}
 	if c.log != nil {
 		c.log.DebugContext(ctx, "OpenFIGI search", "query", query, "exchCode", exchCode)
 	}

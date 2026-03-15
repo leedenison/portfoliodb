@@ -39,6 +39,9 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-1", apiv1.JobStatus_RUNNING).
 		Return(nil)
+	database.EXPECT().
+		SetJobTotalCount(gomock.Any(), "job-1", int32(1)).
+		Return(nil)
 	// Resolve for "UNKNOWN": DB miss, nil descRegistry → extraction failed, EnsureInstrument broker-only
 	database.EXPECT().
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "UNKNOWN").
@@ -46,6 +49,9 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR:test:statement", Value: "UNKNOWN", Canonical: false}}, "", nil, nil).
 		Return("broker-only-id", nil)
+	database.EXPECT().
+		IncrJobProcessedCount(gomock.Any(), "job-1").
+		Return(nil)
 	database.EXPECT().
 		AppendIdentificationErrors(gomock.Any(), "job-1", gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, errs []db.IdentificationError) error {
@@ -99,6 +105,9 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-2", apiv1.JobStatus_RUNNING).
 		Return(nil)
+	database.EXPECT().
+		SetJobTotalCount(gomock.Any(), "job-2", int32(2)).
+		Return(nil)
 	// First resolve: DB miss, nil descRegistry → extraction failed, EnsureInstrument
 	database.EXPECT().
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "CACHED").
@@ -107,6 +116,9 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "CACHED", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR:test:statement", Value: "CACHED", Canonical: false}}, "", nil, nil).
 		Return("cached-inst-id", nil)
 	// Second tx hits cache - no additional DB calls
+	database.EXPECT().
+		IncrJobProcessedCount(gomock.Any(), "job-2").
+		Return(nil).Times(2)
 	database.EXPECT().
 		AppendIdentificationErrors(gomock.Any(), "job-2", gomock.Any()).
 		Return(nil)
@@ -148,11 +160,17 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-split", apiv1.JobStatus_RUNNING).
 		Return(nil)
 	database.EXPECT().
+		SetJobTotalCount(gomock.Any(), "job-split", int32(1)).
+		Return(nil)
+	database.EXPECT().
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "AAPL").
 		Return("", nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "", "", "", "AAPL", gomock.Any(), "", nil, nil).
 		Return("aapl-id", nil)
+	database.EXPECT().
+		IncrJobProcessedCount(gomock.Any(), "job-split").
+		Return(nil)
 	database.EXPECT().
 		AppendIdentificationErrors(gomock.Any(), "job-split", gomock.Any()).
 		Return(nil)

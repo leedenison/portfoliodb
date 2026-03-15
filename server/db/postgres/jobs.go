@@ -41,23 +41,24 @@ func (p *Postgres) CreateJob(ctx context.Context, userID, broker, source, filena
 }
 
 // GetJob implements db.JobDB.
-func (p *Postgres) GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []db.IdentificationError, string, error) {
+func (p *Postgres) GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []db.IdentificationError, string, int32, int32, error) {
 	jobUUID, err := uuid.Parse(jobID)
 	if err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", fmt.Errorf("invalid job id: %w", err)
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, fmt.Errorf("invalid job id: %w", err)
 	}
 	var statusStr string
 	var jobUserID uuid.UUID
-	err = p.q.QueryRowContext(ctx, `SELECT status, user_id FROM ingestion_jobs WHERE id = $1`, jobUUID).Scan(&statusStr, &jobUserID)
+	var totalCount, processedCount int32
+	err = p.q.QueryRowContext(ctx, `SELECT status, user_id, total_count, processed_count FROM ingestion_jobs WHERE id = $1`, jobUUID).Scan(&statusStr, &jobUserID, &totalCount, &processedCount)
 	if err == sql.ErrNoRows {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", nil
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, nil
 	}
 	if err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", fmt.Errorf("get job: %w", err)
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, fmt.Errorf("get job: %w", err)
 	}
 	rows, err := p.q.QueryContext(ctx, `SELECT row_index, field, message FROM validation_errors WHERE job_id = $1 ORDER BY row_index`, jobUUID)
 	if err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", fmt.Errorf("get validation errors: %w", err)
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, fmt.Errorf("get validation errors: %w", err)
 	}
 	defer rows.Close()
 	var errs []*apiv1.ValidationError
@@ -65,31 +66,31 @@ func (p *Postgres) GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, [
 		var rowIndex int32
 		var field, message string
 		if err := rows.Scan(&rowIndex, &field, &message); err != nil {
-			return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", err
+			return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, err
 		}
 		errs = append(errs, &apiv1.ValidationError{RowIndex: rowIndex, Field: field, Message: message})
 	}
 	if err := rows.Err(); err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", err
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, err
 	}
 	// Identification errors
 	idRows, err := p.q.QueryContext(ctx, `SELECT row_index, instrument_description, message FROM identification_errors WHERE job_id = $1 ORDER BY row_index`, jobUUID)
 	if err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", fmt.Errorf("get identification errors: %w", err)
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, fmt.Errorf("get identification errors: %w", err)
 	}
 	defer idRows.Close()
 	var idErrs []db.IdentificationError
 	for idRows.Next() {
 		var e db.IdentificationError
 		if err := idRows.Scan(&e.RowIndex, &e.InstrumentDescription, &e.Message); err != nil {
-			return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", err
+			return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, err
 		}
 		idErrs = append(idErrs, e)
 	}
 	if err := idRows.Err(); err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", err
+		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, err
 	}
-	return strToJobStatus(statusStr), errs, idErrs, jobUserID.String(), nil
+	return strToJobStatus(statusStr), errs, idErrs, jobUserID.String(), totalCount, processedCount, nil
 }
 
 // SetJobStatus implements db.JobDB.
@@ -101,6 +102,32 @@ func (p *Postgres) SetJobStatus(ctx context.Context, jobID string, status apiv1.
 	_, err = p.q.ExecContext(ctx, `UPDATE ingestion_jobs SET status = $2 WHERE id = $1`, jobUUID, jobStatusToStr(status))
 	if err != nil {
 		return fmt.Errorf("set job status: %w", err)
+	}
+	return nil
+}
+
+// SetJobTotalCount implements db.JobDB.
+func (p *Postgres) SetJobTotalCount(ctx context.Context, jobID string, total int32) error {
+	jobUUID, err := uuid.Parse(jobID)
+	if err != nil {
+		return fmt.Errorf("invalid job id: %w", err)
+	}
+	_, err = p.q.ExecContext(ctx, `UPDATE ingestion_jobs SET total_count = $2 WHERE id = $1`, jobUUID, total)
+	if err != nil {
+		return fmt.Errorf("set job total count: %w", err)
+	}
+	return nil
+}
+
+// IncrJobProcessedCount implements db.JobDB.
+func (p *Postgres) IncrJobProcessedCount(ctx context.Context, jobID string) error {
+	jobUUID, err := uuid.Parse(jobID)
+	if err != nil {
+		return fmt.Errorf("invalid job id: %w", err)
+	}
+	_, err = p.q.ExecContext(ctx, `UPDATE ingestion_jobs SET processed_count = processed_count + 1 WHERE id = $1`, jobUUID)
+	if err != nil {
+		return fmt.Errorf("incr job processed count: %w", err)
 	}
 	return nil
 }

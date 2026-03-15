@@ -298,6 +298,8 @@ message GetJobResponse {
   JobStatus status = 1;
   repeated ValidationError validation_errors = 2;
   repeated IdentificationError identification_errors = 3;
+  int32 total_count = 4;
+  int32 processed_count = 5;
 }
 
 // Job is an ingestion job summary for list views.

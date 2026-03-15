@@ -60,6 +60,7 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 		txsToProcess = append(txsToProcess, tx)
 		originalIndices = append(originalIndices, i)
 	}
+	_ = database.SetJobTotalCount(ctx, j.JobID, int32(len(txsToProcess)))
 	cache := make(map[string]resolveResult)
 	var extractedHintsCache map[string][]identifier.Identifier
 	sourceDescriptionCheckedMiss := make(map[string]bool) // keys we looked up and got ""; Resolve will skip duplicate DB lookup
@@ -118,6 +119,7 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 			return
 		}
 		instrumentIDs[i] = r.InstrumentID
+		_ = database.IncrJobProcessedCount(ctx, j.JobID)
 	}
 	var idErrs []db.IdentificationError
 	for _, r := range cache {
@@ -151,6 +153,7 @@ func processSingle(ctx context.Context, database db.DB, registry *identifier.Reg
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
 		return
 	}
+	_ = database.SetJobTotalCount(ctx, j.JobID, 1)
 	desc := j.Tx.GetInstrumentDescription()
 	r, err := Resolve(ctx, database, registry, descRegistry, j.Broker, j.Source, desc, HintsFromTx(j.Tx), identifierHintsFromTx(ctx, j.Tx), nil, 0, counter, nil, nil)
 	if err != nil {
@@ -161,6 +164,7 @@ func processSingle(ctx context.Context, database db.DB, registry *identifier.Reg
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return
 	}
+	_ = database.IncrJobProcessedCount(ctx, j.JobID)
 	if r.IdErr != nil {
 		_ = database.AppendIdentificationErrors(ctx, j.JobID, []db.IdentificationError{*r.IdErr})
 	}

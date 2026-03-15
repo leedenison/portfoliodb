@@ -227,6 +227,8 @@ export interface GetJobResult {
   status: JobStatus;
   validationErrors: ValidationError[];
   identificationErrors: IdentificationError[];
+  totalCount: number;
+  processedCount: number;
 }
 
 export async function getJob(jobId: string): Promise<GetJobResult> {
@@ -240,6 +242,8 @@ export async function getJob(jobId: string): Promise<GetJobResult> {
     status: res.status,
     validationErrors: res.validationErrors,
     identificationErrors: res.identificationErrors,
+    totalCount: res.totalCount,
+    processedCount: res.processedCount,
   };
 }
 

@@ -221,7 +221,7 @@ export function UploadModal() {
             </svg>
             <p className="text-sm text-text-muted">
               {jobStatus && jobStatus.totalCount > 0
-                ? `Processing ${jobStatus.processedCount} of ${jobStatus.totalCount} transactions\u2026`
+                ? `Processed ${jobStatus.processedCount} of ${jobStatus.totalCount} transactions\u2026`
                 : "Processing\u2026"}
             </p>
           </div>

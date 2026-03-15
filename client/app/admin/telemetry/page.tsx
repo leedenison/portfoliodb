@@ -117,13 +117,8 @@ function groupCounters(counters: TelemetryCounterRow[]): CounterSection[] {
   return result;
 }
 
-const displayNames: Record<string, string> = {
-  openfigi: "OpenFIGI",
-  openai: "OpenAI",
-};
-
 function titleCase(name: string): string {
-  return displayNames[name] ?? name
+  return name
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");

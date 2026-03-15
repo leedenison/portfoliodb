@@ -167,6 +167,64 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 	}
 }
 
+func TestPlugin_Identify_Option_UnderlyingLookupFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v3/reference/options/contracts/O:AAPL251219C00230000":
+			resp := client.APIResponse[client.OptionsContractResult]{
+				Status: "OK",
+				Results: client.OptionsContractResult{
+					Ticker:           "O:AAPL251219C00230000",
+					UnderlyingTicker: "AAPL",
+					PrimaryExchange:  "BATO",
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+		default:
+			// Underlying lookup returns 500.
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil)
+	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
+	idHints := []identifier.Identifier{{Type: "OCC", Value: "O:AAPL251219C00230000"}}
+
+	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	if !errors.Is(err, identifier.ErrNotIdentified) {
+		t.Fatalf("expected ErrNotIdentified when underlying lookup fails, got %v", err)
+	}
+}
+
+func TestPlugin_Identify_Option_NoUnderlyingTicker(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := client.APIResponse[client.OptionsContractResult]{
+			Status: "OK",
+			Results: client.OptionsContractResult{
+				Ticker:          "O:AAPL251219C00230000",
+				PrimaryExchange: "BATO",
+				// UnderlyingTicker intentionally empty.
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil)
+	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
+	idHints := []identifier.Identifier{{Type: "OCC", Value: "O:AAPL251219C00230000"}}
+
+	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	if !errors.Is(err, identifier.ErrNotIdentified) {
+		t.Fatalf("expected ErrNotIdentified when no underlying_ticker, got %v", err)
+	}
+}
+
 func TestPlugin_Identify_Option_NoOCC(t *testing.T) {
 	p := NewPlugin(nil, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: "http://unused"})

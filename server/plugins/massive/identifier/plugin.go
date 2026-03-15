@@ -127,19 +127,24 @@ func (p *Plugin) identifyOptionByOCC(ctx context.Context, c *client.Client, occ 
 	if err != nil {
 		return nil, nil, err
 	}
-	var underlying *client.TickerOverviewResult
-	if contract.UnderlyingTicker != "" {
-		u, err := c.TickerOverview(ctx, contract.UnderlyingTicker)
-		if err != nil {
-			if p.log != nil {
-				p.log.WarnContext(ctx, "massive: failed to resolve underlying", "underlying", contract.UnderlyingTicker, "err", err)
-			}
-			// Continue without underlying rather than failing.
-		} else {
-			underlying = u
+	if contract.UnderlyingTicker == "" {
+		if p.log != nil {
+			p.log.WarnContext(ctx, "massive: option contract has no underlying_ticker", "occ", occ)
 		}
+		return nil, nil, identifier.ErrNotIdentified
+	}
+	underlying, err := c.TickerOverview(ctx, contract.UnderlyingTicker)
+	if err != nil {
+		if p.log != nil {
+			p.log.WarnContext(ctx, "massive: failed to resolve underlying", "underlying", contract.UnderlyingTicker, "err", err)
+		}
+		return nil, nil, identifier.ErrNotIdentified
 	}
 	inst, ids := optionFromContract(contract, underlying)
+	if inst.Underlying == nil {
+		// stockFromTicker rejected the underlying (e.g. market != "stocks").
+		return nil, nil, identifier.ErrNotIdentified
+	}
 	return inst, ids, nil
 }
 

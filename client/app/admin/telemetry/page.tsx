@@ -37,18 +37,32 @@ function groupCounters(counters: TelemetryCounterRow[]): CounterSection[] {
     const sectionCards = sections.get(sectionName)!;
     const sectionCardIdx = cardIndex.get(sectionName)!;
 
-    // 1 segment: entry directly in section (shouldn't happen with current naming but handle gracefully)
-    if (parts.length <= 1) {
-      // No card level - create a card with empty name
+    // Leaf label is always the last segment (or remaining segments joined for 5+).
+    // Structural segments before the leaf determine nesting depth.
+
+    // 1 segment: leaf at section level (no card)
+    if (parts.length === 1) {
       const card = getOrCreate(sectionCardIdx, "", () => {
         const cd: CounterCard = { name: "", entries: [], headings: [] };
         sectionCards.push(cd);
         return cd;
       });
-      card.entries.push({ label: c.name, value: c.value });
+      card.entries.push({ label: parts[0], value: c.value });
       continue;
     }
 
+    // 2 segments: section > card-level leaf (no heading)
+    if (parts.length === 2) {
+      const card = getOrCreate(sectionCardIdx, "", () => {
+        const cd: CounterCard = { name: "", entries: [], headings: [] };
+        sectionCards.push(cd);
+        return cd;
+      });
+      card.entries.push({ label: parts[1], value: c.value });
+      continue;
+    }
+
+    // 3+ segments: section > card > ...
     const cardName = parts[1];
     const card = getOrCreate(sectionCardIdx, cardName, () => {
       const cd: CounterCard = { name: cardName, entries: [], headings: [] };
@@ -56,12 +70,13 @@ function groupCounters(counters: TelemetryCounterRow[]): CounterSection[] {
       return cd;
     });
 
-    // 2 segments: entry in card
-    if (parts.length === 2) {
-      card.entries.push({ label: cardName, value: c.value });
+    // 3 segments: leaf in card (no heading)
+    if (parts.length === 3) {
+      card.entries.push({ label: parts[2], value: c.value });
       continue;
     }
 
+    // 4+ segments: card > heading 1 > ...
     const h1Name = parts[2];
     const h1Key = `${sectionName}.${cardName}.${h1Name}`;
     if (!h1Index.has(h1Key)) h1Index.set(h1Key, new Map());
@@ -73,12 +88,13 @@ function groupCounters(counters: TelemetryCounterRow[]): CounterSection[] {
       return hd;
     });
 
-    // 3 segments: entry in heading 1
-    if (parts.length === 3) {
-      h1.entries.push({ label: h1Name, value: c.value });
+    // 4 segments: leaf under heading 1 (no subheading)
+    if (parts.length === 4) {
+      h1.entries.push({ label: parts[3], value: c.value });
       continue;
     }
 
+    // 5+ segments: heading 1 > heading 2 > leaf
     const h2Name = parts[3];
     const h2Key = `${h1Key}.${h2Name}`;
     if (!h2Index.has(h2Key)) h2Index.set(h2Key, new Map());
@@ -90,13 +106,7 @@ function groupCounters(counters: TelemetryCounterRow[]): CounterSection[] {
       return hd;
     });
 
-    // 4 segments: entry in heading 2
-    if (parts.length === 4) {
-      h2.entries.push({ label: h2Name, value: c.value });
-      continue;
-    }
-
-    // 5+ segments: remaining segments joined as label
+    // 5+ segments: remaining segments joined as leaf label
     h2.entries.push({ label: parts.slice(4).join("."), value: c.value });
   }
 

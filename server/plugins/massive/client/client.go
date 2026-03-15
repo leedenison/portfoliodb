@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
-
-	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
 const defaultBaseURL = "https://api.massive.com"
@@ -27,13 +25,12 @@ type Client struct {
 	apiKey     string
 	httpClient *http.Client
 	limiter    *RateLimiter
-	counter    telemetry.CounterIncrementer
 	log        *slog.Logger
 }
 
 // New creates a Client. baseURL may be empty to use the default Massive API URL; pass a custom URL for testing.
-// counter and log are optional (nil allowed).
-func New(apiKey, baseURL string, limiter *RateLimiter, counter telemetry.CounterIncrementer, log *slog.Logger) *Client {
+// log is optional (nil allowed).
+func New(apiKey, baseURL string, limiter *RateLimiter, log *slog.Logger) *Client {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
@@ -44,7 +41,6 @@ func New(apiKey, baseURL string, limiter *RateLimiter, counter telemetry.Counter
 			Timeout: 30 * time.Second,
 		},
 		limiter: limiter,
-		counter: counter,
 		log:     log,
 	}
 }
@@ -68,7 +64,6 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.incr(ctx, "massive.failed")
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "massive request failed", "url", path, "err", err)
 		}
@@ -77,7 +72,6 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		c.incr(ctx, "massive.rate_limit")
 		if c.log != nil {
 			c.log.WarnContext(ctx, "massive rate limit (429)", "url", path)
 		}
@@ -85,28 +79,19 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		c.incr(ctx, "massive.failed")
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "massive request failed", "url", path, "status", resp.StatusCode, "body", string(body))
 		}
 		return fmt.Errorf("massive %s %d: %s", path, resp.StatusCode, string(body))
 	}
 	if err := json.Unmarshal(body, out); err != nil {
-		c.incr(ctx, "massive.failed")
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "massive decode failed", "url", path, "err", err)
 		}
 		return fmt.Errorf("massive decode %s: %w", path, err)
 	}
-	c.incr(ctx, "massive.succeeded")
 	if c.log != nil {
 		c.log.DebugContext(ctx, "massive request succeeded", "url", path)
 	}
 	return nil
-}
-
-func (c *Client) incr(ctx context.Context, name string) {
-	if c.counter != nil {
-		c.counter.Incr(ctx, name)
-	}
 }

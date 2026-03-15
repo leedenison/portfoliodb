@@ -14,13 +14,16 @@ import (
 // PluginID is the stable plugin_id for registration and description_plugin_config.
 const PluginID = "openai"
 
-// Counter names for path-specific OpenAI errors and token usage (prefixed by telemetry in production).
+// Counter names (prefixed by telemetry in production).
 const (
-	CounterModelNotFound    = "description.openai.model_not_found"
-	CounterQuotaExceeded   = "description.openai.quota_exceeded"
-	CounterPromptTokens    = "description.openai.prompt_tokens"
-	CounterCompletionTokens = "description.openai.completion_tokens"
-	CounterTotalTokens     = "description.openai.total_tokens"
+	CounterAttempted        = "instruments.description.openai.ticker_extraction.attempted"
+	CounterSucceeded        = "instruments.description.openai.ticker_extraction.succeeded"
+	CounterFailed           = "instruments.description.openai.ticker_extraction.failed"
+	CounterModelNotFound    = "instruments.description.openai.ticker_extraction.model_not_found"
+	CounterQuotaExceeded    = "instruments.description.openai.ticker_extraction.quota_exceeded"
+	CounterPromptTokens     = "instruments.description.openai.ticker_extraction.prompt_tokens"
+	CounterCompletionTokens = "instruments.description.openai.ticker_extraction.completion_tokens"
+	CounterTotalTokens      = "instruments.description.openai.ticker_extraction.total_tokens"
 )
 
 // configJSON is the shape of the plugin's config from description_plugin_config.config.
@@ -90,8 +93,14 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 			TypeHint:    items[i].Hints.SecurityTypeHint,
 		}
 	}
+	if p.counter != nil {
+		p.counter.IncrBy(ctx, CounterAttempted, int64(len(items)))
+	}
 	byID, usage, err := p.client.NormalizeDescriptionsBatch(ctx, clientItems)
 	if err != nil {
+		if p.counter != nil {
+			p.counter.IncrBy(ctx, CounterFailed, int64(len(items)))
+		}
 		for _, item := range items {
 			p.handleOpenAIError(ctx, item.InstrumentDescription, err)
 		}
@@ -111,6 +120,14 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 			out[id] = []identifier.Identifier{{Type: "OCC", Domain: "", Value: norm.OCC}}
 		} else if norm.Ticker != "" {
 			out[id] = []identifier.Identifier{{Type: "TICKER", Domain: "", Value: norm.Ticker}}
+		}
+	}
+	if p.counter != nil {
+		succeeded := int64(len(out))
+		failed := int64(len(items)) - succeeded
+		p.counter.IncrBy(ctx, CounterSucceeded, succeeded)
+		if failed > 0 {
+			p.counter.IncrBy(ctx, CounterFailed, failed)
 		}
 	}
 	return out, nil

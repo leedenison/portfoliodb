@@ -89,6 +89,9 @@ type SearchResponse struct {
 
 // Mapping calls POST /v3/mapping with one job. Returns results or error string from API.
 func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIGIResult, error) {
+	if c.counter != nil {
+		c.counter.Incr(ctx, "instruments.identification.openfigi.mapping.attempts")
+	}
 	if c.log != nil {
 		c.log.DebugContext(ctx, "OpenFIGI mapping", "idType", job.IDType, "idValue", job.IDValue, "exchCode", job.ExchCode)
 	}
@@ -107,7 +110,7 @@ func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIG
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		if c.counter != nil {
-			c.counter.Incr(ctx, "openfigi.mapping.failed")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.mapping.failed")
 		}
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "OpenFIGI mapping request failed", "err", err)
@@ -117,7 +120,7 @@ func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIG
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusTooManyRequests {
 		if c.counter != nil {
-			c.counter.Incr(ctx, "openfigi.mapping.rate_limit")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.mapping.rate_limit")
 		}
 		if c.log != nil {
 			c.log.WarnContext(ctx, "OpenFIGI mapping rate limit (429)", "url", req.URL.String())
@@ -127,7 +130,7 @@ func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIG
 	if resp.StatusCode != http.StatusOK {
 		slurp, _ := io.ReadAll(resp.Body)
 		if c.counter != nil {
-			c.counter.Incr(ctx, "openfigi.mapping.failed")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.mapping.failed")
 		}
 		if c.log != nil {
 			args := []any{"status", resp.StatusCode, "body", string(slurp)}
@@ -141,7 +144,7 @@ func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIG
 	var items []MappingResponseItem
 	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
 		if c.counter != nil {
-			c.counter.Incr(ctx, "openfigi.mapping.failed")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.mapping.failed")
 		}
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "OpenFIGI mapping decode failed", "err", err)
@@ -150,7 +153,7 @@ func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIG
 	}
 	if len(items) == 0 {
 		if c.counter != nil {
-			c.counter.Incr(ctx, "openfigi.mapping.failed")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.mapping.failed")
 		}
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "OpenFIGI mapping empty response")
@@ -160,7 +163,7 @@ func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIG
 	item := items[0]
 	if item.Error != "" {
 		if c.counter != nil {
-			c.counter.Incr(ctx, "openfigi.mapping.failed")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.mapping.failed")
 		}
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "OpenFIGI mapping API error", "error", item.Error)
@@ -169,9 +172,9 @@ func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIG
 	}
 	if c.counter != nil {
 		if len(item.Data) == 0 {
-			c.counter.Incr(ctx, "openfigi.mapping.zero_results")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.mapping.zero_results")
 		} else {
-			c.counter.Incr(ctx, "openfigi.mapping.succeeded")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.mapping.succeeded")
 		}
 	}
 	if c.log != nil {
@@ -186,6 +189,9 @@ func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIG
 
 // Search calls POST /v3/search. Returns first page of results only.
 func (c *OpenFIGIClient) Search(ctx context.Context, query string, exchCode string) (*SearchResponse, error) {
+	if c.counter != nil {
+		c.counter.Incr(ctx, "instruments.identification.openfigi.search.attempts")
+	}
 	if c.log != nil {
 		c.log.DebugContext(ctx, "OpenFIGI search", "query", query, "exchCode", exchCode)
 	}
@@ -208,7 +214,7 @@ func (c *OpenFIGIClient) Search(ctx context.Context, query string, exchCode stri
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		if c.counter != nil {
-			c.counter.Incr(ctx, "openfigi.search.failed")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.search.failed")
 		}
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "OpenFIGI search request failed", "err", err)
@@ -218,7 +224,7 @@ func (c *OpenFIGIClient) Search(ctx context.Context, query string, exchCode stri
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusTooManyRequests {
 		if c.counter != nil {
-			c.counter.Incr(ctx, "openfigi.search.rate_limit")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.search.rate_limit")
 		}
 		if c.log != nil {
 			c.log.WarnContext(ctx, "OpenFIGI search rate limit (429)", "url", req.URL.String())
@@ -228,7 +234,7 @@ func (c *OpenFIGIClient) Search(ctx context.Context, query string, exchCode stri
 	if resp.StatusCode != http.StatusOK {
 		slurp, _ := io.ReadAll(resp.Body)
 		if c.counter != nil {
-			c.counter.Incr(ctx, "openfigi.search.failed")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.search.failed")
 		}
 		if c.log != nil {
 			args := []any{"status", resp.StatusCode, "body", string(slurp)}
@@ -242,7 +248,7 @@ func (c *OpenFIGIClient) Search(ctx context.Context, query string, exchCode stri
 	var out SearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		if c.counter != nil {
-			c.counter.Incr(ctx, "openfigi.search.failed")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.search.failed")
 		}
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "OpenFIGI search decode failed", "err", err)
@@ -251,7 +257,7 @@ func (c *OpenFIGIClient) Search(ctx context.Context, query string, exchCode stri
 	}
 	if out.Error != "" {
 		if c.counter != nil {
-			c.counter.Incr(ctx, "openfigi.search.failed")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.search.failed")
 		}
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "OpenFIGI search API error", "error", out.Error)
@@ -260,9 +266,9 @@ func (c *OpenFIGIClient) Search(ctx context.Context, query string, exchCode stri
 	}
 	if c.counter != nil {
 		if len(out.Data) == 0 {
-			c.counter.Incr(ctx, "openfigi.search.zero_results")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.search.zero_results")
 		} else {
-			c.counter.Incr(ctx, "openfigi.search.succeeded")
+			c.counter.Incr(ctx, "instruments.identification.openfigi.search.succeeded")
 		}
 	}
 	if c.log != nil {

@@ -3,7 +3,7 @@ package telemetry
 import "context"
 
 // CounterIncrementer increments a counter by name. Name is the key suffix only
-// (e.g. "instrument.identify.attempts"); the implementation prepends the
+// (e.g. "instruments.resolution.totals.description.attempts"); the implementation prepends the
 // portfoliodb counters prefix. IncrBy adds delta to the named counter (for running totals like token counts).
 type CounterIncrementer interface {
 	Incr(ctx context.Context, name string)

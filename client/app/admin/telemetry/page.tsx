@@ -5,45 +5,115 @@ import { ErrorAlert } from "@/app/components/error-alert";
 import { listTelemetryCounters, type TelemetryCounterRow } from "@/lib/portfolio-api";
 
 type CounterEntry = { label: string; value: number };
-type CounterCard = { name: string; entries: CounterEntry[] };
+type CounterHeading2 = { name: string; entries: CounterEntry[] };
+type CounterHeading1 = { name: string; entries: CounterEntry[]; subheadings: CounterHeading2[] };
+type CounterCard = { name: string; entries: CounterEntry[]; headings: CounterHeading1[] };
 type CounterSection = { name: string; cards: CounterCard[] };
 
+// groupCounters builds a 5-level hierarchy from flat dot-separated counter names:
+//   segment 1 = section, segment 2 = card, segment 3 = heading 1, segment 4 = heading 2, segment 5 = entry.
+// Counters with fewer segments terminate at the appropriate level.
 function groupCounters(counters: TelemetryCounterRow[]): CounterSection[] {
-  const sectionMap = new Map<string, Map<string, CounterEntry[]>>();
+  const sections = new Map<string, CounterCard[]>();
+
+  const getOrCreate = <T,>(map: Map<string, T>, key: string, factory: () => T): T => {
+    if (!map.has(key)) map.set(key, factory());
+    return map.get(key)!;
+  };
+
+  // Index cards/headings by name within their parent for fast lookup.
+  const cardIndex = new Map<string, Map<string, CounterCard>>();
+  const h1Index = new Map<string, Map<string, CounterHeading1>>();
+  const h2Index = new Map<string, Map<string, CounterHeading2>>();
 
   for (const c of counters) {
     const parts = c.name.split(".");
-    const section = parts[0] ?? c.name;
-    const card = parts[1] ?? "";
-    const label = parts.slice(2).join(".") || c.name;
+    const sectionName = parts[0] ?? c.name;
 
-    if (!sectionMap.has(section)) sectionMap.set(section, new Map());
-    const cardMap = sectionMap.get(section)!;
-    if (!cardMap.has(card)) cardMap.set(card, []);
-    cardMap.get(card)!.push({ label, value: c.value });
-  }
-
-  const sections: CounterSection[] = [];
-  for (const [name, cardMap] of sectionMap) {
-    const cards: CounterCard[] = [];
-    for (const [cardName, entries] of cardMap) {
-      cards.push({ name: cardName, entries });
+    if (!sections.has(sectionName)) {
+      sections.set(sectionName, []);
+      cardIndex.set(sectionName, new Map());
     }
-    sections.push({ name, cards });
+    const sectionCards = sections.get(sectionName)!;
+    const sectionCardIdx = cardIndex.get(sectionName)!;
+
+    // 1 segment: entry directly in section (shouldn't happen with current naming but handle gracefully)
+    if (parts.length <= 1) {
+      // No card level - create a card with empty name
+      const card = getOrCreate(sectionCardIdx, "", () => {
+        const cd: CounterCard = { name: "", entries: [], headings: [] };
+        sectionCards.push(cd);
+        return cd;
+      });
+      card.entries.push({ label: c.name, value: c.value });
+      continue;
+    }
+
+    const cardName = parts[1];
+    const card = getOrCreate(sectionCardIdx, cardName, () => {
+      const cd: CounterCard = { name: cardName, entries: [], headings: [] };
+      sectionCards.push(cd);
+      return cd;
+    });
+
+    // 2 segments: entry in card
+    if (parts.length === 2) {
+      card.entries.push({ label: cardName, value: c.value });
+      continue;
+    }
+
+    const h1Name = parts[2];
+    const h1Key = `${sectionName}.${cardName}.${h1Name}`;
+    if (!h1Index.has(h1Key)) h1Index.set(h1Key, new Map());
+    const cardH1Idx = h1Index.get(h1Key)!;
+
+    const h1 = getOrCreate(cardH1Idx, h1Name, () => {
+      const hd: CounterHeading1 = { name: h1Name, entries: [], subheadings: [] };
+      card.headings.push(hd);
+      return hd;
+    });
+
+    // 3 segments: entry in heading 1
+    if (parts.length === 3) {
+      h1.entries.push({ label: h1Name, value: c.value });
+      continue;
+    }
+
+    const h2Name = parts[3];
+    const h2Key = `${h1Key}.${h2Name}`;
+    if (!h2Index.has(h2Key)) h2Index.set(h2Key, new Map());
+    const h1H2Idx = h2Index.get(h2Key)!;
+
+    const h2 = getOrCreate(h1H2Idx, h2Name, () => {
+      const hd: CounterHeading2 = { name: h2Name, entries: [] };
+      h1.subheadings.push(hd);
+      return hd;
+    });
+
+    // 4 segments: entry in heading 2
+    if (parts.length === 4) {
+      h2.entries.push({ label: h2Name, value: c.value });
+      continue;
+    }
+
+    // 5+ segments: remaining segments joined as label
+    h2.entries.push({ label: parts.slice(4).join("."), value: c.value });
   }
-  return sections;
+
+  const result: CounterSection[] = [];
+  for (const [name, cards] of sections) {
+    result.push({ name, cards });
+  }
+  return result;
 }
 
-function sectionTitle(name: string): string {
-  const titles: Record<string, string> = {
-    openfigi: "OpenFIGI",
-    openai: "OpenAI",
-  };
-  return titles[name] ?? name.charAt(0).toUpperCase() + name.slice(1);
-}
+const displayNames: Record<string, string> = {
+  openfigi: "OpenFIGI",
+  openai: "OpenAI",
+};
 
-function cardTitle(name: string): string {
-  return name
+function titleCase(name: string): string {
+  return displayNames[name] ?? name
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
@@ -110,7 +180,7 @@ export default function AdminTelemetryPage() {
           {sections.map((section) => (
             <div key={section.name}>
               <h2 className="font-display text-lg font-semibold text-text-primary">
-                {sectionTitle(section.name)}
+                {titleCase(section.name)}
               </h2>
               <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
                 {section.cards.map((card) => (
@@ -118,24 +188,28 @@ export default function AdminTelemetryPage() {
                     key={card.name}
                     className="rounded-lg border border-border bg-surface p-4"
                   >
-                    <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-text-muted">
-                      {cardTitle(card.name)}
-                    </h3>
-                    <ul className="space-y-1.5">
-                      {card.entries.map((entry) => (
-                        <li
-                          key={entry.label}
-                          className="flex items-baseline justify-between gap-4 rounded px-2 py-1 transition-colors hover:bg-primary-light/10"
-                        >
-                          <span className="font-mono text-sm text-text-primary">
-                            {entry.label}
-                          </span>
-                          <span className="tabular-nums text-text-secondary">
-                            {entry.value.toLocaleString()}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
+                    {card.name && (
+                      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-text-muted">
+                        {titleCase(card.name)}
+                      </h3>
+                    )}
+                    <EntryList entries={card.entries} />
+                    {card.headings.map((h1) => (
+                      <div key={h1.name} className="mt-3 first:mt-0">
+                        <h4 className="mb-2 border-b border-border pb-1 text-sm font-medium text-text-primary">
+                          {titleCase(h1.name)}
+                        </h4>
+                        <EntryList entries={h1.entries} />
+                        {h1.subheadings.map((h2) => (
+                          <div key={h2.name} className="mb-2 ml-3 mt-1">
+                            <h5 className="mb-1 text-xs font-medium text-text-muted">
+                              {titleCase(h2.name)}
+                            </h5>
+                            <EntryList entries={h2.entries} />
+                          </div>
+                        ))}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
@@ -144,5 +218,26 @@ export default function AdminTelemetryPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function EntryList({ entries }: { entries: CounterEntry[] }) {
+  if (entries.length === 0) return null;
+  return (
+    <ul className="space-y-1">
+      {entries.map((entry) => (
+        <li
+          key={entry.label}
+          className="flex items-baseline justify-between gap-4 rounded px-2 py-0.5 transition-colors hover:bg-primary-light/10"
+        >
+          <span className="font-mono text-sm text-text-primary">
+            {entry.label}
+          </span>
+          <span className="tabular-nums text-text-secondary">
+            {entry.value.toLocaleString()}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }

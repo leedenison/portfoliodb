@@ -68,7 +68,7 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.incr(ctx, "massive.request.failed")
+		c.incr(ctx, "instruments.identification.massive.request.failed")
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "massive request failed", "url", path, "err", err)
 		}
@@ -77,7 +77,7 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		c.incr(ctx, "massive.request.rate_limit")
+		c.incr(ctx, "instruments.identification.massive.request.rate_limit")
 		if c.log != nil {
 			c.log.WarnContext(ctx, "massive rate limit (429)", "url", path)
 		}
@@ -85,20 +85,20 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		c.incr(ctx, "massive.request.failed")
+		c.incr(ctx, "instruments.identification.massive.request.failed")
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "massive request failed", "url", path, "status", resp.StatusCode, "body", string(body))
 		}
 		return fmt.Errorf("massive %s %d: %s", path, resp.StatusCode, string(body))
 	}
 	if err := json.Unmarshal(body, out); err != nil {
-		c.incr(ctx, "massive.request.failed")
+		c.incr(ctx, "instruments.identification.massive.request.failed")
 		if c.log != nil {
 			c.log.ErrorContext(ctx, "massive decode failed", "url", path, "err", err)
 		}
 		return fmt.Errorf("massive decode %s: %w", path, err)
 	}
-	c.incr(ctx, "massive.request.succeeded")
+	c.incr(ctx, "instruments.identification.massive.request.succeeded")
 	if c.log != nil {
 		c.log.DebugContext(ctx, "massive request succeeded", "url", path)
 	}

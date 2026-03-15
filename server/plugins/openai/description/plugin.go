@@ -16,11 +16,11 @@ const PluginID = "openai"
 
 // Counter names for path-specific OpenAI errors and token usage (prefixed by telemetry in production).
 const (
-	CounterModelNotFound    = "openai.completion.model_not_found"
-	CounterQuotaExceeded   = "openai.completion.quota_exceeded"
-	CounterPromptTokens    = "openai.completion.prompt_tokens"
-	CounterCompletionTokens = "openai.completion.completion_tokens"
-	CounterTotalTokens     = "openai.completion.total_tokens"
+	CounterModelNotFound    = "instruments.description.openai.completion.model_not_found"
+	CounterQuotaExceeded   = "instruments.description.openai.completion.quota_exceeded"
+	CounterPromptTokens    = "instruments.description.openai.completion.prompt_tokens"
+	CounterCompletionTokens = "instruments.description.openai.completion.completion_tokens"
+	CounterTotalTokens     = "instruments.description.openai.completion.total_tokens"
 )
 
 // configJSON is the shape of the plugin's config from description_plugin_config.config.

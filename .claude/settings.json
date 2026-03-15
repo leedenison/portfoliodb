@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git pull:*)",
+      "mcp__github__merge_pull_request",
+      "WebFetch(domain:massive.com)",
+      "Bash(find /home/lee/Projects/portfoliodb/docs -type f -name *.md)",
+      "Bash(go get:*)",
+      "Bash(go mod:*)",
+      "Bash(make test:*)",
+      "Bash(chmod +x /home/lee/Projects/portfoliodb/local/massive-rate-test.sh)",
+      "Bash(git check-ignore:*)"
+    ]
+  }
+}

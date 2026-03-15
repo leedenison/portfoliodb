@@ -33,10 +33,11 @@
 
 1. **Resolution counters** (server/service/ingestion/resolve.go)
 
-   - `instruments.resolution.totals.describe.extraction_failed` -- description extraction failed; using broker-description-only.
-   - `instruments.resolution.totals.describe.plugin_error` -- a description plugin returned an error.
-   - `instruments.resolution.totals.describe.no_hints` -- plugins were tried but none returned hints.
-   - `instruments.resolution.totals.describe.identifier_mismatch` -- TICKER and OPENFIGI_SHARE_CLASS hints resolved to different instruments.
+   - `instruments.resolution.totals.description.extraction_failed` -- description extraction failed; using broker-description-only.
+   - `instruments.resolution.totals.description.plugin_error` -- a description plugin returned an error.
+   - `instruments.resolution.totals.description.no_hints` -- plugins were tried but none returned hints.
+   - `instruments.resolution.totals.description.identifier_mismatch` -- TICKER and OPENFIGI_SHARE_CLASS hints resolved to different instruments.
+   - `instruments.resolution.totals.description.attempts` -- description plugins were invoked for a broker description (increment for each description in a batch).
    - `instruments.resolution.totals.identify.attempts` -- identifier plugins were invoked for a (source, instrument_description) pair.
 
 2. **OpenFIGI outcomes** (server/plugins/openfigi/identifier/openfigi.go)

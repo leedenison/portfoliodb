@@ -217,7 +217,7 @@ func runDescriptionPlugins(ctx context.Context, database db.DescriptionPluginDB,
 		out, err := p.ExtractBatch(ctx, c.Config, broker, source, items)
 		if err != nil {
 			if counter != nil {
-				counter.Incr(ctx, "description.extraction.plugin_error")
+				counter.Incr(ctx, "resolution.describe.plugin_error")
 			}
 			ingestionLogger().DebugContext(ctx, "description plugin result: error", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "err", err)
 			continue
@@ -231,7 +231,7 @@ func runDescriptionPlugins(ctx context.Context, database db.DescriptionPluginDB,
 	}
 	if tried > 0 {
 		if counter != nil {
-			counter.Incr(ctx, "description.extraction.no_hints")
+			counter.Incr(ctx, "resolution.describe.no_hints")
 		}
 		ingestionLogger().DebugContext(ctx, "description extraction: no plugin returned hints", "source", source, "instrument_description", instrumentDescription)
 	}
@@ -266,7 +266,7 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.DescriptionPlug
 		out, err := p.ExtractBatch(ctx, c.Config, broker, source, filtered)
 		if err != nil {
 			if counter != nil {
-				counter.Incr(ctx, "description.extraction.plugin_error")
+				counter.Incr(ctx, "resolution.describe.plugin_error")
 			}
 			ingestionLogger().DebugContext(ctx, "description plugin batch result: error", "plugin_id", c.PluginID, "err", err)
 			continue
@@ -288,7 +288,7 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.DescriptionPlug
 		ingestionLogger().DebugContext(ctx, "description plugin batch result: no hints", "plugin_id", c.PluginID, "batch_ids", batchItemIDs(filtered))
 	}
 	if counter != nil {
-		counter.Incr(ctx, "description.extraction.no_hints")
+		counter.Incr(ctx, "resolution.describe.no_hints")
 	}
 	return nil, nil
 }
@@ -413,7 +413,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// Extraction failed: ensure broker-description-only and record error.
 		// Identifier plugins are never called in this path, so no Redis counters and no OpenFIGI.
 		if counter != nil {
-			counter.Incr(ctx, "instrument.resolution.description_extraction_failed")
+			counter.Incr(ctx, "resolution.describe.extraction_failed")
 		}
 		ingestionLogger().InfoContext(ctx, "instrument resolution: description extraction failed, using broker description only", "source", source, "instrument_description", instrumentDescription)
 		var ensureErr error
@@ -446,7 +446,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		// Consider "unresolved" (broker-description-only) as empty for mismatch check
 		if idByTicker != "" && idByFigi != "" && idByTicker != idByFigi {
 			if counter != nil {
-				counter.Incr(ctx, "description.extraction.identifier_mismatch")
+				counter.Incr(ctx, "resolution.describe.identifier_mismatch")
 			}
 			ingestionLogger().ErrorContext(ctx, "TICKER and OPENFIGI_SHARE_CLASS resolved to different instruments; using TICKER",
 				"source", source, "instrument_description", instrumentDescription,
@@ -507,7 +507,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 		inputs = append(inputs, pluginInput{config: c, plugin: p})
 	}
 	if len(inputs) > 0 && counter != nil {
-		counter.Incr(ctx, "instrument.identify.attempts")
+		counter.Incr(ctx, "resolution.identify.attempts")
 	}
 	if len(inputs) == 0 {
 		ingestionLogger().DebugContext(ctx, "instrument resolution: no enabled identifier plugins", "source", source, "instrument_description", instrumentDescription)

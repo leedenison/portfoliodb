@@ -167,6 +167,62 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 	}
 }
 
+func TestPlugin_Identify_Option_OCC_SpacePadded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v3/reference/options/contracts/O:AAPL251219C00230000":
+			resp := client.APIResponse[client.OptionsContractResult]{
+				Status: "OK",
+				Results: client.OptionsContractResult{
+					Ticker:            "O:AAPL251219C00230000",
+					UnderlyingTicker:  "AAPL",
+					ContractType:      "call",
+					ExerciseStyle:     "american",
+					ExpirationDate:    "2025-12-19",
+					StrikePrice:       230.0,
+					SharesPerContract: 100,
+					PrimaryExchange:   "BATO",
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+		case "/v3/reference/tickers/AAPL":
+			resp := client.APIResponse[client.TickerOverviewResult]{
+				Status: "OK",
+				Results: client.TickerOverviewResult{
+					Ticker:          "AAPL",
+					Name:            "Apple Inc.",
+					Market:          "stocks",
+					PrimaryExchange: "XNAS",
+					CurrencyName:    "usd",
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+		default:
+			// Space-padded OCC should never reach the server.
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil)
+	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
+	// Pass OCC with space-padding (21-char format).
+	idHints := []identifier.Identifier{{Type: "OCC", Value: "O:AAPL  251219C00230000"}}
+
+	inst, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inst.AssetClass != db.AssetClassOption {
+		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
+	}
+	if inst.Underlying == nil || inst.Underlying.Name != "Apple Inc." {
+		t.Fatal("expected underlying to be resolved")
+	}
+}
+
 func TestPlugin_Identify_Option_UnderlyingLookupFails(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

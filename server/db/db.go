@@ -98,8 +98,10 @@ type JobRow struct {
 // JobDB provides ingestion job operations.
 type JobDB interface {
 	CreateJob(ctx context.Context, userID, broker, source, filename string, periodFrom, periodTo *timestamppb.Timestamp) (string, error)
-	GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []IdentificationError, string, error) // last string is job's user_id for auth
+	GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []IdentificationError, string, int32, int32, error) // returns (status, validationErrors, idErrors, userID, totalCount, processedCount, error)
 	SetJobStatus(ctx context.Context, jobID string, status apiv1.JobStatus) error
+	SetJobTotalCount(ctx context.Context, jobID string, total int32) error
+	IncrJobProcessedCount(ctx context.Context, jobID string) error
 	AppendValidationErrors(ctx context.Context, jobID string, errs []*apiv1.ValidationError) error
 	AppendIdentificationErrors(ctx context.Context, jobID string, errs []IdentificationError) error
 	ListPendingJobIDs(ctx context.Context) ([]string, error)

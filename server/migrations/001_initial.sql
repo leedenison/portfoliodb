@@ -62,6 +62,8 @@ CREATE TABLE ingestion_jobs (
   period_from  TIMESTAMPTZ,
   period_to    TIMESTAMPTZ,
   status       TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED')),
+  total_count      INT NOT NULL DEFAULT 0,
+  processed_count  INT NOT NULL DEFAULT 0,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

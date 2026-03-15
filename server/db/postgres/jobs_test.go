@@ -22,18 +22,27 @@ func TestCreateJob_GetJob(t *testing.T) {
 	if jobID == "" {
 		t.Fatal("expected job id")
 	}
-	status, errs, idErrs, jobUserID, err := p.GetJob(ctx, jobID)
+	status, errs, idErrs, jobUserID, totalCount, processedCount, err := p.GetJob(ctx, jobID)
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
 	if status != apiv1.JobStatus_PENDING || len(errs) != 0 || len(idErrs) != 0 || jobUserID != userID {
 		t.Fatalf("get job: %v %v %v %s", status, errs, idErrs, jobUserID)
 	}
+	if totalCount != 0 || processedCount != 0 {
+		t.Fatalf("initial counts: total=%d processed=%d", totalCount, processedCount)
+	}
 	_ = p.SetJobStatus(ctx, jobID, apiv1.JobStatus_SUCCESS)
+	_ = p.SetJobTotalCount(ctx, jobID, 5)
+	_ = p.IncrJobProcessedCount(ctx, jobID)
+	_ = p.IncrJobProcessedCount(ctx, jobID)
 	_ = p.AppendValidationErrors(ctx, jobID, []*apiv1.ValidationError{{RowIndex: 0, Field: "x", Message: "y"}})
-	status2, errs2, idErrs2, _, _ := p.GetJob(ctx, jobID)
+	status2, errs2, idErrs2, _, totalCount2, processedCount2, _ := p.GetJob(ctx, jobID)
 	if status2 != apiv1.JobStatus_SUCCESS || len(errs2) != 1 || len(idErrs2) != 0 {
 		t.Fatalf("after update: %v %v %v", status2, errs2, idErrs2)
+	}
+	if totalCount2 != 5 || processedCount2 != 2 {
+		t.Fatalf("after update counts: total=%d processed=%d", totalCount2, processedCount2)
 	}
 }
 

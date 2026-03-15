@@ -26,7 +26,7 @@ func (s *Server) GetJob(ctx context.Context, req *apiv1.GetJobRequest) (*apiv1.G
 	if req.GetJobId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "job_id required")
 	}
-	statusVal, errs, idErrs, jobUserID, err := s.db.GetJob(ctx, req.GetJobId())
+	statusVal, errs, idErrs, jobUserID, totalCount, processedCount, err := s.db.GetJob(ctx, req.GetJobId())
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -44,7 +44,7 @@ func (s *Server) GetJob(ctx context.Context, req *apiv1.GetJobRequest) (*apiv1.G
 			Message:                e.Message,
 		})
 	}
-	return &apiv1.GetJobResponse{Status: statusVal, ValidationErrors: errs, IdentificationErrors: idErrProtos}, nil
+	return &apiv1.GetJobResponse{Status: statusVal, ValidationErrors: errs, IdentificationErrors: idErrProtos, TotalCount: totalCount, ProcessedCount: processedCount}, nil
 }
 
 // ListJobs returns paginated ingestion jobs for the authenticated user, newest first.

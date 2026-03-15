@@ -219,7 +219,11 @@ export function UploadModal() {
                 d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"
               />
             </svg>
-            <p className="text-sm text-text-muted">Processing&hellip;</p>
+            <p className="text-sm text-text-muted">
+              {jobStatus && jobStatus.totalCount > 0
+                ? `Processed ${jobStatus.processedCount} of ${jobStatus.totalCount} transactions\u2026`
+                : "Processing\u2026"}
+            </p>
           </div>
         ) : step === 1 ? (
           <div className="space-y-4">

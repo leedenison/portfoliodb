@@ -67,6 +67,10 @@ Workflow for multi-PR plans:
 
 If the changes cannot be cleanly separated into independent PRs (e.g., extensive cross-cutting modifications), it is acceptable to use a single PR. State in the PR description why it was not split.
 
+### Worktrees
+
+Whenever you begin work in a new worktree you should run `make generate` to generate protobuf bindings and go mocks.
+
 ## User Interface
 
 The informantion architecture of the user interface is described in docs/ui/information-architecture.md.  It describes key concepts for users (and admin users), how they relate to each other, the relative importance they carry for the user and gives the example of how the information architecture should impact global navigation.

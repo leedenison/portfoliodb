@@ -80,3 +80,5 @@
 | T37     | Compute and expose TWR and MWR for a portfolio over a period (requires price data). | T22                |           |        |
 | T38     | Instrument tags (tag type / tag value); store OpenFIGI market sector and related fields as tags when identification plugins provide them. |                    |           |        |
 | T39     | Move Uploads to user dropdown menu; add ListJobs API and paginated upload errors UI. |                    |           |        |
+| T40     | Security review: move DB credentials out of Dockerfile/docker-compose into env vars; make Envoy CORS origins configurable; make session TTL and cookie attributes configurable via env vars. |                    |           |        |
+| T41     | Make frontend SSR API base URL configurable via env var instead of hard-coded localhost:8080 fallback. |                    |           |        |

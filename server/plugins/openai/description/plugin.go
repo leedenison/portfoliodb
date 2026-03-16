@@ -28,9 +28,11 @@ const (
 
 // configJSON is the shape of the plugin's config from description_plugin_config.config.
 type configJSON struct {
-	OpenAIAPIKey  string `json:"openai_api_key"`
-	OpenAIModel   string `json:"openai_model"`
-	OpenAIBaseURL string `json:"openai_base_url"` // for testing
+	OpenAIAPIKey         string `json:"openai_api_key"`
+	OpenAIModel          string `json:"openai_model"`
+	OpenAIBaseURL        string `json:"openai_base_url"` // for testing
+	BatchChunkSize       int    `json:"batch_chunk_size"`
+	MaxCompletionTokens  int    `json:"max_completion_tokens"`
 }
 
 // Plugin implements description.Plugin using OpenAI to normalize broker descriptions to a specific identifier (ticker, ISIN, or CUSIP).
@@ -84,7 +86,7 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 	if cfg.OpenAIAPIKey == "" {
 		return nil, nil
 	}
-	p.client = NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel, cfg.OpenAIBaseURL)
+	p.client = NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel, cfg.OpenAIBaseURL, cfg.BatchChunkSize, cfg.MaxCompletionTokens)
 	clientItems := make([]BatchItemForClient, len(items))
 	for i := range items {
 		clientItems[i] = BatchItemForClient{

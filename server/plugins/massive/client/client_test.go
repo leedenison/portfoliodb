@@ -78,6 +78,10 @@ func TestTickerOverview_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error on 404")
 	}
+	var nfErr *ErrNotFound
+	if !errors.As(err, &nfErr) {
+		t.Fatalf("expected ErrNotFound, got %T: %v", err, err)
+	}
 }
 
 func TestOptionsContract_Success(t *testing.T) {

@@ -62,7 +62,7 @@ func TestIntegration_Massive_Identify(t *testing.T) {
 			cassette: "testdata/cassettes/option_aapl_call",
 			hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption},
 			idHints: []identifier.Identifier{
-				{Type: "OCC", Value: "AAPL251219C00230000"},
+				{Type: "OCC", Value: "AAPL260316C00252500"},
 			},
 			wantClass: "OPTION",
 		},

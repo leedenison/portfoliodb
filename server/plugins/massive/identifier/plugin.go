@@ -136,6 +136,10 @@ func (p *Plugin) identifyStock(ctx context.Context, c *client.Client, hints []id
 	}
 	overview, err := c.TickerOverview(ctx, ticker)
 	if err != nil {
+		var nf *client.ErrNotFound
+		if errors.As(err, &nf) {
+			return nil, nil, identifier.ErrNotIdentified
+		}
 		return nil, nil, err
 	}
 	inst, ids := stockFromTicker(overview)
@@ -162,6 +166,10 @@ func (p *Plugin) identifyOption(ctx context.Context, c *client.Client, hints []i
 func (p *Plugin) identifyOptionByOCC(ctx context.Context, c *client.Client, occ string) (*identifier.Instrument, []identifier.Identifier, error) {
 	contract, err := c.OptionsContract(ctx, occ)
 	if err != nil {
+		var nf *client.ErrNotFound
+		if errors.As(err, &nf) {
+			return nil, nil, identifier.ErrNotIdentified
+		}
 		return nil, nil, err
 	}
 	if contract.UnderlyingTicker == "" {

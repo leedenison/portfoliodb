@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -37,15 +38,16 @@ type configJSON struct {
 
 // Plugin implements description.Plugin using OpenAI to normalize broker descriptions to a specific identifier (ticker, ISIN, or CUSIP).
 type Plugin struct {
-	client  *Client
-	config  configJSON
-	counter telemetry.CounterIncrementer
-	log     *slog.Logger
+	client     *Client
+	config     configJSON
+	counter    telemetry.CounterIncrementer
+	log        *slog.Logger
+	httpClient *http.Client
 }
 
 // NewPlugin returns a new description plugin. Counter and log are optional (nil for tests); when set, model-not-found and quota-exceeded errors are logged and counted.
-func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger) *Plugin {
-	return &Plugin{counter: counter, log: log}
+func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client) *Plugin {
+	return &Plugin{counter: counter, log: log, httpClient: httpClient}
 }
 
 // DisplayName returns a human-readable name for the plugin.
@@ -86,7 +88,7 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 	if cfg.OpenAIAPIKey == "" {
 		return nil, nil
 	}
-	p.client = NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel, cfg.OpenAIBaseURL, cfg.BatchChunkSize, cfg.MaxCompletionTokens)
+	p.client = NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel, cfg.OpenAIBaseURL, cfg.BatchChunkSize, cfg.MaxCompletionTokens, p.httpClient)
 	clientItems := make([]BatchItemForClient, len(items))
 	for i := range items {
 		clientItems[i] = BatchItemForClient{

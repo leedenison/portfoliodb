@@ -36,7 +36,7 @@ func TestTickerOverview_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New("test-key", srv.URL, nil, nil)
+	c := New("test-key", srv.URL, nil, nil, http.DefaultClient)
 	got, err := c.TickerOverview(context.Background(), "AAPL")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -55,7 +55,7 @@ func TestTickerOverview_429(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New("key", srv.URL, nil, nil)
+	c := New("key", srv.URL, nil, nil, http.DefaultClient)
 	_, err := c.TickerOverview(context.Background(), "AAPL")
 	if err == nil {
 		t.Fatal("expected error on 429")
@@ -73,7 +73,7 @@ func TestTickerOverview_NotFound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New("key", srv.URL, nil, nil)
+	c := New("key", srv.URL, nil, nil, http.DefaultClient)
 	_, err := c.TickerOverview(context.Background(), "ZZZZZ")
 	if err == nil {
 		t.Fatal("expected error on 404")
@@ -101,7 +101,7 @@ func TestOptionsContract_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New("key", srv.URL, nil, nil)
+	c := New("key", srv.URL, nil, nil, http.DefaultClient)
 	got, err := c.OptionsContract(context.Background(), "O:AAPL251219C00230000")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -117,7 +117,7 @@ func TestOptionsContract_429(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New("key", srv.URL, nil, nil)
+	c := New("key", srv.URL, nil, nil, http.DefaultClient)
 	_, err := c.OptionsContract(context.Background(), "O:AAPL251219C00230000")
 	if err == nil {
 		t.Fatal("expected error on 429")

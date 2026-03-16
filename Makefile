@@ -1,4 +1,4 @@
-.PHONY: tools generate build server-test db-test client-test run run-server init-db init-test-db stop clean clean-generated clean-docker clean-next test
+.PHONY: tools generate build server-test db-test client-test integration-test integration-test-record run run-server init-db init-test-db stop clean clean-generated clean-docker clean-next test
 
 # Load .env so DB_INITIALISE_SCRIPT etc. are available to run/init-db
 -include .env
@@ -71,4 +71,10 @@ db-test:
 	TEST_DATABASE_URL="postgres://portfoliodb:portfoliodb@localhost:5433/portfoliodb_test?sslmode=disable" go test -v ./server/db/postgres/...
 	@docker compose -f docker/server/docker-compose.test.yml down
 
-test: server-test client-test db-test
+integration-test:
+	go test -tags integration -v ./server/plugins/...
+
+integration-test-record:
+	VCR_MODE=record go test -tags integration -v -count=1 ./server/plugins/...
+
+test: server-test client-test db-test integration-test

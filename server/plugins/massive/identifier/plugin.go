@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"sync"
 
 	"github.com/leedenison/portfoliodb/server/derivative"
@@ -26,8 +27,9 @@ type configJSON struct {
 // The client and rate limiter are shared across concurrent Identify calls
 // and rebuilt only when the config JSON changes.
 type Plugin struct {
-	counter telemetry.CounterIncrementer
-	log     *slog.Logger
+	counter    telemetry.CounterIncrementer
+	log        *slog.Logger
+	httpClient *http.Client
 
 	mu         sync.Mutex
 	client     *client.Client
@@ -35,8 +37,8 @@ type Plugin struct {
 }
 
 // NewPlugin returns a plugin. counter and log are optional (nil for tests).
-func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger) *Plugin {
-	return &Plugin{counter: counter, log: log}
+func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client) *Plugin {
+	return &Plugin{counter: counter, log: log, httpClient: httpClient}
 }
 
 func (p *Plugin) DisplayName() string { return "Massive" }
@@ -121,7 +123,7 @@ func (p *Plugin) getClient(config []byte) (*client.Client, error) {
 		perMin = *cfg.CallsPerMin
 	}
 	limiter := client.NewRateLimiter(perMin)
-	p.client = client.New(cfg.MassiveAPIKey, cfg.MassiveBaseURL, limiter, p.log)
+	p.client = client.New(cfg.MassiveAPIKey, cfg.MassiveBaseURL, limiter, p.log, p.httpClient)
 	p.lastConfig = raw
 	return p.client, nil
 }

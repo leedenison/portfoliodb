@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/db"
@@ -23,15 +24,16 @@ type configJSON struct {
 
 // Plugin implements identifier.Plugin using OpenFIGI Mapping only (no Search, no OpenAI).
 type Plugin struct {
-	openfigi *OpenFIGIClient
-	config   configJSON
-	counter  telemetry.CounterIncrementer
-	log      *slog.Logger
+	openfigi   *OpenFIGIClient
+	config     configJSON
+	counter    telemetry.CounterIncrementer
+	log        *slog.Logger
+	httpClient *http.Client
 }
 
 // NewPlugin returns a plugin. Counter and log are optional (nil for tests); when set, OpenFIGI calls are counted and logged.
-func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger) *Plugin {
-	return &Plugin{counter: counter, log: log}
+func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client) *Plugin {
+	return &Plugin{counter: counter, log: log, httpClient: httpClient}
 }
 
 // DisplayName returns a human-readable name for the plugin.
@@ -74,7 +76,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	if cfg.OpenFIGIBaseURL != "" {
 		baseURL = cfg.OpenFIGIBaseURL
 	}
-	p.openfigi = NewOpenFIGIClient(cfg.OpenFIGIAPIKey, baseURL, p.counter, p.log)
+	p.openfigi = NewOpenFIGIClient(cfg.OpenFIGIAPIKey, baseURL, p.counter, p.log, p.httpClient)
 
 	if len(identifierHints) == 0 {
 		return nil, nil, identifier.ErrNotIdentified

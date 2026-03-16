@@ -43,7 +43,7 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	hints := []identifier.Identifier{{Type: "TICKER", Value: "IBM"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Hints{}, hints)
 	if err != nil {
@@ -106,7 +106,7 @@ func TestPlugin_Identify_OpenFIGIMapping_ID_BB_GLOBAL_SHARE_CLASS_LEVEL(t *testi
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	hints := []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5S399"}}
 	inst, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Hints{}, hints)
 	if err != nil {
@@ -149,7 +149,7 @@ func TestPlugin_Identify_OpenFIGIMapping_FromTickerHint(t *testing.T) {
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	hints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "Apple Inc", identifier.Hints{}, hints)
 	if err != nil {
@@ -198,7 +198,7 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDotConvertedToSlash(t *testing.T)
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	hints := []identifier.Identifier{{Type: "TICKER", Value: "BRK.B"}}
 	inst, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "BRK B BERKSHIRE HATHAWAY INC-CL B", identifier.Hints{}, hints)
 	if err != nil {
@@ -211,7 +211,7 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDotConvertedToSlash(t *testing.T)
 
 func TestPlugin_Identify_ErrNotIdentified_WhenNoHints(t *testing.T) {
 	ctx := context.Background()
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	inst, ids, err := p.Identify(ctx, []byte("{}"), "IBKR", "IBKR:test:statement", "Apple Inc", identifier.Hints{}, nil)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
@@ -237,7 +237,7 @@ func TestPlugin_Identify_ErrNotIdentified_WhenMappingReturnsNoResults(t *testing
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	hints := []identifier.Identifier{{Type: "TICKER", Value: "UNKNOWN"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "UNKNOWN THING XYZ", identifier.Hints{}, hints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
@@ -260,7 +260,7 @@ func TestPlugin_Identify_ErrNotIdentified_WhenMappingReturnsEmpty(t *testing.T) 
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	hints := []identifier.Identifier{{Type: "TICKER", Value: "SOMEUNKNOWN"}}
 	_, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "SOME UNKNOWN", identifier.Hints{}, hints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
@@ -311,7 +311,7 @@ func TestPlugin_Identify_Option_ErrNotIdentified_WhenUnderlyingLookupFails(t *te
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00200000"}}
 	_, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
 		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
@@ -369,7 +369,7 @@ func TestPlugin_Identify_Option_WithUnderlying(t *testing.T) {
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00200000"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
 		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
@@ -442,7 +442,7 @@ func TestPlugin_Identify_Option_OCCSpacePadded(t *testing.T) {
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	// Pass OCC with space-padding already present.
 	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL  251219C00200000"}}
 	inst, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",

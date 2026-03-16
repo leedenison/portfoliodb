@@ -93,6 +93,9 @@ func TestOptionFromContract(t *testing.T) {
 	if inst.AssetClass != db.AssetClassOption {
 		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
 	}
+	if inst.Name != "AAPL251219C00230000" {
+		t.Errorf("Name = %q, want AAPL251219C00230000", inst.Name)
+	}
 	if inst.Exchange != "BATO" {
 		t.Errorf("Exchange = %q, want BATO", inst.Exchange)
 	}
@@ -109,7 +112,7 @@ func TestOptionFromContract(t *testing.T) {
 		t.Fatalf("len(ids) = %d, want 2", len(ids))
 	}
 	assertID(t, ids[0], "OCC", "", "AAPL251219C00230000")
-	assertID(t, ids[1], "TICKER", "BATO", "O:AAPL251219C00230000")
+	assertID(t, ids[1], "TICKER", "BATO", "AAPL251219C00230000")
 }
 
 func TestOptionFromContract_NoUnderlying(t *testing.T) {

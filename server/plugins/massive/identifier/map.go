@@ -29,7 +29,7 @@ func optionFromContract(r *client.OptionsContractResult, underlying *client.Tick
 	inst := &identifier.Instrument{
 		AssetClass: db.AssetClassOption,
 		Exchange:   r.PrimaryExchange,
-		Name:       r.Ticker,
+		Name:       strings.TrimPrefix(r.Ticker, "O:"),
 	}
 	if underlying != nil {
 		uInst, uIDs := stockFromTicker(underlying)
@@ -43,7 +43,7 @@ func optionFromContract(r *client.OptionsContractResult, underlying *client.Tick
 	if r.Ticker != "" {
 		occVal := strings.TrimPrefix(r.Ticker, "O:")
 		ids = append(ids, identifier.Identifier{Type: "OCC", Value: occVal})
-		ids = append(ids, identifier.Identifier{Type: "TICKER", Domain: r.PrimaryExchange, Value: r.Ticker})
+		ids = append(ids, identifier.Identifier{Type: "TICKER", Domain: r.PrimaryExchange, Value: occVal})
 	}
 	return inst, ids
 }

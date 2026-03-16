@@ -25,6 +25,10 @@ func massiveSanitize(i *cassette.Interaction) error {
 		u.RawQuery = q.Encode()
 		i.Request.URL = u.String()
 	}
+	// go-vcr also records parsed query params under Form.
+	if _, ok := i.Request.Form["apiKey"]; ok {
+		i.Request.Form["apiKey"] = []string{"REDACTED"}
+	}
 	return nil
 }
 

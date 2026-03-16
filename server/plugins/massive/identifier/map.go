@@ -41,7 +41,8 @@ func optionFromContract(r *client.OptionsContractResult, underlying *client.Tick
 	}
 	var ids []identifier.Identifier
 	if r.Ticker != "" {
-		ids = append(ids, identifier.Identifier{Type: "OCC", Value: r.Ticker})
+		occVal := strings.TrimPrefix(r.Ticker, "O:")
+		ids = append(ids, identifier.Identifier{Type: "OCC", Value: occVal})
 		ids = append(ids, identifier.Identifier{Type: "TICKER", Domain: r.PrimaryExchange, Value: r.Ticker})
 	}
 	return inst, ids

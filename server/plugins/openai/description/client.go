@@ -160,7 +160,7 @@ func (c *Client) NormalizeDescriptionsBatch(ctx context.Context, items []BatchIt
 		}
 		for id, v := range parsed {
 			ticker := strings.TrimSpace(v.TICKER)
-			occ := strings.ReplaceAll(strings.TrimSpace(v.OCC), " ", "")
+			occ := strings.TrimSpace(v.OCC)
 			if occ != "" || ticker != "" {
 				merged[id] = &NormalizedIdentifiers{Ticker: ticker, OCC: occ}
 			}

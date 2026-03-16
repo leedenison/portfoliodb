@@ -108,3 +108,63 @@ func TestParseOptionTicker(t *testing.T) {
 		})
 	}
 }
+
+func TestOCCCompact(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+		ok   bool
+	}{
+		{"padded 21-char", "AAPL  251219C00230000", "AAPL251219C00230000", true},
+		{"already compact", "AAPL251219C00230000", "AAPL251219C00230000", true},
+		{"1-char root padded", "A     251219C00230000", "A251219C00230000", true},
+		{"6-char root", "BRKB12251219C00230000", "BRKB12251219C00230000", true},
+		{"put option", "SPY   251219P00600000", "SPY251219P00600000", true},
+		{"lowercase", "aapl  251219c00230000", "AAPL251219C00230000", true},
+		{"empty", "", "", false},
+		{"too short", "A25121", "", false},
+		{"bad suffix", "AAPL251219X00230000", "", false},
+		{"root too long", "ABCDEFG251219C00230000", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := OCCCompact(tt.in)
+			if ok != tt.ok {
+				t.Errorf("OCCCompact(%q) ok = %v, want %v", tt.in, ok, tt.ok)
+			}
+			if got != tt.want {
+				t.Errorf("OCCCompact(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOCCPadded(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+		ok   bool
+	}{
+		{"compact to padded", "AAPL251219C00230000", "AAPL  251219C00230000", true},
+		{"already padded", "AAPL  251219C00230000", "AAPL  251219C00230000", true},
+		{"1-char root", "A251219C00230000", "A     251219C00230000", true},
+		{"6-char root no pad needed", "BRKB12251219C00230000", "BRKB12251219C00230000", true},
+		{"put option", "SPY251219P00600000", "SPY   251219P00600000", true},
+		{"lowercase", "aapl251219c00230000", "AAPL  251219C00230000", true},
+		{"empty", "", "", false},
+		{"invalid", "garbage", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := OCCPadded(tt.in)
+			if ok != tt.ok {
+				t.Errorf("OCCPadded(%q) ok = %v, want %v", tt.in, ok, tt.ok)
+			}
+			if got != tt.want {
+				t.Errorf("OCCPadded(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}

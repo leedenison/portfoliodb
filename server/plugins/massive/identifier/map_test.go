@@ -108,7 +108,7 @@ func TestOptionFromContract(t *testing.T) {
 	if len(ids) != 2 {
 		t.Fatalf("len(ids) = %d, want 2", len(ids))
 	}
-	assertID(t, ids[0], "OCC", "", "O:AAPL251219C00230000")
+	assertID(t, ids[0], "OCC", "", "AAPL251219C00230000")
 	assertID(t, ids[1], "TICKER", "BATO", "O:AAPL251219C00230000")
 }
 

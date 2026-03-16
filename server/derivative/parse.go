@@ -118,6 +118,37 @@ func ParseOptionTicker(optionTicker string) (*ParsedOption, bool) {
 	return nil, false
 }
 
+// occSuffixLen is the fixed length of the OCC suffix: expiry(6) + C/P(1) + strike(8).
+const occSuffixLen = 15
+
+var occSuffixRe = regexp.MustCompile(`^\d{6}[CP]\d{8}$`)
+
+// OCCCompact strips spaces from an OCC identifier and returns the compact form
+// (e.g. "AAPL251219C00230000"). Returns ("", false) if the input is not a valid OCC.
+func OCCCompact(occ string) (string, bool) {
+	compact := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(occ)), " ", "")
+	if len(compact) < occSuffixLen+1 || len(compact) > occSuffixLen+6 {
+		return "", false
+	}
+	suffix := compact[len(compact)-occSuffixLen:]
+	if !occSuffixRe.MatchString(suffix) {
+		return "", false
+	}
+	return compact, true
+}
+
+// OCCPadded normalizes an OCC identifier to the standard 21-character space-padded
+// format (e.g. "AAPL  251219C00230000"). Returns ("", false) if the input is not a valid OCC.
+func OCCPadded(occ string) (string, bool) {
+	compact, ok := OCCCompact(occ)
+	if !ok {
+		return "", false
+	}
+	root := compact[:len(compact)-occSuffixLen]
+	padded := root + strings.Repeat(" ", 6-len(root)) + compact[len(compact)-occSuffixLen:]
+	return padded, true
+}
+
 func parseYYMMDD(yymmdd string) (time.Time, bool) {
 	if len(yymmdd) != 6 {
 		return time.Time{}, false

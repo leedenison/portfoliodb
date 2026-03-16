@@ -141,7 +141,7 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 	p := NewPlugin(nil, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
-	idHints := []identifier.Identifier{{Type: "OCC", Value: "O:AAPL251219C00230000"}}
+	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
 
 	inst, ids, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if err != nil {
@@ -209,7 +209,7 @@ func TestPlugin_Identify_Option_OCC_SpacePadded(t *testing.T) {
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	// Pass OCC with space-padding (21-char format).
-	idHints := []identifier.Identifier{{Type: "OCC", Value: "O:AAPL  251219C00230000"}}
+	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL  251219C00230000"}}
 
 	inst, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if err != nil {
@@ -247,7 +247,7 @@ func TestPlugin_Identify_Option_UnderlyingLookupFails(t *testing.T) {
 	p := NewPlugin(nil, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
-	idHints := []identifier.Identifier{{Type: "OCC", Value: "O:AAPL251219C00230000"}}
+	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
 
 	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
@@ -273,7 +273,7 @@ func TestPlugin_Identify_Option_NoUnderlyingTicker(t *testing.T) {
 	p := NewPlugin(nil, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
-	idHints := []identifier.Identifier{{Type: "OCC", Value: "O:AAPL251219C00230000"}}
+	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
 
 	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {

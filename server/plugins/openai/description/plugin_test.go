@@ -103,37 +103,6 @@ func (e *errWithMessage) Error() string { return e.msg }
 
 var _ telemetry.CounterIncrementer = (*recordingCounter)(nil)
 
-func TestExtractBatch_OCCSpacePaddingStripped(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		// Return an OCC with space-padded root symbol (standard 21-char OCC format).
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"choices": []map[string]interface{}{
-				{"message": map[string]string{"content": `{"ab12": {"OCC": "AAPL  250117C00150000"}}`}},
-			},
-			"usage": map[string]int64{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-		})
-	}))
-	defer server.Close()
-
-	config := []byte(`{"openai_api_key":"test","openai_base_url":"` + server.URL + `"}`)
-	p := NewPlugin(nil, nil)
-	items := []descpkg.BatchItem{
-		{ID: "ab12", InstrumentDescription: "AAPL 250117C00150000", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}},
-	}
-	out, err := p.ExtractBatch(context.Background(), config, "IBKR", "IBKR:test:statement", items)
-	if err != nil {
-		t.Fatalf("ExtractBatch: %v", err)
-	}
-	ids := out["ab12"]
-	if len(ids) != 1 || ids[0].Type != "OCC" {
-		t.Fatalf("expected one OCC identifier, got %v", ids)
-	}
-	if ids[0].Value != "AAPL250117C00150000" {
-		t.Errorf("OCC = %q, want space-padding stripped to %q", ids[0].Value, "AAPL250117C00150000")
-	}
-}
-
 func TestExtractBatch_TypeHintPassedToClient(t *testing.T) {
 	// BatchItemForClient must include TypeHint from Hints.SecurityTypeHint; when server returns OCC, plugin emits OCC identifier.
 	var receivedContent string

@@ -147,6 +147,13 @@ func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []ide
 		if idType == "TICKER" && strings.Contains(value, ".") {
 			idValue = strings.ReplaceAll(value, ".", "/")
 		}
+		if idType == "OCC_SYMBOL" {
+			padded, ok := derivative.OCCPadded(value)
+			if !ok {
+				continue
+			}
+			idValue = padded
+		}
 		job := MappingJob{IDType: idType, IDValue: idValue}
 		if h.Domain != "" {
 			job.ExchCode = h.Domain

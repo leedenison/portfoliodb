@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
 	"github.com/leedenison/portfoliodb/server/telemetry"
@@ -144,12 +145,15 @@ func (p *Plugin) identifyStock(ctx context.Context, c *client.Client, hints []id
 
 // identifyOption looks up an option via OCC hint, falling back to TICKER.
 func (p *Plugin) identifyOption(ctx context.Context, c *client.Client, hints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
-	occ := findHint(hints, "OCC")
-	if occ != "" {
-		return p.identifyOptionByOCC(ctx, c, occ)
+	raw := findHint(hints, "OCC")
+	if raw == "" {
+		return nil, nil, identifier.ErrNotIdentified
 	}
-	// No OCC hint; cannot identify the option via Massive.
-	return nil, nil, identifier.ErrNotIdentified
+	compact, ok := derivative.OCCCompact(raw)
+	if !ok {
+		return nil, nil, identifier.ErrNotIdentified
+	}
+	return p.identifyOptionByOCC(ctx, c, "O:"+compact)
 }
 
 // identifyOptionByOCC calls the options contract API and resolves the underlying via ticker overview.

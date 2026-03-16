@@ -312,7 +312,7 @@ func TestPlugin_Identify_Option_ErrNotIdentified_WhenUnderlyingLookupFails(t *te
 	})
 	ctx := context.Background()
 	p := NewPlugin(nil, nil)
-	hints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL  251219C00200000"}}
+	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00200000"}}
 	_, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
 		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
@@ -370,7 +370,7 @@ func TestPlugin_Identify_Option_WithUnderlying(t *testing.T) {
 	})
 	ctx := context.Background()
 	p := NewPlugin(nil, nil)
-	hints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL  251219C00200000"}}
+	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00200000"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
 		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
 	if err != nil {
@@ -390,6 +390,74 @@ func TestPlugin_Identify_Option_WithUnderlying(t *testing.T) {
 	}
 	if len(ids) == 0 {
 		t.Error("expected identifiers")
+	}
+}
+
+func TestPlugin_Identify_Option_OCCSpacePadded(t *testing.T) {
+	// When an OCC hint arrives with space-padding, the plugin should pad it
+	// to the standard 21-char format and resolve successfully.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/v3/mapping" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		var jobs []MappingJob
+		if err := json.NewDecoder(r.Body).Decode(&jobs); err != nil || len(jobs) != 1 {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if jobs[0].IDValue == "AAPL  251219C00200000" {
+			json.NewEncoder(w).Encode([]MappingResponseItem{
+				{Data: []OpenFIGIResult{{
+					FIGI:          "BBG00OPTION1",
+					Ticker:        "AAPL  251219C00200000",
+					Name:          "AAPL Dec 2025 200 Call",
+					ExchCode:      "US",
+					SecurityType:  "Option",
+					SecurityType2: "Equity Option",
+					MarketSector:  "Equity",
+				}}},
+			})
+		} else if jobs[0].IDValue == "AAPL" {
+			json.NewEncoder(w).Encode([]MappingResponseItem{
+				{Data: []OpenFIGIResult{{
+					FIGI:          "BBG000B9XRY4",
+					Ticker:        "AAPL",
+					Name:          "APPLE INC",
+					ExchCode:      "US",
+					SecurityType:  "Common Stock",
+					SecurityType2: "Common Stock",
+					MarketSector:  "Equity",
+				}}},
+			})
+		} else {
+			json.NewEncoder(w).Encode([]MappingResponseItem{{Data: nil}})
+		}
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{
+		"openfigi_api_key":  "test-key",
+		"openfigi_base_url": server.URL,
+	})
+	ctx := context.Background()
+	p := NewPlugin(nil, nil)
+	// Pass OCC with space-padding already present.
+	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL  251219C00200000"}}
+	inst, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
+		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if inst == nil {
+		t.Fatal("expected instrument")
+	}
+	if inst.AssetClass != "OPTION" {
+		t.Errorf("inst.AssetClass = %q, want OPTION", inst.AssetClass)
+	}
+	if inst.Underlying == nil || inst.Underlying.Name != "APPLE INC" {
+		t.Fatal("expected underlying to be resolved")
 	}
 }
 

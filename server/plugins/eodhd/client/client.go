@@ -144,6 +144,12 @@ func (c *Client) get(ctx context.Context, path string, extra url.Values, out any
 		}
 		return &ErrNotFound{Path: path}
 	}
+	if resp.StatusCode == http.StatusForbidden {
+		if c.log != nil {
+			c.log.WarnContext(ctx, "eodhd forbidden (403)", "url", path)
+		}
+		return fmt.Errorf("eodhd %s: forbidden (403) - check API plan tier", path)
+	}
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		if c.log != nil {

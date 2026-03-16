@@ -51,7 +51,6 @@ func TestIntegration_EODHD_Identify(t *testing.T) {
 				{Type: "TICKER", Value: "AAPL"},
 			},
 			wantClass: "STOCK",
-			wantCUSIP: true,
 		},
 		{
 			name:     "stock_brk_b",

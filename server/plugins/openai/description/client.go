@@ -16,24 +16,34 @@ const defaultModel = "gpt-4o-mini"
 
 // Client calls OpenAI Chat Completions to normalize broker descriptions to a specific identifier (e.g. ticker) for mapping.
 type Client struct {
-	baseURL    string
-	apiKey     string
-	model      string
-	httpClient *http.Client
+	baseURL             string
+	apiKey              string
+	model               string
+	batchChunkSize      int
+	maxCompletionTokens int
+	httpClient          *http.Client
 }
 
 // NewClient creates a client. apiKey is required for calls.
-func NewClient(apiKey, model, baseURL string) *Client {
+func NewClient(apiKey, model, baseURL string, batchChunkSize, maxCompletionTokens int) *Client {
 	if model == "" {
 		model = defaultModel
 	}
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
+	if batchChunkSize <= 0 {
+		batchChunkSize = defaultBatchChunkSize
+	}
+	if maxCompletionTokens <= 0 {
+		maxCompletionTokens = defaultMaxCompletionTokens
+	}
 	return &Client{
-		baseURL: baseURL,
-		apiKey:  apiKey,
-		model:   model,
+		baseURL:             baseURL,
+		apiKey:              apiKey,
+		model:               model,
+		batchChunkSize:      batchChunkSize,
+		maxCompletionTokens: maxCompletionTokens,
 		httpClient: &http.Client{
 			Timeout: 20 * time.Second,
 		},
@@ -68,7 +78,8 @@ func stripJSONFromContent(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
-const batchChunkSize = 50
+const defaultBatchChunkSize = 50
+const defaultMaxCompletionTokens = 4000
 
 // BatchItemForClient is the input for NormalizeDescriptionsBatch (id, description, and security type hint).
 type BatchItemForClient struct {
@@ -90,8 +101,8 @@ func (c *Client) NormalizeDescriptionsBatch(ctx context.Context, items []BatchIt
 	systemPrompt := `Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is "OPTION", extract and return the OCC symbol (21-character standard option symbol) in "OCC". Otherwise extract and return the primary exchange ticker in "TICKER". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { "a1b2c3d4": { "TICKER": "AAPL" }, "e5f6g7h8": { "OCC": "AAPL250117C00150000" } }`
 	merged := make(map[string]*NormalizedIdentifiers)
 	var totalUsage *Usage
-	for start := 0; start < len(items); start += batchChunkSize {
-		end := start + batchChunkSize
+	for start := 0; start < len(items); start += c.batchChunkSize {
+		end := start + c.batchChunkSize
 		if end > len(items) {
 			end = len(items)
 		}
@@ -113,7 +124,7 @@ func (c *Client) NormalizeDescriptionsBatch(ctx context.Context, items []BatchIt
 				{"role": "system", "content": systemPrompt},
 				{"role": "user", "content": userContent},
 			},
-			"max_completion_tokens": 4000,
+			"max_completion_tokens": c.maxCompletionTokens,
 			"temperature":            0,
 		}
 		body, err := json.Marshal(reqBody)

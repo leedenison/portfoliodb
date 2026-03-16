@@ -1,0 +1,109 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 918
+        host: api.openai.com
+        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: a1\ntype: STOCK\nDescription: AAPL APPLE INC\n\nid: a2\ntype: STOCK\nDescription: MSFT MICROSOFT CORP\n\nid: a3\ntype: STOCK\nDescription: GOOGL ALPHABET INC CL A","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
+        headers:
+            Authorization:
+                - Bearer REDACTED
+            Content-Type:
+                - application/json
+        url: https://api.openai.com/v1/chat/completions
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: |
+            {
+              "id": "chatcmpl-DK5N1gUxCzFuX6eexDlsk3ji2l3Q8",
+              "object": "chat.completion",
+              "created": 1773679575,
+              "model": "gpt-4o-mini-2024-07-18",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "{ \"a1\": { \"TICKER\": \"AAPL\" }, \"a2\": { \"TICKER\": \"MSFT\" }, \"a3\": { \"TICKER\": \"GOOGL\" } }",
+                    "refusal": null,
+                    "annotations": []
+                  },
+                  "logprobs": null,
+                  "finish_reason": "stop"
+                }
+              ],
+              "usage": {
+                "prompt_tokens": 227,
+                "completion_tokens": 48,
+                "total_tokens": 275,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0,
+                  "audio_tokens": 0
+                },
+                "completion_tokens_details": {
+                  "reasoning_tokens": 0,
+                  "audio_tokens": 0,
+                  "accepted_prediction_tokens": 0,
+                  "rejected_prediction_tokens": 0
+                }
+              },
+              "service_tier": "default",
+              "system_fingerprint": "fp_0ec505b064"
+            }
+        headers:
+            Access-Control-Expose-Headers:
+                - X-Request-ID
+            Alt-Svc:
+                - h3=":443"; ma=86400
+            Cf-Cache-Status:
+                - DYNAMIC
+            Cf-Ray:
+                - 9dd53b99caac6346-LHR
+            Content-Type:
+                - application/json
+            Date:
+                - Mon, 16 Mar 2026 16:46:16 GMT
+            Openai-Organization:
+                - user-busobywxygdyvplna1ckeorb
+            Openai-Processing-Ms:
+                - "1024"
+            Openai-Project:
+                - proj_OUgOMATgfCGxsOk3DLcka16C
+            Openai-Version:
+                - "2020-10-01"
+            Server:
+                - cloudflare
+            Set-Cookie:
+                - __cf_bm=WsKlYYvUPk0Mk6s81.q4U6gOL4JLrZVfRp0hDGcYLQs-1773679574.0416396-1.0.1.1-HRBRWk85U8FVuEm52CayxqFffhkWcDb6DmV8hw6pUuQSmX6imQoQvSYGMETV3p8YWOcM2arAfqbYQfPC4WVsyztuJZNVmtdSddRM2Jd6deMyhRDe.NC77d0MrO7owsbV; HttpOnly; Secure; Path=/; Domain=api.openai.com; Expires=Mon, 16 Mar 2026 17:16:16 GMT
+            Strict-Transport-Security:
+                - max-age=31536000; includeSubDomains; preload
+            X-Content-Type-Options:
+                - nosniff
+            X-Openai-Proxy-Wasm:
+                - v0.1
+            X-Ratelimit-Limit-Requests:
+                - "10000"
+            X-Ratelimit-Limit-Tokens:
+                - "200000"
+            X-Ratelimit-Remaining-Requests:
+                - "9999"
+            X-Ratelimit-Remaining-Tokens:
+                - "199809"
+            X-Ratelimit-Reset-Requests:
+                - 8.64s
+            X-Ratelimit-Reset-Tokens:
+                - 57ms
+            X-Request-Id:
+                - req_407f779b1c9d4d09a4aa04abae1279e8
+        status: 200 OK
+        code: 200
+        duration: 2.199187008s

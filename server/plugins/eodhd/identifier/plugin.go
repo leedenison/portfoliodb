@@ -97,21 +97,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		return nil, nil, identifier.ErrNotIdentified
 	}
 
-	// Best-effort fundamentals enrichment for CUSIP.
-	var fundamentals *client.FundamentalsGeneral
-	if match.Code != "" && match.Exchange != "" {
-		fund, err := c.Fundamentals(ctx, match.Code, match.Exchange)
-		if err != nil {
-			if p.log != nil {
-				p.log.WarnContext(ctx, "eodhd: fundamentals enrichment failed", "code", match.Code, "exchange", match.Exchange, "err", err)
-			}
-			// Continue without fundamentals -- Search data is sufficient.
-		} else {
-			fundamentals = fund
-		}
-	}
-
-	inst, ids := stockFromSearch(match, fundamentals)
+	inst, ids := stockFromSearch(match)
 	if inst == nil {
 		p.reportOutcome(ctx, identifier.ErrNotIdentified)
 		return nil, nil, identifier.ErrNotIdentified

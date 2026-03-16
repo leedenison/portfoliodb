@@ -88,19 +88,6 @@ func (c *Client) Search(ctx context.Context, query string, opts ...SearchOption)
 	return results, nil
 }
 
-// Fundamentals calls the EODHD Fundamentals API for the General section.
-func (c *Client) Fundamentals(ctx context.Context, code, exchange string) (*FundamentalsGeneral, error) {
-	path := fmt.Sprintf("/api/fundamentals/%s.%s", url.PathEscape(code), url.PathEscape(exchange))
-	q := url.Values{}
-	q.Set("fmt", "json")
-	q.Set("filter", "General")
-	var result FundamentalsGeneral
-	if err := c.get(ctx, path, q, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
 // get issues a rate-limited GET request and decodes the JSON response into out.
 func (c *Client) get(ctx context.Context, path string, extra url.Values, out any) error {
 	if err := c.limiter.Wait(ctx); err != nil {
@@ -143,12 +130,6 @@ func (c *Client) get(ctx context.Context, path string, extra url.Values, out any
 			c.log.DebugContext(ctx, "eodhd not found (404)", "url", path)
 		}
 		return &ErrNotFound{Path: path}
-	}
-	if resp.StatusCode == http.StatusForbidden {
-		if c.log != nil {
-			c.log.WarnContext(ctx, "eodhd forbidden (403)", "url", path)
-		}
-		return fmt.Errorf("eodhd %s: forbidden (403) - check API plan tier", path)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {

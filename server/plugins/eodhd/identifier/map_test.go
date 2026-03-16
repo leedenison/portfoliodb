@@ -15,9 +15,8 @@ func TestStockFromSearch(t *testing.T) {
 		Currency: "USD",
 		ISIN:     "US0378331005",
 	}
-	fund := &client.FundamentalsGeneral{CUSIP: "037833100"}
 
-	inst, ids := stockFromSearch(r, fund)
+	inst, ids := stockFromSearch(r)
 
 	if inst == nil {
 		t.Fatal("expected instrument")
@@ -35,7 +34,7 @@ func TestStockFromSearch(t *testing.T) {
 		t.Errorf("Name = %q, want Apple Inc", inst.Name)
 	}
 
-	wantIDs := map[string]bool{"TICKER": false, "ISIN": false, "CUSIP": false}
+	wantIDs := map[string]bool{"TICKER": false, "ISIN": false}
 	for _, id := range ids {
 		wantIDs[id.Type] = true
 		if id.Type == "TICKER" {
@@ -49,9 +48,6 @@ func TestStockFromSearch(t *testing.T) {
 		if id.Type == "ISIN" && id.Value != "US0378331005" {
 			t.Errorf("ISIN Value = %q, want US0378331005", id.Value)
 		}
-		if id.Type == "CUSIP" && id.Value != "037833100" {
-			t.Errorf("CUSIP Value = %q, want 037833100", id.Value)
-		}
 	}
 	for typ, found := range wantIDs {
 		if !found {
@@ -60,33 +56,7 @@ func TestStockFromSearch(t *testing.T) {
 	}
 }
 
-func TestStockFromSearch_NilFundamentals(t *testing.T) {
-	r := &client.SearchResult{
-		Code:     "AAPL",
-		Exchange: "US",
-		Name:     "Apple Inc",
-		Type:     "Common Stock",
-		Currency: "USD",
-		ISIN:     "US0378331005",
-	}
-
-	inst, ids := stockFromSearch(r, nil)
-
-	if inst == nil {
-		t.Fatal("expected instrument")
-	}
-	// Should have TICKER and ISIN but no CUSIP.
-	for _, id := range ids {
-		if id.Type == "CUSIP" {
-			t.Error("unexpected CUSIP when fundamentals is nil")
-		}
-	}
-	if len(ids) != 2 {
-		t.Errorf("got %d identifiers, want 2 (TICKER + ISIN)", len(ids))
-	}
-}
-
-func TestStockFromSearch_NoISIN_NoFundamentals(t *testing.T) {
+func TestStockFromSearch_NoISIN(t *testing.T) {
 	r := &client.SearchResult{
 		Code:     "AAPL",
 		Exchange: "US",
@@ -95,7 +65,7 @@ func TestStockFromSearch_NoISIN_NoFundamentals(t *testing.T) {
 		Currency: "USD",
 	}
 
-	_, ids := stockFromSearch(r, nil)
+	_, ids := stockFromSearch(r)
 
 	if len(ids) != 1 {
 		t.Errorf("got %d identifiers, want 1 (TICKER only)", len(ids))
@@ -114,7 +84,7 @@ func TestStockFromSearch_NonStockType(t *testing.T) {
 		Currency: "USD",
 	}
 
-	inst, _ := stockFromSearch(r, nil)
+	inst, _ := stockFromSearch(r)
 
 	if inst != nil {
 		t.Error("expected nil instrument for non-stock type")

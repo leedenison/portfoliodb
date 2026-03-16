@@ -31,17 +31,9 @@ func testConfig(t *testing.T, baseURL string) []byte {
 
 func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	searchResp := `[{"Code":"AAPL","Exchange":"US","Name":"Apple Inc","Type":"Common Stock","Currency":"USD","ISIN":"US0378331005","isPrimary":true}]`
-	fundResp := `{"Code":"AAPL","Name":"Apple Inc","Exchange":"US","CurrencyCode":"USD","ISIN":"US0378331005","CUSIP":"037833100"}`
 
 	srv, httpClient := testServer(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/search/AAPL":
-			w.Write([]byte(searchResp))
-		case r.URL.Path == "/api/fundamentals/AAPL.US":
-			w.Write([]byte(fundResp))
-		default:
-			http.NotFound(w, r)
-		}
+		w.Write([]byte(searchResp))
 	})
 	defer srv.Close()
 
@@ -62,34 +54,16 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	if inst.Name != "Apple Inc" {
 		t.Errorf("Name = %q, want Apple Inc", inst.Name)
 	}
-
-	hasCUSIP := false
-	for _, id := range ids {
-		if id.Type == "CUSIP" {
-			hasCUSIP = true
-		}
-	}
-	if !hasCUSIP {
-		t.Error("expected CUSIP identifier from fundamentals")
-	}
-	if len(ids) < 3 {
-		t.Errorf("got %d identifiers, want at least 3 (TICKER+ISIN+CUSIP)", len(ids))
+	if len(ids) != 2 {
+		t.Errorf("got %d identifiers, want 2 (TICKER+ISIN)", len(ids))
 	}
 }
 
 func TestPlugin_Identify_ISIN_Fallback(t *testing.T) {
 	searchResp := `[{"Code":"AAPL","Exchange":"US","Name":"Apple Inc","Type":"Common Stock","Currency":"USD","ISIN":"US0378331005","isPrimary":true}]`
-	fundResp := `{"Code":"AAPL","Name":"Apple Inc","Exchange":"US","CurrencyCode":"USD","ISIN":"US0378331005","CUSIP":"037833100"}`
 
 	srv, httpClient := testServer(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/search/US0378331005":
-			w.Write([]byte(searchResp))
-		case r.URL.Path == "/api/fundamentals/AAPL.US":
-			w.Write([]byte(fundResp))
-		default:
-			http.NotFound(w, r)
-		}
+		w.Write([]byte(searchResp))
 	})
 	defer srv.Close()
 
@@ -200,41 +174,6 @@ func TestPlugin_Identify_NonStockFiltered(t *testing.T) {
 
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("got err=%v, want ErrNotIdentified", err)
-	}
-}
-
-func TestPlugin_Identify_FundamentalsFailure_StillSucceeds(t *testing.T) {
-	searchResp := `[{"Code":"AAPL","Exchange":"US","Name":"Apple Inc","Type":"Common Stock","Currency":"USD","ISIN":"US0378331005","isPrimary":true}]`
-
-	srv, httpClient := testServer(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/search/AAPL":
-			w.Write([]byte(searchResp))
-		case r.URL.Path == "/api/fundamentals/AAPL.US":
-			w.WriteHeader(http.StatusInternalServerError)
-		default:
-			http.NotFound(w, r)
-		}
-	})
-	defer srv.Close()
-
-	p := NewPlugin(nil, nil, httpClient)
-	cfg := testConfig(t, srv.URL)
-
-	inst, ids, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
-		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "TICKER", Value: "AAPL"}},
-	)
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if inst == nil {
-		t.Fatal("expected instrument even when fundamentals fails")
-	}
-	// Should still have TICKER + ISIN, just no CUSIP.
-	if len(ids) != 2 {
-		t.Errorf("got %d identifiers, want 2 (no CUSIP when fundamentals fails)", len(ids))
 	}
 }
 

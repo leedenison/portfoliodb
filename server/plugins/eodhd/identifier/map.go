@@ -10,7 +10,7 @@ import (
 
 // stockFromSearch maps an EODHD search result (and optional fundamentals) to
 // an Instrument and identifiers. Returns nil if the result is not a stock type.
-func stockFromSearch(r *client.SearchResult, fundamentals *client.FundamentalsGeneral) (*identifier.Instrument, []identifier.Identifier) {
+func stockFromSearch(r *client.SearchResult) (*identifier.Instrument, []identifier.Identifier) {
 	if !isStockType(r.Type) {
 		return nil, nil
 	}
@@ -26,9 +26,6 @@ func stockFromSearch(r *client.SearchResult, fundamentals *client.FundamentalsGe
 	}
 	if r.ISIN != "" {
 		ids = append(ids, identifier.Identifier{Type: "ISIN", Value: r.ISIN})
-	}
-	if fundamentals != nil && fundamentals.CUSIP != "" {
-		ids = append(ids, identifier.Identifier{Type: "CUSIP", Value: fundamentals.CUSIP})
 	}
 	return inst, ids
 }

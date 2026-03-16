@@ -18,6 +18,15 @@ func (e *ErrRateLimit) Error() string {
 	return "massive rate limit (429)"
 }
 
+// ErrNotFound is returned when the Massive API responds with 404.
+type ErrNotFound struct {
+	Path string
+}
+
+func (e *ErrNotFound) Error() string {
+	return fmt.Sprintf("massive %s: not found (404)", e.Path)
+}
+
 // Client calls the Massive REST API with shared rate limiting.
 type Client struct {
 	baseURL    string
@@ -73,6 +82,12 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 			c.log.WarnContext(ctx, "massive rate limit (429)", "url", path)
 		}
 		return &ErrRateLimit{}
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		if c.log != nil {
+			c.log.DebugContext(ctx, "massive not found (404)", "url", path)
+		}
+		return &ErrNotFound{Path: path}
 	}
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {

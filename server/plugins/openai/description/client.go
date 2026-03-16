@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 )
 
 const defaultBaseURL = "https://api.openai.com"
@@ -25,7 +24,7 @@ type Client struct {
 }
 
 // NewClient creates a client. apiKey is required for calls.
-func NewClient(apiKey, model, baseURL string, batchChunkSize, maxCompletionTokens int) *Client {
+func NewClient(apiKey, model, baseURL string, batchChunkSize, maxCompletionTokens int, httpClient *http.Client) *Client {
 	if model == "" {
 		model = defaultModel
 	}
@@ -44,9 +43,7 @@ func NewClient(apiKey, model, baseURL string, batchChunkSize, maxCompletionToken
 		model:               model,
 		batchChunkSize:      batchChunkSize,
 		maxCompletionTokens: maxCompletionTokens,
-		httpClient: &http.Client{
-			Timeout: 20 * time.Second,
-		},
+		httpClient:          httpClient,
 	}
 }
 

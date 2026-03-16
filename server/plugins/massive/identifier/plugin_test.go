@@ -32,7 +32,7 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL"}}
@@ -67,7 +67,7 @@ func TestPlugin_Identify_Stock_IndexReturnsNotIdentified(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "TICKER", Value: "SPX"}}
@@ -79,7 +79,7 @@ func TestPlugin_Identify_Stock_IndexReturnsNotIdentified(t *testing.T) {
 }
 
 func TestPlugin_Identify_NoHints(t *testing.T) {
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	_, _, err := p.Identify(context.Background(), nil, "", "", "", identifier.Hints{}, nil)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified, got %v", err)
@@ -87,7 +87,7 @@ func TestPlugin_Identify_NoHints(t *testing.T) {
 }
 
 func TestPlugin_Identify_NoTickerHint(t *testing.T) {
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: "http://unused"})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
@@ -138,7 +138,7 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
@@ -205,7 +205,7 @@ func TestPlugin_Identify_Option_OCC_SpacePadded(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	// Pass OCC with space-padding (21-char format).
@@ -244,7 +244,7 @@ func TestPlugin_Identify_Option_UnderlyingLookupFails(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
@@ -270,7 +270,7 @@ func TestPlugin_Identify_Option_NoUnderlyingTicker(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
@@ -282,7 +282,7 @@ func TestPlugin_Identify_Option_NoUnderlyingTicker(t *testing.T) {
 }
 
 func TestPlugin_Identify_Option_NoOCC(t *testing.T) {
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: "http://unused"})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL"}}
@@ -299,7 +299,7 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL"}}
@@ -315,7 +315,7 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 }
 
 func TestPlugin_DefaultConfig(t *testing.T) {
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := p.DefaultConfig()
 	var parsed configJSON
 	if err := json.Unmarshal(cfg, &parsed); err != nil {
@@ -327,7 +327,7 @@ func TestPlugin_DefaultConfig(t *testing.T) {
 }
 
 func TestPlugin_AcceptableSecurityTypes(t *testing.T) {
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	types := p.AcceptableSecurityTypes()
 	if !types[identifier.SecurityTypeHintStock] {
 		t.Error("expected STOCK to be acceptable")

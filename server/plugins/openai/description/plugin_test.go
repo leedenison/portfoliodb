@@ -66,7 +66,7 @@ func TestHandleOpenAIError_IncrementsCounters(t *testing.T) {
 
 	t.Run("model not found", func(t *testing.T) {
 		c := &recordingCounter{}
-		p := NewPlugin(c, slog.Default())
+		p := NewPlugin(c, slog.Default(), http.DefaultClient)
 		p.handleOpenAIError(ctx, "INRG", &errWithMessage{"openai 404: model not found"})
 		if c.last != CounterModelNotFound {
 			t.Errorf("counter = %q, want %q", c.last, CounterModelNotFound)
@@ -75,7 +75,7 @@ func TestHandleOpenAIError_IncrementsCounters(t *testing.T) {
 
 	t.Run("quota exceeded", func(t *testing.T) {
 		c := &recordingCounter{}
-		p := NewPlugin(c, slog.Default())
+		p := NewPlugin(c, slog.Default(), http.DefaultClient)
 		p.handleOpenAIError(ctx, "VUSA", &errWithMessage{"openai 429: insufficient_quota"})
 		if c.last != CounterQuotaExceeded {
 			t.Errorf("counter = %q, want %q", c.last, CounterQuotaExceeded)
@@ -83,13 +83,13 @@ func TestHandleOpenAIError_IncrementsCounters(t *testing.T) {
 	})
 
 	t.Run("nil counter no panic", func(t *testing.T) {
-		p := NewPlugin(nil, slog.Default())
+		p := NewPlugin(nil, slog.Default(), http.DefaultClient)
 		p.handleOpenAIError(ctx, "X", &errWithMessage{"openai 404: not found"})
 	})
 
 	t.Run("other error no increment", func(t *testing.T) {
 		c := &recordingCounter{}
-		p := NewPlugin(c, slog.Default())
+		p := NewPlugin(c, slog.Default(), http.DefaultClient)
 		p.handleOpenAIError(ctx, "X", &errWithMessage{"openai 500: internal server error"})
 		if c.last != "" {
 			t.Errorf("unexpected counter increment: %q", c.last)
@@ -136,7 +136,7 @@ func TestExtractBatch_TypeHintPassedToClient(t *testing.T) {
 
 	config := []byte(`{"openai_api_key":"test","openai_base_url":"` + server.URL + `"}`)
 	ctx := context.Background()
-	p := NewPlugin(nil, nil)
+	p := NewPlugin(nil, nil, http.DefaultClient)
 	items := []descpkg.BatchItem{
 		{ID: "ab12", InstrumentDescription: "BRKB 241115P00390000 BRK B 15NOV24 390 P", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}},
 	}

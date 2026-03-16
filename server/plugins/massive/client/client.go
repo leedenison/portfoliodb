@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"time"
 )
 
 const defaultBaseURL = "https://api.massive.com"
@@ -29,19 +28,17 @@ type Client struct {
 }
 
 // New creates a Client. baseURL may be empty to use the default Massive API URL; pass a custom URL for testing.
-// log is optional (nil allowed).
-func New(apiKey, baseURL string, limiter *RateLimiter, log *slog.Logger) *Client {
+// httpClient is the HTTP client used for requests. log is optional (nil allowed).
+func New(apiKey, baseURL string, limiter *RateLimiter, log *slog.Logger, httpClient *http.Client) *Client {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
 	return &Client{
-		baseURL: baseURL,
-		apiKey:  apiKey,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-		limiter: limiter,
-		log:     log,
+		baseURL:    baseURL,
+		apiKey:     apiKey,
+		httpClient: httpClient,
+		limiter:    limiter,
+		log:        log,
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/leedenison/portfoliodb/server/telemetry"
 )
@@ -27,18 +26,16 @@ type OpenFIGIClient struct {
 // NewOpenFIGIClient creates a client. apiKey may be empty (lower rate limits).
 // baseURL may be empty to use the default OpenFIGI API URL; pass a custom URL for testing.
 // counter and log are optional (nil allowed) for metrics and logging.
-func NewOpenFIGIClient(apiKey, baseURL string, counter telemetry.CounterIncrementer, log *slog.Logger) *OpenFIGIClient {
+func NewOpenFIGIClient(apiKey, baseURL string, counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client) *OpenFIGIClient {
 	if baseURL == "" {
 		baseURL = openFIGIBaseURL
 	}
 	return &OpenFIGIClient{
-		baseURL: baseURL,
-		apiKey:  apiKey,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-		counter: counter,
-		log:    log,
+		baseURL:    baseURL,
+		apiKey:     apiKey,
+		httpClient: httpClient,
+		counter:    counter,
+		log:        log,
 	}
 }
 

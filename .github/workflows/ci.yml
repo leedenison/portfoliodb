@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: timescale/timescaledb:latest-pg16
         env:
           POSTGRES_USER: portfoliodb
           POSTGRES_PASSWORD: portfoliodb

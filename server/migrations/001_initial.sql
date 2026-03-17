@@ -1,3 +1,6 @@
+-- Enable TimescaleDB for time-series price data.
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
 -- M01 datamodel: holdings only. No instrument identification, prices or corporate events.
 -- Holdings are calculated from transactions at query time, not materialized.
 

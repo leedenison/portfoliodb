@@ -19,6 +19,37 @@ type DB interface {
 	JobDB
 	InstrumentDB
 	DescriptionPluginDB
+	PriceCacheDB
+}
+
+// DateRange is a half-open [From, To) date range. Both values are midnight UTC.
+type DateRange struct {
+	From time.Time // inclusive
+	To   time.Time // exclusive
+}
+
+// InstrumentDateRanges groups date ranges by instrument.
+type InstrumentDateRanges struct {
+	InstrumentID string
+	Ranges       []DateRange
+}
+
+// HeldRangesOpts controls holdings range calculation.
+type HeldRangesOpts struct {
+	ExtendToToday bool // extend open positions to today
+	LookbackDays  int  // extend held_from backwards by N calendar days
+}
+
+// PriceCacheDB provides price cache management.
+type PriceCacheDB interface {
+	// HeldRanges computes system-wide date ranges during which any user held
+	// a non-zero position in each identified instrument.
+	HeldRanges(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
+	// PriceCoverage returns contiguous date ranges for which eod_prices has data.
+	// If instrumentIDs is non-empty, only those instruments are returned.
+	PriceCoverage(ctx context.Context, instrumentIDs []string) ([]InstrumentDateRanges, error)
+	// PriceGaps computes needed ranges minus cached ranges per instrument.
+	PriceGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
 }
 
 // DescriptionPluginDB provides description plugin config (extract identifier hints from broker descriptions).

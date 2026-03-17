@@ -154,3 +154,20 @@ CREATE INDEX idx_identification_errors_job_id ON identification_errors (job_id);
 ALTER TABLE txs ADD COLUMN instrument_id UUID REFERENCES instruments (id);
 
 CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);
+
+-- EOD price cache. Stores end-of-day OHLCV data per instrument per date.
+CREATE TABLE eod_prices (
+  instrument_id   UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  price_date      DATE        NOT NULL,
+  open            NUMERIC,
+  high            NUMERIC,
+  low             NUMERIC,
+  close           NUMERIC     NOT NULL,
+  adjusted_close  NUMERIC,
+  volume          BIGINT,
+  data_provider   TEXT        NOT NULL,
+  fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (instrument_id, price_date)
+);
+
+SELECT create_hypertable('eod_prices', 'price_date');

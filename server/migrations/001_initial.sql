@@ -142,6 +142,14 @@ CREATE TABLE description_plugin_config (
   config      JSONB
 );
 
+-- Price plugin config: plugins that fetch EOD prices from external providers.
+CREATE TABLE price_plugin_config (
+  plugin_id   TEXT PRIMARY KEY,
+  enabled     BOOLEAN NOT NULL DEFAULT true,
+  precedence  INT NOT NULL UNIQUE,
+  config      JSONB
+);
+
 -- Identification errors for a job (e.g. plugin timeout, broker description only).
 CREATE TABLE identification_errors (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -480,5 +481,203 @@ func TestPriceCoverage_Empty(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("expected empty results, got %d", len(got))
+	}
+}
+
+// --- PriceGaps tests ---
+
+func TestPriceGaps_NoPrices(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+	instID := setupInstrument(t, p, "GAPNONE")
+
+	insertTxs(t, p, userID, instID, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPNONE", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "GAPNONE", Type: apiv1.TxType_SELLSTOCK, Quantity: -100, Account: "A"},
+	})
+
+	got, err := p.PriceGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("price gaps: %v", err)
+	}
+	// With no prices, gaps = entire held range.
+	assertInstrumentRanges(t, got, instID, []db.DateRange{
+		{From: d(2024, 1, 10), To: d(2024, 2, 10)},
+	})
+}
+
+func TestPriceGaps_FullCoverage(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+	instID := setupInstrument(t, p, "GAPFULL")
+
+	insertTxs(t, p, userID, instID, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPFULL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
+		{Timestamp: ts(2024, 1, 4), InstrumentDescription: "GAPFULL", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+	})
+
+	// Insert prices covering [Jan 1, Jan 4) fully.
+	for i := 0; i < 3; i++ {
+		insertPrice(t, p, instID, d(2024, 1, 1).AddDate(0, 0, i), 100.0)
+	}
+
+	got, err := p.PriceGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("price gaps: %v", err)
+	}
+	// No gaps expected.
+	assertInstrumentRanges(t, got, instID, nil)
+}
+
+func TestPriceGaps_PartialCoverage(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+	instID := setupInstrument(t, p, "GAPPART")
+
+	insertTxs(t, p, userID, instID, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPPART", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPPART", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+	})
+
+	// Prices for Jan 3-5 only (gap before and after).
+	for i := 2; i < 5; i++ {
+		insertPrice(t, p, instID, d(2024, 1, 1).AddDate(0, 0, i), 100.0)
+	}
+
+	got, err := p.PriceGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("price gaps: %v", err)
+	}
+	assertInstrumentRanges(t, got, instID, []db.DateRange{
+		{From: d(2024, 1, 1), To: d(2024, 1, 3)},
+		{From: d(2024, 1, 6), To: d(2024, 1, 10)},
+	})
+}
+
+func TestPriceGaps_Empty(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	got, err := p.PriceGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("price gaps: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty results, got %d", len(got))
+	}
+}
+
+// --- UpsertPrices tests ---
+
+func TestUpsertPrices_Insert(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "UPS1")
+
+	open := 100.0
+	high := 105.0
+	low := 99.0
+	vol := int64(1000)
+	err := p.UpsertPrices(ctx, []db.EODPrice{
+		{
+			InstrumentID: instID,
+			PriceDate:    d(2024, 1, 1),
+			Open:         &open,
+			High:         &high,
+			Low:          &low,
+			Close:        102.0,
+			Volume:       &vol,
+			DataProvider: "test",
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	// Verify via coverage.
+	cov, err := p.PriceCoverage(ctx, []string{instID})
+	if err != nil {
+		t.Fatalf("coverage: %v", err)
+	}
+	assertInstrumentRanges(t, cov, instID, []db.DateRange{
+		{From: d(2024, 1, 1), To: d(2024, 1, 2)},
+	})
+}
+
+func TestUpsertPrices_Overwrite(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "UPS2")
+
+	// Insert initial price.
+	insertPrice(t, p, instID, d(2024, 1, 1), 100.0)
+
+	// Upsert with new close.
+	err := p.UpsertPrices(ctx, []db.EODPrice{
+		{
+			InstrumentID: instID,
+			PriceDate:    d(2024, 1, 1),
+			Close:        200.0,
+			DataProvider: "updated",
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	// Verify updated value.
+	var close float64
+	var provider string
+	err = p.q.QueryRowContext(ctx, `SELECT close, data_provider FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`, instID, d(2024, 1, 1)).Scan(&close, &provider)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if close != 200.0 {
+		t.Errorf("close = %v, want 200.0", close)
+	}
+	if provider != "updated" {
+		t.Errorf("data_provider = %q, want updated", provider)
+	}
+}
+
+func TestUpsertPrices_NullableFields(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "UPS3")
+
+	err := p.UpsertPrices(ctx, []db.EODPrice{
+		{
+			InstrumentID: instID,
+			PriceDate:    d(2024, 1, 1),
+			Close:        50.0,
+			DataProvider: "test",
+			// Open, High, Low, Volume all nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	var open, high, low sql.NullFloat64
+	var vol sql.NullInt64
+	err = p.q.QueryRowContext(ctx, `SELECT open, high, low, volume FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`, instID, d(2024, 1, 1)).Scan(&open, &high, &low, &vol)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if open.Valid || high.Valid || low.Valid || vol.Valid {
+		t.Error("expected nullable fields to be NULL")
+	}
+}
+
+func TestUpsertPrices_Empty(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	err := p.UpsertPrices(ctx, nil)
+	if err != nil {
+		t.Fatalf("empty upsert should not error: %v", err)
 	}
 }

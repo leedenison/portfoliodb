@@ -6,6 +6,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
+	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"github.com/redis/go-redis/v9"
@@ -19,17 +20,22 @@ type Server struct {
 	counterPrefix  string
 	pluginRegistry *identifier.Registry
 	descRegistry   *description.Registry
+	priceRegistry  *pricefetcher.Registry
+	priceTrigger   chan<- struct{}
 }
 
 // NewServer returns a new API server. rdb and counterPrefix are used for ListTelemetryCounters (admin).
-// pluginRegistry and descRegistry are optional; when set, list plugin responses include display_name from the plugins.
-func NewServer(database db.DB, rdb *redis.Client, counterPrefix string, pluginRegistry *identifier.Registry, descRegistry *description.Registry) *Server {
+// pluginRegistry, descRegistry, and priceRegistry are optional; when set, list plugin responses include display_name from the plugins.
+// priceTrigger is optional; when set, TriggerPriceFetch sends on it.
+func NewServer(database db.DB, rdb *redis.Client, counterPrefix string, pluginRegistry *identifier.Registry, descRegistry *description.Registry, priceRegistry *pricefetcher.Registry, priceTrigger chan<- struct{}) *Server {
 	return &Server{
-		db:              database,
-		rdb:             rdb,
-		counterPrefix:   counterPrefix,
-		pluginRegistry:  pluginRegistry,
-		descRegistry:    descRegistry,
+		db:             database,
+		rdb:            rdb,
+		counterPrefix:  counterPrefix,
+		pluginRegistry: pluginRegistry,
+		descRegistry:   descRegistry,
+		priceRegistry:  priceRegistry,
+		priceTrigger:   priceTrigger,
 	}
 }
 

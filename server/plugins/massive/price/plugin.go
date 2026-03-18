@@ -88,7 +88,8 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 	p.reportOutcome(ctx, err)
 	if err != nil {
 		var nf *client.ErrNotFound
-		if errors.As(err, &nf) {
+		var fb *client.ErrForbidden
+		if errors.As(err, &nf) || errors.As(err, &fb) {
 			return nil, pricefetcher.ErrNoData
 		}
 		return nil, err
@@ -102,7 +103,7 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 		o := b.O
 		h := b.H
 		l := b.L
-		v := b.V
+		v := int64(b.V)
 		result[i] = pricefetcher.DailyBar{
 			Date:   time.UnixMilli(b.T).UTC().Truncate(24 * time.Hour),
 			Open:   &o,

@@ -18,6 +18,17 @@ func (e *ErrRateLimit) Error() string {
 	return "massive rate limit (429)"
 }
 
+// ErrForbidden is returned when the Massive API responds with 403
+// (e.g. plan doesn't include the requested data timeframe).
+type ErrForbidden struct {
+	Path    string
+	Message string
+}
+
+func (e *ErrForbidden) Error() string {
+	return fmt.Sprintf("massive %s: forbidden (403): %s", e.Path, e.Message)
+}
+
 // ErrNotFound is returned when the Massive API responds with 404.
 type ErrNotFound struct {
 	Path string
@@ -82,6 +93,13 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 			c.log.WarnContext(ctx, "massive rate limit (429)", "url", path)
 		}
 		return &ErrRateLimit{}
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		body, _ := io.ReadAll(resp.Body)
+		if c.log != nil {
+			c.log.WarnContext(ctx, "massive forbidden (403)", "url", path, "body", string(body))
+		}
+		return &ErrForbidden{Path: path, Message: string(body)}
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		if c.log != nil {

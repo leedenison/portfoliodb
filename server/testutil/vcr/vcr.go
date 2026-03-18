@@ -58,11 +58,11 @@ func New(t *testing.T, cassettePath string, sanitize Sanitizer) (*recorder.Recor
 func EnvOrSkip(t *testing.T, name string) string {
 	t.Helper()
 	v := os.Getenv(name)
-	if IsRecording() && v == "" {
-		t.Fatalf("env var %s required in record mode", name)
+	if IsRecording() {
+		if v == "" {
+			t.Fatalf("env var %s required in record mode", name)
+		}
+		return v
 	}
-	if v == "" {
-		v = "REDACTED"
-	}
-	return v
+	return "REDACTED"
 }

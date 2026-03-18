@@ -160,6 +160,10 @@ service ApiService {
   // For use by external cron jobs or after manual data corrections.
   rpc TriggerPriceFetch(TriggerPriceFetchRequest) returns (TriggerPriceFetchResponse);
 
+  // Price fetch blocks (admin-only). Permanently blocked (instrument, plugin) pairs.
+  rpc ListPriceFetchBlocks(ListPriceFetchBlocksRequest) returns (ListPriceFetchBlocksResponse);
+  rpc DeletePriceFetchBlock(DeletePriceFetchBlockRequest) returns (DeletePriceFetchBlockResponse);
+
   // Telemetry counters (admin-only). Returns counters discovered from Redis (portfoliodb:counters:*).
   rpc ListTelemetryCounters(ListTelemetryCountersRequest) returns (ListTelemetryCountersResponse);
 }
@@ -430,6 +434,7 @@ message PricePluginConfig {
   int32 precedence = 3;
   string config_json = 4;  // JSON object; may contain API keys; only admins can read/write
   string display_name = 5; // human-readable name from the plugin (e.g. "Massive")
+  optional int32 max_history_days = 6; // max lookback depth in days; 0/absent = unlimited
 }
 
 message ListPricePluginsRequest {}
@@ -445,6 +450,7 @@ message UpdatePricePluginRequest {
   // deferrable, so swaps can be performed within a transaction.
   optional int32 precedence = 3;
   optional string config_json = 4;
+  optional int32 max_history_days = 5; // 0 = clear (NULL in DB), positive = set
 }
 
 message UpdatePricePluginResponse {
@@ -454,6 +460,29 @@ message UpdatePricePluginResponse {
 message TriggerPriceFetchRequest {}
 
 message TriggerPriceFetchResponse {}
+
+// PriceFetchBlock is a permanently blocked (instrument, plugin) pair.
+message PriceFetchBlock {
+  string instrument_id = 1;
+  string plugin_id = 2;
+  string reason = 3;
+  google.protobuf.Timestamp created_at = 4;
+  string plugin_display_name = 5;
+  string instrument_display_name = 6;
+}
+
+message ListPriceFetchBlocksRequest {}
+
+message ListPriceFetchBlocksResponse {
+  repeated PriceFetchBlock blocks = 1;
+}
+
+message DeletePriceFetchBlockRequest {
+  string instrument_id = 1;
+  string plugin_id = 2;
+}
+
+message DeletePriceFetchBlockResponse {}
 
 message ListTelemetryCountersRequest {}
 

@@ -24,6 +24,9 @@ import {
   ListDescriptionPluginsResponseSchema,
   ListIdentifierPluginsRequestSchema,
   ListIdentifierPluginsResponseSchema,
+  ListPriceFetchBlocksRequestSchema,
+  ListPriceFetchBlocksResponseSchema,
+  DeletePriceFetchBlockRequestSchema,
   ListPricePluginsRequestSchema,
   ListPricePluginsResponseSchema,
   ListInstrumentsRequestSchema,
@@ -54,6 +57,7 @@ import type {
   IdentificationError,
   IdentifierPluginConfig,
   Instrument,
+  PriceFetchBlock,
   PricePluginConfig,
   Portfolio as GenPortfolio,
   PortfolioFilterProto,
@@ -330,7 +334,7 @@ export async function listPricePlugins(): Promise<PricePluginConfig[]> {
 /** Update price plugin (admin only). Pass only fields to update. */
 export async function updatePricePlugin(
   pluginId: string,
-  opts: { enabled?: boolean; precedence?: number; configJson?: string }
+  opts: { enabled?: boolean; precedence?: number; configJson?: string; maxHistoryDays?: number }
 ): Promise<PricePluginConfig> {
   const base = getBaseUrl();
   const reqMsg = create(UpdatePricePluginRequestSchema, {
@@ -338,12 +342,33 @@ export async function updatePricePlugin(
     ...(opts.enabled !== undefined && { enabled: opts.enabled }),
     ...(opts.precedence !== undefined && { precedence: opts.precedence }),
     ...(opts.configJson !== undefined && { configJson: opts.configJson }),
+    ...(opts.maxHistoryDays !== undefined && { maxHistoryDays: opts.maxHistoryDays }),
   });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "UpdatePricePlugin", toBinary(UpdatePricePluginRequestSchema, reqMsg), {
     credentials: "include",
   });
   const res = fromBinary(UpdatePricePluginResponseSchema, resBytes);
   return res.plugin!;
+}
+
+/** List price fetch blocks (admin only). */
+export async function listPriceFetchBlocks(): Promise<PriceFetchBlock[]> {
+  const base = getBaseUrl();
+  const req = create(ListPriceFetchBlocksRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListPriceFetchBlocks", toBinary(ListPriceFetchBlocksRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(ListPriceFetchBlocksResponseSchema, resBytes);
+  return res.blocks;
+}
+
+/** Delete a price fetch block (admin only). */
+export async function deletePriceFetchBlock(instrumentId: string, pluginId: string): Promise<void> {
+  const base = getBaseUrl();
+  const req = create(DeletePriceFetchBlockRequestSchema, { instrumentId, pluginId });
+  await unaryFetch(base, ApiServicePrefix + "DeletePriceFetchBlock", toBinary(DeletePriceFetchBlockRequestSchema, req), {
+    credentials: "include",
+  });
 }
 
 /** Result of ListInstruments for the instruments page. */

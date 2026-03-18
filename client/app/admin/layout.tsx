@@ -15,7 +15,7 @@ const adminNav: NavItem[] = [
     section: "Reference Data",
     children: [
       { href: "/admin/instruments", label: "Instruments" },
-      { href: "/admin/prices", label: "Prices", disabled: true },
+      { href: "/admin/prices", label: "Prices" },
     ],
   },
   {

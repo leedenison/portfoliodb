@@ -5,6 +5,10 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
+  ExportInstrumentsRequestSchema,
+  ImportInstrumentsRequestSchema,
+  ImportInstrumentsResponseSchema,
+  InstrumentSchema,
   CreatePortfolioRequestSchema,
   CreatePortfolioResponseSchema,
   DeletePortfolioRequestSchema,
@@ -51,7 +55,7 @@ import type {
   PortfolioTx,
   ValidationError,
 } from "@/gen/api/v1/api_pb";
-import { unaryFetch } from "./grpc-web";
+import { streamingFetch, unaryFetch } from "./grpc-web";
 
 const PAGE_SIZE = 30;
 const ApiServicePrefix = "portfoliodb.api.v1.ApiService/";
@@ -398,5 +402,31 @@ export async function listJobs(pageToken?: string | null): Promise<ListJobsResul
     })),
     nextPageToken: res.nextPageToken || null,
     totalCount: res.totalCount,
+  };
+}
+
+/** Stream all exported instruments (admin only). */
+export async function* exportInstruments(params?: { exchange?: string }): AsyncGenerator<Instrument> {
+  const base = getBaseUrl();
+  const req = create(ExportInstrumentsRequestSchema, { exchange: params?.exchange ?? "" });
+  for await (const bytes of streamingFetch(base, ApiServicePrefix + "ExportInstruments", toBinary(ExportInstrumentsRequestSchema, req), { credentials: "include" })) {
+    yield fromBinary(InstrumentSchema, bytes);
+  }
+}
+
+export interface ImportInstrumentsResult {
+  ensuredCount: number;
+  errors: Array<{ index: number; message: string }>;
+}
+
+/** Import (upsert) instruments (admin only). */
+export async function importInstruments(instruments: Instrument[]): Promise<ImportInstrumentsResult> {
+  const base = getBaseUrl();
+  const req = create(ImportInstrumentsRequestSchema, { instruments });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ImportInstruments", toBinary(ImportInstrumentsRequestSchema, req), { credentials: "include" });
+  const res = fromBinary(ImportInstrumentsResponseSchema, resBytes);
+  return {
+    ensuredCount: res.ensuredCount,
+    errors: res.errors.map((e) => ({ index: e.index, message: e.message })),
   };
 }

@@ -43,6 +43,8 @@
 | T23     | Price plugin Go API (e.g. FetchPrices) and at least one plugin implementation.      | T22                | M08       |        |
 | T24     | Admin UI (or API) for manual price entry when no automatic source is available.     | T22                | M08       |        |
 | T25     | Create CLI for importing / exporting instrument identities to and from CSV.         |                    | M06       |        |
+| T26     | Create Admin UI for importing / exporting instrument identities to and from CSV.    |                    | M06       | Done   |
+
 
 ### Unscheduled Milestones
 
@@ -63,22 +65,22 @@
 
 ### Unscheduled Tasks
 
-| Task ID | Description                                                                         | Depends on         | Milestone | Status |
-| ------- | ----------------------------------------------------------------------------------- | ------------------ | --------- | ------ |
-| T25     | ListTxs: optional filter by broker (and optionally account) for CreateTx recovery.   |                    |           |        |
-| T26     | UI: recovery flow for failed CreateTx (list txs for broker+period, edit and re-upload via bulk). | T25                |           |        |
-| T27     | ListTxs (and/or export): optional filter by transaction type (OFX types).           |                    |           |        |
-| T28     | Identify exchange and listing currency during instrument resolution; persist on instrument/transaction as specified. |                    |           |        |
-| T29     | Corporate events datamodel and API (fetch/store events per instrument).              |                    |           |        |
-| T30     | Corporate events plugin API and at least one plugin; apply adjustments to user transactions idempotently. | T29                |           |        |
-| T31     | Admin UI or API for manual entry of corporate events when no automatic source is available. | T29                |           |        |
-| T32     | Periodic job to re-attempt instrument identification (e.g. broker-description-only or stale). |                    |           |        |
-| T33     | Admin API and UI: manually force identification refresh for a given instrument or set of instruments. |                    |           |        |
-| T34     | Datamodel and API for user-level instrument override (e.g. portfolio-level mapping). |                    |           |        |
-| T35     | Admin API and UI to correct shared instrument identity (e.g. merge, edit, reassign identifiers). |                    |           |        |
-| T36     | Populate and use instrument valid_from / valid_to (from plugins or admin); expose in API/UI where relevant. |                    |           |        |
-| T37     | Compute and expose TWR and MWR for a portfolio over a period (requires price data). | T22                |           |        |
-| T38     | Instrument tags (tag type / tag value); store OpenFIGI market sector and related fields as tags when identification plugins provide them. |                    |           |        |
-| T39     | Move Uploads to user dropdown menu; add ListJobs API and paginated upload errors UI. |                    |           |        |
-| T40     | Security review: move DB credentials out of Dockerfile/docker-compose into env vars; make Envoy CORS origins configurable; make session TTL and cookie attributes configurable via env vars. |                    |           |        |
-| T41     | Make frontend SSR API base URL configurable via env var instead of hard-coded localhost:8080 fallback. |                    |           |        |
+| Task ID | Description                                                                                                                                  | Depends on |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+|         | ListTxs: optional filter by broker (and optionally account) for CreateTx recovery.                                                          |            |
+|         | UI: recovery flow for failed CreateTx (list txs for broker+period, edit and re-upload via bulk).                                            | Above      |
+|         | ListTxs (and/or export): optional filter by transaction type (OFX types).                                                                   |            |
+|         | Identify exchange and listing currency during instrument resolution; persist on instrument/transaction as specified.                         |            |
+|         | Corporate events datamodel and API (fetch/store events per instrument).                                                                     |            |
+|         | Corporate events plugin API and at least one plugin; apply adjustments to user transactions idempotently.                                   | Above      |
+|         | Admin UI or API for manual entry of corporate events when no automatic source is available.                                                 | Above      |
+|         | Periodic job to re-attempt instrument identification (e.g. broker-description-only or stale).                                              |            |
+|         | Admin API and UI: manually force identification refresh for a given instrument or set of instruments.                                       |            |
+|         | Datamodel and API for user-level instrument override (e.g. portfolio-level mapping).                                                        |            |
+|         | Admin API and UI to correct shared instrument identity (e.g. merge, edit, reassign identifiers).                                           |            |
+|         | Populate and use instrument valid_from / valid_to (from plugins or admin); expose in API/UI where relevant.                                |            |
+|         | Compute and expose TWR and MWR for a portfolio over a period (requires price data).                                                         | T22        |
+|         | Instrument tags (tag type / tag value); store OpenFIGI market sector and related fields as tags when identification plugins provide them.   |            |
+|         | Move Uploads to user dropdown menu; add ListJobs API and paginated upload errors UI.                                                        |            |
+|         | Security review: move DB credentials out of Dockerfile/docker-compose into env vars; make Envoy CORS origins configurable; make session TTL and cookie attributes configurable via env vars. | |
+|         | Make frontend SSR API base URL configurable via env var instead of hard-coded localhost:8080 fallback.                                     |            |

@@ -26,6 +26,18 @@ type TickerOverviewResult struct {
 	SICDescription  string `json:"sic_description"`
 }
 
+// AggBar is one daily OHLCV bar from GET /v2/aggs/ticker/{ticker}/range/1/day/{from}/{to}.
+type AggBar struct {
+	O  float64 `json:"o"`  // open
+	H  float64 `json:"h"`  // high
+	L  float64 `json:"l"`  // low
+	C  float64 `json:"c"`  // close
+	V  int64   `json:"v"`  // volume
+	VW float64 `json:"vw"` // volume-weighted average price
+	T  int64   `json:"t"`  // Unix millisecond timestamp
+	N  int     `json:"n"`  // number of trades
+}
+
 // OptionsContractResult holds reference data for a single options contract from GET /v3/reference/options/contracts/{options_ticker}.
 type OptionsContractResult struct {
 	Ticker            string  `json:"ticker"`

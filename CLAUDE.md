@@ -69,7 +69,11 @@ If the changes cannot be cleanly separated into independent PRs (e.g., extensive
 
 ### Worktrees
 
-Whenever you begin work in a new worktree you should run `make generate` to generate protobuf bindings and go mocks.
+Whenever you begin work in a new worktree you should:
+1. Copy the .env file from the root of the repo
+2. Copy the local directory from the root of the repo
+3. run `make tools` to install tool depdendencies
+4. run `make generate` to generate protobuf bindings and go mocks.
 
 ## User Interface
 

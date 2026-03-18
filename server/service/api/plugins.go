@@ -9,6 +9,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // ListPricePlugins returns all price plugin configs. Admin only.
@@ -30,13 +31,18 @@ func (s *Server) ListPricePlugins(ctx context.Context, req *apiv1.ListPricePlugi
 		if s.priceRegistry != nil {
 			displayName = s.priceRegistry.GetDisplayName(r.PluginID)
 		}
-		plugins = append(plugins, &apiv1.PricePluginConfig{
+		cfg := &apiv1.PricePluginConfig{
 			PluginId:    r.PluginID,
 			Enabled:     r.Enabled,
 			Precedence:  int32(r.Precedence),
 			ConfigJson:  configJSON,
 			DisplayName: displayName,
-		})
+		}
+		if r.MaxHistoryDays != nil {
+			v := int32(*r.MaxHistoryDays)
+			cfg.MaxHistoryDays = &v
+		}
+		plugins = append(plugins, cfg)
 	}
 	return &apiv1.ListPricePluginsResponse{Plugins: plugins}, nil
 }
@@ -62,7 +68,12 @@ func (s *Server) UpdatePricePlugin(ctx context.Context, req *apiv1.UpdatePricePl
 	if req.ConfigJson != nil {
 		config = []byte(*req.ConfigJson)
 	}
-	row, err := s.db.UpdatePricePluginConfig(ctx, req.GetPluginId(), enabled, precedence, config, nil)
+	var maxHistDays *int
+	if req.MaxHistoryDays != nil {
+		v := int(*req.MaxHistoryDays)
+		maxHistDays = &v
+	}
+	row, err := s.db.UpdatePricePluginConfig(ctx, req.GetPluginId(), enabled, precedence, config, maxHistDays)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, status.Error(codes.NotFound, "plugin not found")
@@ -77,15 +88,18 @@ func (s *Server) UpdatePricePlugin(ctx context.Context, req *apiv1.UpdatePricePl
 	if s.priceRegistry != nil {
 		displayName = s.priceRegistry.GetDisplayName(row.PluginID)
 	}
-	return &apiv1.UpdatePricePluginResponse{
-		Plugin: &apiv1.PricePluginConfig{
-			PluginId:    row.PluginID,
-			Enabled:     row.Enabled,
-			Precedence:  int32(row.Precedence),
-			ConfigJson:  configJSON,
-			DisplayName: displayName,
-		},
-	}, nil
+	respCfg := &apiv1.PricePluginConfig{
+		PluginId:    row.PluginID,
+		Enabled:     row.Enabled,
+		Precedence:  int32(row.Precedence),
+		ConfigJson:  configJSON,
+		DisplayName: displayName,
+	}
+	if row.MaxHistoryDays != nil {
+		v := int32(*row.MaxHistoryDays)
+		respCfg.MaxHistoryDays = &v
+	}
+	return &apiv1.UpdatePricePluginResponse{Plugin: respCfg}, nil
 }
 
 // TriggerPriceFetch signals the price fetcher worker to run a cycle. Admin only.
@@ -101,6 +115,81 @@ func (s *Server) TriggerPriceFetch(ctx context.Context, req *apiv1.TriggerPriceF
 		}
 	}
 	return &apiv1.TriggerPriceFetchResponse{}, nil
+}
+
+// ListPriceFetchBlocks returns all blocked (instrument, plugin) pairs. Admin only.
+func (s *Server) ListPriceFetchBlocks(ctx context.Context, req *apiv1.ListPriceFetchBlocksRequest) (*apiv1.ListPriceFetchBlocksResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	blocks, err := s.db.ListPriceFetchBlocks(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	// Collect instrument IDs for display name enrichment.
+	idSet := make(map[string]bool, len(blocks))
+	for _, b := range blocks {
+		idSet[b.InstrumentID] = true
+	}
+	ids := make([]string, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	instMap := make(map[string]string) // instrumentID -> display name
+	if len(ids) > 0 {
+		instruments, err := s.db.ListInstrumentsByIDs(ctx, ids)
+		if err == nil {
+			for _, inst := range instruments {
+				name := inst.Name
+				if name == "" {
+					for _, ident := range inst.Identifiers {
+						if ident.Type == "TICKER" && ident.Value != "" {
+							name = ident.Value
+							break
+						}
+					}
+				}
+				if name == "" {
+					name = inst.ID
+				}
+				instMap[inst.ID] = name
+			}
+		}
+	}
+	pbBlocks := make([]*apiv1.PriceFetchBlock, 0, len(blocks))
+	for _, b := range blocks {
+		pluginName := b.PluginID
+		if s.priceRegistry != nil {
+			pluginName = s.priceRegistry.GetDisplayName(b.PluginID)
+		}
+		instName := instMap[b.InstrumentID]
+		if instName == "" {
+			instName = b.InstrumentID
+		}
+		pbBlocks = append(pbBlocks, &apiv1.PriceFetchBlock{
+			InstrumentId:          b.InstrumentID,
+			PluginId:              b.PluginID,
+			Reason:                b.Reason,
+			CreatedAt:             timestamppb.New(b.CreatedAt),
+			PluginDisplayName:     pluginName,
+			InstrumentDisplayName: instName,
+		})
+	}
+	return &apiv1.ListPriceFetchBlocksResponse{Blocks: pbBlocks}, nil
+}
+
+// DeletePriceFetchBlock removes a block for an (instrument, plugin) pair. Admin only.
+func (s *Server) DeletePriceFetchBlock(ctx context.Context, req *apiv1.DeletePriceFetchBlockRequest) (*apiv1.DeletePriceFetchBlockResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	if req.GetInstrumentId() == "" || req.GetPluginId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "instrument_id and plugin_id required")
+	}
+	if err := s.db.DeletePriceFetchBlock(ctx, req.GetInstrumentId(), req.GetPluginId()); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &apiv1.DeletePriceFetchBlockResponse{}, nil
 }
 
 // ListIdentifierPlugins returns all identifier plugin configs. Admin only.

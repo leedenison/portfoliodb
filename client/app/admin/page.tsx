@@ -27,8 +27,7 @@ const dashboardCards: {
     title: "Prices",
     href: "/admin/prices",
     description:
-      "View price data coverage and retrieval status for instruments.",
-    disabled: true,
+      "View and manage price fetch blocks for instruments.",
   },
   {
     id: "identifier",

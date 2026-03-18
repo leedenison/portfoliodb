@@ -30,6 +30,7 @@ export function PluginConfigEditor<T extends PluginConfig>({
   description,
   listFn,
   updateFn,
+  renderExtra,
 }: {
   title: string;
   description: string;
@@ -38,6 +39,7 @@ export function PluginConfigEditor<T extends PluginConfig>({
     pluginId: string,
     opts: { enabled?: boolean; configJson?: string }
   ) => Promise<T>;
+  renderExtra?: (plugin: T, opts: { saving: boolean; onUpdate: (updated: T) => void }) => React.ReactNode;
 }) {
   const [plugins, setPlugins] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
@@ -194,6 +196,13 @@ export function PluginConfigEditor<T extends PluginConfig>({
                   ))}
                 </dl>
               )}
+              {renderExtra?.(plugin, {
+                saving,
+                onUpdate: (updated) =>
+                  setPlugins((prev) =>
+                    prev.map((p) => (p.pluginId === updated.pluginId ? updated : p))
+                  ),
+              })}
               {editingId === plugin.pluginId && (
                 <div className="mt-4">
                   <label className="block text-sm font-medium text-text-muted">

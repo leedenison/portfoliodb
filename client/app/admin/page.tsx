@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   listIdentifierPlugins,
   listDescriptionPlugins,
+  listPricePlugins,
 } from "@/lib/portfolio-api";
 
 const dashboardCards: {
@@ -44,6 +45,13 @@ const dashboardCards: {
       "Enable/disable description plugins that extract identifier hints from broker text.",
   },
   {
+    id: "price",
+    title: "Price plugins",
+    href: "/admin/plugins/price",
+    description:
+      "Enable/disable price plugins that fetch end-of-day prices for identified instruments.",
+  },
+  {
     id: "telemetry",
     title: "Telemetry",
     href: "/admin/telemetry",
@@ -71,15 +79,20 @@ export default function AdminOverviewPage() {
   const [descriptionPlugins, setDescriptionPlugins] = useState<
     { displayName: string }[]
   >([]);
+  const [pricePlugins, setPricePlugins] = useState<
+    { displayName: string }[]
+  >([]);
 
   const load = useCallback(async () => {
     try {
-      const [idList, descList] = await Promise.all([
+      const [idList, descList, priceList] = await Promise.all([
         listIdentifierPlugins(),
         listDescriptionPlugins(),
+        listPricePlugins(),
       ]);
       setIdentifierPlugins(idList.map((p) => ({ displayName: p.displayName || p.pluginId })));
       setDescriptionPlugins(descList.map((p) => ({ displayName: p.displayName || p.pluginId })));
+      setPricePlugins(priceList.map((p) => ({ displayName: p.displayName || p.pluginId })));
     } catch {
       // Non-blocking: cards still work without the summary
     }
@@ -97,6 +110,9 @@ export default function AdminOverviewPage() {
     }
     if (id === "description" && descriptionPlugins.length > 0) {
       return descriptionPlugins.map((p) => p.displayName).join(", ");
+    }
+    if (id === "price" && pricePlugins.length > 0) {
+      return pricePlugins.map((p) => p.displayName).join(", ");
     }
     return null;
   }

@@ -32,7 +32,7 @@ type AggBar struct {
 	H  float64 `json:"h"`  // high
 	L  float64 `json:"l"`  // low
 	C  float64 `json:"c"`  // close
-	V  int64   `json:"v"`  // volume
+	V  float64 `json:"v"`  // volume (float64: API returns scientific notation)
 	VW float64 `json:"vw"` // volume-weighted average price
 	T  int64   `json:"t"`  // Unix millisecond timestamp
 	N  int     `json:"n"`  // number of trades

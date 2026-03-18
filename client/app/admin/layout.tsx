@@ -23,6 +23,7 @@ const adminNav: NavItem[] = [
     children: [
       { href: "/admin/plugins/identifier", label: "Identifier" },
       { href: "/admin/plugins/description", label: "Description" },
+      { href: "/admin/plugins/price", label: "Price" },
     ],
   },
   {

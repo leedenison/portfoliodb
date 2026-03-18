@@ -30,8 +30,10 @@ import (
 	cashid "github.com/leedenison/portfoliodb/server/plugins/cash/identifier"
 	eodhdplugin "github.com/leedenison/portfoliodb/server/plugins/eodhd/identifier"
 	massiveplugin "github.com/leedenison/portfoliodb/server/plugins/massive/identifier"
+	massiveprice "github.com/leedenison/portfoliodb/server/plugins/massive/price"
 	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
 	openaidesc "github.com/leedenison/portfoliodb/server/plugins/openai/description"
+	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/service/api"
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
 	"github.com/leedenison/portfoliodb/server/service/ingestion"
@@ -167,11 +169,18 @@ func main() {
 	if err := ensureDescriptionPluginConfigs(context.Background(), database, descRegistry); err != nil {
 		log.Fatalf("ensure description plugin configs: %v", err)
 	}
+	priceRegistry := pricefetcher.NewRegistry()
+	priceRegistry.Register(massiveprice.PluginID, massiveprice.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive/price"), pluginHTTPClient))
+	if err := ensurePricePluginConfigs(context.Background(), database, priceRegistry); err != nil {
+		log.Fatalf("ensure price plugin configs: %v", err)
+	}
+	priceTrigger := make(chan struct{}, 1)
 	queue := make(chan *ingestion.JobRequest, 256)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ingestionLogger := logger.WithCategory(serverLogger, "server/service/ingestion")
-	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter, ingestionLogger)
+	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter, ingestionLogger, priceTrigger)
+	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger)
 	svc := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			logger.UnaryErrorInterceptor(serverLogger),
@@ -189,6 +198,8 @@ func main() {
 		CounterPrefix:  counterPrefix,
 		PluginRegistry: pluginRegistry,
 		DescRegistry:   descRegistry,
+		PriceRegistry:  priceRegistry,
+		PriceTrigger:   priceTrigger,
 	}))
 	ingestionv1.RegisterIngestionServiceServer(svc, ingestion.NewServer(database, queue))
 	reflection.Register(svc)
@@ -256,6 +267,28 @@ func ensurePluginConfigs(ctx context.Context, database db.InstrumentDB, registry
 			defaultConfig := p.DefaultConfig()
 			precedence := 10 * (i + 1)
 			if _, err := database.InsertPluginConfig(ctx, id, false, precedence, defaultConfig); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// ensurePricePluginConfigs creates a price_plugin_config row for each registered price plugin that does not yet have one.
+func ensurePricePluginConfigs(ctx context.Context, database db.PricePluginDB, registry *pricefetcher.Registry) error {
+	for i, id := range registry.ListIDs() {
+		_, err := database.GetPricePluginConfig(ctx, id)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			p := registry.Get(id)
+			if p == nil {
+				continue
+			}
+			defaultConfig := p.DefaultConfig()
+			precedence := 10 * (i + 1)
+			if _, err := database.InsertPricePluginConfig(ctx, id, false, precedence, defaultConfig); err != nil {
 				return err
 			}
 		}

@@ -74,7 +74,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 		SetJobStatus(gomock.Any(), "job-1", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processJob(ctx, database, registry, nil, nil, j)
+	processJob(ctx, database, registry, nil, nil, j, nil)
 }
 
 func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
@@ -129,7 +129,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-2", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processJob(ctx, database, registry, nil, nil, j)
+	processJob(ctx, database, registry, nil, nil, j, nil)
 }
 
 func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
@@ -187,7 +187,7 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-split", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processJob(ctx, database, registry, nil, nil, j)
+	processJob(ctx, database, registry, nil, nil, j, nil)
 }
 
 func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
@@ -214,5 +214,5 @@ func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
 		Return(nil)
 	// No Resolve, no CreateTx - SPLIT is dropped
 
-	processJob(ctx, database, registry, nil, nil, j)
+	processJob(ctx, database, registry, nil, nil, j, nil)
 }

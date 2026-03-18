@@ -163,6 +163,7 @@ func (s *Server) GetSession(ctx context.Context, _ *emptypb.Empty) (*authv1.Auth
 			Role:  u.Role,
 		},
 		UserExists: true, // session implies existing user
+		SessionId:  getSessionIDFromContext(ctx, s.cookie.Name),
 	}, nil
 }
 

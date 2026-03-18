@@ -51,9 +51,9 @@ const dashboardCards: {
   },
   {
     id: "tools",
-    title: "Tools",
+    title: "Authentication",
     href: "/admin/tools",
-    description: "Fetch a Google ID token for scripts (x-session-id or Auth).",
+    description: "View session token and fetch a Google ID token for scripts.",
   },
   {
     id: "logs",

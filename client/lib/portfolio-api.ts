@@ -24,6 +24,8 @@ import {
   ListDescriptionPluginsResponseSchema,
   ListIdentifierPluginsRequestSchema,
   ListIdentifierPluginsResponseSchema,
+  ListPricePluginsRequestSchema,
+  ListPricePluginsResponseSchema,
   ListInstrumentsRequestSchema,
   ListInstrumentsResponseSchema,
   ListJobsRequestSchema,
@@ -40,6 +42,8 @@ import {
   UpdateDescriptionPluginResponseSchema,
   UpdateIdentifierPluginRequestSchema,
   UpdateIdentifierPluginResponseSchema,
+  UpdatePricePluginRequestSchema,
+  UpdatePricePluginResponseSchema,
   UpdatePortfolioRequestSchema,
   UpdatePortfolioResponseSchema,
   JobStatus,
@@ -50,6 +54,7 @@ import type {
   IdentificationError,
   IdentifierPluginConfig,
   Instrument,
+  PricePluginConfig,
   Portfolio as GenPortfolio,
   PortfolioFilterProto,
   PortfolioTx,
@@ -308,6 +313,36 @@ export async function updateDescriptionPlugin(
     credentials: "include",
   });
   const res = fromBinary(UpdateDescriptionPluginResponseSchema, resBytes);
+  return res.plugin!;
+}
+
+/** List price plugin configs (admin only). */
+export async function listPricePlugins(): Promise<PricePluginConfig[]> {
+  const base = getBaseUrl();
+  const req = create(ListPricePluginsRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListPricePlugins", toBinary(ListPricePluginsRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(ListPricePluginsResponseSchema, resBytes);
+  return res.plugins;
+}
+
+/** Update price plugin (admin only). Pass only fields to update. */
+export async function updatePricePlugin(
+  pluginId: string,
+  opts: { enabled?: boolean; precedence?: number; configJson?: string }
+): Promise<PricePluginConfig> {
+  const base = getBaseUrl();
+  const reqMsg = create(UpdatePricePluginRequestSchema, {
+    pluginId,
+    ...(opts.enabled !== undefined && { enabled: opts.enabled }),
+    ...(opts.precedence !== undefined && { precedence: opts.precedence }),
+    ...(opts.configJson !== undefined && { configJson: opts.configJson }),
+  });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "UpdatePricePlugin", toBinary(UpdatePricePluginRequestSchema, reqMsg), {
+    credentials: "include",
+  });
+  const res = fromBinary(UpdatePricePluginResponseSchema, resBytes);
   return res.plugin!;
 }
 

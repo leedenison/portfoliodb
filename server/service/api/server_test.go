@@ -32,7 +32,7 @@ func newAPIServerWithMock(t *testing.T) (*Server, *mock.MockDB) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(func() { ctrl.Finish() })
 	db := mock.NewMockDB(ctrl)
-	return NewServer(db, nil, "", nil, nil, nil, nil), db
+	return NewServer(ServerConfig{DB: db}), db
 }
 
 // exportStreamMock provides a stream with configurable context for ExportInstruments tests.

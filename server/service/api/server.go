@@ -24,18 +24,27 @@ type Server struct {
 	priceTrigger   chan<- struct{}
 }
 
-// NewServer returns a new API server. rdb and counterPrefix are used for ListTelemetryCounters (admin).
-// pluginRegistry, descRegistry, and priceRegistry are optional; when set, list plugin responses include display_name from the plugins.
-// priceTrigger is optional; when set, TriggerPriceFetch sends on it.
-func NewServer(database db.DB, rdb *redis.Client, counterPrefix string, pluginRegistry *identifier.Registry, descRegistry *description.Registry, priceRegistry *pricefetcher.Registry, priceTrigger chan<- struct{}) *Server {
+// ServerConfig configures the API server.
+type ServerConfig struct {
+	DB             db.DB
+	Redis          *redis.Client
+	CounterPrefix  string
+	PluginRegistry *identifier.Registry     // optional; enables display_name in identifier plugin list
+	DescRegistry   *description.Registry    // optional; enables display_name in description plugin list
+	PriceRegistry  *pricefetcher.Registry   // optional; enables display_name in price plugin list
+	PriceTrigger   chan<- struct{}           // optional; when set, TriggerPriceFetch sends on it
+}
+
+// NewServer returns a new API server.
+func NewServer(cfg ServerConfig) *Server {
 	return &Server{
-		db:             database,
-		rdb:            rdb,
-		counterPrefix:  counterPrefix,
-		pluginRegistry: pluginRegistry,
-		descRegistry:   descRegistry,
-		priceRegistry:  priceRegistry,
-		priceTrigger:   priceTrigger,
+		db:             cfg.DB,
+		rdb:            cfg.Redis,
+		counterPrefix:  cfg.CounterPrefix,
+		pluginRegistry: cfg.PluginRegistry,
+		descRegistry:   cfg.DescRegistry,
+		priceRegistry:  cfg.PriceRegistry,
+		priceTrigger:   cfg.PriceTrigger,
 	}
 }
 

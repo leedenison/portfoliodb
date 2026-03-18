@@ -385,6 +385,8 @@ message ListIdentifierPluginsResponse {
 message UpdateIdentifierPluginRequest {
   string plugin_id = 1;
   optional bool enabled = 2;
+  // Precedence must be unique across all identifier plugins. The constraint is
+  // deferrable, so swaps can be performed within a transaction.
   optional int32 precedence = 3;
   optional string config_json = 4;  // JSON object; merged or replaced per implementation
 }
@@ -411,6 +413,8 @@ message ListDescriptionPluginsResponse {
 message UpdateDescriptionPluginRequest {
   string plugin_id = 1;
   optional bool enabled = 2;
+  // Precedence must be unique across all description plugins. The constraint is
+  // deferrable, so swaps can be performed within a transaction.
   optional int32 precedence = 3;
   optional string config_json = 4;
 }
@@ -437,6 +441,8 @@ message ListPricePluginsResponse {
 message UpdatePricePluginRequest {
   string plugin_id = 1;
   optional bool enabled = 2;
+  // Precedence must be unique across all price plugins. The constraint is
+  // deferrable, so swaps can be performed within a transaction.
   optional int32 precedence = 3;
   optional string config_json = 4;
 }

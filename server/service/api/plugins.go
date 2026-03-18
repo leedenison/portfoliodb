@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 
 	"github.com/leedenison/portfoliodb/server/auth"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
@@ -157,7 +156,7 @@ func (s *Server) UpdateIdentifierPlugin(ctx context.Context, req *apiv1.UpdateId
 	}
 	row, err := s.db.UpdatePluginConfig(ctx, req.GetPluginId(), enabled, precedence, config)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, status.Error(codes.NotFound, "plugin not found")
 		}
 		return nil, status.Error(codes.Internal, err.Error())

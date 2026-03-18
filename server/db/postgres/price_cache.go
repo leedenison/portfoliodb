@@ -205,27 +205,51 @@ func (p *Postgres) PriceGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.
 }
 
 // UpsertPrices implements db.PriceCacheDB.
-// It bulk inserts EOD prices, updating on conflict (instrument_id, price_date).
+// It bulk inserts EOD prices using unnest arrays, updating on conflict.
 func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error {
 	if len(prices) == 0 {
 		return nil
 	}
-	for _, pr := range prices {
-		_, err := p.q.ExecContext(ctx, `
-			INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, fetched_at)
-			VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, now())
-			ON CONFLICT (instrument_id, price_date) DO UPDATE SET
-				open = EXCLUDED.open,
-				high = EXCLUDED.high,
-				low = EXCLUDED.low,
-				close = EXCLUDED.close,
-				volume = EXCLUDED.volume,
-				data_provider = EXCLUDED.data_provider,
-				fetched_at = EXCLUDED.fetched_at
-		`, pr.InstrumentID, pr.PriceDate, pr.Open, pr.High, pr.Low, pr.Close, pr.Volume, pr.DataProvider)
-		if err != nil {
-			return fmt.Errorf("upsert price: %w", err)
-		}
+
+	instIDs := make([]string, len(prices))
+	dates := make([]time.Time, len(prices))
+	opens := make([]*float64, len(prices))
+	highs := make([]*float64, len(prices))
+	lows := make([]*float64, len(prices))
+	closes := make([]float64, len(prices))
+	volumes := make([]*int64, len(prices))
+	providers := make([]string, len(prices))
+
+	for i, pr := range prices {
+		instIDs[i] = pr.InstrumentID
+		dates[i] = pr.PriceDate
+		opens[i] = pr.Open
+		highs[i] = pr.High
+		lows[i] = pr.Low
+		closes[i] = pr.Close
+		volumes[i] = pr.Volume
+		providers[i] = pr.DataProvider
+	}
+
+	_, err := p.q.ExecContext(ctx, `
+		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, fetched_at)
+		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::double precision[]),
+			unnest($4::double precision[]), unnest($5::double precision[]),
+			unnest($6::double precision[]), unnest($7::bigint[]),
+			unnest($8::text[]), now()
+		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
+			open = EXCLUDED.open,
+			high = EXCLUDED.high,
+			low = EXCLUDED.low,
+			close = EXCLUDED.close,
+			volume = EXCLUDED.volume,
+			data_provider = EXCLUDED.data_provider,
+			fetched_at = EXCLUDED.fetched_at
+	`, pq.Array(instIDs), pq.Array(dates), pq.Array(opens),
+		pq.Array(highs), pq.Array(lows), pq.Array(closes),
+		pq.Array(volumes), pq.Array(providers))
+	if err != nil {
+		return fmt.Errorf("upsert prices: %w", err)
 	}
 	return nil
 }

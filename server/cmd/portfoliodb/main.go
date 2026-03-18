@@ -183,7 +183,13 @@ func main() {
 		),
 	)
 	authv1.RegisterAuthServiceServer(svc, authServer)
-	apiv1.RegisterApiServiceServer(svc, api.NewServer(database, rdb, counterPrefix, pluginRegistry, descRegistry, nil, nil))
+	apiv1.RegisterApiServiceServer(svc, api.NewServer(api.ServerConfig{
+		DB:             database,
+		Redis:          rdb,
+		CounterPrefix:  counterPrefix,
+		PluginRegistry: pluginRegistry,
+		DescRegistry:   descRegistry,
+	}))
 	ingestionv1.RegisterIngestionServiceServer(svc, ingestion.NewServer(database, queue))
 	reflection.Register(svc)
 	lis, err := net.Listen("tcp", *grpcAddr)

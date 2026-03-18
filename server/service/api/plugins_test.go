@@ -24,7 +24,7 @@ func TestListPricePlugins_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(func() { ctrl.Finish() })
 	mockDB := mock.NewMockDB(ctrl)
-	srv := NewServer(mockDB, nil, "", nil, nil, nil, nil)
+	srv := NewServer(ServerConfig{DB: mockDB})
 
 	mockDB.EXPECT().ListPricePluginConfigs(gomock.Any()).Return([]db.PluginConfigRowFull{
 		{PluginID: "massive", Enabled: true, Precedence: 10, Config: []byte(`{"key":"val"}`)},
@@ -62,7 +62,7 @@ func TestUpdatePricePlugin_NotFound(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(func() { ctrl.Finish() })
 	mockDB := mock.NewMockDB(ctrl)
-	srv := NewServer(mockDB, nil, "", nil, nil, nil, nil)
+	srv := NewServer(ServerConfig{DB: mockDB})
 
 	mockDB.EXPECT().UpdatePricePluginConfig(gomock.Any(), "missing", gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, sql.ErrNoRows)
@@ -80,7 +80,7 @@ func TestUpdatePricePlugin_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(func() { ctrl.Finish() })
 	mockDB := mock.NewMockDB(ctrl)
-	srv := NewServer(mockDB, nil, "", nil, nil, nil, nil)
+	srv := NewServer(ServerConfig{DB: mockDB})
 
 	mockDB.EXPECT().UpdatePricePluginConfig(gomock.Any(), "massive", gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&db.PluginConfigRowFull{PluginID: "massive", Enabled: true, Precedence: 10, Config: []byte("{}")}, nil)
@@ -111,7 +111,7 @@ func TestTriggerPriceFetch_Success(t *testing.T) {
 	t.Cleanup(func() { ctrl.Finish() })
 	mockDB := mock.NewMockDB(ctrl)
 	trigger := make(chan struct{}, 1)
-	srv := NewServer(mockDB, nil, "", nil, nil, nil, trigger)
+	srv := NewServer(ServerConfig{DB: mockDB, PriceTrigger: trigger})
 
 	ctx := adminCtx("admin-1", "sub|admin")
 	_, err := srv.TriggerPriceFetch(ctx, &apiv1.TriggerPriceFetchRequest{})
@@ -141,7 +141,7 @@ func TestTriggerPriceFetch_NonBlocking(t *testing.T) {
 	mockDB := mock.NewMockDB(ctrl)
 	trigger := make(chan struct{}, 1)
 	trigger <- struct{}{} // pre-fill
-	srv := NewServer(mockDB, nil, "", nil, nil, nil, trigger)
+	srv := NewServer(ServerConfig{DB: mockDB, PriceTrigger: trigger})
 
 	ctx := adminCtx("admin-1", "sub|admin")
 	// Should not block even though channel is full.

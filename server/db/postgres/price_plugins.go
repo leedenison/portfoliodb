@@ -93,24 +93,5 @@ func (p *Postgres) InsertPricePluginConfig(ctx context.Context, pluginID string,
 
 // UpdatePricePluginConfig implements db.PricePluginDB.
 func (p *Postgres) UpdatePricePluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte) (*db.PluginConfigRowFull, error) {
-	if enabled != nil {
-		if _, err := p.q.ExecContext(ctx, `UPDATE price_plugin_config SET enabled = $1 WHERE plugin_id = $2`, *enabled, pluginID); err != nil {
-			return nil, fmt.Errorf("update price plugin enabled: %w", err)
-		}
-	}
-	if precedence != nil {
-		if _, err := p.q.ExecContext(ctx, `UPDATE price_plugin_config SET precedence = $1 WHERE plugin_id = $2`, *precedence, pluginID); err != nil {
-			return nil, fmt.Errorf("update price plugin precedence: %w", err)
-		}
-	}
-	if config != nil {
-		payload := config
-		if len(payload) == 0 {
-			payload = []byte("{}")
-		}
-		if _, err := p.q.ExecContext(ctx, `UPDATE price_plugin_config SET config = $1 WHERE plugin_id = $2`, payload, pluginID); err != nil {
-			return nil, fmt.Errorf("update price plugin config: %w", err)
-		}
-	}
-	return p.GetPricePluginConfig(ctx, pluginID)
+	return updatePluginConfig(ctx, p, "price_plugin_config", pluginID, enabled, precedence, config)
 }

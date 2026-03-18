@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/leedenison/portfoliodb/server/db"
 )
@@ -91,43 +92,69 @@ func (p *Postgres) InsertPluginConfig(ctx context.Context, pluginID string, enab
 	return p.GetPluginConfig(ctx, pluginID)
 }
 
-// UpdatePluginConfig implements db.InstrumentDB.
-func (p *Postgres) UpdatePluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte) (*db.PluginConfigRowFull, error) {
-	if enabled != nil {
-		if _, err := p.q.ExecContext(ctx, `UPDATE identifier_plugin_config SET enabled = $1 WHERE plugin_id = $2`, *enabled, pluginID); err != nil {
-			return nil, fmt.Errorf("update plugin enabled: %w", err)
+// updatePluginConfig builds a single atomic UPDATE for a *_plugin_config table,
+// setting only non-nil fields. Used by all three plugin config tables.
+func updatePluginConfig(ctx context.Context, p *Postgres, table, pluginID string, enabled *bool, precedence *int, config []byte) (*db.PluginConfigRowFull, error) {
+	if enabled == nil && precedence == nil && config == nil {
+		// Nothing to update; just return current row.
+		var r db.PluginConfigRowFull
+		var configVal sql.NullString
+		err := p.q.QueryRowContext(ctx,
+			fmt.Sprintf(`SELECT plugin_id, enabled, precedence, config FROM %s WHERE plugin_id = $1`, table), pluginID).
+			Scan(&r.PluginID, &r.Enabled, &r.Precedence, &configVal)
+		if err != nil {
+			return nil, err
 		}
+		if configVal.Valid {
+			r.Config = []byte(configVal.String)
+		}
+		return &r, nil
+	}
+
+	// Build a single UPDATE with only the provided fields.
+	var setClauses []string
+	var args []interface{}
+	argN := 1
+
+	if enabled != nil {
+		setClauses = append(setClauses, fmt.Sprintf("enabled = $%d", argN))
+		args = append(args, *enabled)
+		argN++
 	}
 	if precedence != nil {
-		if _, err := p.q.ExecContext(ctx, `UPDATE identifier_plugin_config SET precedence = $1 WHERE plugin_id = $2`, *precedence, pluginID); err != nil {
-			return nil, fmt.Errorf("update plugin precedence: %w", err)
-		}
+		setClauses = append(setClauses, fmt.Sprintf("precedence = $%d", argN))
+		args = append(args, *precedence)
+		argN++
 	}
 	if config != nil {
 		payload := config
 		if len(payload) == 0 {
 			payload = []byte("{}")
 		}
-		if _, err := p.q.ExecContext(ctx, `UPDATE identifier_plugin_config SET config = $1 WHERE plugin_id = $2`, payload, pluginID); err != nil {
-			return nil, fmt.Errorf("update plugin config: %w", err)
-		}
+		setClauses = append(setClauses, fmt.Sprintf("config = $%d", argN))
+		args = append(args, payload)
+		argN++
 	}
-	// Return updated row
-	rows, err := p.q.QueryContext(ctx, `SELECT plugin_id, enabled, precedence, config FROM identifier_plugin_config WHERE plugin_id = $1`, pluginID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	if !rows.Next() {
-		return nil, fmt.Errorf("plugin_id %q not found", pluginID)
-	}
+
+	args = append(args, pluginID)
+	query := fmt.Sprintf(`UPDATE %s SET %s WHERE plugin_id = $%d
+		RETURNING plugin_id, enabled, precedence, config`,
+		table, strings.Join(setClauses, ", "), argN)
+
 	var r db.PluginConfigRowFull
 	var configVal sql.NullString
-	if err := rows.Scan(&r.PluginID, &r.Enabled, &r.Precedence, &configVal); err != nil {
+	err := p.q.QueryRowContext(ctx, query, args...).
+		Scan(&r.PluginID, &r.Enabled, &r.Precedence, &configVal)
+	if err != nil {
 		return nil, err
 	}
 	if configVal.Valid {
 		r.Config = []byte(configVal.String)
 	}
-	return &r, rows.Err()
+	return &r, nil
+}
+
+// UpdatePluginConfig implements db.InstrumentDB.
+func (p *Postgres) UpdatePluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte) (*db.PluginConfigRowFull, error) {
+	return updatePluginConfig(ctx, p, "identifier_plugin_config", pluginID, enabled, precedence, config)
 }

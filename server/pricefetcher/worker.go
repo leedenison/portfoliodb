@@ -2,8 +2,10 @@ package pricefetcher
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/telemetry"
@@ -51,9 +53,10 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 
 	// Build plugin list with their config, ordered by precedence (highest first).
 	type pluginEntry struct {
-		id     string
-		plugin Plugin
-		config []byte
+		id          string
+		plugin      Plugin
+		config      []byte
+		maxHistDays *int
 	}
 	var plugins []pluginEntry
 	for _, cfg := range configs {
@@ -61,9 +64,24 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if p == nil {
 			continue
 		}
-		plugins = append(plugins, pluginEntry{id: cfg.PluginID, plugin: p, config: cfg.Config})
+		plugins = append(plugins, pluginEntry{
+			id:          cfg.PluginID,
+			plugin:      p,
+			config:      cfg.Config,
+			maxHistDays: cfg.MaxHistoryDays,
+		})
 	}
 	if len(plugins) == 0 {
+		return
+	}
+
+	// Batch-load blocked (instrument, plugin) pairs.
+	instIDs := extractInstrumentIDs(gaps)
+	blocked, err := database.BlockedPluginsForInstruments(ctx, instIDs)
+	if err != nil {
+		if log != nil {
+			log.ErrorContext(ctx, "price fetch: load blocks", "err", err)
+		}
 		return
 	}
 
@@ -84,6 +102,9 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 			if !pluginAccepts(pe.plugin, inst) {
 				continue
 			}
+			if blocked[ig.InstrumentID][pe.id] {
+				continue
+			}
 			ids := filterIdentifiers(pe.plugin.SupportedIdentifierTypes(), inst.Identifiers)
 			if len(ids) == 0 {
 				continue
@@ -92,8 +113,28 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 			pfIDs := toPricefetcherIDs(ids)
 			allOK := true
 			for _, gap := range ig.Ranges {
+				gap := gap // copy for truncation
+				if pe.maxHistDays != nil && *pe.maxHistDays > 0 {
+					cutoff := time.Now().UTC().Truncate(db.Day).AddDate(0, 0, -*pe.maxHistDays)
+					if !gap.To.After(cutoff) {
+						continue // entire gap older than history limit
+					}
+					if gap.From.Before(cutoff) {
+						gap.From = cutoff
+					}
+				}
 				result, err := pe.plugin.FetchPrices(ctx, pe.config, pfIDs, inst.AssetClass, gap.From, gap.To)
 				if err != nil {
+					var permErr *ErrPermanent
+					if errors.As(err, &permErr) {
+						_ = database.CreatePriceFetchBlock(ctx, ig.InstrumentID, pe.id, permErr.Reason)
+						if log != nil {
+							log.WarnContext(ctx, "price fetch: permanent block",
+								"plugin", pe.id, "instrument", ig.InstrumentID, "reason", permErr.Reason)
+						}
+						allOK = false
+						break // skip remaining ranges, try next plugin
+					}
 					if err == ErrNoData {
 						continue
 					}
@@ -123,6 +164,15 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		}
 		_ = fetchedByPlugin
 	}
+}
+
+// extractInstrumentIDs returns unique instrument IDs from gaps.
+func extractInstrumentIDs(gaps []db.InstrumentDateRanges) []string {
+	out := make([]string, len(gaps))
+	for i, g := range gaps {
+		out[i] = g.InstrumentID
+	}
+	return out
 }
 
 // pluginAccepts checks whether a plugin can handle the given instrument

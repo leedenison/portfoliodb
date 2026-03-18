@@ -62,7 +62,7 @@ func (s *Server) UpdatePricePlugin(ctx context.Context, req *apiv1.UpdatePricePl
 	if req.ConfigJson != nil {
 		config = []byte(*req.ConfigJson)
 	}
-	row, err := s.db.UpdatePricePluginConfig(ctx, req.GetPluginId(), enabled, precedence, config)
+	row, err := s.db.UpdatePricePluginConfig(ctx, req.GetPluginId(), enabled, precedence, config, nil)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, status.Error(codes.NotFound, "plugin not found")

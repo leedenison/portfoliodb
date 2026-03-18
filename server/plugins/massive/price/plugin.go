@@ -89,8 +89,11 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 	if err != nil {
 		var nf *client.ErrNotFound
 		var fb *client.ErrForbidden
-		if errors.As(err, &nf) || errors.As(err, &fb) {
-			return nil, pricefetcher.ErrNoData
+		if errors.As(err, &nf) {
+			return nil, &pricefetcher.ErrPermanent{Reason: "ticker not found: " + nf.Path}
+		}
+		if errors.As(err, &fb) {
+			return nil, &pricefetcher.ErrPermanent{Reason: "forbidden: " + fb.Message}
 		}
 		return nil, err
 	}

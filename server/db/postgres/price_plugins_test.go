@@ -29,7 +29,7 @@ func TestInsertPricePluginConfig_GetPricePluginConfig(t *testing.T) {
 	ctx := context.Background()
 	pluginID := "test-price-plugin"
 	config := []byte(`{"massive_api_key":"","massive_calls_per_min":5}`)
-	inserted, err := p.InsertPricePluginConfig(ctx, pluginID, false, 10, config)
+	inserted, err := p.InsertPricePluginConfig(ctx, pluginID, false, 10, config, nil)
 	if err != nil {
 		t.Fatalf("InsertPricePluginConfig: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestInsertPricePluginConfig_GetPricePluginConfig(t *testing.T) {
 func TestInsertPricePluginConfig_EmptyConfigStoredAsEmptyObject(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	inserted, err := p.InsertPricePluginConfig(ctx, "empty-price-config", true, 20, nil)
+	inserted, err := p.InsertPricePluginConfig(ctx, "empty-price-config", true, 20, nil, nil)
 	if err != nil {
 		t.Fatalf("InsertPricePluginConfig: %v", err)
 	}
@@ -79,11 +79,11 @@ func TestInsertPricePluginConfig_EmptyConfigStoredAsEmptyObject(t *testing.T) {
 func TestInsertPricePluginConfig_DuplicateRejected(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	_, err := p.InsertPricePluginConfig(ctx, "dup-price", false, 10, []byte("{}"))
+	_, err := p.InsertPricePluginConfig(ctx, "dup-price", false, 10, []byte("{}"), nil)
 	if err != nil {
 		t.Fatalf("first insert: %v", err)
 	}
-	_, err = p.InsertPricePluginConfig(ctx, "dup-price", true, 20, []byte(`{"x":1}`))
+	_, err = p.InsertPricePluginConfig(ctx, "dup-price", true, 20, []byte(`{"x":1}`), nil)
 	if err == nil {
 		t.Fatal("second insert with same plugin_id should fail")
 	}
@@ -92,14 +92,14 @@ func TestInsertPricePluginConfig_DuplicateRejected(t *testing.T) {
 func TestUpdatePricePluginConfig(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	_, err := p.InsertPricePluginConfig(ctx, "upd-price", false, 10, []byte(`{"key":"old"}`))
+	_, err := p.InsertPricePluginConfig(ctx, "upd-price", false, 10, []byte(`{"key":"old"}`), nil)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 
 	enabled := true
 	prec := 50
-	row, err := p.UpdatePricePluginConfig(ctx, "upd-price", &enabled, &prec, []byte(`{"key":"new"}`))
+	row, err := p.UpdatePricePluginConfig(ctx, "upd-price", &enabled, &prec, []byte(`{"key":"new"}`), nil)
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -117,8 +117,8 @@ func TestUpdatePricePluginConfig(t *testing.T) {
 func TestListEnabledPricePluginConfigs(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	_, _ = p.InsertPricePluginConfig(ctx, "enabled-price", true, 20, []byte("{}"))
-	_, _ = p.InsertPricePluginConfig(ctx, "disabled-price", false, 10, []byte("{}"))
+	_, _ = p.InsertPricePluginConfig(ctx, "enabled-price", true, 20, []byte("{}"), nil)
+	_, _ = p.InsertPricePluginConfig(ctx, "disabled-price", false, 10, []byte("{}"), nil)
 
 	rows, err := p.ListEnabledPricePluginConfigs(ctx)
 	if err != nil {
@@ -135,8 +135,8 @@ func TestListEnabledPricePluginConfigs(t *testing.T) {
 func TestListPricePluginConfigs(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	_, _ = p.InsertPricePluginConfig(ctx, "price-a", true, 20, []byte("{}"))
-	_, _ = p.InsertPricePluginConfig(ctx, "price-b", false, 10, []byte("{}"))
+	_, _ = p.InsertPricePluginConfig(ctx, "price-a", true, 20, []byte("{}"), nil)
+	_, _ = p.InsertPricePluginConfig(ctx, "price-b", false, 10, []byte("{}"), nil)
 
 	rows, err := p.ListPricePluginConfigs(ctx)
 	if err != nil {

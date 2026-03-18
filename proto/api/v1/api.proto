@@ -152,6 +152,14 @@ service ApiService {
   rpc ListDescriptionPlugins(ListDescriptionPluginsRequest) returns (ListDescriptionPluginsResponse);
   rpc UpdateDescriptionPlugin(UpdateDescriptionPluginRequest) returns (UpdateDescriptionPluginResponse);
 
+  // Price plugin config (admin-only). List all plugins; update enabled, precedence, and config JSON.
+  rpc ListPricePlugins(ListPricePluginsRequest) returns (ListPricePluginsResponse);
+  rpc UpdatePricePlugin(UpdatePricePluginRequest) returns (UpdatePricePluginResponse);
+
+  // Trigger a price fetch cycle (admin-only). Returns immediately; fetch runs async.
+  // For use by external cron jobs or after manual data corrections.
+  rpc TriggerPriceFetch(TriggerPriceFetchRequest) returns (TriggerPriceFetchResponse);
+
   // Telemetry counters (admin-only). Returns counters discovered from Redis (portfoliodb:counters:*).
   rpc ListTelemetryCounters(ListTelemetryCountersRequest) returns (ListTelemetryCountersResponse);
 }
@@ -377,6 +385,8 @@ message ListIdentifierPluginsResponse {
 message UpdateIdentifierPluginRequest {
   string plugin_id = 1;
   optional bool enabled = 2;
+  // Precedence must be unique across all identifier plugins. The constraint is
+  // deferrable, so swaps can be performed within a transaction.
   optional int32 precedence = 3;
   optional string config_json = 4;  // JSON object; merged or replaced per implementation
 }
@@ -403,6 +413,8 @@ message ListDescriptionPluginsResponse {
 message UpdateDescriptionPluginRequest {
   string plugin_id = 1;
   optional bool enabled = 2;
+  // Precedence must be unique across all description plugins. The constraint is
+  // deferrable, so swaps can be performed within a transaction.
   optional int32 precedence = 3;
   optional string config_json = 4;
 }
@@ -410,6 +422,38 @@ message UpdateDescriptionPluginRequest {
 message UpdateDescriptionPluginResponse {
   DescriptionPluginConfig plugin = 1;
 }
+
+// PricePluginConfig is one row from price_plugin_config (admin-only).
+message PricePluginConfig {
+  string plugin_id = 1;
+  bool enabled = 2;
+  int32 precedence = 3;
+  string config_json = 4;  // JSON object; may contain API keys; only admins can read/write
+  string display_name = 5; // human-readable name from the plugin (e.g. "Massive")
+}
+
+message ListPricePluginsRequest {}
+
+message ListPricePluginsResponse {
+  repeated PricePluginConfig plugins = 1;
+}
+
+message UpdatePricePluginRequest {
+  string plugin_id = 1;
+  optional bool enabled = 2;
+  // Precedence must be unique across all price plugins. The constraint is
+  // deferrable, so swaps can be performed within a transaction.
+  optional int32 precedence = 3;
+  optional string config_json = 4;
+}
+
+message UpdatePricePluginResponse {
+  PricePluginConfig plugin = 1;
+}
+
+message TriggerPriceFetchRequest {}
+
+message TriggerPriceFetchResponse {}
 
 message ListTelemetryCountersRequest {}
 

@@ -127,10 +127,12 @@ CREATE UNIQUE INDEX idx_instrument_identifiers_unique_non_null_domain ON instrum
 CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identifier_type, COALESCE(domain, ''), value);
 
 -- Plugin config: which plugins are enabled, precedence (unique), plugin-specific config.
+-- Precedence constraints are DEFERRABLE so that two plugins' precedences can be swapped
+-- within a single transaction without hitting a uniqueness violation mid-swap.
 CREATE TABLE identifier_plugin_config (
   plugin_id   TEXT PRIMARY KEY,
   enabled     BOOLEAN NOT NULL DEFAULT true,
-  precedence  INT NOT NULL UNIQUE,
+  precedence  INT NOT NULL UNIQUE DEFERRABLE INITIALLY IMMEDIATE,
   config      JSONB
 );
 
@@ -138,7 +140,15 @@ CREATE TABLE identifier_plugin_config (
 CREATE TABLE description_plugin_config (
   plugin_id   TEXT PRIMARY KEY,
   enabled     BOOLEAN NOT NULL DEFAULT true,
-  precedence  INT NOT NULL UNIQUE,
+  precedence  INT NOT NULL UNIQUE DEFERRABLE INITIALLY IMMEDIATE,
+  config      JSONB
+);
+
+-- Price plugin config: plugins that fetch EOD prices from external providers.
+CREATE TABLE price_plugin_config (
+  plugin_id   TEXT PRIMARY KEY,
+  enabled     BOOLEAN NOT NULL DEFAULT true,
+  precedence  INT NOT NULL UNIQUE DEFERRABLE INITIALLY IMMEDIATE,
   config      JSONB
 );
 

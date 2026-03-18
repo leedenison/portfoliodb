@@ -93,24 +93,5 @@ func (p *Postgres) InsertDescriptionPluginConfig(ctx context.Context, pluginID s
 
 // UpdateDescriptionPluginConfig implements db.DescriptionPluginDB.
 func (p *Postgres) UpdateDescriptionPluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte) (*db.PluginConfigRowFull, error) {
-	if enabled != nil {
-		if _, err := p.q.ExecContext(ctx, `UPDATE description_plugin_config SET enabled = $1 WHERE plugin_id = $2`, *enabled, pluginID); err != nil {
-			return nil, fmt.Errorf("update description plugin enabled: %w", err)
-		}
-	}
-	if precedence != nil {
-		if _, err := p.q.ExecContext(ctx, `UPDATE description_plugin_config SET precedence = $1 WHERE plugin_id = $2`, *precedence, pluginID); err != nil {
-			return nil, fmt.Errorf("update description plugin precedence: %w", err)
-		}
-	}
-	if config != nil {
-		payload := config
-		if len(payload) == 0 {
-			payload = []byte("{}")
-		}
-		if _, err := p.q.ExecContext(ctx, `UPDATE description_plugin_config SET config = $1 WHERE plugin_id = $2`, payload, pluginID); err != nil {
-			return nil, fmt.Errorf("update description plugin config: %w", err)
-		}
-	}
-	return p.GetDescriptionPluginConfig(ctx, pluginID)
+	return updatePluginConfig(ctx, p, "description_plugin_config", pluginID, enabled, precedence, config)
 }

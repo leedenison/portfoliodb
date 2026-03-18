@@ -164,6 +164,92 @@ func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([
 }
 
 // PriceGaps implements db.PriceCacheDB.
+// It computes held ranges minus price coverage per instrument using SubtractRanges.
 func (p *Postgres) PriceGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.InstrumentDateRanges, error) {
-	return nil, fmt.Errorf("not implemented")
+	held, err := p.HeldRanges(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("price gaps: held ranges: %w", err)
+	}
+	if len(held) == 0 {
+		return nil, nil
+	}
+
+	// Collect instrument IDs for coverage lookup.
+	ids := make([]string, len(held))
+	for i, h := range held {
+		ids[i] = h.InstrumentID
+	}
+
+	coverage, err := p.PriceCoverage(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("price gaps: coverage: %w", err)
+	}
+
+	// Index coverage by instrument ID.
+	coverageByInst := make(map[string][]db.DateRange, len(coverage))
+	for _, c := range coverage {
+		coverageByInst[c.InstrumentID] = c.Ranges
+	}
+
+	var result []db.InstrumentDateRanges
+	for _, h := range held {
+		gaps := db.SubtractRanges(h.Ranges, coverageByInst[h.InstrumentID])
+		if len(gaps) > 0 {
+			result = append(result, db.InstrumentDateRanges{
+				InstrumentID: h.InstrumentID,
+				Ranges:       gaps,
+			})
+		}
+	}
+	return result, nil
+}
+
+// UpsertPrices implements db.PriceCacheDB.
+// It bulk inserts EOD prices using unnest arrays, updating on conflict.
+func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error {
+	if len(prices) == 0 {
+		return nil
+	}
+
+	instIDs := make([]string, len(prices))
+	dates := make([]time.Time, len(prices))
+	opens := make([]*float64, len(prices))
+	highs := make([]*float64, len(prices))
+	lows := make([]*float64, len(prices))
+	closes := make([]float64, len(prices))
+	volumes := make([]*int64, len(prices))
+	providers := make([]string, len(prices))
+
+	for i, pr := range prices {
+		instIDs[i] = pr.InstrumentID
+		dates[i] = pr.PriceDate
+		opens[i] = pr.Open
+		highs[i] = pr.High
+		lows[i] = pr.Low
+		closes[i] = pr.Close
+		volumes[i] = pr.Volume
+		providers[i] = pr.DataProvider
+	}
+
+	_, err := p.q.ExecContext(ctx, `
+		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, fetched_at)
+		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::double precision[]),
+			unnest($4::double precision[]), unnest($5::double precision[]),
+			unnest($6::double precision[]), unnest($7::bigint[]),
+			unnest($8::text[]), now()
+		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
+			open = EXCLUDED.open,
+			high = EXCLUDED.high,
+			low = EXCLUDED.low,
+			close = EXCLUDED.close,
+			volume = EXCLUDED.volume,
+			data_provider = EXCLUDED.data_provider,
+			fetched_at = EXCLUDED.fetched_at
+	`, pq.Array(instIDs), pq.Array(dates), pq.Array(opens),
+		pq.Array(highs), pq.Array(lows), pq.Array(closes),
+		pq.Array(volumes), pq.Array(providers))
+	if err != nil {
+		return fmt.Errorf("upsert prices: %w", err)
+	}
+	return nil
 }

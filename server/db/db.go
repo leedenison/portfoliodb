@@ -19,6 +19,7 @@ type DB interface {
 	JobDB
 	InstrumentDB
 	DescriptionPluginDB
+	PricePluginDB
 	PriceCacheDB
 }
 
@@ -40,6 +41,18 @@ type HeldRangesOpts struct {
 	LookbackDays  int  // extend held_from backwards by N calendar days
 }
 
+// EODPrice is a single end-of-day price row for UpsertPrices.
+type EODPrice struct {
+	InstrumentID string
+	PriceDate    time.Time
+	Open         *float64
+	High         *float64
+	Low          *float64
+	Close        float64
+	Volume       *int64
+	DataProvider string
+}
+
 // PriceCacheDB provides price cache management.
 type PriceCacheDB interface {
 	// HeldRanges computes system-wide date ranges during which any user held
@@ -50,6 +63,23 @@ type PriceCacheDB interface {
 	PriceCoverage(ctx context.Context, instrumentIDs []string) ([]InstrumentDateRanges, error)
 	// PriceGaps computes needed ranges minus cached ranges per instrument.
 	PriceGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
+	// UpsertPrices inserts or updates EOD prices. On conflict (instrument_id, price_date)
+	// the existing row is overwritten with the new values.
+	UpsertPrices(ctx context.Context, prices []EODPrice) error
+}
+
+// PricePluginDB provides price plugin config management.
+type PricePluginDB interface {
+	// ListEnabledPricePluginConfigs returns enabled price plugins ordered by precedence descending.
+	ListEnabledPricePluginConfigs(ctx context.Context) ([]PluginConfigRow, error)
+	// ListPricePluginConfigs returns all price plugin config rows (for admin UI). Order by precedence descending.
+	ListPricePluginConfigs(ctx context.Context) ([]PluginConfigRowFull, error)
+	// GetPricePluginConfig returns the config row for pluginID. Returns (nil, sql.ErrNoRows) when no row exists.
+	GetPricePluginConfig(ctx context.Context, pluginID string) (*PluginConfigRowFull, error)
+	// InsertPricePluginConfig creates a new price plugin config row.
+	InsertPricePluginConfig(ctx context.Context, pluginID string, enabled bool, precedence int, config []byte) (*PluginConfigRowFull, error)
+	// UpdatePricePluginConfig updates enabled, precedence, and/or config for a price plugin.
+	UpdatePricePluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte) (*PluginConfigRowFull, error)
 }
 
 // DescriptionPluginDB provides description plugin config (extract identifier hints from broker descriptions).

@@ -1,6 +1,7 @@
 import type { Config } from 'tailwindcss';
 
 const config: Config = {
+  darkMode: 'media',
   content: [
     './app/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
@@ -14,20 +15,20 @@ const config: Config = {
       },
       colors: {
         primary: {
-          DEFAULT: "#3E6B8A",
-          dark: "#1B3A4B",
-          light: "#BFD3E1",
+          DEFAULT: "rgb(var(--color-primary) / <alpha-value>)",
+          dark: "rgb(var(--color-primary-dark) / <alpha-value>)",
+          light: "rgb(var(--color-primary-light) / <alpha-value>)",
         },
         accent: {
-          DEFAULT: "#E07A2F",
-          dark: "#B85E1D",
-          soft: "#F7D8C1",
+          DEFAULT: "rgb(var(--color-accent) / <alpha-value>)",
+          dark: "rgb(var(--color-accent-dark) / <alpha-value>)",
+          soft: "rgb(var(--color-accent-soft) / <alpha-value>)",
         },
-        background: "#F4F6F9",
-        surface: "#FFFFFF",
-        border: "#D6DEE7",
-        "text-primary": "#0F1720",
-        "text-muted": "#5A6B7A",
+        background: "rgb(var(--color-background) / <alpha-value>)",
+        surface: "rgb(var(--color-surface) / <alpha-value>)",
+        border: "rgb(var(--color-border) / <alpha-value>)",
+        "text-primary": "rgb(var(--color-text) / <alpha-value>)",
+        "text-muted": "rgb(var(--color-text-muted) / <alpha-value>)",
       },
       keyframes: {
         'fade-in': {

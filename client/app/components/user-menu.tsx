@@ -73,7 +73,7 @@ export function UserMenu({ inverted }: { inverted?: boolean }) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-black/5">
+        <div className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg bg-white dark:bg-surface shadow-lg ring-1 ring-black/5 dark:ring-white/10">
           <div className="border-b border-border px-4 py-3">
             <p className="truncate text-sm font-medium text-text-primary">
               {state.email}

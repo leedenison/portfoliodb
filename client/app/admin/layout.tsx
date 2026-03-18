@@ -96,7 +96,7 @@ export default function AdminLayout({
                   <li key={item.section}>
                     <span
                       className={`block py-1 text-xs font-semibold uppercase tracking-wider ${
-                        active ? "text-primary-dark" : "text-text-muted"
+                        active ? "text-primary-dark dark:text-primary" : "text-text-muted"
                       }`}
                     >
                       {item.section}
@@ -113,7 +113,7 @@ export default function AdminLayout({
                               href={href}
                               className={`block py-0.5 text-sm transition-colors ${
                                 pathname === href || pathname.startsWith(href + "/")
-                                  ? "font-semibold text-primary-dark"
+                                  ? "font-semibold text-primary-dark dark:text-primary"
                                   : "text-text-muted hover:text-primary"
                               }`}
                             >
@@ -133,7 +133,7 @@ export default function AdminLayout({
                     href={link.href}
                     className={`relative block py-1 text-sm transition-colors ${
                       pathname === link.href
-                        ? "font-semibold text-primary-dark before:absolute before:-left-[1px] before:top-0 before:bottom-0 before:w-[3px] before:rounded-full before:bg-accent"
+                        ? "font-semibold text-primary-dark dark:text-primary before:absolute before:-left-[1px] before:top-0 before:bottom-0 before:w-[3px] before:rounded-full before:bg-accent"
                         : "text-text-muted hover:text-primary"
                     }`}
                   >

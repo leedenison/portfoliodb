@@ -4,17 +4,33 @@
 
 @layer base {
   :root {
-    --color-primary: #3e6b8a;
-    --color-primary-dark: #1b3a4b;
-    --color-primary-light: #bfd3e1;
-    --color-accent: #e07a2f;
-    --color-accent-dark: #b85e1d;
-    --color-accent-soft: #f7d8c1;
-    --color-background: #f4f6f9;
-    --color-surface: #ffffff;
-    --color-border: #d6dee7;
-    --color-text: #0f1720;
-    --color-text-muted: #5a6b7a;
+    --color-primary: 62 107 138;
+    --color-primary-dark: 27 58 75;
+    --color-primary-light: 191 211 225;
+    --color-accent: 224 122 47;
+    --color-accent-dark: 184 94 29;
+    --color-accent-soft: 247 216 193;
+    --color-background: 244 246 249;
+    --color-surface: 255 255 255;
+    --color-border: 214 222 231;
+    --color-text: 15 23 32;
+    --color-text-muted: 90 107 122;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-primary: 85 153 204;
+      --color-primary-dark: 26 48 72;
+      --color-primary-light: 30 61 90;
+      --color-accent: 224 122 47;
+      --color-accent-dark: 200 104 32;
+      --color-accent-soft: 45 24 5;
+      --color-background: 13 17 23;
+      --color-surface: 22 28 39;
+      --color-border: 37 47 62;
+      --color-text: 226 232 240;
+      --color-text-muted: 122 143 168;
+    }
   }
 
   body {
@@ -39,16 +55,16 @@
   /* Subtle geometric grid background */
   .bg-grid {
     background-image:
-      linear-gradient(to right, var(--color-border) 1px, transparent 1px),
-      linear-gradient(to bottom, var(--color-border) 1px, transparent 1px);
+      linear-gradient(to right, rgb(var(--color-border)) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(var(--color-border)) 1px, transparent 1px);
     background-size: 48px 48px;
     background-position: center center;
   }
 
   .bg-grid-dense {
     background-image:
-      linear-gradient(to right, var(--color-border) 1px, transparent 1px),
-      linear-gradient(to bottom, var(--color-border) 1px, transparent 1px);
+      linear-gradient(to right, rgb(var(--color-border)) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(var(--color-border)) 1px, transparent 1px);
     background-size: 24px 24px;
   }
 
@@ -63,7 +79,7 @@
     left: 0;
     right: 0;
     height: 3px;
-    background: linear-gradient(90deg, var(--color-accent) 0%, var(--color-primary) 100%);
+    background: linear-gradient(90deg, rgb(var(--color-accent)) 0%, rgb(var(--color-primary)) 100%);
   }
 
   /* Header geometric pattern overlay */

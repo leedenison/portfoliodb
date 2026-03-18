@@ -146,10 +146,20 @@ CREATE TABLE description_plugin_config (
 
 -- Price plugin config: plugins that fetch EOD prices from external providers.
 CREATE TABLE price_plugin_config (
-  plugin_id   TEXT PRIMARY KEY,
-  enabled     BOOLEAN NOT NULL DEFAULT true,
-  precedence  INT NOT NULL UNIQUE DEFERRABLE INITIALLY IMMEDIATE,
-  config      JSONB
+  plugin_id       TEXT PRIMARY KEY,
+  enabled         BOOLEAN NOT NULL DEFAULT true,
+  precedence      INT NOT NULL UNIQUE DEFERRABLE INITIALLY IMMEDIATE,
+  config          JSONB,
+  max_history_days INT  -- NULL = unlimited lookback
+);
+
+-- Blocked (instrument, plugin) pairs that should not be retried.
+CREATE TABLE price_fetch_blocks (
+  instrument_id UUID NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
+  plugin_id     TEXT NOT NULL REFERENCES price_plugin_config(plugin_id) ON DELETE CASCADE,
+  reason        TEXT NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (instrument_id, plugin_id)
 );
 
 -- Identification errors for a job (e.g. plugin timeout, broker description only).

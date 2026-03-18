@@ -3,6 +3,7 @@ package price
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -115,8 +116,28 @@ func TestFetchPrices_NotFound(t *testing.T) {
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
 	_, err := p.FetchPrices(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock, from, to)
-	if err != pricefetcher.ErrNoData {
-		t.Errorf("expected ErrNoData on 404, got %v", err)
+	var permErr *pricefetcher.ErrPermanent
+	if !errors.As(err, &permErr) {
+		t.Errorf("expected ErrPermanent on 404, got %v", err)
+	}
+}
+
+func TestFetchPrices_Forbidden(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("plan limit exceeded"))
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, srv.Client())
+	ids := []pricefetcher.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	_, err := p.FetchPrices(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock, from, to)
+	var permErr *pricefetcher.ErrPermanent
+	if !errors.As(err, &permErr) {
+		t.Errorf("expected ErrPermanent on 403, got %v", err)
 	}
 }
 

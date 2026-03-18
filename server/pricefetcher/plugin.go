@@ -31,6 +31,13 @@ import (
 // instrument. The orchestrator tries the next plugin in precedence order.
 var ErrNoData = errors.New("no price data available")
 
+// ErrPermanent indicates a permanent failure for an (instrument, plugin)
+// pair (e.g. HTTP 403, 404). The orchestrator creates a fetch block so
+// this combination is never retried.
+type ErrPermanent struct{ Reason string }
+
+func (e *ErrPermanent) Error() string { return "permanent: " + e.Reason }
+
 // DailyBar is one day of OHLCV data. Close is always required; other fields
 // are optional (nil = not available from the provider).
 type DailyBar struct {

@@ -21,6 +21,16 @@ type DB interface {
 	DescriptionPluginDB
 	PricePluginDB
 	PriceCacheDB
+	PriceFetchBlockDB
+}
+
+// PriceFetchBlockDB manages permanently blocked (instrument, plugin) pairs.
+type PriceFetchBlockDB interface {
+	ListPriceFetchBlocks(ctx context.Context) ([]PriceFetchBlock, error)
+	// BlockedPluginsForInstruments returns blocked plugin IDs keyed by instrument ID.
+	BlockedPluginsForInstruments(ctx context.Context, instrumentIDs []string) (map[string]map[string]bool, error)
+	CreatePriceFetchBlock(ctx context.Context, instrumentID, pluginID, reason string) error
+	DeletePriceFetchBlock(ctx context.Context, instrumentID, pluginID string) error
 }
 
 // DateRange is a half-open [From, To) date range. Both values are midnight UTC.
@@ -77,9 +87,10 @@ type PricePluginDB interface {
 	// GetPricePluginConfig returns the config row for pluginID. Returns (nil, sql.ErrNoRows) when no row exists.
 	GetPricePluginConfig(ctx context.Context, pluginID string) (*PluginConfigRowFull, error)
 	// InsertPricePluginConfig creates a new price plugin config row.
-	InsertPricePluginConfig(ctx context.Context, pluginID string, enabled bool, precedence int, config []byte) (*PluginConfigRowFull, error)
-	// UpdatePricePluginConfig updates enabled, precedence, and/or config for a price plugin.
-	UpdatePricePluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte) (*PluginConfigRowFull, error)
+	InsertPricePluginConfig(ctx context.Context, pluginID string, enabled bool, precedence int, config []byte, maxHistoryDays *int) (*PluginConfigRowFull, error)
+	// UpdatePricePluginConfig updates enabled, precedence, config, and/or max_history_days for a price plugin.
+	// For maxHistoryDays: nil = no change, pointer to 0 = clear (NULL), pointer to N = set.
+	UpdatePricePluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte, maxHistoryDays *int) (*PluginConfigRowFull, error)
 }
 
 // DescriptionPluginDB provides description plugin config (extract identifier hints from broker descriptions).
@@ -181,18 +192,30 @@ type IdentifierInput struct {
 }
 
 // PluginConfigRow is one row from identifier_plugin_config for enabled plugins.
+// MaxHistoryDays is only populated for price plugins; nil for identifier/description plugins.
 type PluginConfigRow struct {
-	PluginID   string
-	Precedence int
-	Config     []byte
+	PluginID       string
+	Precedence     int
+	Config         []byte
+	MaxHistoryDays *int
 }
 
 // PluginConfigRowFull is a full row from identifier_plugin_config (includes enabled). Used for admin list/update.
+// MaxHistoryDays is only populated for price plugins; nil for identifier/description plugins.
 type PluginConfigRowFull struct {
-	PluginID   string
-	Enabled    bool
-	Precedence int
-	Config     []byte
+	PluginID       string
+	Enabled        bool
+	Precedence     int
+	Config         []byte
+	MaxHistoryDays *int
+}
+
+// PriceFetchBlock records a permanently blocked (instrument, plugin) pair.
+type PriceFetchBlock struct {
+	InstrumentID string
+	PluginID     string
+	Reason       string
+	CreatedAt    time.Time
 }
 
 // Valid asset class values (controlled vocabulary).

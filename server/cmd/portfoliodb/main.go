@@ -288,7 +288,7 @@ func ensurePricePluginConfigs(ctx context.Context, database db.PricePluginDB, re
 			}
 			defaultConfig := p.DefaultConfig()
 			precedence := 10 * (i + 1)
-			if _, err := database.InsertPricePluginConfig(ctx, id, false, precedence, defaultConfig); err != nil {
+			if _, err := database.InsertPricePluginConfig(ctx, id, false, precedence, defaultConfig, nil); err != nil {
 				return err
 			}
 		}

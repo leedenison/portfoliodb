@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/db/mock"
+	"go.uber.org/mock/gomock"
 )
 
 func TestPluginAccepts(t *testing.T) {
@@ -130,4 +132,189 @@ func (s *filterStub) AcceptableCurrencies() map[string]bool      { return s.curr
 func (s *filterStub) DefaultConfig() []byte                      { return nil }
 func (s *filterStub) FetchPrices(_ context.Context, _ []byte, _ []Identifier, _ string, _, _ time.Time) (*FetchResult, error) {
 	return nil, ErrNoData
+}
+
+// fetchStub is a test plugin that records calls and returns configured results.
+type fetchStub struct {
+	filterStub
+	idTypes []string
+	calls   int
+	result  *FetchResult
+	err     error
+}
+
+func (s *fetchStub) SupportedIdentifierTypes() []string { return s.idTypes }
+func (s *fetchStub) FetchPrices(_ context.Context, _ []byte, _ []Identifier, _ string, _, _ time.Time) (*FetchResult, error) {
+	s.calls++
+	return s.result, s.err
+}
+
+func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	instID := "inst-1"
+	pluginID := "test-plugin"
+
+	stub := &fetchStub{
+		idTypes: []string{"TICKER"},
+		result:  &FetchResult{Bars: []DailyBar{{Date: time.Now(), Close: 100}}},
+	}
+	reg := NewRegistry()
+	reg.Register(pluginID, stub)
+
+	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
+		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
+	}, nil)
+	mockDB.EXPECT().ListEnabledPricePluginConfigs(gomock.Any()).Return([]db.PluginConfigRow{
+		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
+	}, nil)
+	// Return blocked for this (instrument, plugin) pair.
+	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(
+		map[string]map[string]bool{instID: {pluginID: true}}, nil)
+	mockDB.EXPECT().GetInstrument(gomock.Any(), instID).Return(&db.InstrumentRow{
+		ID:         instID,
+		AssetClass: "STOCK",
+		Identifiers: []db.IdentifierInput{
+			{Type: "TICKER", Value: "AAPL"},
+		},
+	}, nil)
+
+	runCycle(ctx, mockDB, reg, nil, nil)
+
+	if stub.calls != 0 {
+		t.Errorf("expected 0 FetchPrices calls for blocked plugin, got %d", stub.calls)
+	}
+}
+
+func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	instID := "inst-1"
+	pluginID := "test-plugin"
+
+	stub := &fetchStub{
+		idTypes: []string{"TICKER"},
+		err:     &ErrPermanent{Reason: "ticker not found"},
+	}
+	reg := NewRegistry()
+	reg.Register(pluginID, stub)
+
+	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
+		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
+	}, nil)
+	mockDB.EXPECT().ListEnabledPricePluginConfigs(gomock.Any()).Return([]db.PluginConfigRow{
+		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
+	}, nil)
+	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().GetInstrument(gomock.Any(), instID).Return(&db.InstrumentRow{
+		ID:         instID,
+		AssetClass: "STOCK",
+		Identifiers: []db.IdentifierInput{
+			{Type: "TICKER", Value: "AAPL"},
+		},
+	}, nil)
+	mockDB.EXPECT().CreatePriceFetchBlock(gomock.Any(), instID, pluginID, "ticker not found").Return(nil)
+
+	runCycle(ctx, mockDB, reg, nil, nil)
+
+	if stub.calls != 1 {
+		t.Errorf("expected 1 FetchPrices call, got %d", stub.calls)
+	}
+}
+
+func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	instID := "inst-1"
+	pluginID := "test-plugin"
+	maxDays := 30
+
+	stub := &fetchStub{
+		idTypes: []string{"TICKER"},
+		result:  &FetchResult{Bars: []DailyBar{{Date: time.Now(), Close: 100}}},
+	}
+	reg := NewRegistry()
+	reg.Register(pluginID, stub)
+
+	now := time.Now().UTC().Truncate(db.Day)
+	// Gap that starts well before the max history limit.
+	from := now.AddDate(0, 0, -60)
+	to := now
+
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
+		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
+	}, nil)
+	mockDB.EXPECT().ListEnabledPricePluginConfigs(gomock.Any()).Return([]db.PluginConfigRow{
+		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
+	}, nil)
+	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().GetInstrument(gomock.Any(), instID).Return(&db.InstrumentRow{
+		ID:         instID,
+		AssetClass: "STOCK",
+		Identifiers: []db.IdentifierInput{
+			{Type: "TICKER", Value: "AAPL"},
+		},
+	}, nil)
+	mockDB.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil)
+
+	runCycle(ctx, mockDB, reg, nil, nil)
+
+	if stub.calls != 1 {
+		t.Errorf("expected 1 FetchPrices call (truncated), got %d", stub.calls)
+	}
+}
+
+func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	instID := "inst-1"
+	pluginID := "test-plugin"
+	maxDays := 30
+
+	stub := &fetchStub{
+		idTypes: []string{"TICKER"},
+		result:  &FetchResult{Bars: []DailyBar{{Date: time.Now(), Close: 100}}},
+	}
+	reg := NewRegistry()
+	reg.Register(pluginID, stub)
+
+	now := time.Now().UTC().Truncate(db.Day)
+	// Gap entirely before the max history limit.
+	from := now.AddDate(0, 0, -90)
+	to := now.AddDate(0, 0, -60)
+
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
+		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
+	}, nil)
+	mockDB.EXPECT().ListEnabledPricePluginConfigs(gomock.Any()).Return([]db.PluginConfigRow{
+		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
+	}, nil)
+	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().GetInstrument(gomock.Any(), instID).Return(&db.InstrumentRow{
+		ID:         instID,
+		AssetClass: "STOCK",
+		Identifiers: []db.IdentifierInput{
+			{Type: "TICKER", Value: "AAPL"},
+		},
+	}, nil)
+
+	runCycle(ctx, mockDB, reg, nil, nil)
+
+	if stub.calls != 0 {
+		t.Errorf("expected 0 FetchPrices calls for gap older than max history, got %d", stub.calls)
+	}
 }

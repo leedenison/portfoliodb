@@ -1,0 +1,211 @@
+"use client";
+
+import { useRef, useState } from "react";
+import { Modal } from "@/app/components/modal";
+import { ErrorAlert } from "@/app/components/error-alert";
+import { jsonToInstruments } from "@/lib/json/instruments";
+import { importInstruments } from "@/lib/portfolio-api";
+import type { InstrumentParseResult } from "@/lib/json/instruments";
+import type { ImportInstrumentsResult } from "@/lib/portfolio-api";
+
+type Phase = "idle" | "preview" | "result";
+
+export function ImportInstrumentsModal({
+  open,
+  onClose,
+  onComplete,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onComplete?: () => void;
+}) {
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [parseResult, setParseResult] = useState<InstrumentParseResult | null>(null);
+  const [importResult, setImportResult] = useState<ImportInstrumentsResult | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function reset() {
+    setPhase("idle");
+    setParseResult(null);
+    setImportResult(null);
+    setImporting(false);
+    setImportError(null);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function handleClose() {
+    if (importing) return;
+    reset();
+    onClose();
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const result = jsonToInstruments(text);
+      setParseResult(result);
+      setPhase("preview");
+    };
+    reader.readAsText(file);
+  }
+
+  async function handleImport() {
+    if (!parseResult) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      const result = await importInstruments(parseResult.instruments);
+      setImportResult(result);
+      setPhase("result");
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function handleDone() {
+    onComplete?.();
+    reset();
+    onClose();
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={handleClose}
+      title="Import instruments"
+      closable={!importing}
+    >
+      <div className="flex flex-col gap-4 overflow-y-auto p-5">
+        {phase === "idle" && (
+          <div className="space-y-3">
+            <p className="text-sm text-text-muted">
+              Select a JSON file to import instrument identities. Instruments will be upserted.
+            </p>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".json"
+              onChange={handleFileChange}
+              className="block text-sm text-text-primary file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-text-primary file:transition-colors hover:file:bg-primary-light/15"
+            />
+          </div>
+        )}
+
+        {phase === "preview" && parseResult && (
+          <div className="space-y-4">
+            {parseResult.errors.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-text-primary">
+                  Parse errors ({parseResult.errors.length})
+                </p>
+                <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-surface">
+                  <table className="w-full border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-primary-dark/[0.03]">
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Row</th>
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Field</th>
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Error</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parseResult.errors.map((e, i) => (
+                        <tr key={i} className="border-b border-border/40 last:border-0">
+                          <td className="px-3 py-1.5 font-mono text-text-muted">{e.rowIndex}</td>
+                          <td className="px-3 py-1.5 font-mono text-text-primary">{e.field}</td>
+                          <td className="px-3 py-1.5 text-accent-dark">{e.message}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {parseResult.instruments.length > 0 && (
+                  <p className="text-xs text-text-muted">
+                    {parseResult.instruments.length} instrument{parseResult.instruments.length !== 1 ? "s" : ""} parsed successfully (with errors above).
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-text-primary">
+                Ready to import{" "}
+                <span className="font-semibold">{parseResult.instruments.length}</span>{" "}
+                instrument{parseResult.instruments.length !== 1 ? "s" : ""}.
+              </p>
+            )}
+
+            {importError && <ErrorAlert>{importError}</ErrorAlert>}
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleImport}
+                disabled={importing || parseResult.instruments.length === 0}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {importing ? "Importing..." : "Import"}
+              </button>
+              <button
+                type="button"
+                onClick={reset}
+                disabled={importing}
+                className="rounded-md border border-border px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {phase === "result" && importResult && (
+          <div className="space-y-4">
+            <p className="text-sm text-text-primary">
+              Import complete:{" "}
+              <span className="font-semibold">{importResult.ensuredCount}</span>{" "}
+              instrument{importResult.ensuredCount !== 1 ? "s" : ""} ensured.
+            </p>
+
+            {importResult.errors.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-accent-dark">
+                  {importResult.errors.length} error{importResult.errors.length !== 1 ? "s" : ""}
+                </p>
+                <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-surface">
+                  <table className="w-full border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-primary-dark/[0.03]">
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Index</th>
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Error</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importResult.errors.map((e, i) => (
+                        <tr key={i} className="border-b border-border/40 last:border-0">
+                          <td className="px-3 py-1.5 font-mono text-text-muted">{e.index}</td>
+                          <td className="px-3 py-1.5 text-accent-dark">{e.message}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleDone}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark"
+            >
+              Done
+            </button>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}

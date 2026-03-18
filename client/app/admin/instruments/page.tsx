@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
-import { listInstruments } from "@/lib/portfolio-api";
+import { exportInstruments, listInstruments } from "@/lib/portfolio-api";
+import { instrumentsToJson } from "@/lib/json/instruments";
+import { ImportInstrumentsModal } from "./import-modal";
 import { IdentifierType } from "@/gen/api/v1/api_pb";
 import type { Instrument, InstrumentIdentifier } from "@/gen/api/v1/api_pb";
 
@@ -67,6 +69,10 @@ export default function AdminInstrumentsPage() {
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Debounce search input.
   useEffect(() => {
@@ -94,6 +100,29 @@ export default function AdminInstrumentsPage() {
     [activeClasses]
   );
 
+  async function handleExport() {
+    setExportLoading(true);
+    setExportError(null);
+    try {
+      const instruments: Instrument[] = [];
+      for await (const inst of exportInstruments()) {
+        instruments.push(inst);
+      }
+      const json = instrumentsToJson(instruments);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "instruments.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExportLoading(false);
+    }
+  }
+
   const fetchInstruments = useCallback(
     async (pageToken: string | null) => {
       const classes = assetClassesKey ? assetClassesKey.split(",") : [];
@@ -108,7 +137,7 @@ export default function AdminInstrumentsPage() {
         nextPageToken: result.nextPageToken,
       };
     },
-    [debouncedSearch, assetClassesKey]
+    [debouncedSearch, assetClassesKey, refreshKey] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const {
@@ -134,7 +163,25 @@ export default function AdminInstrumentsPage() {
             {totalCount} total
           </span>
         )}
+        <div className="ml-auto flex gap-2">
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={exportLoading}
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {exportLoading ? "Exporting..." : "Export JSON"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setImportOpen(true)}
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15"
+          >
+            Import JSON
+          </button>
+        </div>
       </div>
+      {exportError && <ErrorAlert>{exportError}</ErrorAlert>}
 
       {/* Search and filters */}
       <div className="space-y-3">
@@ -272,6 +319,12 @@ export default function AdminInstrumentsPage() {
           />
         </>
       )}
+
+      <ImportInstrumentsModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onComplete={() => setRefreshKey((k) => k + 1)}
+      />
     </div>
   );
 }

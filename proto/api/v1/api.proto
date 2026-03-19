@@ -87,6 +87,15 @@ message Instrument {
   google.protobuf.Timestamp valid_from = 8;  // When the instrument was available to trade (optional).
   google.protobuf.Timestamp valid_to = 9;    // When the instrument ceased to be available (optional).
   Instrument underlying = 10; // Populated in ListTxs/GetHoldings so clients need not fetch separately.
+  Exchange exchange_info = 11; // Rich exchange data from exchanges table JOIN; populated when exchange_mic is set.
+}
+
+// Exchange is ISO 10383 MIC reference data for an instrument's exchange.
+message Exchange {
+  string mic = 1;
+  string name = 2;
+  string acronym = 3;
+  string country_code = 4;
 }
 
 // Tx represents one broker-reported transaction.

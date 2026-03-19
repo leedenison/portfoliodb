@@ -16,7 +16,7 @@ func stockFromSearch(r *client.SearchResult) (*identifier.Instrument, []identifi
 	}
 	inst := &identifier.Instrument{
 		AssetClass: db.AssetClassStock,
-		Exchange:   r.Exchange,
+		Exchange:   "", // EODHD exchange codes (e.g. "US", "XETRA") are not ISO 10383 MICs
 		Currency:   strings.ToUpper(r.Currency),
 		Name:       r.Name,
 	}

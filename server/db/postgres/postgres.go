@@ -213,28 +213,34 @@ func inClauseUUIDs(ids []uuid.UUID) (string, []interface{}) {
 	return strings.Join(placeholders, ","), args
 }
 
-// instrumentRow is the sqlx-scannable shape of an instruments row.
+// instrumentRow is the sqlx-scannable shape of an instruments row with optional exchange JOIN fields.
 type instrumentRow struct {
-	ID           uuid.UUID  `db:"id"`
-	AssetClass   *string    `db:"asset_class"`
-	Exchange     *string    `db:"exchange"`
-	Currency     *string    `db:"currency"`
-	Name         *string    `db:"name"`
-	UnderlyingID *string    `db:"underlying_id"`
-	ValidFrom    *time.Time `db:"valid_from"`
-	ValidTo      *time.Time `db:"valid_to"`
+	ID                  uuid.UUID  `db:"id"`
+	AssetClass          *string    `db:"asset_class"`
+	ExchangeMIC         *string    `db:"exchange_mic"`
+	Currency            *string    `db:"currency"`
+	Name                *string    `db:"name"`
+	UnderlyingID        *string    `db:"underlying_id"`
+	ValidFrom           *time.Time `db:"valid_from"`
+	ValidTo             *time.Time `db:"valid_to"`
+	ExchangeName        *string    `db:"exchange_name"`
+	ExchangeAcronym     *string    `db:"exchange_acronym"`
+	ExchangeCountryCode *string    `db:"exchange_country_code"`
 }
 
 func (r *instrumentRow) toDBRow() *db.InstrumentRow {
 	return &db.InstrumentRow{
-		ID:           r.ID.String(),
-		AssetClass:   r.AssetClass,
-		Exchange:     r.Exchange,
-		Currency:     r.Currency,
-		Name:         r.Name,
-		UnderlyingID: r.UnderlyingID,
-		ValidFrom:    r.ValidFrom,
-		ValidTo:      r.ValidTo,
+		ID:                  r.ID.String(),
+		AssetClass:          r.AssetClass,
+		ExchangeMIC:         r.ExchangeMIC,
+		Currency:            r.Currency,
+		Name:                r.Name,
+		UnderlyingID:        r.UnderlyingID,
+		ValidFrom:           r.ValidFrom,
+		ValidTo:             r.ValidTo,
+		ExchangeName:        r.ExchangeName,
+		ExchangeAcronym:     r.ExchangeAcronym,
+		ExchangeCountryCode: r.ExchangeCountryCode,
 	}
 }
 

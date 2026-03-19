@@ -207,7 +207,13 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 		return nil, fmt.Errorf("invalid instrument id: %w", err)
 	}
 	var r instrumentRow
-	err = p.q.GetContext(ctx, &r, `SELECT id, asset_class, exchange, currency, name, underlying_id, valid_from, valid_to FROM instruments WHERE id = $1`, instUUID)
+	err = p.q.GetContext(ctx, &r, `
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
+		FROM instruments i
+		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
+		WHERE i.id = $1
+	`, instUUID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -227,16 +233,20 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 	var err error
 	if exchangeFilter != "" {
 		err = p.q.SelectContext(ctx, &irows, `
-			SELECT i.id, i.asset_class, i.exchange, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to
+			SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+			       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 			FROM instruments i
+			LEFT JOIN exchanges e ON e.mic = i.exchange_mic
 			WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)
-			AND i.exchange = $1
+			AND i.exchange_mic = $1
 			ORDER BY i.id
 		`, exchangeFilter)
 	} else {
 		err = p.q.SelectContext(ctx, &irows, `
-			SELECT i.id, i.asset_class, i.exchange, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to
+			SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+			       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 			FROM instruments i
+			LEFT JOIN exchanges e ON e.mic = i.exchange_mic
 			WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)
 			ORDER BY i.id
 		`)
@@ -280,8 +290,11 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	inClause, args := inClauseUUIDs(uuids)
 	var irows []instrumentRow
 	err := p.q.SelectContext(ctx, &irows, fmt.Sprintf(`
-		SELECT i.id, i.asset_class, i.exchange, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to
-		FROM instruments i WHERE i.id IN (%s)
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
+		FROM instruments i
+		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
+		WHERE i.id IN (%s)
 	`, inClause), args...)
 	if err != nil {
 		return nil, fmt.Errorf("list instruments by ids: %w", err)
@@ -302,7 +315,7 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 // Finds by any identifier; if not found, creates instrument and inserts identifiers.
 // When multiple identifiers resolve to different instruments, merges them eagerly and returns the survivor.
 // On unique violation (identifier already exists for another instrument), returns the existing instrument ID (eager merge).
-func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchange, currency, name string, identifiers []db.IdentifierInput, underlyingID string, validFrom, validTo *time.Time) (string, error) {
+func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name string, identifiers []db.IdentifierInput, underlyingID string, validFrom, validTo *time.Time) (string, error) {
 	if len(identifiers) == 0 {
 		return "", fmt.Errorf("at least one identifier required")
 	}
@@ -366,10 +379,10 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchange, c
 	var newID uuid.UUID
 	err := p.runInTx(ctx, func(exec queryable) error {
 		err := exec.QueryRowContext(ctx, `
-			INSERT INTO instruments (asset_class, exchange, currency, name, underlying_id, valid_from, valid_to)
+			INSERT INTO instruments (asset_class, exchange_mic, currency, name, underlying_id, valid_from, valid_to)
 			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			RETURNING id
-		`, nullStr(assetClass), nullStr(exchange), nullStr(currency), nullStr(name), nullUUID(underlyingUUID), nullTime(validFrom), nullTime(validTo)).Scan(&newID)
+		`, nullStr(assetClass), nullStr(exchangeMIC), nullStr(currency), nullStr(name), nullUUID(underlyingUUID), nullTime(validFrom), nullTime(validTo)).Scan(&newID)
 		if err != nil {
 			return err
 		}
@@ -456,8 +469,10 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	}
 
 	q := fmt.Sprintf(`
-		SELECT i.id, i.asset_class, i.exchange, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 		FROM instruments i
+		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
 		%s
 		ORDER BY lower(%s)
 		LIMIT $%d OFFSET $%d
@@ -486,4 +501,17 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 		return nil, 0, "", fmt.Errorf("list instrument identifiers: %w", err)
 	}
 	return results, total, nextToken, nil
+}
+
+// ValidateMIC implements db.InstrumentDB.
+func (p *Postgres) ValidateMIC(ctx context.Context, mic string) (bool, error) {
+	var n int
+	err := p.q.QueryRowContext(ctx, `SELECT 1 FROM exchanges WHERE mic = $1`, mic).Scan(&n)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("validate mic: %w", err)
+	}
+	return true, nil
 }

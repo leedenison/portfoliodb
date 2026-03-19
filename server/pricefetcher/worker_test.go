@@ -22,7 +22,7 @@ func TestPluginAccepts(t *testing.T) {
 		{
 			name:   "all nil filters accept anything",
 			plugin: &filterStub{},
-			inst:   &db.InstrumentRow{AssetClass: strPtr("STOCK"), Exchange: strPtr("XNAS"), Currency: strPtr("USD")},
+			inst:   &db.InstrumentRow{AssetClass: strPtr("STOCK"), ExchangeMIC: strPtr("XNAS"), Currency: strPtr("USD")},
 			want:   true,
 		},
 		{
@@ -64,7 +64,7 @@ func TestPluginAccepts(t *testing.T) {
 		{
 			name:   "exchange mismatch",
 			plugin: &filterStub{exchanges: map[string]bool{"XNAS": true}},
-			inst:   &db.InstrumentRow{Exchange: strPtr("XNYS")},
+			inst:   &db.InstrumentRow{ExchangeMIC: strPtr("XNYS")},
 			want:   false,
 		},
 		{

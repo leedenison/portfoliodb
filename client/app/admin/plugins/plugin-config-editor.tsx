@@ -123,9 +123,6 @@ function SortablePluginCard<T extends PluginConfig>({
           <span className="font-medium text-text-primary">
             {plugin.pluginId}
           </span>
-          <span className="text-sm text-text-muted">
-            precedence {plugin.precedence}
-          </span>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -332,28 +329,50 @@ export function PluginConfigEditor<T extends PluginConfig>({
         onDragEnd={handleDragEnd}
       >
         <SortableContext items={pluginIds} strategy={verticalListSortingStrategy}>
-          <ul className="space-y-4">
-            {plugins.map((plugin) => (
-              <SortablePluginCard
-                key={plugin.pluginId}
-                plugin={plugin}
-                editingId={editingId}
-                editConfig={editConfig}
-                saving={saving}
-                onToggleEnabled={handleToggleEnabled}
-                onStartEdit={startEdit}
-                onSaveEdit={saveEdit}
-                onCancelEdit={cancelEdit}
-                onEditConfigChange={setEditConfig}
-                renderExtra={renderExtra}
-                onUpdate={(updated) =>
-                  setPlugins((prev) =>
-                    prev.map((p) => (p.pluginId === updated.pluginId ? updated : p))
-                  )
-                }
-              />
-            ))}
-          </ul>
+          <div className="flex gap-4">
+            {plugins.length > 1 && (
+              <div className="flex flex-col items-center py-4 text-text-muted select-none">
+                <span className="text-xs font-medium tracking-wide [writing-mode:vertical-lr] rotate-180">
+                  Precedence
+                </span>
+                <svg
+                  width="12"
+                  height="100%"
+                  viewBox="0 0 12 48"
+                  preserveAspectRatio="none"
+                  className="mt-1 flex-1"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
+                  <line x1="6" y1="0" x2="6" y2="42" />
+                  <polyline points="2,38 6,46 10,38" />
+                </svg>
+              </div>
+            )}
+            <ul className="flex-1 space-y-4">
+              {plugins.map((plugin) => (
+                <SortablePluginCard
+                  key={plugin.pluginId}
+                  plugin={plugin}
+                  editingId={editingId}
+                  editConfig={editConfig}
+                  saving={saving}
+                  onToggleEnabled={handleToggleEnabled}
+                  onStartEdit={startEdit}
+                  onSaveEdit={saveEdit}
+                  onCancelEdit={cancelEdit}
+                  onEditConfigChange={setEditConfig}
+                  renderExtra={renderExtra}
+                  onUpdate={(updated) =>
+                    setPlugins((prev) =>
+                      prev.map((p) => (p.pluginId === updated.pluginId ? updated : p))
+                    )
+                  }
+                />
+              ))}
+            </ul>
+          </div>
         </SortableContext>
       </DndContext>
       {plugins.length === 0 && !loading && (

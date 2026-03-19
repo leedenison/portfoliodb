@@ -176,3 +176,26 @@ func (p *Postgres) UpdatePluginConfig(ctx context.Context, category, pluginID st
 	}
 	return &r, nil
 }
+
+// ReorderPluginConfigs implements db.PluginConfigDB.
+func (p *Postgres) ReorderPluginConfigs(ctx context.Context, category string, pluginIDs []string) error {
+	return p.runInTx(ctx, func(exec queryable) error {
+		if _, err := exec.ExecContext(ctx, `SET CONSTRAINTS plugin_config_category_precedence_key DEFERRED`); err != nil {
+			return fmt.Errorf("defer constraints: %w", err)
+		}
+		for i, pid := range pluginIDs {
+			prec := len(pluginIDs) - i
+			res, err := exec.ExecContext(ctx,
+				`UPDATE plugin_config SET precedence = $1 WHERE category = $2 AND plugin_id = $3`,
+				prec, category, pid)
+			if err != nil {
+				return fmt.Errorf("update precedence for %s: %w", pid, err)
+			}
+			n, _ := res.RowsAffected()
+			if n == 0 {
+				return fmt.Errorf("plugin %s not found in category %s", pid, category)
+			}
+		}
+		return nil
+	})
+}

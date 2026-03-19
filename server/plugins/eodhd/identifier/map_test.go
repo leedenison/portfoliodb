@@ -24,8 +24,8 @@ func TestStockFromSearch(t *testing.T) {
 	if inst.AssetClass != "STOCK" {
 		t.Errorf("AssetClass = %q, want STOCK", inst.AssetClass)
 	}
-	if inst.Exchange != "US" {
-		t.Errorf("Exchange = %q, want US", inst.Exchange)
+	if inst.Exchange != "" {
+		t.Errorf("Exchange = %q, want empty (EODHD codes are not MICs)", inst.Exchange)
 	}
 	if inst.Currency != "USD" {
 		t.Errorf("Currency = %q, want USD", inst.Currency)

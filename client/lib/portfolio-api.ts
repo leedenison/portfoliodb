@@ -27,6 +27,8 @@ import {
   ListPriceFetchBlocksRequestSchema,
   ListPriceFetchBlocksResponseSchema,
   DeletePriceFetchBlockRequestSchema,
+  ListPricesRequestSchema,
+  ListPricesResponseSchema,
   ListPricePluginsRequestSchema,
   ListPricePluginsResponseSchema,
   ListInstrumentsRequestSchema,
@@ -53,6 +55,7 @@ import {
 } from "@/gen/api/v1/api_pb";
 import type {
   DescriptionPluginConfig,
+  EODPriceProto,
   Holding,
   IdentificationError,
   IdentifierPluginConfig,
@@ -369,6 +372,43 @@ export async function deletePriceFetchBlock(instrumentId: string, pluginId: stri
   await unaryFetch(base, ApiServicePrefix + "DeletePriceFetchBlock", toBinary(DeletePriceFetchBlockRequestSchema, req), {
     credentials: "include",
   });
+}
+
+/** Result of ListPrices for the admin prices page. */
+export interface ListPricesResult {
+  prices: EODPriceProto[];
+  nextPageToken: string | null;
+  totalCount: number;
+}
+
+export async function listPrices(params?: {
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  dataProvider?: string;
+  pageToken?: string | null;
+}): Promise<ListPricesResult> {
+  const base = getBaseUrl();
+  const req = create(ListPricesRequestSchema, {
+    search: params?.search ?? "",
+    dateFrom: params?.dateFrom ?? "",
+    dateTo: params?.dateTo ?? "",
+    dataProvider: params?.dataProvider ?? "",
+    pageSize: PAGE_SIZE,
+    pageToken: params?.pageToken ?? "",
+  });
+  const resBytes = await unaryFetch(
+    base,
+    ApiServicePrefix + "ListPrices",
+    toBinary(ListPricesRequestSchema, req),
+    { credentials: "include" }
+  );
+  const res = fromBinary(ListPricesResponseSchema, resBytes);
+  return {
+    prices: res.prices,
+    nextPageToken: res.nextPageToken || null,
+    totalCount: res.totalCount,
+  };
 }
 
 /** Result of ListInstruments for the instruments page. */

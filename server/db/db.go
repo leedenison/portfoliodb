@@ -10,6 +10,13 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// Plugin category constants.
+const (
+	PluginCategoryIdentifier  = "identifier"
+	PluginCategoryDescription = "description"
+	PluginCategoryPrice       = "price"
+)
+
 // DB is the database abstraction used by the service layer.
 type DB interface {
 	UserDB
@@ -18,8 +25,7 @@ type DB interface {
 	HoldingsDB
 	JobDB
 	InstrumentDB
-	DescriptionPluginDB
-	PricePluginDB
+	PluginConfigDB
 	PriceCacheDB
 	PriceFetchBlockDB
 	EODPriceListDB
@@ -79,33 +85,19 @@ type PriceCacheDB interface {
 	UpsertPrices(ctx context.Context, prices []EODPrice) error
 }
 
-// PricePluginDB provides price plugin config management.
-type PricePluginDB interface {
-	// ListEnabledPricePluginConfigs returns enabled price plugins ordered by precedence descending.
-	ListEnabledPricePluginConfigs(ctx context.Context) ([]PluginConfigRow, error)
-	// ListPricePluginConfigs returns all price plugin config rows (for admin UI). Order by precedence descending.
-	ListPricePluginConfigs(ctx context.Context) ([]PluginConfigRowFull, error)
-	// GetPricePluginConfig returns the config row for pluginID. Returns (nil, sql.ErrNoRows) when no row exists.
-	GetPricePluginConfig(ctx context.Context, pluginID string) (*PluginConfigRowFull, error)
-	// InsertPricePluginConfig creates a new price plugin config row.
-	InsertPricePluginConfig(ctx context.Context, pluginID string, enabled bool, precedence int, config []byte, maxHistoryDays *int) (*PluginConfigRowFull, error)
-	// UpdatePricePluginConfig updates enabled, precedence, config, and/or max_history_days for a price plugin.
+// PluginConfigDB provides unified plugin config CRUD for all categories.
+type PluginConfigDB interface {
+	// ListEnabledPluginConfigs returns enabled plugins for the given category, ordered by precedence descending.
+	ListEnabledPluginConfigs(ctx context.Context, category string) ([]PluginConfigRow, error)
+	// ListPluginConfigs returns all plugin config rows for the given category (for admin UI). Order by precedence descending.
+	ListPluginConfigs(ctx context.Context, category string) ([]PluginConfigRowFull, error)
+	// GetPluginConfig returns the config row for (category, pluginID). Returns (nil, sql.ErrNoRows) when no row exists.
+	GetPluginConfig(ctx context.Context, category, pluginID string) (*PluginConfigRowFull, error)
+	// InsertPluginConfig creates a new plugin config row.
+	InsertPluginConfig(ctx context.Context, category, pluginID string, enabled bool, precedence int, config []byte, maxHistoryDays *int) (*PluginConfigRowFull, error)
+	// UpdatePluginConfig updates enabled, precedence, config, and/or max_history_days for a plugin.
 	// For maxHistoryDays: nil = no change, pointer to 0 = clear (NULL), pointer to N = set.
-	UpdatePricePluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte, maxHistoryDays *int) (*PluginConfigRowFull, error)
-}
-
-// DescriptionPluginDB provides description plugin config (extract identifier hints from broker descriptions).
-type DescriptionPluginDB interface {
-	// ListEnabledDescriptionPluginConfigs returns enabled description plugins ordered by precedence descending.
-	ListEnabledDescriptionPluginConfigs(ctx context.Context) ([]PluginConfigRow, error)
-	// ListDescriptionPluginConfigs returns all description plugin config rows (for admin UI). Order by precedence descending.
-	ListDescriptionPluginConfigs(ctx context.Context) ([]PluginConfigRowFull, error)
-	// GetDescriptionPluginConfig returns the config row for pluginID. Returns (nil, sql.ErrNoRows) when no row exists.
-	GetDescriptionPluginConfig(ctx context.Context, pluginID string) (*PluginConfigRowFull, error)
-	// InsertDescriptionPluginConfig creates a new description plugin config row.
-	InsertDescriptionPluginConfig(ctx context.Context, pluginID string, enabled bool, precedence int, config []byte) (*PluginConfigRowFull, error)
-	// UpdateDescriptionPluginConfig updates enabled, precedence, and/or config for a description plugin.
-	UpdateDescriptionPluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte) (*PluginConfigRowFull, error)
+	UpdatePluginConfig(ctx context.Context, category, pluginID string, enabled *bool, precedence *int, config []byte, maxHistoryDays *int) (*PluginConfigRowFull, error)
 }
 
 // IdentificationError is stored per job for identification warnings (e.g. broker description only, plugin timeout).
@@ -287,16 +279,6 @@ type InstrumentDB interface {
 	GetInstrument(ctx context.Context, instrumentID string) (*InstrumentRow, error)
 	// ListInstrumentsByIDs returns instruments by ID slice (for batch underlying lookup). Missing IDs are omitted; order not guaranteed.
 	ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*InstrumentRow, error)
-	// ListEnabledPluginConfigs returns enabled plugins ordered by precedence descending (higher first).
-	ListEnabledPluginConfigs(ctx context.Context) ([]PluginConfigRow, error)
-	// ListPluginConfigs returns all plugin config rows (for admin UI). Order by precedence descending.
-	ListPluginConfigs(ctx context.Context) ([]PluginConfigRowFull, error)
-	// GetPluginConfig returns the config row for pluginID. Returns (nil, sql.ErrNoRows) when no row exists.
-	GetPluginConfig(ctx context.Context, pluginID string) (*PluginConfigRowFull, error)
-	// InsertPluginConfig creates a new plugin config row. Used by the server on startup when a plugin has no row (from plugin.DefaultConfig()).
-	InsertPluginConfig(ctx context.Context, pluginID string, enabled bool, precedence int, config []byte) (*PluginConfigRowFull, error)
-	// UpdatePluginConfig updates enabled, precedence, and/or config for a plugin. Zero-value fields in the struct mean "no change" except Config: nil means no change, empty slice means clear config.
-	UpdatePluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte) (*PluginConfigRowFull, error)
 	// ListInstrumentsForExport returns all instruments that have at least one identifier with canonical = true. If exchangeFilter != "", filter by instruments.exchange. Order by instruments.id.
 	ListInstrumentsForExport(ctx context.Context, exchangeFilter string) ([]*InstrumentRow, error)
 	// ListInstruments returns instruments sorted alphabetically by display name (ticker, then name, then broker description). If search is non-empty, only instruments with at least one identifier value matching (case-insensitive substring) are returned. If assetClasses is non-empty, only instruments with matching asset_class are returned. Returns (rows, totalCount, nextPageToken, error).

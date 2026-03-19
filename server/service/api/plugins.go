@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/leedenison/portfoliodb/server/auth"
+	"github.com/leedenison/portfoliodb/server/db"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -17,7 +18,7 @@ func (s *Server) ListPricePlugins(ctx context.Context, req *apiv1.ListPricePlugi
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return nil, authErr
 	}
-	rows, err := s.db.ListPricePluginConfigs(ctx)
+	rows, err := s.db.ListPluginConfigs(ctx, db.PluginCategoryPrice)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -73,7 +74,7 @@ func (s *Server) UpdatePricePlugin(ctx context.Context, req *apiv1.UpdatePricePl
 		v := int(*req.MaxHistoryDays)
 		maxHistDays = &v
 	}
-	row, err := s.db.UpdatePricePluginConfig(ctx, req.GetPluginId(), enabled, precedence, config, maxHistDays)
+	row, err := s.db.UpdatePluginConfig(ctx, db.PluginCategoryPrice, req.GetPluginId(), enabled, precedence, config, maxHistDays)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, status.Error(codes.NotFound, "plugin not found")
@@ -197,7 +198,7 @@ func (s *Server) ListIdentifierPlugins(ctx context.Context, req *apiv1.ListIdent
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return nil, authErr
 	}
-	rows, err := s.db.ListPluginConfigs(ctx)
+	rows, err := s.db.ListPluginConfigs(ctx, db.PluginCategoryIdentifier)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -243,7 +244,7 @@ func (s *Server) UpdateIdentifierPlugin(ctx context.Context, req *apiv1.UpdateId
 	if req.ConfigJson != nil {
 		config = []byte(*req.ConfigJson)
 	}
-	row, err := s.db.UpdatePluginConfig(ctx, req.GetPluginId(), enabled, precedence, config)
+	row, err := s.db.UpdatePluginConfig(ctx, db.PluginCategoryIdentifier, req.GetPluginId(), enabled, precedence, config, nil)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, status.Error(codes.NotFound, "plugin not found")
@@ -274,7 +275,7 @@ func (s *Server) ListDescriptionPlugins(ctx context.Context, req *apiv1.ListDesc
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return nil, authErr
 	}
-	rows, err := s.db.ListDescriptionPluginConfigs(ctx)
+	rows, err := s.db.ListPluginConfigs(ctx, db.PluginCategoryDescription)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -320,7 +321,7 @@ func (s *Server) UpdateDescriptionPlugin(ctx context.Context, req *apiv1.UpdateD
 	if req.ConfigJson != nil {
 		config = []byte(*req.ConfigJson)
 	}
-	row, err := s.db.UpdateDescriptionPluginConfig(ctx, req.GetPluginId(), enabled, precedence, config)
+	row, err := s.db.UpdatePluginConfig(ctx, db.PluginCategoryDescription, req.GetPluginId(), enabled, precedence, config, nil)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, status.Error(codes.NotFound, "plugin not found")

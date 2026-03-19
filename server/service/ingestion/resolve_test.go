@@ -94,7 +94,7 @@ func TestResolve_TickerOnlyFallback_ResolvesByTypeAndValue(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), source, "AAPL").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
 		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
 	// Exact (TICKER, "", "AAPL") misses because DB has (TICKER, "US", "AAPL").
 	database.EXPECT().
@@ -184,7 +184,7 @@ func TestResolve_DBMiss_AllPluginsErrNotIdentified_BrokerDescriptionOnly(t *test
 		FindInstrumentBySourceDescription(gomock.Any(), source, "UNKNOWN").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
 		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "UNKNOWN").
@@ -193,7 +193,7 @@ func TestResolve_DBMiss_AllPluginsErrNotIdentified_BrokerDescriptionOnly(t *test
 		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "UNKNOWN").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "p1", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "UNKNOWN", Canonical: false}}, "", nil, nil).
@@ -226,7 +226,7 @@ func TestResolve_DBMiss_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T
 		FindInstrumentBySourceDescription(gomock.Any(), source, "AAPL").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
 		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "AAPL").
@@ -235,7 +235,7 @@ func TestResolve_DBMiss_OnePluginSuccess_EnsureInstrumentWithResult(t *testing.T
 		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "AAPL").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
@@ -281,7 +281,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), source, desc).
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
 		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", desc).
@@ -290,7 +290,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", desc).
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
@@ -353,7 +353,7 @@ func TestResolve_PluginReturnsUnderlying_EnsuresUnderlyingThenDerivative(t *test
 		FindInstrumentBySourceDescription(gomock.Any(), source, "AAPL  20250117C200").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
 		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "AAPL  20250117C200").
@@ -362,7 +362,7 @@ func TestResolve_PluginReturnsUnderlying_EnsuresUnderlyingThenDerivative(t *test
 		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "AAPL  20250117C200").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10, Config: nil}}, nil)
 	// First call: ensure underlying (STOCK).
 	database.EXPECT().
@@ -410,7 +410,7 @@ func TestResolve_TwoPlugins_HigherPrecedenceWins(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), source, "X").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
 		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "X").
@@ -420,7 +420,7 @@ func TestResolve_TwoPlugins_HigherPrecedenceWins(t *testing.T) {
 		Return("", nil)
 	// ListEnabledPluginConfigs returns precedence desc, so high (20) before low (10)
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{
 			{PluginID: "high", Precedence: 20, Config: nil},
 			{PluginID: "low", Precedence: 10, Config: nil},
@@ -463,7 +463,7 @@ func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), source, "Y").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
 		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "Y").
@@ -472,7 +472,7 @@ func TestResolve_TwoPlugins_MergedIdentifiersByPrecedence(t *testing.T) {
 		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "Y").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{
 			{PluginID: "high", Precedence: 20, Config: nil},
 			{PluginID: "low", Precedence: 10, Config: nil},
@@ -524,7 +524,7 @@ func TestResolve_TwoPlugins_SameType_HighPrecedenceWins(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), source, "Z").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
 		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "Z").
@@ -533,7 +533,7 @@ func TestResolve_TwoPlugins_SameType_HighPrecedenceWins(t *testing.T) {
 		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "Z").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{
 			{PluginID: "high", Precedence: 20, Config: nil},
 			{PluginID: "low", Precedence: 10, Config: nil},
@@ -570,7 +570,7 @@ func TestResolve_PluginTimeout_FallbackAndMessage(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), source, "SLOW").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
 		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "SLOW").
@@ -579,7 +579,7 @@ func TestResolve_PluginTimeout_FallbackAndMessage(t *testing.T) {
 		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "SLOW").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "slow", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "", "", "", "SLOW", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "SLOW", Canonical: false}}, "", nil, nil).
@@ -608,7 +608,7 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), source, "BAD").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
 		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "BAD").
@@ -617,7 +617,7 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "BAD").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "bad", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "", "", "", "BAD", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: "BAD", Canonical: false}}, "", nil, nil).
@@ -719,7 +719,7 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), source, "RETRY").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledDescriptionPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
 		Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "RETRY").
@@ -728,7 +728,7 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "RETRY").
 		Return("", nil)
 	database.EXPECT().
-		ListEnabledPluginConfigs(gomock.Any()).
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "retry", Precedence: 10, Config: nil}}, nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "", "", "", "Retried", gomock.Any(), "", nil, nil).

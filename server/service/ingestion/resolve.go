@@ -193,11 +193,11 @@ const singleItemBatchID = "1"
 // Only calls plugins that accept the hint's security type. Uses ExtractBatch with a single BatchItem.
 // If descRegistry is nil, returns nil (no hints) without calling the database.
 // When counter is non-nil, increments description.extraction.plugin_error on plugin errors and description.extraction.no_hints when at least one plugin was tried and none returned hints.
-func runDescriptionPlugins(ctx context.Context, database db.DescriptionPluginDB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, broker, source, instrumentDescription string, hints identifier.Hints) ([]identifier.Identifier, error) {
+func runDescriptionPlugins(ctx context.Context, database db.PluginConfigDB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, broker, source, instrumentDescription string, hints identifier.Hints) ([]identifier.Identifier, error) {
 	if descRegistry == nil {
 		return nil, nil
 	}
-	configs, err := database.ListEnabledDescriptionPluginConfigs(ctx)
+	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryDescription)
 	if err != nil {
 		return nil, err
 	}
@@ -242,11 +242,11 @@ func runDescriptionPlugins(ctx context.Context, database db.DescriptionPluginDB,
 }
 
 // runDescriptionPluginsBatch runs description plugins on all items via ExtractBatch. Only items whose security type is acceptable to a plugin are passed to that plugin. First plugin that returns a non-empty map wins. Result is keyed by BatchItem.ID.
-func runDescriptionPluginsBatch(ctx context.Context, database db.DescriptionPluginDB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, broker, source string, items []description.BatchItem) (map[string][]identifier.Identifier, error) {
+func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, broker, source string, items []description.BatchItem) (map[string][]identifier.Identifier, error) {
 	if descRegistry == nil || len(items) == 0 {
 		return nil, nil
 	}
-	configs, err := database.ListEnabledDescriptionPluginConfigs(ctx)
+	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryDescription)
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +492,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 		return r, nil
 	}
 
-	configs, err := database.ListEnabledPluginConfigs(ctx)
+	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryIdentifier)
 	if err != nil {
 		return resolveResult{}, err
 	}

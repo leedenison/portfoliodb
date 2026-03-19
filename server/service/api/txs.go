@@ -48,8 +48,8 @@ func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1
 			inst, err := s.db.GetInstrument(ctx, pt.Tx.InstrumentId)
 			if err == nil && inst != nil {
 				pt.Instrument = instrumentRowToProto(inst)
-				if inst.UnderlyingID != "" {
-					underlyingIDs[inst.UnderlyingID] = struct{}{}
+				if inst.UnderlyingID != nil && *inst.UnderlyingID != "" {
+					underlyingIDs[*inst.UnderlyingID] = struct{}{}
 				}
 			}
 		}

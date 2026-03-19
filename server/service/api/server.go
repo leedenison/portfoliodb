@@ -65,13 +65,23 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 		identifiers = append(identifiers, &apiv1.InstrumentIdentifier{Type: identifierTypeFromString(idn.Type), Domain: idn.Domain, Value: idn.Value, Canonical: idn.Canonical})
 	}
 	out := &apiv1.Instrument{
-		Id:           row.ID,
-		AssetClass:   row.AssetClass,
-		Exchange:     row.Exchange,
-		Currency:     row.Currency,
-		Name:         row.Name,
-		Identifiers:  identifiers,
-		UnderlyingId: row.UnderlyingID,
+		Id:          row.ID,
+		Identifiers: identifiers,
+	}
+	if row.AssetClass != nil {
+		out.AssetClass = *row.AssetClass
+	}
+	if row.Exchange != nil {
+		out.Exchange = *row.Exchange
+	}
+	if row.Currency != nil {
+		out.Currency = *row.Currency
+	}
+	if row.Name != nil {
+		out.Name = *row.Name
+	}
+	if row.UnderlyingID != nil {
+		out.UnderlyingId = *row.UnderlyingID
 	}
 	if row.ValidFrom != nil {
 		out.ValidFrom = timestamppb.New(*row.ValidFrom)

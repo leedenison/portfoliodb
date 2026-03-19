@@ -66,11 +66,19 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		return nil, nil, identifier.ErrNotIdentified
 	}
 	inst := &identifier.Instrument{
-		ID:         row.ID,
-		AssetClass: row.AssetClass,
-		Exchange:   row.Exchange,
-		Currency:   row.Currency,
-		Name:       row.Name,
+		ID: row.ID,
+	}
+	if row.AssetClass != nil {
+		inst.AssetClass = *row.AssetClass
+	}
+	if row.Exchange != nil {
+		inst.Exchange = *row.Exchange
+	}
+	if row.Currency != nil {
+		inst.Currency = *row.Currency
+	}
+	if row.Name != nil {
+		inst.Name = *row.Name
 	}
 	ids := []identifier.Identifier{{Type: "CURRENCY", Domain: "", Value: code}}
 	return inst, ids, nil

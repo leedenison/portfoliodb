@@ -253,13 +253,14 @@ var ValidAssetClasses = map[string]bool{
 }
 
 // InstrumentRow is a single instrument with its identifiers (for API responses).
+// Nullable DB columns use pointer types; nil means NULL.
 type InstrumentRow struct {
 	ID           string
-	AssetClass   string
-	Exchange     string
-	Currency     string
-	Name         string
-	UnderlyingID string
+	AssetClass   *string
+	Exchange     *string
+	Currency     *string
+	Name         *string
+	UnderlyingID *string
 	ValidFrom    *time.Time
 	ValidTo      *time.Time
 	Identifiers  []IdentifierInput

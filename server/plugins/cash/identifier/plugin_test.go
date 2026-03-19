@@ -11,6 +11,8 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func strPtr(s string) *string { return &s }
+
 func TestPlugin_Identify_CurrencyFound(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -25,7 +27,7 @@ func TestPlugin_Identify_CurrencyFound(t *testing.T) {
 		Return("inst-uuid-usd", nil)
 	database.EXPECT().
 		GetInstrument(gomock.Any(), "inst-uuid-usd").
-		Return(&db.InstrumentRow{ID: "inst-uuid-usd", AssetClass: "CASH", Currency: "USD", Name: "US Dollar"}, nil)
+		Return(&db.InstrumentRow{ID: "inst-uuid-usd", AssetClass: strPtr("CASH"), Currency: strPtr("USD"), Name: strPtr("US Dollar")}, nil)
 
 	inst, ids, err := p.Identify(ctx, nil, "IBKR", "IBKR:test", "USD", identifier.Hints{}, hints)
 	if err != nil {

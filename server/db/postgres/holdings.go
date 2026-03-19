@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -47,34 +46,13 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *a
 		GROUP BY broker, account, instrument_description, instrument_id
 		HAVING SUM(quantity) != 0
 	`
-	rows, err := p.q.QueryContext(ctx, q, args...)
-	if err != nil {
+	var hrows []holdingRow
+	if err := p.q.SelectContext(ctx, &hrows, q, args...); err != nil {
 		return nil, nil, fmt.Errorf("compute holdings: %w", err)
 	}
-	defer rows.Close()
-	var out []*apiv1.Holding
-	for rows.Next() {
-		var brokerStr string
-		var acct string
-		var instDesc string
-		var instrumentID sql.NullString
-		var qty float64
-		if err := rows.Scan(&brokerStr, &acct, &instDesc, &instrumentID, &qty); err != nil {
-			return nil, nil, err
-		}
-		h := &apiv1.Holding{
-			Broker:                strToBroker(brokerStr),
-			InstrumentDescription: instDesc,
-			Quantity:              qty,
-			Account:               acct,
-		}
-		if instrumentID.Valid {
-			h.InstrumentId = instrumentID.String
-		}
-		out = append(out, h)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
+	out := make([]*apiv1.Holding, len(hrows))
+	for i := range hrows {
+		out[i] = hrows[i].toProto()
 	}
 	return out, timeToTs(asOfT), nil
 }
@@ -89,7 +67,8 @@ func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID 
 	if asOf != nil && asOf.IsValid() {
 		asOfT = asOf.AsTime()
 	}
-	rows, err := p.q.QueryContext(ctx, `
+	var hrows []holdingRow
+	err = p.q.SelectContext(ctx, &hrows, `
 		SELECT t.broker, t.account, t.instrument_description, t.instrument_id, SUM(t.quantity) AS quantity
 		FROM txs t
 		INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
@@ -100,30 +79,9 @@ func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID 
 	if err != nil {
 		return nil, nil, fmt.Errorf("compute holdings for portfolio: %w", err)
 	}
-	defer rows.Close()
-	var out []*apiv1.Holding
-	for rows.Next() {
-		var brokerStr string
-		var acct string
-		var instDesc string
-		var instrumentID sql.NullString
-		var qty float64
-		if err := rows.Scan(&brokerStr, &acct, &instDesc, &instrumentID, &qty); err != nil {
-			return nil, nil, err
-		}
-		h := &apiv1.Holding{
-			Broker:                strToBroker(brokerStr),
-			InstrumentDescription: instDesc,
-			Quantity:              qty,
-			Account:               acct,
-		}
-		if instrumentID.Valid {
-			h.InstrumentId = instrumentID.String
-		}
-		out = append(out, h)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
+	out := make([]*apiv1.Holding, len(hrows))
+	for i := range hrows {
+		out[i] = hrows[i].toProto()
 	}
 	return out, timeToTs(asOfT), nil
 }

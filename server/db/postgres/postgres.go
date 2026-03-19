@@ -10,16 +10,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// queryable is satisfied by *sql.DB and *sql.Tx. Used so tests can run against a transaction that is rolled back.
+// queryable is satisfied by *sqlx.DB and *sqlx.Tx.
 type queryable interface {
 	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
 	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+	QueryxContext(ctx context.Context, query string, args ...interface{}) (*sqlx.Rows, error)
+	QueryRowxContext(ctx context.Context, query string, args ...interface{}) *sqlx.Row
+	SelectContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
+	GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
 }
 
 // Postgres implements db.DB using PostgreSQL.
@@ -28,11 +33,11 @@ type Postgres struct {
 }
 
 // New returns a new Postgres DB implementation.
-func New(conn *sql.DB) *Postgres {
+func New(conn *sqlx.DB) *Postgres {
 	return &Postgres{q: conn}
 }
 
-// NewWithQueryable returns a Postgres that uses the given queryable (e.g. *sql.Tx for tests). Callers must ensure the queryable is not closed while in use.
+// NewWithQueryable returns a Postgres that uses the given queryable (e.g. *sqlx.Tx for tests).
 func NewWithQueryable(q queryable) *Postgres {
 	return &Postgres{q: q}
 }
@@ -126,13 +131,13 @@ func timeToTs(t time.Time) *timestamppb.Timestamp {
 	return timestamppb.New(t)
 }
 
-// runInTx runs f inside a transaction. When p.q is *sql.DB it begins a new tx, runs f, and commits; when p.q is *sql.Tx (e.g. in tests) it runs f on that tx and does not commit.
+// runInTx runs f inside a transaction. When p.q is *sqlx.DB it begins a new tx; when p.q is *sqlx.Tx (e.g. in tests) it runs f on that tx and does not commit.
 func (p *Postgres) runInTx(ctx context.Context, f func(exec queryable) error) error {
 	switch q := p.q.(type) {
-	case *sql.Tx:
+	case *sqlx.Tx:
 		return f(q)
-	case *sql.DB:
-		tx, err := q.BeginTx(ctx, nil)
+	case *sqlx.DB:
+		tx, err := q.BeginTxx(ctx, nil)
 		if err != nil {
 			return err
 		}
@@ -167,27 +172,18 @@ func nullTime(t *time.Time) interface{} {
 	return *t
 }
 
-// strFromNull returns s.String if s.Valid, otherwise "".
-func strFromNull(s sql.NullString) string {
-	if s.Valid {
-		return s.String
-	}
-	return ""
-}
-
-// timeFromNull returns t.Time if t.Valid, otherwise nil.
-func timeFromNull(t sql.NullTime) *time.Time {
-	if t.Valid {
-		return &t.Time
-	}
-	return nil
-}
-
 func nullFloat(f float64) interface{} {
 	if f == 0 {
 		return nil
 	}
 	return f
+}
+
+func ptrStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func decodePageToken(token string) int64 {
@@ -217,28 +213,92 @@ func inClauseUUIDs(ids []uuid.UUID) (string, []interface{}) {
 	return strings.Join(placeholders, ","), args
 }
 
-// scanner is satisfied by *sql.Row and *sql.Rows.
-type scanner interface {
-	Scan(dest ...interface{}) error
+// instrumentRow is the sqlx-scannable shape of an instruments row.
+type instrumentRow struct {
+	ID           uuid.UUID  `db:"id"`
+	AssetClass   *string    `db:"asset_class"`
+	Exchange     *string    `db:"exchange"`
+	Currency     *string    `db:"currency"`
+	Name         *string    `db:"name"`
+	UnderlyingID *string    `db:"underlying_id"`
+	ValidFrom    *time.Time `db:"valid_from"`
+	ValidTo      *time.Time `db:"valid_to"`
 }
 
-func scanInstrumentRow(s scanner) (*db.InstrumentRow, uuid.UUID, error) {
-	var row db.InstrumentRow
-	var id uuid.UUID
-	var assetClass, exchange, currency, name, underlyingID sql.NullString
-	var validFrom, validTo sql.NullTime
-	if err := s.Scan(&id, &assetClass, &exchange, &currency, &name, &underlyingID, &validFrom, &validTo); err != nil {
-		return nil, uuid.Nil, err
+func (r *instrumentRow) toDBRow() *db.InstrumentRow {
+	return &db.InstrumentRow{
+		ID:           r.ID.String(),
+		AssetClass:   r.AssetClass,
+		Exchange:     r.Exchange,
+		Currency:     r.Currency,
+		Name:         r.Name,
+		UnderlyingID: r.UnderlyingID,
+		ValidFrom:    r.ValidFrom,
+		ValidTo:      r.ValidTo,
 	}
-	row.ID = id.String()
-	row.AssetClass = strFromNull(assetClass)
-	row.Exchange = strFromNull(exchange)
-	row.Currency = strFromNull(currency)
-	row.Name = strFromNull(name)
-	row.UnderlyingID = strFromNull(underlyingID)
-	row.ValidFrom = timeFromNull(validFrom)
-	row.ValidTo = timeFromNull(validTo)
-	return &row, id, nil
+}
+
+// holdingRow is the sqlx-scannable shape for computing holdings.
+type holdingRow struct {
+	Broker   string  `db:"broker"`
+	Account  string  `db:"account"`
+	InstDesc string  `db:"instrument_description"`
+	InstID   *string `db:"instrument_id"`
+	Quantity float64 `db:"quantity"`
+}
+
+func (r *holdingRow) toProto() *apiv1.Holding {
+	h := &apiv1.Holding{
+		Broker:                strToBroker(r.Broker),
+		InstrumentDescription: r.InstDesc,
+		Quantity:              r.Quantity,
+		Account:               r.Account,
+	}
+	if r.InstID != nil {
+		h.InstrumentId = *r.InstID
+	}
+	return h
+}
+
+// txRow is the sqlx-scannable shape for transaction rows.
+type txRow struct {
+	Broker      string   `db:"broker"`
+	Account     string   `db:"account"`
+	Timestamp   time.Time `db:"timestamp"`
+	InstDesc    string   `db:"instrument_description"`
+	TxType      string   `db:"tx_type"`
+	Quantity    float64  `db:"quantity"`
+	TradingCcy  *string  `db:"trading_currency"`
+	SettleCcy   *string  `db:"settlement_currency"`
+	UnitPrice   *float64 `db:"unit_price"`
+	InstID      *string  `db:"instrument_id"`
+}
+
+func (r *txRow) toProto() *apiv1.PortfolioTx {
+	tx := &apiv1.Tx{
+		Timestamp:             timeToTs(r.Timestamp),
+		InstrumentDescription: r.InstDesc,
+		Type:                  strToTxType(r.TxType),
+		Quantity:              r.Quantity,
+		Account:               r.Account,
+	}
+	if r.TradingCcy != nil {
+		tx.TradingCurrency = *r.TradingCcy
+	}
+	if r.SettleCcy != nil {
+		tx.SettlementCurrency = *r.SettleCcy
+	}
+	if r.UnitPrice != nil {
+		tx.UnitPrice = *r.UnitPrice
+	}
+	if r.InstID != nil {
+		tx.InstrumentId = *r.InstID
+	}
+	return &apiv1.PortfolioTx{
+		Broker:  strToBroker(r.Broker),
+		Tx:      tx,
+		Account: r.Account,
+	}
 }
 
 // loadIdentifiers batch-loads instrument identifiers for the given IDs and attaches them to the corresponding rows.

@@ -11,6 +11,8 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+func strPtr(s string) *string { return &s }
+
 func TestListInstruments_Unauthenticated(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
 	_, err := srv.ListInstruments(context.Background(), &apiv1.ListInstrumentsRequest{})
@@ -20,7 +22,7 @@ func TestListInstruments_Unauthenticated(t *testing.T) {
 func TestListInstruments_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	rows := []*dbpkg.InstrumentRow{
-		{ID: "id-1", Name: "Apple", AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD",
+		{ID: "id-1", Name: strPtr("Apple"), AssetClass: strPtr("STOCK"), Exchange: strPtr("XNAS"), Currency: strPtr("USD"),
 			Identifiers: []dbpkg.IdentifierInput{
 				{Type: "TICKER", Value: "AAPL", Domain: "XNAS", Canonical: true},
 				{Type: "ISIN", Value: "US0378331005", Canonical: true},
@@ -110,7 +112,7 @@ func TestListInstruments_DBError(t *testing.T) {
 func TestExportInstruments_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	rows := []*dbpkg.InstrumentRow{
-		{ID: "id-1", Name: "Apple", Identifiers: []dbpkg.IdentifierInput{{Type: "ISIN", Value: "US0378331005", Canonical: true}}},
+		{ID: "id-1", Name: strPtr("Apple"), Identifiers: []dbpkg.IdentifierInput{{Type: "ISIN", Value: "US0378331005", Canonical: true}}},
 	}
 	db.EXPECT().
 		ListInstrumentsForExport(gomock.Any(), "").

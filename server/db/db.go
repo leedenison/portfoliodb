@@ -98,6 +98,10 @@ type PluginConfigDB interface {
 	// UpdatePluginConfig updates enabled, precedence, config, and/or max_history_days for a plugin.
 	// For maxHistoryDays: nil = no change, pointer to 0 = clear (NULL), pointer to N = set.
 	UpdatePluginConfig(ctx context.Context, category, pluginID string, enabled *bool, precedence *int, config []byte, maxHistoryDays *int) (*PluginConfigRowFull, error)
+	// ReorderPluginConfigs sets precedence for all plugins in a category.
+	// pluginIDs is ordered from highest to lowest precedence. All existing
+	// plugin IDs for the category must be present.
+	ReorderPluginConfigs(ctx context.Context, category string, pluginIDs []string) error
 }
 
 // IdentificationError is stored per job for identification warnings (e.g. broker description only, plugin timeout).

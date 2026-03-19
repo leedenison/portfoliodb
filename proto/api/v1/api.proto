@@ -165,6 +165,12 @@ service ApiService {
   rpc ListPricePlugins(ListPricePluginsRequest) returns (ListPricePluginsResponse);
   rpc UpdatePricePlugin(UpdatePricePluginRequest) returns (UpdatePricePluginResponse);
 
+  // Reorder plugins within a category (admin-only). Reassigns precedence in a
+  // single transaction using deferred constraints. plugin_ids is ordered from
+  // highest precedence (index 0) to lowest; all plugins in the category must
+  // be present.
+  rpc ReorderPlugins(ReorderPluginsRequest) returns (ReorderPluginsResponse);
+
   // Trigger a price fetch cycle (admin-only). Returns immediately; fetch runs async.
   // For use by external cron jobs or after manual data corrections.
   rpc TriggerPriceFetch(TriggerPriceFetchRequest) returns (TriggerPriceFetchResponse);
@@ -468,6 +474,15 @@ message UpdatePricePluginRequest {
 message UpdatePricePluginResponse {
   PricePluginConfig plugin = 1;
 }
+
+// ReorderPluginsRequest sets precedence for all plugins in a category.
+// plugin_ids is ordered from highest precedence (index 0) to lowest.
+message ReorderPluginsRequest {
+  string category = 1;            // "identifier", "description", or "price"
+  repeated string plugin_ids = 2; // all plugin IDs in the category, highest precedence first
+}
+
+message ReorderPluginsResponse {}
 
 message TriggerPriceFetchRequest {}
 

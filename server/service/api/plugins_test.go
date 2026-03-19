@@ -151,6 +151,87 @@ func TestTriggerPriceFetch_NonBlocking(t *testing.T) {
 	}
 }
 
+func TestReorderPlugins_AdminOnly(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.ReorderPlugins(ctx, &apiv1.ReorderPluginsRequest{Category: "identifier", PluginIds: []string{"a"}})
+	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
+}
+
+func TestReorderPlugins_InvalidCategory(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	ctx := adminCtx("admin-1", "sub|admin")
+	_, err := srv.ReorderPlugins(ctx, &apiv1.ReorderPluginsRequest{Category: "bogus", PluginIds: []string{"a"}})
+	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
+}
+
+func TestReorderPlugins_EmptyPluginIDs(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	ctx := adminCtx("admin-1", "sub|admin")
+	_, err := srv.ReorderPlugins(ctx, &apiv1.ReorderPluginsRequest{Category: "identifier"})
+	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
+}
+
+func TestReorderPlugins_MismatchedCount(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(func() { ctrl.Finish() })
+	mockDB := mock.NewMockDB(ctrl)
+	srv := NewServer(ServerConfig{DB: mockDB})
+
+	mockDB.EXPECT().ListPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).Return([]db.PluginConfigRowFull{
+		{PluginID: "a", Precedence: 20},
+		{PluginID: "b", Precedence: 10},
+	}, nil)
+
+	ctx := adminCtx("admin-1", "sub|admin")
+	_, err := srv.ReorderPlugins(ctx, &apiv1.ReorderPluginsRequest{
+		Category:  "identifier",
+		PluginIds: []string{"a"},
+	})
+	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
+}
+
+func TestReorderPlugins_UnknownPlugin(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(func() { ctrl.Finish() })
+	mockDB := mock.NewMockDB(ctrl)
+	srv := NewServer(ServerConfig{DB: mockDB})
+
+	mockDB.EXPECT().ListPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).Return([]db.PluginConfigRowFull{
+		{PluginID: "a", Precedence: 20},
+		{PluginID: "b", Precedence: 10},
+	}, nil)
+
+	ctx := adminCtx("admin-1", "sub|admin")
+	_, err := srv.ReorderPlugins(ctx, &apiv1.ReorderPluginsRequest{
+		Category:  "identifier",
+		PluginIds: []string{"a", "unknown"},
+	})
+	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
+}
+
+func TestReorderPlugins_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(func() { ctrl.Finish() })
+	mockDB := mock.NewMockDB(ctrl)
+	srv := NewServer(ServerConfig{DB: mockDB})
+
+	mockDB.EXPECT().ListPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).Return([]db.PluginConfigRowFull{
+		{PluginID: "a", Precedence: 20},
+		{PluginID: "b", Precedence: 10},
+	}, nil)
+	mockDB.EXPECT().ReorderPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier, []string{"b", "a"}).Return(nil)
+
+	ctx := adminCtx("admin-1", "sub|admin")
+	_, err := srv.ReorderPlugins(ctx, &apiv1.ReorderPluginsRequest{
+		Category:  "identifier",
+		PluginIds: []string{"b", "a"},
+	})
+	if err != nil {
+		t.Fatalf("ReorderPlugins: %v", err)
+	}
+}
+
 // Unauthenticated tests for new admin endpoints.
 func TestAPI_PricePlugins_Unauthenticated(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
@@ -165,6 +246,10 @@ func TestAPI_PricePlugins_Unauthenticated(t *testing.T) {
 			return err
 		}},
 		{"TriggerPriceFetch", func() error { _, err := srv.TriggerPriceFetch(ctx, &apiv1.TriggerPriceFetchRequest{}); return err }},
+		{"ReorderPlugins", func() error {
+			_, err := srv.ReorderPlugins(ctx, &apiv1.ReorderPluginsRequest{Category: "identifier", PluginIds: []string{"a"}})
+			return err
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

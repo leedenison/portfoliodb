@@ -10,6 +10,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+func strPtr(s string) *string { return &s }
+
 // TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch verifies that when multiple identifiers
 // resolve to different instruments (e.g. A has ISIN 1, B has CUSIP 1), EnsureInstrument merges
 // them and returns the survivor; both identifiers end up on the survivor and txs are updated.
@@ -137,7 +139,7 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 		}
 		if row.ID == withCanonID {
 			foundApple = true
-			if row.Name != "Apple" || len(row.Identifiers) != 2 {
+			if row.Name == nil || *row.Name != "Apple" || len(row.Identifiers) != 2 {
 				t.Fatalf("expected Apple with 2 identifiers, got %+v", row)
 			}
 		}
@@ -163,8 +165,12 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 		t.Fatalf("ListInstrumentsForExport: %v", err)
 	}
 	// XNAS filter: seeded CASH instruments have exchange NULL so only our Nasdaq instrument matches.
-	if len(list) != 1 || list[0].Exchange != "XNAS" {
-		t.Fatalf("expected 1 instrument with exchange XNAS, got %d (first exchange %q)", len(list), list[0].Exchange)
+	if len(list) != 1 || list[0].Exchange == nil || *list[0].Exchange != "XNAS" {
+		var ex string
+		if len(list) > 0 && list[0].Exchange != nil {
+			ex = *list[0].Exchange
+		}
+		t.Fatalf("expected 1 instrument with exchange XNAS, got %d (first exchange %q)", len(list), ex)
 	}
 	listAll, err := p.ListInstrumentsForExport(ctx, "")
 	if err != nil {
@@ -176,10 +182,10 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	}
 	var foundNasdaq, foundNYSE bool
 	for _, row := range listAll {
-		if row.Name == "Nasdaq" && row.Exchange == "XNAS" {
+		if row.Name != nil && *row.Name == "Nasdaq" && row.Exchange != nil && *row.Exchange == "XNAS" {
 			foundNasdaq = true
 		}
-		if row.Name == "NYSE" && row.Exchange == "XNYS" {
+		if row.Name != nil && *row.Name == "NYSE" && row.Exchange != nil && *row.Exchange == "XNYS" {
 			foundNYSE = true
 		}
 	}
@@ -211,8 +217,8 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 	if err != nil || row == nil {
 		t.Fatalf("GetInstrument: %v", err)
 	}
-	if row.UnderlyingID != underlyingID {
-		t.Errorf("UnderlyingID = %q, want %q", row.UnderlyingID, underlyingID)
+	if row.UnderlyingID == nil || *row.UnderlyingID != underlyingID {
+		t.Errorf("UnderlyingID = %v, want %q", row.UnderlyingID, underlyingID)
 	}
 	if row.ValidFrom == nil || !row.ValidFrom.Equal(validFrom) {
 		t.Errorf("ValidFrom = %v, want %v", row.ValidFrom, validFrom)
@@ -225,8 +231,8 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("ListInstrumentsByIDs: %v (len=%d)", err, len(rows))
 	}
-	if rows[0].UnderlyingID != underlyingID || rows[0].ValidFrom == nil {
-		t.Errorf("ListInstrumentsByIDs row: UnderlyingID=%q ValidFrom=%v", rows[0].UnderlyingID, rows[0].ValidFrom)
+	if rows[0].UnderlyingID == nil || *rows[0].UnderlyingID != underlyingID || rows[0].ValidFrom == nil {
+		t.Errorf("ListInstrumentsByIDs row: UnderlyingID=%v ValidFrom=%v", rows[0].UnderlyingID, rows[0].ValidFrom)
 	}
 }
 
@@ -272,11 +278,11 @@ func TestSeedCurrencyInstruments(t *testing.T) {
 		if err != nil || row == nil {
 			t.Fatalf("GetInstrument %s: %v", id, err)
 		}
-		if row.AssetClass != "CASH" {
-			t.Errorf("instrument %s asset_class = %q, want CASH", id, row.AssetClass)
+		if row.AssetClass == nil || *row.AssetClass != "CASH" {
+			t.Errorf("instrument %s asset_class = %v, want CASH", id, row.AssetClass)
 		}
-		if row.Currency != code {
-			t.Errorf("instrument %s currency = %q, want %s", id, row.Currency, code)
+		if row.Currency == nil || *row.Currency != code {
+			t.Errorf("instrument %s currency = %v, want %s", id, row.Currency, code)
 		}
 		hasCurrencyId := false
 		for _, idn := range row.Identifiers {

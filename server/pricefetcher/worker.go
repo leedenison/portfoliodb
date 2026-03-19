@@ -123,7 +123,11 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 						gap.From = cutoff
 					}
 				}
-				result, err := pe.plugin.FetchPrices(ctx, pe.config, pfIDs, inst.AssetClass, gap.From, gap.To)
+				var assetClass string
+				if inst.AssetClass != nil {
+					assetClass = *inst.AssetClass
+				}
+				result, err := pe.plugin.FetchPrices(ctx, pe.config, pfIDs, assetClass, gap.From, gap.To)
 				if err != nil {
 					var permErr *ErrPermanent
 					if errors.As(err, &permErr) {
@@ -178,18 +182,18 @@ func extractInstrumentIDs(gaps []db.InstrumentDateRanges) []string {
 // pluginAccepts checks whether a plugin can handle the given instrument
 // based on asset class, exchange, and currency filters.
 func pluginAccepts(p Plugin, inst *db.InstrumentRow) bool {
-	if ac := p.AcceptableAssetClasses(); len(ac) > 0 && inst.AssetClass != "" {
-		if !ac[inst.AssetClass] {
+	if ac := p.AcceptableAssetClasses(); len(ac) > 0 && inst.AssetClass != nil && *inst.AssetClass != "" {
+		if !ac[*inst.AssetClass] {
 			return false
 		}
 	}
-	if ex := p.AcceptableExchanges(); len(ex) > 0 && inst.Exchange != "" {
-		if !ex[inst.Exchange] {
+	if ex := p.AcceptableExchanges(); len(ex) > 0 && inst.Exchange != nil && *inst.Exchange != "" {
+		if !ex[*inst.Exchange] {
 			return false
 		}
 	}
-	if cu := p.AcceptableCurrencies(); len(cu) > 0 && inst.Currency != "" {
-		if !cu[strings.ToUpper(inst.Currency)] {
+	if cu := p.AcceptableCurrencies(); len(cu) > 0 && inst.Currency != nil && *inst.Currency != "" {
+		if !cu[strings.ToUpper(*inst.Currency)] {
 			return false
 		}
 	}

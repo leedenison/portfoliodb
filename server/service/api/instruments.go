@@ -50,8 +50,8 @@ func (s *Server) ExportInstruments(req *apiv1.ExportInstrumentsRequest, stream a
 	for _, row := range rows {
 		protoInst := instrumentRowToProto(row)
 		// For derivatives, include nested underlying with canonical identifiers (no reliance on internal ID for import).
-		if row.UnderlyingID != "" {
-			underlying, err := s.db.GetInstrument(ctx, row.UnderlyingID)
+		if row.UnderlyingID != nil && *row.UnderlyingID != "" {
+			underlying, err := s.db.GetInstrument(ctx, *row.UnderlyingID)
 			if err == nil && underlying != nil {
 				protoInst.Underlying = instrumentRowToProto(underlying)
 			}

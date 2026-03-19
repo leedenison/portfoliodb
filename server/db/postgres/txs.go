@@ -2,52 +2,14 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func scanTxRow(s scanner) (*apiv1.PortfolioTx, error) {
-	var brokerStr, accStr string
-	var ts time.Time
-	var instDesc, txTypeStr string
-	var qty float64
-	var tradingCurrency, settlementCurrency sql.NullString
-	var unitPrice sql.NullFloat64
-	var instrumentID sql.NullString
-	if err := s.Scan(&brokerStr, &accStr, &ts, &instDesc, &txTypeStr, &qty, &tradingCurrency, &settlementCurrency, &unitPrice, &instrumentID); err != nil {
-		return nil, err
-	}
-	tx := &apiv1.Tx{
-		Timestamp:             timeToTs(ts),
-		InstrumentDescription: instDesc,
-		Type:                  strToTxType(txTypeStr),
-		Quantity:              qty,
-		Account:               accStr,
-	}
-	if tradingCurrency.Valid {
-		tx.TradingCurrency = tradingCurrency.String
-	}
-	if settlementCurrency.Valid {
-		tx.SettlementCurrency = settlementCurrency.String
-	}
-	if unitPrice.Valid {
-		tx.UnitPrice = unitPrice.Float64
-	}
-	if instrumentID.Valid {
-		tx.InstrumentId = instrumentID.String
-	}
-	return &apiv1.PortfolioTx{
-		Broker:  strToBroker(brokerStr),
-		Tx:      tx,
-		Account: accStr,
-	}, nil
-}
 
 // ReplaceTxsInPeriod implements db.TxDB.
 func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string) error {
@@ -178,27 +140,18 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 	q += " ORDER BY timestamp LIMIT $" + strconv.Itoa(argNum) + " OFFSET $" + strconv.Itoa(argNum+1)
 	offset := decodePageToken(pageToken)
 	args = append(args, limit+1, offset)
-	rows, err := p.q.QueryContext(ctx, q, args...)
-	if err != nil {
+	var trows []txRow
+	if err := p.q.SelectContext(ctx, &trows, q, args...); err != nil {
 		return nil, "", fmt.Errorf("list txs: %w", err)
 	}
-	defer rows.Close()
-	var out []*apiv1.PortfolioTx
-	var n int32
-	for rows.Next() && n < limit {
-		ptx, err := scanTxRow(rows)
-		if err != nil {
-			return nil, "", err
-		}
-		out = append(out, ptx)
-		n++
-	}
 	nextToken := ""
-	if n == limit {
+	if int32(len(trows)) > limit {
+		trows = trows[:limit]
 		nextToken = encodePageToken(offset + int64(limit))
 	}
-	if err := rows.Err(); err != nil {
-		return nil, "", err
+	out := make([]*apiv1.PortfolioTx, len(trows))
+	for i := range trows {
+		out[i] = trows[i].toProto()
 	}
 	return out, nextToken, nil
 }
@@ -242,27 +195,18 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, p
 	q += " ORDER BY t.timestamp LIMIT $" + strconv.Itoa(argNum) + " OFFSET $" + strconv.Itoa(argNum+1)
 	offset := decodePageToken(pageToken)
 	args = append(args, limit+1, offset)
-	rows, err := p.q.QueryContext(ctx, q, args...)
-	if err != nil {
+	var trows []txRow
+	if err := p.q.SelectContext(ctx, &trows, q, args...); err != nil {
 		return nil, "", fmt.Errorf("list txs by portfolio: %w", err)
 	}
-	defer rows.Close()
-	var out []*apiv1.PortfolioTx
-	var n int32
-	for rows.Next() && n < limit {
-		ptx, err := scanTxRow(rows)
-		if err != nil {
-			return nil, "", err
-		}
-		out = append(out, ptx)
-		n++
-	}
 	nextToken := ""
-	if n == limit {
+	if int32(len(trows)) > limit {
+		trows = trows[:limit]
 		nextToken = encodePageToken(offset + int64(limit))
 	}
-	if err := rows.Err(); err != nil {
-		return nil, "", err
+	out := make([]*apiv1.PortfolioTx, len(trows))
+	for i := range trows {
+		out[i] = trows[i].toProto()
 	}
 	return out, nextToken, nil
 }

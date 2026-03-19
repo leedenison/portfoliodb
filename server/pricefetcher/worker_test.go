@@ -10,6 +10,8 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func strPtr(s string) *string { return &s }
+
 func TestPluginAccepts(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -20,19 +22,19 @@ func TestPluginAccepts(t *testing.T) {
 		{
 			name:   "all nil filters accept anything",
 			plugin: &filterStub{},
-			inst:   &db.InstrumentRow{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD"},
+			inst:   &db.InstrumentRow{AssetClass: strPtr("STOCK"), Exchange: strPtr("XNAS"), Currency: strPtr("USD")},
 			want:   true,
 		},
 		{
 			name:   "asset class mismatch",
 			plugin: &filterStub{assetClasses: map[string]bool{"STOCK": true}},
-			inst:   &db.InstrumentRow{AssetClass: "OPTION"},
+			inst:   &db.InstrumentRow{AssetClass: strPtr("OPTION")},
 			want:   false,
 		},
 		{
 			name:   "asset class match",
 			plugin: &filterStub{assetClasses: map[string]bool{"STOCK": true, "ETF": true}},
-			inst:   &db.InstrumentRow{AssetClass: "ETF"},
+			inst:   &db.InstrumentRow{AssetClass: strPtr("ETF")},
 			want:   true,
 		},
 		{
@@ -44,13 +46,13 @@ func TestPluginAccepts(t *testing.T) {
 		{
 			name:   "currency mismatch",
 			plugin: &filterStub{currencies: map[string]bool{"USD": true}},
-			inst:   &db.InstrumentRow{Currency: "EUR"},
+			inst:   &db.InstrumentRow{Currency: strPtr("EUR")},
 			want:   false,
 		},
 		{
 			name:   "currency match case insensitive",
 			plugin: &filterStub{currencies: map[string]bool{"USD": true}},
-			inst:   &db.InstrumentRow{Currency: "usd"},
+			inst:   &db.InstrumentRow{Currency: strPtr("usd")},
 			want:   true,
 		},
 		{
@@ -62,7 +64,7 @@ func TestPluginAccepts(t *testing.T) {
 		{
 			name:   "exchange mismatch",
 			plugin: &filterStub{exchanges: map[string]bool{"XNAS": true}},
-			inst:   &db.InstrumentRow{Exchange: "XNYS"},
+			inst:   &db.InstrumentRow{Exchange: strPtr("XNYS")},
 			want:   false,
 		},
 		{
@@ -178,7 +180,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 		map[string]map[string]bool{instID: {pluginID: true}}, nil)
 	mockDB.EXPECT().GetInstrument(gomock.Any(), instID).Return(&db.InstrumentRow{
 		ID:         instID,
-		AssetClass: "STOCK",
+		AssetClass: strPtr("STOCK"),
 		Identifiers: []db.IdentifierInput{
 			{Type: "TICKER", Value: "AAPL"},
 		},
@@ -218,7 +220,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().GetInstrument(gomock.Any(), instID).Return(&db.InstrumentRow{
 		ID:         instID,
-		AssetClass: "STOCK",
+		AssetClass: strPtr("STOCK"),
 		Identifiers: []db.IdentifierInput{
 			{Type: "TICKER", Value: "AAPL"},
 		},
@@ -262,7 +264,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().GetInstrument(gomock.Any(), instID).Return(&db.InstrumentRow{
 		ID:         instID,
-		AssetClass: "STOCK",
+		AssetClass: strPtr("STOCK"),
 		Identifiers: []db.IdentifierInput{
 			{Type: "TICKER", Value: "AAPL"},
 		},
@@ -306,7 +308,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().GetInstrument(gomock.Any(), instID).Return(&db.InstrumentRow{
 		ID:         instID,
-		AssetClass: "STOCK",
+		AssetClass: strPtr("STOCK"),
 		Identifiers: []db.IdentifierInput{
 			{Type: "TICKER", Value: "AAPL"},
 		},

@@ -20,6 +20,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/auth/google"
 	"github.com/leedenison/portfoliodb/server/auth/session"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/jmoiron/sqlx"
 	"github.com/leedenison/portfoliodb/server/db/migrate"
 	"github.com/leedenison/portfoliodb/server/db/postgres"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -58,18 +59,19 @@ func main() {
 	if *redisURL == "" {
 		log.Fatal("PORTFOLIODB_REDIS_URL or REDIS_URL required")
 	}
-	conn, err := sql.Open("postgres", *dbURL)
+	rawConn, err := sql.Open("postgres", *dbURL)
 	if err != nil {
 		log.Fatalf("db open: %v", err)
 	}
-	defer conn.Close()
-	if err := conn.Ping(); err != nil {
+	defer rawConn.Close()
+	if err := rawConn.Ping(); err != nil {
 		log.Fatalf("db ping: %v", err)
 	}
 	ctx := context.Background()
-	if err := migrate.Up(ctx, conn, migrations.Files); err != nil {
+	if err := migrate.Up(ctx, rawConn, migrations.Files); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
+	conn := sqlx.NewDb(rawConn, "postgres")
 	database := postgres.New(conn)
 
 	// Redis session store

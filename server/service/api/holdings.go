@@ -42,8 +42,8 @@ func (s *Server) GetHoldings(ctx context.Context, req *apiv1.GetHoldingsRequest)
 			inst, err := s.db.GetInstrument(ctx, h.InstrumentId)
 			if err == nil && inst != nil {
 				h.Instrument = instrumentRowToProto(inst)
-				if inst.UnderlyingID != "" {
-					underlyingIDs[inst.UnderlyingID] = struct{}{}
+				if inst.UnderlyingID != nil && *inst.UnderlyingID != "" {
+					underlyingIDs[*inst.UnderlyingID] = struct{}{}
 				}
 			}
 		}

@@ -206,14 +206,16 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 	if err != nil {
 		return nil, fmt.Errorf("invalid instrument id: %w", err)
 	}
-	row, id, err := scanInstrumentRow(p.q.QueryRowContext(ctx, `SELECT id, asset_class, exchange, currency, name, underlying_id, valid_from, valid_to FROM instruments WHERE id = $1`, instUUID))
+	var r instrumentRow
+	err = p.q.GetContext(ctx, &r, `SELECT id, asset_class, exchange, currency, name, underlying_id, valid_from, valid_to FROM instruments WHERE id = $1`, instUUID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get instrument: %w", err)
 	}
-	if err := loadIdentifiers(ctx, p.q, []uuid.UUID{id}, []*db.InstrumentRow{row}); err != nil {
+	row := r.toDBRow()
+	if err := loadIdentifiers(ctx, p.q, []uuid.UUID{r.ID}, []*db.InstrumentRow{row}); err != nil {
 		return nil, fmt.Errorf("get instrument identifiers: %w", err)
 	}
 	return row, nil
@@ -221,10 +223,10 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 
 // ListInstrumentsForExport implements db.InstrumentDB.
 func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter string) ([]*db.InstrumentRow, error) {
-	var rows *sql.Rows
+	var irows []instrumentRow
 	var err error
 	if exchangeFilter != "" {
-		rows, err = p.q.QueryContext(ctx, `
+		err = p.q.SelectContext(ctx, &irows, `
 			SELECT i.id, i.asset_class, i.exchange, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to
 			FROM instruments i
 			WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)
@@ -232,7 +234,7 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 			ORDER BY i.id
 		`, exchangeFilter)
 	} else {
-		rows, err = p.q.QueryContext(ctx, `
+		err = p.q.SelectContext(ctx, &irows, `
 			SELECT i.id, i.asset_class, i.exchange, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to
 			FROM instruments i
 			WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)
@@ -242,19 +244,11 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 	if err != nil {
 		return nil, fmt.Errorf("list instruments for export: %w", err)
 	}
-	defer rows.Close()
-	var results []*db.InstrumentRow
-	var ids []uuid.UUID
-	for rows.Next() {
-		row, id, err := scanInstrumentRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, row)
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	results := make([]*db.InstrumentRow, len(irows))
+	ids := make([]uuid.UUID, len(irows))
+	for i := range irows {
+		results[i] = irows[i].toDBRow()
+		ids[i] = irows[i].ID
 	}
 	if err := loadIdentifiers(ctx, p.q, ids, results); err != nil {
 		return nil, fmt.Errorf("list identifiers for export: %w", err)
@@ -284,26 +278,19 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 		return nil, nil
 	}
 	inClause, args := inClauseUUIDs(uuids)
-	rows, err := p.q.QueryContext(ctx, fmt.Sprintf(`
+	var irows []instrumentRow
+	err := p.q.SelectContext(ctx, &irows, fmt.Sprintf(`
 		SELECT i.id, i.asset_class, i.exchange, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to
 		FROM instruments i WHERE i.id IN (%s)
 	`, inClause), args...)
 	if err != nil {
 		return nil, fmt.Errorf("list instruments by ids: %w", err)
 	}
-	defer rows.Close()
-	var results []*db.InstrumentRow
-	var resultIDs []uuid.UUID
-	for rows.Next() {
-		row, id, err := scanInstrumentRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, row)
-		resultIDs = append(resultIDs, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	results := make([]*db.InstrumentRow, len(irows))
+	resultIDs := make([]uuid.UUID, len(irows))
+	for i := range irows {
+		results[i] = irows[i].toDBRow()
+		resultIDs[i] = irows[i].ID
 	}
 	if err := loadIdentifiers(ctx, p.q, resultIDs, results); err != nil {
 		return nil, fmt.Errorf("list identifiers for instruments: %w", err)
@@ -477,33 +464,24 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	`, where, displayName, argIdx, argIdx+1)
 	args = append(args, limit+1, offset)
 
-	rows, err := p.q.QueryContext(ctx, q, args...)
-	if err != nil {
+	var irows []instrumentRow
+	if err := p.q.SelectContext(ctx, &irows, q, args...); err != nil {
 		return nil, 0, "", fmt.Errorf("list instruments: %w", err)
-	}
-	defer rows.Close()
-	var results []*db.InstrumentRow
-	var ids []uuid.UUID
-	for rows.Next() {
-		row, id, err := scanInstrumentRow(rows)
-		if err != nil {
-			return nil, 0, "", err
-		}
-		results = append(results, row)
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, "", err
 	}
 
 	// Compute next page token (we fetched limit+1 to detect more pages).
 	var nextToken string
-	if int32(len(results)) > limit {
-		results = results[:limit]
-		ids = ids[:limit]
+	if int32(len(irows)) > limit {
+		irows = irows[:limit]
 		nextToken = encodePageToken(offset + int64(limit))
 	}
 
+	results := make([]*db.InstrumentRow, len(irows))
+	ids := make([]uuid.UUID, len(irows))
+	for i := range irows {
+		results[i] = irows[i].toDBRow()
+		ids[i] = irows[i].ID
+	}
 	if err := loadIdentifiers(ctx, p.q, ids, results); err != nil {
 		return nil, 0, "", fmt.Errorf("list instrument identifiers: %w", err)
 	}

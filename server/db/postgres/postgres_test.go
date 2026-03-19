@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/leedenison/portfoliodb/server/db/migrate"
 	"github.com/leedenison/portfoliodb/server/migrations"
 	_ "github.com/lib/pq"
@@ -34,7 +35,7 @@ func testDB(t *testing.T) *Postgres {
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL not set (run via make test-db)")
 	}
-	conn, err := sql.Open("postgres", url)
+	conn, err := sqlx.Open("postgres", url)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -51,7 +52,7 @@ func testDBTx(t *testing.T) *Postgres {
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL not set (run via make test-db)")
 	}
-	conn, err := sql.Open("postgres", url)
+	conn, err := sqlx.Open("postgres", url)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -59,7 +60,7 @@ func testDBTx(t *testing.T) *Postgres {
 	if err := conn.Ping(); err != nil {
 		t.Fatalf("ping: %v", err)
 	}
-	tx, err := conn.BeginTx(context.Background(), nil)
+	tx, err := conn.BeginTxx(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}

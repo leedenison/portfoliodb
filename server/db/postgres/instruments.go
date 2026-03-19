@@ -19,14 +19,15 @@ var errIdentifierExists = errors.New("identifier already exists for another inst
 
 // instrumentDisplayNameSQL returns a SQL expression that resolves the display
 // name for an instrument. Prefers TICKER, then instrument.name, then
-// BROKER_DESCRIPTION, then id::text. alias is the instruments table alias.
-func instrumentDisplayNameSQL(alias string) string {
+// BROKER_DESCRIPTION, then id::text. instAlias is the instruments table alias,
+// identAlias is the alias used for instrument_identifiers in the subqueries.
+func instrumentDisplayNameSQL(instAlias, identAlias string) string {
 	return fmt.Sprintf(`COALESCE(
-		(SELECT ii.value FROM instrument_identifiers ii WHERE ii.instrument_id = %[1]s.id AND ii.identifier_type = 'TICKER' ORDER BY ii.domain, ii.value LIMIT 1),
+		(SELECT %[2]s.value FROM instrument_identifiers %[2]s WHERE %[2]s.instrument_id = %[1]s.id AND %[2]s.identifier_type = 'TICKER' ORDER BY %[2]s.domain, %[2]s.value LIMIT 1),
 		NULLIF(%[1]s.name, ''),
-		(SELECT ii.value FROM instrument_identifiers ii WHERE ii.instrument_id = %[1]s.id AND ii.identifier_type = 'BROKER_DESCRIPTION' ORDER BY ii.domain, ii.value LIMIT 1),
+		(SELECT %[2]s.value FROM instrument_identifiers %[2]s WHERE %[2]s.instrument_id = %[1]s.id AND %[2]s.identifier_type = 'BROKER_DESCRIPTION' ORDER BY %[2]s.domain, %[2]s.value LIMIT 1),
 		%[1]s.id::text
-	)`, alias)
+	)`, instAlias, identAlias)
 }
 
 // mergeInstruments merges mergedAway into survivor inside the same transaction: updates all txs pointing at mergedAway to survivor, moves identifier rows to survivor (or keeps survivor's if duplicate), then deletes mergedAway. exec must be a transaction.
@@ -416,7 +417,7 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	limit := pageSize
 	offset := decodePageToken(pageToken)
 
-	displayName := instrumentDisplayNameSQL("i")
+	displayName := instrumentDisplayNameSQL("i", "ii")
 
 	// Build WHERE clauses for optional filters.
 	var conditions []string

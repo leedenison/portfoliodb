@@ -13,7 +13,7 @@ import (
 // ListPrices implements db.EODPriceListDB.
 func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, dateTo time.Time, dataProvider string, pageSize int32, pageToken string) ([]db.EODPriceRow, int32, string, error) {
 	offset := decodePageToken(pageToken)
-	displayName := instrumentDisplayNameSQL("i")
+	displayName := instrumentDisplayNameSQL("i", "ii")
 
 	var conditions []string
 	var args []interface{}

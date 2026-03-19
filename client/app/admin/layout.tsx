@@ -146,7 +146,7 @@ export default function AdminLayout({
           </ul>
         </nav>
         <div className="min-w-0 flex-1 animate-fade-in">
-          <div className="mx-auto max-w-4xl">{children}</div>
+          <div className="mx-auto max-w-[84rem]">{children}</div>
         </div>
       </div>
     </main>

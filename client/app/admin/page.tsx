@@ -27,7 +27,7 @@ const dashboardCards: {
     title: "Prices",
     href: "/admin/prices",
     description:
-      "View and manage price fetch blocks for instruments.",
+      "Browse cached EOD prices and manage price fetch blocks.",
   },
   {
     id: "identifier",

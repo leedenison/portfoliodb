@@ -17,6 +17,18 @@ import (
 // errIdentifierExists is returned when EnsureInstrument hits a unique violation (identifier already for another instrument).
 var errIdentifierExists = errors.New("identifier already exists for another instrument")
 
+// instrumentDisplayNameSQL returns a SQL expression that resolves the display
+// name for an instrument. Prefers TICKER, then instrument.name, then
+// BROKER_DESCRIPTION, then id::text. alias is the instruments table alias.
+func instrumentDisplayNameSQL(alias string) string {
+	return fmt.Sprintf(`COALESCE(
+		(SELECT ii.value FROM instrument_identifiers ii WHERE ii.instrument_id = %[1]s.id AND ii.identifier_type = 'TICKER' ORDER BY ii.domain, ii.value LIMIT 1),
+		NULLIF(%[1]s.name, ''),
+		(SELECT ii.value FROM instrument_identifiers ii WHERE ii.instrument_id = %[1]s.id AND ii.identifier_type = 'BROKER_DESCRIPTION' ORDER BY ii.domain, ii.value LIMIT 1),
+		%[1]s.id::text
+	)`, alias)
+}
+
 // mergeInstruments merges mergedAway into survivor inside the same transaction: updates all txs pointing at mergedAway to survivor, moves identifier rows to survivor (or keeps survivor's if duplicate), then deletes mergedAway. exec must be a transaction.
 func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway uuid.UUID) error {
 	if survivor == mergedAway {
@@ -404,13 +416,7 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	limit := pageSize
 	offset := decodePageToken(pageToken)
 
-	// Display name: prefer TICKER, then instrument.name, then BROKER_DESCRIPTION, then id::text.
-	displayName := `COALESCE(
-		(SELECT ii.value FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.identifier_type = 'TICKER' ORDER BY ii.domain, ii.value LIMIT 1),
-		NULLIF(i.name, ''),
-		(SELECT ii.value FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.identifier_type = 'BROKER_DESCRIPTION' ORDER BY ii.domain, ii.value LIMIT 1),
-		i.id::text
-	)`
+	displayName := instrumentDisplayNameSQL("i")
 
 	// Build WHERE clauses for optional filters.
 	var conditions []string

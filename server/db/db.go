@@ -22,6 +22,7 @@ type DB interface {
 	PricePluginDB
 	PriceCacheDB
 	PriceFetchBlockDB
+	EODPriceListDB
 }
 
 // PriceFetchBlockDB manages permanently blocked (instrument, plugin) pairs.
@@ -216,6 +217,29 @@ type PriceFetchBlock struct {
 	PluginID     string
 	Reason       string
 	CreatedAt    time.Time
+}
+
+// EODPriceRow is a single end-of-day price row for the admin price list.
+type EODPriceRow struct {
+	InstrumentID          string
+	InstrumentDisplayName string
+	PriceDate             time.Time
+	Open                  *float64
+	High                  *float64
+	Low                   *float64
+	Close                 float64
+	AdjustedClose         *float64
+	Volume                *int64
+	DataProvider          string
+	FetchedAt             time.Time
+}
+
+// EODPriceListDB provides paginated listing of EOD prices for admin UI.
+type EODPriceListDB interface {
+	// ListPrices returns EOD prices with optional search, date range, and provider filters.
+	// Returns (rows, totalCount, nextPageToken, error).
+	ListPrices(ctx context.Context, search string, dateFrom, dateTo time.Time,
+		dataProvider string, pageSize int32, pageToken string) ([]EODPriceRow, int32, string, error)
 }
 
 // Valid asset class values (controlled vocabulary).

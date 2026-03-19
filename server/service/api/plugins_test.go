@@ -26,7 +26,7 @@ func TestListPricePlugins_Success(t *testing.T) {
 	mockDB := mock.NewMockDB(ctrl)
 	srv := NewServer(ServerConfig{DB: mockDB})
 
-	mockDB.EXPECT().ListPricePluginConfigs(gomock.Any()).Return([]db.PluginConfigRowFull{
+	mockDB.EXPECT().ListPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRowFull{
 		{PluginID: "massive", Enabled: true, Precedence: 10, Config: []byte(`{"key":"val"}`)},
 	}, nil)
 
@@ -64,7 +64,7 @@ func TestUpdatePricePlugin_NotFound(t *testing.T) {
 	mockDB := mock.NewMockDB(ctrl)
 	srv := NewServer(ServerConfig{DB: mockDB})
 
-	mockDB.EXPECT().UpdatePricePluginConfig(gomock.Any(), "missing", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+	mockDB.EXPECT().UpdatePluginConfig(gomock.Any(), db.PluginCategoryPrice, "missing", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, sql.ErrNoRows)
 
 	ctx := adminCtx("admin-1", "sub|admin")
@@ -82,7 +82,7 @@ func TestUpdatePricePlugin_Success(t *testing.T) {
 	mockDB := mock.NewMockDB(ctrl)
 	srv := NewServer(ServerConfig{DB: mockDB})
 
-	mockDB.EXPECT().UpdatePricePluginConfig(gomock.Any(), "massive", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+	mockDB.EXPECT().UpdatePluginConfig(gomock.Any(), db.PluginCategoryPrice, "massive", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&db.PluginConfigRowFull{PluginID: "massive", Enabled: true, Precedence: 10, Config: []byte("{}")}, nil)
 
 	ctx := adminCtx("admin-1", "sub|admin")

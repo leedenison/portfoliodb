@@ -40,7 +40,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		return
 	}
 
-	configs, err := database.ListEnabledPricePluginConfigs(ctx)
+	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryPrice)
 	if err != nil {
 		if log != nil {
 			log.ErrorContext(ctx, "price fetch: list configs", "err", err)

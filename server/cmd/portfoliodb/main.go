@@ -160,18 +160,33 @@ func main() {
 	pluginRegistry.Register(massiveplugin.PluginID, massiveplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive"), pluginHTTPClient))
 	pluginRegistry.Register(eodhdplugin.PluginID, eodhdplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/eodhd"), pluginHTTPClient))
 	pluginRegistry.Register(cashid.PluginID, cashid.NewPlugin(database))
-	if err := ensurePluginConfigs(context.Background(), database, pluginRegistry); err != nil {
-		log.Fatalf("ensure plugin configs: %v", err)
+	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryIdentifier, pluginRegistry.ListIDs(), func(id string) []byte {
+		if p := pluginRegistry.Get(id); p != nil {
+			return p.DefaultConfig()
+		}
+		return nil
+	}); err != nil {
+		log.Fatalf("ensure identifier plugin configs: %v", err)
 	}
 	descRegistry := description.NewRegistry()
 	descRegistry.Register(openaidesc.PluginID, openaidesc.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openai"), &http.Client{Timeout: 20 * time.Second}))
 	descRegistry.Register(cashdesc.PluginID, cashdesc.NewPlugin())
-	if err := ensureDescriptionPluginConfigs(context.Background(), database, descRegistry); err != nil {
+	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryDescription, descRegistry.ListIDs(), func(id string) []byte {
+		if p := descRegistry.Get(id); p != nil {
+			return p.DefaultConfig()
+		}
+		return nil
+	}); err != nil {
 		log.Fatalf("ensure description plugin configs: %v", err)
 	}
 	priceRegistry := pricefetcher.NewRegistry()
 	priceRegistry.Register(massiveprice.PluginID, massiveprice.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive/price"), pluginHTTPClient))
-	if err := ensurePricePluginConfigs(context.Background(), database, priceRegistry); err != nil {
+	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryPrice, priceRegistry.ListIDs(), func(id string) []byte {
+		if p := priceRegistry.Get(id); p != nil {
+			return p.DefaultConfig()
+		}
+		return nil
+	}); err != nil {
 		log.Fatalf("ensure price plugin configs: %v", err)
 	}
 	priceTrigger := make(chan struct{}, 1)
@@ -252,65 +267,21 @@ func parseAllowlist(env string) []string {
 	return out
 }
 
-// ensurePluginConfigs creates a config row for each registered plugin that does not yet have one (from plugin.DefaultConfig(), enabled=false, precedence by order).
-func ensurePluginConfigs(ctx context.Context, database db.InstrumentDB, registry *identifier.Registry) error {
-	for i, id := range registry.ListIDs() {
-		_, err := database.GetPluginConfig(ctx, id)
+// ensurePluginConfigs creates a config row for each registered plugin that does not yet have one.
+// defaultConfigFn returns the default config bytes for a plugin ID (or nil to skip).
+func ensurePluginConfigs(ctx context.Context, database db.PluginConfigDB, category string, pluginIDs []string, defaultConfigFn func(string) []byte) error {
+	for i, id := range pluginIDs {
+		_, err := database.GetPluginConfig(ctx, category, id)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		if errors.Is(err, sql.ErrNoRows) {
-			p := registry.Get(id)
-			if p == nil {
+			cfg := defaultConfigFn(id)
+			if cfg == nil {
 				continue
 			}
-			defaultConfig := p.DefaultConfig()
 			precedence := 10 * (i + 1)
-			if _, err := database.InsertPluginConfig(ctx, id, false, precedence, defaultConfig); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// ensurePricePluginConfigs creates a price_plugin_config row for each registered price plugin that does not yet have one.
-func ensurePricePluginConfigs(ctx context.Context, database db.PricePluginDB, registry *pricefetcher.Registry) error {
-	for i, id := range registry.ListIDs() {
-		_, err := database.GetPricePluginConfig(ctx, id)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		if errors.Is(err, sql.ErrNoRows) {
-			p := registry.Get(id)
-			if p == nil {
-				continue
-			}
-			defaultConfig := p.DefaultConfig()
-			precedence := 10 * (i + 1)
-			if _, err := database.InsertPricePluginConfig(ctx, id, false, precedence, defaultConfig, nil); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// ensureDescriptionPluginConfigs creates a description_plugin_config row for each registered description plugin that does not yet have one.
-func ensureDescriptionPluginConfigs(ctx context.Context, database db.DescriptionPluginDB, registry *description.Registry) error {
-	for i, id := range registry.ListIDs() {
-		_, err := database.GetDescriptionPluginConfig(ctx, id)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		if errors.Is(err, sql.ErrNoRows) {
-			p := registry.Get(id)
-			if p == nil {
-				continue
-			}
-			defaultConfig := p.DefaultConfig()
-			precedence := 10 * (i + 1)
-			if _, err := database.InsertDescriptionPluginConfig(ctx, id, false, precedence, defaultConfig); err != nil {
+			if _, err := database.InsertPluginConfig(ctx, category, id, false, precedence, cfg, nil); err != nil {
 				return err
 			}
 		}

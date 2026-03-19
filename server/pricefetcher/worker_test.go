@@ -170,7 +170,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
 		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
 	}, nil)
-	mockDB.EXPECT().ListEnabledPricePluginConfigs(gomock.Any()).Return([]db.PluginConfigRow{
+	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
 	// Return blocked for this (instrument, plugin) pair.
@@ -212,7 +212,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
 		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
 	}, nil)
-	mockDB.EXPECT().ListEnabledPricePluginConfigs(gomock.Any()).Return([]db.PluginConfigRow{
+	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
@@ -256,7 +256,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
 		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
 	}, nil)
-	mockDB.EXPECT().ListEnabledPricePluginConfigs(gomock.Any()).Return([]db.PluginConfigRow{
+	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
 	}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
@@ -300,7 +300,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
 		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
 	}, nil)
-	mockDB.EXPECT().ListEnabledPricePluginConfigs(gomock.Any()).Return([]db.PluginConfigRow{
+	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
 	}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)

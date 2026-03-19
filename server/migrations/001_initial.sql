@@ -126,37 +126,26 @@ CREATE UNIQUE INDEX idx_instrument_identifiers_unique_null_domain ON instrument_
 CREATE UNIQUE INDEX idx_instrument_identifiers_unique_non_null_domain ON instrument_identifiers (identifier_type, domain, value) WHERE domain IS NOT NULL;
 CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identifier_type, COALESCE(domain, ''), value);
 
--- Plugin config: which plugins are enabled, precedence (unique), plugin-specific config.
+-- Plugin config: which plugins are enabled, precedence (unique per category), plugin-specific config.
+-- category: 'identifier', 'description', 'price'.
 -- Precedence constraints are DEFERRABLE so that two plugins' precedences can be swapped
 -- within a single transaction without hitting a uniqueness violation mid-swap.
-CREATE TABLE identifier_plugin_config (
-  plugin_id   TEXT PRIMARY KEY,
-  enabled     BOOLEAN NOT NULL DEFAULT true,
-  precedence  INT NOT NULL UNIQUE DEFERRABLE INITIALLY IMMEDIATE,
-  config      JSONB
-);
-
--- Description plugin config: plugins that extract identifier hints from broker descriptions.
-CREATE TABLE description_plugin_config (
-  plugin_id   TEXT PRIMARY KEY,
-  enabled     BOOLEAN NOT NULL DEFAULT true,
-  precedence  INT NOT NULL UNIQUE DEFERRABLE INITIALLY IMMEDIATE,
-  config      JSONB
-);
-
--- Price plugin config: plugins that fetch EOD prices from external providers.
-CREATE TABLE price_plugin_config (
-  plugin_id       TEXT PRIMARY KEY,
-  enabled         BOOLEAN NOT NULL DEFAULT true,
-  precedence      INT NOT NULL UNIQUE DEFERRABLE INITIALLY IMMEDIATE,
-  config          JSONB,
-  max_history_days INT  -- NULL = unlimited lookback
+-- max_history_days is only used by price plugins; NULL = unlimited lookback.
+CREATE TABLE plugin_config (
+  plugin_id        TEXT NOT NULL,
+  category         TEXT NOT NULL CHECK (category IN ('identifier', 'description', 'price')),
+  enabled          BOOLEAN NOT NULL DEFAULT true,
+  precedence       INT NOT NULL,
+  config           JSONB,
+  max_history_days INT,
+  PRIMARY KEY (plugin_id, category),
+  UNIQUE (category, precedence) DEFERRABLE INITIALLY IMMEDIATE
 );
 
 -- Blocked (instrument, plugin) pairs that should not be retried.
 CREATE TABLE price_fetch_blocks (
   instrument_id UUID NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
-  plugin_id     TEXT NOT NULL REFERENCES price_plugin_config(plugin_id) ON DELETE CASCADE,
+  plugin_id     TEXT NOT NULL,
   reason        TEXT NOT NULL,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, plugin_id)

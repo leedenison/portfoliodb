@@ -10,108 +10,116 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 )
 
-// ListEnabledPluginConfigs implements db.InstrumentDB.
-func (p *Postgres) ListEnabledPluginConfigs(ctx context.Context) ([]db.PluginConfigRow, error) {
+// ListEnabledPluginConfigs implements db.PluginConfigDB.
+func (p *Postgres) ListEnabledPluginConfigs(ctx context.Context, category string) ([]db.PluginConfigRow, error) {
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT plugin_id, precedence, config FROM identifier_plugin_config
-		WHERE enabled = true ORDER BY precedence DESC
-	`)
+		SELECT plugin_id, precedence, config, max_history_days FROM plugin_config
+		WHERE category = $1 AND enabled = true ORDER BY precedence DESC
+	`, category)
 	if err != nil {
-		return nil, fmt.Errorf("list enabled plugin configs: %w", err)
+		return nil, fmt.Errorf("list enabled plugin configs (%s): %w", category, err)
 	}
 	defer rows.Close()
 	var out []db.PluginConfigRow
 	for rows.Next() {
 		var r db.PluginConfigRow
 		var config sql.NullString
-		if err := rows.Scan(&r.PluginID, &r.Precedence, &config); err != nil {
+		var maxHist sql.NullInt32
+		if err := rows.Scan(&r.PluginID, &r.Precedence, &config, &maxHist); err != nil {
 			return nil, err
 		}
 		if config.Valid {
 			r.Config = []byte(config.String)
+		}
+		if maxHist.Valid {
+			v := int(maxHist.Int32)
+			r.MaxHistoryDays = &v
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
-// ListPluginConfigs implements db.InstrumentDB.
-func (p *Postgres) ListPluginConfigs(ctx context.Context) ([]db.PluginConfigRowFull, error) {
+// ListPluginConfigs implements db.PluginConfigDB.
+func (p *Postgres) ListPluginConfigs(ctx context.Context, category string) ([]db.PluginConfigRowFull, error) {
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT plugin_id, enabled, precedence, config FROM identifier_plugin_config
-		ORDER BY precedence DESC
-	`)
+		SELECT plugin_id, enabled, precedence, config, max_history_days FROM plugin_config
+		WHERE category = $1 ORDER BY precedence DESC
+	`, category)
 	if err != nil {
-		return nil, fmt.Errorf("list plugin configs: %w", err)
+		return nil, fmt.Errorf("list plugin configs (%s): %w", category, err)
 	}
 	defer rows.Close()
 	var out []db.PluginConfigRowFull
 	for rows.Next() {
 		var r db.PluginConfigRowFull
-		var config sql.NullString
-		if err := rows.Scan(&r.PluginID, &r.Enabled, &r.Precedence, &config); err != nil {
+		var configVal sql.NullString
+		var maxHist sql.NullInt32
+		if err := rows.Scan(&r.PluginID, &r.Enabled, &r.Precedence, &configVal, &maxHist); err != nil {
 			return nil, err
 		}
-		if config.Valid {
-			r.Config = []byte(config.String)
+		if configVal.Valid {
+			r.Config = []byte(configVal.String)
+		}
+		if maxHist.Valid {
+			v := int(maxHist.Int32)
+			r.MaxHistoryDays = &v
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
-// GetPluginConfig implements db.InstrumentDB.
-func (p *Postgres) GetPluginConfig(ctx context.Context, pluginID string) (*db.PluginConfigRowFull, error) {
+// GetPluginConfig implements db.PluginConfigDB.
+func (p *Postgres) GetPluginConfig(ctx context.Context, category, pluginID string) (*db.PluginConfigRowFull, error) {
 	var r db.PluginConfigRowFull
 	var configVal sql.NullString
-	err := p.q.QueryRowContext(ctx, `SELECT plugin_id, enabled, precedence, config FROM identifier_plugin_config WHERE plugin_id = $1`, pluginID).
-		Scan(&r.PluginID, &r.Enabled, &r.Precedence, &configVal)
+	var maxHist sql.NullInt32
+	err := p.q.QueryRowContext(ctx,
+		`SELECT plugin_id, enabled, precedence, config, max_history_days FROM plugin_config WHERE category = $1 AND plugin_id = $2`,
+		category, pluginID).
+		Scan(&r.PluginID, &r.Enabled, &r.Precedence, &configVal, &maxHist)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("get plugin config: %w", err)
+		return nil, fmt.Errorf("get plugin config (%s, %s): %w", category, pluginID, err)
 	}
 	if configVal.Valid {
 		r.Config = []byte(configVal.String)
 	}
+	if maxHist.Valid {
+		v := int(maxHist.Int32)
+		r.MaxHistoryDays = &v
+	}
 	return &r, nil
 }
 
-// InsertPluginConfig implements db.InstrumentDB.
-func (p *Postgres) InsertPluginConfig(ctx context.Context, pluginID string, enabled bool, precedence int, config []byte) (*db.PluginConfigRowFull, error) {
+// InsertPluginConfig implements db.PluginConfigDB.
+func (p *Postgres) InsertPluginConfig(ctx context.Context, category, pluginID string, enabled bool, precedence int, config []byte, maxHistoryDays *int) (*db.PluginConfigRowFull, error) {
 	payload := config
 	if len(payload) == 0 {
 		payload = []byte("{}")
 	}
-	_, err := p.q.ExecContext(ctx, `INSERT INTO identifier_plugin_config (plugin_id, enabled, precedence, config) VALUES ($1, $2, $3, $4)`,
-		pluginID, enabled, precedence, payload)
-	if err != nil {
-		return nil, fmt.Errorf("insert plugin config: %w", err)
+	var maxHist sql.NullInt32
+	if maxHistoryDays != nil {
+		maxHist = sql.NullInt32{Int32: int32(*maxHistoryDays), Valid: true}
 	}
-	return p.GetPluginConfig(ctx, pluginID)
+	_, err := p.q.ExecContext(ctx,
+		`INSERT INTO plugin_config (plugin_id, category, enabled, precedence, config, max_history_days) VALUES ($1, $2, $3, $4, $5, $6)`,
+		pluginID, category, enabled, precedence, payload, maxHist)
+	if err != nil {
+		return nil, fmt.Errorf("insert plugin config (%s, %s): %w", category, pluginID, err)
+	}
+	return p.GetPluginConfig(ctx, category, pluginID)
 }
 
-// updatePluginConfig builds a single atomic UPDATE for a *_plugin_config table,
-// setting only non-nil fields. Used by all three plugin config tables.
-func updatePluginConfig(ctx context.Context, p *Postgres, table, pluginID string, enabled *bool, precedence *int, config []byte) (*db.PluginConfigRowFull, error) {
-	if enabled == nil && precedence == nil && config == nil {
-		// Nothing to update; just return current row.
-		var r db.PluginConfigRowFull
-		var configVal sql.NullString
-		err := p.q.QueryRowContext(ctx,
-			fmt.Sprintf(`SELECT plugin_id, enabled, precedence, config FROM %s WHERE plugin_id = $1`, table), pluginID).
-			Scan(&r.PluginID, &r.Enabled, &r.Precedence, &configVal)
-		if err != nil {
-			return nil, err
-		}
-		if configVal.Valid {
-			r.Config = []byte(configVal.String)
-		}
-		return &r, nil
+// UpdatePluginConfig implements db.PluginConfigDB.
+func (p *Postgres) UpdatePluginConfig(ctx context.Context, category, pluginID string, enabled *bool, precedence *int, config []byte, maxHistoryDays *int) (*db.PluginConfigRowFull, error) {
+	if enabled == nil && precedence == nil && config == nil && maxHistoryDays == nil {
+		return p.GetPluginConfig(ctx, category, pluginID)
 	}
 
-	// Build a single UPDATE with only the provided fields.
 	var setClauses []string
 	var args []interface{}
 	argN := 1
@@ -135,26 +143,36 @@ func updatePluginConfig(ctx context.Context, p *Postgres, table, pluginID string
 		args = append(args, payload)
 		argN++
 	}
+	if maxHistoryDays != nil {
+		if *maxHistoryDays == 0 {
+			setClauses = append(setClauses, fmt.Sprintf("max_history_days = $%d", argN))
+			args = append(args, sql.NullInt32{})
+		} else {
+			setClauses = append(setClauses, fmt.Sprintf("max_history_days = $%d", argN))
+			args = append(args, sql.NullInt32{Int32: int32(*maxHistoryDays), Valid: true})
+		}
+		argN++
+	}
 
-	args = append(args, pluginID)
-	query := fmt.Sprintf(`UPDATE %s SET %s WHERE plugin_id = $%d
-		RETURNING plugin_id, enabled, precedence, config`,
-		table, strings.Join(setClauses, ", "), argN)
+	args = append(args, category, pluginID)
+	query := fmt.Sprintf(`UPDATE plugin_config SET %s WHERE category = $%d AND plugin_id = $%d
+		RETURNING plugin_id, enabled, precedence, config, max_history_days`,
+		strings.Join(setClauses, ", "), argN, argN+1)
 
 	var r db.PluginConfigRowFull
 	var configVal sql.NullString
+	var maxHist sql.NullInt32
 	err := p.q.QueryRowContext(ctx, query, args...).
-		Scan(&r.PluginID, &r.Enabled, &r.Precedence, &configVal)
+		Scan(&r.PluginID, &r.Enabled, &r.Precedence, &configVal, &maxHist)
 	if err != nil {
 		return nil, err
 	}
 	if configVal.Valid {
 		r.Config = []byte(configVal.String)
 	}
+	if maxHist.Valid {
+		v := int(maxHist.Int32)
+		r.MaxHistoryDays = &v
+	}
 	return &r, nil
-}
-
-// UpdatePluginConfig implements db.InstrumentDB.
-func (p *Postgres) UpdatePluginConfig(ctx context.Context, pluginID string, enabled *bool, precedence *int, config []byte) (*db.PluginConfigRowFull, error) {
-	return updatePluginConfig(ctx, p, "identifier_plugin_config", pluginID, enabled, precedence, config)
 }

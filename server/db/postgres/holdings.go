@@ -90,24 +90,13 @@ func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID 
 		asOfT = asOf.AsTime()
 	}
 	rows, err := p.q.QueryContext(ctx, `
-		WITH matched AS (
-			SELECT DISTINCT t.id
-			FROM txs t
-			INNER JOIN portfolio_filters f ON f.portfolio_id = $1::uuid
-				AND (
-					(f.filter_type = 'broker' AND t.broker = f.filter_value)
-					OR (f.filter_type = 'account' AND t.account = f.filter_value)
-					OR (f.filter_type = 'instrument' AND t.instrument_id IS NOT NULL AND t.instrument_id::text = f.filter_value)
-				)
-			WHERE t.user_id = (SELECT user_id FROM portfolios WHERE id = $2::uuid)
-		)
 		SELECT t.broker, t.account, t.instrument_description, t.instrument_id, SUM(t.quantity) AS quantity
 		FROM txs t
-		INNER JOIN matched m ON m.id = t.id
-		WHERE t.timestamp <= $3
+		INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
+		WHERE t.timestamp <= $2
 		GROUP BY t.broker, t.account, t.instrument_description, t.instrument_id
 		HAVING SUM(t.quantity) != 0
-	`, portUUID, portUUID, asOfT)
+	`, portUUID, asOfT)
 	if err != nil {
 		return nil, nil, fmt.Errorf("compute holdings for portfolio: %w", err)
 	}

@@ -167,6 +167,19 @@ ALTER TABLE txs ADD COLUMN instrument_id UUID REFERENCES instruments (id);
 
 CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);
 
+-- Portfolio filter matching view: returns (portfolio_id, tx_id) pairs for txs
+-- matching any of the portfolio's filters (OR). Used by ComputeHoldingsForPortfolio
+-- and ListTxsByPortfolio to avoid duplicating the filter logic.
+CREATE VIEW portfolio_matched_txs AS
+SELECT DISTINCT f.portfolio_id, t.id AS tx_id
+FROM txs t
+INNER JOIN portfolio_filters f ON
+    (f.filter_type = 'broker' AND t.broker = f.filter_value)
+    OR (f.filter_type = 'account' AND t.account = f.filter_value)
+    OR (f.filter_type = 'instrument' AND t.instrument_id IS NOT NULL
+        AND t.instrument_id::text = f.filter_value)
+WHERE t.user_id = (SELECT user_id FROM portfolios WHERE id = f.portfolio_id);
+
 -- EOD price cache. Stores end-of-day OHLCV data per instrument per date.
 CREATE TABLE eod_prices (
   instrument_id   UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,

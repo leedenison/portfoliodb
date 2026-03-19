@@ -335,19 +335,18 @@ export function PluginConfigEditor<T extends PluginConfig>({
                 <span className="text-xs font-medium tracking-wide [writing-mode:vertical-lr] rotate-180">
                   Precedence
                 </span>
-                <svg
-                  width="12"
-                  height="100%"
-                  viewBox="0 0 12 48"
-                  preserveAspectRatio="none"
-                  className="mt-1 flex-1"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                >
-                  <line x1="6" y1="0" x2="6" y2="42" />
-                  <polyline points="2,38 6,46 10,38" />
-                </svg>
+                <div className="mt-1 flex flex-1 flex-col items-center">
+                  <div className="w-px flex-1 bg-current" />
+                  <svg
+                    width="12"
+                    height="8"
+                    viewBox="0 0 12 8"
+                    fill="currentColor"
+                    className="shrink-0"
+                  >
+                    <polygon points="0,0 6,8 12,0" />
+                  </svg>
+                </div>
               </div>
             )}
             <ul className="flex-1 space-y-4">

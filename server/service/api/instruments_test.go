@@ -22,7 +22,7 @@ func TestListInstruments_Unauthenticated(t *testing.T) {
 func TestListInstruments_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	rows := []*dbpkg.InstrumentRow{
-		{ID: "id-1", Name: strPtr("Apple"), AssetClass: strPtr("STOCK"), Exchange: strPtr("XNAS"), Currency: strPtr("USD"),
+		{ID: "id-1", Name: strPtr("Apple"), AssetClass: strPtr("STOCK"), ExchangeMIC: strPtr("XNAS"), Currency: strPtr("USD"),
 			Identifiers: []dbpkg.IdentifierInput{
 				{Type: "TICKER", Value: "AAPL", Domain: "XNAS", Canonical: true},
 				{Type: "ISIN", Value: "US0378331005", Canonical: true},

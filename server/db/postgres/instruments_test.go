@@ -165,10 +165,10 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 		t.Fatalf("ListInstrumentsForExport: %v", err)
 	}
 	// XNAS filter: seeded CASH instruments have exchange NULL so only our Nasdaq instrument matches.
-	if len(list) != 1 || list[0].Exchange == nil || *list[0].Exchange != "XNAS" {
+	if len(list) != 1 || list[0].ExchangeMIC == nil || *list[0].ExchangeMIC != "XNAS" {
 		var ex string
-		if len(list) > 0 && list[0].Exchange != nil {
-			ex = *list[0].Exchange
+		if len(list) > 0 && list[0].ExchangeMIC != nil {
+			ex = *list[0].ExchangeMIC
 		}
 		t.Fatalf("expected 1 instrument with exchange XNAS, got %d (first exchange %q)", len(list), ex)
 	}
@@ -182,10 +182,10 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	}
 	var foundNasdaq, foundNYSE bool
 	for _, row := range listAll {
-		if row.Name != nil && *row.Name == "Nasdaq" && row.Exchange != nil && *row.Exchange == "XNAS" {
+		if row.Name != nil && *row.Name == "Nasdaq" && row.ExchangeMIC != nil && *row.ExchangeMIC == "XNAS" {
 			foundNasdaq = true
 		}
-		if row.Name != nil && *row.Name == "NYSE" && row.Exchange != nil && *row.Exchange == "XNYS" {
+		if row.Name != nil && *row.Name == "NYSE" && row.ExchangeMIC != nil && *row.ExchangeMIC == "XNYS" {
 			foundNYSE = true
 		}
 	}
@@ -206,8 +206,8 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 	}
 	validFrom := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	validTo := time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC)
-	// Create option with underlying_id and valid dates.
-	optionID, err := p.EnsureInstrument(ctx, "OPTION", "SMART", "USD", "AAPL Call", []db.IdentifierInput{
+	// Create option with underlying_id and valid dates (empty exchange -- SMART is not a MIC).
+	optionID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL Call", []db.IdentifierInput{
 		{Type: "IBKR", Value: "AAPL 20250117C200", Canonical: false},
 	}, underlyingID, &validFrom, &validTo)
 	if err != nil {
@@ -239,7 +239,7 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 func TestEnsureInstrument_OptionWithoutUnderlying_Rejected(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	_, err := p.EnsureInstrument(ctx, "OPTION", "SMART", "USD", "Option", []db.IdentifierInput{
+	_, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "Option", []db.IdentifierInput{
 		{Type: "IBKR", Value: "OPT1", Canonical: false},
 	}, "", nil, nil)
 	if err == nil {

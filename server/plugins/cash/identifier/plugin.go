@@ -71,8 +71,8 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	if row.AssetClass != nil {
 		inst.AssetClass = *row.AssetClass
 	}
-	if row.Exchange != nil {
-		inst.Exchange = *row.Exchange
+	if row.ExchangeMIC != nil {
+		inst.Exchange = *row.ExchangeMIC
 	}
 	if row.Currency != nil {
 		inst.Currency = *row.Currency

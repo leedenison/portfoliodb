@@ -187,8 +187,8 @@ func pluginAccepts(p Plugin, inst *db.InstrumentRow) bool {
 			return false
 		}
 	}
-	if ex := p.AcceptableExchanges(); len(ex) > 0 && inst.Exchange != nil && *inst.Exchange != "" {
-		if !ex[*inst.Exchange] {
+	if ex := p.AcceptableExchanges(); len(ex) > 0 && inst.ExchangeMIC != nil && *inst.ExchangeMIC != "" {
+		if !ex[*inst.ExchangeMIC] {
 			return false
 		}
 	}

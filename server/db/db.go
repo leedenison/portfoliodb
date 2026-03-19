@@ -255,21 +255,24 @@ var ValidAssetClasses = map[string]bool{
 // InstrumentRow is a single instrument with its identifiers (for API responses).
 // Nullable DB columns use pointer types; nil means NULL.
 type InstrumentRow struct {
-	ID           string
-	AssetClass   *string
-	Exchange     *string
-	Currency     *string
-	Name         *string
-	UnderlyingID *string
-	ValidFrom    *time.Time
-	ValidTo      *time.Time
-	Identifiers  []IdentifierInput
+	ID                  string
+	AssetClass          *string
+	ExchangeMIC         *string
+	Currency            *string
+	Name                *string
+	UnderlyingID        *string
+	ValidFrom           *time.Time
+	ValidTo             *time.Time
+	Identifiers         []IdentifierInput
+	ExchangeName        *string // read-only; from exchanges JOIN
+	ExchangeAcronym     *string // read-only; from exchanges JOIN
+	ExchangeCountryCode *string // read-only; from exchanges JOIN
 }
 
 // InstrumentDB provides instrument resolution and plugin config.
 type InstrumentDB interface {
-	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. Returns instrument ID. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument ID. When assetClass is OPTION or FUTURE, underlyingID must be non-empty.
-	EnsureInstrument(ctx context.Context, assetClass, exchange, currency, name string, identifiers []IdentifierInput, underlyingID string, validFrom, validTo *time.Time) (string, error)
+	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. Returns instrument ID. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument ID. When assetClass is OPTION or FUTURE, underlyingID must be non-empty. exchangeMIC is the ISO 10383 MIC code (nullable).
+	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name string, identifiers []IdentifierInput, underlyingID string, validFrom, validTo *time.Time) (string, error)
 	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
 	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
 	// FindInstrumentByTypeAndValue looks up instrument_id by (identifier_type, value) with any domain. Returns "" if not found or if multiple instruments match (ambiguous).
@@ -280,8 +283,10 @@ type InstrumentDB interface {
 	GetInstrument(ctx context.Context, instrumentID string) (*InstrumentRow, error)
 	// ListInstrumentsByIDs returns instruments by ID slice (for batch underlying lookup). Missing IDs are omitted; order not guaranteed.
 	ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*InstrumentRow, error)
-	// ListInstrumentsForExport returns all instruments that have at least one identifier with canonical = true. If exchangeFilter != "", filter by instruments.exchange. Order by instruments.id.
+	// ListInstrumentsForExport returns all instruments that have at least one identifier with canonical = true. If exchangeFilter != "", filter by instruments.exchange_mic. Order by instruments.id.
 	ListInstrumentsForExport(ctx context.Context, exchangeFilter string) ([]*InstrumentRow, error)
+	// ValidateMIC checks whether the given MIC code exists in the exchanges reference table.
+	ValidateMIC(ctx context.Context, mic string) (bool, error)
 	// ListInstruments returns instruments sorted alphabetically by display name (ticker, then name, then broker description). If search is non-empty, only instruments with at least one identifier value matching (case-insensitive substring) are returned. If assetClasses is non-empty, only instruments with matching asset_class are returned. Returns (rows, totalCount, nextPageToken, error).
 	ListInstruments(ctx context.Context, search string, assetClasses []string, pageSize int32, pageToken string) ([]*InstrumentRow, int32, string, error)
 }

@@ -164,6 +164,9 @@ service ApiService {
   rpc ListPriceFetchBlocks(ListPriceFetchBlocksRequest) returns (ListPriceFetchBlocksResponse);
   rpc DeletePriceFetchBlock(DeletePriceFetchBlockRequest) returns (DeletePriceFetchBlockResponse);
 
+  // EOD prices (admin-only). Browse cached price data.
+  rpc ListPrices(ListPricesRequest) returns (ListPricesResponse);
+
   // Telemetry counters (admin-only). Returns counters discovered from Redis (portfoliodb:counters:*).
   rpc ListTelemetryCounters(ListTelemetryCountersRequest) returns (ListTelemetryCountersResponse);
 }
@@ -493,4 +496,34 @@ message TelemetryCounter {
 
 message ListTelemetryCountersResponse {
   repeated TelemetryCounter counters = 1;
+}
+
+// EODPriceProto is a single end-of-day price row for admin browsing.
+message EODPriceProto {
+  string instrument_id = 1;
+  string instrument_display_name = 2;
+  string price_date = 3;               // "YYYY-MM-DD"
+  optional double open = 4;
+  optional double high = 5;
+  optional double low = 6;
+  double close = 7;
+  optional double adjusted_close = 8;
+  optional int64 volume = 9;
+  string data_provider = 10;
+  google.protobuf.Timestamp fetched_at = 11;
+}
+
+message ListPricesRequest {
+  string search = 1;          // instrument name/ticker substring
+  string date_from = 2;       // "YYYY-MM-DD", inclusive
+  string date_to = 3;         // "YYYY-MM-DD", inclusive
+  string data_provider = 4;
+  int32 page_size = 5;
+  string page_token = 6;
+}
+
+message ListPricesResponse {
+  repeated EODPriceProto prices = 1;
+  string next_page_token = 2;
+  int32 total_count = 3;
 }

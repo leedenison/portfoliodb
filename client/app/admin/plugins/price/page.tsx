@@ -5,6 +5,7 @@ import { PluginConfigEditor } from "@/app/admin/plugins/plugin-config-editor";
 import {
   listPricePlugins,
   updatePricePlugin,
+  reorderPlugins,
 } from "@/lib/portfolio-api";
 import type { PricePluginConfig } from "@/gen/api/v1/api_pb";
 
@@ -15,6 +16,7 @@ export default function AdminPricePluginsPage() {
       description="Enable or disable plugins that fetch end-of-day prices for identified instruments. Config JSON can include API keys and rate limits; only admins can view or edit."
       listFn={listPricePlugins}
       updateFn={updatePricePlugin}
+      reorderFn={(ids) => reorderPlugins("price", ids)}
       renderExtra={(plugin, { saving, onUpdate }) => (
         <MaxHistoryDaysField
           plugin={plugin}

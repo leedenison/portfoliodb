@@ -127,8 +127,11 @@ export default function UserHoldingsPage() {
                             <td className="px-4 py-3 text-text-muted">
                               {h.account || "—"}
                             </td>
-                            <td className="px-4 py-3 text-text-muted">
-                              {h.instrument?.exchange || "—"}
+                            <td
+                              className="px-4 py-3 text-text-muted"
+                              title={h.instrument?.exchangeInfo?.name || ""}
+                            >
+                              {h.instrument?.exchangeInfo?.acronym || h.instrument?.exchange || "—"}
                             </td>
                             <td className="px-4 py-3 font-medium text-text-primary">
                               {ticker || h.instrumentDescription || "—"}

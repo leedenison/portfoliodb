@@ -186,6 +186,7 @@ type ValuationPoint struct {
 // ValuationDB computes daily portfolio values over a date range.
 type ValuationDB interface {
 	GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateTo time.Time) ([]ValuationPoint, error)
+	GetUserValuation(ctx context.Context, userID string, dateFrom, dateTo time.Time) ([]ValuationPoint, error)
 }
 
 // JobRow is a job summary for list views.

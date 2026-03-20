@@ -164,6 +164,65 @@ func TestGetPortfolioValuation_MultipleInstruments(t *testing.T) {
 	}
 }
 
+func TestGetUserValuation_Basic(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|uval1", "U", "u@uval.com")
+
+	// Create instrument with price data.
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL UserVal", Canonical: false},
+	}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+
+	// Insert a buy of 10 shares on Jan 2.
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL UserVal", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+	}
+	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
+	to := timestamppb.New(buyDate.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	// Insert EOD prices for Jan 2 and Jan 3.
+	prices := []db.EODPrice{
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 150.0, DataProvider: "test"},
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: 155.0, DataProvider: "test"},
+	}
+	if err := p.UpsertPrices(ctx, prices); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	// Query user valuation (no portfolio) for Jan 2-3.
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo)
+	if err != nil {
+		t.Fatalf("get user valuation: %v", err)
+	}
+	if len(points) != 2 {
+		t.Fatalf("expected 2 points, got %d", len(points))
+	}
+	// Jan 2: 10 * 150 = 1500
+	if points[0].TotalValue != 1500.0 {
+		t.Errorf("Jan 2 value: want 1500, got %v", points[0].TotalValue)
+	}
+	// Jan 3: 10 * 155 = 1550
+	if points[1].TotalValue != 1550.0 {
+		t.Errorf("Jan 3 value: want 1550, got %v", points[1].TotalValue)
+	}
+	for _, pt := range points {
+		if len(pt.UnpricedInstruments) != 0 {
+			t.Errorf("expected no unpriced, got %v on %v", pt.UnpricedInstruments, pt.Date)
+		}
+	}
+}
+
 func TestGetPortfolioValuation_EmptyRange(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

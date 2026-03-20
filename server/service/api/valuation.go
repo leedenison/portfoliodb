@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/auth"
+	"github.com/leedenison/portfoliodb/server/db"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,9 +20,6 @@ func (s *Server) GetPortfolioValuation(ctx context.Context, req *apiv1.GetPortfo
 		return nil, authErr
 	}
 
-	if req.GetPortfolioId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "portfolio_id is required")
-	}
 	dateFrom, err := time.Parse(dateFmt, req.GetDateFrom())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid date_from: %v", err)
@@ -34,17 +32,24 @@ func (s *Server) GetPortfolioValuation(ctx context.Context, req *apiv1.GetPortfo
 		return nil, status.Error(codes.InvalidArgument, "date_to must not be before date_from")
 	}
 
-	ok, err := s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	if !ok {
-		return nil, status.Error(codes.NotFound, "portfolio not found")
-	}
-
-	points, err := s.db.GetPortfolioValuation(ctx, req.GetPortfolioId(), dateFrom, dateTo)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+	var points []db.ValuationPoint
+	if req.GetPortfolioId() != "" {
+		ok, err := s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		if !ok {
+			return nil, status.Error(codes.NotFound, "portfolio not found")
+		}
+		points, err = s.db.GetPortfolioValuation(ctx, req.GetPortfolioId(), dateFrom, dateTo)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+	} else {
+		points, err = s.db.GetUserValuation(ctx, u.ID, dateFrom, dateTo)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
 	}
 
 	resp := &apiv1.GetPortfolioValuationResponse{

@@ -72,9 +72,6 @@ func TestGetPortfolioValuation_InvalidArgument(t *testing.T) {
 		name string
 		req  *apiv1.GetPortfolioValuationRequest
 	}{
-		{"empty_portfolio_id", &apiv1.GetPortfolioValuationRequest{
-			DateFrom: "2025-01-01", DateTo: "2025-01-03",
-		}},
 		{"bad_date_from", &apiv1.GetPortfolioValuationRequest{
 			PortfolioId: "port-1", DateFrom: "bad", DateTo: "2025-01-03",
 		}},
@@ -108,6 +105,49 @@ func TestGetPortfolioValuation_DBError(t *testing.T) {
 		PortfolioId: "port-1",
 		DateFrom:    "2025-01-01",
 		DateTo:      "2025-01-03",
+	})
+	testutil.RequireGRPCCode(t, err, codes.Internal)
+}
+
+func TestGetUserValuation_Success(t *testing.T) {
+	srv, mdb := newAPIServerWithMock(t)
+	ctx := authCtx("user-1", "sub|1")
+
+	dateFrom := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	mdb.EXPECT().
+		GetUserValuation(gomock.Any(), "user-1", dateFrom, dateTo).
+		Return([]db.ValuationPoint{
+			{Date: dateFrom, TotalValue: 2000.0, UnpricedInstruments: nil},
+			{Date: dateTo, TotalValue: 2100.0, UnpricedInstruments: nil},
+		}, nil)
+
+	resp, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{
+		DateFrom: "2025-01-01",
+		DateTo:   "2025-01-03",
+	})
+	if err != nil {
+		t.Fatalf("GetPortfolioValuation (user): %v", err)
+	}
+	if len(resp.GetPoints()) != 2 {
+		t.Fatalf("expected 2 points, got %d", len(resp.GetPoints()))
+	}
+	if resp.Points[0].TotalValue != 2000.0 {
+		t.Fatalf("unexpected first point value: %v", resp.Points[0].TotalValue)
+	}
+}
+
+func TestGetUserValuation_DBError(t *testing.T) {
+	srv, mdb := newAPIServerWithMock(t)
+	ctx := authCtx("user-1", "sub|1")
+
+	mdb.EXPECT().
+		GetUserValuation(gomock.Any(), "user-1", gomock.Any(), gomock.Any()).
+		Return(nil, fmt.Errorf("db boom"))
+
+	_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{
+		DateFrom: "2025-01-01",
+		DateTo:   "2025-01-03",
 	})
 	testutil.RequireGRPCCode(t, err, codes.Internal)
 }

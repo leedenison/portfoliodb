@@ -5,14 +5,24 @@ import (
 	"time"
 )
 
+const (
+	SessionKindUser           = "user"
+	SessionKindServiceAccount = "service_account"
+)
+
 // Data holds the session payload.
 type Data struct {
+	Kind      string // SessionKindUser or SessionKindServiceAccount
+	// User session fields (Kind == SessionKindUser):
 	UserID    string
 	Email     string
 	GoogleSub string
 	Role      string
-	CreatedAt time.Time
-	ExpiresAt time.Time
+	// Service account session fields (Kind == SessionKindServiceAccount):
+	ServiceAccountID string
+	// Common:
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
 	LastSeenAt time.Time
 }
 

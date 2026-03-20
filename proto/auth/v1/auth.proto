@@ -3,6 +3,7 @@ syntax = "proto3";
 package portfoliodb.auth.v1;
 
 import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/auth/v1;authv1";
 
@@ -24,6 +25,17 @@ message AuthResponse {
   string session_id = 3; // optional; set for programmatic clients so they can pass it as x-session-id (cookie not available in non-browser clients)
 }
 
+// CLIAuthResponse is returned by AuthCLI and AuthMachine.
+message CLIAuthResponse {
+  string session_token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message AuthMachineRequest {
+  string client_id = 1;
+  string client_secret = 2;
+}
+
 service AuthService {
   // Auth verifies the Google ID token, provisions the user if allowlisted, creates a session, and sets the session cookie on the response.
   rpc Auth(AuthRequest) returns (AuthResponse);
@@ -31,4 +43,8 @@ service AuthService {
   rpc GetSession(google.protobuf.Empty) returns (AuthResponse);
   // Logout deletes the server-side session and clears the session cookie.
   rpc Logout(google.protobuf.Empty) returns (google.protobuf.Empty);
+  // AuthCLI verifies the Google ID token and returns a session token for CLI use.
+  rpc AuthCLI(AuthRequest) returns (CLIAuthResponse);
+  // AuthMachine authenticates a service account by client_id and client_secret.
+  rpc AuthMachine(AuthMachineRequest) returns (CLIAuthResponse);
 }

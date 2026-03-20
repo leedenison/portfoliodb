@@ -1,6 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { ErrorAlert } from "@/app/components/error-alert";
 
 interface PluginConfig {
@@ -25,11 +42,168 @@ function getConfigEntries(configJson: string | undefined): [string, string][] {
   }
 }
 
+function GripIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className="shrink-0"
+    >
+      <circle cx="5" cy="3" r="1.5" />
+      <circle cx="11" cy="3" r="1.5" />
+      <circle cx="5" cy="8" r="1.5" />
+      <circle cx="11" cy="8" r="1.5" />
+      <circle cx="5" cy="13" r="1.5" />
+      <circle cx="11" cy="13" r="1.5" />
+    </svg>
+  );
+}
+
+function SortablePluginCard<T extends PluginConfig>({
+  plugin,
+  editingId,
+  editConfig,
+  saving,
+  onToggleEnabled,
+  onStartEdit,
+  onSaveEdit,
+  onCancelEdit,
+  onEditConfigChange,
+  renderExtra,
+  onUpdate,
+}: {
+  plugin: T;
+  editingId: string | null;
+  editConfig: string;
+  saving: boolean;
+  onToggleEnabled: (plugin: T) => void;
+  onStartEdit: (plugin: T) => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
+  onEditConfigChange: (value: string) => void;
+  renderExtra?: (plugin: T, opts: { saving: boolean; onUpdate: (updated: T) => void }) => React.ReactNode;
+  onUpdate: (updated: T) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: plugin.pluginId });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const configEntries = getConfigEntries(plugin.configJson);
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className="rounded-md border border-border bg-surface p-4 shadow-sm"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="cursor-grab touch-none text-text-muted hover:text-text-primary active:cursor-grabbing"
+            aria-label={`Drag to reorder ${plugin.pluginId}`}
+            {...attributes}
+            {...listeners}
+          >
+            <GripIcon />
+          </button>
+          <span className="font-medium text-text-primary">
+            {plugin.pluginId}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onToggleEnabled(plugin)}
+            disabled={saving}
+            className={`rounded px-3 py-1.5 text-sm font-medium ${
+              plugin.enabled
+                ? "bg-green-600 text-white hover:bg-green-700"
+                : "bg-border text-text-muted hover:bg-border/80"
+            }`}
+          >
+            {plugin.enabled ? "Enabled" : "Disabled"}
+          </button>
+          {editingId === plugin.pluginId ? (
+            <>
+              <button
+                type="button"
+                onClick={onSaveEdit}
+                disabled={saving}
+                className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={onCancelEdit}
+                disabled={saving}
+                className="rounded border border-border px-3 py-1.5 text-sm hover:bg-background"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onStartEdit(plugin)}
+              className="rounded border border-border px-3 py-1.5 text-sm hover:bg-background"
+            >
+              Edit config
+            </button>
+          )}
+        </div>
+      </div>
+      {configEntries.length > 0 && (
+        <dl className="mt-3 flex flex-col gap-y-1 text-sm">
+          {configEntries.map(([key, value]) => (
+            <div key={key} className="flex gap-2">
+              <dt className="shrink-0 font-medium text-text-muted after:content-[':']">
+                {key}
+              </dt>
+              <dd className="min-w-0 break-all text-text-primary">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {renderExtra?.(plugin, { saving, onUpdate })}
+      {editingId === plugin.pluginId && (
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-text-muted">
+            Config JSON
+          </label>
+          <textarea
+            value={editConfig}
+            onChange={(e) => onEditConfigChange(e.target.value)}
+            rows={8}
+            className="mt-1 w-full rounded border border-border bg-background px-3 py-2 font-mono text-sm"
+            spellCheck={false}
+          />
+        </div>
+      )}
+    </li>
+  );
+}
+
 export function PluginConfigEditor<T extends PluginConfig>({
   title,
   description,
   listFn,
   updateFn,
+  reorderFn,
   renderExtra,
 }: {
   title: string;
@@ -39,6 +213,7 @@ export function PluginConfigEditor<T extends PluginConfig>({
     pluginId: string,
     opts: { enabled?: boolean; configJson?: string }
   ) => Promise<T>;
+  reorderFn?: (pluginIds: string[]) => Promise<void>;
   renderExtra?: (plugin: T, opts: { saving: boolean; onUpdate: (updated: T) => void }) => React.ReactNode;
 }) {
   const [plugins, setPlugins] = useState<T[]>([]);
@@ -47,6 +222,11 @@ export function PluginConfigEditor<T extends PluginConfig>({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editConfig, setEditConfig] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,11 +291,30 @@ export function PluginConfigEditor<T extends PluginConfig>({
     }
   }
 
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !reorderFn) return;
+    const oldIdx = plugins.findIndex((p) => p.pluginId === active.id);
+    const newIdx = plugins.findIndex((p) => p.pluginId === over.id);
+    const reordered = arrayMove(plugins, oldIdx, newIdx);
+    const prev = plugins;
+    setPlugins(reordered);
+    setError(null);
+    try {
+      await reorderFn(reordered.map((p) => p.pluginId));
+    } catch (e) {
+      setPlugins(prev);
+      setError(e instanceof Error ? e.message : "Failed to reorder");
+    }
+  }
+
   if (loading) {
     return (
       <div className="text-text-muted">Loading plugin configs...</div>
     );
   }
+
+  const pluginIds = plugins.map((p) => p.pluginId);
 
   return (
     <div className="space-y-6">
@@ -124,103 +323,57 @@ export function PluginConfigEditor<T extends PluginConfig>({
       </h1>
       <p className="text-sm text-text-muted">{description}</p>
       {error && <ErrorAlert>{error}</ErrorAlert>}
-      <ul className="space-y-4">
-        {plugins.map((plugin) => {
-          const configEntries = getConfigEntries(plugin.configJson);
-          return (
-            <li
-              key={plugin.pluginId}
-              className="rounded-md border border-border bg-surface p-4 shadow-sm"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="font-medium text-text-primary">
-                    {plugin.pluginId}
-                  </span>
-                  <span className="ml-2 text-sm text-text-muted">
-                    precedence {plugin.precedence}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleToggleEnabled(plugin)}
-                    disabled={saving}
-                    className={`rounded px-3 py-1.5 text-sm font-medium ${
-                      plugin.enabled
-                        ? "bg-green-600 text-white hover:bg-green-700"
-                        : "bg-border text-text-muted hover:bg-border/80"
-                    }`}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext items={pluginIds} strategy={verticalListSortingStrategy}>
+          <div className="flex gap-4">
+            {plugins.length > 1 && (
+              <div className="flex flex-col items-center py-4 text-text-muted select-none">
+                <span className="text-xs font-medium tracking-wide [writing-mode:vertical-lr] rotate-180">
+                  Precedence
+                </span>
+                <div className="mt-1 flex flex-1 flex-col items-center">
+                  <div className="w-px flex-1 bg-current" />
+                  <svg
+                    width="12"
+                    height="8"
+                    viewBox="0 0 12 8"
+                    fill="currentColor"
+                    className="shrink-0"
                   >
-                    {plugin.enabled ? "Enabled" : "Disabled"}
-                  </button>
-                  {editingId === plugin.pluginId ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={saveEdit}
-                        disabled={saving}
-                        className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark"
-                      >
-                        Save
-                      </button>
-                      <button
-                        type="button"
-                        onClick={cancelEdit}
-                        disabled={saving}
-                        className="rounded border border-border px-3 py-1.5 text-sm hover:bg-background"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => startEdit(plugin)}
-                      className="rounded border border-border px-3 py-1.5 text-sm hover:bg-background"
-                    >
-                      Edit config
-                    </button>
-                  )}
+                    <polygon points="0,0 6,8 12,0" />
+                  </svg>
                 </div>
               </div>
-              {configEntries.length > 0 && (
-                <dl className="mt-3 flex flex-col gap-y-1 text-sm">
-                  {configEntries.map(([key, value]) => (
-                    <div key={key} className="flex gap-2">
-                      <dt className="shrink-0 font-medium text-text-muted after:content-[':']">
-                        {key}
-                      </dt>
-                      <dd className="min-w-0 break-all text-text-primary">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-              {renderExtra?.(plugin, {
-                saving,
-                onUpdate: (updated) =>
-                  setPlugins((prev) =>
-                    prev.map((p) => (p.pluginId === updated.pluginId ? updated : p))
-                  ),
-              })}
-              {editingId === plugin.pluginId && (
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-text-muted">
-                    Config JSON
-                  </label>
-                  <textarea
-                    value={editConfig}
-                    onChange={(e) => setEditConfig(e.target.value)}
-                    rows={8}
-                    className="mt-1 w-full rounded border border-border bg-background px-3 py-2 font-mono text-sm"
-                    spellCheck={false}
-                  />
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+            )}
+            <ul className="flex-1 space-y-4">
+              {plugins.map((plugin) => (
+                <SortablePluginCard
+                  key={plugin.pluginId}
+                  plugin={plugin}
+                  editingId={editingId}
+                  editConfig={editConfig}
+                  saving={saving}
+                  onToggleEnabled={handleToggleEnabled}
+                  onStartEdit={startEdit}
+                  onSaveEdit={saveEdit}
+                  onCancelEdit={cancelEdit}
+                  onEditConfigChange={setEditConfig}
+                  renderExtra={renderExtra}
+                  onUpdate={(updated) =>
+                    setPlugins((prev) =>
+                      prev.map((p) => (p.pluginId === updated.pluginId ? updated : p))
+                    )
+                  }
+                />
+              ))}
+            </ul>
+          </div>
+        </SortableContext>
+      </DndContext>
       {plugins.length === 0 && !loading && (
         <p className="text-text-muted">No plugins in config.</p>
       )}

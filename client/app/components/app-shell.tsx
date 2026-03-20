@@ -6,10 +6,10 @@ import { AppHeader } from "./app-header";
 import { UploadModal } from "./upload-modal";
 
 const navItems = [
+  { href: "/analysis", label: "Analysis", disabled: true },
+  { href: "/performance", label: "Performance", disabled: true },
   { href: "/holdings", label: "Holdings" },
   { href: "/transactions", label: "Transactions", disabled: true },
-  { href: "/performance", label: "Performance", disabled: true },
-  { href: "/analysis", label: "Analysis", disabled: true },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

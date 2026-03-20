@@ -53,6 +53,7 @@ import {
   UpdatePricePluginResponseSchema,
   UpdatePortfolioRequestSchema,
   UpdatePortfolioResponseSchema,
+  ReorderPluginsRequestSchema,
   JobStatus,
 } from "@/gen/api/v1/api_pb";
 import type {
@@ -369,6 +370,15 @@ export async function updatePricePlugin(
   });
   const res = fromBinary(UpdatePricePluginResponseSchema, resBytes);
   return res.plugin!;
+}
+
+/** Reorder plugins within a category (admin only). pluginIds ordered highest precedence first. */
+export async function reorderPlugins(category: string, pluginIds: string[]): Promise<void> {
+  const base = getBaseUrl();
+  const reqMsg = create(ReorderPluginsRequestSchema, { category, pluginIds });
+  await unaryFetch(base, ApiServicePrefix + "ReorderPlugins", toBinary(ReorderPluginsRequestSchema, reqMsg), {
+    credentials: "include",
+  });
 }
 
 /** List price fetch blocks (admin only). */

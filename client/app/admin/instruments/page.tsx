@@ -280,8 +280,11 @@ export default function AdminInstrumentsPage() {
                             <td className="px-4 py-3 text-text-muted">
                               {inst.assetClass || "\u2014"}
                             </td>
-                            <td className="px-4 py-3 text-text-muted">
-                              {inst.exchange || "\u2014"}
+                            <td
+                              className="px-4 py-3 text-text-muted"
+                              title={inst.exchangeInfo?.name || ""}
+                            >
+                              {inst.exchangeInfo?.acronym || inst.exchange || "\u2014"}
                             </td>
                             <td className="px-4 py-3 text-text-muted">
                               {inst.currency || "\u2014"}
@@ -365,11 +368,11 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
           </span>
         )}
         {inst.exchange && (
-          <span>
+          <span title={inst.exchangeInfo?.name || ""}>
             <span className="font-semibold uppercase tracking-wider">
               Exchange
             </span>{" "}
-            {inst.exchange}
+            {inst.exchangeInfo?.acronym || inst.exchange}
           </span>
         )}
         {inst.currency && (

@@ -65,8 +65,8 @@ func (r *RedisStore) Get(ctx context.Context, sessionID string, slidingWindow ti
 		_ = r.client.Del(ctx, key).Err()
 		return nil, nil
 	}
-	// Sliding: extend TTL
-	if slidingWindow > 0 {
+	// Sliding: extend TTL for user sessions only
+	if slidingWindow > 0 && data.Kind == SessionKindUser {
 		data.LastSeenAt = time.Now()
 		newExpiry := data.LastSeenAt.Add(slidingWindow)
 		if newExpiry.After(data.ExpiresAt) {

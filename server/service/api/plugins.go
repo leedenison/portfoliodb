@@ -13,6 +13,40 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// ReorderPlugins sets the precedence order for all plugins in a category. Admin only.
+func (s *Server) ReorderPlugins(ctx context.Context, req *apiv1.ReorderPluginsRequest) (*apiv1.ReorderPluginsResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	cat := req.GetCategory()
+	if cat != db.PluginCategoryIdentifier && cat != db.PluginCategoryDescription && cat != db.PluginCategoryPrice {
+		return nil, status.Error(codes.InvalidArgument, "category must be identifier, description, or price")
+	}
+	if len(req.GetPluginIds()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "plugin_ids required")
+	}
+	existing, err := s.db.ListPluginConfigs(ctx, cat)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if len(req.GetPluginIds()) != len(existing) {
+		return nil, status.Error(codes.InvalidArgument, "plugin_ids must contain all plugins in the category")
+	}
+	have := make(map[string]bool, len(existing))
+	for _, r := range existing {
+		have[r.PluginID] = true
+	}
+	for _, pid := range req.GetPluginIds() {
+		if !have[pid] {
+			return nil, status.Errorf(codes.InvalidArgument, "unknown plugin_id: %s", pid)
+		}
+	}
+	if err := s.db.ReorderPluginConfigs(ctx, cat, req.GetPluginIds()); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &apiv1.ReorderPluginsResponse{}, nil
+}
+
 // ListPricePlugins returns all price plugin configs. Admin only.
 func (s *Server) ListPricePlugins(ctx context.Context, req *apiv1.ListPricePluginsRequest) (*apiv1.ListPricePluginsResponse, error) {
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {

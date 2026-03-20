@@ -63,7 +63,7 @@ The user menu is a dropdown anchored to the user's email address on the right si
 | **Admin** | Link (`/admin`) | Admin role only |
 | **Log out** | Action | Always |
 
- * **Uploads** shows all uploads regardless of the selected portfolio, since a single upload can contain transactions spanning multiple portfolios.  However, when a portfolio other than "All Holdings" is selected, rows containing transactions relevant to that portfolio should be visually highlighted.
+ * **Uploads** shows all uploads regardless of the selected portfolio, since a single upload can contain transactions spanning multiple portfolios.  However, when a portfolio other than "All Holdings" is selected, rows containing transactions relevant to that portfolio should be visually highlighted.  Note: the upload flow itself is a modal launched from the Holdings page, not a separate route; the `/uploads` page is the upload history list.
  * **Admin** navigates to the admin area.  Only visible to users with the admin role.
 
 ### Left Sidebar
@@ -98,20 +98,22 @@ Admin pages live under `/admin` and use a dedicated layout with a left sidebar. 
 
 | Section | Item | Destination | Status |
 |---------|------|-------------|--------|
-| | **Overview** | `/admin` | Active |
+| | **Dashboard** | `/admin` | Active |
 | **Reference Data** | Instruments | `/admin/instruments` | Active |
-| **Reference Data** | Prices | `/admin/prices` | Disabled |
-| **Plugins** | *(listed by type)* | `/admin/plugins` | Disabled |
+| **Reference Data** | Prices | `/admin/prices` | Active |
+| **Plugins** | Identifier | `/admin/plugins/identifier` | Active |
+| **Plugins** | Description | `/admin/plugins/description` | Active |
+| **Plugins** | Price | `/admin/plugins/price` | Active |
 | **Diagnostics** | Logs | `/admin/logs` | Disabled |
-| **Diagnostics** | Telemetry | `/admin/telemetry` | Disabled |
-| **Diagnostics** | Tools | `/admin/tools` | Active |
+| **Diagnostics** | Telemetry | `/admin/telemetry` | Active |
+| **Diagnostics** | Authentication | `/admin/tools` | Active |
 
 ### Navigation Behaviour
 
- * **Overview** is the admin landing page and should provide a dashboard-style summary with quick links to the most important admin functions.
- * **Reference Data** groups Instruments and Prices.  These are the data stewardship pages the admin visits most frequently.  Instruments is active since it is already implemented; Prices is disabled until implemented.
- * **Plugins** should list each plugin type (identity, price-fetcher, corporate events) and within each, the individual plugins with their configuration and telemetry.  The sidebar item expands or navigates to a plugin index page.  Disabled until implemented.
- * **Diagnostics** groups Logs, Telemetry and Tools.  Tools is active (ID Token page is implemented); Logs and Telemetry are disabled until implemented.
+ * **Dashboard** is the admin landing page and should provide a dashboard-style summary with quick links to the most important admin functions.
+ * **Reference Data** groups Instruments and Prices.  These are the data stewardship pages the admin visits most frequently.  Both are active.
+ * **Plugins** lists individual plugin types: Identifier (`/admin/plugins/identifier`), Description (`/admin/plugins/description`) and Price (`/admin/plugins/price`).  Each plugin page shows configuration and telemetry for that plugin type.  All are active.
+ * **Diagnostics** groups Logs, Telemetry and Authentication.  Telemetry (`/admin/telemetry`) and Authentication (`/admin/tools`) are active; Logs is disabled until implemented.
  * Section headers (Reference Data, Plugins, Diagnostics) are non-clickable labels that organise the sidebar visually.
 
 ### Mobile Considerations

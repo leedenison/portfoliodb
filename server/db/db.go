@@ -20,6 +20,7 @@ const (
 // DB is the database abstraction used by the service layer.
 type DB interface {
 	UserDB
+	ServiceAccountDB
 	PortfolioDB
 	TxDB
 	HoldingsDB
@@ -98,6 +99,10 @@ type PluginConfigDB interface {
 	// UpdatePluginConfig updates enabled, precedence, config, and/or max_history_days for a plugin.
 	// For maxHistoryDays: nil = no change, pointer to 0 = clear (NULL), pointer to N = set.
 	UpdatePluginConfig(ctx context.Context, category, pluginID string, enabled *bool, precedence *int, config []byte, maxHistoryDays *int) (*PluginConfigRowFull, error)
+	// ReorderPluginConfigs sets precedence for all plugins in a category.
+	// pluginIDs is ordered from highest to lowest precedence. All existing
+	// plugin IDs for the category must be present.
+	ReorderPluginConfigs(ctx context.Context, category string, pluginIDs []string) error
 }
 
 // IdentificationError is stored per job for identification warnings (e.g. broker description only, plugin timeout).
@@ -105,6 +110,20 @@ type IdentificationError struct {
 	RowIndex               int32
 	InstrumentDescription string
 	Message                string
+}
+
+// ServiceAccountRow is a service account returned from the DB.
+type ServiceAccountRow struct {
+	ID               string
+	Name             string
+	ClientSecretHash string
+	Role             string
+}
+
+// ServiceAccountDB provides service account read operations.
+type ServiceAccountDB interface {
+	// GetServiceAccount returns the service account by ID, or nil if not found.
+	GetServiceAccount(ctx context.Context, id string) (*ServiceAccountRow, error)
 }
 
 // UserDB provides user operations.

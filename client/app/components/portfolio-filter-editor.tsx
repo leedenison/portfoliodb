@@ -9,6 +9,7 @@ import {
   setPortfolioFilters,
   listBrokersAndAccounts,
   listInstruments,
+  getHoldings,
 } from "@/lib/portfolio-api";
 import type { BrokerAccounts, PortfolioFilter } from "@/lib/portfolio-api";
 import type { Instrument } from "@/gen/api/v1/api_pb";
@@ -76,7 +77,6 @@ export function PortfolioFilterEditor({
   // Save state.
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [initialLoading, setInitialLoading] = useState(true);
 
   // Debounce instrument search.
   useEffect(() => {
@@ -85,27 +85,39 @@ export function PortfolioFilterEditor({
     return () => clearTimeout(debounceRef.current);
   }, [instSearch]);
 
-  // Load existing filters and broker/accounts on mount.
+  // Load existing filters, broker/accounts, and resolve instrument names on mount.
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setBaLoading(true);
       setBaError(null);
       try {
-        const [ba, filters] = await Promise.all([
+        const [ba, filters, holdingsResult] = await Promise.all([
           listBrokersAndAccounts(),
           getPortfolioFilters(portfolioId),
+          getHoldings({ portfolioId }),
         ]);
         if (cancelled) return;
         setBrokerAccounts(ba);
+
+        // Build instrument ID -> display name lookup from holdings.
+        const instNames = new Map<string, string>();
+        for (const h of holdingsResult.holdings) {
+          if (h.instrumentId && h.instrument) {
+            instNames.set(h.instrumentId, displayName(h.instrument));
+          }
+        }
+
         const brokers = new Set<string>();
         const accounts = new Set<string>();
         const instruments = new Map<string, string>();
         for (const f of filters) {
           if (f.filterType === "broker") brokers.add(f.filterValue);
           else if (f.filterType === "account") accounts.add(f.filterValue);
-          else if (f.filterType === "instrument")
-            instruments.set(f.filterValue, f.filterValue);
+          else if (f.filterType === "instrument") {
+            const name = instNames.get(f.filterValue) ?? f.filterValue;
+            instruments.set(f.filterValue, name);
+          }
         }
         setSelBrokers(brokers);
         setSelAccounts(accounts);
@@ -115,7 +127,6 @@ export function PortfolioFilterEditor({
       } finally {
         if (!cancelled) {
           setBaLoading(false);
-          setInitialLoading(false);
         }
       }
     }
@@ -124,34 +135,6 @@ export function PortfolioFilterEditor({
       cancelled = true;
     };
   }, [portfolioId]);
-
-  // Resolve display names for instrument filters loaded from existing filters.
-  const resolvedRef = useRef(false);
-  useEffect(() => {
-    if (initialLoading || resolvedRef.current) return;
-    if (selInstruments.size === 0) return;
-    const needsResolution = [...selInstruments.entries()].filter(
-      ([id, name]) => id === name
-    );
-    if (needsResolution.length === 0) return;
-    resolvedRef.current = true;
-    Promise.all(
-      needsResolution.map(([id]) =>
-        listInstruments({ search: id, pageToken: null }).then((r) => {
-          const match = r.instruments.find((i) => i.id === id);
-          return match ? ([id, displayName(match)] as const) : null;
-        })
-      )
-    ).then((results) => {
-      setSelInstruments((prev) => {
-        const next = new Map(prev);
-        for (const r of results) {
-          if (r) next.set(r[0], r[1]);
-        }
-        return next;
-      });
-    });
-  }, [initialLoading, selInstruments]);
 
   // Build a lookup: account -> broker, for auto-selecting parent broker.
   const accountToBroker = useMemo(() => {

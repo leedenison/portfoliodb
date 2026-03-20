@@ -24,6 +24,8 @@ export function ImportInstrumentsModal({
   const [importResult, setImportResult] = useState<ImportInstrumentsResult | null>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [fileInputActive, setFileInputActive] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function reset() {
@@ -32,6 +34,7 @@ export function ImportInstrumentsModal({
     setImportResult(null);
     setImporting(false);
     setImportError(null);
+    setFile(null);
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -42,8 +45,10 @@ export function ImportInstrumentsModal({
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
+    const file = f;
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
@@ -93,8 +98,29 @@ export function ImportInstrumentsModal({
               type="file"
               accept=".json"
               onChange={handleFileChange}
-              className="block text-sm text-text-primary file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-text-primary file:transition-colors hover:file:bg-primary-light/15"
+              className="sr-only"
+              aria-label="Choose JSON file"
             />
+            <button
+              type="button"
+              onClick={() => {
+                setFileInputActive(true);
+                fileRef.current?.click();
+                setTimeout(() => setFileInputActive(false), 400);
+              }}
+              className={`rounded-md border px-4 py-2 text-sm font-semibold transition-colors ${
+                fileInputActive
+                  ? "border-primary bg-primary text-white"
+                  : "border-border bg-primary-light/20 text-text-primary hover:bg-primary-light/40 active:border-primary active:bg-primary active:text-white"
+              }`}
+            >
+              {fileInputActive ? "Opening\u2026" : "Choose file"}
+            </button>
+            {file && (
+              <p className="text-sm text-text-muted">
+                Selected: {file.name}
+              </p>
+            )}
           </div>
         )}
 

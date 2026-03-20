@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/leedenison/portfoliodb/server/db"
 )
 
 // insertPriceWithProvider inserts a single eod_prices row with a specific provider.
@@ -146,6 +148,114 @@ func TestListPrices_DataProviderFilter(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].DataProvider != "massive" {
 		t.Fatalf("expected massive provider, got %v", rows)
+	}
+}
+
+func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	// Create instrument with both ISIN (priority 3) and TICKER (priority 8).
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "Apple", []db.IdentifierInput{
+		{Type: "TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
+		{Type: "ISIN", Value: "US0378331005", Canonical: true},
+	}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+
+	insertPriceWithProvider(t, p, instID, d(2024, 1, 15), 185.90, "test")
+
+	rows, err := p.ListPricesForExport(ctx)
+	if err != nil {
+		t.Fatalf("list prices for export: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	// ISIN should win over TICKER.
+	if rows[0].IdentifierType != "ISIN" {
+		t.Errorf("expected ISIN, got %s", rows[0].IdentifierType)
+	}
+	if rows[0].IdentifierValue != "US0378331005" {
+		t.Errorf("expected US0378331005, got %s", rows[0].IdentifierValue)
+	}
+	if rows[0].Close != 185.90 {
+		t.Errorf("expected close=185.90, got %v", rows[0].Close)
+	}
+}
+
+func TestListPricesForExport_NoIdentifiersExcluded(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	// Create instrument with identifier, then insert prices for both.
+	instWithID := setupInstrument(t, p, "AAPL")
+	insertPriceWithProvider(t, p, instWithID, d(2024, 1, 15), 100, "test")
+
+	// Create instrument without any identifiers by inserting directly.
+	var instNoID string
+	err := p.q.QueryRowContext(ctx, `INSERT INTO instruments DEFAULT VALUES RETURNING id`).Scan(&instNoID)
+	if err != nil {
+		t.Fatalf("insert bare instrument: %v", err)
+	}
+	insertPriceWithProvider(t, p, instNoID, d(2024, 1, 15), 200, "test")
+
+	rows, err := p.ListPricesForExport(ctx)
+	if err != nil {
+		t.Fatalf("list prices for export: %v", err)
+	}
+	// Only the instrument with identifiers should appear.
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row (no-identifier excluded), got %d", len(rows))
+	}
+	if rows[0].Close != 100 {
+		t.Errorf("expected close=100, got %v", rows[0].Close)
+	}
+}
+
+func TestListPricesForExport_OHLCVFields(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	instID := setupInstrument(t, p, "MSFT")
+	insertPriceFull(t, p, instID, d(2024, 1, 15), 100, 105, 99, 102, 50000, "test")
+
+	rows, err := p.ListPricesForExport(ctx)
+	if err != nil {
+		t.Fatalf("list prices for export: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	r := rows[0]
+	if r.Open == nil || *r.Open != 100 {
+		t.Errorf("expected open=100, got %v", r.Open)
+	}
+	if r.High == nil || *r.High != 105 {
+		t.Errorf("expected high=105, got %v", r.High)
+	}
+	if r.Low == nil || *r.Low != 99 {
+		t.Errorf("expected low=99, got %v", r.Low)
+	}
+	if r.Close != 102 {
+		t.Errorf("expected close=102, got %v", r.Close)
+	}
+	if r.Volume == nil || *r.Volume != 50000 {
+		t.Errorf("expected volume=50000, got %v", r.Volume)
+	}
+}
+
+func TestListPricesForExport_Empty(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	rows, err := p.ListPricesForExport(ctx)
+	if err != nil {
+		t.Fatalf("list prices for export: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected 0 rows, got %d", len(rows))
 	}
 }
 

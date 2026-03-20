@@ -57,6 +57,28 @@ func (e *exportStreamMock) SendMsg(m interface{}) error {
 	return nil
 }
 
+// exportPriceStreamMock provides a stream with configurable context for ExportPrices tests.
+type exportPriceStreamMock struct {
+	ctx  context.Context
+	sent []*apiv1.ExportPriceRow
+}
+
+func (e *exportPriceStreamMock) Context() context.Context    { return e.ctx }
+func (e *exportPriceStreamMock) RecvMsg(m interface{}) error  { return nil }
+func (e *exportPriceStreamMock) Send(m *apiv1.ExportPriceRow) error {
+	e.sent = append(e.sent, m)
+	return nil
+}
+func (e *exportPriceStreamMock) SendHeader(m metadata.MD) error { return nil }
+func (e *exportPriceStreamMock) SetHeader(m metadata.MD) error  { return nil }
+func (e *exportPriceStreamMock) SetTrailer(m metadata.MD)       {}
+func (e *exportPriceStreamMock) SendMsg(m interface{}) error {
+	if row, ok := m.(*apiv1.ExportPriceRow); ok {
+		e.sent = append(e.sent, row)
+	}
+	return nil
+}
+
 func TestAPI_Unauthenticated(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
 	ctx := context.Background()
@@ -82,6 +104,11 @@ func TestAPI_Unauthenticated(t *testing.T) {
 		{"ListInstruments", func() error { _, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{}); return err }},
 		{"ListJobs", func() error { _, err := srv.ListJobs(ctx, &apiv1.ListJobsRequest{}); return err }},
 		{"ListPrices", func() error { _, err := srv.ListPrices(ctx, &apiv1.ListPricesRequest{}); return err }},
+		{"ExportPrices", func() error {
+			stream := &exportPriceStreamMock{ctx: context.Background()}
+			return srv.ExportPrices(&apiv1.ExportPricesRequest{}, stream)
+		}},
+		{"ImportPrices", func() error { _, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{}); return err }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

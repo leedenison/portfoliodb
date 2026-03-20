@@ -226,12 +226,29 @@ type EODPriceRow struct {
 	FetchedAt             time.Time
 }
 
+// ExportPriceRow is a single price row with the best instrument identifier for export.
+type ExportPriceRow struct {
+	IdentifierType   string
+	IdentifierValue  string
+	IdentifierDomain string
+	PriceDate        time.Time
+	Open             *float64
+	High             *float64
+	Low              *float64
+	Close            float64
+	AdjustedClose    *float64
+	Volume           *int64
+}
+
 // EODPriceListDB provides paginated listing of EOD prices for admin UI.
 type EODPriceListDB interface {
 	// ListPrices returns EOD prices with optional search, date range, and provider filters.
 	// Returns (rows, totalCount, nextPageToken, error).
 	ListPrices(ctx context.Context, search string, dateFrom, dateTo time.Time,
 		dataProvider string, pageSize int32, pageToken string) ([]EODPriceRow, int32, string, error)
+	// ListPricesForExport returns all EOD prices with the best identifier per instrument.
+	// Instruments with no identifiers are excluded.
+	ListPricesForExport(ctx context.Context) ([]ExportPriceRow, error)
 }
 
 // Valid asset class values (controlled vocabulary).

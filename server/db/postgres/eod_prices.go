@@ -114,3 +114,66 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 
 	return results, total, nextToken, nil
 }
+
+// exportPriceRow is a sqlx-scannable version of db.ExportPriceRow.
+type exportPriceRow struct {
+	IdentifierType   string    `db:"identifier_type"`
+	IdentifierValue  string    `db:"value"`
+	IdentifierDomain string    `db:"domain"`
+	PriceDate        time.Time `db:"price_date"`
+	Open             *float64  `db:"open"`
+	High             *float64  `db:"high"`
+	Low              *float64  `db:"low"`
+	Close            float64   `db:"close"`
+	AdjustedClose    *float64  `db:"adjusted_close"`
+	Volume           *int64    `db:"volume"`
+}
+
+// ListPricesForExport implements db.EODPriceListDB.
+func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow, error) {
+	const q = `
+		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
+			ep.price_date, ep.open, ep.high, ep.low, ep.close,
+			ep.adjusted_close, ep.volume
+		FROM eod_prices ep
+		JOIN LATERAL (
+			SELECT ii.identifier_type, ii.value, ii.domain
+			FROM instrument_identifiers ii
+			WHERE ii.instrument_id = ep.instrument_id
+			ORDER BY CASE ii.identifier_type
+				WHEN 'OPENFIGI_GLOBAL' THEN 1
+				WHEN 'OPENFIGI_SHARE_CLASS' THEN 2
+				WHEN 'ISIN' THEN 3
+				WHEN 'CUSIP' THEN 4
+				WHEN 'SEDOL' THEN 5
+				WHEN 'OCC' THEN 6
+				WHEN 'OPRA' THEN 7
+				WHEN 'TICKER' THEN 8
+				WHEN 'BROKER_DESCRIPTION' THEN 9
+				ELSE 99
+			END
+			LIMIT 1
+		) best_id ON true
+		ORDER BY best_id.identifier_type, best_id.value, ep.price_date
+	`
+	var rows []exportPriceRow
+	if err := p.q.SelectContext(ctx, &rows, q); err != nil {
+		return nil, fmt.Errorf("list prices for export: %w", err)
+	}
+	out := make([]db.ExportPriceRow, len(rows))
+	for i, r := range rows {
+		out[i] = db.ExportPriceRow{
+			IdentifierType:   r.IdentifierType,
+			IdentifierValue:  r.IdentifierValue,
+			IdentifierDomain: r.IdentifierDomain,
+			PriceDate:        r.PriceDate,
+			Open:             r.Open,
+			High:             r.High,
+			Low:              r.Low,
+			Close:            r.Close,
+			AdjustedClose:    r.AdjustedClose,
+			Volume:           r.Volume,
+		}
+	}
+	return out, nil
+}

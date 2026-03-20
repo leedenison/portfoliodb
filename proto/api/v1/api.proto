@@ -176,6 +176,10 @@ service ApiService {
   // EOD prices (admin-only). Browse cached price data.
   rpc ListPrices(ListPricesRequest) returns (ListPricesResponse);
 
+  // Price export/import (admin-only). Export streams all cached EOD prices with best identifier per instrument; import upserts with data_provider = "import".
+  rpc ExportPrices(ExportPricesRequest) returns (stream ExportPriceRow);
+  rpc ImportPrices(ImportPricesRequest) returns (ImportPricesResponse);
+
   // Telemetry counters (admin-only). Returns counters discovered from Redis (portfoliodb:counters:*).
   rpc ListTelemetryCounters(ListTelemetryCountersRequest) returns (ListTelemetryCountersResponse);
 }
@@ -535,4 +539,49 @@ message ListPricesResponse {
   repeated EODPriceProto prices = 1;
   string next_page_token = 2;
   int32 total_count = 3;
+}
+
+// ExportPrices streams all cached EOD prices. Each row carries the best identifier for the instrument.
+message ExportPricesRequest {}
+
+// ExportPriceRow is one price row with instrument identifier context.
+message ExportPriceRow {
+  string identifier_type = 1;    // IdentifierType name (e.g. "ISIN", "TICKER")
+  string identifier_value = 2;
+  string identifier_domain = 3;  // MIC for TICKER, source for BROKER_DESCRIPTION, empty otherwise
+  string price_date = 4;         // "YYYY-MM-DD"
+  optional double open = 5;
+  optional double high = 6;
+  optional double low = 7;
+  double close = 8;
+  optional double adjusted_close = 9;
+  optional int64 volume = 10;
+}
+
+// ImportPriceRow is one price row to import; same structure as ExportPriceRow.
+message ImportPriceRow {
+  string identifier_type = 1;
+  string identifier_value = 2;
+  string identifier_domain = 3;
+  string price_date = 4;
+  optional double open = 5;
+  optional double high = 6;
+  optional double low = 7;
+  double close = 8;
+  optional double adjusted_close = 9;
+  optional int64 volume = 10;
+}
+
+message ImportPricesRequest {
+  repeated ImportPriceRow prices = 1;
+}
+
+message ImportPricesResponse {
+  int32 upserted_count = 1;
+  repeated ImportPriceError errors = 2;
+}
+
+message ImportPriceError {
+  int32 index = 1;    // index into request.prices
+  string message = 2;
 }

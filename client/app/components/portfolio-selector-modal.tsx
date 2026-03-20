@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { Modal } from "@/app/components/modal";
+import { PortfolioFilterEditor } from "@/app/components/portfolio-filter-editor";
 import { usePortfolio } from "@/contexts/portfolio-context";
 import type { Portfolio } from "@/lib/portfolio-api";
 import {
@@ -23,6 +24,7 @@ export function PortfolioSelectorModal() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingFiltersId, setEditingFiltersId] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -52,6 +54,7 @@ export function PortfolioSelectorModal() {
       setNewName("");
       setRenamingId(null);
       setDeletingId(null);
+      setEditingFiltersId(null);
     }
   }, [modalOpen, fetchAll]);
 
@@ -66,10 +69,11 @@ export function PortfolioSelectorModal() {
     if (!name) return;
     setError(null);
     try {
-      await createPortfolio(name);
+      const created = await createPortfolio(name);
       setNewName("");
       setCreating(false);
       await fetchAll();
+      setEditingFiltersId(created.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -111,6 +115,22 @@ export function PortfolioSelectorModal() {
     : portfolios;
 
   const isAllHoldings = selected === null;
+
+  const editingPortfolio = editingFiltersId
+    ? portfolios.find((p) => p.id === editingFiltersId)
+    : null;
+
+  if (editingFiltersId) {
+    return (
+      <Modal open={modalOpen} onClose={closeModal} title="Select portfolio" className="max-w-2xl">
+        <PortfolioFilterEditor
+          portfolioId={editingFiltersId}
+          portfolioName={editingPortfolio?.name ?? "Portfolio"}
+          onDone={() => setEditingFiltersId(null)}
+        />
+      </Modal>
+    );
+  }
 
   return (
     <Modal open={modalOpen} onClose={closeModal} title="Select portfolio">
@@ -256,6 +276,13 @@ export function PortfolioSelectorModal() {
                         </svg>
                       )}
                       <div className="flex shrink-0 gap-1">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setEditingFiltersId(p.id); }}
+                          className="rounded-md border border-border px-2 py-0.5 text-xs font-medium transition-colors hover:bg-primary-light/15"
+                        >
+                          Filters
+                        </button>
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); setRenamingId(p.id); setRenameValue(p.name); }}

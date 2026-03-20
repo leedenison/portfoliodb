@@ -147,6 +147,34 @@ func (s *Server) GetPortfolioFilters(ctx context.Context, req *apiv1.GetPortfoli
 	return &apiv1.GetPortfolioFiltersResponse{Filters: protos}, nil
 }
 
+// ListBrokersAndAccounts returns distinct broker/account pairs for the authenticated user, grouped by broker.
+func (s *Server) ListBrokersAndAccounts(ctx context.Context, req *apiv1.ListBrokersAndAccountsRequest) (*apiv1.ListBrokersAndAccountsResponse, error) {
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
+	}
+	rows, err := s.db.ListBrokersAndAccounts(ctx, u.ID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	brokerMap := make(map[string]*apiv1.BrokerAccounts)
+	var order []string
+	for _, ba := range rows {
+		entry, ok := brokerMap[ba.Broker]
+		if !ok {
+			entry = &apiv1.BrokerAccounts{Broker: ba.Broker}
+			brokerMap[ba.Broker] = entry
+			order = append(order, ba.Broker)
+		}
+		entry.Accounts = append(entry.Accounts, ba.Account)
+	}
+	out := make([]*apiv1.BrokerAccounts, 0, len(order))
+	for _, b := range order {
+		out = append(out, brokerMap[b])
+	}
+	return &apiv1.ListBrokersAndAccountsResponse{Brokers: out}, nil
+}
+
 // SetPortfolioFilters replaces all filters for a portfolio. Portfolio must be owned by user.
 func (s *Server) SetPortfolioFilters(ctx context.Context, req *apiv1.SetPortfolioFiltersRequest) (*apiv1.SetPortfolioFiltersResponse, error) {
 	u, authErr := auth.RequireUser(ctx)

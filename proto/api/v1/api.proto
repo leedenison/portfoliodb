@@ -137,6 +137,7 @@ service ApiService {
   rpc DeletePortfolio(DeletePortfolioRequest) returns (DeletePortfolioResponse);
   rpc GetPortfolioFilters(GetPortfolioFiltersRequest) returns (GetPortfolioFiltersResponse);
   rpc SetPortfolioFilters(SetPortfolioFiltersRequest) returns (SetPortfolioFiltersResponse);
+  rpc ListBrokersAndAccounts(ListBrokersAndAccountsRequest) returns (ListBrokersAndAccountsResponse);
 
   // Transactions and holdings: by portfolio view (portfolio_id set) or all user data (portfolio_id empty). Filtering is via portfolios only.
   rpc ListTxs(ListTxsRequest) returns (ListTxsResponse);
@@ -249,6 +250,19 @@ message SetPortfolioFiltersRequest {
 }
 
 message SetPortfolioFiltersResponse {}
+
+// ListBrokersAndAccounts returns distinct broker/account pairs for the authenticated user.
+message ListBrokersAndAccountsRequest {}
+
+// BrokerAccounts groups accounts under a single broker.
+message BrokerAccounts {
+  string broker = 1;
+  repeated string accounts = 2;
+}
+
+message ListBrokersAndAccountsResponse {
+  repeated BrokerAccounts brokers = 1;
+}
 
 // PortfolioTx pairs a transaction with its broker, account, and optional resolved instrument for list responses.
 message PortfolioTx {

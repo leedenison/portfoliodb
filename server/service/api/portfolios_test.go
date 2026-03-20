@@ -240,6 +240,56 @@ func TestSetPortfolioFilters_EmptyPortfolioId(t *testing.T) {
 	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
 }
 
+func TestListBrokersAndAccounts_Success(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().
+		ListBrokersAndAccounts(gomock.Any(), "user-1").
+		Return([]dbpkg.BrokerAccount{
+			{Broker: "IBKR", Account: "U1234"},
+			{Broker: "IBKR", Account: "U5678"},
+			{Broker: "SCHB", Account: "IRA"},
+		}, nil)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.ListBrokersAndAccounts(ctx, &apiv1.ListBrokersAndAccountsRequest{})
+	if err != nil {
+		t.Fatalf("ListBrokersAndAccounts: %v", err)
+	}
+	if len(resp.GetBrokers()) != 2 {
+		t.Fatalf("expected 2 brokers, got %d", len(resp.GetBrokers()))
+	}
+	if resp.GetBrokers()[0].GetBroker() != "IBKR" || len(resp.GetBrokers()[0].GetAccounts()) != 2 {
+		t.Fatalf("unexpected IBKR entry: %v", resp.GetBrokers()[0])
+	}
+	if resp.GetBrokers()[1].GetBroker() != "SCHB" || len(resp.GetBrokers()[1].GetAccounts()) != 1 {
+		t.Fatalf("unexpected SCHB entry: %v", resp.GetBrokers()[1])
+	}
+}
+
+func TestListBrokersAndAccounts_DBError(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().
+		ListBrokersAndAccounts(gomock.Any(), "user-1").
+		Return(nil, errors.New("db error"))
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.ListBrokersAndAccounts(ctx, &apiv1.ListBrokersAndAccountsRequest{})
+	testutil.RequireGRPCCode(t, err, codes.Internal)
+}
+
+func TestListBrokersAndAccounts_Empty(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().
+		ListBrokersAndAccounts(gomock.Any(), "user-1").
+		Return(nil, nil)
+	ctx := authCtx("user-1", "sub|1")
+	resp, err := srv.ListBrokersAndAccounts(ctx, &apiv1.ListBrokersAndAccountsRequest{})
+	if err != nil {
+		t.Fatalf("ListBrokersAndAccounts: %v", err)
+	}
+	if len(resp.GetBrokers()) != 0 {
+		t.Fatalf("expected 0 brokers, got %d", len(resp.GetBrokers()))
+	}
+}
+
 func TestSetPortfolioFilters_NotFound(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().

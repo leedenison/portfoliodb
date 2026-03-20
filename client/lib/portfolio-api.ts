@@ -20,6 +20,8 @@ import {
   GetPortfolioResponseSchema,
   GetPortfolioFiltersRequestSchema,
   GetPortfolioFiltersResponseSchema,
+  ListBrokersAndAccountsRequestSchema,
+  ListBrokersAndAccountsResponseSchema,
   ListDescriptionPluginsRequestSchema,
   ListDescriptionPluginsResponseSchema,
   ListIdentifierPluginsRequestSchema,
@@ -225,6 +227,21 @@ export async function getPortfolioFilters(portfolioId: string): Promise<Portfoli
   });
   const res = fromBinary(GetPortfolioFiltersResponseSchema, resBytes);
   return (res.filters ?? []).map((f: PortfolioFilterProto) => ({ filterType: f.filterType, filterValue: f.filterValue }));
+}
+
+export interface BrokerAccounts {
+  broker: string;
+  accounts: string[];
+}
+
+export async function listBrokersAndAccounts(): Promise<BrokerAccounts[]> {
+  const base = getBaseUrl();
+  const req = create(ListBrokersAndAccountsRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListBrokersAndAccounts", toBinary(ListBrokersAndAccountsRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(ListBrokersAndAccountsResponseSchema, resBytes);
+  return (res.brokers ?? []).map((b) => ({ broker: b.broker, accounts: [...b.accounts] }));
 }
 
 export async function setPortfolioFilters(portfolioId: string, filters: PortfolioFilter[]): Promise<void> {

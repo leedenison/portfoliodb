@@ -1,6 +1,6 @@
 /**
  * Parser for the standard transaction CSV format.
- * See docs/ui/upload.md for the format specification.
+ * See docs/csv-format.md for the format specification.
  */
 
 import { create } from "@bufbuild/protobuf";

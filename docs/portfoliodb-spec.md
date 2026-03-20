@@ -161,6 +161,10 @@ PortfolioDB should adopt security best practices for web development including, 
 
 API integrations are likely to be paid for and have quota limits.  PortfolioDB should be efficient when calling external APIs, avoid calls for duplicate information and should implement appropriate backoff algorithms when services are interrupted.
 
+## Charting
+
+The front end uses Recharts for data visualization (e.g. portfolio performance charts). Design decisions are documented in docs/performance.md.
+
 ## Datamodel Migration
 
 Datamodel definitions should follow the industry standard migrations pattern.

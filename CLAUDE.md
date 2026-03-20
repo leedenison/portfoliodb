@@ -12,8 +12,9 @@ This project is pre-release.  Datamodels, APIs, protobuf definitions, plugin API
 
 ### Front End
 
-* Next.js (Typescript)  
+* Next.js (Typescript)
 * Tailwind CSS
+* Recharts (charting)
 
 ### Back End
 

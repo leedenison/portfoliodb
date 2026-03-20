@@ -8,6 +8,8 @@ import {
   ExportInstrumentsRequestSchema,
   ExportPriceRowSchema,
   ExportPricesRequestSchema,
+  GetPortfolioValuationRequestSchema,
+  GetPortfolioValuationResponseSchema,
   ImportInstrumentsRequestSchema,
   ImportInstrumentsResponseSchema,
   ImportPricesRequestSchema,
@@ -587,5 +589,43 @@ export async function importPrices(prices: ImportPriceRow[]): Promise<ImportPric
   return {
     upsertedCount: res.upsertedCount,
     errors: res.errors.map((e) => ({ index: e.index, message: e.message })),
+  };
+}
+
+/** A single day's portfolio value point. */
+export interface ValuationPointUI {
+  date: string;
+  totalValue: number;
+  unpricedInstruments: string[];
+}
+
+export interface GetPortfolioValuationResult {
+  points: ValuationPointUI[];
+}
+
+export async function getPortfolioValuation(params: {
+  portfolioId?: string;
+  dateFrom: string;
+  dateTo: string;
+}): Promise<GetPortfolioValuationResult> {
+  const base = getBaseUrl();
+  const req = create(GetPortfolioValuationRequestSchema, {
+    portfolioId: params.portfolioId ?? "",
+    dateFrom: params.dateFrom,
+    dateTo: params.dateTo,
+  });
+  const resBytes = await unaryFetch(
+    base,
+    ApiServicePrefix + "GetPortfolioValuation",
+    toBinary(GetPortfolioValuationRequestSchema, req),
+    { credentials: "include" }
+  );
+  const res = fromBinary(GetPortfolioValuationResponseSchema, resBytes);
+  return {
+    points: res.points.map((p) => ({
+      date: p.date,
+      totalValue: p.totalValue,
+      unpricedInstruments: [...p.unpricedInstruments],
+    })),
   };
 }

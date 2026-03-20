@@ -48,7 +48,7 @@ function parseDate(value: string): Date | null {
  * Parse a single CSV row into fields, handling quoted fields.
  * Assumes no newline inside a quoted value.
  */
-function parseCSVLine(line: string): string[] {
+export function parseCSVLine(line: string): string[] {
   const result: string[] = [];
   let current = "";
   let inQuotes = false;

@@ -6,8 +6,12 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   ExportInstrumentsRequestSchema,
+  ExportPriceRowSchema,
+  ExportPricesRequestSchema,
   ImportInstrumentsRequestSchema,
   ImportInstrumentsResponseSchema,
+  ImportPricesRequestSchema,
+  ImportPricesResponseSchema,
   InstrumentSchema,
   CreatePortfolioRequestSchema,
   CreatePortfolioResponseSchema,
@@ -56,9 +60,11 @@ import {
 import type {
   DescriptionPluginConfig,
   EODPriceProto,
+  ExportPriceRow,
   Holding,
   IdentificationError,
   IdentifierPluginConfig,
+  ImportPriceRow,
   Instrument,
   PriceFetchBlock,
   PricePluginConfig,
@@ -527,6 +533,32 @@ export async function importInstruments(instruments: Instrument[]): Promise<Impo
   const res = fromBinary(ImportInstrumentsResponseSchema, resBytes);
   return {
     ensuredCount: res.ensuredCount,
+    errors: res.errors.map((e) => ({ index: e.index, message: e.message })),
+  };
+}
+
+/** Stream all exported prices (admin only). */
+export async function* exportPrices(): AsyncGenerator<ExportPriceRow> {
+  const base = getBaseUrl();
+  const req = create(ExportPricesRequestSchema, {});
+  for await (const bytes of streamingFetch(base, ApiServicePrefix + "ExportPrices", toBinary(ExportPricesRequestSchema, req), { credentials: "include" })) {
+    yield fromBinary(ExportPriceRowSchema, bytes);
+  }
+}
+
+export interface ImportPricesResult {
+  upsertedCount: number;
+  errors: Array<{ index: number; message: string }>;
+}
+
+/** Import (upsert) prices (admin only). */
+export async function importPrices(prices: ImportPriceRow[]): Promise<ImportPricesResult> {
+  const base = getBaseUrl();
+  const req = create(ImportPricesRequestSchema, { prices });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ImportPrices", toBinary(ImportPricesRequestSchema, req), { credentials: "include" });
+  const res = fromBinary(ImportPricesResponseSchema, resBytes);
+  return {
+    upsertedCount: res.upsertedCount,
     errors: res.errors.map((e) => ({ index: e.index, message: e.message })),
   };
 }

@@ -8,8 +8,11 @@ import {
   listPrices,
   listPriceFetchBlocks,
   deletePriceFetchBlock,
+  exportPrices,
 } from "@/lib/portfolio-api";
-import type { EODPriceProto, PriceFetchBlock } from "@/gen/api/v1/api_pb";
+import { pricesToCsv } from "@/lib/csv/prices";
+import { ImportPricesModal } from "./import-modal";
+import type { EODPriceProto, ExportPriceRow, PriceFetchBlock } from "@/gen/api/v1/api_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 
 type Tab = "prices" | "blocks";
@@ -80,6 +83,10 @@ function PriceListTab() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
@@ -87,6 +94,29 @@ function PriceListTab() {
     debounceRef.current = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(debounceRef.current);
   }, [search]);
+
+  async function handleExport() {
+    setExportLoading(true);
+    setExportError(null);
+    try {
+      const rows: ExportPriceRow[] = [];
+      for await (const row of exportPrices()) {
+        rows.push(row);
+      }
+      const csv = pricesToCsv(rows);
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "prices.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExportLoading(false);
+    }
+  }
 
   const fetchPrices = useCallback(
     async (pageToken: string | null) => {
@@ -102,7 +132,8 @@ function PriceListTab() {
         nextPageToken: result.nextPageToken,
       };
     },
-    [debouncedSearch, dateFrom, dateTo]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [debouncedSearch, dateFrom, dateTo, refreshKey]
   );
 
   const {
@@ -119,7 +150,7 @@ function PriceListTab() {
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
+      {/* Header with export/import buttons */}
       <div className="flex flex-wrap items-end gap-3">
         <input
           type="text"
@@ -151,7 +182,25 @@ function PriceListTab() {
             {totalCount} total
           </span>
         )}
+        <div className="ml-auto flex gap-2">
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={exportLoading}
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {exportLoading ? "Exporting..." : "Export CSV"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setImportOpen(true)}
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15"
+          >
+            Import CSV
+          </button>
+        </div>
       </div>
+      {exportError && <ErrorAlert>{exportError}</ErrorAlert>}
 
       {loading && <p className="text-text-muted">Loading prices...</p>}
       {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
@@ -220,6 +269,12 @@ function PriceListTab() {
           />
         </>
       )}
+
+      <ImportPricesModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onComplete={() => setRefreshKey((k) => k + 1)}
+      />
     </div>
   );
 }

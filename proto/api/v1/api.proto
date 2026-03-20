@@ -180,6 +180,9 @@ service ApiService {
   rpc ListPriceFetchBlocks(ListPriceFetchBlocksRequest) returns (ListPriceFetchBlocksResponse);
   rpc DeletePriceFetchBlock(DeletePriceFetchBlockRequest) returns (DeletePriceFetchBlockResponse);
 
+  // Portfolio valuation: daily portfolio value over a date range.
+  rpc GetPortfolioValuation(GetPortfolioValuationRequest) returns (GetPortfolioValuationResponse);
+
   // EOD prices (admin-only). Browse cached price data.
   rpc ListPrices(ListPricesRequest) returns (ListPricesResponse);
 
@@ -613,4 +616,24 @@ message ImportPricesResponse {
 message ImportPriceError {
   int32 index = 1;    // index into request.prices
   string message = 2;
+}
+
+// GetPortfolioValuation computes daily portfolio values over a date range.
+message GetPortfolioValuationRequest {
+  string portfolio_id = 1;
+  string date_from = 2;     // "YYYY-MM-DD"
+  string date_to = 3;       // "YYYY-MM-DD"
+}
+
+// ValuationPoint is one day's portfolio value.
+// total_value sums only priced instruments; unpriced_instruments lists display
+// names for instruments missing prices on that date.
+message ValuationPoint {
+  string date = 1;
+  double total_value = 2;
+  repeated string unpriced_instruments = 3;
+}
+
+message GetPortfolioValuationResponse {
+  repeated ValuationPoint points = 1;
 }

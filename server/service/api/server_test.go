@@ -109,6 +109,10 @@ func TestAPI_Unauthenticated(t *testing.T) {
 			return srv.ExportPrices(&apiv1.ExportPricesRequest{}, stream)
 		}},
 		{"ImportPrices", func() error { _, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{}); return err }},
+		{"GetPortfolioValuation", func() error {
+			_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{PortfolioId: "p", DateFrom: "2025-01-01", DateTo: "2025-01-03"})
+			return err
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

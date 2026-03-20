@@ -24,6 +24,7 @@ type DB interface {
 	PortfolioDB
 	TxDB
 	HoldingsDB
+	ValuationDB
 	JobDB
 	InstrumentDB
 	PluginConfigDB
@@ -173,6 +174,18 @@ type TxDB interface {
 type HoldingsDB interface {
 	ComputeHoldings(ctx context.Context, userID string, broker *apiv1.Broker, account string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error)
 	ComputeHoldingsForPortfolio(ctx context.Context, portfolioID string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error)
+}
+
+// ValuationPoint is one day's portfolio value.
+type ValuationPoint struct {
+	Date                time.Time
+	TotalValue          float64
+	UnpricedInstruments []string
+}
+
+// ValuationDB computes daily portfolio values over a date range.
+type ValuationDB interface {
+	GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateTo time.Time) ([]ValuationPoint, error)
 }
 
 // JobRow is a job summary for list views.

@@ -43,7 +43,7 @@ func inList(fullMethod string, list []string) bool {
 	return false
 }
 
-// sessionIDFromMetadata returns the session cookie value from incoming metadata (Cookie header or x-session-id).
+// sessionIDFromMetadata returns the session ID from incoming metadata (Cookie header or Authorization: Bearer).
 func sessionIDFromMetadata(ctx context.Context, cookieName string) string {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
@@ -57,31 +57,41 @@ func sessionIDFromMetadata(ctx context.Context, cookieName string) string {
 			}
 		}
 	}
-	for _, v := range md.Get("x-session-id") {
-		if v != "" {
-			return v
+	for _, v := range md.Get("authorization") {
+		if strings.HasPrefix(v, "Bearer ") {
+			return strings.TrimPrefix(v, "Bearer ")
 		}
 	}
 	return ""
 }
 
-// userFromSession loads the session from the store and returns a User for context.
-func userFromSession(ctx context.Context, cfg InterceptorConfig) (*User, error) {
+// identityFromSession loads the session and attaches the appropriate identity (User or ServiceAccount) to the context.
+// Returns (ctx, found, error).
+func identityFromSession(ctx context.Context, cfg InterceptorConfig) (context.Context, bool, error) {
 	sessionID := sessionIDFromMetadata(ctx, cfg.SessionCookieName)
 	if sessionID == "" {
-		return nil, nil
+		return ctx, false, nil
 	}
 	data, err := cfg.SessionStore.Get(ctx, sessionID, cfg.ExtendTTL)
 	if err != nil || data == nil {
-		return nil, nil
+		return ctx, false, nil
 	}
-	return &User{
-		ID:      data.UserID,
-		AuthSub: data.GoogleSub,
-		Email:   data.Email,
-		Name:    data.Email, // session may not store name; email is fine for display
-		Role:    data.Role,
-	}, nil
+	switch data.Kind {
+	case session.SessionKindServiceAccount:
+		ctx = WithServiceAccount(ctx, &ServiceAccount{
+			ID:   data.ServiceAccountID,
+			Role: data.Role,
+		})
+	default: // SessionKindUser or empty (backwards compat)
+		ctx = WithUser(ctx, &User{
+			ID:      data.UserID,
+			AuthSub: data.GoogleSub,
+			Email:   data.Email,
+			Name:    data.Email, // session may not store name; email is fine for display
+			Role:    data.Role,
+		})
+	}
+	return ctx, true, nil
 }
 
 // UnaryInterceptor returns a gRPC unary interceptor that attaches user from session cookie.
@@ -93,17 +103,16 @@ func UnaryInterceptor(cfg InterceptorConfig) grpc.UnaryServerInterceptor {
 		if inList(info.FullMethod, cfg.NoSessionMethods) {
 			return handler(ctx, req)
 		}
-		u, err := userFromSession(ctx, cfg)
+		ctx, found, err := identityFromSession(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
-		if u == nil {
+		if !found {
 			if inList(info.FullMethod, cfg.OptionalSessionMethods) {
 				return handler(ctx, req)
 			}
 			return nil, status.Error(codes.Unauthenticated, "missing or invalid session")
 		}
-		ctx = WithUser(ctx, u)
 		return handler(ctx, req)
 	}
 }
@@ -126,17 +135,17 @@ func StreamInterceptor(cfg InterceptorConfig) grpc.StreamServerInterceptor {
 		if inList(info.FullMethod, cfg.NoSessionMethods) {
 			return handler(srv, ss)
 		}
-		u, err := userFromSession(ss.Context(), cfg)
+		ctx, found, err := identityFromSession(ss.Context(), cfg)
 		if err != nil {
 			return err
 		}
-		if u == nil {
+		if !found {
 			if inList(info.FullMethod, cfg.OptionalSessionMethods) {
 				return handler(srv, ss)
 			}
 			return status.Error(codes.Unauthenticated, "missing or invalid session")
 		}
-		wrapped := &wrappedStream{ServerStream: ss, ctx: WithUser(ss.Context(), u)}
+		wrapped := &wrappedStream{ServerStream: ss, ctx: ctx}
 		return handler(srv, wrapped)
 	}
 }

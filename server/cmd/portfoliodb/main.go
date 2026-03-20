@@ -130,9 +130,11 @@ func main() {
 	cookieName := envOrDefault("PORTFOLIODB_SESSION_COOKIE", "portfoliodb_session")
 	cookieSecure := os.Getenv("PORTFOLIODB_COOKIE_SECURE") != "" && os.Getenv("PORTFOLIODB_COOKIE_SECURE") != "0" && strings.ToLower(os.Getenv("PORTFOLIODB_COOKIE_SECURE")) != "false"
 	cookieMaxAge := 30 * 24 * 3600 // 30 days in seconds
+	machineSessionTTL := parseDuration(os.Getenv("MACHINE_SESSION_TTL"), time.Hour)
 	authServer := authservice.NewServer(
 		verifier,
 		sessionStore,
+		database,
 		database,
 		allowlistMatcher,
 		authservice.CookieConfig{
@@ -144,12 +146,17 @@ func main() {
 		},
 		sessionTTL,
 		extendTTL,
+		machineSessionTTL,
 		os.Getenv("ADMIN_AUTH_SUB"),
 	)
 
 	interceptorConfig := auth.InterceptorConfig{
-		SkipAuthPrefixes:       []string{"/grpc.reflection."},
-		NoSessionMethods:       []string{"/portfoliodb.auth.v1.AuthService/Auth"},
+		SkipAuthPrefixes: []string{"/grpc.reflection."},
+		NoSessionMethods: []string{
+			"/portfoliodb.auth.v1.AuthService/Auth",
+			"/portfoliodb.auth.v1.AuthService/AuthCLI",
+			"/portfoliodb.auth.v1.AuthService/AuthMachine",
+		},
 		OptionalSessionMethods: []string{"/portfoliodb.auth.v1.AuthService/Logout"},
 		SessionStore:           sessionStore,
 		SessionCookieName:       cookieName,

@@ -127,6 +127,12 @@ type PortfolioFilter struct {
 	FilterValue string
 }
 
+// BrokerAccount is a distinct (broker, account) pair from user transactions.
+type BrokerAccount struct {
+	Broker  string
+	Account string
+}
+
 // PortfolioDB provides portfolio CRUD and filter management.
 type PortfolioDB interface {
 	ListPortfolios(ctx context.Context, userID string, pageSize int32, pageToken string) ([]*apiv1.Portfolio, string, error)
@@ -137,6 +143,7 @@ type PortfolioDB interface {
 	PortfolioBelongsToUser(ctx context.Context, portfolioID, userID string) (bool, error)
 	ListPortfolioFilters(ctx context.Context, portfolioID string) ([]PortfolioFilter, error)
 	SetPortfolioFilters(ctx context.Context, portfolioID string, filters []PortfolioFilter) error
+	ListBrokersAndAccounts(ctx context.Context, userID string) ([]BrokerAccount, error)
 }
 
 // TxDB provides transaction write and list.

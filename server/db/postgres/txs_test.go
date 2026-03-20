@@ -147,37 +147,37 @@ func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 	}
 }
 
-// TestListTxsByPortfolio_OR_dedupe verifies OR semantics and deduplication: a tx matching multiple filters appears once.
-func TestListTxsByPortfolio_OR_dedupe(t *testing.T) {
+// TestListTxsByPortfolio_ANDBetweenCategories verifies AND-between-categories semantics:
+// a tx must match at least one filter in every category that has filters.
+func TestListTxsByPortfolio_ANDBetweenCategories(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	userID, _ := p.GetOrCreateUser(ctx, "sub|dedupe", "U", "u@u.com")
+	userID, _ := p.GetOrCreateUser(ctx, "sub|and", "U", "u@u.com")
 	port, err := p.CreatePortfolio(ctx, userID, "P")
 	if err != nil {
 		t.Fatalf("create portfolio: %v", err)
 	}
-	// Filters: broker=IBKR OR account=A (so txs matching either appear; tx matching both appears once)
+	// Filters: broker=IBKR AND account=A (tx must match both categories)
 	if err := p.SetPortfolioFilters(ctx, port.GetId(), []db.PortfolioFilter{
 		{FilterType: "broker", FilterValue: "IBKR"},
 		{FilterType: "account", FilterValue: "A"},
 	}); err != nil {
 		t.Fatalf("set filters: %v", err)
 	}
-	now := time.Now()
-	ts := timestamppb.New(now.Add(-1 * time.Hour))
+	ts := timestamppb.New(time.Now().Add(-1 * time.Hour))
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "X", Canonical: false}}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
-	// Tx1: IBKR, account "" -> matches broker only
-	// Tx2: SCHB, account "A" -> matches account only
-	// Tx3: IBKR, account "A" -> matches both, should appear once
-	if err := p.CreateTx(ctx, userID, "IBKR", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 1, Account: ""}, instID); err != nil {
+	// Tx1: IBKR, account "B" -> matches broker but NOT account -> excluded
+	if err := p.CreateTx(ctx, userID, "IBKR", "B", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 1, Account: "B"}, instID); err != nil {
 		t.Fatalf("create tx1: %v", err)
 	}
+	// Tx2: SCHB, account "A" -> matches account but NOT broker -> excluded
 	if err := p.CreateTx(ctx, userID, "SCHB", "A", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 2, Account: "A"}, instID); err != nil {
 		t.Fatalf("create tx2: %v", err)
 	}
+	// Tx3: IBKR, account "A" -> matches both -> included
 	if err := p.CreateTx(ctx, userID, "IBKR", "A", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 3, Account: "A"}, instID); err != nil {
 		t.Fatalf("create tx3: %v", err)
 	}
@@ -185,19 +185,21 @@ func TestListTxsByPortfolio_OR_dedupe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTxsByPortfolio: %v", err)
 	}
-	if len(txs) != 3 {
-		t.Fatalf("expected 3 txs (OR + dedupe), got %d: %+v", len(txs), txs)
+	if len(txs) != 1 {
+		t.Fatalf("expected 1 tx (AND between categories), got %d: %+v", len(txs), txs)
+	}
+	if txs[0].GetTx().GetQuantity() != 3 {
+		t.Fatalf("expected tx3 (qty=3), got qty=%v", txs[0].GetTx().GetQuantity())
 	}
 	holdings, _, err := p.ComputeHoldingsForPortfolio(ctx, port.GetId(), nil)
 	if err != nil {
 		t.Fatalf("ComputeHoldingsForPortfolio: %v", err)
 	}
-	// One instrument, total quantity 1+2+3 = 6 (each tx counted once)
 	var totalQty float64
 	for _, h := range holdings {
 		totalQty += h.Quantity
 	}
-	if totalQty != 6 {
-		t.Fatalf("expected total quantity 6 (deduped txs), got %v", totalQty)
+	if totalQty != 3 {
+		t.Fatalf("expected total quantity 3, got %v", totalQty)
 	}
 }

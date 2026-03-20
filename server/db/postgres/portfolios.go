@@ -193,6 +193,35 @@ func (p *Postgres) ListPortfolioFilters(ctx context.Context, portfolioID string)
 	return out, nil
 }
 
+// ListBrokersAndAccounts implements db.PortfolioDB.
+func (p *Postgres) ListBrokersAndAccounts(ctx context.Context, userID string) ([]db.BrokerAccount, error) {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT DISTINCT broker, account FROM txs
+		WHERE user_id = $1
+		ORDER BY broker, account
+	`, userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("list brokers and accounts: %w", err)
+	}
+	defer rows.Close()
+	var out []db.BrokerAccount
+	for rows.Next() {
+		var ba db.BrokerAccount
+		if err := rows.Scan(&ba.Broker, &ba.Account); err != nil {
+			return nil, err
+		}
+		out = append(out, ba)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SetPortfolioFilters implements db.PortfolioDB.
 func (p *Postgres) SetPortfolioFilters(ctx context.Context, portfolioID string, filters []db.PortfolioFilter) error {
 	portUUID, err := uuid.Parse(portfolioID)

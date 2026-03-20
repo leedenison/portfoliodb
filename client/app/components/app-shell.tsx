@@ -7,7 +7,7 @@ import { UploadModal } from "./upload-modal";
 
 const navItems = [
   { href: "/analysis", label: "Analysis", disabled: true },
-  { href: "/performance", label: "Performance", disabled: true },
+  { href: "/performance", label: "Performance" },
   { href: "/holdings", label: "Holdings" },
   { href: "/transactions", label: "Transactions", disabled: true },
 ];

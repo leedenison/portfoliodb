@@ -4,19 +4,22 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	authv1 "github.com/leedenison/portfoliodb/proto/auth/v1"
+	authpkg "github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/auth/allowlist"
 	"github.com/leedenison/portfoliodb/server/auth/google"
 	"github.com/leedenison/portfoliodb/server/auth/session"
 	"github.com/leedenison/portfoliodb/server/db"
-	authpkg "github.com/leedenison/portfoliodb/server/auth"
+	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // CookieConfig configures the session cookie.
@@ -31,14 +34,16 @@ type CookieConfig struct {
 // Server implements AuthService.
 type Server struct {
 	authv1.UnimplementedAuthServiceServer
-	verifier     *google.Verifier
-	sessionStore session.Store
-	userDB       db.UserDB
-	allowlist    *allowlist.Matcher
-	cookie       CookieConfig
-	sessionTTL   time.Duration
-	extendTTL    time.Duration
-	adminAuthSub string
+	verifier          *google.Verifier
+	sessionStore      session.Store
+	userDB            db.UserDB
+	svcAcctDB         db.ServiceAccountDB
+	allowlist         *allowlist.Matcher
+	cookie            CookieConfig
+	sessionTTL        time.Duration
+	machineSessionTTL time.Duration
+	extendTTL         time.Duration
+	adminAuthSub      string
 }
 
 // NewServer returns a new Auth server.
@@ -46,10 +51,12 @@ func NewServer(
 	verifier *google.Verifier,
 	sessionStore session.Store,
 	userDB db.UserDB,
+	svcAcctDB db.ServiceAccountDB,
 	allowlist *allowlist.Matcher,
 	cookie CookieConfig,
 	sessionTTL time.Duration,
 	extendTTL time.Duration,
+	machineSessionTTL time.Duration,
 	adminAuthSub string,
 ) *Server {
 	if cookie.Name == "" {
@@ -59,14 +66,16 @@ func NewServer(
 		cookie.Path = "/"
 	}
 	return &Server{
-		verifier:     verifier,
-		sessionStore: sessionStore,
-		userDB:       userDB,
-		allowlist:    allowlist,
-		cookie:       cookie,
-		sessionTTL:   sessionTTL,
-		extendTTL:    extendTTL,
-		adminAuthSub: adminAuthSub,
+		verifier:          verifier,
+		sessionStore:      sessionStore,
+		userDB:            userDB,
+		svcAcctDB:         svcAcctDB,
+		allowlist:         allowlist,
+		cookie:            cookie,
+		sessionTTL:        sessionTTL,
+		machineSessionTTL: machineSessionTTL,
+		extendTTL:         extendTTL,
+		adminAuthSub:      adminAuthSub,
 	}
 }
 
@@ -149,6 +158,86 @@ func (s *Server) provisionUser(ctx context.Context, googleSub, email, name strin
 	return userID, false, nil
 }
 
+// AuthCLI verifies the Google ID token and returns a session token for CLI use.
+func (s *Server) AuthCLI(ctx context.Context, req *authv1.AuthRequest) (*authv1.CLIAuthResponse, error) {
+	token := req.GetGoogleIdToken()
+	if token == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing google_id_token")
+	}
+	result, err := s.verifier.Verify(ctx, token)
+	if err != nil {
+		switch {
+		case err == google.ErrInvalidArgument:
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		case err == google.ErrPermissionDenied:
+			return nil, status.Error(codes.PermissionDenied, err.Error())
+		default:
+			return nil, status.Error(codes.Unauthenticated, err.Error())
+		}
+	}
+	if s.allowlist != nil && !s.allowlist.Match(result.Email) {
+		return nil, status.Error(codes.PermissionDenied, "email not allowlisted")
+	}
+	userID, _, err := s.provisionUser(ctx, result.Sub, result.Email, result.Name)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	role := "user"
+	if result.Sub == s.adminAuthSub {
+		role = "admin"
+	}
+	expiresAt := time.Now().Add(s.sessionTTL)
+	sessData := &session.Data{
+		Kind:      session.SessionKindUser,
+		UserID:    userID,
+		Email:     result.Email,
+		GoogleSub: result.Sub,
+		Role:      role,
+	}
+	sessionID, err := s.sessionStore.Create(ctx, sessData, s.sessionTTL)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &authv1.CLIAuthResponse{
+		SessionToken: sessionID,
+		ExpiresAt:    timestamppb.New(expiresAt),
+	}, nil
+}
+
+// AuthMachine authenticates a service account by client_id and client_secret.
+func (s *Server) AuthMachine(ctx context.Context, req *authv1.AuthMachineRequest) (*authv1.CLIAuthResponse, error) {
+	if req.GetClientId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing client_id")
+	}
+	if req.GetClientSecret() == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing client_secret")
+	}
+	row, err := s.svcAcctDB.GetServiceAccount(ctx, req.GetClientId())
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if row == nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(row.ClientSecretHash), []byte(req.GetClientSecret())); err != nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
+	}
+	expiresAt := time.Now().Add(s.machineSessionTTL)
+	sessData := &session.Data{
+		Kind:             session.SessionKindServiceAccount,
+		ServiceAccountID: row.ID,
+		Role:             row.Role,
+	}
+	sessionID, err := s.sessionStore.Create(ctx, sessData, s.machineSessionTTL)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &authv1.CLIAuthResponse{
+		SessionToken: sessionID,
+		ExpiresAt:    timestamppb.New(expiresAt),
+	}, nil
+}
+
 // GetSession returns the current user when the request has a valid session cookie.
 func (s *Server) GetSession(ctx context.Context, _ *emptypb.Empty) (*authv1.AuthResponse, error) {
 	u := authpkg.FromContext(ctx)
@@ -217,9 +306,10 @@ func getSessionIDFromContext(ctx context.Context, cookieName string) string {
 			}
 		}
 	}
-	vals = md.Get("x-session-id")
-	if len(vals) > 0 && vals[0] != "" {
-		return vals[0]
+	for _, v := range md.Get("authorization") {
+		if strings.HasPrefix(v, "Bearer ") {
+			return strings.TrimPrefix(v, "Bearer ")
+		}
 	}
 	return ""
 }

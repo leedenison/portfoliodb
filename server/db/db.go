@@ -20,6 +20,7 @@ const (
 // DB is the database abstraction used by the service layer.
 type DB interface {
 	UserDB
+	ServiceAccountDB
 	PortfolioDB
 	TxDB
 	HoldingsDB
@@ -109,6 +110,20 @@ type IdentificationError struct {
 	RowIndex               int32
 	InstrumentDescription string
 	Message                string
+}
+
+// ServiceAccountRow is a service account returned from the DB.
+type ServiceAccountRow struct {
+	ID               string
+	Name             string
+	ClientSecretHash string
+	Role             string
+}
+
+// ServiceAccountDB provides service account read operations.
+type ServiceAccountDB interface {
+	// GetServiceAccount returns the service account by ID, or nil if not found.
+	GetServiceAccount(ctx context.Context, id string) (*ServiceAccountRow, error)
 }
 
 // UserDB provides user operations.

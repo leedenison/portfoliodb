@@ -604,13 +604,13 @@ export interface GetPortfolioValuationResult {
 }
 
 export async function getPortfolioValuation(params: {
-  portfolioId: string;
+  portfolioId?: string;
   dateFrom: string;
   dateTo: string;
 }): Promise<GetPortfolioValuationResult> {
   const base = getBaseUrl();
   const req = create(GetPortfolioValuationRequestSchema, {
-    portfolioId: params.portfolioId,
+    portfolioId: params.portfolioId ?? "",
     dateFrom: params.dateFrom,
     dateTo: params.dateTo,
   });

@@ -43,8 +43,10 @@ function dateFromPeriod(period: Period): string {
   return d.toISOString().slice(0, 10);
 }
 
-function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+function yesterdayStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
 }
 
 export default function PerformancePage() {
@@ -56,12 +58,12 @@ export default function PerformancePage() {
   const [error, setError] = useState<string | null>(null);
 
   const dateRange = useMemo(
-    () => ({ dateFrom: dateFromPeriod(period), dateTo: todayStr() }),
+    () => ({ dateFrom: dateFromPeriod(period), dateTo: yesterdayStr() }),
     [period]
   );
 
   const fetchData = useCallback(
-    async (portfolioId: string, from: string, to: string) => {
+    async (portfolioId: string | undefined, from: string, to: string) => {
       setLoading(true);
       setError(null);
       try {
@@ -82,8 +84,8 @@ export default function PerformancePage() {
   );
 
   useEffect(() => {
-    if (state.status !== "authenticated" || !selectedPortfolio) return;
-    fetchData(selectedPortfolio.id, dateRange.dateFrom, dateRange.dateTo);
+    if (state.status !== "authenticated") return;
+    fetchData(selectedPortfolio?.id, dateRange.dateFrom, dateRange.dateTo);
   }, [state.status, selectedPortfolio, dateRange, fetchData]);
 
   // Compute percentage change.
@@ -120,56 +122,43 @@ export default function PerformancePage() {
         )}
         {state.status === "authenticated" && (
           <div className="mx-auto w-full max-w-4xl animate-fade-in space-y-5">
-            {!selectedPortfolio ? (
-              <div className="flex flex-1 flex-col items-center justify-center py-20 text-center">
-                <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">
-                  Performance
-                </h2>
-                <p className="mt-3 text-text-muted">
-                  Select a portfolio to view performance.
-                </p>
+            <div className="flex flex-wrap items-baseline gap-3">
+              <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">
+                {selectedPortfolio?.name ?? "All Holdings"}
+              </h2>
+              {pctChange !== null && (
+                <span
+                  className={`font-mono text-sm font-semibold ${
+                    pctChange >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                  }`}
+                >
+                  {pctChange >= 0 ? "+" : ""}
+                  {pctChange.toFixed(1)}% over {periodLabel.toLowerCase()}
+                </span>
+              )}
+              <div className="ml-auto flex gap-1">
+                {periods.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => setPeriod(p.key)}
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      period === p.key
+                        ? "bg-primary-dark/10 text-primary-dark dark:bg-primary-light/20 dark:text-primary-light"
+                        : "text-text-muted hover:bg-primary-light/15 hover:text-text-primary"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
               </div>
-            ) : (
-              <>
-                <div className="flex flex-wrap items-baseline gap-3">
-                  <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">
-                    {selectedPortfolio.name}
-                  </h2>
-                  {pctChange !== null && (
-                    <span
-                      className={`font-mono text-sm font-semibold ${
-                        pctChange >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-                      }`}
-                    >
-                      {pctChange >= 0 ? "+" : ""}
-                      {pctChange.toFixed(1)}% over {periodLabel.toLowerCase()}
-                    </span>
-                  )}
-                  <div className="ml-auto flex gap-1">
-                    {periods.map((p) => (
-                      <button
-                        key={p.key}
-                        type="button"
-                        onClick={() => setPeriod(p.key)}
-                        className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-                          period === p.key
-                            ? "bg-primary-dark/10 text-primary-dark dark:bg-primary-light/20 dark:text-primary-light"
-                            : "text-text-muted hover:bg-primary-light/15 hover:text-text-primary"
-                        }`}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+            </div>
 
-                {loading && (
-                  <p className="text-text-muted">Loading valuation data...</p>
-                )}
-                {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
-                {!loading && !error && <PerformanceChart points={points} />}
-              </>
+            {loading && (
+              <p className="text-text-muted">Loading valuation data...</p>
             )}
+            {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
+            {!loading && !error && <PerformanceChart points={points} />}
           </div>
         )}
       </div>

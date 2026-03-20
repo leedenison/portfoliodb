@@ -4,6 +4,7 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  ReferenceArea,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -63,25 +64,34 @@ function CustomTooltip({
   );
 }
 
-// Custom dot to highlight points with unpriced instruments.
-function UnpricedDot(props: {
-  cx?: number;
-  cy?: number;
-  payload?: ValuationPointUI;
-}) {
-  const { cx, cy, payload } = props;
-  if (!payload?.unpricedInstruments?.length || cx == null || cy == null)
-    return null;
-  return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={3}
-      fill="rgb(var(--color-accent))"
-      stroke="rgb(var(--color-accent-dark))"
-      strokeWidth={1}
-    />
-  );
+interface UnpricedRegion {
+  startDate: string;
+  endDate: string;
+  instruments: string[];
+}
+
+function computeUnpricedRegions(points: ValuationPointUI[]): UnpricedRegion[] {
+  const regions: UnpricedRegion[] = [];
+  let current: UnpricedRegion | null = null;
+
+  for (const pt of points) {
+    const sorted = [...pt.unpricedInstruments].sort();
+    const key = sorted.join("\0");
+
+    if (sorted.length === 0) {
+      if (current) {
+        regions.push(current);
+        current = null;
+      }
+    } else if (!current || [...current.instruments].sort().join("\0") !== key) {
+      if (current) regions.push(current);
+      current = { startDate: pt.date, endDate: pt.date, instruments: sorted };
+    } else {
+      current.endDate = pt.date;
+    }
+  }
+  if (current) regions.push(current);
+  return regions;
 }
 
 // Compute tick values to avoid crowding (target ~6 ticks).
@@ -108,15 +118,15 @@ export function PerformanceChart({ points }: Props) {
     );
   }
 
-  const hasUnpriced = points.some((p) => p.unpricedInstruments.length > 0);
+  const regions = computeUnpricedRegions(points);
+  const hasUnpriced = regions.length > 0;
   const ticks = dateTicks(points);
 
   return (
     <div>
       {hasUnpriced && (
         <p className="mb-3 rounded-md bg-accent-soft/50 px-3 py-2 text-xs text-accent-dark">
-          Some instruments lack price data. Affected dates are marked on the
-          chart.
+          Highlighted regions indicate periods with missing price data.
         </p>
       )}
       <ResponsiveContainer width="100%" height={400}>
@@ -156,13 +166,23 @@ export function PerformanceChart({ points }: Props) {
             width={64}
           />
           <Tooltip content={<CustomTooltip />} />
+          {regions.map((r, i) => (
+            <ReferenceArea
+              key={i}
+              x1={r.startDate}
+              x2={r.endDate}
+              fill="rgb(var(--color-accent))"
+              fillOpacity={0.12}
+              stroke="none"
+            />
+          ))}
           <Area
             type="monotone"
             dataKey="totalValue"
             stroke="rgb(var(--color-primary))"
             strokeWidth={2}
             fill="url(#valGradient)"
-            dot={<UnpricedDot />}
+            dot={false}
             activeDot={{ r: 4, fill: "rgb(var(--color-primary-dark))" }}
           />
         </AreaChart>

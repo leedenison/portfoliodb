@@ -1,4 +1,4 @@
-.PHONY: tools generate build server-test db-test client-test integration-test integration-test-record run run-server init-db init-test-db stop clean clean-generated clean-docker clean-next test
+.PHONY: tools generate build server-test db-test client-test integration-test integration-test-record run run-server init-db stop clean clean-generated clean-docker clean-next test
 
 # Load .env so DB_INITIALISE_SCRIPT etc. are available to run/init-db
 -include .env

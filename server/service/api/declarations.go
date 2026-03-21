@@ -213,27 +213,6 @@ func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, ac
 	if err == nil && inst != nil && inst.AssetClass != nil {
 		assetClass = *inst.AssetClass
 	}
-	txType := initializeTxType(assetClass, initQty)
+	txType := txTypeForAssetClass(assetClass, initQty)
 	return &initializeValues{timestamp: startDay, quantity: initQty, txType: txType}, nil
-}
-
-// initializeTxType returns the OFX tx type for an INITIALIZE tx based on asset class and quantity sign.
-func initializeTxType(assetClass string, qty float64) string {
-	buy, sell := "BUYOTHER", "SELLOTHER"
-	switch assetClass {
-	case "STOCK", "ETF":
-		buy, sell = "BUYSTOCK", "SELLSTOCK"
-	case "OPTION":
-		buy, sell = "BUYOPT", "SELLOPT"
-	case "MUTUAL_FUND":
-		buy, sell = "BUYMF", "SELLMF"
-	case "FIXED_INCOME":
-		buy, sell = "BUYDEBT", "SELLDEBT"
-	case "CASH":
-		buy, sell = "JRNLFUND", "JRNLFUND"
-	}
-	if qty < 0 {
-		return sell
-	}
-	return buy
 }

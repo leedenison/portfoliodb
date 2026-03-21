@@ -48,7 +48,7 @@ func RecalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDec
 	if err == nil && inst != nil && inst.AssetClass != nil {
 		assetClass = *inst.AssetClass
 	}
-	txType := initializeTxType(assetClass, initQty)
+	txType := txTypeForAssetClass(assetClass, initQty)
 	return database.UpsertInitializeTx(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, txType, startDay, initQty)
 }
 

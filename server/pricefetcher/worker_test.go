@@ -119,6 +119,50 @@ func TestTrigger(t *testing.T) {
 	})
 }
 
+func TestRunCycle_FXGapsProcessed(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	fxInstID := "fx-eurusd"
+	pluginID := "test-plugin"
+
+	stub := &fetchStub{
+		idTypes: []string{"FX_PAIR"},
+		result:  &FetchResult{Bars: []DailyBar{{Date: time.Now(), Close: 1.08}}},
+	}
+	reg := NewRegistry()
+	reg.Register(pluginID, stub)
+
+	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	// PriceGaps returns empty, FXGaps returns a gap for an FX instrument.
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
+		{InstrumentID: fxInstID, Ranges: []db.DateRange{{From: from, To: to}}},
+	}, nil)
+	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
+		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
+	}, nil)
+	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{fxInstID}).Return(nil, nil)
+	mockDB.EXPECT().GetInstrument(gomock.Any(), fxInstID).Return(&db.InstrumentRow{
+		ID:         fxInstID,
+		AssetClass: strPtr("FX"),
+		Currency:   strPtr("USD"),
+		Identifiers: []db.IdentifierInput{
+			{Type: "FX_PAIR", Value: "EURUSD"},
+		},
+	}, nil)
+	mockDB.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil)
+
+	runCycle(ctx, mockDB, reg, nil, nil)
+
+	if stub.calls != 1 {
+		t.Errorf("expected 1 FetchPrices call for FX gap, got %d", stub.calls)
+	}
+}
+
 // filterStub implements Plugin for testing pluginAccepts.
 type filterStub struct {
 	assetClasses map[string]bool
@@ -169,6 +213,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
+	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
 		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
 	}, nil)
@@ -211,6 +256,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
+	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
 		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
 	}, nil)
@@ -255,6 +301,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	from := now.AddDate(0, 0, -60)
 	to := now
 
+	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
 		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
 	}, nil)
@@ -299,6 +346,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 	from := now.AddDate(0, 0, -90)
 	to := now.AddDate(0, 0, -60)
 
+	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
 		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
 	}, nil)

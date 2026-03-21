@@ -242,3 +242,230 @@ func TestGetPortfolioValuation_EmptyRange(t *testing.T) {
 		t.Errorf("expected 0 points for empty portfolio, got %d", len(points))
 	}
 }
+
+// lookupFXInstrumentVal finds the FX pair instrument ID for a given currency.
+func lookupFXInstrumentVal(t *testing.T, p *Postgres, currency string) string {
+	t.Helper()
+	ctx := context.Background()
+	id, err := p.FindInstrumentByTypeAndValue(ctx, "FX_PAIR", currency+"USD")
+	if err != nil {
+		t.Fatalf("lookup FX instrument for %s: %v", currency, err)
+	}
+	if id == "" {
+		t.Fatalf("no FX instrument found for %sUSD", currency)
+	}
+	return id
+}
+
+func TestGetUserValuation_FXConversion_DisplayUSD(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|fxval1", "U", "u@fxval1.com")
+
+	// Create a EUR-denominated instrument.
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "EUR", "SAP", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SAP FX", Canonical: false},
+	}, "", nil, nil)
+
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "SAP FX", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+	}
+	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
+	to := timestamppb.New(buyDate.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	// Insert EUR price (in EUR).
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 200.0, DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	// Insert EUR/USD FX rate.
+	eurFX := lookupFXInstrumentVal(t, p, "EUR")
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: eurFX, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 1.08, DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert fx: %v", err)
+	}
+
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	// 10 shares * 200 EUR * 1.08 USD/EUR = 2160 USD
+	expected := 10 * 200.0 * 1.08
+	if diff := points[0].TotalValue - expected; diff < -0.01 || diff > 0.01 {
+		t.Errorf("total value: want %.2f, got %.2f", expected, points[0].TotalValue)
+	}
+	if len(points[0].UnpricedInstruments) != 0 {
+		t.Errorf("expected no unpriced, got %v", points[0].UnpricedInstruments)
+	}
+}
+
+func TestGetUserValuation_FXConversion_CrossRate(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|fxval2", "U", "u@fxval2.com")
+
+	// Create a GBP-denominated instrument.
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "HSBC", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "HSBC FX", Canonical: false},
+	}, "", nil, nil)
+
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "HSBC FX", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "main"},
+	}
+	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
+	to := timestamppb.New(buyDate.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	// Insert GBP price.
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 100.0, DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	// Insert GBP/USD and EUR/USD rates.
+	gbpFX := lookupFXInstrumentVal(t, p, "GBP")
+	eurFX := lookupFXInstrumentVal(t, p, "EUR")
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: gbpFX, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 1.27, DataProvider: "test"},
+		{InstrumentID: eurFX, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 1.08, DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert fx: %v", err)
+	}
+
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	// Display in EUR: value = 5 * 100 GBP * (1.27 GBPUSD / 1.08 EURUSD) = 587.96 EUR
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "EUR")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	expected := 5 * 100.0 * (1.27 / 1.08)
+	if diff := points[0].TotalValue - expected; diff < -0.01 || diff > 0.01 {
+		t.Errorf("total value: want %.2f, got %.2f", expected, points[0].TotalValue)
+	}
+}
+
+func TestGetUserValuation_FXConversion_MissingRate(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|fxval3", "U", "u@fxval3.com")
+
+	// Create a EUR-denominated instrument (no FX rate will be inserted).
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "EUR", "SAP-NR", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SAP NR", Canonical: false},
+	}, "", nil, nil)
+
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "SAP NR", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+	}
+	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
+	to := timestamppb.New(buyDate.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	// Insert instrument price but NO FX rate.
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 200.0, DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	// Missing FX rate: value should be 0 and instrument should be unpriced.
+	if points[0].TotalValue != 0 {
+		t.Errorf("total value: want 0, got %v", points[0].TotalValue)
+	}
+	found := false
+	for _, name := range points[0].UnpricedInstruments {
+		if name == "SAP NR" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected SAP NR in unpriced, got %v", points[0].UnpricedInstruments)
+	}
+}
+
+func TestGetUserValuation_FXConversion_USDDisplayNonUSD(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|fxval4", "U", "u@fxval4.com")
+
+	// USD-denominated instrument displayed in EUR.
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL-FXD", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL FXD", Canonical: false},
+	}, "", nil, nil)
+
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL FXD", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+	}
+	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
+	to := timestamppb.New(buyDate.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 150.0, DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	// Insert EUR/USD rate.
+	eurFX := lookupFXInstrumentVal(t, p, "EUR")
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: eurFX, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 1.08, DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert fx: %v", err)
+	}
+
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	// Display EUR: USD instrument => fx_rate = 1.0 / 1.08 = 0.9259...
+	// value = 10 * 150 * (1.0 / 1.08) = 1388.89 EUR
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "EUR")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	expected := 10 * 150.0 / 1.08
+	if diff := points[0].TotalValue - expected; diff < -0.01 || diff > 0.01 {
+		t.Errorf("total value: want %.2f, got %.2f", expected, points[0].TotalValue)
+	}
+}

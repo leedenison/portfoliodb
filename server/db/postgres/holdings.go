@@ -21,8 +21,8 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *a
 		asOfT = asOf.AsTime()
 	}
 	q := `
-		SELECT broker, account, instrument_description, instrument_id,
-			SUM(quantity) AS quantity
+		SELECT broker, account, MAX(instrument_description) AS instrument_description,
+			instrument_id, SUM(quantity) AS quantity
 		FROM txs
 		WHERE user_id = $1 AND timestamp <= $2
 	`
@@ -43,7 +43,7 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *a
 		argNum++
 	}
 	q += `
-		GROUP BY broker, account, instrument_description, instrument_id
+		GROUP BY broker, account, instrument_id
 		HAVING SUM(quantity) != 0
 	`
 	var hrows []holdingRow
@@ -69,11 +69,12 @@ func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID 
 	}
 	var hrows []holdingRow
 	err = p.q.SelectContext(ctx, &hrows, `
-		SELECT t.broker, t.account, t.instrument_description, t.instrument_id, SUM(t.quantity) AS quantity
+		SELECT t.broker, t.account, MAX(t.instrument_description) AS instrument_description,
+			t.instrument_id, SUM(t.quantity) AS quantity
 		FROM txs t
 		INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
 		WHERE t.timestamp <= $2
-		GROUP BY t.broker, t.account, t.instrument_description, t.instrument_id
+		GROUP BY t.broker, t.account, t.instrument_id
 		HAVING SUM(t.quantity) != 0
 	`, portUUID, asOfT)
 	if err != nil {

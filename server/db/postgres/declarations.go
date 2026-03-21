@@ -184,16 +184,9 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 	}
 	_, err = p.q.ExecContext(ctx, `
 		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, instrument_id, synthetic_purpose)
-		VALUES ($1, $2, $3, $4,
-			COALESCE(
-				(SELECT instrument_description FROM txs
-				 WHERE user_id = $1 AND instrument_id = $6 AND synthetic_purpose IS NULL
-				 LIMIT 1),
-				'INITIALIZE'),
-			'BUYSTOCK', $5, $6, 'INITIALIZE')
+		VALUES ($1, $2, $3, $4, 'INITIALIZE', 'BUYSTOCK', $5, $6, 'INITIALIZE')
 		ON CONFLICT (user_id, broker, account, instrument_id) WHERE synthetic_purpose = 'INITIALIZE'
-		DO UPDATE SET timestamp = EXCLUDED.timestamp, quantity = EXCLUDED.quantity,
-			instrument_description = EXCLUDED.instrument_description
+		DO UPDATE SET timestamp = EXCLUDED.timestamp, quantity = EXCLUDED.quantity
 	`, userUUID, broker, account, timestamp, quantity, instUUID)
 	if err != nil {
 		return fmt.Errorf("upsert initialize tx: %w", err)

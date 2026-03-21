@@ -71,6 +71,9 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", from, to, txs, []string{"broker-only-id"}).
 		Return(nil)
 	database.EXPECT().
+		ListHoldingDeclarations(gomock.Any(), "user-1").
+		Return(nil, nil)
+	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-1", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
@@ -125,6 +128,9 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	database.EXPECT().
 		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", from, to, txs, []string{"cached-inst-id", "cached-inst-id"}).
 		Return(nil)
+	database.EXPECT().
+		ListHoldingDeclarations(gomock.Any(), "user-1").
+		Return(nil, nil)
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-2", apiv1.JobStatus_SUCCESS).
 		Return(nil)
@@ -183,6 +189,9 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 			}
 			return nil
 		})
+	database.EXPECT().
+		ListHoldingDeclarations(gomock.Any(), "user-1").
+		Return(nil, nil)
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-split", apiv1.JobStatus_SUCCESS).
 		Return(nil)

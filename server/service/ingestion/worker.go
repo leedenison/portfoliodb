@@ -145,6 +145,14 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return false
 	}
+
+	// Post-ingestion: recalculate INITIALIZE txs. Bulk replace may change the
+	// portfolio start date or alter balances within declaration ranges, so a
+	// full recalc across all user declarations is required.
+	if err := recalcAfterIngestion(ctx, database, j.UserID); err != nil {
+		log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
+	}
+
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
 	return true
 }
@@ -184,6 +192,14 @@ func processSingle(ctx context.Context, database db.DB, registry *identifier.Reg
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return false
 	}
+
+	// Post-ingestion: recalculate INITIALIZE txs. A single tx addition may
+	// change the portfolio start date (if it is the earliest tx) or alter a
+	// holding's running balance within a declaration range.
+	if err := recalcAfterIngestion(ctx, database, j.UserID); err != nil {
+		log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
+	}
+
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
 	return true
 }

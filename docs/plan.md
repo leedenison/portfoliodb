@@ -59,6 +59,7 @@
 |              | Transaction importer for IBKR.                                                                                       |        |
 |              | Transaction importer for SCHB.                                                                                       |        |
 |              | Exchange and listing currency: identify and store per transaction/instrument (and support multiple listings per instrument if needed). |        |
+|              | Investigate and implement a modular ingestion workflow with distinct tasks and explicit dependency modelling. |        |
 |              | User override of instrument identity (user-owned data); admin correction of shared instrument identity.              |        |
 |              | Support for loading index instrument metadata and price data for performance comparison.                             |        |
 |              | Portfolio performance metrics: time-weighted return (TWR) and money-weighted return (MWR).                           |        |

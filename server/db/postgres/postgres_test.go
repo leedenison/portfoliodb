@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/leedenison/portfoliodb/server/db/migrate"
@@ -20,7 +21,14 @@ func TestMain(m *testing.M) {
 			log.Fatalf("TestMain open db: %v", err)
 		}
 		defer conn.Close()
-		if err := conn.Ping(); err != nil {
+		// Retry ping to handle Postgres still running init scripts.
+		for range 10 {
+			if err = conn.Ping(); err == nil {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		if err != nil {
 			log.Fatalf("TestMain ping: %v", err)
 		}
 		if err := migrate.Up(context.Background(), conn, migrations.Files); err != nil {

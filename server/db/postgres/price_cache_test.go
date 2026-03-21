@@ -853,6 +853,118 @@ func TestFXGaps_MultipleInstrumentsSameCurrency(t *testing.T) {
 	})
 }
 
+func TestFXGaps_DisplayCurrency_USDHoldings(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+
+	// User holds only USD instruments but sets display=EUR.
+	if err := p.SetDisplayCurrency(ctx, userID, "EUR"); err != nil {
+		t.Fatalf("set display currency: %v", err)
+	}
+
+	usdInst := setupInstrumentWithCurrency(t, p, "AAPL-DC", "STOCK", "USD")
+	insertTxs(t, p, userID, usdInst, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-DC", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+	})
+
+	eurFX := lookupFXInstrument(t, p, "EUR")
+
+	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("FXGaps: %v", err)
+	}
+
+	// Even though all holdings are USD, we need EUR/USD rates because display=EUR.
+	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
+		{From: d(2024, 1, 10), To: d(2024, 2, 10)},
+	})
+}
+
+func TestFXGaps_DisplayCurrency_SkipsSameCurrency(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+
+	// User holds only EUR instruments and display=EUR. No EUR/USD rate needed.
+	if err := p.SetDisplayCurrency(ctx, userID, "EUR"); err != nil {
+		t.Fatalf("set display currency: %v", err)
+	}
+
+	eurInst := setupInstrumentWithCurrency(t, p, "SAP-DC", "STOCK", "EUR")
+	insertTxs(t, p, userID, eurInst, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP-DC", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "SAP-DC", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+	})
+
+	eurFX := lookupFXInstrument(t, p, "EUR")
+
+	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("FXGaps: %v", err)
+	}
+
+	// EUR/USD is still needed from source 1 (held EUR instrument → base currency rate),
+	// but the display currency source should NOT add additional ranges since
+	// instrument currency == display currency.
+	// Source 1 produces [Jan 10, Feb 10) for EUR/USD. No extra from display.
+	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
+		{From: d(2024, 1, 10), To: d(2024, 2, 10)},
+	})
+}
+
+func TestFXGaps_DisplayCurrency_MixedHoldings(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+
+	// User holds GBP instrument Jan 10-20, USD instrument Feb 1-10, display=EUR.
+	if err := p.SetDisplayCurrency(ctx, userID, "EUR"); err != nil {
+		t.Fatalf("set display currency: %v", err)
+	}
+
+	gbpInst := setupInstrumentWithCurrency(t, p, "HSBC-DC", "STOCK", "GBP")
+	usdInst := setupInstrumentWithCurrency(t, p, "AAPL-DC2", "STOCK", "USD")
+
+	insertTxs(t, p, userID, gbpInst, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "HSBC-DC", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "A"},
+		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "HSBC-DC", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: "A"},
+	})
+	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
+		Timestamp: ts(2024, 2, 1), InstrumentDescription: "AAPL-DC2", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A",
+	}, usdInst); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
+		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC2", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A",
+	}, usdInst); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+
+	eurFX := lookupFXInstrument(t, p, "EUR")
+	gbpFX := lookupFXInstrument(t, p, "GBP")
+
+	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("FXGaps: %v", err)
+	}
+
+	// GBP/USD needed from source 1 (held GBP instrument): [Jan 10, Jan 20).
+	assertInstrumentRanges(t, got, gbpFX, []db.DateRange{
+		{From: d(2024, 1, 10), To: d(2024, 1, 20)},
+	})
+
+	// EUR/USD needed from source 2 (display=EUR):
+	// - GBP instrument [Jan 10, Jan 20) has currency != EUR → need EUR/USD
+	// - USD instrument [Feb 1, Feb 10) has currency != EUR (USD, absent from heldToCurrency) → need EUR/USD
+	// Merged: [Jan 10, Jan 20) + [Feb 1, Feb 10)
+	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
+		{From: d(2024, 1, 10), To: d(2024, 1, 20)},
+		{From: d(2024, 2, 1), To: d(2024, 2, 10)},
+	})
+}
+
 func TestFXGaps_Empty(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

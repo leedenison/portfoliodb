@@ -205,9 +205,11 @@ func (p *Postgres) PriceGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.
 }
 
 // FXGaps implements db.PriceCacheDB.
-// It computes date ranges where FX rates are needed (because non-USD instruments
-// are held) but not yet cached in eod_prices. Returns gaps keyed by FX pair
-// instrument ID.
+// It computes date ranges where FX rates are needed but not yet cached.
+// Two sources of demand:
+//  1. Held instruments with non-USD currencies need their currency's FX pair.
+//  2. Active display currencies (from users table) need their FX pair for any
+//     date where instruments not in that currency are held.
 func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.InstrumentDateRanges, error) {
 	held, err := p.HeldRanges(ctx, opts)
 	if err != nil {
@@ -243,24 +245,23 @@ func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.Ins
 	}
 	defer rows.Close()
 
-	// Map held instrument ID -> FX pair instrument ID.
+	// Map held instrument ID -> FX pair instrument ID, and instrument ID -> currency.
 	heldToFX := make(map[string]string)
+	heldToCurrency := make(map[string]string)
 	for rows.Next() {
 		var heldID, currency, fxInstID string
 		if err := rows.Scan(&heldID, &currency, &fxInstID); err != nil {
 			return nil, fmt.Errorf("fx gaps: scan: %w", err)
 		}
 		heldToFX[heldID] = fxInstID
+		heldToCurrency[heldID] = currency
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("fx gaps: rows: %w", err)
 	}
 
-	if len(heldToFX) == 0 {
-		return nil, nil
-	}
-
 	// Build needed ranges per FX pair instrument by merging held ranges.
+	// Source 1: held instruments with non-USD currencies.
 	fxNeeded := make(map[string][]db.DateRange)
 	for _, h := range held {
 		fxID, ok := heldToFX[h.InstrumentID]
@@ -268,6 +269,17 @@ func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.Ins
 			continue
 		}
 		fxNeeded[fxID] = append(fxNeeded[fxID], h.Ranges...)
+	}
+
+	// Source 2: active display currencies.
+	// For each non-USD display currency D, we need D/USD rates for dates where
+	// any instrument with currency != D is held.
+	if err := p.addDisplayCurrencyNeeds(ctx, held, heldToCurrency, fxNeeded); err != nil {
+		return nil, err
+	}
+
+	if len(fxNeeded) == 0 {
+		return nil, nil
 	}
 
 	// Merge overlapping ranges and collect FX instrument IDs.
@@ -299,6 +311,92 @@ func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.Ins
 		}
 	}
 	return result, nil
+}
+
+// addDisplayCurrencyNeeds adds FX rate demand for active non-USD display currencies.
+// For each display currency D, the D/USD rate is needed on any date where an
+// instrument with currency != D is held.
+func (p *Postgres) addDisplayCurrencyNeeds(
+	ctx context.Context,
+	held []db.InstrumentDateRanges,
+	heldToCurrency map[string]string, // only non-USD instruments; USD and NULL are absent
+	fxNeeded map[string][]db.DateRange,
+) error {
+	// Query distinct non-USD display currencies.
+	dcRows, err := p.q.QueryContext(ctx, `
+		SELECT DISTINCT display_currency FROM users WHERE display_currency != 'USD'
+	`)
+	if err != nil {
+		return fmt.Errorf("fx gaps: display currencies: %w", err)
+	}
+	defer dcRows.Close()
+
+	var displayCurrencies []string
+	for dcRows.Next() {
+		var dc string
+		if err := dcRows.Scan(&dc); err != nil {
+			return fmt.Errorf("fx gaps: scan display currency: %w", err)
+		}
+		displayCurrencies = append(displayCurrencies, dc)
+	}
+	if err := dcRows.Err(); err != nil {
+		return fmt.Errorf("fx gaps: display currency rows: %w", err)
+	}
+	if len(displayCurrencies) == 0 {
+		return nil
+	}
+
+	// Look up FX pair instrument IDs for each display currency.
+	fxRows, err := p.q.QueryContext(ctx, `
+		SELECT value, instrument_id::text
+		FROM instrument_identifiers
+		WHERE identifier_type = 'FX_PAIR' AND value = ANY($1)
+	`, pq.Array(displayCurrencyFXValues(displayCurrencies)))
+	if err != nil {
+		return fmt.Errorf("fx gaps: display fx lookup: %w", err)
+	}
+	defer fxRows.Close()
+
+	// Map "DUSD" -> FX instrument ID.
+	dcFXMap := make(map[string]string)
+	for fxRows.Next() {
+		var val, fxInstID string
+		if err := fxRows.Scan(&val, &fxInstID); err != nil {
+			return fmt.Errorf("fx gaps: scan display fx: %w", err)
+		}
+		dcFXMap[val] = fxInstID
+	}
+	if err := fxRows.Err(); err != nil {
+		return fmt.Errorf("fx gaps: display fx rows: %w", err)
+	}
+
+	for _, dc := range displayCurrencies {
+		fxInstID, ok := dcFXMap[dc+"USD"]
+		if !ok {
+			continue // no FX pair instrument for this currency
+		}
+
+		// Collect held ranges for instruments whose currency != dc.
+		// Instruments with NULL/USD currency (not in heldToCurrency) also need
+		// the display rate since they're not in dc either.
+		for _, h := range held {
+			instCurrency, isNonUSD := heldToCurrency[h.InstrumentID]
+			if isNonUSD && instCurrency == dc {
+				continue // instrument already in display currency
+			}
+			fxNeeded[fxInstID] = append(fxNeeded[fxInstID], h.Ranges...)
+		}
+	}
+	return nil
+}
+
+// displayCurrencyFXValues returns ["EURUSD", "GBPUSD", ...] for lookup.
+func displayCurrencyFXValues(currencies []string) []string {
+	out := make([]string, len(currencies))
+	for i, c := range currencies {
+		out[i] = c + "USD"
+	}
+	return out
 }
 
 // UpsertPrices implements db.PriceCacheDB.

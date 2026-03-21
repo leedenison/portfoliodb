@@ -87,6 +87,12 @@ export function UserMenu({ inverted }: { inverted?: boolean }) {
             >
               Uploads
             </Link>
+            <Link
+              href="/settings"
+              className="block px-4 py-2 text-sm text-text-primary transition-colors hover:bg-primary-light/10"
+            >
+              Settings
+            </Link>
             {isAdmin && (
               <Link
                 href="/admin"

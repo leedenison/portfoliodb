@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useState } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
@@ -39,6 +39,7 @@ const TX_TYPE_LABEL: Record<number, string> = {
 export default function TxsPage() {
   const { state, authError } = useAuth();
   const { selected: selectedPortfolio } = usePortfolio();
+  const [hideSynthetic, setHideSynthetic] = useState(false);
 
   const fetchTxs = useCallback(
     async (pageToken: string | null) => {
@@ -65,6 +66,10 @@ export default function TxsPage() {
     goNext,
     goPrev,
   } = usePagination(fetchTxs);
+
+  const filteredTxs = hideSynthetic
+    ? txs.filter((ptx) => !ptx.tx?.syntheticPurpose)
+    : txs;
 
   if (state.status === "loading") {
     return (
@@ -108,6 +113,17 @@ export default function TxsPage() {
           {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
           {!loading && !error && (
             <>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 text-sm text-text-muted">
+                  <input
+                    type="checkbox"
+                    checked={hideSynthetic}
+                    onChange={(e) => setHideSynthetic(e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  Hide synthetic transactions
+                </label>
+              </div>
               <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
                 <table className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
@@ -139,7 +155,7 @@ export default function TxsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {txs.length === 0 ? (
+                    {filteredTxs.length === 0 ? (
                       <tr>
                         <td
                           colSpan={8}
@@ -149,7 +165,7 @@ export default function TxsPage() {
                         </td>
                       </tr>
                     ) : (
-                      txs.map((ptx, i) => (
+                      filteredTxs.map((ptx, i) => (
                         <TxRow key={i} ptx={ptx} />
                       ))
                     )}
@@ -176,37 +192,47 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
   const tx = ptx.tx;
   if (!tx) return null;
 
+  const isSynthetic = !!tx.syntheticPurpose;
   const ticker = ptx.instrument?.identifiers?.find(
     (id) => id.type === IdentifierType.TICKER
   )?.value;
-  const label = ticker || tx.instrumentDescription || "—";
+  const label = ticker || tx.instrumentDescription || "\u2014";
   const currency = tx.tradingCurrency || tx.settlementCurrency || "";
 
   return (
-    <tr className="border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10">
+    <tr className={
+      "border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10" +
+      (isSynthetic ? " opacity-60" : "")
+    }>
       <td className="px-4 py-3 text-text-muted">
-        {tx.timestamp ? timestampDate(tx.timestamp).toLocaleDateString() : "—"}
+        {tx.timestamp ? timestampDate(tx.timestamp).toLocaleDateString() : "\u2014"}
       </td>
       <td className="px-4 py-3 text-text-muted">
         {getBrokerLabel(ptx.broker)}
       </td>
       <td className="px-4 py-3 text-text-muted">
-        {ptx.account || "—"}
+        {ptx.account || "\u2014"}
       </td>
       <td className="px-4 py-3 font-medium text-text-primary">
         {label}
       </td>
       <td className="px-4 py-3 text-text-muted">
-        {TX_TYPE_LABEL[tx.type] ?? "Unknown"}
+        {isSynthetic ? (
+          <span className="inline-block rounded bg-primary-dark/10 px-1.5 py-0.5 text-xs font-medium text-primary-dark">
+            {tx.syntheticPurpose}
+          </span>
+        ) : (
+          TX_TYPE_LABEL[tx.type] ?? "Unknown"
+        )}
       </td>
       <td className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
         {tx.quantity}
       </td>
       <td className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
-        {tx.unitPrice ? tx.unitPrice.toFixed(2) : "—"}
+        {tx.unitPrice ? tx.unitPrice.toFixed(2) : "\u2014"}
       </td>
       <td className="px-4 py-3 text-text-muted">
-        {currency || "—"}
+        {currency || "\u2014"}
       </td>
     </tr>
   );

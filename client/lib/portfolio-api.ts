@@ -60,6 +60,13 @@ import {
   UpdatePortfolioRequestSchema,
   UpdatePortfolioResponseSchema,
   ReorderPluginsRequestSchema,
+  CreateHoldingDeclarationRequestSchema,
+  CreateHoldingDeclarationResponseSchema,
+  UpdateHoldingDeclarationRequestSchema,
+  UpdateHoldingDeclarationResponseSchema,
+  DeleteHoldingDeclarationRequestSchema,
+  ListHoldingDeclarationsRequestSchema,
+  ListHoldingDeclarationsResponseSchema,
   JobStatus,
 } from "@/gen/api/v1/api_pb";
 import type {
@@ -67,6 +74,7 @@ import type {
   EODPriceProto,
   ExportPriceRow,
   Holding,
+  HoldingDeclaration,
   IdentificationError,
   IdentifierPluginConfig,
   ImportPriceRow,
@@ -628,4 +636,64 @@ export async function getPortfolioValuation(params: {
       unpricedInstruments: [...p.unpricedInstruments],
     })),
   };
+}
+
+// Holding declarations
+
+export async function listHoldingDeclarations(): Promise<HoldingDeclaration[]> {
+  const base = getBaseUrl();
+  const req = create(ListHoldingDeclarationsRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListHoldingDeclarations", toBinary(ListHoldingDeclarationsRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(ListHoldingDeclarationsResponseSchema, resBytes);
+  return res.declarations;
+}
+
+export async function createHoldingDeclaration(params: {
+  broker: string;
+  account: string;
+  instrumentId: string;
+  declaredQty: string;
+  asOfDate: string;
+}): Promise<HoldingDeclaration> {
+  const base = getBaseUrl();
+  const req = create(CreateHoldingDeclarationRequestSchema, {
+    broker: params.broker,
+    account: params.account,
+    instrumentId: params.instrumentId,
+    declaredQty: params.declaredQty,
+    asOfDate: params.asOfDate,
+  });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "CreateHoldingDeclaration", toBinary(CreateHoldingDeclarationRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(CreateHoldingDeclarationResponseSchema, resBytes);
+  return res.declaration!;
+}
+
+export async function updateHoldingDeclaration(params: {
+  id: string;
+  declaredQty: string;
+  asOfDate: string;
+}): Promise<HoldingDeclaration> {
+  const base = getBaseUrl();
+  const req = create(UpdateHoldingDeclarationRequestSchema, {
+    id: params.id,
+    declaredQty: params.declaredQty,
+    asOfDate: params.asOfDate,
+  });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "UpdateHoldingDeclaration", toBinary(UpdateHoldingDeclarationRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(UpdateHoldingDeclarationResponseSchema, resBytes);
+  return res.declaration!;
+}
+
+export async function deleteHoldingDeclaration(id: string): Promise<void> {
+  const base = getBaseUrl();
+  const req = create(DeleteHoldingDeclarationRequestSchema, { id });
+  await unaryFetch(base, ApiServicePrefix + "DeleteHoldingDeclaration", toBinary(DeleteHoldingDeclarationRequestSchema, req), {
+    credentials: "include",
+  });
 }

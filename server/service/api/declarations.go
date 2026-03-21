@@ -86,12 +86,12 @@ func (s *Server) CreateHoldingDeclaration(ctx context.Context, req *apiv1.Create
 		return nil, status.Errorf(codes.InvalidArgument, "as_of_date must be on or after the portfolio start date (%s)", startDay.Format(dateFormat))
 	}
 
-	initTimestamp, initQty, err := s.computeInitializeValues(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, *startDate)
+	init, err := s.computeInitializeValues(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, *startDate)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
 	}
 
-	row, err := s.db.CreateDeclarationWithInitializeTx(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, initTimestamp, initQty)
+	row, err := s.db.CreateDeclarationWithInitializeTx(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, init.txType, init.timestamp, init.quantity)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -145,12 +145,12 @@ func (s *Server) UpdateHoldingDeclaration(ctx context.Context, req *apiv1.Update
 		return nil, status.Errorf(codes.InvalidArgument, "as_of_date must be on or after the portfolio start date (%s)", startDay.Format(dateFormat))
 	}
 
-	initTimestamp, initQty, err := s.computeInitializeValues(ctx, u.ID, existing.Broker, existing.Account, existing.InstrumentID, req.GetDeclaredQty(), asOfDate, *startDate)
+	init, err := s.computeInitializeValues(ctx, u.ID, existing.Broker, existing.Account, existing.InstrumentID, req.GetDeclaredQty(), asOfDate, *startDate)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
 	}
 
-	row, err := s.db.UpdateDeclarationWithInitializeTx(ctx, req.GetId(), req.GetDeclaredQty(), asOfDate, u.ID, existing.Broker, existing.Account, existing.InstrumentID, initTimestamp, initQty)
+	row, err := s.db.UpdateDeclarationWithInitializeTx(ctx, req.GetId(), req.GetDeclaredQty(), asOfDate, u.ID, existing.Broker, existing.Account, existing.InstrumentID, init.txType, init.timestamp, init.quantity)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -188,18 +188,52 @@ func (s *Server) DeleteHoldingDeclaration(ctx context.Context, req *apiv1.Delete
 	return &apiv1.DeleteHoldingDeclarationResponse{}, nil
 }
 
-// computeInitializeValues computes the INITIALIZE tx timestamp and quantity.
-func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, account, instrumentID, declaredQtyStr string, asOfDate time.Time, startDate time.Time) (time.Time, float64, error) {
+// initializeValues holds the computed values for an INITIALIZE tx.
+type initializeValues struct {
+	timestamp time.Time
+	quantity  float64
+	txType    string
+}
+
+// computeInitializeValues computes the INITIALIZE tx timestamp, quantity, and tx type.
+func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, account, instrumentID, declaredQtyStr string, asOfDate time.Time, startDate time.Time) (*initializeValues, error) {
 	declaredQty, err := strconv.ParseFloat(declaredQtyStr, 64)
 	if err != nil {
-		return time.Time{}, 0, fmt.Errorf("parse declared_qty: %w", err)
+		return nil, fmt.Errorf("parse declared_qty: %w", err)
 	}
 	startDay := startDate.Truncate(24 * time.Hour)
 	dayAfterAsOf := asOfDate.AddDate(0, 0, 1)
 	runningBalance, err := s.db.ComputeRunningBalance(ctx, userID, broker, account, instrumentID, startDay, dayAfterAsOf)
 	if err != nil {
-		return time.Time{}, 0, fmt.Errorf("compute running balance: %w", err)
+		return nil, fmt.Errorf("compute running balance: %w", err)
 	}
 	initQty := declaredQty - runningBalance
-	return startDay, initQty, nil
+	var assetClass string
+	inst, err := s.db.GetInstrument(ctx, instrumentID)
+	if err == nil && inst != nil && inst.AssetClass != nil {
+		assetClass = *inst.AssetClass
+	}
+	txType := initializeTxType(assetClass, initQty)
+	return &initializeValues{timestamp: startDay, quantity: initQty, txType: txType}, nil
+}
+
+// initializeTxType returns the OFX tx type for an INITIALIZE tx based on asset class and quantity sign.
+func initializeTxType(assetClass string, qty float64) string {
+	buy, sell := "BUYOTHER", "SELLOTHER"
+	switch assetClass {
+	case "STOCK", "ETF":
+		buy, sell = "BUYSTOCK", "SELLSTOCK"
+	case "OPTION":
+		buy, sell = "BUYOPT", "SELLOPT"
+	case "MUTUAL_FUND":
+		buy, sell = "BUYMF", "SELLMF"
+	case "FIXED_INCOME":
+		buy, sell = "BUYDEBT", "SELLDEBT"
+	case "CASH":
+		buy, sell = "JRNLFUND", "JRNLFUND"
+	}
+	if qty < 0 {
+		return sell
+	}
+	return buy
 }

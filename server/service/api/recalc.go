@@ -37,13 +37,19 @@ func RecalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDec
 	if err != nil {
 		return fmt.Errorf("parse declared_qty: %w", err)
 	}
-	endOfAsOf := decl.AsOfDate.Add(24*time.Hour - time.Nanosecond)
-	runningBalance, err := database.ComputeRunningBalance(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, startDay, endOfAsOf)
+	dayAfterAsOf := decl.AsOfDate.AddDate(0, 0, 1)
+	runningBalance, err := database.ComputeRunningBalance(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, startDay, dayAfterAsOf)
 	if err != nil {
 		return fmt.Errorf("compute running balance: %w", err)
 	}
 	initQty := declaredQty - runningBalance
-	return database.UpsertInitializeTx(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, startDay, initQty)
+	var assetClass string
+	inst, err := database.GetInstrument(ctx, decl.InstrumentID)
+	if err == nil && inst != nil && inst.AssetClass != nil {
+		assetClass = *inst.AssetClass
+	}
+	txType := initializeTxType(assetClass, initQty)
+	return database.UpsertInitializeTx(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, txType, startDay, initQty)
 }
 
 // RecalcAllInitializeTxs recomputes all INITIALIZE txs for a user.

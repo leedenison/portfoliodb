@@ -178,7 +178,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "UI1", Canonical: false}}, "", nil, nil)
 
 	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, ts, 50)
+	err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", ts, 50)
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	}
 
 	// Upsert again with different qty (should update, not duplicate)
-	err = p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, ts, 75)
+	err = p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", ts, 75)
 	if err != nil {
 		t.Fatalf("upsert update: %v", err)
 	}

@@ -173,7 +173,7 @@ func (p *Postgres) ComputeRunningBalance(ctx context.Context, userID, broker, ac
 }
 
 // UpsertInitializeTx implements db.HoldingDeclarationDB.
-func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, account, instrumentID string, timestamp time.Time, quantity float64) error {
+func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, account, instrumentID, txType string, timestamp time.Time, quantity float64) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -184,10 +184,10 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 	}
 	_, err = p.q.ExecContext(ctx, `
 		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, instrument_id, synthetic_purpose)
-		VALUES ($1, $2, $3, $4, 'INITIALIZE', 'BUYSTOCK', $5, $6, 'INITIALIZE')
+		VALUES ($1, $2, $3, $4, 'INITIALIZE', $7, $5, $6, 'INITIALIZE')
 		ON CONFLICT (user_id, broker, account, instrument_id) WHERE synthetic_purpose = 'INITIALIZE'
-		DO UPDATE SET timestamp = EXCLUDED.timestamp, quantity = EXCLUDED.quantity
-	`, userUUID, broker, account, timestamp, quantity, instUUID)
+		DO UPDATE SET timestamp = EXCLUDED.timestamp, quantity = EXCLUDED.quantity, tx_type = EXCLUDED.tx_type
+	`, userUUID, broker, account, timestamp, quantity, instUUID, txType)
 	if err != nil {
 		return fmt.Errorf("upsert initialize tx: %w", err)
 	}
@@ -216,7 +216,7 @@ func (p *Postgres) DeleteInitializeTx(ctx context.Context, userID, broker, accou
 }
 
 // CreateDeclarationWithInitializeTx implements db.HoldingDeclarationDB.
-func (p *Postgres) CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate time.Time, initTimestamp time.Time, initQty float64) (*db.HoldingDeclarationRow, error) {
+func (p *Postgres) CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate time.Time, initTxType string, initTimestamp time.Time, initQty float64) (*db.HoldingDeclarationRow, error) {
 	var row *db.HoldingDeclarationRow
 	err := p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}
@@ -225,13 +225,13 @@ func (p *Postgres) CreateDeclarationWithInitializeTx(ctx context.Context, userID
 			return err
 		}
 		row = r
-		return txp.UpsertInitializeTx(ctx, userID, broker, account, instrumentID, initTimestamp, initQty)
+		return txp.UpsertInitializeTx(ctx, userID, broker, account, instrumentID, initTxType, initTimestamp, initQty)
 	})
 	return row, err
 }
 
 // UpdateDeclarationWithInitializeTx implements db.HoldingDeclarationDB.
-func (p *Postgres) UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate time.Time, userID, broker, account, instrumentID string, initTimestamp time.Time, initQty float64) (*db.HoldingDeclarationRow, error) {
+func (p *Postgres) UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate time.Time, userID, broker, account, instrumentID, initTxType string, initTimestamp time.Time, initQty float64) (*db.HoldingDeclarationRow, error) {
 	var row *db.HoldingDeclarationRow
 	err := p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}
@@ -240,7 +240,7 @@ func (p *Postgres) UpdateDeclarationWithInitializeTx(ctx context.Context, id, de
 			return err
 		}
 		row = r
-		return txp.UpsertInitializeTx(ctx, userID, broker, account, instrumentID, initTimestamp, initQty)
+		return txp.UpsertInitializeTx(ctx, userID, broker, account, instrumentID, initTxType, initTimestamp, initQty)
 	})
 	return row, err
 }

@@ -163,6 +163,87 @@ Each component should be independently testable:
 
 ---
 
+## FX Pairs as Instruments
+
+FX rates are stored in `eod_prices` using synthetic FX pair instruments with
+`asset_class = 'FX'` and identifier type `FX_PAIR` (value like `EURUSD`).
+The `close` column stores the exchange rate (how many USD per 1 unit of base
+currency). See `docs/display-currency.md` for the full design.
+
+This means `PriceCoverage`, `UpsertPrices`, and the range utilities work
+without modification for FX data -- an FX pair is just another instrument
+with prices.
+
+---
+
+## Component 5: FX Gap Analysis (`FXGaps`)
+
+### Purpose
+
+Compute the date ranges for which FX rates are **needed** (because non-USD
+instruments are held) but **not yet cached** in `eod_prices`. Unlike
+`HeldRanges`, FX pairs have no transactions -- the needed ranges are derived
+from when instruments in foreign currencies are held.
+
+### Interface
+
+```go
+FXGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
+```
+
+### Behaviour
+
+1. Call `HeldRanges(ctx, opts)` to get instrument held ranges.
+2. For each held instrument, look up `instruments.currency`.
+3. For each currency C where C != `"USD"`, look up the corresponding FX pair
+   instrument ID (by querying `instrument_identifiers` for type `FX_PAIR`
+   and value `CUSD`).
+4. Compute the union of held ranges across all instruments sharing currency C.
+   This is the "needed" range for the C/USD FX pair instrument. Use
+   `MergeRanges` to consolidate overlapping ranges.
+5. Call `PriceCoverage(ctx, fxInstrumentIDs)` to get existing FX rate coverage.
+6. For each FX pair instrument, call `SubtractRanges(needed, cached)` to
+   compute gaps.
+7. Return the resulting gaps as `[]InstrumentDateRanges` with FX pair
+   instrument IDs.
+
+### Worker integration
+
+The worker's `runCycle` is extended to call `FXGaps` after `PriceGaps` and
+process the resulting gaps through the same plugin loop. FX instruments have
+`asset_class = 'FX'`, so only plugins whose `AcceptableAssetClasses` includes
+`'FX'` will handle them.
+
+### Plugin extension: Massive
+
+The Massive price plugin is extended to fetch FX data:
+
+- `AcceptableAssetClasses()` adds `'FX'` alongside `STOCK`, `ETF`, `OPTION`.
+- `SupportedIdentifierTypes()` adds `'FX_PAIR'` alongside `TICKER`, `OCC`.
+- `tickerForAssetClass` handles asset class `FX` by formatting the `FX_PAIR`
+  identifier value with a `C:` prefix (e.g. `C:EURUSD`), matching the
+  Polygon.io forex ticker convention.
+- `AcceptableCurrencies()` remains `{"USD": true}`. FX instruments have
+  `currency = 'USD'` (the quote currency), so they pass this filter.
+
+The same `DailyBars` endpoint is used -- Polygon.io returns OHLCV data for
+forex pairs in the same format as equities.
+
+### Testing considerations
+
+- **FX gap detection:** Insert transactions for instruments with different
+  currencies (e.g. one EUR, one GBP, one USD). Verify `FXGaps` returns gap
+  ranges for EUR/USD and GBP/USD FX pair instruments covering the held
+  periods, and no gap for USD (no FX pair needed).
+- **Coverage subtraction:** Insert some `eod_prices` rows for an FX pair
+  instrument, verify gaps are reduced accordingly.
+- **No foreign currencies:** When all held instruments are USD, `FXGaps`
+  should return an empty slice.
+- **Multiple instruments same currency:** Two EUR instruments held in
+  overlapping periods should produce a single merged range for EUR/USD.
+
+---
+
 ## Out of scope
 
 - Actual API fetching / HTTP calls to data providers.

@@ -46,8 +46,13 @@
 | T24     | Admin UI (or API) for manual price entry when no automatic source is available.     | T22                | M08       |        |
 | T25     | Create CLI for importing / exporting instrument identities to and from CSV.         |                    | M06       |        |
 | T26     | Create Admin UI for importing / exporting instrument identities to and from CSV.    |                    | M06       | Done   |
-| T27     | Support download and storage of FX prices for required currencies.                  |                    | M11       |        |
-| T28     | Support conversion of holdings value to display currency for performance page.      |                    | M11       |        |
+| T27     | Schema changes for display currency: add FX asset class, FX_PAIR identifier type, display_currency column on users, seed FX instruments. |                    | M11       |        |
+| T28     | Add display_currency user preference gRPC API and settings UI.                      | T27                | M11       |        |
+| T29     | Implement FXGaps in the price cache DB layer per docs/prices.md.                    | T27                | M11       |        |
+| T30     | Extend Massive price plugin for FX rate fetching per docs/prices.md.                | T27                | M11       |        |
+| T31     | Extend price fetcher worker to call FXGaps and fetch FX rates.                      | T29, T30           | M11       |        |
+| T32     | Update valuation queries to convert holdings to display currency per docs/performance.md. | T27, T29      | M11       |        |
+| T33     | Update performance chart UI to pass display currency and show currency label.        | T28, T32           | M11       |        |
 
 
 ### Unscheduled Milestones

@@ -9,10 +9,12 @@
 | M03          | Add basic support for derivatives, multiple accounts, portfolios.                                                    | Done   |
 | M04          | Implement transaction importing using in-codebase, broker specific converters.                                       | Done   |
 | M05          | Add telemetry (counters, logging).                                                                                   | Done   |
-| M06          | Import / export of instrument identities                                                                             |        |
+| M06          | Import / export of instrument identities                                                                             | Done   |
 | M07          | Instruments can be identified from broker descriptions.                                                              | Done   |
-| M08          | Historical prices can be fetched for identified instruments.                                                         |        |
-
+| M08          | Historical prices can be fetched for identified instruments.                                                         | Done   |
+| M09          | Portfolio filtering UI.                                                                                              | Done   |
+| M10          | Allow per user fixed points to define initial holdings.                                                              |        |
+| M11          | Allow users to set a display currency.                                                                               |        |
 
 ### Tasks
 
@@ -39,11 +41,13 @@
 | T19     | Implement network based identification plugin based on ChatGPT and OpenFigi data.   | T18                | M07       | Done   |
 | T20     | Admin UI for configuring identification plugins.                                    | T19                | M07       | Done   |
 | T21     | Implement UI for showing instrument identities and errors that occurred.            | T19                | M07       |        |
-| T22     | Price storage schema and API for current and historical prices per instrument.      |                    | M08       |        |
-| T23     | Price plugin Go API (e.g. FetchPrices) and at least one plugin implementation.      | T22                | M08       |        |
+| T22     | Price storage schema and API for current and historical prices per instrument.      |                    | M08       | Done   |
+| T23     | Price plugin Go API (e.g. FetchPrices) and at least one plugin implementation.      | T22                | M08       | Done   |
 | T24     | Admin UI (or API) for manual price entry when no automatic source is available.     | T22                | M08       |        |
 | T25     | Create CLI for importing / exporting instrument identities to and from CSV.         |                    | M06       |        |
 | T26     | Create Admin UI for importing / exporting instrument identities to and from CSV.    |                    | M06       | Done   |
+| T27     | Support download and storage of FX prices for required currencies.                  |                    | M11       |        |
+| T28     | Support conversion of holdings value to display currency for performance page.      |                    | M11       |        |
 
 
 ### Unscheduled Milestones
@@ -51,8 +55,7 @@
 | Milestone ID | Description                                                                                                          | Status |
 | ------------ | -------------------------------------------------------------------------------------------------------------------- | ------ |
 |              | Scheduled exports / initial import of historic price data.                                                           |        |
-|              | Corporate events can be fetched for know instruments and adjustments applied to user transactions idempotently.      |        |
-|              | Portfolio composition UI.                                                                                            |        |
+|              | Corporate events can be fetched for known instruments and adjustments applied to user transactions idempotently.     |        |
 |              | Portfolio performance comparison to indices.                                                                         |        |
 |              | Portfolio definition based on tagged instruments.                                                                    |        |
 |              | Implement portfolio sharing between users and aggregates which combine portfolios (incl. shared portfolios).         |        |
@@ -67,20 +70,5 @@
 
 | Task ID | Description                                                                                                                                  | Depends on |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-|         | ListTxs: optional filter by broker (and optionally account) for CreateTx recovery.                                                          |            |
-|         | UI: recovery flow for failed CreateTx (list txs for broker+period, edit and re-upload via bulk).                                            | Above      |
-|         | ListTxs (and/or export): optional filter by transaction type (OFX types).                                                                   |            |
-|         | Identify exchange and listing currency during instrument resolution; persist on instrument/transaction as specified.                         |            |
-|         | Corporate events datamodel and API (fetch/store events per instrument).                                                                     |            |
-|         | Corporate events plugin API and at least one plugin; apply adjustments to user transactions idempotently.                                   | Above      |
-|         | Admin UI or API for manual entry of corporate events when no automatic source is available.                                                 | Above      |
-|         | Periodic job to re-attempt instrument identification (e.g. broker-description-only or stale).                                              |            |
-|         | Admin API and UI: manually force identification refresh for a given instrument or set of instruments.                                       |            |
-|         | Datamodel and API for user-level instrument override (e.g. portfolio-level mapping).                                                        |            |
-|         | Admin API and UI to correct shared instrument identity (e.g. merge, edit, reassign identifiers).                                           |            |
-|         | Populate and use instrument valid_from / valid_to (from plugins or admin); expose in API/UI where relevant.                                |            |
-|         | Compute and expose TWR and MWR for a portfolio over a period (requires price data).                                                         | T22        |
-|         | Instrument tags (tag type / tag value); store OpenFIGI market sector and related fields as tags when identification plugins provide them.   |            |
-|         | Move Uploads to user dropdown menu; add ListJobs API and paginated upload errors UI.                                                        |            |
 |         | Security review: move DB credentials out of Dockerfile/docker-compose into env vars; make Envoy CORS origins configurable; make session TTL and cookie attributes configurable via env vars. | |
 |         | Make frontend SSR API base URL configurable via env var instead of hard-coded localhost:8080 fallback.                                     |            |

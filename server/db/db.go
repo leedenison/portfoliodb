@@ -31,6 +31,7 @@ type DB interface {
 	PriceCacheDB
 	PriceFetchBlockDB
 	EODPriceListDB
+	HoldingDeclarationDB
 }
 
 // PriceFetchBlockDB manages permanently blocked (instrument, plugin) pairs.
@@ -324,6 +325,34 @@ type InstrumentRow struct {
 	ExchangeName        *string // read-only; from exchanges JOIN
 	ExchangeAcronym     *string // read-only; from exchanges JOIN
 	ExchangeCountryCode *string // read-only; from exchanges JOIN
+}
+
+// HoldingDeclarationRow is a single holding declaration for API responses.
+type HoldingDeclarationRow struct {
+	ID           string
+	UserID       string
+	Broker       string
+	Account      string
+	InstrumentID string
+	DeclaredQty  string // numeric as string to preserve precision
+	AsOfDate     time.Time
+}
+
+// HoldingDeclarationDB provides holding declaration CRUD and INITIALIZE tx helpers.
+type HoldingDeclarationDB interface {
+	CreateHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate time.Time) (*HoldingDeclarationRow, error)
+	UpdateHoldingDeclaration(ctx context.Context, id, declaredQty string, asOfDate time.Time) (*HoldingDeclarationRow, error)
+	DeleteHoldingDeclaration(ctx context.Context, id string) error
+	GetHoldingDeclaration(ctx context.Context, id string) (*HoldingDeclarationRow, error)
+	ListHoldingDeclarations(ctx context.Context, userID string) ([]*HoldingDeclarationRow, error)
+	// GetPortfolioStartDate returns the earliest real tx timestamp for the user, or nil if none exist.
+	GetPortfolioStartDate(ctx context.Context, userID string) (*time.Time, error)
+	// ComputeRunningBalance sums quantity of real (non-synthetic) txs for the given holding between from and to (inclusive).
+	ComputeRunningBalance(ctx context.Context, userID, broker, account, instrumentID string, from, to time.Time) (float64, error)
+	// UpsertInitializeTx creates or updates the INITIALIZE synthetic tx for the given holding.
+	UpsertInitializeTx(ctx context.Context, userID, broker, account, instrumentID string, timestamp time.Time, quantity float64) error
+	// DeleteInitializeTx deletes the INITIALIZE synthetic tx for the given holding, if it exists.
+	DeleteInitializeTx(ctx context.Context, userID, broker, account, instrumentID string) error
 }
 
 // InstrumentDB provides instrument resolution and plugin config.

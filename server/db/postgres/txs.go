@@ -100,7 +100,7 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 		limit = 50
 	}
 	q := `
-		SELECT broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, settlement_currency, unit_price, instrument_id
+		SELECT broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, settlement_currency, unit_price, instrument_id, synthetic_purpose
 		FROM txs WHERE user_id = $1
 	`
 	args := []interface{}{userUUID}
@@ -167,7 +167,7 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, p
 		limit = 50
 	}
 	q := `
-		SELECT t.broker, t.account, t.timestamp, t.instrument_description, t.tx_type, t.quantity, t.trading_currency, t.settlement_currency, t.unit_price, t.instrument_id
+		SELECT t.broker, t.account, t.timestamp, t.instrument_description, t.tx_type, t.quantity, t.trading_currency, t.settlement_currency, t.unit_price, t.instrument_id, t.synthetic_purpose
 		FROM txs t
 		INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
 		WHERE 1=1

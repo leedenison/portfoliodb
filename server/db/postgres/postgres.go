@@ -268,16 +268,17 @@ func (r *holdingRow) toProto() *apiv1.Holding {
 
 // txRow is the sqlx-scannable shape for transaction rows.
 type txRow struct {
-	Broker      string   `db:"broker"`
-	Account     string   `db:"account"`
-	Timestamp   time.Time `db:"timestamp"`
-	InstDesc    string   `db:"instrument_description"`
-	TxType      string   `db:"tx_type"`
-	Quantity    float64  `db:"quantity"`
-	TradingCcy  *string  `db:"trading_currency"`
-	SettleCcy   *string  `db:"settlement_currency"`
-	UnitPrice   *float64 `db:"unit_price"`
-	InstID      *string  `db:"instrument_id"`
+	Broker           string   `db:"broker"`
+	Account          string   `db:"account"`
+	Timestamp        time.Time `db:"timestamp"`
+	InstDesc         string   `db:"instrument_description"`
+	TxType           string   `db:"tx_type"`
+	Quantity         float64  `db:"quantity"`
+	TradingCcy       *string  `db:"trading_currency"`
+	SettleCcy        *string  `db:"settlement_currency"`
+	UnitPrice        *float64 `db:"unit_price"`
+	InstID           *string  `db:"instrument_id"`
+	SyntheticPurpose *string  `db:"synthetic_purpose"`
 }
 
 func (r *txRow) toProto() *apiv1.PortfolioTx {
@@ -299,6 +300,9 @@ func (r *txRow) toProto() *apiv1.PortfolioTx {
 	}
 	if r.InstID != nil {
 		tx.InstrumentId = *r.InstID
+	}
+	if r.SyntheticPurpose != nil {
+		tx.SyntheticPurpose = *r.SyntheticPurpose
 	}
 	return &apiv1.PortfolioTx{
 		Broker:  strToBroker(r.Broker),

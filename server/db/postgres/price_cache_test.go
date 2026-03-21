@@ -418,7 +418,7 @@ func TestPriceCoverage_WeekendBridge(t *testing.T) {
 	instID := setupInstrument(t, p, "COV3")
 
 	// Fri Jan 5, Mon Jan 8 (weekend gap = 2 calendar days).
-	// range_agg treats them as separate since there's a gap between Jan 6 and Jan 8.
+	// BridgeRanges merges gaps <= 3 days, so these become one range.
 	insertPrice(t, p, instID, d(2024, 1, 5), 100.0)
 	insertPrice(t, p, instID, d(2024, 1, 8), 100.0)
 
@@ -426,10 +426,9 @@ func TestPriceCoverage_WeekendBridge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("price coverage: %v", err)
 	}
-	// range_agg: [Jan5, Jan6) and [Jan8, Jan9) are separate ranges.
+	// Weekend gap (2 days) is bridged into a single range.
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 5), To: d(2024, 1, 6)},
-		{From: d(2024, 1, 8), To: d(2024, 1, 9)},
+		{From: d(2024, 1, 5), To: d(2024, 1, 9)},
 	})
 }
 

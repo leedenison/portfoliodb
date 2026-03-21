@@ -158,7 +158,11 @@ func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([
 
 	result := make([]db.InstrumentDateRanges, len(order))
 	for i, id := range order {
-		result[i] = *byInst[id]
+		entry := *byInst[id]
+		// Bridge gaps of up to 3 calendar days (weekends and adjacent holidays)
+		// so they are not reported as missing coverage.
+		entry.Ranges = db.BridgeRanges(entry.Ranges, 3)
+		result[i] = entry
 	}
 	return result, nil
 }

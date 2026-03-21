@@ -9,7 +9,7 @@ const navItems = [
   { href: "/analysis", label: "Analysis", disabled: true },
   { href: "/performance", label: "Performance" },
   { href: "/holdings", label: "Holdings" },
-  { href: "/transactions", label: "Transactions", disabled: true },
+  { href: "/transactions", label: "Transactions" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

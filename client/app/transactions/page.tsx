@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
@@ -41,7 +41,6 @@ export default function TxsPage() {
   const { state, authError } = useAuth();
   const { selected: selectedPortfolio } = usePortfolio();
   const { openUploadModal } = useUploadModal();
-  const [hideSynthetic, setHideSynthetic] = useState(false);
 
   const fetchTxs = useCallback(
     async (pageToken: string | null) => {
@@ -69,10 +68,6 @@ export default function TxsPage() {
     goPrev,
     refresh,
   } = usePagination(fetchTxs);
-
-  const filteredTxs = hideSynthetic
-    ? txs.filter((ptx) => !ptx.tx?.syntheticPurpose)
-    : txs;
 
   if (state.status === "loading") {
     return (
@@ -123,17 +118,6 @@ export default function TxsPage() {
           {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
           {!loading && !error && (
             <>
-              <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1.5 text-sm text-text-muted">
-                  <input
-                    type="checkbox"
-                    checked={hideSynthetic}
-                    onChange={(e) => setHideSynthetic(e.target.checked)}
-                    className="rounded border-border"
-                  />
-                  Hide synthetic transactions
-                </label>
-              </div>
               <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
                 <table className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
@@ -165,7 +149,7 @@ export default function TxsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredTxs.length === 0 ? (
+                    {txs.length === 0 ? (
                       <tr>
                         <td
                           colSpan={8}
@@ -175,7 +159,7 @@ export default function TxsPage() {
                         </td>
                       </tr>
                     ) : (
-                      filteredTxs.map((ptx, i) => (
+                      txs.map((ptx, i) => (
                         <TxRow key={i} ptx={ptx} />
                       ))
                     )}

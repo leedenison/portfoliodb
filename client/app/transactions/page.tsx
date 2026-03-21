@@ -6,6 +6,7 @@ import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { useAuth } from "@/contexts/auth-context";
 import { usePortfolio } from "@/contexts/portfolio-context";
+import { useUploadModal } from "@/contexts/upload-modal-context";
 import { usePagination } from "@/hooks/use-pagination";
 import { listTxs } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
@@ -39,6 +40,7 @@ const TX_TYPE_LABEL: Record<number, string> = {
 export default function TxsPage() {
   const { state, authError } = useAuth();
   const { selected: selectedPortfolio } = usePortfolio();
+  const { openUploadModal } = useUploadModal();
   const [hideSynthetic, setHideSynthetic] = useState(false);
 
   const fetchTxs = useCallback(
@@ -65,6 +67,7 @@ export default function TxsPage() {
     hasNext,
     goNext,
     goPrev,
+    refresh,
   } = usePagination(fetchTxs);
 
   const filteredTxs = hideSynthetic
@@ -107,6 +110,13 @@ export default function TxsPage() {
             <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">
               Transactions
             </h2>
+            <button
+              type="button"
+              onClick={() => openUploadModal(() => refresh())}
+              className="ml-auto rounded-md bg-accent px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark"
+            >
+              Upload transactions
+            </button>
           </div>
 
           {loading && <p className="text-text-muted">Loading transactions...</p>}

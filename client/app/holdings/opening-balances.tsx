@@ -61,7 +61,7 @@ export function OpeningBalances() {
 
   return (
     <>
-      {loading && <p className="text-text-muted">Loading declarations...</p>}
+      {loading && <p className="text-text-muted">Loading checkpoints...</p>}
       {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
       {!loading && !error && (
         <>
@@ -71,12 +71,12 @@ export function OpeningBalances() {
               onClick={() => setShowForm(true)}
               className="rounded-md bg-accent px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark"
             >
-              Add declaration
+              Add checkpoint
             </button>
           </div>
           <p className="text-sm text-text-muted">
-            Declare known holding quantities at a point in time. The system will calculate
-            an opening balance so that your records show this quantity on the date you specify.
+            Set checkpoints for known holding quantities at a point in time. The system will
+            calculate an opening balance so that your records show this quantity on the date you specify.
           </p>
           <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
             <table className="w-full min-w-[480px] border-collapse text-sm">
@@ -109,7 +109,7 @@ export function OpeningBalances() {
                       colSpan={6}
                       className="px-4 py-8 text-center text-text-muted"
                     >
-                      No opening balance declarations.
+                      No opening balance checkpoints.
                     </td>
                   </tr>
                 ) : (

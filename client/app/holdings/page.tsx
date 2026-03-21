@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { useAuth } from "@/contexts/auth-context";
 import { usePortfolio } from "@/contexts/portfolio-context";
-import { useUploadModal } from "@/contexts/upload-modal-context";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { getHoldings } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
@@ -16,7 +15,6 @@ type Tab = "holdings" | "opening-balances";
 export default function UserHoldingsPage() {
   const { state, authError } = useAuth();
   const { selected: selectedPortfolio } = usePortfolio();
-  const { openUploadModal } = useUploadModal();
   const [holdings, setHoldings] = useState<Awaited<ReturnType<typeof getHoldings>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,13 +69,6 @@ export default function UserHoldingsPage() {
                   as of {holdings.asOf.toLocaleString()}
                 </span>
               )}
-              <button
-                type="button"
-                onClick={() => openUploadModal(() => fetchData(selectedPortfolio?.id))}
-                className="ml-auto rounded-md bg-accent px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark"
-              >
-                Upload transactions
-              </button>
             </div>
 
             <div className="flex gap-0 border-b border-border">

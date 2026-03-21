@@ -30,7 +30,9 @@ Typically a single transaction upload will result from a user forwarding transac
 
 Ingestion requests must include a **source** (opaque string; expected format `<broker>:<client>:<source>`). Source is used for instrument resolution.
 
-Broker statements often supply only the date (not a full timestamp) for transactions, so transactions do not have a reliable natural key; the system does not enforce uniqueness on transactions.  
+Broker statements often supply only the date (not a full timestamp) for transactions, so transactions do not have a reliable natural key; the system does not enforce uniqueness on transactions.
+
+Each transaction has a **broker** (required) and an **account** (may be empty). Some brokers or broker statement formats do not distinguish accounts, so an empty account string is valid and represents the default/only account for that broker.
 
 ## Upload Formats
 

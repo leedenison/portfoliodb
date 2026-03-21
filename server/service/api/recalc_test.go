@@ -23,7 +23,8 @@ func TestRecalcInitializeTx_RecomputesQty(t *testing.T) {
 
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
 	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(40), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), float64(60)).Return(nil)
+	mockDB.EXPECT().GetInstrument(gomock.Any(), "inst-1").Return(nil, nil)
+	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "BUYOTHER", gomock.Any(), float64(60)).Return(nil)
 
 	if err := RecalcInitializeTx(context.Background(), mockDB, decl); err != nil {
 		t.Fatalf("RecalcInitializeTx: %v", err)
@@ -83,9 +84,11 @@ func TestRecalcAllInitializeTxs_RecalcsEachDeclaration(t *testing.T) {
 	// Each declaration triggers a recalc
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil).Times(2)
 	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(20), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), float64(80)).Return(nil)
+	mockDB.EXPECT().GetInstrument(gomock.Any(), "inst-1").Return(nil, nil)
+	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "BUYOTHER", gomock.Any(), float64(80)).Return(nil)
 	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-2", gomock.Any(), gomock.Any()).Return(float64(10), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-2", gomock.Any(), float64(40)).Return(nil)
+	mockDB.EXPECT().GetInstrument(gomock.Any(), "inst-2").Return(nil, nil)
+	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-2", "BUYOTHER", gomock.Any(), float64(40)).Return(nil)
 
 	if err := RecalcAllInitializeTxs(context.Background(), mockDB, "user-1"); err != nil {
 		t.Fatalf("RecalcAllInitializeTxs: %v", err)

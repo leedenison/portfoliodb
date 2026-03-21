@@ -46,8 +46,9 @@ func TestCreateHoldingDeclaration_Success(t *testing.T) {
 	startDate := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
 	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(30), nil)
+	mockDB.EXPECT().GetInstrument(gomock.Any(), "inst-1").Return(nil, nil)
 	mockDB.EXPECT().
-		CreateDeclarationWithInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "100", time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), gomock.Any(), float64(70)).
+		CreateDeclarationWithInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "100", time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), "BUYOTHER", gomock.Any(), float64(70)).
 		Return(&db.HoldingDeclarationRow{
 			ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", DeclaredQty: "100",
 			AsOfDate: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
@@ -105,8 +106,9 @@ func TestUpdateHoldingDeclaration_Success(t *testing.T) {
 	startDate := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
 	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(50), nil)
+	mockDB.EXPECT().GetInstrument(gomock.Any(), "inst-1").Return(nil, nil)
 	mockDB.EXPECT().
-		UpdateDeclarationWithInitializeTx(gomock.Any(), "d1", "200", time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), float64(150)).
+		UpdateDeclarationWithInitializeTx(gomock.Any(), "d1", "200", time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC), "user-1", "IBKR", "acct1", "inst-1", "BUYOTHER", gomock.Any(), float64(150)).
 		Return(&db.HoldingDeclarationRow{
 			ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1",
 			DeclaredQty: "200", AsOfDate: time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC),

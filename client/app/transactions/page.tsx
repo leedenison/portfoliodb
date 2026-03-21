@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { useAuth } from "@/contexts/auth-context";
 import { usePortfolio } from "@/contexts/portfolio-context";
+import { useUploadModal } from "@/contexts/upload-modal-context";
 import { usePagination } from "@/hooks/use-pagination";
 import { listTxs } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
@@ -39,6 +40,7 @@ const TX_TYPE_LABEL: Record<number, string> = {
 export default function TxsPage() {
   const { state, authError } = useAuth();
   const { selected: selectedPortfolio } = usePortfolio();
+  const { openUploadModal } = useUploadModal();
 
   const fetchTxs = useCallback(
     async (pageToken: string | null) => {
@@ -64,6 +66,7 @@ export default function TxsPage() {
     hasNext,
     goNext,
     goPrev,
+    refresh,
   } = usePagination(fetchTxs);
 
   if (state.status === "loading") {
@@ -102,6 +105,13 @@ export default function TxsPage() {
             <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">
               Transactions
             </h2>
+            <button
+              type="button"
+              onClick={() => openUploadModal(() => refresh())}
+              className="ml-auto rounded-md bg-accent px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark"
+            >
+              Upload transactions
+            </button>
           </div>
 
           {loading && <p className="text-text-muted">Loading transactions...</p>}
@@ -176,37 +186,47 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
   const tx = ptx.tx;
   if (!tx) return null;
 
+  const isSynthetic = !!tx.syntheticPurpose;
   const ticker = ptx.instrument?.identifiers?.find(
     (id) => id.type === IdentifierType.TICKER
   )?.value;
-  const label = ticker || tx.instrumentDescription || "—";
+  const label = ticker || tx.instrumentDescription || "\u2014";
   const currency = tx.tradingCurrency || tx.settlementCurrency || "";
 
   return (
-    <tr className="border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10">
+    <tr className={
+      "border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10" +
+      (isSynthetic ? " opacity-60" : "")
+    }>
       <td className="px-4 py-3 text-text-muted">
-        {tx.timestamp ? timestampDate(tx.timestamp).toLocaleDateString() : "—"}
+        {tx.timestamp ? timestampDate(tx.timestamp).toLocaleDateString() : "\u2014"}
       </td>
       <td className="px-4 py-3 text-text-muted">
         {getBrokerLabel(ptx.broker)}
       </td>
       <td className="px-4 py-3 text-text-muted">
-        {ptx.account || "—"}
+        {ptx.account || "\u2014"}
       </td>
       <td className="px-4 py-3 font-medium text-text-primary">
         {label}
       </td>
       <td className="px-4 py-3 text-text-muted">
-        {TX_TYPE_LABEL[tx.type] ?? "Unknown"}
+        {isSynthetic ? (
+          <span className="inline-block rounded bg-primary-dark/10 px-1.5 py-0.5 text-xs font-medium text-primary-dark">
+            {tx.syntheticPurpose}
+          </span>
+        ) : (
+          TX_TYPE_LABEL[tx.type] ?? "Unknown"
+        )}
       </td>
       <td className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
         {tx.quantity}
       </td>
       <td className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
-        {tx.unitPrice ? tx.unitPrice.toFixed(2) : "—"}
+        {tx.unitPrice ? tx.unitPrice.toFixed(2) : "\u2014"}
       </td>
       <td className="px-4 py-3 text-text-muted">
-        {currency || "—"}
+        {currency || "\u2014"}
       </td>
     </tr>
   );

@@ -17,13 +17,16 @@ func TestGetPortfolioValuation_Success(t *testing.T) {
 	ctx := authCtx("user-1", "sub|1")
 
 	mdb.EXPECT().
+		GetDisplayCurrency(gomock.Any(), "user-1").
+		Return("USD", nil)
+	mdb.EXPECT().
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
 		Return(true, nil)
 
 	dateFrom := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	dateTo := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
 	mdb.EXPECT().
-		GetPortfolioValuation(gomock.Any(), "port-1", dateFrom, dateTo).
+		GetPortfolioValuation(gomock.Any(), "port-1", dateFrom, dateTo, "USD").
 		Return([]db.ValuationPoint{
 			{Date: dateFrom, TotalValue: 1000.0, UnpricedInstruments: nil},
 			{Date: dateFrom.AddDate(0, 0, 1), TotalValue: 1050.0, UnpricedInstruments: []string{"UNKNOWN CORP"}},
@@ -52,6 +55,9 @@ func TestGetPortfolioValuation_Success(t *testing.T) {
 func TestGetPortfolioValuation_PortfolioNotFound(t *testing.T) {
 	srv, mdb := newAPIServerWithMock(t)
 	ctx := authCtx("user-1", "sub|1")
+	mdb.EXPECT().
+		GetDisplayCurrency(gomock.Any(), "user-1").
+		Return("USD", nil)
 	mdb.EXPECT().
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
 		Return(false, nil)
@@ -95,10 +101,13 @@ func TestGetPortfolioValuation_DBError(t *testing.T) {
 	ctx := authCtx("user-1", "sub|1")
 
 	mdb.EXPECT().
+		GetDisplayCurrency(gomock.Any(), "user-1").
+		Return("USD", nil)
+	mdb.EXPECT().
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
 		Return(true, nil)
 	mdb.EXPECT().
-		GetPortfolioValuation(gomock.Any(), "port-1", gomock.Any(), gomock.Any()).
+		GetPortfolioValuation(gomock.Any(), "port-1", gomock.Any(), gomock.Any(), "USD").
 		Return(nil, fmt.Errorf("db boom"))
 
 	_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{
@@ -113,10 +122,14 @@ func TestGetUserValuation_Success(t *testing.T) {
 	srv, mdb := newAPIServerWithMock(t)
 	ctx := authCtx("user-1", "sub|1")
 
+	mdb.EXPECT().
+		GetDisplayCurrency(gomock.Any(), "user-1").
+		Return("USD", nil)
+
 	dateFrom := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	dateTo := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
 	mdb.EXPECT().
-		GetUserValuation(gomock.Any(), "user-1", dateFrom, dateTo).
+		GetUserValuation(gomock.Any(), "user-1", dateFrom, dateTo, "USD").
 		Return([]db.ValuationPoint{
 			{Date: dateFrom, TotalValue: 2000.0, UnpricedInstruments: nil},
 			{Date: dateTo, TotalValue: 2100.0, UnpricedInstruments: nil},
@@ -142,7 +155,10 @@ func TestGetUserValuation_DBError(t *testing.T) {
 	ctx := authCtx("user-1", "sub|1")
 
 	mdb.EXPECT().
-		GetUserValuation(gomock.Any(), "user-1", gomock.Any(), gomock.Any()).
+		GetDisplayCurrency(gomock.Any(), "user-1").
+		Return("USD", nil)
+	mdb.EXPECT().
+		GetUserValuation(gomock.Any(), "user-1", gomock.Any(), gomock.Any(), "USD").
 		Return(nil, fmt.Errorf("db boom"))
 
 	_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{

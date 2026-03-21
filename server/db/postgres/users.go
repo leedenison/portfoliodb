@@ -50,6 +50,32 @@ func (p *Postgres) GetUserByEmail(ctx context.Context, email string) (userID str
 	return id.String(), nil
 }
 
+// GetDisplayCurrency implements db.UserDB.
+func (p *Postgres) GetDisplayCurrency(ctx context.Context, userID string) (string, error) {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return "", fmt.Errorf("invalid user id: %w", err)
+	}
+	var currency string
+	if err := p.q.QueryRowContext(ctx, `SELECT display_currency FROM users WHERE id = $1`, userUUID).Scan(&currency); err != nil {
+		return "", fmt.Errorf("get display currency: %w", err)
+	}
+	return currency, nil
+}
+
+// SetDisplayCurrency implements db.UserDB.
+func (p *Postgres) SetDisplayCurrency(ctx context.Context, userID, currency string) error {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	_, err = p.q.ExecContext(ctx, `UPDATE users SET display_currency = $1 WHERE id = $2`, currency, userUUID)
+	if err != nil {
+		return fmt.Errorf("set display currency: %w", err)
+	}
+	return nil
+}
+
 // UpdateUserAuthSub implements db.UserDB.
 func (p *Postgres) UpdateUserAuthSub(ctx context.Context, userID, authSub string) error {
 	userUUID, err := uuid.Parse(userID)

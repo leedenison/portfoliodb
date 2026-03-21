@@ -204,6 +204,12 @@ func (p *Postgres) PriceGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.
 	return result, nil
 }
 
+// FXGaps implements db.PriceCacheDB.
+// Stub: will be implemented in a subsequent PR.
+func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.InstrumentDateRanges, error) {
+	return nil, nil
+}
+
 // UpsertPrices implements db.PriceCacheDB.
 // It bulk inserts EOD prices using unnest arrays, updating on conflict.
 func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error {

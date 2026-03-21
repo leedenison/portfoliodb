@@ -61,6 +61,7 @@ enum IdentifierType {
   TICKER = 12;
   BROKER_DESCRIPTION = 13;
   CURRENCY = 14;
+  FX_PAIR = 15;
 }
 
 // InstrumentIdentifier is one (type, domain, value) for an instrument.
@@ -74,7 +75,7 @@ message InstrumentIdentifier {
 }
 
 // Instrument is canonical security-master data for an instrument, with its identifiers.
-// asset_class must be one of: STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN.
+// asset_class must be one of: STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, FX, UNKNOWN.
 // When asset_class is OPTION or FUTURE, underlying_id must be set.
 message Instrument {
   string id = 1;
@@ -200,6 +201,10 @@ service ApiService {
   rpc CreateHoldingDeclaration(CreateHoldingDeclarationRequest) returns (CreateHoldingDeclarationResponse);
   rpc UpdateHoldingDeclaration(UpdateHoldingDeclarationRequest) returns (UpdateHoldingDeclarationResponse);
   rpc DeleteHoldingDeclaration(DeleteHoldingDeclarationRequest) returns (DeleteHoldingDeclarationResponse);
+
+  // Display currency preference.
+  rpc GetDisplayCurrency(GetDisplayCurrencyRequest) returns (GetDisplayCurrencyResponse);
+  rpc SetDisplayCurrency(SetDisplayCurrencyRequest) returns (SetDisplayCurrencyResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -627,10 +632,13 @@ message ImportPriceError {
 }
 
 // GetPortfolioValuation computes daily portfolio values over a date range.
+// display_currency converts holdings to the given currency (ISO 4217, e.g. "USD").
+// When empty, the user's stored preference is used.
 message GetPortfolioValuationRequest {
   string portfolio_id = 1;
   string date_from = 2;     // "YYYY-MM-DD"
   string date_to = 3;       // "YYYY-MM-DD"
+  string display_currency = 4;
 }
 
 // ValuationPoint is one day's portfolio value.
@@ -690,3 +698,18 @@ message DeleteHoldingDeclarationRequest {
 }
 
 message DeleteHoldingDeclarationResponse {}
+
+// Display currency preference (ISO 4217 code).
+message GetDisplayCurrencyRequest {}
+
+message GetDisplayCurrencyResponse {
+  string display_currency = 1;
+}
+
+message SetDisplayCurrencyRequest {
+  string display_currency = 1;
+}
+
+message SetDisplayCurrencyResponse {
+  string display_currency = 1;
+}

@@ -50,7 +50,7 @@ func TestGetPortfolioValuation_Basic(t *testing.T) {
 	// Query valuation for Jan 2-3.
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
 	dateTo := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestGetPortfolioValuation_UnpricedInstruments(t *testing.T) {
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
 	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestGetPortfolioValuation_MultipleInstruments(t *testing.T) {
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
 	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestGetUserValuation_Basic(t *testing.T) {
 	// Query user valuation (no portfolio) for Jan 2-3.
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
 	dateTo := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "USD")
 	if err != nil {
 		t.Fatalf("get user valuation: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestGetPortfolioValuation_EmptyRange(t *testing.T) {
 	// No txs at all.
 	dateFrom := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	dateTo := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}

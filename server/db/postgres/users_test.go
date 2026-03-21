@@ -47,3 +47,33 @@ func TestGetUserByAuthSub_ReturnsRole(t *testing.T) {
 		t.Fatalf("GetUserByAuthSub nonexistent: got userID=%q role=%q", userID2, role2)
 	}
 }
+
+func TestDisplayCurrency(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, err := p.GetOrCreateUser(ctx, "sub|dc-test", "U", "u@dc.com")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// Default should be USD.
+	dc, err := p.GetDisplayCurrency(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetDisplayCurrency: %v", err)
+	}
+	if dc != "USD" {
+		t.Fatalf("default display currency: want USD, got %q", dc)
+	}
+
+	// Set to EUR.
+	if err := p.SetDisplayCurrency(ctx, userID, "EUR"); err != nil {
+		t.Fatalf("SetDisplayCurrency: %v", err)
+	}
+	dc, err = p.GetDisplayCurrency(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetDisplayCurrency after set: %v", err)
+	}
+	if dc != "EUR" {
+		t.Fatalf("display currency after set: want EUR, got %q", dc)
+	}
+}

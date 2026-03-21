@@ -127,6 +127,8 @@ func TestAPI_Unauthenticated(t *testing.T) {
 			return err
 		}},
 		{"DeleteHoldingDeclaration", func() error { _, err := srv.DeleteHoldingDeclaration(ctx, &apiv1.DeleteHoldingDeclarationRequest{Id: "d"}); return err }},
+		{"GetDisplayCurrency", func() error { _, err := srv.GetDisplayCurrency(ctx, &apiv1.GetDisplayCurrencyRequest{}); return err }},
+		{"SetDisplayCurrency", func() error { _, err := srv.SetDisplayCurrency(ctx, &apiv1.SetDisplayCurrencyRequest{DisplayCurrency: "EUR"}); return err }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

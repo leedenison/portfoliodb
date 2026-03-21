@@ -32,6 +32,15 @@ func (s *Server) GetPortfolioValuation(ctx context.Context, req *apiv1.GetPortfo
 		return nil, status.Error(codes.InvalidArgument, "date_to must not be before date_from")
 	}
 
+	displayCurrency := req.GetDisplayCurrency()
+	if displayCurrency == "" {
+		dc, dcErr := s.db.GetDisplayCurrency(ctx, u.ID)
+		if dcErr != nil {
+			return nil, status.Error(codes.Internal, dcErr.Error())
+		}
+		displayCurrency = dc
+	}
+
 	var points []db.ValuationPoint
 	if req.GetPortfolioId() != "" {
 		ok, err := s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
@@ -41,12 +50,12 @@ func (s *Server) GetPortfolioValuation(ctx context.Context, req *apiv1.GetPortfo
 		if !ok {
 			return nil, status.Error(codes.NotFound, "portfolio not found")
 		}
-		points, err = s.db.GetPortfolioValuation(ctx, req.GetPortfolioId(), dateFrom, dateTo)
+		points, err = s.db.GetPortfolioValuation(ctx, req.GetPortfolioId(), dateFrom, dateTo, displayCurrency)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 	} else {
-		points, err = s.db.GetUserValuation(ctx, u.ID, dateFrom, dateTo)
+		points, err = s.db.GetUserValuation(ctx, u.ID, dateFrom, dateTo, displayCurrency)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}

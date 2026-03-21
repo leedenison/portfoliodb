@@ -11,6 +11,7 @@ const (
 	SecurityTypeHintOption      = db.AssetClassOption
 	SecurityTypeHintFuture      = db.AssetClassFuture
 	SecurityTypeHintCash        = db.AssetClassCash
+	SecurityTypeHintFX          = db.AssetClassFX
 	SecurityTypeHintUnknown     = db.AssetClassUnknown
 )
 
@@ -31,4 +32,5 @@ var AllowedIdentifierTypes = map[string]bool{
 	"OPENFIGI_GLOBAL": true, "OPENFIGI_SHARE_CLASS": true, "OPENFIGI_COMPOSITE": true,
 	"TICKER": true, "BROKER_DESCRIPTION": true,
 	"CURRENCY": true,
+	"FX_PAIR":  true,
 }

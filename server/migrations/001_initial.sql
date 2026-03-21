@@ -56,10 +56,6 @@ CREATE TABLE txs (
 
 CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, timestamp);
 
-CREATE UNIQUE INDEX idx_txs_initialize_unique
-  ON txs (user_id, broker, account, instrument_id)
-  WHERE synthetic_purpose = 'INITIALIZE';
-
 -- Async ingestion jobs. status and validation_errors surfaced via front-end API.
 CREATE TABLE ingestion_jobs (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -185,6 +181,10 @@ CREATE INDEX idx_identification_errors_job_id ON identification_errors (job_id);
 ALTER TABLE txs ADD COLUMN instrument_id UUID REFERENCES instruments (id);
 
 CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);
+
+CREATE UNIQUE INDEX idx_txs_initialize_unique
+  ON txs (user_id, broker, account, instrument_id)
+  WHERE synthetic_purpose = 'INITIALIZE';
 
 -- Portfolio filter matching view: returns (portfolio_id, tx_id) pairs for txs
 -- matching the portfolio's filters. Semantics: AND between categories (broker,

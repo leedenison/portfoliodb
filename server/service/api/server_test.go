@@ -13,6 +13,10 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+func ctxNoAuth() context.Context {
+	return context.Background()
+}
+
 func authCtx(userID, authSub string) context.Context {
 	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: authSub})
 }
@@ -113,6 +117,16 @@ func TestAPI_Unauthenticated(t *testing.T) {
 			_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{PortfolioId: "p", DateFrom: "2025-01-01", DateTo: "2025-01-03"})
 			return err
 		}},
+		{"ListHoldingDeclarations", func() error { _, err := srv.ListHoldingDeclarations(ctx, &apiv1.ListHoldingDeclarationsRequest{}); return err }},
+		{"CreateHoldingDeclaration", func() error {
+			_, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{Broker: "IBKR", InstrumentId: "i", DeclaredQty: "1", AsOfDate: "2025-01-01"})
+			return err
+		}},
+		{"UpdateHoldingDeclaration", func() error {
+			_, err := srv.UpdateHoldingDeclaration(ctx, &apiv1.UpdateHoldingDeclarationRequest{Id: "d", DeclaredQty: "1", AsOfDate: "2025-01-01"})
+			return err
+		}},
+		{"DeleteHoldingDeclaration", func() error { _, err := srv.DeleteHoldingDeclaration(ctx, &apiv1.DeleteHoldingDeclarationRequest{Id: "d"}); return err }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -50,6 +50,7 @@ CREATE TABLE txs (
   trading_currency      TEXT,
   settlement_currency   TEXT,
   unit_price            DOUBLE PRECISION,
+  synthetic_purpose     TEXT CHECK (synthetic_purpose IS NULL OR synthetic_purpose = 'INITIALIZE'),
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -181,6 +182,10 @@ ALTER TABLE txs ADD COLUMN instrument_id UUID REFERENCES instruments (id);
 
 CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);
 
+CREATE UNIQUE INDEX idx_txs_initialize_unique
+  ON txs (user_id, broker, account, instrument_id)
+  WHERE synthetic_purpose = 'INITIALIZE';
+
 -- Portfolio filter matching view: returns (portfolio_id, tx_id) pairs for txs
 -- matching the portfolio's filters. Semantics: AND between categories (broker,
 -- account, instrument), OR within each category. Categories with no filters are
@@ -215,3 +220,18 @@ CREATE TABLE eod_prices (
 );
 
 SELECT create_hypertable('eod_prices', 'price_date');
+
+-- Holding declarations: user-provided statement of known holding quantity at a date.
+-- Holdings are computed aggregates identified by (broker, account, instrument_id).
+CREATE TABLE holding_declarations (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  broker          TEXT NOT NULL,
+  account         TEXT NOT NULL,
+  instrument_id   UUID NOT NULL REFERENCES instruments(id),
+  declared_qty    NUMERIC NOT NULL,
+  as_of_date      DATE NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, broker, account, instrument_id)
+);

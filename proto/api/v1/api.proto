@@ -124,6 +124,8 @@ message Tx {
   string mic_hint = 11;
   // Optional external identifier hints (e.g. ISIN, CUSIP, FIGI, TICKER). When supplied, resolution uses these and does not store (source, description) on the instrument.
   repeated InstrumentIdentifier identifier_hints = 12;
+  // NULL for real transactions, 'INITIALIZE' for synthetic opening-balance transactions.
+  string synthetic_purpose = 13;
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,
@@ -192,6 +194,12 @@ service ApiService {
 
   // Telemetry counters (admin-only). Returns counters discovered from Redis (portfoliodb:counters:*).
   rpc ListTelemetryCounters(ListTelemetryCountersRequest) returns (ListTelemetryCountersResponse);
+
+  // Holding declarations: declare known holding quantities at a point in time.
+  rpc ListHoldingDeclarations(ListHoldingDeclarationsRequest) returns (ListHoldingDeclarationsResponse);
+  rpc CreateHoldingDeclaration(CreateHoldingDeclarationRequest) returns (CreateHoldingDeclarationResponse);
+  rpc UpdateHoldingDeclaration(UpdateHoldingDeclarationRequest) returns (UpdateHoldingDeclarationResponse);
+  rpc DeleteHoldingDeclaration(DeleteHoldingDeclarationRequest) returns (DeleteHoldingDeclarationResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -637,3 +645,48 @@ message ValuationPoint {
 message GetPortfolioValuationResponse {
   repeated ValuationPoint points = 1;
 }
+
+// HoldingDeclaration is a user-provided statement of known holding quantity at a date.
+message HoldingDeclaration {
+  string id = 1;
+  string broker = 2;
+  string account = 3;
+  string instrument_id = 4;
+  Instrument instrument = 5;  // optional; populated when listing
+  string declared_qty = 6;    // numeric string to preserve precision
+  string as_of_date = 7;      // "YYYY-MM-DD"
+}
+
+message ListHoldingDeclarationsRequest {}
+
+message ListHoldingDeclarationsResponse {
+  repeated HoldingDeclaration declarations = 1;
+}
+
+message CreateHoldingDeclarationRequest {
+  string broker = 1;
+  string account = 2;
+  string instrument_id = 3;
+  string declared_qty = 4;    // numeric string
+  string as_of_date = 5;      // "YYYY-MM-DD"
+}
+
+message CreateHoldingDeclarationResponse {
+  HoldingDeclaration declaration = 1;
+}
+
+message UpdateHoldingDeclarationRequest {
+  string id = 1;
+  string declared_qty = 2;    // numeric string
+  string as_of_date = 3;      // "YYYY-MM-DD"
+}
+
+message UpdateHoldingDeclarationResponse {
+  HoldingDeclaration declaration = 1;
+}
+
+message DeleteHoldingDeclarationRequest {
+  string id = 1;
+}
+
+message DeleteHoldingDeclarationResponse {}

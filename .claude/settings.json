@@ -12,7 +12,7 @@
       "Bash(make clean:*)",
       "Bash(make clean-docker:*)",
       "Bash(git check-ignore:*)",
-      "Bash(git commit:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

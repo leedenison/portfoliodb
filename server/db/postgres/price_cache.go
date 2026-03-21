@@ -205,9 +205,100 @@ func (p *Postgres) PriceGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.
 }
 
 // FXGaps implements db.PriceCacheDB.
-// Stub: will be implemented in a subsequent PR.
+// It computes date ranges where FX rates are needed (because non-USD instruments
+// are held) but not yet cached in eod_prices. Returns gaps keyed by FX pair
+// instrument ID.
 func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.InstrumentDateRanges, error) {
-	return nil, nil
+	held, err := p.HeldRanges(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("fx gaps: held ranges: %w", err)
+	}
+	if len(held) == 0 {
+		return nil, nil
+	}
+
+	// Collect held instrument IDs.
+	heldIDs := make([]string, len(held))
+	for i, h := range held {
+		heldIDs[i] = h.InstrumentID
+	}
+
+	// Batch query: for each held instrument, get its currency and the
+	// corresponding FX pair instrument ID (if any).
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT
+			i.id::text AS held_id,
+			i.currency,
+			fx_ii.instrument_id::text AS fx_instrument_id
+		FROM instruments i
+		INNER JOIN instrument_identifiers fx_ii
+			ON fx_ii.identifier_type = 'FX_PAIR'
+			AND fx_ii.value = i.currency || 'USD'
+		WHERE i.id = ANY($1::uuid[])
+			AND i.currency IS NOT NULL
+			AND i.currency != 'USD'
+	`, pq.Array(heldIDs))
+	if err != nil {
+		return nil, fmt.Errorf("fx gaps: currency lookup: %w", err)
+	}
+	defer rows.Close()
+
+	// Map held instrument ID -> FX pair instrument ID.
+	heldToFX := make(map[string]string)
+	for rows.Next() {
+		var heldID, currency, fxInstID string
+		if err := rows.Scan(&heldID, &currency, &fxInstID); err != nil {
+			return nil, fmt.Errorf("fx gaps: scan: %w", err)
+		}
+		heldToFX[heldID] = fxInstID
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("fx gaps: rows: %w", err)
+	}
+
+	if len(heldToFX) == 0 {
+		return nil, nil
+	}
+
+	// Build needed ranges per FX pair instrument by merging held ranges.
+	fxNeeded := make(map[string][]db.DateRange)
+	for _, h := range held {
+		fxID, ok := heldToFX[h.InstrumentID]
+		if !ok {
+			continue
+		}
+		fxNeeded[fxID] = append(fxNeeded[fxID], h.Ranges...)
+	}
+
+	// Merge overlapping ranges and collect FX instrument IDs.
+	var fxIDs []string
+	for fxID, ranges := range fxNeeded {
+		fxNeeded[fxID] = db.MergeRanges(ranges)
+		fxIDs = append(fxIDs, fxID)
+	}
+
+	// Get existing FX rate coverage.
+	coverage, err := p.PriceCoverage(ctx, fxIDs)
+	if err != nil {
+		return nil, fmt.Errorf("fx gaps: coverage: %w", err)
+	}
+	coverageByInst := make(map[string][]db.DateRange, len(coverage))
+	for _, c := range coverage {
+		coverageByInst[c.InstrumentID] = c.Ranges
+	}
+
+	// Subtract coverage from needed ranges.
+	var result []db.InstrumentDateRanges
+	for _, fxID := range fxIDs {
+		gaps := db.SubtractRanges(fxNeeded[fxID], coverageByInst[fxID])
+		if len(gaps) > 0 {
+			result = append(result, db.InstrumentDateRanges{
+				InstrumentID: fxID,
+				Ranges:       gaps,
+			})
+		}
+	}
+	return result, nil
 }
 
 // UpsertPrices implements db.PriceCacheDB.

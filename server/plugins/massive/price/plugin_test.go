@@ -161,12 +161,45 @@ func TestFetchPrices_RateLimit(t *testing.T) {
 	}
 }
 
+func TestFetchPrices_FX(t *testing.T) {
+	var requestedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath = r.URL.Path
+		resp := client.APIResponse[[]client.AggBar]{
+			Status:  "OK",
+			Results: []client.AggBar{{O: 1.07, H: 1.09, L: 1.06, C: 1.08, V: 0, T: 1704067200000}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, srv.Client())
+	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}
+	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	result, err := p.FetchPrices(context.Background(), configWithURL(srv.URL), ids, db.AssetClassFX, from, to)
+	if err != nil {
+		t.Fatalf("FetchPrices: %v", err)
+	}
+	if len(result.Bars) != 1 {
+		t.Fatalf("expected 1 bar, got %d", len(result.Bars))
+	}
+	if result.Bars[0].Close != 1.08 {
+		t.Errorf("bar[0].Close = %v, want 1.08", result.Bars[0].Close)
+	}
+	expected := "/v2/aggs/ticker/C:EURUSD/range/1/day/2024-01-01/2024-01-01"
+	if requestedPath != expected {
+		t.Errorf("path = %q, want %q", requestedPath, expected)
+	}
+}
+
 func TestPluginInterface(t *testing.T) {
 	p := NewPlugin(nil, nil, nil)
 	if p.DisplayName() != "Massive" {
 		t.Errorf("DisplayName = %q", p.DisplayName())
 	}
-	if ac := p.AcceptableAssetClasses(); !ac[db.AssetClassStock] || !ac[db.AssetClassETF] || !ac[db.AssetClassOption] {
+	if ac := p.AcceptableAssetClasses(); !ac[db.AssetClassStock] || !ac[db.AssetClassETF] || !ac[db.AssetClassOption] || !ac[db.AssetClassFX] {
 		t.Errorf("AcceptableAssetClasses = %v", ac)
 	}
 	if cu := p.AcceptableCurrencies(); !cu["USD"] || len(cu) != 1 {
@@ -176,7 +209,30 @@ func TestPluginInterface(t *testing.T) {
 		t.Errorf("AcceptableExchanges should be nil, got %v", ex)
 	}
 	types := p.SupportedIdentifierTypes()
-	if len(types) != 2 || types[0] != "TICKER" || types[1] != "OCC" {
+	if len(types) != 3 || types[0] != "TICKER" || types[1] != "OCC" || types[2] != "FX_PAIR" {
 		t.Errorf("SupportedIdentifierTypes = %v", types)
+	}
+}
+
+func TestTickerForAssetClass(t *testing.T) {
+	tests := []struct {
+		name       string
+		ids        []pricefetcher.Identifier
+		assetClass string
+		want       string
+	}{
+		{"stock_ticker", []pricefetcher.Identifier{{Type: "TICKER", Value: "AAPL"}}, db.AssetClassStock, "AAPL"},
+		{"option_occ", []pricefetcher.Identifier{{Type: "OCC", Value: "AAPL250321C00150000"}}, db.AssetClassOption, "O:AAPL250321C00150000"},
+		{"fx_pair", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}, db.AssetClassFX, "C:EURUSD"},
+		{"fx_no_match", []pricefetcher.Identifier{{Type: "TICKER", Value: "EURUSD"}}, db.AssetClassFX, ""},
+		{"stock_no_match", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}, db.AssetClassStock, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tickerForAssetClass(tc.ids, tc.assetClass)
+			if got != tc.want {
+				t.Errorf("tickerForAssetClass = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

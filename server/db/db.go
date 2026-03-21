@@ -347,12 +347,18 @@ type HoldingDeclarationDB interface {
 	ListHoldingDeclarations(ctx context.Context, userID string) ([]*HoldingDeclarationRow, error)
 	// GetPortfolioStartDate returns the earliest real tx timestamp for the user, or nil if none exist.
 	GetPortfolioStartDate(ctx context.Context, userID string) (*time.Time, error)
-	// ComputeRunningBalance sums quantity of real (non-synthetic) txs for the given holding between from and to (inclusive).
+	// ComputeRunningBalance sums quantity of real (non-synthetic) txs for the given holding where timestamp >= from and timestamp < to.
 	ComputeRunningBalance(ctx context.Context, userID, broker, account, instrumentID string, from, to time.Time) (float64, error)
 	// UpsertInitializeTx creates or updates the INITIALIZE synthetic tx for the given holding.
 	UpsertInitializeTx(ctx context.Context, userID, broker, account, instrumentID string, timestamp time.Time, quantity float64) error
 	// DeleteInitializeTx deletes the INITIALIZE synthetic tx for the given holding, if it exists.
 	DeleteInitializeTx(ctx context.Context, userID, broker, account, instrumentID string) error
+	// CreateDeclarationWithInitializeTx atomically creates a declaration and upserts its INITIALIZE tx.
+	CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate time.Time, initTimestamp time.Time, initQty float64) (*HoldingDeclarationRow, error)
+	// UpdateDeclarationWithInitializeTx atomically updates a declaration and upserts its INITIALIZE tx.
+	UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate time.Time, userID, broker, account, instrumentID string, initTimestamp time.Time, initQty float64) (*HoldingDeclarationRow, error)
+	// DeleteDeclarationWithInitializeTx atomically deletes a declaration and its INITIALIZE tx.
+	DeleteDeclarationWithInitializeTx(ctx context.Context, id, userID, broker, account, instrumentID string) error
 }
 
 // InstrumentDB provides instrument resolution and plugin config.

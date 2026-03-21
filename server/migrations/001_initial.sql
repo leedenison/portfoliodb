@@ -50,7 +50,7 @@ CREATE TABLE txs (
   trading_currency      TEXT,
   settlement_currency   TEXT,
   unit_price            DOUBLE PRECISION,
-  synthetic_purpose     TEXT,
+  synthetic_purpose     TEXT CHECK (synthetic_purpose IS NULL OR synthetic_purpose = 'INITIALIZE'),
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

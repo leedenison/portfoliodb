@@ -24,6 +24,20 @@ func (s *Server) ListHoldingDeclarations(ctx context.Context, req *apiv1.ListHol
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	// Batch-load instruments to avoid N+1 queries.
+	instIDs := make([]string, 0, len(rows))
+	for _, r := range rows {
+		instIDs = append(instIDs, r.InstrumentID)
+	}
+	instByID := make(map[string]*apiv1.Instrument)
+	if len(instIDs) > 0 {
+		instRows, err := s.db.ListInstrumentsByIDs(ctx, instIDs)
+		if err == nil {
+			for _, ir := range instRows {
+				instByID[ir.ID] = instrumentRowToProto(ir)
+			}
+		}
+	}
 	decls := make([]*apiv1.HoldingDeclaration, len(rows))
 	for i, r := range rows {
 		decls[i] = &apiv1.HoldingDeclaration{
@@ -34,9 +48,8 @@ func (s *Server) ListHoldingDeclarations(ctx context.Context, req *apiv1.ListHol
 			DeclaredQty:  r.DeclaredQty,
 			AsOfDate:     r.AsOfDate.Format(dateFormat),
 		}
-		inst, err := s.db.GetInstrument(ctx, r.InstrumentID)
-		if err == nil && inst != nil {
-			decls[i].Instrument = instrumentRowToProto(inst)
+		if inst := instByID[r.InstrumentID]; inst != nil {
+			decls[i].Instrument = inst
 		}
 	}
 	return &apiv1.ListHoldingDeclarationsResponse{Declarations: decls}, nil
@@ -73,13 +86,14 @@ func (s *Server) CreateHoldingDeclaration(ctx context.Context, req *apiv1.Create
 		return nil, status.Errorf(codes.InvalidArgument, "as_of_date must be on or after the portfolio start date (%s)", startDay.Format(dateFormat))
 	}
 
-	row, err := s.db.CreateHoldingDeclaration(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate)
+	initTimestamp, initQty, err := s.computeInitializeValues(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, *startDate)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
 	}
 
-	if err := s.computeAndUpsertInitializeTx(ctx, u.ID, row.Broker, row.Account, row.InstrumentID, req.GetDeclaredQty(), asOfDate, *startDate); err != nil {
-		return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
+	row, err := s.db.CreateDeclarationWithInitializeTx(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, initTimestamp, initQty)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	decl := &apiv1.HoldingDeclaration{
@@ -131,13 +145,14 @@ func (s *Server) UpdateHoldingDeclaration(ctx context.Context, req *apiv1.Update
 		return nil, status.Errorf(codes.InvalidArgument, "as_of_date must be on or after the portfolio start date (%s)", startDay.Format(dateFormat))
 	}
 
-	row, err := s.db.UpdateHoldingDeclaration(ctx, req.GetId(), req.GetDeclaredQty(), asOfDate)
+	initTimestamp, initQty, err := s.computeInitializeValues(ctx, u.ID, existing.Broker, existing.Account, existing.InstrumentID, req.GetDeclaredQty(), asOfDate, *startDate)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
 	}
 
-	if err := s.computeAndUpsertInitializeTx(ctx, u.ID, row.Broker, row.Account, row.InstrumentID, req.GetDeclaredQty(), asOfDate, *startDate); err != nil {
-		return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
+	row, err := s.db.UpdateDeclarationWithInitializeTx(ctx, req.GetId(), req.GetDeclaredQty(), asOfDate, u.ID, existing.Broker, existing.Account, existing.InstrumentID, initTimestamp, initQty)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	decl := &apiv1.HoldingDeclaration{
@@ -167,27 +182,24 @@ func (s *Server) DeleteHoldingDeclaration(ctx context.Context, req *apiv1.Delete
 	if existing.UserID != u.ID {
 		return nil, status.Error(codes.NotFound, "declaration not found")
 	}
-	if err := s.db.DeleteHoldingDeclaration(ctx, req.GetId()); err != nil {
+	if err := s.db.DeleteDeclarationWithInitializeTx(ctx, req.GetId(), u.ID, existing.Broker, existing.Account, existing.InstrumentID); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
-	}
-	if err := s.db.DeleteInitializeTx(ctx, u.ID, existing.Broker, existing.Account, existing.InstrumentID); err != nil {
-		return nil, status.Errorf(codes.Internal, "delete INITIALIZE tx: %v", err)
 	}
 	return &apiv1.DeleteHoldingDeclarationResponse{}, nil
 }
 
-// computeAndUpsertInitializeTx computes the INITIALIZE quantity and upserts the synthetic tx.
-func (s *Server) computeAndUpsertInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQtyStr string, asOfDate time.Time, startDate time.Time) error {
+// computeInitializeValues computes the INITIALIZE tx timestamp and quantity.
+func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, account, instrumentID, declaredQtyStr string, asOfDate time.Time, startDate time.Time) (time.Time, float64, error) {
 	declaredQty, err := strconv.ParseFloat(declaredQtyStr, 64)
 	if err != nil {
-		return fmt.Errorf("parse declared_qty: %w", err)
+		return time.Time{}, 0, fmt.Errorf("parse declared_qty: %w", err)
 	}
 	startDay := startDate.Truncate(24 * time.Hour)
-	endOfAsOf := asOfDate.Add(24*time.Hour - time.Nanosecond)
-	runningBalance, err := s.db.ComputeRunningBalance(ctx, userID, broker, account, instrumentID, startDay, endOfAsOf)
+	dayAfterAsOf := asOfDate.AddDate(0, 0, 1)
+	runningBalance, err := s.db.ComputeRunningBalance(ctx, userID, broker, account, instrumentID, startDay, dayAfterAsOf)
 	if err != nil {
-		return fmt.Errorf("compute running balance: %w", err)
+		return time.Time{}, 0, fmt.Errorf("compute running balance: %w", err)
 	}
 	initQty := declaredQty - runningBalance
-	return s.db.UpsertInitializeTx(ctx, userID, broker, account, instrumentID, startDay, initQty)
+	return startDay, initQty, nil
 }

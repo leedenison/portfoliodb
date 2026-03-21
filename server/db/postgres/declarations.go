@@ -163,7 +163,7 @@ func (p *Postgres) ComputeRunningBalance(ctx context.Context, userID, broker, ac
 	err = p.q.QueryRowContext(ctx, `
 		SELECT COALESCE(SUM(quantity), 0) FROM txs
 		WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
-		  AND timestamp >= $5 AND timestamp <= $6
+		  AND timestamp >= $5 AND timestamp < $6
 		  AND synthetic_purpose IS NULL
 	`, userUUID, broker, account, instUUID, from, to).Scan(&balance)
 	if err != nil {
@@ -213,4 +213,45 @@ func (p *Postgres) DeleteInitializeTx(ctx context.Context, userID, broker, accou
 		return fmt.Errorf("delete initialize tx: %w", err)
 	}
 	return nil
+}
+
+// CreateDeclarationWithInitializeTx implements db.HoldingDeclarationDB.
+func (p *Postgres) CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate time.Time, initTimestamp time.Time, initQty float64) (*db.HoldingDeclarationRow, error) {
+	var row *db.HoldingDeclarationRow
+	err := p.runInTx(ctx, func(tx queryable) error {
+		txp := &Postgres{q: tx}
+		r, err := txp.CreateHoldingDeclaration(ctx, userID, broker, account, instrumentID, declaredQty, asOfDate)
+		if err != nil {
+			return err
+		}
+		row = r
+		return txp.UpsertInitializeTx(ctx, userID, broker, account, instrumentID, initTimestamp, initQty)
+	})
+	return row, err
+}
+
+// UpdateDeclarationWithInitializeTx implements db.HoldingDeclarationDB.
+func (p *Postgres) UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate time.Time, userID, broker, account, instrumentID string, initTimestamp time.Time, initQty float64) (*db.HoldingDeclarationRow, error) {
+	var row *db.HoldingDeclarationRow
+	err := p.runInTx(ctx, func(tx queryable) error {
+		txp := &Postgres{q: tx}
+		r, err := txp.UpdateHoldingDeclaration(ctx, id, declaredQty, asOfDate)
+		if err != nil {
+			return err
+		}
+		row = r
+		return txp.UpsertInitializeTx(ctx, userID, broker, account, instrumentID, initTimestamp, initQty)
+	})
+	return row, err
+}
+
+// DeleteDeclarationWithInitializeTx implements db.HoldingDeclarationDB.
+func (p *Postgres) DeleteDeclarationWithInitializeTx(ctx context.Context, id, userID, broker, account, instrumentID string) error {
+	return p.runInTx(ctx, func(tx queryable) error {
+		txp := &Postgres{q: tx}
+		if err := txp.DeleteHoldingDeclaration(ctx, id); err != nil {
+			return err
+		}
+		return txp.DeleteInitializeTx(ctx, userID, broker, account, instrumentID)
+	})
 }

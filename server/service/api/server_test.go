@@ -13,6 +13,10 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+func ctxNoAuth() context.Context {
+	return context.Background()
+}
+
 func authCtx(userID, authSub string) context.Context {
 	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: authSub})
 }

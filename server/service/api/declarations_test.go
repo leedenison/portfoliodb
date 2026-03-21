@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -20,7 +19,7 @@ func TestListHoldingDeclarations_Success(t *testing.T) {
 		Return([]*db.HoldingDeclarationRow{
 			{ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", DeclaredQty: "100", AsOfDate: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)},
 		}, nil)
-	mockDB.EXPECT().GetInstrument(gomock.Any(), "inst-1").Return(nil, nil)
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{"inst-1"}).Return(nil, nil)
 
 	resp, err := srv.ListHoldingDeclarations(ctx, &apiv1.ListHoldingDeclarationsRequest{})
 	if err != nil {
@@ -46,14 +45,13 @@ func TestCreateHoldingDeclaration_Success(t *testing.T) {
 	ctx := authCtx("user-1", "sub|1")
 	startDate := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(30), nil)
 	mockDB.EXPECT().
-		CreateHoldingDeclaration(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "100", time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)).
+		CreateDeclarationWithInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "100", time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), gomock.Any(), float64(70)).
 		Return(&db.HoldingDeclarationRow{
 			ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", DeclaredQty: "100",
 			AsOfDate: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
 		}, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(30), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), float64(70)).Return(nil)
 
 	resp, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{
 		Broker: "IBKR", Account: "acct1", InstrumentId: "inst-1", DeclaredQty: "100", AsOfDate: "2025-06-01",
@@ -106,14 +104,13 @@ func TestUpdateHoldingDeclaration_Success(t *testing.T) {
 	mockDB.EXPECT().GetHoldingDeclaration(gomock.Any(), "d1").Return(existing, nil)
 	startDate := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(50), nil)
 	mockDB.EXPECT().
-		UpdateHoldingDeclaration(gomock.Any(), "d1", "200", time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)).
+		UpdateDeclarationWithInitializeTx(gomock.Any(), "d1", "200", time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), float64(150)).
 		Return(&db.HoldingDeclarationRow{
 			ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1",
 			DeclaredQty: "200", AsOfDate: time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC),
 		}, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(50), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), float64(150)).Return(nil)
 
 	resp, err := srv.UpdateHoldingDeclaration(ctx, &apiv1.UpdateHoldingDeclarationRequest{
 		Id: "d1", DeclaredQty: "200", AsOfDate: "2025-07-01",
@@ -145,8 +142,7 @@ func TestDeleteHoldingDeclaration_Success(t *testing.T) {
 		ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1",
 	}
 	mockDB.EXPECT().GetHoldingDeclaration(gomock.Any(), "d1").Return(existing, nil)
-	mockDB.EXPECT().DeleteHoldingDeclaration(gomock.Any(), "d1").Return(nil)
-	mockDB.EXPECT().DeleteInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1").Return(nil)
+	mockDB.EXPECT().DeleteDeclarationWithInitializeTx(gomock.Any(), "d1", "user-1", "IBKR", "acct1", "inst-1").Return(nil)
 
 	_, err := srv.DeleteHoldingDeclaration(ctx, &apiv1.DeleteHoldingDeclarationRequest{Id: "d1"})
 	if err != nil {
@@ -169,9 +165,4 @@ func TestDeleteHoldingDeclaration_MissingId(t *testing.T) {
 	ctx := authCtx("user-1", "sub|1")
 	_, err := srv.DeleteHoldingDeclaration(ctx, &apiv1.DeleteHoldingDeclarationRequest{})
 	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
-}
-
-// ctxNoAuth returns an unauthenticated context.
-func ctxNoAuth() context.Context {
-	return context.Background()
 }

@@ -159,9 +159,8 @@ func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([
 	result := make([]db.InstrumentDateRanges, len(order))
 	for i, id := range order {
 		entry := *byInst[id]
-		// Bridge gaps of up to 3 calendar days (weekends and adjacent holidays)
-		// so they are not reported as missing coverage.
-		entry.Ranges = db.BridgeRanges(entry.Ranges, 3)
+		// No bridging needed: the price fetcher worker writes synthetic
+		// (LOCF) rows for non-trading days, so coverage is contiguous.
 		result[i] = entry
 	}
 	return result, nil
@@ -405,6 +404,8 @@ func displayCurrencyFXValues(currencies []string) []string {
 
 // UpsertPrices implements db.PriceCacheDB.
 // It bulk inserts EOD prices using unnest arrays, updating on conflict.
+// Real prices (synthetic=false) always overwrite existing rows. Synthetic
+// prices only overwrite when the existing row is also synthetic.
 func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error {
 	if len(prices) == 0 {
 		return nil
@@ -418,6 +419,7 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 	closes := make([]float64, len(prices))
 	volumes := make([]*int64, len(prices))
 	providers := make([]string, len(prices))
+	synthetics := make([]bool, len(prices))
 
 	for i, pr := range prices {
 		instIDs[i] = pr.InstrumentID
@@ -428,14 +430,15 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 		closes[i] = pr.Close
 		volumes[i] = pr.Volume
 		providers[i] = pr.DataProvider
+		synthetics[i] = pr.Synthetic
 	}
 
 	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, fetched_at)
+		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, fetched_at)
 		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::double precision[]),
 			unnest($4::double precision[]), unnest($5::double precision[]),
 			unnest($6::double precision[]), unnest($7::bigint[]),
-			unnest($8::text[]), now()
+			unnest($8::text[]), unnest($9::boolean[]), now()
 		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
 			open = EXCLUDED.open,
 			high = EXCLUDED.high,
@@ -443,12 +446,99 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 			close = EXCLUDED.close,
 			volume = EXCLUDED.volume,
 			data_provider = EXCLUDED.data_provider,
+			synthetic = EXCLUDED.synthetic,
 			fetched_at = EXCLUDED.fetched_at
+		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
 	`, pq.Array(instIDs), pq.Array(dates), pq.Array(opens),
 		pq.Array(highs), pq.Array(lows), pq.Array(closes),
-		pq.Array(volumes), pq.Array(providers))
+		pq.Array(volumes), pq.Array(providers), pq.Array(synthetics))
 	if err != nil {
 		return fmt.Errorf("upsert prices: %w", err)
+	}
+	return nil
+}
+
+// UpsertPricesWithFill implements db.PriceCacheDB.
+// It inserts real bars and generates synthetic LOCF prices for every date in
+// [from, to) that has no real bar, all in a single SQL round-trip. The last
+// non-synthetic close price before `from` seeds the forward-fill for dates
+// preceding the first real bar.
+func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provider string, bars []db.EODPrice, from, to time.Time) error {
+	id, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("upsert prices with fill: invalid id %q: %w", instrumentID, err)
+	}
+
+	dates := make([]time.Time, len(bars))
+	opens := make([]*float64, len(bars))
+	highs := make([]*float64, len(bars))
+	lows := make([]*float64, len(bars))
+	closes := make([]float64, len(bars))
+	volumes := make([]*int64, len(bars))
+	for i, b := range bars {
+		dates[i] = b.PriceDate
+		opens[i] = b.Open
+		highs[i] = b.High
+		lows[i] = b.Low
+		closes[i] = b.Close
+		volumes[i] = b.Volume
+	}
+
+	_, err = p.q.ExecContext(ctx, `
+		WITH
+		seed AS (
+			SELECT close FROM eod_prices
+			WHERE instrument_id = $1 AND price_date < $2::date AND NOT synthetic
+			ORDER BY price_date DESC LIMIT 1
+		),
+		new_bars AS (
+			SELECT unnest($4::date[]) AS price_date,
+				unnest($5::double precision[]) AS bopen,
+				unnest($6::double precision[]) AS bhigh,
+				unnest($7::double precision[]) AS blow,
+				unnest($8::double precision[]) AS bclose,
+				unnest($9::bigint[]) AS bvolume
+		),
+		all_points AS (
+			-- Virtual seed point before range start for LOCF initialization.
+			SELECT ($2::date - 1) AS price_date,
+				NULL::double precision AS bopen, NULL::double precision AS bhigh,
+				NULL::double precision AS blow, s.close AS bclose,
+				NULL::bigint AS bvolume
+			FROM seed s
+			UNION ALL
+			-- Every date in [from, to) with real bar if available.
+			SELECT d::date, nb.bopen, nb.bhigh, nb.blow, nb.bclose, nb.bvolume
+			FROM generate_series($2::date, $3::date - interval '1 day', '1 day') d
+			LEFT JOIN new_bars nb ON nb.price_date = d::date
+		),
+		grouped AS (
+			SELECT *,
+				COUNT(bclose) OVER (ORDER BY price_date) AS grp
+			FROM all_points
+		),
+		locf AS (
+			SELECT price_date,
+				bopen AS open, bhigh AS high, blow AS low,
+				FIRST_VALUE(bclose) OVER (PARTITION BY grp ORDER BY price_date) AS close,
+				bvolume AS volume,
+				(bclose IS NULL) AS synthetic
+			FROM grouped
+		)
+		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, fetched_at)
+		SELECT $1::uuid, price_date, open, high, low, close, volume, $10::text, synthetic, now()
+		FROM locf
+		WHERE price_date >= $2::date AND close IS NOT NULL
+		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
+			open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
+			close = EXCLUDED.close, volume = EXCLUDED.volume,
+			data_provider = EXCLUDED.data_provider, synthetic = EXCLUDED.synthetic,
+			fetched_at = EXCLUDED.fetched_at
+		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
+	`, id, from, to, pq.Array(dates), pq.Array(opens), pq.Array(highs),
+		pq.Array(lows), pq.Array(closes), pq.Array(volumes), provider)
+	if err != nil {
+		return fmt.Errorf("upsert prices with fill: %w", err)
 	}
 	return nil
 }

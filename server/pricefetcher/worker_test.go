@@ -127,15 +127,15 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 	fxInstID := "fx-eurusd"
 	pluginID := "test-plugin"
 
+	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+
 	stub := &fetchStub{
 		idTypes: []string{"FX_PAIR"},
-		result:  &FetchResult{Bars: []DailyBar{{Date: time.Now(), Close: 1.08}}},
+		result:  &FetchResult{Bars: []DailyBar{{Date: from, Close: 1.08}}},
 	}
 	reg := NewRegistry()
 	reg.Register(pluginID, stub)
-
-	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
 	// PriceGaps returns empty, FXGaps returns a gap for an FX instrument.
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
@@ -154,7 +154,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 			{Type: "FX_PAIR", Value: "EURUSD"},
 		},
 	}, nil)
-	mockDB.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), fxInstID, pluginID, gomock.Any(), from, to).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil)
 
@@ -289,17 +289,19 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	pluginID := "test-plugin"
 	maxDays := 30
 
-	stub := &fetchStub{
-		idTypes: []string{"TICKER"},
-		result:  &FetchResult{Bars: []DailyBar{{Date: time.Now(), Close: 100}}},
-	}
-	reg := NewRegistry()
-	reg.Register(pluginID, stub)
-
 	now := time.Now().UTC().Truncate(db.Day)
 	// Gap that starts well before the max history limit.
 	from := now.AddDate(0, 0, -60)
 	to := now
+
+	// Bar date must be within the truncated gap range [now-30, now).
+	barDate := now.AddDate(0, 0, -1)
+	stub := &fetchStub{
+		idTypes: []string{"TICKER"},
+		result:  &FetchResult{Bars: []DailyBar{{Date: barDate, Close: 100}}},
+	}
+	reg := NewRegistry()
+	reg.Register(pluginID, stub)
 
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
@@ -316,7 +318,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 			{Type: "TICKER", Value: "AAPL"},
 		},
 	}, nil)
-	mockDB.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, gomock.Any(), gomock.Any(), to).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil)
 
@@ -368,3 +370,4 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 		t.Errorf("expected 0 FetchPrices calls for gap older than max history, got %d", stub.calls)
 	}
 }
+

@@ -169,15 +169,14 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 					allOK = false
 					break
 				}
-				if len(result.Bars) > 0 {
-					prices := barsToEODPrices(ig.InstrumentID, pe.id, result.Bars)
-					if err := database.UpsertPrices(ctx, prices); err != nil {
-						if log != nil {
-							log.ErrorContext(ctx, "price fetch: upsert", "instrument", ig.InstrumentID, "err", err)
-						}
-						allOK = false
-						break
+
+				prices := barsToEODPrices(ig.InstrumentID, pe.id, result.Bars)
+				if err := database.UpsertPricesWithFill(ctx, ig.InstrumentID, pe.id, prices, gap.From, gap.To); err != nil {
+					if log != nil {
+						log.ErrorContext(ctx, "price fetch: upsert", "instrument", ig.InstrumentID, "err", err)
 					}
+					allOK = false
+					break
 				}
 			}
 			if allOK {

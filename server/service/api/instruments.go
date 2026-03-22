@@ -47,13 +47,28 @@ func (s *Server) ExportInstruments(req *apiv1.ExportInstrumentsRequest, stream a
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
+	// Batch-load underlyings for derivatives
+	underlyingIDs := make([]string, 0)
+	for _, row := range rows {
+		if row.UnderlyingID != nil && *row.UnderlyingID != "" {
+			underlyingIDs = append(underlyingIDs, *row.UnderlyingID)
+		}
+	}
+	underlyingByID := make(map[string]*db.InstrumentRow)
+	if len(underlyingIDs) > 0 {
+		underlyingRows, err := s.db.ListInstrumentsByIDs(ctx, underlyingIDs)
+		if err != nil {
+			return status.Error(codes.Internal, err.Error())
+		}
+		for _, r := range underlyingRows {
+			underlyingByID[r.ID] = r
+		}
+	}
 	for _, row := range rows {
 		protoInst := instrumentRowToProto(row)
-		// For derivatives, include nested underlying with canonical identifiers (no reliance on internal ID for import).
 		if row.UnderlyingID != nil && *row.UnderlyingID != "" {
-			underlying, err := s.db.GetInstrument(ctx, *row.UnderlyingID)
-			if err == nil && underlying != nil {
-				protoInst.Underlying = instrumentRowToProto(underlying)
+			if u := underlyingByID[*row.UnderlyingID]; u != nil {
+				protoInst.Underlying = instrumentRowToProto(u)
 			}
 		}
 		if err := stream.Send(protoInst); err != nil {

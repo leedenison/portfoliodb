@@ -13,6 +13,10 @@ import (
 // RecalcInitializeTx recomputes the INITIALIZE tx for a single holding declaration.
 // Called when a real tx changes within the declaration's date range.
 func RecalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDeclarationRow) error {
+	return recalcInitializeTx(ctx, database, decl, nil)
+}
+
+func recalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDeclarationRow, instByID map[string]*db.InstrumentRow) error {
 	startDate, err := database.GetPortfolioStartDate(ctx, decl.UserID)
 	if err != nil {
 		return fmt.Errorf("get portfolio start date: %w", err)
@@ -44,9 +48,13 @@ func RecalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDec
 	}
 	initQty := declaredQty - runningBalance
 	var assetClass string
-	inst, err := database.GetInstrument(ctx, decl.InstrumentID)
-	if err == nil && inst != nil && inst.AssetClass != nil {
+	if inst := instByID[decl.InstrumentID]; inst != nil && inst.AssetClass != nil {
 		assetClass = *inst.AssetClass
+	} else if instByID == nil {
+		inst, err := database.GetInstrument(ctx, decl.InstrumentID)
+		if err == nil && inst != nil && inst.AssetClass != nil {
+			assetClass = *inst.AssetClass
+		}
 	}
 	txType := txTypeForAssetClass(assetClass, initQty)
 	return database.UpsertInitializeTx(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, txType, startDay, initQty)
@@ -62,8 +70,21 @@ func RecalcAllInitializeTxs(ctx context.Context, database db.DB, userID string) 
 	if len(decls) == 0 {
 		return nil
 	}
+	// Batch-load instruments for asset class lookup
+	instIDs := make([]string, 0, len(decls))
 	for _, decl := range decls {
-		if err := RecalcInitializeTx(ctx, database, decl); err != nil {
+		instIDs = append(instIDs, decl.InstrumentID)
+	}
+	instRows, err := database.ListInstrumentsByIDs(ctx, instIDs)
+	if err != nil {
+		return fmt.Errorf("load instruments: %w", err)
+	}
+	instByID := make(map[string]*db.InstrumentRow, len(instRows))
+	for _, r := range instRows {
+		instByID[r.ID] = r
+	}
+	for _, decl := range decls {
+		if err := recalcInitializeTx(ctx, database, decl, instByID); err != nil {
 			return fmt.Errorf("recalc declaration %s: %w", decl.ID, err)
 		}
 	}

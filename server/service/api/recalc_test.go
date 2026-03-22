@@ -81,13 +81,12 @@ func TestRecalcAllInitializeTxs_RecalcsEachDeclaration(t *testing.T) {
 		{ID: "d2", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-2", DeclaredQty: "50", AsOfDate: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)},
 	}
 	mockDB.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return(decls, nil)
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
 	// Each declaration triggers a recalc
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil).Times(2)
 	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(20), nil)
-	mockDB.EXPECT().GetInstrument(gomock.Any(), "inst-1").Return(nil, nil)
 	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "BUYOTHER", gomock.Any(), float64(80)).Return(nil)
 	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-2", gomock.Any(), gomock.Any()).Return(float64(10), nil)
-	mockDB.EXPECT().GetInstrument(gomock.Any(), "inst-2").Return(nil, nil)
 	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-2", "BUYOTHER", gomock.Any(), float64(40)).Return(nil)
 
 	if err := RecalcAllInitializeTxs(context.Background(), mockDB, "user-1"); err != nil {

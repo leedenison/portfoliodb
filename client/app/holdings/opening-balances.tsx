@@ -5,6 +5,7 @@ import { ErrorAlert } from "@/app/components/error-alert";
 import {
   listHoldingDeclarations,
   deleteHoldingDeclaration,
+  listBrokersAndAccounts,
 } from "@/lib/portfolio-api";
 import { IdentifierType } from "@/gen/api/v1/api_pb";
 import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
@@ -12,6 +13,7 @@ import { DeclarationForm } from "./declaration-form";
 
 export function OpeningBalances() {
   const [declarations, setDeclarations] = useState<HoldingDeclaration[]>([]);
+  const [hasBrokers, setHasBrokers] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -21,8 +23,12 @@ export function OpeningBalances() {
     setLoading(true);
     setError(null);
     try {
-      const decls = await listHoldingDeclarations();
+      const [decls, brokers] = await Promise.all([
+        listHoldingDeclarations(),
+        listBrokersAndAccounts(),
+      ]);
       setDeclarations(decls);
+      setHasBrokers(brokers.length > 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -63,7 +69,12 @@ export function OpeningBalances() {
     <>
       {loading && <p className="text-text-muted">Loading checkpoints...</p>}
       {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
-      {!loading && !error && (
+      {!loading && !error && !hasBrokers && (
+        <p className="text-sm text-text-muted">
+          There are no transactions. Upload some transactions in order to create an opening balance.
+        </p>
+      )}
+      {!loading && !error && hasBrokers && (
         <>
           <div className="flex justify-end">
             <button

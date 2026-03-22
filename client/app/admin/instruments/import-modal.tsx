@@ -91,7 +91,7 @@ export function ImportInstrumentsModal({
         {phase === "idle" && (
           <div className="space-y-3">
             <p className="text-sm text-text-muted">
-              Select a JSON file to import instrument identities. Instruments will be upserted.
+              Select a JSON file to import instruments.
             </p>
             <input
               ref={fileRef}

@@ -281,7 +281,10 @@ function PriceListTab() {
 
 function PriceRow({ price: p }: { price: EODPriceProto }) {
   return (
-    <tr className="border-b border-border/40 last:border-0 hover:bg-primary-light/10">
+    <tr className={
+      "border-b border-border/40 last:border-0 hover:bg-primary-light/10" +
+      (p.synthetic ? " opacity-60" : "")
+    }>
       <td className="px-4 py-2 font-medium text-text-primary">
         {p.instrumentDisplayName}
       </td>
@@ -304,7 +307,14 @@ function PriceRow({ price: p }: { price: EODPriceProto }) {
       <td className="px-4 py-2 text-right font-mono text-text-muted">
         {fmtVolume(p.volume)}
       </td>
-      <td className="px-4 py-2 text-text-muted">{p.dataProvider}</td>
+      <td className="px-4 py-2 text-text-muted">
+        {p.dataProvider}
+        {p.synthetic && (
+          <span className="ml-2 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-amber-700">
+            Synthetic
+          </span>
+        )}
+      </td>
     </tr>
   );
 }

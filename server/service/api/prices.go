@@ -57,6 +57,7 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 			Close:                 r.Close,
 			DataProvider:          r.DataProvider,
 			FetchedAt:             timestamppb.New(r.FetchedAt),
+			Synthetic:             r.Synthetic,
 		}
 		if r.Open != nil {
 			p.Open = r.Open

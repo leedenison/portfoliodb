@@ -569,6 +569,7 @@ message EODPriceProto {
   optional int64 volume = 9;
   string data_provider = 10;
   google.protobuf.Timestamp fetched_at = 11;
+  bool synthetic = 12;
 }
 
 message ListPricesRequest {

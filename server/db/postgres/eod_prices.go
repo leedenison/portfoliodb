@@ -58,7 +58,7 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 	q := fmt.Sprintf(`
 		SELECT ep.instrument_id, (%s) AS display_name,
 			ep.price_date, ep.open, ep.high, ep.low, ep.close, ep.adjusted_close,
-			ep.volume, ep.data_provider, ep.fetched_at
+			ep.volume, ep.data_provider, ep.synthetic, ep.fetched_at
 		FROM eod_prices ep
 		JOIN instruments i ON i.id = ep.instrument_id
 		%s
@@ -81,7 +81,7 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 		if err := rows.Scan(
 			&r.InstrumentID, &r.InstrumentDisplayName,
 			&r.PriceDate, &open, &high, &low, &r.Close, &adjClose,
-			&volume, &r.DataProvider, &r.FetchedAt,
+			&volume, &r.DataProvider, &r.Synthetic, &r.FetchedAt,
 		); err != nil {
 			return nil, 0, "", err
 		}
@@ -154,6 +154,7 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 			END
 			LIMIT 1
 		) best_id ON true
+		WHERE NOT ep.synthetic
 		ORDER BY best_id.identifier_type, best_id.value, ep.price_date
 	`
 	var rows []exportPriceRow

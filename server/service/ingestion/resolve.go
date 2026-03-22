@@ -199,6 +199,8 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 	if len(configs) > 0 && counter != nil {
 		counter.IncrBy(ctx, "instruments.resolution.totals.description.attempts", int64(len(items)))
 	}
+	resolved := make(map[string]bool)
+	merged := make(map[string][]identifier.Identifier)
 	for _, c := range configs {
 		p := descRegistry.Get(c.PluginID)
 		if p == nil {
@@ -207,6 +209,9 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 		acceptable := p.AcceptableSecurityTypes()
 		var filtered []description.BatchItem
 		for _, item := range items {
+			if resolved[item.ID] {
+				continue
+			}
 			if len(acceptable) == 0 || acceptable[item.Hints.SecurityTypeHint] {
 				filtered = append(filtered, item)
 			}
@@ -226,18 +231,24 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 		hasAny := false
 		for id, hints := range out {
 			filteredHints := filterIdentifierHints(ctx, hints)
-			out[id] = filteredHints
 			if len(filteredHints) > 0 {
+				merged[id] = filteredHints
+				resolved[id] = true
 				hasAny = true
 			}
 		}
 		if hasAny {
 			for id, hints := range out {
-				ingestionLogger().DebugContext(ctx, "description plugin batch result: hints", "plugin_id", c.PluginID, "batch_id", id, "instrument_description", batchItemDescByID(filtered, id), "hints", hintsSummary(hints))
+				if len(hints) > 0 {
+					ingestionLogger().DebugContext(ctx, "description plugin batch result: hints", "plugin_id", c.PluginID, "batch_id", id, "instrument_description", batchItemDescByID(filtered, id), "hints", hintsSummary(hints))
+				}
 			}
-			return out, nil
+		} else {
+			ingestionLogger().DebugContext(ctx, "description plugin batch result: no hints", "plugin_id", c.PluginID, "batch_ids", batchItemIDs(filtered))
 		}
-		ingestionLogger().DebugContext(ctx, "description plugin batch result: no hints", "plugin_id", c.PluginID, "batch_ids", batchItemIDs(filtered))
+	}
+	if len(merged) > 0 {
+		return merged, nil
 	}
 	if counter != nil {
 		counter.Incr(ctx, "instruments.resolution.totals.description.no_hints")

@@ -9,6 +9,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	descpkg "github.com/leedenison/portfoliodb/server/identifier/description"
 	"go.uber.org/mock/gomock"
 )
 
@@ -564,6 +565,84 @@ func TestTimeoutFromConfig(t *testing.T) {
 				t.Errorf("timeoutFromConfig() = %v (%.1fs), want ~%.1fs", d, got, tt.wantSecs)
 			}
 		})
+	}
+}
+
+// fakeDescPlugin is a test double for description.Plugin.
+type fakeDescPlugin struct {
+	acceptable map[string]bool
+	results    map[string][]identifier.Identifier
+	err        error
+}
+
+func (p *fakeDescPlugin) DisplayName() string              { return "FakeDesc" }
+func (p *fakeDescPlugin) DefaultConfig() []byte            { return nil }
+func (p *fakeDescPlugin) AcceptableSecurityTypes() map[string]bool { return p.acceptable }
+func (p *fakeDescPlugin) ExtractBatch(_ context.Context, _ []byte, _, _ string, items []descpkg.BatchItem) (map[string][]identifier.Identifier, error) {
+	if p.err != nil {
+		return nil, p.err
+	}
+	out := make(map[string][]identifier.Identifier)
+	for _, item := range items {
+		if hints, ok := p.results[item.ID]; ok {
+			out[item.ID] = hints
+		}
+	}
+	return out, nil
+}
+
+// TestRunDescriptionPluginsBatch_MultiplePlugins_DifferentSecurityTypes verifies
+// that when two description plugins handle disjoint security types, both get to
+// process their respective items. Regression test for a bug where the first
+// plugin returning any hints caused an early return, starving later plugins.
+func TestRunDescriptionPluginsBatch_MultiplePlugins_DifferentSecurityTypes(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+
+	cashPlugin := &fakeDescPlugin{
+		acceptable: map[string]bool{identifier.SecurityTypeHintCash: true},
+		results: map[string][]identifier.Identifier{
+			"cash-1": {{Type: "CURRENCY", Value: "USD"}},
+		},
+	}
+	stockPlugin := &fakeDescPlugin{
+		acceptable: map[string]bool{identifier.SecurityTypeHintStock: true},
+		results: map[string][]identifier.Identifier{
+			"stock-1": {{Type: "TICKER", Value: "AAPL"}},
+		},
+	}
+
+	descRegistry := descpkg.NewRegistry()
+	descRegistry.Register("cash", cashPlugin)
+	descRegistry.Register("stock", stockPlugin)
+
+	// Cash plugin has higher precedence (returned first by DESC ordering).
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
+		Return([]db.PluginConfigRow{
+			{PluginID: "cash", Precedence: 2, Config: nil},
+			{PluginID: "stock", Precedence: 1, Config: nil},
+		}, nil)
+
+	items := []descpkg.BatchItem{
+		{ID: "cash-1", InstrumentDescription: "USD", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintCash}},
+		{ID: "stock-1", InstrumentDescription: "AAPL APPLE INC", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
+	}
+
+	got, err := runDescriptionPluginsBatch(context.Background(), database, descRegistry, nil, "broker", "source", items)
+	if err != nil {
+		t.Fatalf("runDescriptionPluginsBatch: %v", err)
+	}
+
+	if got == nil {
+		t.Fatal("expected non-nil result map")
+	}
+	if hints, ok := got["cash-1"]; !ok || len(hints) == 0 {
+		t.Errorf("cash-1: expected CURRENCY hint, got %v", hints)
+	}
+	if hints, ok := got["stock-1"]; !ok || len(hints) == 0 {
+		t.Error("stock-1: expected TICKER hint, got nothing (stock plugin was never called)")
 	}
 }
 

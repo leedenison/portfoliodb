@@ -146,12 +146,14 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{fxInstID}).Return(nil, nil)
-	mockDB.EXPECT().GetInstrument(gomock.Any(), fxInstID).Return(&db.InstrumentRow{
-		ID:         fxInstID,
-		AssetClass: strPtr("FX"),
-		Currency:   strPtr("USD"),
-		Identifiers: []db.IdentifierInput{
-			{Type: "FX_PAIR", Value: "EURUSD"},
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{fxInstID}).Return([]*db.InstrumentRow{
+		{
+			ID:         fxInstID,
+			AssetClass: strPtr("FX"),
+			Currency:   strPtr("USD"),
+			Identifiers: []db.IdentifierInput{
+				{Type: "FX_PAIR", Value: "EURUSD"},
+			},
 		},
 	}, nil)
 	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), fxInstID, pluginID, gomock.Any(), from, to).Return(nil)
@@ -223,11 +225,13 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 	// Return blocked for this (instrument, plugin) pair.
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(
 		map[string]map[string]bool{instID: {pluginID: true}}, nil)
-	mockDB.EXPECT().GetInstrument(gomock.Any(), instID).Return(&db.InstrumentRow{
-		ID:         instID,
-		AssetClass: strPtr("STOCK"),
-		Identifiers: []db.IdentifierInput{
-			{Type: "TICKER", Value: "AAPL"},
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
+		{
+			ID:         instID,
+			AssetClass: strPtr("STOCK"),
+			Identifiers: []db.IdentifierInput{
+				{Type: "TICKER", Value: "AAPL"},
+			},
 		},
 	}, nil)
 
@@ -264,11 +268,13 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
-	mockDB.EXPECT().GetInstrument(gomock.Any(), instID).Return(&db.InstrumentRow{
-		ID:         instID,
-		AssetClass: strPtr("STOCK"),
-		Identifiers: []db.IdentifierInput{
-			{Type: "TICKER", Value: "AAPL"},
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
+		{
+			ID:         instID,
+			AssetClass: strPtr("STOCK"),
+			Identifiers: []db.IdentifierInput{
+				{Type: "TICKER", Value: "AAPL"},
+			},
 		},
 	}, nil)
 	mockDB.EXPECT().CreatePriceFetchBlock(gomock.Any(), instID, pluginID, "ticker not found").Return(nil)
@@ -311,11 +317,13 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
 	}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
-	mockDB.EXPECT().GetInstrument(gomock.Any(), instID).Return(&db.InstrumentRow{
-		ID:         instID,
-		AssetClass: strPtr("STOCK"),
-		Identifiers: []db.IdentifierInput{
-			{Type: "TICKER", Value: "AAPL"},
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
+		{
+			ID:         instID,
+			AssetClass: strPtr("STOCK"),
+			Identifiers: []db.IdentifierInput{
+				{Type: "TICKER", Value: "AAPL"},
+			},
 		},
 	}, nil)
 	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, gomock.Any(), gomock.Any(), to).Return(nil)
@@ -356,11 +364,13 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
 	}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
-	mockDB.EXPECT().GetInstrument(gomock.Any(), instID).Return(&db.InstrumentRow{
-		ID:         instID,
-		AssetClass: strPtr("STOCK"),
-		Identifiers: []db.IdentifierInput{
-			{Type: "TICKER", Value: "AAPL"},
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
+		{
+			ID:         instID,
+			AssetClass: strPtr("STOCK"),
+			Identifiers: []db.IdentifierInput{
+				{Type: "TICKER", Value: "AAPL"},
+			},
 		},
 	}, nil)
 

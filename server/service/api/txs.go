@@ -41,37 +41,46 @@ func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	// Enrich with Instrument when instrument_id is set
-	underlyingIDs := make(map[string]struct{})
+	// Batch-load instruments for enrichment
+	instIDs := make([]string, 0, len(txs))
 	for _, pt := range txs {
 		if pt.GetTx().GetInstrumentId() != "" {
-			inst, err := s.db.GetInstrument(ctx, pt.Tx.InstrumentId)
-			if err == nil && inst != nil {
-				pt.Instrument = instrumentRowToProto(inst)
-				if inst.UnderlyingID != nil && *inst.UnderlyingID != "" {
-					underlyingIDs[*inst.UnderlyingID] = struct{}{}
-				}
-			}
+			instIDs = append(instIDs, pt.Tx.InstrumentId)
 		}
 	}
-	// Single batch query for all underlyings
-	if len(underlyingIDs) > 0 {
-		ids := make([]string, 0, len(underlyingIDs))
-		for id := range underlyingIDs {
-			ids = append(ids, id)
-		}
-		underlyingRows, err := s.db.ListInstrumentsByIDs(ctx, ids)
+	if len(instIDs) > 0 {
+		instRows, err := s.db.ListInstrumentsByIDs(ctx, instIDs)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
-		underlyingByID := make(map[string]*db.InstrumentRow)
-		for _, r := range underlyingRows {
-			underlyingByID[r.ID] = r
+		instByID := make(map[string]*db.InstrumentRow, len(instRows))
+		underlyingIDs := make([]string, 0)
+		for _, r := range instRows {
+			instByID[r.ID] = r
+			if r.UnderlyingID != nil && *r.UnderlyingID != "" {
+				underlyingIDs = append(underlyingIDs, *r.UnderlyingID)
+			}
 		}
 		for _, pt := range txs {
-			if pt.Instrument != nil && pt.Instrument.UnderlyingId != "" {
-				if u := underlyingByID[pt.Instrument.UnderlyingId]; u != nil {
-					pt.Instrument.Underlying = instrumentRowToProto(u)
+			if inst := instByID[pt.GetTx().GetInstrumentId()]; inst != nil {
+				pt.Instrument = instrumentRowToProto(inst)
+			}
+		}
+		// Batch-load underlyings
+		if len(underlyingIDs) > 0 {
+			underlyingRows, err := s.db.ListInstrumentsByIDs(ctx, underlyingIDs)
+			if err != nil {
+				return nil, status.Error(codes.Internal, err.Error())
+			}
+			underlyingByID := make(map[string]*db.InstrumentRow, len(underlyingRows))
+			for _, r := range underlyingRows {
+				underlyingByID[r.ID] = r
+			}
+			for _, pt := range txs {
+				if pt.Instrument != nil && pt.Instrument.UnderlyingId != "" {
+					if u := underlyingByID[pt.Instrument.UnderlyingId]; u != nil {
+						pt.Instrument.Underlying = instrumentRowToProto(u)
+					}
 				}
 			}
 		}

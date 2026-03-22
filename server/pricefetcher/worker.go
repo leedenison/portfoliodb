@@ -100,19 +100,32 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		return
 	}
 
-	processGaps(ctx, database, plugins, allGaps, blocked, log)
+	// Batch-load all instruments for the gaps
+	instRows, err := database.ListInstrumentsByIDs(ctx, instIDs)
+	if err != nil {
+		if log != nil {
+			log.ErrorContext(ctx, "price fetch: load instruments", "err", err)
+		}
+		return
+	}
+	instByID := make(map[string]*db.InstrumentRow, len(instRows))
+	for _, r := range instRows {
+		instByID[r.ID] = r
+	}
+
+	processGaps(ctx, database, plugins, allGaps, instByID, blocked, log)
 }
 
 // processGaps iterates instrument gaps and fetches prices from matching plugins.
-func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gaps []db.InstrumentDateRanges, blocked map[string]map[string]bool, log *slog.Logger) {
+func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gaps []db.InstrumentDateRanges, instByID map[string]*db.InstrumentRow, blocked map[string]map[string]bool, log *slog.Logger) {
 	for _, ig := range gaps {
 		if ctx.Err() != nil {
 			return
 		}
-		inst, err := database.GetInstrument(ctx, ig.InstrumentID)
-		if err != nil || inst == nil {
+		inst := instByID[ig.InstrumentID]
+		if inst == nil {
 			if log != nil {
-				log.WarnContext(ctx, "price fetch: get instrument", "id", ig.InstrumentID, "err", err)
+				log.WarnContext(ctx, "price fetch: instrument not found", "id", ig.InstrumentID)
 			}
 			continue
 		}

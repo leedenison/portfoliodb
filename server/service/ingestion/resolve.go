@@ -187,60 +187,6 @@ func resolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 	return ids, nil
 }
 
-const singleItemBatchID = "1"
-
-// runDescriptionPlugins runs enabled description plugins in series by precedence; returns hints from the first that returns ≥1.
-// Only calls plugins that accept the hint's security type. Uses ExtractBatch with a single BatchItem.
-// If descRegistry is nil, returns nil (no hints) without calling the database.
-// When counter is non-nil, increments description.extraction.plugin_error on plugin errors and description.extraction.no_hints when at least one plugin was tried and none returned hints.
-func runDescriptionPlugins(ctx context.Context, database db.PluginConfigDB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, broker, source, instrumentDescription string, hints identifier.Hints) ([]identifier.Identifier, error) {
-	if descRegistry == nil {
-		return nil, nil
-	}
-	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryDescription)
-	if err != nil {
-		return nil, err
-	}
-	if len(configs) > 0 && counter != nil {
-		counter.Incr(ctx, "instruments.resolution.totals.description.attempts")
-	}
-	items := []description.BatchItem{{ID: singleItemBatchID, InstrumentDescription: instrumentDescription, Hints: hints}}
-	var tried int
-	for _, c := range configs {
-		p := descRegistry.Get(c.PluginID)
-		if p == nil {
-			continue
-		}
-		acceptable := p.AcceptableSecurityTypes()
-		if len(acceptable) > 0 && !acceptable[hints.SecurityTypeHint] {
-			ingestionLogger().DebugContext(ctx, "description plugin skipped (security type not acceptable)", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "security_type_hint", hints.SecurityTypeHint)
-			continue
-		}
-		tried++
-		out, err := p.ExtractBatch(ctx, c.Config, broker, source, items)
-		if err != nil {
-			if counter != nil {
-				counter.Incr(ctx, "instruments.resolution.totals.description.plugin_error")
-			}
-			ingestionLogger().DebugContext(ctx, "description plugin result: error", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "err", err)
-			continue
-		}
-		extracted := out[singleItemBatchID]
-		if len(extracted) > 0 {
-			ingestionLogger().DebugContext(ctx, "description plugin result: hints", "plugin_id", c.PluginID, "instrument_description", instrumentDescription, "hints", hintsSummary(extracted))
-			return filterIdentifierHints(ctx, extracted), nil
-		}
-		ingestionLogger().DebugContext(ctx, "description plugin result: no hints", "plugin_id", c.PluginID, "instrument_description", instrumentDescription)
-	}
-	if tried > 0 {
-		if counter != nil {
-			counter.Incr(ctx, "instruments.resolution.totals.description.no_hints")
-		}
-		ingestionLogger().DebugContext(ctx, "description extraction: no plugin returned hints", "source", source, "instrument_description", instrumentDescription)
-	}
-	return nil, nil
-}
-
 // runDescriptionPluginsBatch runs description plugins on all items via ExtractBatch. Only items whose security type is acceptable to a plugin are passed to that plugin. First plugin that returns a non-empty map wins. Result is keyed by BatchItem.ID.
 func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, broker, source string, items []description.BatchItem) (map[string][]identifier.Identifier, error) {
 	if descRegistry == nil || len(items) == 0 {
@@ -338,12 +284,13 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte
 	return inst, ids, err2
 }
 
-// Resolve resolves (source, instrumentDescription) to an instrument_id using DB, then batch cache, then (when no client identifier_hints) description plugins to extract hints, then identifier plugins.
+// Resolve resolves (source, instrumentDescription) to an instrument_id using the batch cache, then (when no client
+// identifier_hints) pre-extracted description hints, then identifier plugins.
+// The caller is responsible for populating cache (DB hits by source+description) and extractedHintsCache
+// (hints from description plugins) before calling Resolve; see the pre-pass in process().
 // When client supplies identifier_hints, resolution is by identifiers only and (source, description) is not stored.
 // hints are optional (exchange, currency, MIC, security type). counter is optional; when non-nil and plugins are invoked, instrument.identify.attempts is incremented.
-// When extractedHintsCache is non-nil (e.g. from runDescriptionPluginsBatch), it is used instead of calling description plugins; key is cacheKey(source, instrumentDescription).
-// When sourceDescriptionCheckedMiss is non-nil and key is in the map, the (source, description) lookup was already done (e.g. in bulk pre-pass) and missed; skip DB lookup and proceed as if id was "".
-func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, rowIndex int32, counter telemetry.CounterIncrementer, extractedHintsCache map[string][]identifier.Identifier, sourceDescriptionCheckedMiss map[string]bool) (resolveResult, error) {
+func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, rowIndex int32, counter telemetry.CounterIncrementer, extractedHintsCache map[string][]identifier.Identifier) (resolveResult, error) {
 	key := cacheKey(source, instrumentDescription)
 	if cache != nil {
 		if r, ok := cache[key]; ok {
@@ -384,36 +331,12 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, counter, false)
 	}
 
-	// Path B: no client hints — DB lookup by (source, description), then description plugins, then identifier plugins.
-	var id string
-	if sourceDescriptionCheckedMiss != nil && sourceDescriptionCheckedMiss[key] {
-		id = "" // already looked up in bulk pre-pass and missed
-	} else {
-		var err error
-		id, err = database.FindInstrumentBySourceDescription(ctx, source, instrumentDescription)
-		if err != nil {
-			return resolveResult{}, err
-		}
-	}
-	if id != "" {
-		r := resolveResult{InstrumentID: id, FirstRowIndex: rowIndex}
-		if cache != nil {
-			cache[key] = r
-		}
-		return r, nil
-	}
-
+	// Path B: no client hints — use pre-extracted description hints, then identifier plugins.
+	// DB lookup by (source, description) and batch description extraction are handled by the
+	// caller's pre-pass; DB hits are already in cache (caught above), misses proceed here.
 	var extractedHints []identifier.Identifier
 	if extractedHintsCache != nil {
 		extractedHints = extractedHintsCache[key]
-	}
-	if extractedHints == nil {
-		// Run description plugins in series; first that returns ≥1 hint wins.
-		var err error
-		extractedHints, err = runDescriptionPlugins(ctx, database, descRegistry, counter, broker, source, instrumentDescription, hints)
-		if err != nil {
-			return resolveResult{}, err
-		}
 	}
 	if len(extractedHints) == 0 {
 		// Extraction failed: ensure broker-description-only and record error.
@@ -422,13 +345,12 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			counter.Incr(ctx, "instruments.resolution.totals.description.extraction_failed")
 		}
 		ingestionLogger().InfoContext(ctx, "instrument resolution: description extraction failed, using broker description only", "source", source, "instrument_description", instrumentDescription)
-		var ensureErr error
-		id, ensureErr = database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil)
+		instID, ensureErr := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil)
 		if ensureErr != nil {
 			return resolveResult{}, ensureErr
 		}
 		r := resolveResult{
-			InstrumentID:  id,
+			InstrumentID:  instID,
 			FirstRowIndex: rowIndex,
 			IdErr:         &db.IdentificationError{RowIndex: rowIndex, InstrumentDescription: instrumentDescription, Message: MsgExtractionFailed},
 		}

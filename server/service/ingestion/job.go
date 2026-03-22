@@ -15,5 +15,4 @@ type JobRequest struct {
 	PeriodFrom *timestamppb.Timestamp
 	PeriodTo   *timestamppb.Timestamp
 	Txs        []*apiv1.Tx
-	Tx         *apiv1.Tx
 }

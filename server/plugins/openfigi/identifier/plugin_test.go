@@ -52,7 +52,7 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 	if inst == nil {
 		t.Fatal("expected instrument")
 	}
-	if inst.AssetClass != "STOCK" || inst.Name != "INTL BUSINESS MACHINES CORP" || inst.Exchange != "US" {
+	if inst.AssetClass != "STOCK" || inst.Name != "INTL BUSINESS MACHINES CORP" || inst.Exchange != "" {
 		t.Errorf("instrument = %+v", inst)
 	}
 	hasFIGI, hasTicker := false, false

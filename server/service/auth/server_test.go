@@ -125,6 +125,14 @@ func (s *stubUserDB) UpdateUserAuthSub(_ context.Context, userID, authSub string
 	return nil
 }
 
+func (s *stubUserDB) GetDisplayCurrency(_ context.Context, userID string) (string, error) {
+	return "USD", nil
+}
+
+func (s *stubUserDB) SetDisplayCurrency(_ context.Context, userID, currency string) error {
+	return nil
+}
+
 // stubSvcAcctDB is a minimal ServiceAccountDB for tests.
 type stubSvcAcctDB struct {
 	row *db.ServiceAccountRow

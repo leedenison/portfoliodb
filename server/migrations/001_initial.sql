@@ -11,6 +11,7 @@ CREATE TABLE users (
   name       TEXT NOT NULL,
   email      TEXT NOT NULL,
   role       TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  display_currency TEXT NOT NULL DEFAULT 'USD',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -103,7 +104,7 @@ CREATE TABLE exchanges (
 -- asset_class: controlled vocabulary. OPTION and FUTURE require underlying_id.
 CREATE TABLE instruments (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  asset_class  TEXT CHECK (asset_class IS NULL OR asset_class IN ('STOCK','ETF','FIXED_INCOME','MUTUAL_FUND','OPTION','FUTURE','CASH','UNKNOWN')),
+  asset_class  TEXT CHECK (asset_class IS NULL OR asset_class IN ('STOCK','ETF','FIXED_INCOME','MUTUAL_FUND','OPTION','FUTURE','CASH','FX','UNKNOWN')),
   exchange_mic TEXT REFERENCES exchanges(mic),
   currency     TEXT,
   name         TEXT,

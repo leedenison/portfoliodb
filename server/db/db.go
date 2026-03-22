@@ -83,6 +83,9 @@ type PriceCacheDB interface {
 	PriceCoverage(ctx context.Context, instrumentIDs []string) ([]InstrumentDateRanges, error)
 	// PriceGaps computes needed ranges minus cached ranges per instrument.
 	PriceGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
+	// FXGaps computes date ranges where FX rates are needed (non-USD instruments
+	// are held) but not yet cached. Returns gaps keyed by FX pair instrument ID.
+	FXGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
 	// UpsertPrices inserts or updates EOD prices. On conflict (instrument_id, price_date)
 	// the existing row is overwritten with the new values.
 	UpsertPrices(ctx context.Context, prices []EODPrice) error
@@ -136,6 +139,10 @@ type UserDB interface {
 	GetUserByEmail(ctx context.Context, email string) (userID string, err error)
 	// UpdateUserAuthSub sets auth_sub for the user (e.g. bind Google sub to existing user found by email).
 	UpdateUserAuthSub(ctx context.Context, userID, authSub string) error
+	// GetDisplayCurrency returns the user's display currency (ISO 4217).
+	GetDisplayCurrency(ctx context.Context, userID string) (string, error)
+	// SetDisplayCurrency updates the user's display currency preference.
+	SetDisplayCurrency(ctx context.Context, userID, currency string) error
 }
 
 // PortfolioFilter is one filter row for a portfolio view.
@@ -185,9 +192,11 @@ type ValuationPoint struct {
 }
 
 // ValuationDB computes daily portfolio values over a date range.
+// displayCurrency is an ISO 4217 code (e.g. "USD"). When empty, the caller
+// should resolve it from the user's stored preference before calling.
 type ValuationDB interface {
-	GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateTo time.Time) ([]ValuationPoint, error)
-	GetUserValuation(ctx context.Context, userID string, dateFrom, dateTo time.Time) ([]ValuationPoint, error)
+	GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateTo time.Time, displayCurrency string) ([]ValuationPoint, error)
+	GetUserValuation(ctx context.Context, userID string, dateFrom, dateTo time.Time, displayCurrency string) ([]ValuationPoint, error)
 }
 
 // JobRow is a job summary for list views.
@@ -301,13 +310,14 @@ const (
 	AssetClassOption      = "OPTION"
 	AssetClassFuture      = "FUTURE"
 	AssetClassCash        = "CASH"
+	AssetClassFX          = "FX"
 	AssetClassUnknown     = "UNKNOWN"
 )
 
 // ValidAssetClasses is the set of allowed asset_class values for validation.
 var ValidAssetClasses = map[string]bool{
 	AssetClassStock: true, AssetClassETF: true, AssetClassFixedIncome: true, AssetClassMutualFund: true,
-	AssetClassOption: true, AssetClassFuture: true, AssetClassCash: true, AssetClassUnknown: true,
+	AssetClassOption: true, AssetClassFuture: true, AssetClassCash: true, AssetClassFX: true, AssetClassUnknown: true,
 }
 
 // InstrumentRow is a single instrument with its identifiers (for API responses).

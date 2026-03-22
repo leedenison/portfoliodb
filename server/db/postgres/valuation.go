@@ -14,7 +14,7 @@ import (
 // Uses TimescaleDB time_bucket_gapfill + locf to forward-fill prices across
 // weekends/holidays and a LATERAL join to forward-fill holdings from the last
 // transaction date.
-func (p *Postgres) GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateTo time.Time) ([]db.ValuationPoint, error) {
+func (p *Postgres) GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateTo time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
 	portUUID, err := uuid.Parse(portfolioID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid portfolio id: %w", err)
@@ -124,7 +124,7 @@ ORDER BY dh.val_date
 
 // GetUserValuation computes daily portfolio values over [dateFrom, dateTo]
 // for all of a user's transactions (no portfolio filter).
-func (p *Postgres) GetUserValuation(ctx context.Context, userID string, dateFrom, dateTo time.Time) ([]db.ValuationPoint, error) {
+func (p *Postgres) GetUserValuation(ctx context.Context, userID string, dateFrom, dateTo time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid user id: %w", err)

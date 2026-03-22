@@ -76,16 +76,12 @@ daily_holdings AS (
     FROM date_series ds
     CROSS JOIN inst_list i
 ),
-gapfilled_prices AS (
-    SELECT
-        instrument_id,
-        time_bucket_gapfill('1 day', price_date, $2::date, $3::date) AS val_date,
-        locf(avg(close)) AS close
+prices AS (
+    SELECT instrument_id, price_date AS val_date, close
     FROM eod_prices
     WHERE instrument_id = ANY(SELECT DISTINCT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL)
-      AND price_date >= ($2::date - INTERVAL '30 days')
+      AND price_date >= $2::date
       AND price_date <= $3::date
-    GROUP BY instrument_id, val_date
 ),
 -- Map held instruments to their FX pair instrument IDs (for currencies != display).
 fx_instruments AS (
@@ -100,32 +96,25 @@ fx_instruments AS (
       AND inst.currency IS NOT NULL
       AND inst.currency != 'USD'
 ),
--- Gapfilled FX rates for each base currency (BASE/USD close values).
-gapfilled_fx_rates AS (
-    SELECT
-        fi.base_currency,
-        time_bucket_gapfill('1 day', ep.price_date, $2::date, $3::date) AS val_date,
-        locf(avg(ep.close)) AS rate
+-- FX rates for each base currency (BASE/USD close values).
+fx_rates AS (
+    SELECT fi.base_currency, ep.price_date AS val_date, ep.close AS rate
     FROM fx_instruments fi
     JOIN eod_prices ep ON ep.instrument_id = fi.fx_instrument_id
-    WHERE ep.price_date >= ($2::date - INTERVAL '30 days')
+    WHERE ep.price_date >= $2::date
       AND ep.price_date <= $3::date
-    GROUP BY fi.base_currency, val_date
 ),
--- Gapfilled rate for the display currency (DISPLAY/USD), only when display != USD.
+-- Rate for the display currency (DISPLAY/USD), only when display != USD.
 display_fx_rate AS (
-    SELECT
-        time_bucket_gapfill('1 day', ep.price_date, $2::date, $3::date) AS val_date,
-        locf(avg(ep.close)) AS rate
+    SELECT ep.price_date AS val_date, ep.close AS rate
     FROM eod_prices ep
     INNER JOIN instrument_identifiers ii
         ON ii.instrument_id = ep.instrument_id
         AND ii.identifier_type = 'FX_PAIR'
         AND ii.value = $4 || 'USD'
     WHERE $4 != 'USD'
-      AND ep.price_date >= ($2::date - INTERVAL '30 days')
+      AND ep.price_date >= $2::date
       AND ep.price_date <= $3::date
-    GROUP BY val_date
 ),
 -- Compute fx_rate per holding: converts from instrument currency to display currency.
 valued AS (
@@ -170,10 +159,10 @@ valued AS (
             ELSE false
         END AS fx_missing
     FROM daily_holdings dh
-    LEFT JOIN gapfilled_prices gp
+    LEFT JOIN prices gp
         ON gp.instrument_id = dh.instrument_id AND gp.val_date = dh.val_date
     LEFT JOIN instruments inst ON inst.id = dh.instrument_id
-    LEFT JOIN gapfilled_fx_rates fr
+    LEFT JOIN fx_rates fr
         ON fr.base_currency = inst.currency AND fr.val_date = dh.val_date
     LEFT JOIN display_fx_rate dfr ON dfr.val_date = dh.val_date
     WHERE dh.qty IS NOT NULL AND dh.qty != 0
@@ -201,8 +190,8 @@ ORDER BY val_date
 }
 
 // GetPortfolioValuation computes daily portfolio values over [dateFrom, dateTo].
-// Uses TimescaleDB time_bucket_gapfill + locf to forward-fill prices across
-// weekends/holidays and a LATERAL join to forward-fill holdings from the last
+// Prices (including synthetic LOCF rows for non-trading days) are joined
+// directly from eod_prices. Holdings are forward-filled from the last
 // transaction date. Holdings are converted to displayCurrency via FX rates.
 func (p *Postgres) GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateTo time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
 	portUUID, err := uuid.Parse(portfolioID)

@@ -33,28 +33,6 @@ func MergeRanges(ranges []DateRange) []DateRange {
 	return merged
 }
 
-// BridgeRanges merges ranges separated by gaps of maxGap or fewer calendar days.
-// This bridges weekend/holiday gaps in price coverage so they are not treated as
-// missing data. Input must be sorted and non-overlapping (as returned by MergeRanges).
-func BridgeRanges(ranges []DateRange, maxGap int) []DateRange {
-	if len(ranges) <= 1 {
-		return ranges
-	}
-	bridgeDur := time.Duration(maxGap) * Day
-	merged := []DateRange{ranges[0]}
-	for _, r := range ranges[1:] {
-		last := &merged[len(merged)-1]
-		if !r.From.After(last.To.Add(bridgeDur)) {
-			if r.To.After(last.To) {
-				last.To = r.To
-			}
-		} else {
-			merged = append(merged, r)
-		}
-	}
-	return merged
-}
-
 // SubtractRanges computes needed minus cached: the portions of needed ranges
 // not covered by any cached range. Both inputs should be sorted and
 // non-overlapping (as returned by MergeRanges). Returns sorted, non-overlapping

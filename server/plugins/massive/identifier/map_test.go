@@ -78,15 +78,7 @@ func TestOptionFromContract(t *testing.T) {
 		SharesPerContract: 100,
 		PrimaryExchange:   "BATO",
 	}
-	underlying := &client.TickerOverviewResult{
-		Ticker:          "AAPL",
-		Name:            "Apple Inc.",
-		Market:          "stocks",
-		PrimaryExchange: "XNAS",
-		CurrencyName:    "usd",
-		CompositeFIGI:   "BBG000B9XRY4",
-	}
-	inst, ids := optionFromContract(contract, underlying)
+	inst, ids := optionFromContract(contract)
 	if inst == nil {
 		t.Fatal("expected instrument")
 	}
@@ -99,15 +91,10 @@ func TestOptionFromContract(t *testing.T) {
 	if inst.Exchange != "BATO" {
 		t.Errorf("Exchange = %q, want BATO", inst.Exchange)
 	}
-	if inst.Currency != "USD" {
-		t.Errorf("Currency = %q, want USD", inst.Currency)
+	if len(inst.UnderlyingIdentifiers) != 1 {
+		t.Fatalf("len(UnderlyingIdentifiers) = %d, want 1", len(inst.UnderlyingIdentifiers))
 	}
-	if inst.Underlying == nil {
-		t.Fatal("expected Underlying")
-	}
-	if inst.Underlying.AssetClass != db.AssetClassStock {
-		t.Errorf("Underlying.AssetClass = %q, want STOCK", inst.Underlying.AssetClass)
-	}
+	assertID(t, inst.UnderlyingIdentifiers[0], "TICKER", "", "AAPL")
 	if len(ids) != 2 {
 		t.Fatalf("len(ids) = %d, want 2", len(ids))
 	}
@@ -120,12 +107,12 @@ func TestOptionFromContract_NoUnderlying(t *testing.T) {
 		Ticker:          "O:AAPL251219C00230000",
 		PrimaryExchange: "BATO",
 	}
-	inst, ids := optionFromContract(contract, nil)
+	inst, ids := optionFromContract(contract)
 	if inst == nil {
 		t.Fatal("expected instrument")
 	}
-	if inst.Underlying != nil {
-		t.Error("expected nil Underlying when no underlying provided")
+	if len(inst.UnderlyingIdentifiers) != 0 {
+		t.Error("expected empty UnderlyingIdentifiers when no underlying ticker")
 	}
 	if len(ids) != 2 {
 		t.Fatalf("len(ids) = %d, want 2", len(ids))

@@ -92,7 +92,9 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	return nil, nil, identifier.ErrNotIdentified
 }
 
-// resolveResults picks a result from the slice, converts it to an instrument, and ensures underlying.
+// resolveResults picks a result from the slice and converts it to an instrument.
+// For derivatives, UnderlyingIdentifiers are populated so the resolution layer can
+// resolve the underlying through the full plugin pipeline.
 // If fallbackFirst is true and there are multiple results with no STOCK+common match, the first result is used.
 // It returns (inst, ids, true) when a result was chosen, (nil, nil, false) otherwise.
 func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, fallbackFirst bool) (*identifier.Instrument, []identifier.Identifier, bool) {
@@ -117,8 +119,14 @@ func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, f
 		}
 	}
 	inst, ids := openFIGIResultToInstrument(&results[idx], p.log)
-	if err := EnsureUnderlying(ctx, p.openfigi, inst, &results[idx], p.getUnderlyingSymbol); err != nil {
-		return nil, nil, false
+	if isDerivative(&results[idx]) {
+		symbol, _, ok := p.getUnderlyingSymbol(ctx, results[idx].Ticker)
+		if !ok || symbol == "" {
+			return nil, nil, false
+		}
+		inst.UnderlyingIdentifiers = []identifier.Identifier{
+			{Type: "TICKER", Value: symbol},
+		}
 	}
 	return inst, ids, true
 }

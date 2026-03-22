@@ -162,7 +162,8 @@ func (p *Plugin) identifyOption(ctx context.Context, c *client.Client, hints []i
 	return p.identifyOptionByOCC(ctx, c, "O:"+compact)
 }
 
-// identifyOptionByOCC calls the options contract API and resolves the underlying via ticker overview.
+// identifyOptionByOCC calls the options contract API and returns the option instrument
+// with UnderlyingIdentifiers for the resolution layer to resolve.
 func (p *Plugin) identifyOptionByOCC(ctx context.Context, c *client.Client, occ string) (*identifier.Instrument, []identifier.Identifier, error) {
 	contract, err := c.OptionsContract(ctx, occ)
 	if err != nil {
@@ -178,24 +179,7 @@ func (p *Plugin) identifyOptionByOCC(ctx context.Context, c *client.Client, occ 
 		}
 		return nil, nil, identifier.ErrNotIdentified
 	}
-	underlying, err := c.TickerOverview(ctx, contract.UnderlyingTicker)
-	if err != nil {
-		if p.log != nil {
-			p.log.WarnContext(ctx, "massive: failed to resolve underlying", "underlying", contract.UnderlyingTicker, "err", err)
-		}
-		// Propagate rate limits so reportOutcome can detect them;
-		// other errors are non-retryable lookup failures.
-		var rl *client.ErrRateLimit
-		if errors.As(err, &rl) {
-			return nil, nil, err
-		}
-		return nil, nil, identifier.ErrNotIdentified
-	}
-	inst, ids := optionFromContract(contract, underlying)
-	if inst.Underlying == nil {
-		// stockFromTicker rejected the underlying (e.g. market != "stocks").
-		return nil, nil, identifier.ErrNotIdentified
-	}
+	inst, ids := optionFromContract(contract)
 	return inst, ids, nil
 }
 

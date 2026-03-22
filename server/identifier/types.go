@@ -3,20 +3,22 @@ package identifier
 import "time"
 
 // Asset class must be one of: STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN.
-// When AssetClass is OPTION or FUTURE, Underlying and UnderlyingIdentifiers should be set so the service can set underlying_id.
+// When AssetClass is OPTION or FUTURE, UnderlyingIdentifiers should be set so the
+// resolution layer can resolve the underlying through the full plugin pipeline.
 
 // Instrument holds canonical security-master data for an instrument.
 // Identification plugins return enough data to find or create this in the DB.
 type Instrument struct {
-	ID         string  // UUID; may be empty when creating new
-	AssetClass string  // one of STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN
+	ID         string // UUID; may be empty when creating new
+	AssetClass string // one of STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN
 	Exchange   string
 	Currency   string
-	Name       string  // optional display name
+	Name       string // optional display name
 
-	// Optional: when this instrument is a derivative (e.g. option, future), the plugin may provide underlying data.
-	Underlying            *Instrument   // canonical data for the underlying instrument
-	UnderlyingIdentifiers []Identifier  // identifiers for the underlying (used with Underlying to ensure underlying first)
+	// When this instrument is a derivative, plugins provide identifier hints for the
+	// underlying. The resolution layer resolves the underlying through the full
+	// plugin pipeline using these hints.
+	UnderlyingIdentifiers []Identifier
 
 	// Optional: when the instrument was available to trade on the exchange.
 	ValidFrom *time.Time

@@ -24,6 +24,17 @@ type Hints struct {
 	SecurityTypeHint string
 }
 
+// UnderlyingSecTypeHint returns the inferred security type for a derivative's
+// underlying. Returns "" if the asset class is not a derivative.
+func UnderlyingSecTypeHint(derivativeAssetClass string) string {
+	switch derivativeAssetClass {
+	case db.AssetClassOption, db.AssetClassFuture:
+		return SecurityTypeHintStock
+	default:
+		return ""
+	}
+}
+
 // AllowedIdentifierTypes is the controlled vocabulary for identifier hint types (proto IdentifierType names).
 // Description plugins must return hints whose Type is in this set; invalid types are discarded at debug log.
 var AllowedIdentifierTypes = map[string]bool{

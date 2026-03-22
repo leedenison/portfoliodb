@@ -28,15 +28,37 @@ func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter 
 	}
 }
 
+// pluginEntry pairs a registered plugin with its config row.
+type pluginEntry struct {
+	id          string
+	plugin      Plugin
+	config      []byte
+	maxHistDays *int
+}
+
 func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger) {
-	gaps, err := database.PriceGaps(ctx, db.HeldRangesOpts{ExtendToToday: true, LookbackDays: 5})
+	opts := db.HeldRangesOpts{ExtendToToday: true, LookbackDays: 5}
+
+	gaps, err := database.PriceGaps(ctx, opts)
 	if err != nil {
 		if log != nil {
 			log.ErrorContext(ctx, "price fetch: gaps", "err", err)
 		}
 		return
 	}
-	if len(gaps) == 0 {
+
+	fxGaps, err := database.FXGaps(ctx, opts)
+	if err != nil {
+		if log != nil {
+			log.ErrorContext(ctx, "price fetch: fx gaps", "err", err)
+		}
+		return
+	}
+
+	allGaps := make([]db.InstrumentDateRanges, 0, len(gaps)+len(fxGaps))
+	allGaps = append(allGaps, gaps...)
+	allGaps = append(allGaps, fxGaps...)
+	if len(allGaps) == 0 {
 		return
 	}
 
@@ -51,13 +73,6 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		return
 	}
 
-	// Build plugin list with their config, ordered by precedence (highest first).
-	type pluginEntry struct {
-		id          string
-		plugin      Plugin
-		config      []byte
-		maxHistDays *int
-	}
 	var plugins []pluginEntry
 	for _, cfg := range configs {
 		p := registry.Get(cfg.PluginID)
@@ -76,7 +91,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 	}
 
 	// Batch-load blocked (instrument, plugin) pairs.
-	instIDs := extractInstrumentIDs(gaps)
+	instIDs := extractInstrumentIDs(allGaps)
 	blocked, err := database.BlockedPluginsForInstruments(ctx, instIDs)
 	if err != nil {
 		if log != nil {
@@ -85,6 +100,11 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		return
 	}
 
+	processGaps(ctx, database, plugins, allGaps, blocked, log)
+}
+
+// processGaps iterates instrument gaps and fetches prices from matching plugins.
+func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gaps []db.InstrumentDateRanges, blocked map[string]map[string]bool, log *slog.Logger) {
 	for _, ig := range gaps {
 		if ctx.Err() != nil {
 			return

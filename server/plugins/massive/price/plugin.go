@@ -63,6 +63,9 @@ func (p *Plugin) AcceptableAssetClasses() map[string]bool {
 
 func (p *Plugin) AcceptableExchanges() map[string]bool { return nil }
 
+// AcceptableCurrencies returns {"USD": true}. FX pair instruments must have
+// currency = 'USD' (the quote currency) in the instruments table for this
+// filter to pass them through to FetchPrices.
 func (p *Plugin) AcceptableCurrencies() map[string]bool {
 	return map[string]bool{"USD": true}
 }

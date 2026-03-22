@@ -10,26 +10,33 @@ import (
 	"github.com/lib/pq"
 )
 
-// GetPortfolioValuation computes daily portfolio values over [dateFrom, dateTo].
-// Uses TimescaleDB time_bucket_gapfill + locf to forward-fill prices across
-// weekends/holidays and a LATERAL join to forward-fill holdings from the last
-// transaction date.
-func (p *Postgres) GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateTo time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
-	portUUID, err := uuid.Parse(portfolioID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid portfolio id: %w", err)
+// valuationQuery returns the full SQL for portfolio valuation with FX conversion.
+// portfolioFilter is the WHERE clause fragment that scopes transactions:
+//   - Portfolio mode: "INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1"
+//   - User mode:      "WHERE t.user_id = $1 AND t.timestamp::date <= $3"
+//
+// The query uses $1 for the scope ID (portfolio or user), $2/$3 for date range,
+// and $4 for displayCurrency.
+func valuationQuery(portfolioMode bool) string {
+	var txSource string
+	if portfolioMode {
+		txSource = `
+    FROM txs t
+    INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
+    WHERE t.timestamp::date <= $3`
+	} else {
+		txSource = `
+    FROM txs t
+    WHERE t.user_id = $1 AND t.timestamp::date <= $3`
 	}
 
-	const q = `
+	return `
 WITH portfolio_txs AS (
     SELECT
         t.instrument_id,
         t.instrument_description,
         t.timestamp::date AS tx_date,
-        SUM(t.quantity) AS daily_qty
-    FROM txs t
-    INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
-    WHERE t.timestamp::date <= $3
+        SUM(t.quantity) AS daily_qty` + txSource + `
     GROUP BY t.instrument_id, t.instrument_description, t.timestamp::date
 ),
 cumulative AS (
@@ -48,7 +55,7 @@ date_series AS (
     SELECT d::date AS val_date
     FROM generate_series($2::date, $3::date, '1 day'::interval) d
 ),
-instruments AS (
+inst_list AS (
     SELECT DISTINCT instrument_id, instrument_description
     FROM cumulative
 ),
@@ -67,7 +74,7 @@ daily_holdings AS (
             LIMIT 1
         ) AS qty
     FROM date_series ds
-    CROSS JOIN instruments i
+    CROSS JOIN inst_list i
 ),
 gapfilled_prices AS (
     SELECT
@@ -79,47 +86,130 @@ gapfilled_prices AS (
       AND price_date >= ($2::date - INTERVAL '30 days')
       AND price_date <= $3::date
     GROUP BY instrument_id, val_date
+),
+-- Map held instruments to their FX pair instrument IDs (for currencies != display).
+fx_instruments AS (
+    SELECT DISTINCT
+        inst.currency AS base_currency,
+        fx_ii.instrument_id AS fx_instrument_id
+    FROM instruments inst
+    INNER JOIN instrument_identifiers fx_ii
+        ON fx_ii.identifier_type = 'FX_PAIR'
+        AND fx_ii.value = inst.currency || 'USD'
+    WHERE inst.id = ANY(SELECT DISTINCT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL)
+      AND inst.currency IS NOT NULL
+      AND inst.currency != 'USD'
+),
+-- Gapfilled FX rates for each base currency (BASE/USD close values).
+gapfilled_fx_rates AS (
+    SELECT
+        fi.base_currency,
+        time_bucket_gapfill('1 day', ep.price_date, $2::date, $3::date) AS val_date,
+        locf(avg(ep.close)) AS rate
+    FROM fx_instruments fi
+    JOIN eod_prices ep ON ep.instrument_id = fi.fx_instrument_id
+    WHERE ep.price_date >= ($2::date - INTERVAL '30 days')
+      AND ep.price_date <= $3::date
+    GROUP BY fi.base_currency, val_date
+),
+-- Gapfilled rate for the display currency (DISPLAY/USD), only when display != USD.
+display_fx_rate AS (
+    SELECT
+        time_bucket_gapfill('1 day', ep.price_date, $2::date, $3::date) AS val_date,
+        locf(avg(ep.close)) AS rate
+    FROM eod_prices ep
+    INNER JOIN instrument_identifiers ii
+        ON ii.instrument_id = ep.instrument_id
+        AND ii.identifier_type = 'FX_PAIR'
+        AND ii.value = $4 || 'USD'
+    WHERE $4 != 'USD'
+      AND ep.price_date >= ($2::date - INTERVAL '30 days')
+      AND ep.price_date <= $3::date
+    GROUP BY val_date
+),
+-- Compute fx_rate per holding: converts from instrument currency to display currency.
+valued AS (
+    SELECT
+        dh.val_date,
+        dh.instrument_id,
+        dh.instrument_description,
+        dh.qty,
+        gp.close,
+        CASE
+            -- No instrument_id or no price: will be unpriced.
+            WHEN dh.instrument_id IS NULL OR gp.close IS NULL THEN NULL
+            -- Instrument currency IS the display currency (or NULL): no conversion.
+            WHEN COALESCE(inst.currency, $4) = $4 THEN dh.qty * gp.close
+            -- Display = USD: fx_rate = BASEUSD_rate.
+            WHEN $4 = 'USD' THEN
+                CASE WHEN fr.rate IS NOT NULL
+                    THEN dh.qty * gp.close * fr.rate
+                    ELSE NULL  -- missing FX rate -> unpriced
+                END
+            -- Display != USD: fx_rate = BASEUSD_rate / DISPLAYUSD_rate.
+            -- For USD-denominated instruments, BASEUSD = 1.0 so fx_rate = 1.0 / DISPLAYUSD.
+            ELSE
+                CASE WHEN dfr.rate IS NOT NULL
+                        AND (COALESCE(inst.currency, 'USD') = 'USD' OR fr.rate IS NOT NULL)
+                    THEN dh.qty * gp.close * COALESCE(fr.rate, 1.0) / dfr.rate
+                    ELSE NULL  -- missing base or display FX rate -> unpriced
+                END
+        END AS converted_value,
+        -- Flag: needs FX conversion but rate is missing.
+        CASE
+            WHEN dh.instrument_id IS NOT NULL AND gp.close IS NOT NULL
+                AND COALESCE(inst.currency, $4) != $4
+                AND (
+                    ($4 = 'USD' AND fr.rate IS NULL)
+                    OR ($4 != 'USD' AND (
+                        dfr.rate IS NULL
+                        OR (fr.rate IS NULL AND COALESCE(inst.currency, 'USD') != 'USD')
+                    ))
+                )
+            THEN true
+            ELSE false
+        END AS fx_missing
+    FROM daily_holdings dh
+    LEFT JOIN gapfilled_prices gp
+        ON gp.instrument_id = dh.instrument_id AND gp.val_date = dh.val_date
+    LEFT JOIN instruments inst ON inst.id = dh.instrument_id
+    LEFT JOIN gapfilled_fx_rates fr
+        ON fr.base_currency = inst.currency AND fr.val_date = dh.val_date
+    LEFT JOIN display_fx_rate dfr ON dfr.val_date = dh.val_date
+    WHERE dh.qty IS NOT NULL AND dh.qty != 0
 )
 SELECT
-    dh.val_date,
-    COALESCE(SUM(dh.qty * gp.close) FILTER (WHERE gp.close IS NOT NULL), 0) AS total_value,
+    val_date,
+    COALESCE(SUM(converted_value), 0) AS total_value,
     COALESCE(
-        array_agg(DISTINCT dh.instrument_description)
-        FILTER (WHERE dh.qty != 0 AND dh.instrument_id IS NOT NULL AND gp.close IS NULL),
+        array_agg(DISTINCT instrument_description)
+        FILTER (WHERE instrument_id IS NOT NULL AND close IS NULL),
         '{}'
     ) || COALESCE(
-        array_agg(DISTINCT dh.instrument_description)
-        FILTER (WHERE dh.qty != 0 AND dh.instrument_id IS NULL),
+        array_agg(DISTINCT instrument_description)
+        FILTER (WHERE instrument_id IS NULL),
+        '{}'
+    ) || COALESCE(
+        array_agg(DISTINCT instrument_description)
+        FILTER (WHERE fx_missing),
         '{}'
     ) AS unpriced_instruments
-FROM daily_holdings dh
-LEFT JOIN gapfilled_prices gp
-    ON gp.instrument_id = dh.instrument_id AND gp.val_date = dh.val_date
-WHERE dh.qty IS NOT NULL AND dh.qty != 0
-GROUP BY dh.val_date
-ORDER BY dh.val_date
+FROM valued
+GROUP BY val_date
+ORDER BY val_date
 `
+}
 
-	rows, err := p.q.QueryxContext(ctx, q, portUUID, dateFrom, dateTo)
+// GetPortfolioValuation computes daily portfolio values over [dateFrom, dateTo].
+// Uses TimescaleDB time_bucket_gapfill + locf to forward-fill prices across
+// weekends/holidays and a LATERAL join to forward-fill holdings from the last
+// transaction date. Holdings are converted to displayCurrency via FX rates.
+func (p *Postgres) GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateTo time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
+	portUUID, err := uuid.Parse(portfolioID)
 	if err != nil {
-		return nil, fmt.Errorf("get portfolio valuation: %w", err)
+		return nil, fmt.Errorf("invalid portfolio id: %w", err)
 	}
-	defer rows.Close()
-
-	var points []db.ValuationPoint
-	for rows.Next() {
-		var pt db.ValuationPoint
-		var unpriced pq.StringArray
-		if err := rows.Scan(&pt.Date, &pt.TotalValue, &unpriced); err != nil {
-			return nil, fmt.Errorf("scan valuation point: %w", err)
-		}
-		pt.UnpricedInstruments = filterEmpty(unpriced)
-		points = append(points, pt)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate valuation rows: %w", err)
-	}
-	return points, nil
+	return p.queryValuation(ctx, valuationQuery(true), portUUID, dateFrom, dateTo, displayCurrency)
 }
 
 // GetUserValuation computes daily portfolio values over [dateFrom, dateTo]
@@ -129,89 +219,13 @@ func (p *Postgres) GetUserValuation(ctx context.Context, userID string, dateFrom
 	if err != nil {
 		return nil, fmt.Errorf("invalid user id: %w", err)
 	}
+	return p.queryValuation(ctx, valuationQuery(false), userUUID, dateFrom, dateTo, displayCurrency)
+}
 
-	const q = `
-WITH portfolio_txs AS (
-    SELECT
-        t.instrument_id,
-        t.instrument_description,
-        t.timestamp::date AS tx_date,
-        SUM(t.quantity) AS daily_qty
-    FROM txs t
-    WHERE t.user_id = $1 AND t.timestamp::date <= $3
-    GROUP BY t.instrument_id, t.instrument_description, t.timestamp::date
-),
-cumulative AS (
-    SELECT
-        instrument_id,
-        instrument_description,
-        tx_date,
-        SUM(daily_qty) OVER (
-            PARTITION BY instrument_id, instrument_description
-            ORDER BY tx_date
-            ROWS UNBOUNDED PRECEDING
-        ) AS position
-    FROM portfolio_txs
-),
-date_series AS (
-    SELECT d::date AS val_date
-    FROM generate_series($2::date, $3::date, '1 day'::interval) d
-),
-instruments AS (
-    SELECT DISTINCT instrument_id, instrument_description
-    FROM cumulative
-),
-daily_holdings AS (
-    SELECT
-        ds.val_date,
-        i.instrument_id,
-        i.instrument_description,
-        (
-            SELECT c.position
-            FROM cumulative c
-            WHERE c.instrument_id IS NOT DISTINCT FROM i.instrument_id
-              AND c.instrument_description = i.instrument_description
-              AND c.tx_date <= ds.val_date
-            ORDER BY c.tx_date DESC
-            LIMIT 1
-        ) AS qty
-    FROM date_series ds
-    CROSS JOIN instruments i
-),
-gapfilled_prices AS (
-    SELECT
-        instrument_id,
-        time_bucket_gapfill('1 day', price_date, $2::date, $3::date) AS val_date,
-        locf(avg(close)) AS close
-    FROM eod_prices
-    WHERE instrument_id = ANY(SELECT DISTINCT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL)
-      AND price_date >= ($2::date - INTERVAL '30 days')
-      AND price_date <= $3::date
-    GROUP BY instrument_id, val_date
-)
-SELECT
-    dh.val_date,
-    COALESCE(SUM(dh.qty * gp.close) FILTER (WHERE gp.close IS NOT NULL), 0) AS total_value,
-    COALESCE(
-        array_agg(DISTINCT dh.instrument_description)
-        FILTER (WHERE dh.qty != 0 AND dh.instrument_id IS NOT NULL AND gp.close IS NULL),
-        '{}'
-    ) || COALESCE(
-        array_agg(DISTINCT dh.instrument_description)
-        FILTER (WHERE dh.qty != 0 AND dh.instrument_id IS NULL),
-        '{}'
-    ) AS unpriced_instruments
-FROM daily_holdings dh
-LEFT JOIN gapfilled_prices gp
-    ON gp.instrument_id = dh.instrument_id AND gp.val_date = dh.val_date
-WHERE dh.qty IS NOT NULL AND dh.qty != 0
-GROUP BY dh.val_date
-ORDER BY dh.val_date
-`
-
-	rows, err := p.q.QueryxContext(ctx, q, userUUID, dateFrom, dateTo)
+func (p *Postgres) queryValuation(ctx context.Context, q string, scopeID uuid.UUID, dateFrom, dateTo time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
+	rows, err := p.q.QueryxContext(ctx, q, scopeID, dateFrom, dateTo, displayCurrency)
 	if err != nil {
-		return nil, fmt.Errorf("get user valuation: %w", err)
+		return nil, fmt.Errorf("valuation query: %w", err)
 	}
 	defer rows.Close()
 

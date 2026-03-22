@@ -49,7 +49,7 @@ func (p *Plugin) DefaultConfig() []byte {
 }
 
 func (p *Plugin) SupportedIdentifierTypes() []string {
-	return []string{"TICKER", "OCC"}
+	return []string{"TICKER", "OCC", "FX_PAIR"}
 }
 
 func (p *Plugin) AcceptableAssetClasses() map[string]bool {
@@ -57,6 +57,7 @@ func (p *Plugin) AcceptableAssetClasses() map[string]bool {
 		db.AssetClassStock:  true,
 		db.AssetClassETF:    true,
 		db.AssetClassOption: true,
+		db.AssetClassFX:     true,
 	}
 }
 
@@ -125,6 +126,14 @@ func tickerForAssetClass(ids []pricefetcher.Identifier, assetClass string) strin
 		for _, id := range ids {
 			if id.Type == "OCC" && id.Value != "" {
 				return "O:" + id.Value
+			}
+		}
+		return ""
+	}
+	if assetClass == db.AssetClassFX {
+		for _, id := range ids {
+			if id.Type == "FX_PAIR" && id.Value != "" {
+				return "C:" + id.Value
 			}
 		}
 		return ""

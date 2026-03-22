@@ -1,0 +1,42 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            adjusted:
+                - "false"
+            apiKey:
+                - REDACTED
+            sort:
+                - asc
+        url: https://api.massive.com/v2/aggs/ticker/C:GBPUSD/range/1/day/2025-01-02/2025-01-03?adjusted=false&apiKey=REDACTED&sort=asc
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"ticker":"C:GBPUSD","queryCount":2,"resultsCount":2,"adjusted":false,"results":[{"v":177214,"vw":1.2437,"o":1.25195,"c":1.23795,"h":1.2541,"l":1.2352,"t":1735776000000,"n":177214},{"v":148193,"vw":1.2405,"o":1.23789,"c":1.242,"h":1.2434,"l":1.2377,"t":1735862400000,"n":148193}],"status":"OK","request_id":"dacf9cb4c6133f431c82c92b1697d9e9","count":2}'
+        headers:
+            Content-Type:
+                - application/json
+            Date:
+                - Sat, 21 Mar 2026 20:07:27 GMT
+            Strict-Transport-Security:
+                - max-age=15724800; includeSubDomains
+            Vary:
+                - Accept-Encoding
+            X-Polygon-Cluster-Name:
+                - polygon-ny5
+            X-Request-Id:
+                - dacf9cb4c6133f431c82c92b1697d9e9
+        status: 200 OK
+        code: 200
+        duration: 81.679306ms

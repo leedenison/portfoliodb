@@ -418,7 +418,7 @@ func TestPriceCoverage_WeekendBridge(t *testing.T) {
 	instID := setupInstrument(t, p, "COV3")
 
 	// Fri Jan 5, Mon Jan 8 (weekend gap = 2 calendar days).
-	// range_agg treats them as separate since there's a gap between Jan 6 and Jan 8.
+	// BridgeRanges merges gaps <= 3 days, so these become one range.
 	insertPrice(t, p, instID, d(2024, 1, 5), 100.0)
 	insertPrice(t, p, instID, d(2024, 1, 8), 100.0)
 
@@ -426,10 +426,9 @@ func TestPriceCoverage_WeekendBridge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("price coverage: %v", err)
 	}
-	// range_agg: [Jan5, Jan6) and [Jan8, Jan9) are separate ranges.
+	// Weekend gap (2 days) is bridged into a single range.
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 5), To: d(2024, 1, 6)},
-		{From: d(2024, 1, 8), To: d(2024, 1, 9)},
+		{From: d(2024, 1, 5), To: d(2024, 1, 9)},
 	})
 }
 
@@ -679,5 +678,301 @@ func TestUpsertPrices_Empty(t *testing.T) {
 	err := p.UpsertPrices(ctx, nil)
 	if err != nil {
 		t.Fatalf("empty upsert should not error: %v", err)
+	}
+}
+
+// --- FXGaps tests ---
+
+// setupInstrumentWithCurrency creates an instrument with a specific asset class and currency.
+func setupInstrumentWithCurrency(t *testing.T, p *Postgres, desc, assetClass, currency string) string {
+	t.Helper()
+	ctx := context.Background()
+	id, err := p.EnsureInstrument(ctx, assetClass, "", currency, desc, []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "TEST", Value: desc, Canonical: false},
+	}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument %s: %v", desc, err)
+	}
+	return id
+}
+
+// lookupFXInstrument finds the FX pair instrument ID for a given currency.
+func lookupFXInstrument(t *testing.T, p *Postgres, currency string) string {
+	t.Helper()
+	ctx := context.Background()
+	id, err := p.FindInstrumentByTypeAndValue(ctx, "FX_PAIR", currency+"USD")
+	if err != nil {
+		t.Fatalf("lookup FX instrument for %s: %v", currency, err)
+	}
+	if id == "" {
+		t.Fatalf("no FX instrument found for %sUSD", currency)
+	}
+	return id
+}
+
+func TestFXGaps_MixedCurrencies(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+
+	// Create instruments: one EUR, one GBP, one USD.
+	eurInst := setupInstrumentWithCurrency(t, p, "SAP", "STOCK", "EUR")
+	gbpInst := setupInstrumentWithCurrency(t, p, "HSBC", "STOCK", "GBP")
+	usdInst := setupInstrumentWithCurrency(t, p, "AAPL-FX", "STOCK", "USD")
+
+	// Buy all three on Jan 10, sell on Feb 10.
+	insertTxs(t, p, userID, eurInst, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "SAP", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+	})
+	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
+		Timestamp: ts(2024, 1, 10), InstrumentDescription: "HSBC", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "A",
+	}, gbpInst); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
+		Timestamp: ts(2024, 2, 10), InstrumentDescription: "HSBC", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: "A",
+	}, gbpInst); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+	if err := p.CreateTx(ctx, userID, "TEST3", "A", &apiv1.Tx{
+		Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-FX", Type: apiv1.TxType_BUYSTOCK, Quantity: 20, Account: "A",
+	}, usdInst); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+	if err := p.CreateTx(ctx, userID, "TEST3", "A", &apiv1.Tx{
+		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-FX", Type: apiv1.TxType_SELLSTOCK, Quantity: -20, Account: "A",
+	}, usdInst); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+
+	// FXGaps should return gaps for EUR/USD and GBP/USD but NOT for USD instruments.
+	eurFX := lookupFXInstrument(t, p, "EUR")
+	gbpFX := lookupFXInstrument(t, p, "GBP")
+
+	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("FXGaps: %v", err)
+	}
+
+	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
+		{From: d(2024, 1, 10), To: d(2024, 2, 10)},
+	})
+	assertInstrumentRanges(t, got, gbpFX, []db.DateRange{
+		{From: d(2024, 1, 10), To: d(2024, 2, 10)},
+	})
+	// USD instrument should NOT produce any FX gaps.
+	assertInstrumentRanges(t, got, usdInst, nil)
+}
+
+func TestFXGaps_PartialCoverage(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+
+	eurInst := setupInstrumentWithCurrency(t, p, "SAP-PC", "STOCK", "EUR")
+	insertTxs(t, p, userID, eurInst, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP-PC", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
+		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "SAP-PC", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+	})
+
+	eurFX := lookupFXInstrument(t, p, "EUR")
+
+	// Insert some FX rate coverage for Jan 13-15.
+	for i := 13; i <= 15; i++ {
+		insertPrice(t, p, eurFX, d(2024, 1, i), 1.08)
+	}
+
+	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("FXGaps: %v", err)
+	}
+
+	// Gaps should be [Jan 10, Jan 13) and [Jan 16, Jan 20).
+	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
+		{From: d(2024, 1, 10), To: d(2024, 1, 13)},
+		{From: d(2024, 1, 16), To: d(2024, 1, 20)},
+	})
+}
+
+func TestFXGaps_AllUSD(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+
+	usdInst := setupInstrumentWithCurrency(t, p, "AAPL-USD", "STOCK", "USD")
+	insertTxs(t, p, userID, usdInst, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-USD", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-USD", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+	})
+
+	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("FXGaps: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected no FX gaps for all-USD portfolio, got %d", len(got))
+	}
+}
+
+func TestFXGaps_MultipleInstrumentsSameCurrency(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+
+	// Two EUR instruments with overlapping hold periods.
+	eurInst1 := setupInstrumentWithCurrency(t, p, "SAP-M1", "STOCK", "EUR")
+	eurInst2 := setupInstrumentWithCurrency(t, p, "BMW-M1", "STOCK", "EUR")
+
+	insertTxs(t, p, userID, eurInst1, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 5), InstrumentDescription: "SAP-M1", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
+		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "SAP-M1", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+	})
+	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
+		Timestamp: ts(2024, 1, 15), InstrumentDescription: "BMW-M1", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "A",
+	}, eurInst2); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
+		Timestamp: ts(2024, 1, 30), InstrumentDescription: "BMW-M1", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: "A",
+	}, eurInst2); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+
+	eurFX := lookupFXInstrument(t, p, "EUR")
+
+	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("FXGaps: %v", err)
+	}
+
+	// Should produce a single merged range for EUR/USD: [Jan 5, Jan 30).
+	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
+		{From: d(2024, 1, 5), To: d(2024, 1, 30)},
+	})
+}
+
+func TestFXGaps_DisplayCurrency_USDHoldings(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+
+	// User holds only USD instruments but sets display=EUR.
+	if err := p.SetDisplayCurrency(ctx, userID, "EUR"); err != nil {
+		t.Fatalf("set display currency: %v", err)
+	}
+
+	usdInst := setupInstrumentWithCurrency(t, p, "AAPL-DC", "STOCK", "USD")
+	insertTxs(t, p, userID, usdInst, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-DC", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+	})
+
+	eurFX := lookupFXInstrument(t, p, "EUR")
+
+	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("FXGaps: %v", err)
+	}
+
+	// Even though all holdings are USD, we need EUR/USD rates because display=EUR.
+	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
+		{From: d(2024, 1, 10), To: d(2024, 2, 10)},
+	})
+}
+
+func TestFXGaps_DisplayCurrency_SkipsSameCurrency(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+
+	// User holds only EUR instruments and display=EUR. No EUR/USD rate needed.
+	if err := p.SetDisplayCurrency(ctx, userID, "EUR"); err != nil {
+		t.Fatalf("set display currency: %v", err)
+	}
+
+	eurInst := setupInstrumentWithCurrency(t, p, "SAP-DC", "STOCK", "EUR")
+	insertTxs(t, p, userID, eurInst, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP-DC", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "SAP-DC", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+	})
+
+	eurFX := lookupFXInstrument(t, p, "EUR")
+
+	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("FXGaps: %v", err)
+	}
+
+	// EUR/USD is still needed from source 1 (held EUR instrument → base currency rate),
+	// but the display currency source should NOT add additional ranges since
+	// instrument currency == display currency.
+	// Source 1 produces [Jan 10, Feb 10) for EUR/USD. No extra from display.
+	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
+		{From: d(2024, 1, 10), To: d(2024, 2, 10)},
+	})
+}
+
+func TestFXGaps_DisplayCurrency_MixedHoldings(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+
+	// User holds GBP instrument Jan 10-20, USD instrument Feb 1-10, display=EUR.
+	if err := p.SetDisplayCurrency(ctx, userID, "EUR"); err != nil {
+		t.Fatalf("set display currency: %v", err)
+	}
+
+	gbpInst := setupInstrumentWithCurrency(t, p, "HSBC-DC", "STOCK", "GBP")
+	usdInst := setupInstrumentWithCurrency(t, p, "AAPL-DC2", "STOCK", "USD")
+
+	insertTxs(t, p, userID, gbpInst, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "HSBC-DC", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "A"},
+		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "HSBC-DC", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: "A"},
+	})
+	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
+		Timestamp: ts(2024, 2, 1), InstrumentDescription: "AAPL-DC2", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A",
+	}, usdInst); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
+		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC2", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A",
+	}, usdInst); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+
+	eurFX := lookupFXInstrument(t, p, "EUR")
+	gbpFX := lookupFXInstrument(t, p, "GBP")
+
+	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("FXGaps: %v", err)
+	}
+
+	// GBP/USD needed from source 1 (held GBP instrument): [Jan 10, Jan 20).
+	assertInstrumentRanges(t, got, gbpFX, []db.DateRange{
+		{From: d(2024, 1, 10), To: d(2024, 1, 20)},
+	})
+
+	// EUR/USD needed from source 2 (display=EUR):
+	// - GBP instrument [Jan 10, Jan 20) has currency != EUR → need EUR/USD
+	// - USD instrument [Feb 1, Feb 10) has currency != EUR (USD, absent from heldToCurrency) → need EUR/USD
+	// Merged: [Jan 10, Jan 20) + [Feb 1, Feb 10)
+	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
+		{From: d(2024, 1, 10), To: d(2024, 1, 20)},
+		{From: d(2024, 2, 1), To: d(2024, 2, 10)},
+	})
+}
+
+func TestFXGaps_Empty(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("FXGaps: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty results, got %d", len(got))
 	}
 }

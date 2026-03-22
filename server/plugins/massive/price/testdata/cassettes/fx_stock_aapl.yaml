@@ -1,0 +1,42 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            adjusted:
+                - "false"
+            apiKey:
+                - REDACTED
+            sort:
+                - asc
+        url: https://api.massive.com/v2/aggs/ticker/AAPL/range/1/day/2025-01-02/2025-01-03?adjusted=false&apiKey=REDACTED&sort=asc
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"ticker":"AAPL","queryCount":2,"resultsCount":2,"adjusted":false,"results":[{"v":5.5740731e+07,"vw":244.3303,"o":248.93,"c":243.85,"h":249.1,"l":241.8201,"t":1735794000000,"n":685448},{"v":4.0244114e+07,"vw":243.0805,"o":243.36,"c":243.36,"h":244.18,"l":241.89,"t":1735880400000,"n":493786}],"status":"OK","request_id":"8aa1c8db35bc1ec6dceeb7d95fed8349","count":2}'
+        headers:
+            Content-Type:
+                - application/json
+            Date:
+                - Sat, 21 Mar 2026 20:07:27 GMT
+            Strict-Transport-Security:
+                - max-age=15724800; includeSubDomains
+            Vary:
+                - Accept-Encoding
+            X-Polygon-Cluster-Name:
+                - polygon-ny5
+            X-Request-Id:
+                - 8aa1c8db35bc1ec6dceeb7d95fed8349
+        status: 200 OK
+        code: 200
+        duration: 105.71897ms

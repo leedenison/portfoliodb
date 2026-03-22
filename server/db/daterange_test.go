@@ -86,6 +86,74 @@ func TestMergeRanges(t *testing.T) {
 	}
 }
 
+func TestBridgeRanges(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  []DateRange
+		maxGap int
+		expect []DateRange
+	}{
+		{
+			name:   "empty",
+			input:  nil,
+			maxGap: 3,
+			expect: nil,
+		},
+		{
+			name:   "single",
+			input:  []DateRange{{d(2024, 1, 1), d(2024, 1, 5)}},
+			maxGap: 3,
+			expect: []DateRange{{d(2024, 1, 1), d(2024, 1, 5)}},
+		},
+		{
+			name: "weekend gap bridged",
+			input: []DateRange{
+				{d(2024, 1, 5), d(2024, 1, 6)}, // Fri
+				{d(2024, 1, 8), d(2024, 1, 9)}, // Mon
+			},
+			maxGap: 3,
+			expect: []DateRange{{d(2024, 1, 5), d(2024, 1, 9)}},
+		},
+		{
+			name: "3-day gap bridged",
+			input: []DateRange{
+				{d(2024, 1, 1), d(2024, 1, 5)},
+				{d(2024, 1, 8), d(2024, 1, 12)},
+			},
+			maxGap: 3,
+			expect: []DateRange{{d(2024, 1, 1), d(2024, 1, 12)}},
+		},
+		{
+			name: "4-day gap not bridged",
+			input: []DateRange{
+				{d(2024, 1, 1), d(2024, 1, 5)},
+				{d(2024, 1, 9), d(2024, 1, 12)},
+			},
+			maxGap: 3,
+			expect: []DateRange{
+				{d(2024, 1, 1), d(2024, 1, 5)},
+				{d(2024, 1, 9), d(2024, 1, 12)},
+			},
+		},
+		{
+			name: "multiple bridges",
+			input: []DateRange{
+				{d(2024, 1, 1), d(2024, 1, 6)},  // Mon-Sat
+				{d(2024, 1, 8), d(2024, 1, 13)},  // Mon-Sat
+				{d(2024, 1, 15), d(2024, 1, 20)}, // Mon-Sat
+			},
+			maxGap: 3,
+			expect: []DateRange{{d(2024, 1, 1), d(2024, 1, 20)}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := BridgeRanges(tc.input, tc.maxGap)
+			assertRangesEqual(t, tc.expect, got)
+		})
+	}
+}
+
 func TestSubtractRanges(t *testing.T) {
 	tests := []struct {
 		name   string

@@ -2,6 +2,7 @@ package ingestion
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"log/slog"
 
@@ -38,72 +39,119 @@ func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, re
 
 func processJob(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest, priceTrigger chan<- struct{}) {
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_RUNNING)
-	var success bool
-	if j.Bulk {
-		success = processBulk(ctx, database, registry, descRegistry, counter, j)
-	} else {
-		success = processSingle(ctx, database, registry, descRegistry, counter, j)
-	}
-	if success {
+	if process(ctx, database, registry, descRegistry, counter, j) {
+		if err := recalcAfterIngestion(ctx, database, j.UserID); err != nil {
+			log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
+		}
 		pricefetcher.Trigger(priceTrigger)
 	}
 }
 
-func processBulk(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest) bool {
+func process(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest) bool {
+	// Validate.
 	errs := ValidateTxs(j.Txs)
 	if len(errs) > 0 {
 		_ = database.AppendValidationErrors(ctx, j.JobID, errs)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return false
 	}
-	// Drop txs that are not stored (e.g. SPLIT); decision is by TxType.
-	var txsToProcess []*apiv1.Tx
-	var originalIndices []int
-	for i, tx := range j.Txs {
-		if !TxTypeStored(tx.Type) {
-			continue
-		}
-		txsToProcess = append(txsToProcess, tx)
-		originalIndices = append(originalIndices, i)
+	// Filter non-stored tx types (e.g. SPLIT).
+	txsToProcess, originalIndices := filterStoredTxs(j.Txs)
+	if len(txsToProcess) == 0 {
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
+		return true
 	}
 	_ = database.SetJobTotalCount(ctx, j.JobID, int32(len(txsToProcess)))
+	// Extract description hints.
+	cache, extractedHintsCache, err := extractDescHints(ctx, database, descRegistry, counter, j.Source, j.Broker, txsToProcess)
+	if err != nil {
+		log.Printf("ingestion job %s: extract description hints: %v", j.JobID, err)
+		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
+			{RowIndex: -1, Field: "txs", Message: err.Error()},
+		})
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		return false
+	}
+	// Resolve instruments.
+	instrumentIDs, idErrs, err := resolveInstruments(ctx, database, registry, j.Broker, j.Source, j.JobID, counter, txsToProcess, originalIndices, cache, extractedHintsCache)
+	if err != nil {
+		log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
+		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
+			{RowIndex: -1, Field: "instrument_description", Message: err.Error()},
+		})
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		return false
+	}
+	if len(idErrs) > 0 {
+		_ = database.AppendIdentificationErrors(ctx, j.JobID, idErrs)
+	}
+	// Store transactions.
+	var storeErr error
+	if j.Bulk {
+		storeErr = database.ReplaceTxsInPeriod(ctx, j.UserID, j.Broker, j.PeriodFrom, j.PeriodTo, txsToProcess, instrumentIDs)
+	} else {
+		storeErr = database.CreateTx(ctx, j.UserID, j.Broker, txsToProcess[0].GetAccount(), txsToProcess[0], instrumentIDs[0])
+	}
+	if storeErr != nil {
+		log.Printf("ingestion job %s: %v", j.JobID, storeErr)
+		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
+			{RowIndex: -1, Field: "txs", Message: storeErr.Error()},
+		})
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		return false
+	}
+
+	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
+	return true
+}
+
+// filterStoredTxs returns only txs with stored types and their original indices.
+func filterStoredTxs(txs []*apiv1.Tx) ([]*apiv1.Tx, []int) {
+	var filtered []*apiv1.Tx
+	var indices []int
+	for i, tx := range txs {
+		if TxTypeStored(tx.Type) {
+			filtered = append(filtered, tx)
+			indices = append(indices, i)
+		}
+	}
+	return filtered, indices
+}
+
+// extractDescHints looks up each distinct (source, description) in DB and runs
+// batch description extraction for misses. Returns a resolve cache pre-populated
+// with DB hits and an extracted hints cache keyed by cacheKey(source, desc).
+func extractDescHints(ctx context.Context, database db.DB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, source, broker string, txs []*apiv1.Tx) (map[string]resolveResult, map[string][]identifier.Identifier, error) {
 	cache := make(map[string]resolveResult)
 	var extractedHintsCache map[string][]identifier.Identifier
-	sourceDescriptionCheckedMiss := make(map[string]bool) // keys we looked up and got ""; Resolve will skip duplicate DB lookup
-	// Collect distinct (source, description). Look up each in DB first; only run batch description extraction for those that miss (so re-uploads do not call OpenAI again).
 	seen := make(map[string]bool)
 	var batchItems []description.BatchItem
 	idByKey := make(map[string]string)
-	for _, tx := range txsToProcess {
+	for _, tx := range txs {
 		desc := tx.GetInstrumentDescription()
-		key := cacheKey(j.Source, desc)
-		if !seen[key] {
-			seen[key] = true
-			id, err := database.FindInstrumentBySourceDescription(ctx, j.Source, desc)
-			if err != nil {
-				log.Printf("ingestion job %s: find instrument by source description: %v", j.JobID, err)
-				_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
-					{RowIndex: -1, Field: "txs", Message: err.Error()},
-				})
-				_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-				return false
-			}
-			if id != "" {
-				cache[key] = resolveResult{InstrumentID: id}
-			} else {
-				sourceDescriptionCheckedMiss[key] = true
-				batchID := shortHashForBatch(key)
-				idByKey[key] = batchID
-				batchItems = append(batchItems, description.BatchItem{
-					ID:                    batchID,
-					InstrumentDescription: desc,
-					Hints:                 HintsFromTx(tx),
-				})
-			}
+		key := cacheKey(source, desc)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		id, err := database.FindInstrumentBySourceDescription(ctx, source, desc)
+		if err != nil {
+			return nil, nil, err
+		}
+		if id != "" {
+			cache[key] = resolveResult{InstrumentID: id}
+		} else {
+			batchID := shortHashForBatch(key)
+			idByKey[key] = batchID
+			batchItems = append(batchItems, description.BatchItem{
+				ID:                    batchID,
+				InstrumentDescription: desc,
+				Hints:                 HintsFromTx(tx),
+			})
 		}
 	}
 	if len(batchItems) > 0 {
-		hintsByID, err := runDescriptionPluginsBatch(ctx, database, descRegistry, counter, j.Broker, j.Source, batchItems)
+		hintsByID, err := runDescriptionPluginsBatch(ctx, database, descRegistry, counter, broker, source, batchItems)
 		if err == nil && hintsByID != nil {
 			extractedHintsCache = make(map[string][]identifier.Identifier)
 			for key, id := range idByKey {
@@ -111,21 +159,23 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 			}
 		}
 	}
-	instrumentIDs := make([]string, len(txsToProcess))
-	for i, tx := range txsToProcess {
+	return cache, extractedHintsCache, nil
+}
+
+// resolveInstruments resolves each tx to an instrument ID using the pre-populated
+// cache and extracted hints. Returns the instrument IDs (parallel to txs) and any
+// identification errors collected from the cache.
+func resolveInstruments(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, jobID string, counter telemetry.CounterIncrementer, txs []*apiv1.Tx, originalIndices []int, cache map[string]resolveResult, extractedHintsCache map[string][]identifier.Identifier) ([]string, []db.IdentificationError, error) {
+	instrumentIDs := make([]string, len(txs))
+	for i, tx := range txs {
 		desc := tx.GetInstrumentDescription()
 		rowIndex := int32(originalIndices[i])
-		r, err := Resolve(ctx, database, registry, descRegistry, j.Broker, j.Source, desc, HintsFromTx(tx), identifierHintsFromTx(ctx, tx), cache, rowIndex, counter, extractedHintsCache, sourceDescriptionCheckedMiss)
+		r, err := Resolve(ctx, database, registry, broker, source, desc, HintsFromTx(tx), identifierHintsFromTx(ctx, tx), cache, rowIndex, counter, extractedHintsCache)
 		if err != nil {
-			log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
-			_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
-				{RowIndex: rowIndex, Field: "instrument_description", Message: err.Error()},
-			})
-			_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-			return false
+			return nil, nil, fmt.Errorf("row %d: %w", rowIndex, err)
 		}
 		instrumentIDs[i] = r.InstrumentID
-		_ = database.IncrJobProcessedCount(ctx, j.JobID)
+		_ = database.IncrJobProcessedCount(ctx, jobID)
 	}
 	var idErrs []db.IdentificationError
 	for _, r := range cache {
@@ -133,73 +183,5 @@ func processBulk(ctx context.Context, database db.DB, registry *identifier.Regis
 			idErrs = append(idErrs, *r.IdErr)
 		}
 	}
-	if len(idErrs) > 0 {
-		_ = database.AppendIdentificationErrors(ctx, j.JobID, idErrs)
-	}
-	err := database.ReplaceTxsInPeriod(ctx, j.UserID, j.Broker, j.PeriodFrom, j.PeriodTo, txsToProcess, instrumentIDs)
-	if err != nil {
-		log.Printf("ingestion job %s: %v", j.JobID, err)
-		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
-			{RowIndex: -1, Field: "txs", Message: err.Error()},
-		})
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-		return false
-	}
-
-	// Post-ingestion: recalculate INITIALIZE txs. Bulk replace may change the
-	// portfolio start date or alter balances within declaration ranges, so a
-	// full recalc across all user declarations is required.
-	if err := recalcAfterIngestion(ctx, database, j.UserID); err != nil {
-		log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
-	}
-
-	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
-	return true
-}
-
-func processSingle(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest) bool {
-	errs := ValidateTx(j.Tx, 0)
-	if len(errs) > 0 {
-		_ = database.AppendValidationErrors(ctx, j.JobID, errs)
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-		return false
-	}
-	if !TxTypeStored(j.Tx.Type) {
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
-		return true
-	}
-	_ = database.SetJobTotalCount(ctx, j.JobID, 1)
-	desc := j.Tx.GetInstrumentDescription()
-	r, err := Resolve(ctx, database, registry, descRegistry, j.Broker, j.Source, desc, HintsFromTx(j.Tx), identifierHintsFromTx(ctx, j.Tx), nil, 0, counter, nil, nil)
-	if err != nil {
-		log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
-		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
-			{RowIndex: 0, Field: "instrument_description", Message: err.Error()},
-		})
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-		return false
-	}
-	_ = database.IncrJobProcessedCount(ctx, j.JobID)
-	if r.IdErr != nil {
-		_ = database.AppendIdentificationErrors(ctx, j.JobID, []db.IdentificationError{*r.IdErr})
-	}
-	err = database.CreateTx(ctx, j.UserID, j.Broker, j.Tx.GetAccount(), j.Tx, r.InstrumentID)
-	if err != nil {
-		log.Printf("ingestion job %s: %v", j.JobID, err)
-		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
-			{RowIndex: 0, Field: "tx", Message: err.Error()},
-		})
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-		return false
-	}
-
-	// Post-ingestion: recalculate INITIALIZE txs. A single tx addition may
-	// change the portfolio start date (if it is the earliest tx) or alter a
-	// holding's running balance within a declaration range.
-	if err := recalcAfterIngestion(ctx, database, j.UserID); err != nil {
-		log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
-	}
-
-	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
-	return true
+	return instrumentIDs, idErrs, nil
 }

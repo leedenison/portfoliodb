@@ -212,7 +212,7 @@ func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
 		Broker: "IBKR",
 		Source: "IBKR:test:statement",
 		Bulk:   false,
-		Tx:     &apiv1.Tx{Timestamp: timestamppb.Now(), InstrumentDescription: "SPLIT", Type: apiv1.TxType_SPLIT, Quantity: 1, Account: ""},
+		Txs:    []*apiv1.Tx{{Timestamp: timestamppb.Now(), InstrumentDescription: "SPLIT", Type: apiv1.TxType_SPLIT, Quantity: 1, Account: ""}},
 	}
 
 	database.EXPECT().
@@ -221,6 +221,9 @@ func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-single-split", apiv1.JobStatus_SUCCESS).
 		Return(nil)
+	database.EXPECT().
+		ListHoldingDeclarations(gomock.Any(), "user-1").
+		Return(nil, nil)
 	// No Resolve, no CreateTx - SPLIT is dropped
 
 	processJob(ctx, database, registry, nil, nil, j, nil)

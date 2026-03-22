@@ -93,7 +93,7 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 		Broker: brokerStr,
 		Source: req.GetSource(),
 		Bulk:   false,
-		Tx:     req.Tx,
+		Txs:    []*apiv1.Tx{req.Tx},
 	}:
 	default:
 		return nil, status.Error(codes.Unavailable, "job queue full")

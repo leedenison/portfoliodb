@@ -90,9 +90,9 @@ func TestPlugin_Identify_SplitTickerNormalized(t *testing.T) {
 	searchResp := `[{"Code":"BRK-B","Exchange":"US","Name":"Berkshire Hathaway","Type":"Common Stock","Currency":"USD","ISIN":"US0846707026","isPrimary":true}]`
 
 	srv, httpClient := testServer(func(w http.ResponseWriter, r *http.Request) {
-		// Verify the API receives dot-separated ticker in the query path.
-		if q := r.URL.Path; q != "/api/search/BRK.B" {
-			t.Errorf("expected /api/search/BRK.B, got %s", q)
+		// Verify the API receives dash-separated ticker in the query path.
+		if q := r.URL.Path; q != "/api/search/BRK-B" {
+			t.Errorf("expected /api/search/BRK-B, got %s", q)
 		}
 		w.Write([]byte(searchResp))
 	})

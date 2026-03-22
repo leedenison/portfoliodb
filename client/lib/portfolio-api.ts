@@ -67,6 +67,10 @@ import {
   DeleteHoldingDeclarationRequestSchema,
   ListHoldingDeclarationsRequestSchema,
   ListHoldingDeclarationsResponseSchema,
+  GetDisplayCurrencyRequestSchema,
+  GetDisplayCurrencyResponseSchema,
+  SetDisplayCurrencyRequestSchema,
+  SetDisplayCurrencyResponseSchema,
   JobStatus,
 } from "@/gen/api/v1/api_pb";
 import type {
@@ -615,12 +619,14 @@ export async function getPortfolioValuation(params: {
   portfolioId?: string;
   dateFrom: string;
   dateTo: string;
+  displayCurrency?: string;
 }): Promise<GetPortfolioValuationResult> {
   const base = getBaseUrl();
   const req = create(GetPortfolioValuationRequestSchema, {
     portfolioId: params.portfolioId ?? "",
     dateFrom: params.dateFrom,
     dateTo: params.dateTo,
+    displayCurrency: params.displayCurrency ?? "",
   });
   const resBytes = await unaryFetch(
     base,
@@ -696,4 +702,26 @@ export async function deleteHoldingDeclaration(id: string): Promise<void> {
   await unaryFetch(base, ApiServicePrefix + "DeleteHoldingDeclaration", toBinary(DeleteHoldingDeclarationRequestSchema, req), {
     credentials: "include",
   });
+}
+
+// Display currency
+
+export async function getDisplayCurrency(): Promise<string> {
+  const base = getBaseUrl();
+  const req = create(GetDisplayCurrencyRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "GetDisplayCurrency", toBinary(GetDisplayCurrencyRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(GetDisplayCurrencyResponseSchema, resBytes);
+  return res.displayCurrency;
+}
+
+export async function setDisplayCurrency(displayCurrency: string): Promise<string> {
+  const base = getBaseUrl();
+  const req = create(SetDisplayCurrencyRequestSchema, { displayCurrency });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "SetDisplayCurrency", toBinary(SetDisplayCurrencyRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(SetDisplayCurrencyResponseSchema, resBytes);
+  return res.displayCurrency;
 }

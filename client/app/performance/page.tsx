@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { usePortfolio } from "@/contexts/portfolio-context";
 import {
   getPortfolioValuation,
+  getDisplayCurrency,
   type ValuationPointUI,
 } from "@/lib/portfolio-api";
 
@@ -56,6 +57,7 @@ export default function PerformancePage() {
   const [points, setPoints] = useState<ValuationPointUI[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [displayCurrency, setDisplayCurrency] = useState<string>("USD");
 
   const dateRange = useMemo(
     () => ({ dateFrom: dateFromPeriod(period), dateTo: yesterdayStr() }),
@@ -67,10 +69,13 @@ export default function PerformancePage() {
       setLoading(true);
       setError(null);
       try {
+        const dc = await getDisplayCurrency();
+        setDisplayCurrency(dc);
         const res = await getPortfolioValuation({
           portfolioId,
           dateFrom: from,
           dateTo: to,
+          displayCurrency: dc,
         });
         setPoints(res.points);
       } catch (e) {
@@ -158,7 +163,7 @@ export default function PerformancePage() {
               <p className="text-text-muted">Loading valuation data...</p>
             )}
             {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
-            {!loading && !error && <PerformanceChart points={points} />}
+            {!loading && !error && <PerformanceChart points={points} displayCurrency={displayCurrency} />}
           </div>
         )}
       </div>

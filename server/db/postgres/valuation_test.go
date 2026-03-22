@@ -469,3 +469,64 @@ func TestGetUserValuation_FXConversion_USDDisplayNonUSD(t *testing.T) {
 		t.Errorf("total value: want %.2f, got %.2f", expected, points[0].TotalValue)
 	}
 }
+
+func TestGetUserValuation_FXConversion_MissingBaseRate(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|fxval5", "U", "u@fxval5.com")
+
+	// GBP instrument displayed in EUR. GBP/USD rate is MISSING, EUR/USD is present.
+	// The base rate (GBPUSD) is needed for the cross-rate but absent.
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "HSBC-MBR", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "HSBC MBR", Canonical: false},
+	}, "", nil, nil)
+
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "HSBC MBR", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "main"},
+	}
+	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
+	to := timestamppb.New(buyDate.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	// Insert GBP instrument price.
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 100.0, DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	// Insert EUR/USD rate but NOT GBP/USD rate.
+	eurFX := lookupFXInstrumentVal(t, p, "EUR")
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: eurFX, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 1.08, DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert fx: %v", err)
+	}
+
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "EUR")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	// Missing GBP/USD base rate: instrument should be unpriced, value = 0.
+	if points[0].TotalValue != 0 {
+		t.Errorf("total value: want 0, got %v", points[0].TotalValue)
+	}
+	found := false
+	for _, name := range points[0].UnpricedInstruments {
+		if name == "HSBC MBR" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected HSBC MBR in unpriced, got %v", points[0].UnpricedInstruments)
+	}
+}

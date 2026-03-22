@@ -55,7 +55,9 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		return
 	}
 
-	allGaps := append(gaps, fxGaps...)
+	allGaps := make([]db.InstrumentDateRanges, 0, len(gaps)+len(fxGaps))
+	allGaps = append(allGaps, gaps...)
+	allGaps = append(allGaps, fxGaps...)
 	if len(allGaps) == 0 {
 		return
 	}

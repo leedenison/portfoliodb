@@ -150,8 +150,9 @@ valued AS (
             -- For USD-denominated instruments, BASEUSD = 1.0 so fx_rate = 1.0 / DISPLAYUSD.
             ELSE
                 CASE WHEN dfr.rate IS NOT NULL
+                        AND (COALESCE(inst.currency, 'USD') = 'USD' OR fr.rate IS NOT NULL)
                     THEN dh.qty * gp.close * COALESCE(fr.rate, 1.0) / dfr.rate
-                    ELSE NULL  -- missing display FX rate -> unpriced
+                    ELSE NULL  -- missing base or display FX rate -> unpriced
                 END
         END AS converted_value,
         -- Flag: needs FX conversion but rate is missing.
@@ -160,7 +161,10 @@ valued AS (
                 AND COALESCE(inst.currency, $4) != $4
                 AND (
                     ($4 = 'USD' AND fr.rate IS NULL)
-                    OR ($4 != 'USD' AND dfr.rate IS NULL)
+                    OR ($4 != 'USD' AND (
+                        dfr.rate IS NULL
+                        OR (fr.rate IS NULL AND COALESCE(inst.currency, 'USD') != 'USD')
+                    ))
                 )
             THEN true
             ELSE false

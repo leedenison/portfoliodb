@@ -154,8 +154,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 			{Type: "FX_PAIR", Value: "EURUSD"},
 		},
 	}, nil)
-	mockDB.EXPECT().LastRealPrice(gomock.Any(), fxInstID, from).Return(0.0, "", false, nil)
-	mockDB.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), fxInstID, pluginID, gomock.Any(), from, to).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil)
 
@@ -319,8 +318,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 			{Type: "TICKER", Value: "AAPL"},
 		},
 	}, nil)
-	mockDB.EXPECT().LastRealPrice(gomock.Any(), instID, gomock.Any()).Return(0.0, "", false, nil)
-	mockDB.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, gomock.Any(), gomock.Any(), to).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil)
 
@@ -373,120 +371,3 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 	}
 }
 
-// --- fillGaps tests ---
-
-func f64(v float64) *float64 { return &v }
-func i64(v int64) *int64     { return &v }
-
-func TestFillGaps_BasicWeekend(t *testing.T) {
-	instID := "inst-1"
-	provider := "test"
-	// Mon-Fri bars, gap range is Mon-Mon (7 days).
-	mon := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	bars := []DailyBar{
-		{Date: mon, Open: f64(100), High: f64(105), Low: f64(99), Close: 102, Volume: i64(1000)},
-		{Date: mon.AddDate(0, 0, 1), Close: 103},
-		{Date: mon.AddDate(0, 0, 2), Close: 104},
-		{Date: mon.AddDate(0, 0, 3), Close: 105},
-		{Date: mon.AddDate(0, 0, 4), Close: 106}, // Fri
-	}
-	from := mon
-	to := mon.AddDate(0, 0, 7) // next Mon (exclusive)
-
-	got := fillGaps(instID, provider, bars, from, to, 0, "", false)
-	if len(got) != 7 {
-		t.Fatalf("expected 7 prices, got %d", len(got))
-	}
-	// Mon-Fri should be real.
-	for i := 0; i < 5; i++ {
-		if got[i].Synthetic {
-			t.Errorf("day %d: expected real, got synthetic", i)
-		}
-	}
-	// Sat-Sun should be synthetic with Friday's close.
-	for i := 5; i < 7; i++ {
-		if !got[i].Synthetic {
-			t.Errorf("day %d: expected synthetic, got real", i)
-		}
-		if got[i].Close != 106 {
-			t.Errorf("day %d: close = %v, want 106", i, got[i].Close)
-		}
-		if got[i].Open != nil || got[i].High != nil || got[i].Low != nil || got[i].Volume != nil {
-			t.Errorf("day %d: synthetic should have nil OHLV fields", i)
-		}
-	}
-}
-
-func TestFillGaps_NoBarsNoSeed(t *testing.T) {
-	got := fillGaps("inst-1", "test", nil, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2024, 1, 4, 0, 0, 0, 0, time.UTC), 0, "", false)
-	if got != nil {
-		t.Errorf("expected nil, got %d prices", len(got))
-	}
-}
-
-func TestFillGaps_NoBarsWithSeed(t *testing.T) {
-	from := time.Date(2024, 1, 6, 0, 0, 0, 0, time.UTC) // Sat
-	to := time.Date(2024, 1, 8, 0, 0, 0, 0, time.UTC)   // Mon (exclusive)
-
-	got := fillGaps("inst-1", "test", nil, from, to, 100.0, "seed-provider", true)
-	if len(got) != 2 {
-		t.Fatalf("expected 2 prices, got %d", len(got))
-	}
-	for _, p := range got {
-		if !p.Synthetic {
-			t.Error("expected synthetic")
-		}
-		if p.Close != 100.0 {
-			t.Errorf("close = %v, want 100.0", p.Close)
-		}
-		if p.DataProvider != "seed-provider" {
-			t.Errorf("provider = %q, want seed-provider", p.DataProvider)
-		}
-	}
-}
-
-func TestFillGaps_NoSeedAtStart(t *testing.T) {
-	// Gap starts on day 1, first bar on day 3. Days 1-2 should be skipped.
-	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	to := time.Date(2024, 1, 5, 0, 0, 0, 0, time.UTC)
-	bars := []DailyBar{
-		{Date: time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC), Close: 50.0},
-	}
-
-	got := fillGaps("inst-1", "test", bars, from, to, 0, "", false)
-	// Day 1, 2 skipped (no seed). Day 3 real, day 4 synthetic.
-	if len(got) != 2 {
-		t.Fatalf("expected 2 prices, got %d", len(got))
-	}
-	if got[0].Synthetic || got[0].PriceDate != time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC) {
-		t.Errorf("day 0: expected real on Jan 3")
-	}
-	if !got[1].Synthetic || got[1].Close != 50.0 {
-		t.Errorf("day 1: expected synthetic with close=50.0")
-	}
-}
-
-func TestFillGaps_SeedFromDB(t *testing.T) {
-	// Seed from DB fills leading days before first bar.
-	from := time.Date(2024, 1, 6, 0, 0, 0, 0, time.UTC) // Sat
-	to := time.Date(2024, 1, 9, 0, 0, 0, 0, time.UTC)   // Tue (exclusive)
-	bars := []DailyBar{
-		{Date: time.Date(2024, 1, 8, 0, 0, 0, 0, time.UTC), Close: 110.0}, // Mon
-	}
-
-	got := fillGaps("inst-1", "test", bars, from, to, 100.0, "seed", true)
-	if len(got) != 3 {
-		t.Fatalf("expected 3 prices, got %d", len(got))
-	}
-	// Sat, Sun should be synthetic from seed (100.0).
-	if !got[0].Synthetic || got[0].Close != 100.0 {
-		t.Errorf("Sat: expected synthetic close=100.0, got synthetic=%v close=%v", got[0].Synthetic, got[0].Close)
-	}
-	if !got[1].Synthetic || got[1].Close != 100.0 {
-		t.Errorf("Sun: expected synthetic close=100.0, got synthetic=%v close=%v", got[1].Synthetic, got[1].Close)
-	}
-	// Mon should be real.
-	if got[2].Synthetic || got[2].Close != 110.0 {
-		t.Errorf("Mon: expected real close=110.0, got synthetic=%v close=%v", got[2].Synthetic, got[2].Close)
-	}
-}

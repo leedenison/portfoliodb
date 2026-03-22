@@ -458,26 +458,87 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 	return nil
 }
 
-// LastRealPrice implements db.PriceCacheDB.
-// It returns the most recent non-synthetic close price and data provider
-// for the instrument before the given date.
-func (p *Postgres) LastRealPrice(ctx context.Context, instrumentID string, before time.Time) (float64, string, bool, error) {
+// UpsertPricesWithFill implements db.PriceCacheDB.
+// It inserts real bars and generates synthetic LOCF prices for every date in
+// [from, to) that has no real bar, all in a single SQL round-trip. The last
+// non-synthetic close price before `from` seeds the forward-fill for dates
+// preceding the first real bar.
+func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provider string, bars []db.EODPrice, from, to time.Time) error {
 	id, err := uuid.Parse(instrumentID)
 	if err != nil {
-		return 0, "", false, fmt.Errorf("last real price: invalid id %q: %w", instrumentID, err)
+		return fmt.Errorf("upsert prices with fill: invalid id %q: %w", instrumentID, err)
 	}
-	var close float64
-	var provider string
-	err = p.q.QueryRowContext(ctx, `
-		SELECT close, data_provider FROM eod_prices
-		WHERE instrument_id = $1 AND price_date < $2 AND NOT synthetic
-		ORDER BY price_date DESC LIMIT 1
-	`, id, before).Scan(&close, &provider)
+
+	dates := make([]time.Time, len(bars))
+	opens := make([]*float64, len(bars))
+	highs := make([]*float64, len(bars))
+	lows := make([]*float64, len(bars))
+	closes := make([]float64, len(bars))
+	volumes := make([]*int64, len(bars))
+	for i, b := range bars {
+		dates[i] = b.PriceDate
+		opens[i] = b.Open
+		highs[i] = b.High
+		lows[i] = b.Low
+		closes[i] = b.Close
+		volumes[i] = b.Volume
+	}
+
+	_, err = p.q.ExecContext(ctx, `
+		WITH
+		seed AS (
+			SELECT close FROM eod_prices
+			WHERE instrument_id = $1 AND price_date < $2::date AND NOT synthetic
+			ORDER BY price_date DESC LIMIT 1
+		),
+		new_bars AS (
+			SELECT unnest($4::date[]) AS price_date,
+				unnest($5::double precision[]) AS bopen,
+				unnest($6::double precision[]) AS bhigh,
+				unnest($7::double precision[]) AS blow,
+				unnest($8::double precision[]) AS bclose,
+				unnest($9::bigint[]) AS bvolume
+		),
+		all_points AS (
+			-- Virtual seed point before range start for LOCF initialization.
+			SELECT ($2::date - 1) AS price_date,
+				NULL::double precision AS bopen, NULL::double precision AS bhigh,
+				NULL::double precision AS blow, s.close AS bclose,
+				NULL::bigint AS bvolume
+			FROM seed s
+			UNION ALL
+			-- Every date in [from, to) with real bar if available.
+			SELECT d::date, nb.bopen, nb.bhigh, nb.blow, nb.bclose, nb.bvolume
+			FROM generate_series($2::date, $3::date - interval '1 day', '1 day') d
+			LEFT JOIN new_bars nb ON nb.price_date = d::date
+		),
+		grouped AS (
+			SELECT *,
+				COUNT(bclose) OVER (ORDER BY price_date) AS grp
+			FROM all_points
+		),
+		locf AS (
+			SELECT price_date,
+				bopen AS open, bhigh AS high, blow AS low,
+				FIRST_VALUE(bclose) OVER (PARTITION BY grp ORDER BY price_date) AS close,
+				bvolume AS volume,
+				(bclose IS NULL) AS synthetic
+			FROM grouped
+		)
+		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, fetched_at)
+		SELECT $1::uuid, price_date, open, high, low, close, volume, $10::text, synthetic, now()
+		FROM locf
+		WHERE price_date >= $2::date AND close IS NOT NULL
+		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
+			open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
+			close = EXCLUDED.close, volume = EXCLUDED.volume,
+			data_provider = EXCLUDED.data_provider, synthetic = EXCLUDED.synthetic,
+			fetched_at = EXCLUDED.fetched_at
+		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
+	`, id, from, to, pq.Array(dates), pq.Array(opens), pq.Array(highs),
+		pq.Array(lows), pq.Array(closes), pq.Array(volumes), provider)
 	if err != nil {
-		if err.Error() == "sql: no rows in result set" {
-			return 0, "", false, nil
-		}
-		return 0, "", false, fmt.Errorf("last real price: %w", err)
+		return fmt.Errorf("upsert prices with fill: %w", err)
 	}
-	return close, provider, true, nil
+	return nil
 }

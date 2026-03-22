@@ -759,56 +759,152 @@ func TestUpsertPrices_RealOverwritesSynthetic(t *testing.T) {
 	}
 }
 
-func TestLastRealPrice(t *testing.T) {
+func TestUpsertPricesWithFill_BasicWeekend(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID := setupInstrument(t, p, "SEED1")
+	instID := setupInstrument(t, p, "FILL1")
 
-	// No prices yet.
-	_, _, ok, err := p.LastRealPrice(ctx, instID, d(2024, 1, 10))
-	if err != nil {
-		t.Fatalf("last real price: %v", err)
+	// Mon-Fri real bars, gap range Mon-Mon (7 days).
+	mon := d(2024, 1, 1)
+	bars := []db.EODPrice{
+		{InstrumentID: instID, PriceDate: mon, Close: 102.0},
+		{InstrumentID: instID, PriceDate: mon.AddDate(0, 0, 1), Close: 103.0},
+		{InstrumentID: instID, PriceDate: mon.AddDate(0, 0, 2), Close: 104.0},
+		{InstrumentID: instID, PriceDate: mon.AddDate(0, 0, 3), Close: 105.0},
+		{InstrumentID: instID, PriceDate: mon.AddDate(0, 0, 4), Close: 106.0}, // Fri
 	}
-	if ok {
-		t.Error("expected ok=false with no prices")
-	}
-
-	// Insert real + synthetic prices.
-	err = p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: 100.0, DataProvider: "test", Synthetic: false},
-		{InstrumentID: instID, PriceDate: d(2024, 1, 4), Close: 100.0, DataProvider: "test", Synthetic: true},
-		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: 102.0, DataProvider: "test", Synthetic: false},
-		{InstrumentID: instID, PriceDate: d(2024, 1, 6), Close: 102.0, DataProvider: "test", Synthetic: true},
-	})
+	to := mon.AddDate(0, 0, 7)
+	err := p.UpsertPricesWithFill(ctx, instID, "test", bars, mon, to)
 	if err != nil {
-		t.Fatalf("upsert: %v", err)
+		t.Fatalf("upsert with fill: %v", err)
 	}
 
-	// Should return Jan 5 (last real before Jan 7).
-	close, provider, ok, err := p.LastRealPrice(ctx, instID, d(2024, 1, 7))
+	// Should have 7 rows: 5 real + 2 synthetic (Sat, Sun).
+	rows, err := p.q.QueryContext(ctx,
+		`SELECT price_date, close, synthetic FROM eod_prices WHERE instrument_id = $1::uuid ORDER BY price_date`, instID)
 	if err != nil {
-		t.Fatalf("last real price: %v", err)
+		t.Fatalf("query: %v", err)
 	}
-	if !ok {
-		t.Fatal("expected ok=true")
+	defer rows.Close()
+
+	type row struct {
+		date      time.Time
+		close     float64
+		synthetic bool
 	}
-	if close != 102.0 {
-		t.Errorf("close = %v, want 102.0", close)
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.date, &r.close, &r.synthetic); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, r)
 	}
-	if provider != "test" {
-		t.Errorf("provider = %q, want test", provider)
+	if len(got) != 7 {
+		t.Fatalf("expected 7 rows, got %d", len(got))
+	}
+	for i := 0; i < 5; i++ {
+		if got[i].synthetic {
+			t.Errorf("day %d: expected real", i)
+		}
+	}
+	for i := 5; i < 7; i++ {
+		if !got[i].synthetic {
+			t.Errorf("day %d: expected synthetic", i)
+		}
+		if got[i].close != 106.0 {
+			t.Errorf("day %d: close = %v, want 106.0", i, got[i].close)
+		}
+	}
+}
+
+func TestUpsertPricesWithFill_SeedFromDB(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "FILL2")
+
+	// Insert a real price on Friday.
+	insertPrice(t, p, instID, d(2024, 1, 5), 100.0)
+
+	// Gap fill Sat-Mon with no new bars (seed from Friday's close).
+	from := d(2024, 1, 6) // Sat
+	to := d(2024, 1, 9)   // Tue (exclusive)
+	err := p.UpsertPricesWithFill(ctx, instID, "test", nil, from, to)
+	if err != nil {
+		t.Fatalf("upsert with fill: %v", err)
 	}
 
-	// Before Jan 4 should return Jan 3 (skipping synthetic on Jan 4).
-	close, _, ok, err = p.LastRealPrice(ctx, instID, d(2024, 1, 4))
+	// Sat, Sun, Mon should be synthetic with close=100.
+	for _, day := range []time.Time{d(2024, 1, 6), d(2024, 1, 7), d(2024, 1, 8)} {
+		var close float64
+		var synthetic bool
+		err := p.q.QueryRowContext(ctx,
+			`SELECT close, synthetic FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
+			instID, day).Scan(&close, &synthetic)
+		if err != nil {
+			t.Fatalf("query %v: %v", day, err)
+		}
+		if !synthetic {
+			t.Errorf("%v: expected synthetic", day.Format("2006-01-02"))
+		}
+		if close != 100.0 {
+			t.Errorf("%v: close = %v, want 100.0", day.Format("2006-01-02"), close)
+		}
+	}
+}
+
+func TestUpsertPricesWithFill_NoSeedNoBars(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "FILL3")
+
+	// No seed, no bars — nothing should be inserted.
+	err := p.UpsertPricesWithFill(ctx, instID, "test", nil, d(2024, 1, 1), d(2024, 1, 4))
 	if err != nil {
-		t.Fatalf("last real price: %v", err)
+		t.Fatalf("upsert with fill: %v", err)
 	}
-	if !ok {
-		t.Fatal("expected ok=true")
+	cov, err := p.PriceCoverage(ctx, []string{instID})
+	if err != nil {
+		t.Fatalf("coverage: %v", err)
 	}
-	if close != 100.0 {
-		t.Errorf("close = %v, want 100.0", close)
+	if len(cov) != 0 {
+		t.Errorf("expected no coverage, got %d instruments", len(cov))
+	}
+}
+
+func TestUpsertPricesWithFill_NoSeedAtStart(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "FILL4")
+
+	// No seed, bar on day 3. Days 1-2 should have no price.
+	bars := []db.EODPrice{
+		{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: 50.0},
+	}
+	err := p.UpsertPricesWithFill(ctx, instID, "test", bars, d(2024, 1, 1), d(2024, 1, 5))
+	if err != nil {
+		t.Fatalf("upsert with fill: %v", err)
+	}
+
+	// Day 3 real, day 4 synthetic. Days 1-2 absent.
+	var count int
+	p.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM eod_prices WHERE instrument_id = $1::uuid`, instID).Scan(&count)
+	if count != 2 {
+		t.Fatalf("expected 2 rows, got %d", count)
+	}
+
+	var synthetic bool
+	p.q.QueryRowContext(ctx,
+		`SELECT synthetic FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
+		instID, d(2024, 1, 3)).Scan(&synthetic)
+	if synthetic {
+		t.Error("day 3: expected real")
+	}
+	p.q.QueryRowContext(ctx,
+		`SELECT synthetic FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
+		instID, d(2024, 1, 4)).Scan(&synthetic)
+	if !synthetic {
+		t.Error("day 4: expected synthetic")
 	}
 }
 

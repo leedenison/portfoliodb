@@ -91,10 +91,10 @@ type PriceCacheDB interface {
 	// real prices always overwrite; synthetic prices only insert when no row exists
 	// or the existing row is also synthetic.
 	UpsertPrices(ctx context.Context, prices []EODPrice) error
-	// LastRealPrice returns the most recent non-synthetic close price and its
-	// data provider for the instrument before the given date.
-	// Returns (0, "", false, nil) when no prior real price exists.
-	LastRealPrice(ctx context.Context, instrumentID string, before time.Time) (close float64, provider string, ok bool, err error)
+	// UpsertPricesWithFill inserts real bars and generates synthetic LOCF prices
+	// for every date in [from, to) that has no real bar, all in a single SQL
+	// statement. The last non-synthetic close before `from` seeds the forward-fill.
+	UpsertPricesWithFill(ctx context.Context, instrumentID, provider string, bars []EODPrice, from, to time.Time) error
 }
 
 // PluginConfigDB provides unified plugin config CRUD for all categories.

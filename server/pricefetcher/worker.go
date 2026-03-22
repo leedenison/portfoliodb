@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"sort"
 	"strings"
 	"time"
 
@@ -171,21 +170,13 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 					break
 				}
 
-				// Look up seed for LOCF before the gap range.
-				seedClose, seedProvider, hasSeed, seedErr := database.LastRealPrice(ctx, ig.InstrumentID, gap.From)
-				if seedErr != nil && log != nil {
-					log.WarnContext(ctx, "price fetch: seed lookup", "instrument", ig.InstrumentID, "err", seedErr)
-				}
-
-				prices := fillGaps(ig.InstrumentID, pe.id, result.Bars, gap.From, gap.To, seedClose, seedProvider, hasSeed)
-				if len(prices) > 0 {
-					if err := database.UpsertPrices(ctx, prices); err != nil {
-						if log != nil {
-							log.ErrorContext(ctx, "price fetch: upsert", "instrument", ig.InstrumentID, "err", err)
-						}
-						allOK = false
-						break
+				prices := barsToEODPrices(ig.InstrumentID, pe.id, result.Bars)
+				if err := database.UpsertPricesWithFill(ctx, ig.InstrumentID, pe.id, prices, gap.From, gap.To); err != nil {
+					if log != nil {
+						log.ErrorContext(ctx, "price fetch: upsert", "instrument", ig.InstrumentID, "err", err)
 					}
+					allOK = false
+					break
 				}
 			}
 			if allOK {
@@ -196,62 +187,6 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 		}
 		_ = fetchedByPlugin
 	}
-}
-
-// fillGaps generates LOCF-filled prices for every calendar day in [from, to).
-// Real bars are emitted as-is; dates without a bar get a synthetic price
-// carrying forward the last known close. If no seed exists and no bars
-// precede a date, that date is skipped (will be reported as unpriced).
-func fillGaps(instrumentID, provider string, bars []DailyBar, from, to time.Time, seedClose float64, seedProvider string, hasSeed bool) []db.EODPrice {
-	if len(bars) == 0 && !hasSeed {
-		return nil
-	}
-
-	// Sort bars by date and build lookup map.
-	sort.Slice(bars, func(i, j int) bool { return bars[i].Date.Before(bars[j].Date) })
-	barMap := make(map[time.Time]DailyBar, len(bars))
-	for _, b := range bars {
-		barMap[b.Date.Truncate(db.Day)] = b
-	}
-
-	lastClose := seedClose
-	lastProvider := seedProvider
-	haveClose := hasSeed
-
-	days := int(to.Sub(from) / db.Day)
-	out := make([]db.EODPrice, 0, days)
-
-	for d := from; d.Before(to); d = d.Add(db.Day) {
-		day := d.Truncate(db.Day)
-		if b, ok := barMap[day]; ok {
-			// Real bar from provider.
-			out = append(out, db.EODPrice{
-				InstrumentID: instrumentID,
-				PriceDate:    day,
-				Open:         b.Open,
-				High:         b.High,
-				Low:          b.Low,
-				Close:        b.Close,
-				Volume:       b.Volume,
-				DataProvider: provider,
-				Synthetic:    false,
-			})
-			lastClose = b.Close
-			lastProvider = provider
-			haveClose = true
-		} else if haveClose {
-			// Synthetic forward-fill.
-			out = append(out, db.EODPrice{
-				InstrumentID: instrumentID,
-				PriceDate:    day,
-				Close:        lastClose,
-				DataProvider: lastProvider,
-				Synthetic:    true,
-			})
-		}
-		// else: no seed yet, skip this date.
-	}
-	return out
 }
 
 // extractInstrumentIDs returns unique instrument IDs from gaps.

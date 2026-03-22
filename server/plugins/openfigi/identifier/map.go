@@ -72,7 +72,7 @@ func openFIGIResultToInstrument(r *OpenFIGIResult, log *slog.Logger) (*identifie
 	}
 	inst := &identifier.Instrument{
 		AssetClass: assetClass,
-		Exchange:   r.ExchCode,
+		Exchange:   "", // OpenFIGI ExchCode (e.g. "US") is not an ISO 10383 MIC
 		Currency:   "", // OpenFIGI often omits; leave empty
 		Name:       name,
 	}

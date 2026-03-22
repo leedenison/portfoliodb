@@ -273,7 +273,7 @@ func TestResolve_BrokerDescriptionAlwaysStored(t *testing.T) {
 	}
 }
 
-func TestResolve_PluginReturnsUnderlying_EnsuresUnderlyingThenDerivative(t *testing.T) {
+func TestResolve_PluginReturnsUnderlying_ResolvesUnderlyingThenDerivative(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -286,15 +286,8 @@ func TestResolve_PluginReturnsUnderlying_EnsuresUnderlyingThenDerivative(t *test
 			Exchange:   "SMART",
 			Currency:   "USD",
 			Name:       "AAPL Call 20250117 200 C",
-			Underlying: &identifier.Instrument{
-				AssetClass: "STOCK",
-				Exchange:   "XNAS",
-				Currency:   "USD",
-				Name:       "Apple Inc.",
-			},
 			UnderlyingIdentifiers: []identifier.Identifier{
-				{Type: "ISIN", Value: "US0378331005"},
-				{Type: "BROKER_DESCRIPTION", Domain: source, Value: "AAPL"},
+				{Type: "TICKER", Value: "AAPL"},
 			},
 		},
 		ids: []identifier.Identifier{{Type: "BROKER_DESCRIPTION", Domain: source, Value: desc}, {Type: "CONID", Value: "12345"}},
@@ -302,22 +295,22 @@ func TestResolve_PluginReturnsUnderlying_EnsuresUnderlyingThenDerivative(t *test
 	})
 
 	ctx := context.Background()
+	// Top-level resolve: DB lookup for the option description.
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", desc).
 		Return("", nil)
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", desc).
 		Return("", nil)
+	// Top-level: list plugins.
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10, Config: nil}}, nil)
-	// First call: ensure underlying (STOCK).
+	// Recursive underlying resolution: DB lookup finds the underlying already exists.
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), "", nil, nil).
-		DoAndReturn(func(_ context.Context, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time) (string, error) {
-			return "underlying-uuid", nil
-		})
-	// Second call: ensure derivative (OPTION) with underlying_id.
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "AAPL").
+		Return("underlying-uuid", nil)
+	// Ensure derivative (OPTION) with underlying_id from recursive resolution.
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "OPTION", "SMART", "USD", "AAPL Call 20250117 200 C", gomock.Any(), "underlying-uuid", nil, nil).
 		Return("option-uuid", nil)

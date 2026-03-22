@@ -339,7 +339,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			return r, nil
 		}
 		// No DB hit: call identifier plugins with hints; do not store (source, description).
-		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, counter, false)
+		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, counter, false, 0)
 	}
 
 	// Path B: no client hints — use pre-extracted description hints, then identifier plugins.
@@ -378,8 +378,8 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	figiHints := hintsByType(extractedHints, "OPENFIGI_SHARE_CLASS")
 	if len(tickerHints) > 0 && len(figiHints) > 0 {
 		// Resolve with nil cache and nil counter so we don't pollute cache or double-count identify attempts.
-		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, tickerHints, nil, key, rowIndex, nil, true)
-		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, figiHints, nil, key, rowIndex, nil, true)
+		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, tickerHints, nil, key, rowIndex, nil, true, 0)
+		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, figiHints, nil, key, rowIndex, nil, true, 0)
 		idByTicker := resultByTicker.InstrumentID
 		idByFigi := resultByFigi.InstrumentID
 		// Consider "unresolved" (broker-description-only) as empty for mismatch check
@@ -395,7 +395,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	}
 
 	// Resolve by (validated) hints; always store (source, description) when ensuring.
-	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, counter, true)
+	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, counter, true, 0)
 }
 
 // hintsByType returns hints whose Type equals typ (e.g. "TICKER", "OPENFIGI_SHARE_CLASS").
@@ -409,9 +409,13 @@ func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identif
 	return out
 }
 
+// maxResolveDepth limits recursive underlying resolution (derivative -> underlying -> stop).
+const maxResolveDepth = 2
+
 // resolveWithIdentifierPlugins calls enabled identifier plugins with the given hints, merges results, and ensures instrument.
 // When storeSourceDescription is false (client supplied hints), (source, description) is not added to identifiers.
-func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, key string, rowIndex int32, counter telemetry.CounterIncrementer, storeSourceDescription bool) (resolveResult, error) {
+// depth tracks recursion for underlying resolution; callers pass 0.
+func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, key string, rowIndex int32, counter telemetry.CounterIncrementer, storeSourceDescription bool, depth int) (resolveResult, error) {
 	// Optional: if all hints already resolve to one instrument in DB, use it (avoids plugin call).
 	ids, err := resolveByHintsDBOnly(ctx, database, identifierHints)
 	if err != nil {
@@ -542,14 +546,17 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 		if inst.ValidTo != nil {
 			validTo = inst.ValidTo
 		}
-		if inst.Underlying != nil && len(inst.UnderlyingIdentifiers) > 0 {
-			underlyingIdns := make([]db.IdentifierInput, 0, len(inst.UnderlyingIdentifiers))
-			for _, idn := range inst.UnderlyingIdentifiers {
-				underlyingIdns = append(underlyingIdns, db.IdentifierInput{Type: idn.Type, Domain: idn.Domain, Value: idn.Value, Canonical: true})
+		if len(inst.UnderlyingIdentifiers) > 0 && depth < maxResolveDepth {
+			uHints := identifier.Hints{
+				SecurityTypeHint: identifier.UnderlyingSecTypeHint(inst.AssetClass),
 			}
-			underlyingID, err = database.EnsureInstrument(ctx, inst.Underlying.AssetClass, inst.Underlying.Exchange, inst.Underlying.Currency, inst.Underlying.Name, underlyingIdns, "", inst.Underlying.ValidFrom, inst.Underlying.ValidTo)
-			if err != nil {
-				return resolveResult{}, err
+			uIdnHints := make([]identifier.Identifier, len(inst.UnderlyingIdentifiers))
+			copy(uIdnHints, inst.UnderlyingIdentifiers)
+			uResult, uErr := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, "", uHints, uIdnHints, nil, "", 0, counter, false, depth+1)
+			if uErr != nil {
+				ingestionLogger().WarnContext(ctx, "underlying resolution failed", "instrument_description", instrumentDescription, "err", uErr)
+			} else if uResult.InstrumentID != "" {
+				underlyingID = uResult.InstrumentID
 			}
 		}
 		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, identifiers, underlyingID, validFrom, validTo)

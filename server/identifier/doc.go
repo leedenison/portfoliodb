@@ -52,8 +52,9 @@
 // # Derivatives
 //
 // When the resolved instrument is a derivative (option, future), the plugin
-// should populate Instrument.Underlying and Instrument.UnderlyingIdentifiers so
-// the caller can ensure the underlying instrument exists before linking it.
+// should populate Instrument.UnderlyingIdentifiers with identifier hints for
+// the underlying. The resolution layer resolves the underlying through the
+// full plugin pipeline using these hints.
 //
 // # Security type filtering
 //

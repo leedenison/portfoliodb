@@ -99,9 +99,7 @@ func TestPlugin_Identify_NoTickerHint(t *testing.T) {
 }
 
 func TestPlugin_Identify_Option_OCC(t *testing.T) {
-	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/v3/reference/options/contracts/O:AAPL251219C00230000":
@@ -116,19 +114,6 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 					StrikePrice:       230.0,
 					SharesPerContract: 100,
 					PrimaryExchange:   "BATO",
-				},
-			}
-			json.NewEncoder(w).Encode(resp)
-		case "/v3/reference/tickers/AAPL":
-			resp := client.APIResponse[client.TickerOverviewResult]{
-				Status: "OK",
-				Results: client.TickerOverviewResult{
-					Ticker:          "AAPL",
-					Name:            "Apple Inc.",
-					Market:          "stocks",
-					PrimaryExchange: "XNAS",
-					CurrencyName:    "usd",
-					CompositeFIGI:   "BBG000B9XRY4",
 				},
 			}
 			json.NewEncoder(w).Encode(resp)
@@ -150,20 +135,11 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 	if inst.AssetClass != db.AssetClassOption {
 		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
 	}
-	if inst.Underlying == nil {
-		t.Fatal("expected Underlying to be set")
-	}
-	if inst.Underlying.Name != "Apple Inc." {
-		t.Errorf("Underlying.Name = %q, want Apple Inc.", inst.Underlying.Name)
-	}
-	if inst.Currency != "USD" {
-		t.Errorf("Currency = %q, want USD (inherited from underlying)", inst.Currency)
+	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{TICKER AAPL}]", inst.UnderlyingIdentifiers)
 	}
 	if len(ids) != 2 {
 		t.Fatalf("len(ids) = %d, want 2", len(ids))
-	}
-	if callCount != 2 {
-		t.Errorf("expected 2 API calls (contract + underlying), got %d", callCount)
 	}
 }
 
@@ -186,20 +162,7 @@ func TestPlugin_Identify_Option_OCC_SpacePadded(t *testing.T) {
 				},
 			}
 			json.NewEncoder(w).Encode(resp)
-		case "/v3/reference/tickers/AAPL":
-			resp := client.APIResponse[client.TickerOverviewResult]{
-				Status: "OK",
-				Results: client.TickerOverviewResult{
-					Ticker:          "AAPL",
-					Name:            "Apple Inc.",
-					Market:          "stocks",
-					PrimaryExchange: "XNAS",
-					CurrencyName:    "usd",
-				},
-			}
-			json.NewEncoder(w).Encode(resp)
 		default:
-			// Space-padded OCC should never reach the server.
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
@@ -218,40 +181,8 @@ func TestPlugin_Identify_Option_OCC_SpacePadded(t *testing.T) {
 	if inst.AssetClass != db.AssetClassOption {
 		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
 	}
-	if inst.Underlying == nil || inst.Underlying.Name != "Apple Inc." {
-		t.Fatal("expected underlying to be resolved")
-	}
-}
-
-func TestPlugin_Identify_Option_UnderlyingLookupFails(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/v3/reference/options/contracts/O:AAPL251219C00230000":
-			resp := client.APIResponse[client.OptionsContractResult]{
-				Status: "OK",
-				Results: client.OptionsContractResult{
-					Ticker:           "O:AAPL251219C00230000",
-					UnderlyingTicker: "AAPL",
-					PrimaryExchange:  "BATO",
-				},
-			}
-			json.NewEncoder(w).Encode(resp)
-		default:
-			// Underlying lookup returns 500.
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-	}))
-	defer srv.Close()
-
-	p := NewPlugin(nil, nil, http.DefaultClient)
-	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
-	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
-	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
-
-	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
-	if !errors.Is(err, identifier.ErrNotIdentified) {
-		t.Fatalf("expected ErrNotIdentified when underlying lookup fails, got %v", err)
+	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{TICKER AAPL}]", inst.UnderlyingIdentifiers)
 	}
 }
 

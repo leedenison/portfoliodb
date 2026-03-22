@@ -121,8 +121,8 @@ func TestIntegration_Massive_Identify(t *testing.T) {
 			if len(ids) == 0 {
 				t.Error("expected at least one identifier")
 			}
-			if tc.wantClass == "OPTION" && inst.Underlying == nil {
-				t.Error("expected underlying instrument for option")
+			if tc.wantClass == "OPTION" && len(inst.UnderlyingIdentifiers) == 0 {
+				t.Error("expected UnderlyingIdentifiers for option")
 			}
 		})
 	}

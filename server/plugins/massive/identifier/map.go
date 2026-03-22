@@ -24,19 +24,18 @@ func stockFromTicker(r *client.TickerOverviewResult) (*identifier.Instrument, []
 	return inst, ids
 }
 
-// optionFromContract maps a Massive options contract and its underlying ticker overview to an Instrument and identifiers.
-func optionFromContract(r *client.OptionsContractResult, underlying *client.TickerOverviewResult) (*identifier.Instrument, []identifier.Identifier) {
+// optionFromContract maps a Massive options contract to an Instrument and identifiers.
+// UnderlyingIdentifiers are populated from underlyingTicker so the resolution layer
+// can resolve the underlying through the full plugin pipeline.
+func optionFromContract(r *client.OptionsContractResult) (*identifier.Instrument, []identifier.Identifier) {
 	inst := &identifier.Instrument{
 		AssetClass: db.AssetClassOption,
 		Exchange:   r.PrimaryExchange,
 		Name:       strings.TrimPrefix(r.Ticker, "O:"),
 	}
-	if underlying != nil {
-		uInst, uIDs := stockFromTicker(underlying)
-		if uInst != nil {
-			inst.Underlying = uInst
-			inst.UnderlyingIdentifiers = uIDs
-			inst.Currency = uInst.Currency
+	if r.UnderlyingTicker != "" {
+		inst.UnderlyingIdentifiers = []identifier.Identifier{
+			{Type: "TICKER", Value: r.UnderlyingTicker},
 		}
 	}
 	var ids []identifier.Identifier

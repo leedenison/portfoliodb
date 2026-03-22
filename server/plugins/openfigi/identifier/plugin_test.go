@@ -268,39 +268,24 @@ func TestPlugin_Identify_ErrNotIdentified_WhenMappingReturnsEmpty(t *testing.T) 
 	}
 }
 
-func TestPlugin_Identify_Option_ErrNotIdentified_WhenUnderlyingLookupFails(t *testing.T) {
-	// OpenFIGI mapping returns an option result, but the underlying ticker lookup
-	// (both mapping and search) returns nothing. The plugin should return ErrNotIdentified.
+func TestPlugin_Identify_Option_ErrNotIdentified_WhenUnderlyingUnparseable(t *testing.T) {
+	// OpenFIGI mapping returns an option result, but the derivative ticker can't
+	// be parsed to extract the underlying symbol. The plugin should return ErrNotIdentified.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/v3/mapping":
-			var jobs []MappingJob
-			if err := json.NewDecoder(r.Body).Decode(&jobs); err != nil || len(jobs) != 1 {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			if jobs[0].IDValue == "AAPL  251219C00200000" {
-				// Return an option result for the OCC symbol.
-				json.NewEncoder(w).Encode([]MappingResponseItem{
-					{Data: []OpenFIGIResult{{
-						FIGI:          "BBG00OPTION1",
-						Ticker:        "AAPL  251219C00200000",
-						Name:          "AAPL Dec 2025 200 Call",
-						ExchCode:      "US",
-						SecurityType:  "Option",
-						SecurityType2: "Equity Option",
-						MarketSector:  "Equity",
-					}}},
-				})
-			} else {
-				// Underlying lookup via mapping: return no results.
-				json.NewEncoder(w).Encode([]MappingResponseItem{{Data: nil}})
-			}
-		case "/v3/search":
-			// Search fallback also returns nothing.
-			json.NewEncoder(w).Encode(SearchResponse{Data: nil})
-		default:
+		if r.URL.Path == "/v3/mapping" {
+			json.NewEncoder(w).Encode([]MappingResponseItem{
+				{Data: []OpenFIGIResult{{
+					FIGI:          "BBG00OPTION1",
+					Ticker:        "UNPARSEABLE",
+					Name:          "Some Exotic Option",
+					ExchCode:      "US",
+					SecurityType:  "Option",
+					SecurityType2: "Equity Option",
+					MarketSector:  "Equity",
+				}}},
+			})
+		} else {
 			http.Error(w, "not found", http.StatusNotFound)
 		}
 	}))
@@ -312,8 +297,8 @@ func TestPlugin_Identify_Option_ErrNotIdentified_WhenUnderlyingLookupFails(t *te
 	})
 	ctx := context.Background()
 	p := NewPlugin(nil, nil, http.DefaultClient)
-	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00200000"}}
-	_, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
+	hints := []identifier.Identifier{{Type: "TICKER", Value: "UNPARSEABLE"}}
+	_, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "Some Exotic Option",
 		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
@@ -321,8 +306,9 @@ func TestPlugin_Identify_Option_ErrNotIdentified_WhenUnderlyingLookupFails(t *te
 }
 
 func TestPlugin_Identify_Option_WithUnderlying(t *testing.T) {
-	// OpenFIGI mapping returns an option result, and the underlying ticker lookup
-	// succeeds. The plugin should return the option with a populated Underlying.
+	// OpenFIGI mapping returns an option result. The plugin should return the option
+	// with UnderlyingIdentifiers populated (underlying resolution is done by the
+	// resolution layer, not the plugin).
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path != "/v3/mapping" {
@@ -343,18 +329,6 @@ func TestPlugin_Identify_Option_WithUnderlying(t *testing.T) {
 					ExchCode:      "US",
 					SecurityType:  "Option",
 					SecurityType2: "Equity Option",
-					MarketSector:  "Equity",
-				}}},
-			})
-		} else if jobs[0].IDValue == "AAPL" {
-			json.NewEncoder(w).Encode([]MappingResponseItem{
-				{Data: []OpenFIGIResult{{
-					FIGI:          "BBG000B9XRY4",
-					Ticker:        "AAPL",
-					Name:          "APPLE INC",
-					ExchCode:      "US",
-					SecurityType:  "Common Stock",
-					SecurityType2: "Common Stock",
 					MarketSector:  "Equity",
 				}}},
 			})
@@ -382,11 +356,8 @@ func TestPlugin_Identify_Option_WithUnderlying(t *testing.T) {
 	if inst.AssetClass != "OPTION" {
 		t.Errorf("inst.AssetClass = %q, want OPTION", inst.AssetClass)
 	}
-	if inst.Underlying == nil {
-		t.Fatal("expected inst.Underlying to be set")
-	}
-	if inst.Underlying.Name != "APPLE INC" {
-		t.Errorf("inst.Underlying.Name = %q, want APPLE INC", inst.Underlying.Name)
+	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{TICKER AAPL}]", inst.UnderlyingIdentifiers)
 	}
 	if len(ids) == 0 {
 		t.Error("expected identifiers")
@@ -419,18 +390,6 @@ func TestPlugin_Identify_Option_OCCSpacePadded(t *testing.T) {
 					MarketSector:  "Equity",
 				}}},
 			})
-		} else if jobs[0].IDValue == "AAPL" {
-			json.NewEncoder(w).Encode([]MappingResponseItem{
-				{Data: []OpenFIGIResult{{
-					FIGI:          "BBG000B9XRY4",
-					Ticker:        "AAPL",
-					Name:          "APPLE INC",
-					ExchCode:      "US",
-					SecurityType:  "Common Stock",
-					SecurityType2: "Common Stock",
-					MarketSector:  "Equity",
-				}}},
-			})
 		} else {
 			json.NewEncoder(w).Encode([]MappingResponseItem{{Data: nil}})
 		}
@@ -456,8 +415,8 @@ func TestPlugin_Identify_Option_OCCSpacePadded(t *testing.T) {
 	if inst.AssetClass != "OPTION" {
 		t.Errorf("inst.AssetClass = %q, want OPTION", inst.AssetClass)
 	}
-	if inst.Underlying == nil || inst.Underlying.Name != "APPLE INC" {
-		t.Fatal("expected underlying to be resolved")
+	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{TICKER AAPL}]", inst.UnderlyingIdentifiers)
 	}
 }
 

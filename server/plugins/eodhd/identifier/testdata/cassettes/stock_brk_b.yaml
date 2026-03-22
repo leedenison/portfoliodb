@@ -17,7 +17,7 @@ interactions:
                 - "10"
             type:
                 - stock
-        url: https://eodhd.com/api/search/BRK-B?api_token=REDACTED&fmt=json&limit=10&type=stock
+        url: https://eodhd.com/api/search/BRK.B?api_token=REDACTED&fmt=json&limit=10&type=stock
         method: GET
       response:
         proto: HTTP/2.0
@@ -25,7 +25,7 @@ interactions:
         proto_minor: 0
         content_length: -1
         uncompressed: true
-        body: '[{"Code":"BRK-B","Exchange":"US","Name":"Berkshire Hathaway Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US0846707026","isPrimary":true,"previousClose":490.03,"previousCloseDate":"2026-03-13"}]'
+        body: '[{"Code":"BRK.B","Exchange":"US","Name":"Berkshire Hathaway Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US0846707026","isPrimary":true,"previousClose":490.03,"previousCloseDate":"2026-03-13"}]'
         headers:
             Access-Control-Allow-Credentials:
                 - "true"
@@ -64,7 +64,7 @@ interactions:
                 - General
             fmt:
                 - json
-        url: https://eodhd.com/api/fundamentals/BRK-B.US?api_token=REDACTED&filter=General&fmt=json
+        url: https://eodhd.com/api/fundamentals/BRK.B.US?api_token=REDACTED&filter=General&fmt=json
         method: GET
       response:
         proto: HTTP/2.0

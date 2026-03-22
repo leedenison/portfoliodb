@@ -200,12 +200,72 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDotConvertedToSlash(t *testing.T)
 	ctx := context.Background()
 	p := NewPlugin(nil, nil, http.DefaultClient)
 	hints := []identifier.Identifier{{Type: "TICKER", Value: "BRK.B"}}
-	inst, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "BRK B BERKSHIRE HATHAWAY INC-CL B", identifier.Hints{}, hints)
+	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "BRK B BERKSHIRE HATHAWAY INC-CL B", identifier.Hints{}, hints)
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
 	if inst == nil || inst.Name != "BERKSHIRE HATHAWAY INC-CL B" {
 		t.Errorf("instrument = %+v", inst)
+	}
+	// Returned TICKER identifier should use canonical dot separator.
+	for _, id := range ids {
+		if id.Type == "TICKER" {
+			if id.Value != "BRK.B" {
+				t.Errorf("returned TICKER value = %q, want canonical %q", id.Value, "BRK.B")
+			}
+			break
+		}
+	}
+}
+
+func TestPlugin_Identify_OpenFIGIMapping_TickerDashConvertedToSlash(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v3/mapping" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		var jobs []MappingJob
+		if err := json.NewDecoder(r.Body).Decode(&jobs); err != nil || len(jobs) != 1 || jobs[0].IDType != "TICKER" || jobs[0].IDValue != "BRK/B" {
+			t.Errorf("expected TICKER BRK/B, got %s %s", jobs[0].IDType, jobs[0].IDValue)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]MappingResponseItem{
+			{Data: []OpenFIGIResult{{
+				FIGI:          "BBG000MM2P62",
+				Ticker:        "BRK/B",
+				Name:          "BERKSHIRE HATHAWAY INC-CL B",
+				ExchCode:      "US",
+				SecurityType:  "Common Stock",
+				SecurityType2: "Common Stock",
+				MarketSector:  "Equity",
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{
+		"openfigi_api_key":  "test-key",
+		"openfigi_base_url": server.URL,
+	})
+	ctx := context.Background()
+	p := NewPlugin(nil, nil, http.DefaultClient)
+	hints := []identifier.Identifier{{Type: "TICKER", Value: "BRK-B"}}
+	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "BRK-B", identifier.Hints{}, hints)
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if inst == nil || inst.Name != "BERKSHIRE HATHAWAY INC-CL B" {
+		t.Errorf("instrument = %+v", inst)
+	}
+	for _, id := range ids {
+		if id.Type == "TICKER" {
+			if id.Value != "BRK.B" {
+				t.Errorf("returned TICKER value = %q, want canonical %q", id.Value, "BRK.B")
+			}
+			break
+		}
 	}
 }
 

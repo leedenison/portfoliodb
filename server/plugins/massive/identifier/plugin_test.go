@@ -52,6 +52,56 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	}
 }
 
+func TestPlugin_Identify_Stock_SplitTickerNormalized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify the API receives dot-separated ticker.
+		if r.URL.Path != "/v3/reference/tickers/BRK.B" {
+			t.Errorf("expected path /v3/reference/tickers/BRK.B, got %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		resp := client.APIResponse[client.TickerOverviewResult]{
+			Status: "OK",
+			Results: client.TickerOverviewResult{
+				Ticker:          "BRK.B",
+				Name:            "Berkshire Hathaway Inc Class B",
+				Market:          "stocks",
+				PrimaryExchange: "XNYS",
+				CurrencyName:    "usd",
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"slash separator", "BRK/B"},
+		{"dash separator", "BRK-B"},
+		{"space separator", "BRK B"},
+		{"dot separator", "BRK.B"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewPlugin(nil, nil, http.DefaultClient)
+			cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+			hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
+			idHints := []identifier.Identifier{{Type: "TICKER", Value: tt.input}}
+
+			inst, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+			if err != nil {
+				t.Fatalf("Identify(%q): %v", tt.input, err)
+			}
+			if inst == nil || inst.Name != "Berkshire Hathaway Inc Class B" {
+				t.Errorf("Identify(%q): inst = %+v", tt.input, inst)
+			}
+		})
+	}
+}
+
 func TestPlugin_Identify_Stock_IndexReturnsNotIdentified(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := client.APIResponse[client.TickerOverviewResult]{

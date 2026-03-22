@@ -22,7 +22,7 @@ func stockFromSearch(r *client.SearchResult) (*identifier.Instrument, []identifi
 	}
 	var ids []identifier.Identifier
 	if r.Code != "" {
-		ids = append(ids, identifier.Identifier{Type: "TICKER", Domain: r.Exchange, Value: r.Code})
+		ids = append(ids, identifier.Identifier{Type: "TICKER", Domain: r.Exchange, Value: identifier.NormalizeSplitTicker(r.Code, ".")})
 	}
 	if r.ISIN != "" {
 		ids = append(ids, identifier.Identifier{Type: "ISIN", Value: r.ISIN})

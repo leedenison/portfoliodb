@@ -154,8 +154,8 @@ func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []ide
 			continue
 		}
 		idValue := value
-		if idType == "TICKER" && strings.Contains(value, ".") {
-			idValue = strings.ReplaceAll(value, ".", "/")
+		if idType == "TICKER" {
+			idValue = identifier.NormalizeSplitTicker(value, "/")
 		}
 		if idType == "OCC_SYMBOL" {
 			padded, ok := derivative.OCCPadded(value)

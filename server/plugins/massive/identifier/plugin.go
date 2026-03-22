@@ -134,6 +134,7 @@ func (p *Plugin) identifyStock(ctx context.Context, c *client.Client, hints []id
 	if ticker == "" {
 		return nil, nil, identifier.ErrNotIdentified
 	}
+	ticker = identifier.NormalizeSplitTicker(ticker, ".")
 	overview, err := c.TickerOverview(ctx, ticker)
 	if err != nil {
 		var nf *client.ErrNotFound

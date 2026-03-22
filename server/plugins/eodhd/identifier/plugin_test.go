@@ -86,6 +86,55 @@ func TestPlugin_Identify_ISIN_Fallback(t *testing.T) {
 	}
 }
 
+func TestPlugin_Identify_SplitTickerNormalized(t *testing.T) {
+	searchResp := `[{"Code":"BRK-B","Exchange":"US","Name":"Berkshire Hathaway","Type":"Common Stock","Currency":"USD","ISIN":"US0846707026","isPrimary":true}]`
+
+	srv, httpClient := testServer(func(w http.ResponseWriter, r *http.Request) {
+		// Verify the API receives dash-separated ticker in the query path.
+		if q := r.URL.Path; q != "/api/search/BRK-B" {
+			t.Errorf("expected /api/search/BRK-B, got %s", q)
+		}
+		w.Write([]byte(searchResp))
+	})
+	defer srv.Close()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"slash separator", "BRK/B"},
+		{"dash separator", "BRK-B"},
+		{"space separator", "BRK B"},
+		{"dot separator", "BRK.B"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewPlugin(nil, nil, httpClient)
+			cfg := testConfig(t, srv.URL)
+
+			inst, ids, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
+				identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
+				[]identifier.Identifier{{Type: "TICKER", Value: tt.input}},
+			)
+			if err != nil {
+				t.Fatalf("Identify(%q): %v", tt.input, err)
+			}
+			if inst == nil {
+				t.Fatalf("Identify(%q): nil instrument", tt.input)
+			}
+			// Returned TICKER identifier should use canonical dot.
+			for _, id := range ids {
+				if id.Type == "TICKER" {
+					if id.Value != "BRK.B" {
+						t.Errorf("returned TICKER value = %q, want canonical %q", id.Value, "BRK.B")
+					}
+					break
+				}
+			}
+		})
+	}
+}
+
 func TestPlugin_Identify_NoHints(t *testing.T) {
 	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := testConfig(t, "http://unused")

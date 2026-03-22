@@ -25,7 +25,7 @@ interactions:
         proto_minor: 0
         content_length: -1
         uncompressed: true
-        body: '[{"Code":"BRK-B","Exchange":"US","Name":"Berkshire Hathaway Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US0846707026","isPrimary":true,"previousClose":490.03,"previousCloseDate":"2026-03-13"}]'
+        body: '[{"Code":"BRK-B","Exchange":"US","Name":"Berkshire Hathaway Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US0846707026","isPrimary":true,"previousClose":480.94,"previousCloseDate":"2026-03-20"},{"Code":"BRK-A","Exchange":"US","Name":"Berkshire Hathaway Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US0846701086","isPrimary":false,"previousClose":720702.08,"previousCloseDate":"2026-03-20"},{"Code":"BRK","Exchange":"LSE","Name":"Brooks Macdonald Group","Type":"Common Stock","Country":"UK","Currency":"GBX","ISIN":"GB00B067N833","isPrimary":true,"previousClose":1425,"previousCloseDate":"2026-03-20"},{"Code":"BRK","Exchange":"TO","Name":"Berkshire Hathaway CDR (CAD Hedged)","Type":"Common Stock","Country":"Canada","Currency":"CAD","ISIN":null,"isPrimary":false,"previousClose":35.12,"previousCloseDate":"2026-03-20"},{"Code":"BRK","Exchange":"NEO","Name":"Berkshire Hathaway Inc CDR","Type":"Common Stock","Country":"Canada","Currency":"CAD","ISIN":"CA08465W1005","isPrimary":true,"previousClose":35.12,"previousCloseDate":"2026-03-20"},{"Code":"BRK","Exchange":"RO","Name":"Ssif Broker Cl","Type":"Common Stock","Country":"Romania","Currency":"RON","ISIN":"ROBRKOACNOR0","isPrimary":true,"previousClose":0.102,"previousCloseDate":"2026-03-20"},{"Code":"BRK","Exchange":"AU","Name":"Brookside Energy Ltd","Type":"Common Stock","Country":"Australia","Currency":"AUD","ISIN":"AU000000BRK4","isPrimary":true,"previousClose":0.47,"previousCloseDate":"2026-03-20"}]'
         headers:
             Access-Control-Allow-Credentials:
                 - "true"
@@ -38,7 +38,7 @@ interactions:
             Content-Type:
                 - application/json
             Date:
-                - Mon, 16 Mar 2026 18:25:05 GMT
+                - Sun, 22 Mar 2026 13:37:23 GMT
             Server:
                 - nginx/1.19.10
             Vary:
@@ -46,54 +46,7 @@ interactions:
             X-Ratelimit-Limit:
                 - "1400"
             X-Ratelimit-Remaining:
-                - "1397"
+                - "1398"
         status: 200 OK
         code: 200
-        duration: 233.060892ms
-    - id: 1
-      request:
-        proto: HTTP/1.1
-        proto_major: 1
-        proto_minor: 1
-        content_length: 0
-        host: eodhd.com
-        form:
-            api_token:
-                - REDACTED
-            filter:
-                - General
-            fmt:
-                - json
-        url: https://eodhd.com/api/fundamentals/BRK-B.US?api_token=REDACTED&filter=General&fmt=json
-        method: GET
-      response:
-        proto: HTTP/2.0
-        proto_major: 2
-        proto_minor: 0
-        content_length: -1
-        uncompressed: true
-        body: 'Only EOD data allowed for free users. Please, contact our support team: support@eodhistoricaldata.com'
-        headers:
-            Access-Control-Allow-Credentials:
-                - "true"
-            Access-Control-Allow-Headers:
-                - Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With
-            Access-Control-Allow-Methods:
-                - GET, POST, PUT, DELETE, OPTIONS
-            Cache-Control:
-                - no-cache, private
-            Content-Type:
-                - text/html; charset=utf-8
-            Date:
-                - Mon, 16 Mar 2026 18:25:05 GMT
-            Server:
-                - nginx/1.19.10
-            Vary:
-                - Accept-Encoding
-            X-Ratelimit-Limit:
-                - "1400"
-            X-Ratelimit-Remaining:
-                - "1396"
-        status: 403 Forbidden
-        code: 403
-        duration: 179.654786ms
+        duration: 276.54543ms

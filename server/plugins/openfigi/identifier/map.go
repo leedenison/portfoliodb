@@ -87,7 +87,7 @@ func openFIGIResultToInstrument(r *OpenFIGIResult, log *slog.Logger) (*identifie
 		ids = append(ids, identifier.Identifier{Type: "OPENFIGI_COMPOSITE", Value: *r.CompositeFIGI})
 	}
 	if r.Ticker != "" {
-		ids = append(ids, identifier.Identifier{Type: "TICKER", Domain: r.ExchCode, Value: r.Ticker})
+		ids = append(ids, identifier.Identifier{Type: "TICKER", Domain: r.ExchCode, Value: identifier.NormalizeSplitTicker(r.Ticker, ".")})
 	}
 	// OpenFIGI mapping/search response does not include ISIN in the standard fields; skip unless we add a separate lookup
 	return inst, ids

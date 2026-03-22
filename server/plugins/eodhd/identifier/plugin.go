@@ -162,7 +162,7 @@ func pickQuery(hints []identifier.Identifier) (string, string) {
 	var isin string
 	for _, h := range hints {
 		if h.Type == "TICKER" && h.Value != "" {
-			return h.Value, "TICKER"
+			return identifier.NormalizeSplitTicker(h.Value, "-"), "TICKER"
 		}
 		if h.Type == "ISIN" && h.Value != "" && isin == "" {
 			isin = h.Value

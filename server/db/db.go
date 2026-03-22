@@ -71,6 +71,7 @@ type EODPrice struct {
 	Close        float64
 	Volume       *int64
 	DataProvider string
+	Synthetic    bool // true for forward-filled non-trading day prices
 }
 
 // PriceCacheDB provides price cache management.
@@ -87,8 +88,13 @@ type PriceCacheDB interface {
 	// are held) but not yet cached. Returns gaps keyed by FX pair instrument ID.
 	FXGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
 	// UpsertPrices inserts or updates EOD prices. On conflict (instrument_id, price_date)
-	// the existing row is overwritten with the new values.
+	// real prices always overwrite; synthetic prices only insert when no row exists
+	// or the existing row is also synthetic.
 	UpsertPrices(ctx context.Context, prices []EODPrice) error
+	// LastRealPrice returns the most recent non-synthetic close price and its
+	// data provider for the instrument before the given date.
+	// Returns (0, "", false, nil) when no prior real price exists.
+	LastRealPrice(ctx context.Context, instrumentID string, before time.Time) (close float64, provider string, ok bool, err error)
 }
 
 // PluginConfigDB provides unified plugin config CRUD for all categories.
@@ -273,6 +279,7 @@ type EODPriceRow struct {
 	AdjustedClose         *float64
 	Volume                *int64
 	DataProvider          string
+	Synthetic             bool
 	FetchedAt             time.Time
 }
 

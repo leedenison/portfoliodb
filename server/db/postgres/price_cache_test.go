@@ -412,13 +412,15 @@ func TestPriceCoverage_WithGap(t *testing.T) {
 	})
 }
 
-func TestPriceCoverage_WeekendBridge(t *testing.T) {
+func TestPriceCoverage_WeekendGapNotBridged(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "COV3")
 
 	// Fri Jan 5, Mon Jan 8 (weekend gap = 2 calendar days).
-	// BridgeRanges merges gaps <= 3 days, so these become one range.
+	// Without BridgeRanges, these are two separate ranges.
+	// The price worker fills weekends with synthetic prices so coverage
+	// is contiguous in practice, but PriceCoverage reports raw ranges.
 	insertPrice(t, p, instID, d(2024, 1, 5), 100.0)
 	insertPrice(t, p, instID, d(2024, 1, 8), 100.0)
 
@@ -426,9 +428,9 @@ func TestPriceCoverage_WeekendBridge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("price coverage: %v", err)
 	}
-	// Weekend gap (2 days) is bridged into a single range.
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 5), To: d(2024, 1, 9)},
+		{From: d(2024, 1, 5), To: d(2024, 1, 6)},
+		{From: d(2024, 1, 8), To: d(2024, 1, 9)},
 	})
 }
 
@@ -678,6 +680,135 @@ func TestUpsertPrices_Empty(t *testing.T) {
 	err := p.UpsertPrices(ctx, nil)
 	if err != nil {
 		t.Fatalf("empty upsert should not error: %v", err)
+	}
+}
+
+func TestUpsertPrices_SyntheticNeverOverwritesReal(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "SYNTH1")
+
+	// Insert a real price.
+	err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: 100.0, DataProvider: "real", Synthetic: false},
+	})
+	if err != nil {
+		t.Fatalf("upsert real: %v", err)
+	}
+
+	// Attempt to overwrite with synthetic.
+	err = p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: 99.0, DataProvider: "real", Synthetic: true},
+	})
+	if err != nil {
+		t.Fatalf("upsert synthetic: %v", err)
+	}
+
+	// Verify real price is preserved.
+	var close float64
+	var synthetic bool
+	err = p.q.QueryRowContext(ctx,
+		`SELECT close, synthetic FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
+		instID, d(2024, 1, 5)).Scan(&close, &synthetic)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if close != 100.0 {
+		t.Errorf("close = %v, want 100.0 (real preserved)", close)
+	}
+	if synthetic {
+		t.Error("synthetic = true, want false (real preserved)")
+	}
+}
+
+func TestUpsertPrices_RealOverwritesSynthetic(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "SYNTH2")
+
+	// Insert a synthetic price.
+	err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: d(2024, 1, 6), Close: 100.0, DataProvider: "old", Synthetic: true},
+	})
+	if err != nil {
+		t.Fatalf("upsert synthetic: %v", err)
+	}
+
+	// Overwrite with real.
+	err = p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: d(2024, 1, 6), Close: 105.0, DataProvider: "real", Synthetic: false},
+	})
+	if err != nil {
+		t.Fatalf("upsert real: %v", err)
+	}
+
+	// Verify real price overwrote synthetic.
+	var close float64
+	var synthetic bool
+	err = p.q.QueryRowContext(ctx,
+		`SELECT close, synthetic FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
+		instID, d(2024, 1, 6)).Scan(&close, &synthetic)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if close != 105.0 {
+		t.Errorf("close = %v, want 105.0", close)
+	}
+	if synthetic {
+		t.Error("synthetic = true, want false")
+	}
+}
+
+func TestLastRealPrice(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "SEED1")
+
+	// No prices yet.
+	_, _, ok, err := p.LastRealPrice(ctx, instID, d(2024, 1, 10))
+	if err != nil {
+		t.Fatalf("last real price: %v", err)
+	}
+	if ok {
+		t.Error("expected ok=false with no prices")
+	}
+
+	// Insert real + synthetic prices.
+	err = p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: 100.0, DataProvider: "test", Synthetic: false},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 4), Close: 100.0, DataProvider: "test", Synthetic: true},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: 102.0, DataProvider: "test", Synthetic: false},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 6), Close: 102.0, DataProvider: "test", Synthetic: true},
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	// Should return Jan 5 (last real before Jan 7).
+	close, provider, ok, err := p.LastRealPrice(ctx, instID, d(2024, 1, 7))
+	if err != nil {
+		t.Fatalf("last real price: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if close != 102.0 {
+		t.Errorf("close = %v, want 102.0", close)
+	}
+	if provider != "test" {
+		t.Errorf("provider = %q, want test", provider)
+	}
+
+	// Before Jan 4 should return Jan 3 (skipping synthetic on Jan 4).
+	close, _, ok, err = p.LastRealPrice(ctx, instID, d(2024, 1, 4))
+	if err != nil {
+		t.Fatalf("last real price: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if close != 100.0 {
+		t.Errorf("close = %v, want 100.0", close)
 	}
 }
 

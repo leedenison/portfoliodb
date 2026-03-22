@@ -206,6 +206,9 @@ WHERE
            AND t.instrument_id::text IN (SELECT filter_value FROM portfolio_filters WHERE portfolio_id = p.id AND filter_type = 'instrument')));
 
 -- EOD price cache. Stores end-of-day OHLCV data per instrument per date.
+-- Rows with synthetic = true are forward-filled (LOCF) prices for non-trading
+-- days (weekends, holidays). They are generated at write time by the price
+-- fetcher worker so that the valuation query can use a simple join.
 CREATE TABLE eod_prices (
   instrument_id   UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
   price_date      DATE        NOT NULL,
@@ -216,6 +219,7 @@ CREATE TABLE eod_prices (
   adjusted_close  NUMERIC,
   volume          BIGINT,
   data_provider   TEXT        NOT NULL,
+  synthetic       BOOLEAN     NOT NULL DEFAULT false,
   fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, price_date)
 );

@@ -159,9 +159,8 @@ func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([
 	result := make([]db.InstrumentDateRanges, len(order))
 	for i, id := range order {
 		entry := *byInst[id]
-		// Bridge gaps of up to 3 calendar days (weekends and adjacent holidays)
-		// so they are not reported as missing coverage.
-		entry.Ranges = db.BridgeRanges(entry.Ranges, 3)
+		// No bridging needed: the price fetcher worker writes synthetic
+		// (LOCF) rows for non-trading days, so coverage is contiguous.
 		result[i] = entry
 	}
 	return result, nil
@@ -405,6 +404,8 @@ func displayCurrencyFXValues(currencies []string) []string {
 
 // UpsertPrices implements db.PriceCacheDB.
 // It bulk inserts EOD prices using unnest arrays, updating on conflict.
+// Real prices (synthetic=false) always overwrite existing rows. Synthetic
+// prices only overwrite when the existing row is also synthetic.
 func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error {
 	if len(prices) == 0 {
 		return nil
@@ -418,6 +419,7 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 	closes := make([]float64, len(prices))
 	volumes := make([]*int64, len(prices))
 	providers := make([]string, len(prices))
+	synthetics := make([]bool, len(prices))
 
 	for i, pr := range prices {
 		instIDs[i] = pr.InstrumentID
@@ -428,14 +430,15 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 		closes[i] = pr.Close
 		volumes[i] = pr.Volume
 		providers[i] = pr.DataProvider
+		synthetics[i] = pr.Synthetic
 	}
 
 	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, fetched_at)
+		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, fetched_at)
 		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::double precision[]),
 			unnest($4::double precision[]), unnest($5::double precision[]),
 			unnest($6::double precision[]), unnest($7::bigint[]),
-			unnest($8::text[]), now()
+			unnest($8::text[]), unnest($9::boolean[]), now()
 		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
 			open = EXCLUDED.open,
 			high = EXCLUDED.high,
@@ -443,12 +446,38 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 			close = EXCLUDED.close,
 			volume = EXCLUDED.volume,
 			data_provider = EXCLUDED.data_provider,
+			synthetic = EXCLUDED.synthetic,
 			fetched_at = EXCLUDED.fetched_at
+		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
 	`, pq.Array(instIDs), pq.Array(dates), pq.Array(opens),
 		pq.Array(highs), pq.Array(lows), pq.Array(closes),
-		pq.Array(volumes), pq.Array(providers))
+		pq.Array(volumes), pq.Array(providers), pq.Array(synthetics))
 	if err != nil {
 		return fmt.Errorf("upsert prices: %w", err)
 	}
 	return nil
+}
+
+// LastRealPrice implements db.PriceCacheDB.
+// It returns the most recent non-synthetic close price and data provider
+// for the instrument before the given date.
+func (p *Postgres) LastRealPrice(ctx context.Context, instrumentID string, before time.Time) (float64, string, bool, error) {
+	id, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return 0, "", false, fmt.Errorf("last real price: invalid id %q: %w", instrumentID, err)
+	}
+	var close float64
+	var provider string
+	err = p.q.QueryRowContext(ctx, `
+		SELECT close, data_provider FROM eod_prices
+		WHERE instrument_id = $1 AND price_date < $2 AND NOT synthetic
+		ORDER BY price_date DESC LIMIT 1
+	`, id, before).Scan(&close, &provider)
+	if err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			return 0, "", false, nil
+		}
+		return 0, "", false, fmt.Errorf("last real price: %w", err)
+	}
+	return close, provider, true, nil
 }

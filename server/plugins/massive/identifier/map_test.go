@@ -16,6 +16,8 @@ func TestStockFromTicker(t *testing.T) {
 		CurrencyName:    "usd",
 		CompositeFIGI:   "BBG000B9XRY4",
 		ShareClassFIGI:  "BBG001S5N8V8",
+		CIK:             "0000320193",
+		SICCode:         "3571",
 	}
 	inst, ids := stockFromTicker(r)
 	if inst == nil {
@@ -32,6 +34,12 @@ func TestStockFromTicker(t *testing.T) {
 	}
 	if inst.Name != "Apple Inc." {
 		t.Errorf("Name = %q, want Apple Inc.", inst.Name)
+	}
+	if inst.CIK != "0000320193" {
+		t.Errorf("CIK = %q, want 0000320193", inst.CIK)
+	}
+	if inst.SICCode != "3571" {
+		t.Errorf("SICCode = %q, want 3571", inst.SICCode)
 	}
 	if len(ids) != 3 {
 		t.Fatalf("len(ids) = %d, want 3", len(ids))

@@ -356,7 +356,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			counter.Incr(ctx, "instruments.resolution.totals.description.extraction_failed")
 		}
 		ingestionLogger().InfoContext(ctx, "instrument resolution: description extraction failed, using broker description only", "source", source, "instrument_description", instrumentDescription)
-		instID, ensureErr := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil)
+		instID, ensureErr := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil)
 		if ensureErr != nil {
 			return resolveResult{}, ensureErr
 		}
@@ -559,7 +559,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 				underlyingID = uResult.InstrumentID
 			}
 		}
-		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, identifiers, underlyingID, validFrom, validTo)
+		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validTo)
 		if err != nil {
 			return resolveResult{}, err
 		}
@@ -571,7 +571,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 	}
 
 	// Unresolved: broker-description-only
-	id, err := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil)
+	id, err := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil)
 	if err != nil {
 		return resolveResult{}, err
 	}

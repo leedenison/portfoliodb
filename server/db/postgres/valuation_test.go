@@ -20,7 +20,7 @@ func TestGetPortfolioValuation_Basic(t *testing.T) {
 	_ = p.SetPortfolioFilters(ctx, port.Id, []db.PortfolioFilter{{FilterType: "broker", FilterValue: "IBKR"}})
 
 	// Create instrument with price data.
-	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", []db.IdentifierInput{
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL Corp", Canonical: false},
 	}, "", nil, nil)
 	if err != nil {
@@ -123,10 +123,10 @@ func TestGetPortfolioValuation_MultipleInstruments(t *testing.T) {
 	_ = p.SetPortfolioFilters(ctx, port.Id, []db.PortfolioFilter{{FilterType: "broker", FilterValue: "IBKR"}})
 
 	// Two identified instruments.
-	instA, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", []db.IdentifierInput{
+	instA, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL multi", Canonical: false},
 	}, "", nil, nil)
-	instB, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "GOOG", []db.IdentifierInput{
+	instB, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "GOOG", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG multi", Canonical: false},
 	}, "", nil, nil)
 
@@ -171,7 +171,7 @@ func TestGetUserValuation_Basic(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|uval1", "U", "u@uval.com")
 
 	// Create instrument with price data.
-	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", []db.IdentifierInput{
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL UserVal", Canonical: false},
 	}, "", nil, nil)
 	if err != nil {
@@ -264,7 +264,7 @@ func TestGetUserValuation_FXConversion_DisplayUSD(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|fxval1", "U", "u@fxval1.com")
 
 	// Create a EUR-denominated instrument.
-	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "EUR", "SAP", []db.IdentifierInput{
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "EUR", "SAP", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SAP FX", Canonical: false},
 	}, "", nil, nil)
 
@@ -319,7 +319,7 @@ func TestGetUserValuation_FXConversion_CrossRate(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|fxval2", "U", "u@fxval2.com")
 
 	// Create a GBP-denominated instrument.
-	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "HSBC", []db.IdentifierInput{
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "HSBC", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "HSBC FX", Canonical: false},
 	}, "", nil, nil)
 
@@ -373,7 +373,7 @@ func TestGetUserValuation_FXConversion_MissingRate(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|fxval3", "U", "u@fxval3.com")
 
 	// Create a EUR-denominated instrument (no FX rate will be inserted).
-	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "EUR", "SAP-NR", []db.IdentifierInput{
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "EUR", "SAP-NR", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SAP NR", Canonical: false},
 	}, "", nil, nil)
 
@@ -425,7 +425,7 @@ func TestGetUserValuation_FXConversion_USDDisplayNonUSD(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|fxval4", "U", "u@fxval4.com")
 
 	// USD-denominated instrument displayed in EUR.
-	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL-FXD", []db.IdentifierInput{
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL-FXD", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL FXD", Canonical: false},
 	}, "", nil, nil)
 
@@ -478,7 +478,7 @@ func TestGetUserValuation_FXConversion_MissingBaseRate(t *testing.T) {
 
 	// GBP instrument displayed in EUR. GBP/USD rate is MISSING, EUR/USD is present.
 	// The base rate (GBPUSD) is needed for the cross-rate but absent.
-	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "HSBC-MBR", []db.IdentifierInput{
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "HSBC-MBR", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "HSBC MBR", Canonical: false},
 	}, "", nil, nil)
 

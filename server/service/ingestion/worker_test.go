@@ -47,7 +47,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "UNKNOWN").
 		Return("", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR:test:statement", Value: "UNKNOWN", Canonical: false}}, "", nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "UNKNOWN", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR:test:statement", Value: "UNKNOWN", Canonical: false}}, "", nil, nil).
 		Return("broker-only-id", nil)
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-1").
@@ -116,7 +116,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "CACHED").
 		Return("", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "CACHED", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR:test:statement", Value: "CACHED", Canonical: false}}, "", nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "CACHED", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR:test:statement", Value: "CACHED", Canonical: false}}, "", nil, nil).
 		Return("cached-inst-id", nil)
 	// Second tx hits cache - no additional DB calls
 	database.EXPECT().
@@ -172,7 +172,7 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "AAPL").
 		Return("", nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "AAPL", gomock.Any(), "", nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "AAPL", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil).
 		Return("aapl-id", nil)
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-split").

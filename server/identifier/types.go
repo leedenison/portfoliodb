@@ -15,6 +15,9 @@ type Instrument struct {
 	Currency   string
 	Name       string // optional display name
 
+	CIK     string // SEC Central Index Key (optional)
+	SICCode string // SIC industry classification code (optional)
+
 	// When this instrument is a derivative, plugins provide identifier hints for the
 	// underlying. The resolution layer resolves the underlying through the full
 	// plugin pipeline using these hints.

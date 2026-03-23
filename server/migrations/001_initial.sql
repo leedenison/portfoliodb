@@ -111,6 +111,8 @@ CREATE TABLE instruments (
   underlying_id UUID REFERENCES instruments (id),
   valid_from   DATE,
   valid_to     DATE,
+  cik          TEXT,
+  sic_code     TEXT,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT chk_underlying_required CHECK (
     (asset_class IN ('OPTION','FUTURE') AND underlying_id IS NOT NULL)

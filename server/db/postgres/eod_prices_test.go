@@ -156,7 +156,7 @@ func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
 	ctx := context.Background()
 
 	// Create instrument with both ISIN (priority 3) and TICKER (priority 8).
-	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "Apple", []db.IdentifierInput{
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "Apple", "", "", []db.IdentifierInput{
 		{Type: "TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
 		{Type: "ISIN", Value: "US0378331005", Canonical: true},
 	}, "", nil, nil)

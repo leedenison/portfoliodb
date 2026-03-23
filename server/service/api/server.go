@@ -97,6 +97,12 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	if row.ValidTo != nil {
 		out.ValidTo = timestamppb.New(*row.ValidTo)
 	}
+	if row.CIK != nil {
+		out.Cik = *row.CIK
+	}
+	if row.SICCode != nil {
+		out.SicCode = *row.SICCode
+	}
 	return out
 }
 

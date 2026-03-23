@@ -24,6 +24,7 @@ type TickerOverviewResult struct {
 	TickerSuffix    string `json:"ticker_suffix"` // class extension (e.g. "A")
 	SICCode         string `json:"sic_code"`
 	SICDescription  string `json:"sic_description"`
+	CIK             string `json:"cik"`
 }
 
 // AggBar is one daily OHLCV bar from GET /v2/aggs/ticker/{ticker}/range/1/day/{from}/{to}.

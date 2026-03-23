@@ -34,7 +34,7 @@ func setupUser(t *testing.T, p *Postgres) string {
 func setupInstrument(t *testing.T, p *Postgres, desc string) string {
 	t.Helper()
 	ctx := context.Background()
-	id, err := p.EnsureInstrument(ctx, "", "", "", "", []db.IdentifierInput{
+	id, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "TEST", Value: desc, Canonical: false},
 	}, "", nil, nil)
 	if err != nil {
@@ -914,7 +914,7 @@ func TestUpsertPricesWithFill_NoSeedAtStart(t *testing.T) {
 func setupInstrumentWithCurrency(t *testing.T, p *Postgres, desc, assetClass, currency string) string {
 	t.Helper()
 	ctx := context.Background()
-	id, err := p.EnsureInstrument(ctx, assetClass, "", currency, desc, []db.IdentifierInput{
+	id, err := p.EnsureInstrument(ctx, assetClass, "", currency, desc, "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "TEST", Value: desc, Canonical: false},
 	}, "", nil, nil)
 	if err != nil {

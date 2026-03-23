@@ -19,6 +19,8 @@ func stockFromTicker(r *client.TickerOverviewResult) (*identifier.Instrument, []
 		Exchange:   r.PrimaryExchange,
 		Currency:   strings.ToUpper(r.CurrencyName),
 		Name:       r.Name,
+		CIK:        r.CIK,
+		SICCode:    r.SICCode,
 	}
 	ids := tickerIdentifiers(r)
 	return inst, ids

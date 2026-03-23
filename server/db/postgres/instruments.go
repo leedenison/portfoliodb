@@ -209,6 +209,7 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 	var r instrumentRow
 	err = p.q.GetContext(ctx, &r, `
 		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+		       i.cik, i.sic_code,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 		FROM instruments i
 		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
@@ -291,6 +292,7 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	var irows []instrumentRow
 	err := p.q.SelectContext(ctx, &irows, fmt.Sprintf(`
 		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+		       i.cik, i.sic_code,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 		FROM instruments i
 		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
@@ -315,7 +317,7 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 // Finds by any identifier; if not found, creates instrument and inserts identifiers.
 // When multiple identifiers resolve to different instruments, merges them eagerly and returns the survivor.
 // On unique violation (identifier already exists for another instrument), returns the existing instrument ID (eager merge).
-func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name string, identifiers []db.IdentifierInput, underlyingID string, validFrom, validTo *time.Time) (string, error) {
+func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []db.IdentifierInput, underlyingID string, validFrom, validTo *time.Time) (string, error) {
 	if len(identifiers) == 0 {
 		return "", fmt.Errorf("at least one identifier required")
 	}
@@ -379,10 +381,10 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 	var newID uuid.UUID
 	err := p.runInTx(ctx, func(exec queryable) error {
 		err := exec.QueryRowContext(ctx, `
-			INSERT INTO instruments (asset_class, exchange_mic, currency, name, underlying_id, valid_from, valid_to)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			INSERT INTO instruments (asset_class, exchange_mic, currency, name, cik, sic_code, underlying_id, valid_from, valid_to)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			RETURNING id
-		`, nullStr(assetClass), nullStr(exchangeMIC), nullStr(currency), nullStr(name), nullUUID(underlyingUUID), nullTime(validFrom), nullTime(validTo)).Scan(&newID)
+		`, nullStr(assetClass), nullStr(exchangeMIC), nullStr(currency), nullStr(name), nullStr(cik), nullStr(sicCode), nullUUID(underlyingUUID), nullTime(validFrom), nullTime(validTo)).Scan(&newID)
 		if err != nil {
 			return err
 		}
@@ -470,6 +472,7 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 
 	q := fmt.Sprintf(`
 		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+		       i.cik, i.sic_code,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 		FROM instruments i
 		LEFT JOIN exchanges e ON e.mic = i.exchange_mic

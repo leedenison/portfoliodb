@@ -35,6 +35,7 @@ const TX_TYPE_LABEL: Record<number, string> = {
   [TxType.JRNLSEC]: "Journal Security",
   [TxType.MARGININTEREST]: "Margin Interest",
   [TxType.CLOSUREOPT]: "Option Closure",
+  [TxType.CASHFLOW]: "Cash Flow",
 };
 
 export default function TxsPage() {

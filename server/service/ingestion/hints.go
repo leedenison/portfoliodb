@@ -29,7 +29,8 @@ func TxTypeToSecurityTypeHint(t apiv1.TxType) string {
 	case apiv1.TxType_BUYSTOCK, apiv1.TxType_SELLSTOCK, apiv1.TxType_JRNLSEC:
 		return identifier.SecurityTypeHintStock
 	case apiv1.TxType_INCOME, apiv1.TxType_INVEXPENSE, apiv1.TxType_REINVEST,
-		apiv1.TxType_TRANSFER, apiv1.TxType_MARGININTEREST, apiv1.TxType_RETOFCAP, apiv1.TxType_JRNLFUND:
+		apiv1.TxType_TRANSFER, apiv1.TxType_MARGININTEREST, apiv1.TxType_RETOFCAP, apiv1.TxType_JRNLFUND,
+		apiv1.TxType_CASHFLOW:
 		return identifier.SecurityTypeHintCash
 	case apiv1.TxType_SPLIT:
 		return identifier.SecurityTypeHintUnknown

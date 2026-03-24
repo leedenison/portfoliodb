@@ -41,6 +41,7 @@ enum TxType {
   JRNLSEC        = 18;
   MARGININTEREST = 19;
   CLOSUREOPT     = 20;
+  CASHFLOW       = 21;
 }
 
 // IdentifierType is the controlled vocabulary for instrument identifier types.

@@ -8,7 +8,10 @@
       "Bash(go mod:*)",
       "Bash(make:*)",
       "Bash(git check-ignore:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "mcp__github__create_pull_request"
     ]
   }
 }

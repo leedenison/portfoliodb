@@ -6,30 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/url"
 	"testing"
 
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/testutil/vcr"
-	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
 )
-
-func eodhdSanitize(i *cassette.Interaction) error {
-	u, err := url.Parse(i.Request.URL)
-	if err != nil {
-		return err
-	}
-	q := u.Query()
-	if q.Has("api_token") {
-		q.Set("api_token", "REDACTED")
-		u.RawQuery = q.Encode()
-		i.Request.URL = u.String()
-	}
-	if _, ok := i.Request.Form["api_token"]; ok {
-		i.Request.Form["api_token"] = []string{"REDACTED"}
-	}
-	return nil
-}
 
 func TestIntegration_EODHD_Identify(t *testing.T) {
 	apiKey := vcr.EnvOrSkip(t, "EODHD_API_KEY")
@@ -92,7 +73,7 @@ func TestIntegration_EODHD_Identify(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, httpClient := vcr.New(t, tc.cassette, eodhdSanitize)
+			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll)
 
 			p := NewPlugin(nil, nil, httpClient)
 			cfg, err := json.Marshal(configJSON{

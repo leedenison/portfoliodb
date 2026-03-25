@@ -41,7 +41,7 @@ export default function UserHoldingsPage() {
 
   return (
     <AppShell>
-      <div className="flex flex-1 flex-col px-4 py-8">
+      <div data-testid="page-holdings" className="flex flex-1 flex-col px-4 py-8">
         {state.status === "loading" && (
           <p className="text-text-muted">Loading...</p>
         )}
@@ -106,7 +106,7 @@ export default function UserHoldingsPage() {
                 {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
                 {!loading && !error && holdings && (
                   <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
-                    <table className="w-full min-w-[320px] border-collapse text-sm">
+                    <table data-testid="holdings-table" className="w-full min-w-[320px] border-collapse text-sm">
                       <thead>
                         <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/[0.03]">
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">

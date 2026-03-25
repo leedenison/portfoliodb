@@ -10,15 +10,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/testutil/vcr"
-	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
 )
-
-func openFIGISanitize(i *cassette.Interaction) error {
-	if vals, ok := i.Request.Headers["X-Openfigi-Apikey"]; ok && len(vals) > 0 {
-		i.Request.Headers["X-Openfigi-Apikey"] = []string{"REDACTED"}
-	}
-	return nil
-}
 
 func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 	apiKey := vcr.EnvOrSkip(t, "OPENFIGI_API_KEY")
@@ -71,7 +63,7 @@ func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, httpClient := vcr.New(t, tc.cassette, openFIGISanitize)
+			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll)
 
 			p := NewPlugin(nil, nil, httpClient)
 			cfg, err := json.Marshal(configJSON{

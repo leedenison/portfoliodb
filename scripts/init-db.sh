@@ -2,7 +2,7 @@
 # Run the DB initialise SQL script against the Postgres container.
 # No-op when script path is empty or the file does not exist.
 # Usage: scripts/init-db.sh <compose-cmd> <script-path>
-#   e.g. scripts/init-db.sh "docker compose -f docker/server/docker-compose.yml -f docker/server/docker-compose.dev.yml --env-file .env" local/dev-init.sql
+#   e.g. scripts/init-db.sh "docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml --env-file .env" local/dev-init.sql
 set -e
 COMPOSE_CMD="$1"
 SCRIPT_PATH="$2"

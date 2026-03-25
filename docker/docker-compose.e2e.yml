@@ -1,0 +1,61 @@
+# E2E test overlay: isolated ports, e2e build tag, Playwright container.
+# Use with: docker compose -f docker/docker-compose.yml -f docker/docker-compose.e2e.yml
+
+services:
+  postgres:
+    ports: !override
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: portfoliodb
+
+  redis:
+    ports: !override
+      - "6381:6379"
+
+  portfoliodb:
+    build:
+      context: ..
+      dockerfile: docker/server/Dockerfile.e2e
+    environment:
+      PORTFOLIODB_DB_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable
+      PORTFOLIODB_REDIS_URL: redis://redis:6379/0
+      GOOGLE_OAUTH_CLIENT_ID: e2e-test-client-id
+      ACCOUNT_CREATE_EMAIL_ALLOWLIST: "*@*"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      E2E_CASSETTE_DIR: /cassettes
+      VCR_MODE: ${VCR_MODE:-}
+    volumes:
+      - ../e2e/cassettes:/cassettes
+    ports: !override
+      - "50052:50051"
+
+  client:
+    build:
+      context: ..
+      dockerfile: docker/client/Dockerfile
+      args:
+        GOOGLE_OAUTH_CLIENT_ID: e2e-test-client-id
+
+  envoy:
+    ports: !override
+      - "8081:8080"
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.58.2-noble
+    working_dir: /e2e
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    environment:
+      E2E_BASE_URL: http://envoy:8080
+      E2E_REDIS_URL: redis://redis:6379/0
+      E2E_DATABASE_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb
+      VCR_MODE: ${VCR_MODE:-}
+      OPENFIGI_API_KEY: ${OPENFIGI_API_KEY:-}
+      MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
+      EODHD_API_KEY: ${EODHD_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - ../e2e:/e2e
+    depends_on:
+      - envoy
+    profiles:
+      - test

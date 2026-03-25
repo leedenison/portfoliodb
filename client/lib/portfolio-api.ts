@@ -67,11 +67,14 @@ import {
   DeleteHoldingDeclarationRequestSchema,
   ListHoldingDeclarationsRequestSchema,
   ListHoldingDeclarationsResponseSchema,
+  ListWorkersRequestSchema,
+  ListWorkersResponseSchema,
   GetDisplayCurrencyRequestSchema,
   GetDisplayCurrencyResponseSchema,
   SetDisplayCurrencyRequestSchema,
   SetDisplayCurrencyResponseSchema,
   JobStatus,
+  WorkerState,
 } from "@/gen/api/v1/api_pb";
 import type {
   DescriptionPluginConfig,
@@ -89,6 +92,7 @@ import type {
   PortfolioFilterProto,
   PortfolioTx,
   ValidationError,
+  Worker as WorkerProto,
 } from "@/gen/api/v1/api_pb";
 import { streamingFetch, unaryFetch } from "./grpc-web";
 
@@ -724,4 +728,31 @@ export async function setDisplayCurrency(displayCurrency: string): Promise<strin
   });
   const res = fromBinary(SetDisplayCurrencyResponseSchema, resBytes);
   return res.displayCurrency;
+}
+
+export { WorkerState };
+
+export interface WorkerRow {
+  name: string;
+  state: WorkerState;
+  summary: string;
+  queueDepth: number;
+  updatedAt?: Date;
+}
+
+/** List background workers and their current state (admin only). */
+export async function listWorkers(): Promise<WorkerRow[]> {
+  const base = getBaseUrl();
+  const req = create(ListWorkersRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListWorkers", toBinary(ListWorkersRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(ListWorkersResponseSchema, resBytes);
+  return (res.workers ?? []).map((w: WorkerProto) => ({
+    name: w.name,
+    state: w.state,
+    summary: w.summary,
+    queueDepth: w.queueDepth,
+    updatedAt: w.updatedAt ? timestampDate(w.updatedAt) : undefined,
+  }));
 }

@@ -5,7 +5,9 @@ package vcr
 
 import (
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"testing"
 
 	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
@@ -14,6 +16,62 @@ import (
 
 // Sanitizer modifies a recorded interaction to remove secrets before saving.
 type Sanitizer func(i *cassette.Interaction) error
+
+// SanitizeAll redacts all known API keys from a recorded interaction.
+// It covers headers (OpenFIGI, OpenAI Bearer) and query parameters
+// (EODHD api_token, Massive apiKey).
+func SanitizeAll(i *cassette.Interaction) error {
+	// OpenFIGI: API key in header.
+	if vals, ok := i.Request.Headers["X-Openfigi-Apikey"]; ok && len(vals) > 0 {
+		i.Request.Headers["X-Openfigi-Apikey"] = []string{"REDACTED"}
+	}
+
+	// OpenAI: Bearer token in Authorization header.
+	if vals, ok := i.Request.Headers["Authorization"]; ok && len(vals) > 0 {
+		for idx, v := range vals {
+			if strings.HasPrefix(v, "Bearer ") {
+				vals[idx] = "Bearer REDACTED"
+			}
+		}
+	}
+
+	// API keys in query parameters (EODHD api_token, Massive apiKey).
+	u, err := url.Parse(i.Request.URL)
+	if err == nil {
+		q := u.Query()
+		changed := false
+		for _, param := range []string{"api_token", "api_key", "apiKey"} {
+			if q.Has(param) {
+				q.Set(param, "REDACTED")
+				changed = true
+			}
+		}
+		if changed {
+			u.RawQuery = q.Encode()
+			i.Request.URL = u.String()
+		}
+	}
+
+	// go-vcr also records parsed query params under Form.
+	for _, param := range []string{"api_token", "api_key", "apiKey"} {
+		if _, ok := i.Request.Form[param]; ok {
+			i.Request.Form[param] = []string{"REDACTED"}
+		}
+	}
+
+	// Redact sensitive response headers (account identifiers, cookies).
+	sanitizeResponseHeaders(i)
+
+	return nil
+}
+
+// sanitizeResponseHeaders strips sensitive metadata from response headers
+// that should not be committed to the repository.
+func sanitizeResponseHeaders(i *cassette.Interaction) {
+	for _, h := range []string{"Openai-Organization", "Openai-Project", "Set-Cookie", "Cf-Ray"} {
+		delete(i.Response.Headers, h)
+	}
+}
 
 // IsRecording returns true when VCR_MODE is set to "record".
 func IsRecording() bool {
@@ -36,6 +94,11 @@ func New(t *testing.T, cassettePath string, sanitize Sanitizer) (*recorder.Recor
 	opts := []recorder.Option{
 		recorder.WithMode(mode),
 		recorder.WithSkipRequestLatency(true),
+		// Always strip sensitive response headers regardless of per-plugin sanitizer.
+		recorder.WithHook(func(i *cassette.Interaction) error {
+			sanitizeResponseHeaders(i)
+			return nil
+		}, recorder.BeforeSaveHook),
 	}
 	if sanitize != nil {
 		opts = append(opts, recorder.WithHook(func(i *cassette.Interaction) error {

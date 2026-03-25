@@ -10,6 +10,7 @@ export function Modal({
   closable = true,
   className,
   children,
+  "data-testid": dataTestId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -17,6 +18,7 @@ export function Modal({
   closable?: boolean;
   className?: string;
   children: React.ReactNode;
+  "data-testid"?: string;
 }) {
   const backdropRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
@@ -43,6 +45,7 @@ export function Modal({
       }}
     >
       <div
+        data-testid={dataTestId}
         className={
           "flex max-h-[80vh] w-full flex-col rounded-lg bg-surface shadow-xl sm:max-h-[600px] " +
           (className ?? "max-w-lg")

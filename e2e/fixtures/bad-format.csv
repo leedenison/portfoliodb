@@ -1,0 +1,5 @@
+date,instrument_description,type,quantity
+2024-01-15,AAPL,BUYSTOCK,10
+not-a-date,MSFT,BUYSTOCK,5
+2024-01-17,,BUYSTOCK,20
+2024-01-18,GOOGL,INVALID_TYPE,15

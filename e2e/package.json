@@ -1,0 +1,15 @@
+{
+  "name": "portfoliodb-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report test-results/html"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2",
+    "ioredis": "^5.6.1",
+    "pg": "^8.16.0"
+  }
+}

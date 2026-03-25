@@ -1,9 +1,11 @@
 # Dev image: Node + buf CLI + deps, run next dev with TS codegen. Repo root is mounted at /app at run time.
 # Run as host UID/GID so .next and node_modules keep correct permissions.
+FROM golang:1.25-alpine AS tools
+RUN go install github.com/bufbuild/buf/cmd/buf@latest
+
 FROM node:25-alpine
-RUN apk add --no-cache libc6-compat curl
-# Install buf CLI for protobuf TS codegen (buf generate --template buf.gen.ts.yaml).
-RUN curl -sSL "https://github.com/bufbuild/buf/releases/download/v1.66.0/buf-Linux-$(uname -m)" -o /usr/local/bin/buf && chmod +x /usr/local/bin/buf
+RUN apk add --no-cache libc6-compat
+COPY --from=tools /go/bin/buf /usr/local/bin/buf
 WORKDIR /app
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0

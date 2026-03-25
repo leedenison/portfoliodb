@@ -1,5 +1,11 @@
 server/gen
 client/gen
+client/node_modules
+client/.next
+e2e/node_modules
+e2e/test-results
 .git
+!.git/HEAD
+!.git/refs
 *.md
 docker

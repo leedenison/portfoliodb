@@ -8,7 +8,6 @@ import (
 	"log"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -48,6 +47,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
+
+// Set via -ldflags at build time.
+var buildRevision = "dev"
 
 func main() {
 	grpcAddr := flag.String("grpc-addr", envOrDefault("PORTFOLIODB_GRPC_ADDR", ":50051"), "gRPC listen address")
@@ -164,7 +166,7 @@ func main() {
 		ExtendTTL:              extendTTL,
 	}
 
-	pluginHTTPClient := &http.Client{Timeout: 30 * time.Second}
+	pluginHTTPClient := newPluginHTTPClient()
 	pluginRegistry := identifier.NewRegistry()
 	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openfigi"), pluginHTTPClient))
 	pluginRegistry.Register(massiveplugin.PluginID, massiveplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive"), pluginHTTPClient))
@@ -179,7 +181,7 @@ func main() {
 		log.Fatalf("ensure identifier plugin configs: %v", err)
 	}
 	descRegistry := description.NewRegistry()
-	descRegistry.Register(openaidesc.PluginID, openaidesc.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openai"), &http.Client{Timeout: 20 * time.Second}))
+	descRegistry.Register(openaidesc.PluginID, openaidesc.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openai"), newDescriptionHTTPClient()))
 	descRegistry.Register(cashdesc.PluginID, cashdesc.NewPlugin())
 	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryDescription, descRegistry.ListIDs(), func(id string) []byte {
 		if p := descRegistry.Get(id); p != nil {
@@ -241,10 +243,12 @@ func main() {
 		cancel()
 		svc.GracefulStop()
 	}()
+	log.Printf("build: %s", buildRevision)
 	log.Printf("listening on %s", *grpcAddr)
 	if err := svc.Serve(lis); err != nil {
 		log.Fatalf("serve: %v", err)
 	}
+	stopE2ERecorder()
 }
 
 func envOrDefault(key, def string) string {

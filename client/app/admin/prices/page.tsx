@@ -207,7 +207,7 @@ function PriceListTab() {
       {!loading && !error && (
         <>
           <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
-            <table className="w-full min-w-[700px] border-collapse text-sm">
+            <table data-testid="prices-table" className="w-full min-w-[700px] border-collapse text-sm">
               <thead>
                 <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/[0.03]">
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">

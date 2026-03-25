@@ -141,7 +141,7 @@ export function PerformanceChart({ points, displayCurrency }: Props) {
   const ticks = dateTicks(points);
 
   return (
-    <div>
+    <div data-testid="chart-container">
       {hasUnpriced && (
         <p className="mb-3 rounded-md bg-accent-soft/50 px-3 py-2 text-xs text-accent-dark">
           Highlighted regions indicate periods with missing price data.

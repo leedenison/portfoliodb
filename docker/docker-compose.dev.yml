@@ -1,5 +1,5 @@
 # Dev override: mount source, run with host UID/GID, use live-reload (Air + next dev).
-# Use with: docker compose -f docker/server/docker-compose.yml -f docker/server/docker-compose.dev.yml up
+# Use with: docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up
 # Ensure HOST_UID and HOST_GID are set (e.g. by Makefile run target).
 # Postgres uses a named volume so data (e.g. plugin config) persists across make stop / make run.
 
@@ -10,11 +10,11 @@ services:
 
   portfoliodb:
     build:
-      context: ../..
+      context: ..
       dockerfile: docker/server/Dockerfile.dev
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     env_file:
-      - ../../.env
+      - ../.env
     environment:
       HOME: /tmp/air-home
       GOCACHE: /app/.cache/go-build
@@ -32,18 +32,18 @@ services:
 
   client:
     build:
-      context: ../../client
-      dockerfile: Dockerfile.dev
+      context: ..
+      dockerfile: docker/client/Dockerfile.dev
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     env_file:
-      - ../../.env
+      - ../.env
     environment:
       HOSTNAME: "0.0.0.0"
       NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
       # Poll for file changes so bind-mounted source updates are picked up (inotify often doesn't propagate into the container).
       CHOKIDAR_USEPOLLING: "true"
     volumes:
-      - ../..:/app
+      - ..:/app
     working_dir: /app/client
     command: [ "sh", "/app/client/scripts/dev-with-codegen.sh" ]
 

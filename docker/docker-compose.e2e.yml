@@ -1,5 +1,5 @@
 # E2E test overlay: isolated ports, e2e build tag, Playwright container.
-# Use with: docker compose -f docker/server/docker-compose.yml -f docker/server/docker-compose.e2e.yml
+# Use with: docker compose -f docker/docker-compose.yml -f docker/docker-compose.e2e.yml
 
 services:
   postgres:
@@ -19,7 +19,7 @@ services:
 
   portfoliodb:
     build:
-      context: ../..
+      context: ..
       dockerfile: docker/server/Dockerfile.e2e
     environment:
       PORTFOLIODB_DB_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable
@@ -30,13 +30,13 @@ services:
       E2E_CASSETTE_DIR: /cassettes
       E2E_VCR_MODE: ${E2E_VCR_MODE:-}
     volumes:
-      - ../../e2e/cassettes:/cassettes
+      - ../e2e/cassettes:/cassettes
     ports:
       - "50052:50051"
 
   client:
     build:
-      context: ../..
+      context: ..
       dockerfile: docker/client/Dockerfile
       args:
         GOOGLE_OAUTH_CLIENT_ID: e2e-test-client-id
@@ -55,7 +55,7 @@ services:
       E2E_REDIS_URL: redis://redis:6379/0
       E2E_DATABASE_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb
     volumes:
-      - ../../e2e:/e2e
+      - ../e2e:/e2e
     depends_on:
       - envoy
     profiles:

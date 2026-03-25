@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Wait for Postgres to accept connections. Exits 0 when ready, 1 after max tries.
 # Usage: scripts/postgres-ready.sh <compose-cmd> [max_tries]
-#   e.g. scripts/postgres-ready.sh "docker compose -f docker/server/docker-compose.yml --env-file .env"
+#   e.g. scripts/postgres-ready.sh "docker compose -f docker/docker-compose.yml --env-file .env"
 set -e
 COMPOSE_CMD="$1"
 MAX_TRIES="${2:-10}"

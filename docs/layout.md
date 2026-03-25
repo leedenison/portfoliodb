@@ -99,5 +99,5 @@ Go code for the PortfolioDB command line tools.
 
 ## docker/
 
-- **docker/server/**  
-  Development/QA Docker setup: PortfolioDB service and Postgres (with datamodel) for local and human QA testing.
+- **docker/**
+  Docker Compose files (dev, test, e2e), Envoy configs, and per-component Dockerfiles in `docker/server/` and `docker/client/`.

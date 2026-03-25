@@ -5,11 +5,11 @@
 export
 
 # Compose file and env for local stack (run from repo root so .env is found)
-COMPOSE_RUN = docker compose -f docker/server/docker-compose.yml --env-file .env
+COMPOSE_RUN = docker compose -f docker/docker-compose.yml --env-file .env
 # Dev stack: same as above plus override with source mounts and live-reload (Air + next dev)
-COMPOSE_DEV = docker compose -f docker/server/docker-compose.yml -f docker/server/docker-compose.dev.yml --env-file .env
+COMPOSE_DEV = docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml --env-file .env
 # E2E stack: production-style build with e2e build tag, isolated ports, Playwright container
-COMPOSE_E2E = docker compose -f docker/server/docker-compose.yml -f docker/server/docker-compose.e2e.yml --env-file .env
+COMPOSE_E2E = docker compose -f docker/docker-compose.yml -f docker/docker-compose.e2e.yml --env-file .env
 
 # Install Go and npm tooling required for generate and tests. Run once (or after adding deps).
 tools:
@@ -34,7 +34,8 @@ clean-generated:
 
 clean-docker:
 	$(COMPOSE_DEV) down --rmi local --volumes
-	docker compose -f docker/server/docker-compose.test.yml down --rmi local --volumes
+	docker compose -f docker/docker-compose.test.yml down --rmi local --volumes
+	$(COMPOSE_E2E) --profile test down --rmi local --volumes
 
 # Remove client node_modules and .next (e.g. after switching Node versions). Re-run 'make tools' to reinstall.
 clean-next:
@@ -68,11 +69,11 @@ client-test:
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm run test:run
 	
 db-test:
-	docker compose -f docker/server/docker-compose.test.yml up -d
+	docker compose -f docker/docker-compose.test.yml up -d
 	@echo "Waiting for Postgres..."
-	@scripts/postgres-ready.sh "docker compose -f docker/server/docker-compose.test.yml"
+	@scripts/postgres-ready.sh "docker compose -f docker/docker-compose.test.yml"
 	TEST_DATABASE_URL="postgres://portfoliodb:portfoliodb@localhost:5433/portfoliodb_test?sslmode=disable" go test -v ./server/db/postgres/...
-	@docker compose -f docker/server/docker-compose.test.yml down
+	@docker compose -f docker/docker-compose.test.yml down
 
 integration-test:
 	go test -tags integration -v ./server/plugins/...

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import path from "path";
+import { TIMEOUT_SLOW } from "../playwright.config";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
@@ -20,7 +21,7 @@ test.describe("CSV ingestion flow", () => {
     sessionId = await seedSession("user");
   });
 
-  test("upload CSV, wait for job completion, verify holdings", async ({
+  test("upload CSV, wait for job completion, verify holdings", { timeout: TIMEOUT_SLOW }, async ({
     context,
     page,
     browser,
@@ -88,8 +89,8 @@ test.describe("CSV ingestion flow", () => {
   // In record mode, ensure all price fetches complete so the VCR cassette
   // captures every HTTP interaction before the server shuts down.
   if (process.env.VCR_MODE === "record") {
-    test("wait for all workers to finish (record mode)", async ({ browser }) => {
-      await waitForWorkersIdle(browser, { timeoutMs: 180_000 });
+    test("wait for all workers to finish (record mode)", { timeout: TIMEOUT_SLOW }, async ({ browser }) => {
+      await waitForWorkersIdle(browser, { timeoutMs: TIMEOUT_SLOW });
     });
   }
 });

@@ -19,6 +19,7 @@ tools:
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 	go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm ci
+	npm ci --prefix e2e
 
 generate:
 	buf generate --template buf.gen.go.yaml && buf generate --template buf.gen.ts.yaml
@@ -88,7 +89,7 @@ e2e-test:
 	@echo "Waiting for portfoliodb (gRPC)..."
 	@scripts/server-ready.sh localhost:50052
 	$(COMPOSE_E2E) exec -T postgres psql -U portfoliodb -d portfoliodb < e2e/fixtures/seed.sql
-	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright sh -c "npm ci && npx playwright test"
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test
 	@$(COMPOSE_E2E) --profile test down
 
 # E2E tests: record mode (real API calls, real keys from env, real rate limits).
@@ -100,7 +101,7 @@ e2e-record:
 	@echo "Waiting for portfoliodb (gRPC)..."
 	@scripts/server-ready.sh localhost:50052
 	$(COMPOSE_E2E) exec -T postgres psql -U portfoliodb -d portfoliodb < e2e/fixtures/seed-record.sql
-	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright sh -c "npm ci && npx playwright test"
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test
 	@$(COMPOSE_E2E) --profile test down
 
 test: server-test client-test db-test integration-test

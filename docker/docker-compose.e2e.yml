@@ -3,7 +3,7 @@
 
 services:
   postgres:
-    ports:
+    ports: !override
       - "5434:5432"
     environment:
       POSTGRES_DB: portfoliodb
@@ -14,7 +14,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
 
   redis:
-    ports:
+    ports: !override
       - "6381:6379"
 
   portfoliodb:
@@ -31,7 +31,7 @@ services:
       E2E_VCR_MODE: ${E2E_VCR_MODE:-}
     volumes:
       - ../e2e/cassettes:/cassettes
-    ports:
+    ports: !override
       - "50052:50051"
 
   client:
@@ -42,9 +42,8 @@ services:
         GOOGLE_OAUTH_CLIENT_ID: e2e-test-client-id
 
   envoy:
-    ports:
+    ports: !override
       - "8081:8080"
-      - "0:9901"
 
   playwright:
     image: mcr.microsoft.com/playwright:v1.52.0-noble

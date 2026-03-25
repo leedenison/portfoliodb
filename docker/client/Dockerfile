@@ -13,8 +13,16 @@ RUN npm ci
 
 FROM base AS builder
 WORKDIR /app
+RUN apk add --no-cache curl \
+    && curl -sSL "https://github.com/bufbuild/buf/releases/download/v1.66.0/buf-Linux-$(uname -m)" \
+       -o /usr/local/bin/buf && chmod +x /usr/local/bin/buf
 COPY --from=deps /app/node_modules ./node_modules
 COPY client/ .
+COPY proto/ /proto/
+COPY buf.yaml /
+# Generate TS protobuf bindings (protoc-gen-es from node_modules).
+RUN printf 'version: v2\nplugins:\n  - local: /app/node_modules/.bin/protoc-gen-es\n    out: /app/gen\n    opt: target=ts\n' > /tmp/buf.gen.ts.yaml \
+    && buf generate --template /tmp/buf.gen.ts.yaml --config /buf.yaml
 RUN mkdir -p public
 # Same-origin: SPA and API both at localhost:8080 via Envoy
 ENV NEXT_PUBLIC_GRPC_WEB_BASE=

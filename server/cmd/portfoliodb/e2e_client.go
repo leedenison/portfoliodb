@@ -41,7 +41,7 @@ func init() {
 	if err != nil {
 		log.Fatalf("e2e vcr recorder: %v", err)
 	}
-	log.Printf("e2e vcr: mode=%v cassette=%s", mode, cassettePath)
+	log.Printf("e2e vcr: E2E_VCR_MODE=%q mode=%v cassette=%s", os.Getenv("E2E_VCR_MODE"), mode, cassettePath)
 }
 
 // stopE2ERecorder flushes recorded cassettes to disk (record mode)

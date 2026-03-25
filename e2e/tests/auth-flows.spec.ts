@@ -70,7 +70,7 @@ test.describe("admin user", () => {
 });
 
 test.describe("session expiry", () => {
-  test("redirects to sign-in when session is deleted", async ({
+  test("shows unauthenticated state when session is deleted", async ({
     context,
     page,
   }) => {
@@ -86,11 +86,11 @@ test.describe("session expiry", () => {
     // Delete the session from Redis (simulates server-side expiry).
     await deleteSession(sessionId);
 
-    // Navigate to trigger an API call -- the server will return Unauthenticated
-    // and the SessionLostHandler will redirect to /.
-    await page.goto("/transactions");
+    // Reload the page. GetSession() will fail (session gone from Redis),
+    // so auth state becomes "unauthenticated" and the page shows sign-in prompt.
+    await page.reload();
     await expect(
-      page.locator("[data-testid='page-signin']")
+      page.getByText("Sign in to view")
     ).toBeVisible({ timeout: 10_000 });
   });
 });

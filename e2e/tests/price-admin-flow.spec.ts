@@ -51,18 +51,18 @@ test.describe("admin navigation", () => {
 
     // Instruments page.
     await page.goto("/admin/instruments");
-    await expect(page.getByText("Instruments")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Instruments" })).toBeVisible();
 
     // Plugins pages.
     await page.goto("/admin/plugins/identifier");
-    await expect(page.getByText("Identifier")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Identifier" })).toBeVisible();
 
     await page.goto("/admin/plugins/price");
-    await expect(page.getByText("Price")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Price" })).toBeVisible();
 
     // Telemetry page.
     await page.goto("/admin/telemetry");
-    await expect(page.getByText("Telemetry")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Telemetry" })).toBeVisible();
   });
 });
 

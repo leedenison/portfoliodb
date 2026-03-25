@@ -60,11 +60,17 @@ func SanitizeAll(i *cassette.Interaction) error {
 	}
 
 	// Redact sensitive response headers (account identifiers, cookies).
+	sanitizeResponseHeaders(i)
+
+	return nil
+}
+
+// sanitizeResponseHeaders strips sensitive metadata from response headers
+// that should not be committed to the repository.
+func sanitizeResponseHeaders(i *cassette.Interaction) {
 	for _, h := range []string{"Openai-Organization", "Openai-Project", "Set-Cookie", "Cf-Ray"} {
 		delete(i.Response.Headers, h)
 	}
-
-	return nil
 }
 
 // IsRecording returns true when VCR_MODE is set to "record".
@@ -88,6 +94,11 @@ func New(t *testing.T, cassettePath string, sanitize Sanitizer) (*recorder.Recor
 	opts := []recorder.Option{
 		recorder.WithMode(mode),
 		recorder.WithSkipRequestLatency(true),
+		// Always strip sensitive response headers regardless of per-plugin sanitizer.
+		recorder.WithHook(func(i *cassette.Interaction) error {
+			sanitizeResponseHeaders(i)
+			return nil
+		}, recorder.BeforeSaveHook),
 	}
 	if sanitize != nil {
 		opts = append(opts, recorder.WithHook(func(i *cassette.Interaction) error {

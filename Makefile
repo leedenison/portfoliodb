@@ -95,8 +95,9 @@ e2e-test:
 
 # E2E tests: record mode (real API calls, real keys from env, real rate limits).
 # Requires: OPENFIGI_API_KEY, MASSIVE_API_KEY, EODHD_API_KEY, OPENAI_API_KEY
+e2e-record: export E2E_VCR_MODE = record
 e2e-record:
-	E2E_VCR_MODE=record $(COMPOSE_E2E) up -d --build
+	$(COMPOSE_E2E) up -d --build
 	@echo "Waiting for Postgres..."
 	@scripts/postgres-ready.sh "$(COMPOSE_E2E)"
 	@echo "Waiting for portfoliodb (gRPC)..."

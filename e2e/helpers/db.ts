@@ -30,11 +30,7 @@ export async function closeDB(): Promise<void> {
 // (exchanges, currency/FX instruments, plugin_config).
 export async function resetData(): Promise<void> {
   const c = await getClient();
-  // Delete non-seed instruments (CASCADE removes identifiers, prices, etc).
-  await c.query(
-    `DELETE FROM instruments WHERE asset_class NOT IN ('CASH', 'FX')`
-  );
-  // Truncate user-scoped tables.
+  // Truncate user-scoped tables first (txs references instruments via FK).
   await c.query(`
     TRUNCATE
       holding_declarations,
@@ -47,6 +43,10 @@ export async function resetData(): Promise<void> {
       users
     CASCADE
   `);
+  // Delete non-seed instruments (CASCADE removes identifiers, prices, etc).
+  await c.query(
+    `DELETE FROM instruments WHERE asset_class NOT IN ('CASH', 'FX')`
+  );
 }
 
 // Execute a SQL fixture file by name (relative to e2e/fixtures/).

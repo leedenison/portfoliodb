@@ -70,7 +70,7 @@ test.describe("admin user", () => {
     await injectSession(context, sessionId);
     await page.goto("/admin/prices");
     await expect(
-      page.locator("[data-testid='admin-layout']")
+      page.locator("[data-testid='prices-table']")
     ).toBeVisible({ timeout: 10_000 });
   });
 });

@@ -4,16 +4,14 @@ RUN go install github.com/bufbuild/buf/cmd/buf@latest
 
 FROM node:25-alpine AS base
 RUN apk add --no-cache libc6-compat
-ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
 FROM base AS deps
 WORKDIR /app
 COPY client/package.json client/package-lock.json* ./
-# Install all deps (including dev) -- tailwindcss, postcss, protoc-gen-es
-# are needed at build time. Override NODE_ENV=production from base which
-# causes npm ci to skip devDependencies.
-RUN NODE_ENV=development npm ci
+# Install all deps including dev -- tailwindcss, postcss, protoc-gen-es
+# are needed at build time. The runner stage sets NODE_ENV=production.
+RUN npm ci
 
 FROM base AS builder
 WORKDIR /app

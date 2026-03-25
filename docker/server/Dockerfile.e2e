@@ -1,6 +1,8 @@
 FROM golang:1.25-alpine AS builder
 WORKDIR /app
-RUN go install github.com/bufbuild/buf/cmd/buf@latest
+RUN go install github.com/bufbuild/buf/cmd/buf@latest \
+    && go install google.golang.org/protobuf/cmd/protoc-gen-go@latest \
+    && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 COPY go.mod go.sum ./
 RUN go mod download
 COPY proto/ proto/

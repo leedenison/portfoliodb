@@ -12,6 +12,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier/description"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/telemetry"
+	"github.com/leedenison/portfoliodb/server/worker"
 )
 
 // ingestionLog is the logger for resolution and plugin orchestration (category server/service/ingestion).
@@ -22,9 +23,16 @@ var ingestionLog *slog.Logger
 // Resolution uses DB, then in-batch cache, then description plugins (extract hints) and identifier plugins (timeout from config, retry once with backoff).
 // ingestionLogger is the logger for ingestion/resolution (typically with category server/service/ingestion); may be nil.
 // priceTrigger is optional; when non-nil, a non-blocking signal is sent after each successful job to trigger price fetching.
-func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, ingestionLogger *slog.Logger, priceTrigger chan<- struct{}) {
+func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, ingestionLogger *slog.Logger, priceTrigger chan<- struct{}, workers *worker.Registry) {
 	ingestionLog = ingestionLogger
+	const name = "ingestion"
+	if workers != nil {
+		workers.SetIdle(name)
+	}
 	for {
+		if workers != nil {
+			workers.SetQueueDepth(name, len(queue))
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -32,7 +40,14 @@ func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, re
 			if !ok {
 				return
 			}
+			if workers != nil {
+				workers.SetRunning(name, fmt.Sprintf("Processing job %s", j.JobID))
+				workers.SetQueueDepth(name, len(queue))
+			}
 			processJob(ctx, database, registry, descRegistry, counter, j, priceTrigger)
+			if workers != nil {
+				workers.SetIdle(name)
+			}
 		}
 	}
 }

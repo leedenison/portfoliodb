@@ -3,18 +3,24 @@ package pricefetcher
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/telemetry"
+	"github.com/leedenison/portfoliodb/server/worker"
 )
 
 // RunWorker processes price fetch cycles triggered via the trigger channel.
 // It blocks until ctx is cancelled. Each signal on trigger runs one cycle;
 // rapid signals are debounced (buffered channel of size 1).
-func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, trigger <-chan struct{}) {
+func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+	const name = "price_fetcher"
+	if workers != nil {
+		workers.SetIdle(name)
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -23,7 +29,7 @@ func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter 
 			if !ok {
 				return
 			}
-			runCycle(ctx, database, registry, counter, log)
+			runCycle(ctx, database, registry, counter, log, workers)
 		}
 	}
 }
@@ -36,7 +42,14 @@ type pluginEntry struct {
 	maxHistDays *int
 }
 
-func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger) {
+func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) {
+	const name = "price_fetcher"
+	defer func() {
+		if workers != nil {
+			workers.SetIdle(name)
+		}
+	}()
+
 	opts := db.HeldRangesOpts{ExtendToToday: true, LookbackDays: 5}
 
 	gaps, err := database.PriceGaps(ctx, opts)
@@ -60,6 +73,10 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 	allGaps = append(allGaps, fxGaps...)
 	if len(allGaps) == 0 {
 		return
+	}
+
+	if workers != nil {
+		workers.SetRunning(name, fmt.Sprintf("Fetching prices for %d instruments", len(allGaps)))
 	}
 
 	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryPrice)

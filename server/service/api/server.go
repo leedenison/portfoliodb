@@ -7,6 +7,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
+	"github.com/leedenison/portfoliodb/server/worker"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"github.com/redis/go-redis/v9"
@@ -22,6 +23,7 @@ type Server struct {
 	descRegistry   *description.Registry
 	priceRegistry  *pricefetcher.Registry
 	priceTrigger   chan<- struct{}
+	workerRegistry *worker.Registry
 }
 
 // ServerConfig configures the API server.
@@ -33,6 +35,7 @@ type ServerConfig struct {
 	DescRegistry   *description.Registry    // optional; enables display_name in description plugin list
 	PriceRegistry  *pricefetcher.Registry   // optional; enables display_name in price plugin list
 	PriceTrigger   chan<- struct{}           // optional; when set, TriggerPriceFetch sends on it
+	WorkerRegistry *worker.Registry         // optional; when set, ListWorkers returns worker status
 }
 
 // NewServer returns a new API server.
@@ -45,6 +48,7 @@ func NewServer(cfg ServerConfig) *Server {
 		descRegistry:   cfg.DescRegistry,
 		priceRegistry:  cfg.PriceRegistry,
 		priceTrigger:   cfg.PriceTrigger,
+		workerRegistry: cfg.WorkerRegistry,
 	}
 }
 

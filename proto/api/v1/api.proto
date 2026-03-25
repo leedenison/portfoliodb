@@ -199,6 +199,9 @@ service ApiService {
   // Telemetry counters (admin-only). Returns counters discovered from Redis (portfoliodb:counters:*).
   rpc ListTelemetryCounters(ListTelemetryCountersRequest) returns (ListTelemetryCountersResponse);
 
+  // Worker status (admin-only). Returns current state of background workers.
+  rpc ListWorkers(ListWorkersRequest) returns (ListWorkersResponse);
+
   // Holding declarations: declare known holding quantities at a point in time.
   rpc ListHoldingDeclarations(ListHoldingDeclarationsRequest) returns (ListHoldingDeclarationsResponse);
   rpc CreateHoldingDeclaration(CreateHoldingDeclarationRequest) returns (CreateHoldingDeclarationResponse);
@@ -716,4 +719,25 @@ message SetDisplayCurrencyRequest {
 
 message SetDisplayCurrencyResponse {
   string display_currency = 1;
+}
+
+// Worker status for admin monitoring and e2e test polling.
+enum WorkerState {
+  WORKER_STATE_UNSPECIFIED = 0;
+  WORKER_STATE_IDLE = 1;
+  WORKER_STATE_RUNNING = 2;
+}
+
+message Worker {
+  string name = 1;
+  WorkerState state = 2;
+  string summary = 3;
+  int32 queue_depth = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message ListWorkersRequest {}
+
+message ListWorkersResponse {
+  repeated Worker workers = 1;
 }

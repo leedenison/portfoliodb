@@ -55,6 +55,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - ../e2e:/e2e
+      - ../client/gen:/client/gen:ro
     depends_on:
       - envoy
     profiles:

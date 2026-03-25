@@ -56,6 +56,7 @@ services:
     volumes:
       - ../e2e:/e2e
       - ../client/gen:/client/gen:ro
+      - ../e2e/node_modules/@bufbuild:/client/node_modules/@bufbuild:ro
     depends_on:
       - envoy
     profiles:

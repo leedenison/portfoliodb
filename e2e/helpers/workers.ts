@@ -1,143 +1,57 @@
-// Polls ListWorkers until all workers are idle with empty queues.
-//
-// Decodes the protobuf response manually to avoid cross-project module
-// resolution issues with the generated client/gen/ code.
+// Polls the admin Workers page until all workers are idle.
+// Uses a Playwright browser to render the page and read worker state
+// from data attributes.
 
-import { unaryFetch } from "./grpc";
-import { seedSession } from "./auth";
+import type { Browser, BrowserContext } from "@playwright/test";
+import { seedSession, injectSession } from "./auth";
 
-const SERVICE_METHOD = "portfoliodb.api.v1.ApiService/ListWorkers";
-
-// WorkerState enum values from api.proto.
-const WORKER_STATE_IDLE = 1;
-
-interface Worker {
-  name: string;
-  state: number;
-  queueDepth: number;
-}
-
-// Minimal protobuf varint decoder.
-function readVarint(buf: Uint8Array, offset: number): [number, number] {
-  let result = 0;
-  let shift = 0;
-  let pos = offset;
-  while (pos < buf.length) {
-    const b = buf[pos++];
-    result |= (b & 0x7f) << shift;
-    if ((b & 0x80) === 0) return [result, pos];
-    shift += 7;
+// Wait for all background workers to reach idle state with empty queues.
+// Opens a new browser context, navigates to the admin workers page, and
+// polls until every worker-row shows data-worker-state="idle".
+export async function waitForWorkersIdle(
+  browser: Browser,
+  opts?: {
+    pollMs?: number;
+    timeoutMs?: number;
   }
-  throw new Error("varint overflows buffer");
-}
-
-// Decode a ListWorkersResponse protobuf message.
-// ListWorkersResponse: repeated Worker workers = 1;
-// Worker: string name = 1, WorkerState state = 2, string summary = 3,
-//         int32 queue_depth = 4, Timestamp updated_at = 5;
-function decodeListWorkersResponse(buf: Uint8Array): Worker[] {
-  const workers: Worker[] = [];
-  let pos = 0;
-
-  while (pos < buf.length) {
-    const [tag, nextPos] = readVarint(buf, pos);
-    pos = nextPos;
-    const fieldNumber = tag >>> 3;
-    const wireType = tag & 0x07;
-
-    if (fieldNumber === 1 && wireType === 2) {
-      // Length-delimited: embedded Worker message.
-      const [len, dataStart] = readVarint(buf, pos);
-      const workerBuf = buf.subarray(dataStart, dataStart + len);
-      workers.push(decodeWorker(workerBuf));
-      pos = dataStart + len;
-    } else if (wireType === 0) {
-      // Varint — skip.
-      const [, next] = readVarint(buf, pos);
-      pos = next;
-    } else if (wireType === 2) {
-      // Length-delimited — skip.
-      const [len, dataStart] = readVarint(buf, pos);
-      pos = dataStart + len;
-    } else if (wireType === 5) {
-      pos += 4; // 32-bit — skip.
-    } else if (wireType === 1) {
-      pos += 8; // 64-bit — skip.
-    }
-  }
-
-  return workers;
-}
-
-function decodeWorker(buf: Uint8Array): Worker {
-  let name = "";
-  let state = 0;
-  let queueDepth = 0;
-  let pos = 0;
-
-  while (pos < buf.length) {
-    const [tag, nextPos] = readVarint(buf, pos);
-    pos = nextPos;
-    const fieldNumber = tag >>> 3;
-    const wireType = tag & 0x07;
-
-    if (wireType === 0) {
-      const [val, next] = readVarint(buf, pos);
-      pos = next;
-      if (fieldNumber === 2) state = val;
-      else if (fieldNumber === 4) queueDepth = val;
-    } else if (wireType === 2) {
-      const [len, dataStart] = readVarint(buf, pos);
-      if (fieldNumber === 1) {
-        name = new TextDecoder().decode(buf.subarray(dataStart, dataStart + len));
-      }
-      pos = dataStart + len;
-    } else if (wireType === 5) {
-      pos += 4;
-    } else if (wireType === 1) {
-      pos += 8;
-    }
-  }
-
-  return { name, state, queueDepth };
-}
-
-// Poll ListWorkers until every worker reports IDLE and queue_depth == 0.
-export async function waitForWorkersIdle(opts?: {
-  pollMs?: number;
-  timeoutMs?: number;
-}): Promise<void> {
+): Promise<void> {
   const pollMs = opts?.pollMs ?? 500;
   const timeoutMs = opts?.timeoutMs ?? 120_000;
 
-  // ListWorkers is admin-only; seed a temporary admin session.
   const adminSession = await seedSession("admin");
+  const context = await browser.newContext();
+  await injectSession(context, adminSession);
+  const page = await context.newPage();
 
-  // ListWorkersRequest is empty — zero-length protobuf body.
-  const reqBytes = new Uint8Array(0);
+  try {
+    await page.goto("/admin/workers");
 
-  const deadline = Date.now() + timeoutMs;
+    const deadline = Date.now() + timeoutMs;
 
-  while (Date.now() < deadline) {
-    const resBytes = await unaryFetch(SERVICE_METHOD, reqBytes, adminSession);
-    const workers = decodeListWorkersResponse(resBytes);
+    while (Date.now() < deadline) {
+      // Wait for at least one worker row to appear.
+      const rows = page.locator("[data-worker-state]");
+      const count = await rows.count();
 
-    const allIdle = workers.every(
-      (w) => w.state === WORKER_STATE_IDLE && w.queueDepth === 0
+      if (count > 0) {
+        const states = await rows.evaluateAll((els) =>
+          els.map((el) => el.getAttribute("data-worker-state"))
+        );
+        if (states.every((s) => s === "idle")) return;
+      }
+
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+
+    // Timeout — gather diagnostics.
+    const rows = page.locator("[data-worker-state]");
+    const diag = await rows.evaluateAll((els) =>
+      els.map((el) => `${el.getAttribute("data-worker-name")}=${el.getAttribute("data-worker-state")}`)
     );
-    if (allIdle) return;
-
-    await new Promise((r) => setTimeout(r, pollMs));
+    throw new Error(
+      `waitForWorkersIdle timed out after ${timeoutMs}ms. Workers: ${diag.join(", ")}`
+    );
+  } finally {
+    await context.close();
   }
-
-  // Timeout — fetch one last time for diagnostics.
-  const resBytes = await unaryFetch(SERVICE_METHOD, reqBytes, adminSession);
-  const workers = decodeListWorkersResponse(resBytes);
-  const stateNames = ["UNSPECIFIED", "IDLE", "RUNNING"];
-  const summary = workers
-    .map((w) => `${w.name}: state=${stateNames[w.state] ?? w.state} queue=${w.queueDepth}`)
-    .join(", ");
-  throw new Error(
-    `waitForWorkersIdle timed out after ${timeoutMs}ms. Workers: ${summary}`
-  );
 }

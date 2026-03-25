@@ -9,11 +9,6 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  // In record mode, wait for all workers (including price fetcher) to finish
-  // so the VCR cassette captures all HTTP interactions before shutdown.
-  if (process.env.VCR_MODE === "record") {
-    await waitForWorkersIdle({ timeoutMs: 180_000 });
-  }
   await closeRedis();
   await closeDB();
 });
@@ -28,6 +23,7 @@ test.describe("CSV ingestion flow", () => {
   test("upload CSV, wait for job completion, verify holdings", async ({
     context,
     page,
+    browser,
   }) => {
     await injectSession(context, sessionId);
 
@@ -71,7 +67,7 @@ test.describe("CSV ingestion flow", () => {
     ).not.toBeVisible({ timeout: 30_000 });
 
     // Wait for all background workers (ingestion + price fetcher) to finish.
-    await waitForWorkersIdle();
+    await waitForWorkersIdle(browser);
 
     // Navigate to holdings and verify the 3 instruments appear.
     await page.goto("/holdings");
@@ -88,6 +84,14 @@ test.describe("CSV ingestion flow", () => {
     await expect(table).toContainText("MSFT");
     await expect(table).toContainText("GOOGL");
   });
+
+  // In record mode, ensure all price fetches complete so the VCR cassette
+  // captures every HTTP interaction before the server shuts down.
+  if (process.env.VCR_MODE === "record") {
+    test("wait for all workers to finish (record mode)", async ({ browser }) => {
+      await waitForWorkersIdle(browser, { timeoutMs: 180_000 });
+    });
+  }
 });
 
 test.describe("upload validation errors", () => {

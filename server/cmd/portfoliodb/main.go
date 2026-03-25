@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -241,6 +242,20 @@ func main() {
 		svc.GracefulStop()
 		stopE2ERecorder()
 	}()
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		rev, dirty := "unknown", ""
+		for _, s := range bi.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				rev = s.Value
+			case "vcs.modified":
+				if s.Value == "true" {
+					dirty = "-dirty"
+				}
+			}
+		}
+		log.Printf("build: %s%s", rev, dirty)
+	}
 	log.Printf("listening on %s", *grpcAddr)
 	if err := svc.Serve(lis); err != nil {
 		log.Fatalf("serve: %v", err)

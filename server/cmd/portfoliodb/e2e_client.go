@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -13,6 +14,17 @@ import (
 	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
 	"gopkg.in/dnaeon/go-vcr.v4/pkg/recorder"
 )
+
+// debugTransport wraps an http.RoundTripper and logs every request.
+type debugTransport struct {
+	name    string
+	wrapped http.RoundTripper
+}
+
+func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	log.Printf("e2e vcr DEBUG: %s RoundTrip called: %s %s (transport type: %T)", d.name, req.Method, req.URL, d.wrapped)
+	return d.wrapped.RoundTrip(req)
+}
 
 // e2eRecorder is the shared VCR recorder for all plugin HTTP clients.
 // It is stopped via stopE2ERecorder during graceful shutdown.
@@ -57,15 +69,19 @@ func stopE2ERecorder() {
 }
 
 func newPluginHTTPClient() *http.Client {
+	transport := e2eRecorder.GetDefaultClient().Transport
+	log.Printf("e2e vcr DEBUG: newPluginHTTPClient transport type=%T, is recorder=%v, recorder mode=%v", transport, fmt.Sprintf("%p", transport) == fmt.Sprintf("%p", e2eRecorder), e2eRecorder.Mode())
 	return &http.Client{
-		Transport: e2eRecorder.GetDefaultClient().Transport,
+		Transport: &debugTransport{name: "plugin", wrapped: transport},
 		Timeout:   30 * time.Second,
 	}
 }
 
 func newDescriptionHTTPClient() *http.Client {
+	transport := e2eRecorder.GetDefaultClient().Transport
+	log.Printf("e2e vcr DEBUG: newDescriptionHTTPClient transport type=%T, is recorder=%v, recorder mode=%v", transport, fmt.Sprintf("%p", transport) == fmt.Sprintf("%p", e2eRecorder), e2eRecorder.Mode())
 	return &http.Client{
-		Transport: e2eRecorder.GetDefaultClient().Transport,
+		Transport: &debugTransport{name: "description", wrapped: transport},
 		Timeout:   20 * time.Second,
 	}
 }

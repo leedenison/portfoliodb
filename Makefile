@@ -19,7 +19,6 @@ tools:
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 	go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm ci
-	npm ci --prefix e2e
 
 generate:
 	buf generate --template buf.gen.go.yaml && buf generate --template buf.gen.ts.yaml

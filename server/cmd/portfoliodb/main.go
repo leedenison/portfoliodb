@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -48,6 +47,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
+
+// Set via -ldflags at build time.
+var buildRevision = "dev"
 
 func main() {
 	grpcAddr := flag.String("grpc-addr", envOrDefault("PORTFOLIODB_GRPC_ADDR", ":50051"), "gRPC listen address")
@@ -240,26 +242,13 @@ func main() {
 		<-sig
 		cancel()
 		svc.GracefulStop()
-		stopE2ERecorder()
 	}()
-	if bi, ok := debug.ReadBuildInfo(); ok {
-		rev, dirty := "unknown", ""
-		for _, s := range bi.Settings {
-			switch s.Key {
-			case "vcs.revision":
-				rev = s.Value
-			case "vcs.modified":
-				if s.Value == "true" {
-					dirty = "-dirty"
-				}
-			}
-		}
-		log.Printf("build: %s%s", rev, dirty)
-	}
+	log.Printf("build: %s", buildRevision)
 	log.Printf("listening on %s", *grpcAddr)
 	if err := svc.Serve(lis); err != nil {
 		log.Fatalf("serve: %v", err)
 	}
+	stopE2ERecorder()
 }
 
 func envOrDefault(key, def string) string {

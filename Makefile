@@ -90,6 +90,7 @@ e2e-test:
 	@echo "Waiting for portfoliodb (gRPC)..."
 	@scripts/server-ready.sh localhost:50052
 	$(COMPOSE_E2E) exec -T postgres psql -U portfoliodb -d portfoliodb < e2e/fixtures/seed.sql
+	$(COMPOSE_E2E) exec -T postgres psql -U portfoliodb -d portfoliodb < e2e/fixtures/instruments.sql
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test; \
 		rc=$$?; $(COMPOSE_E2E) --profile test down; exit $$rc
 

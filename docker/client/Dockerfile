@@ -10,9 +10,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 FROM base AS deps
 WORKDIR /app
 COPY client/package.json client/package-lock.json* ./
-# Install all deps (including dev) -- tailwindcss, postcss, etc. are needed
-# at build time. The final runner stage only copies the standalone output.
-RUN npm ci
+# Install all deps (including dev) -- tailwindcss, postcss, protoc-gen-es
+# are needed at build time. Override NODE_ENV=production from base which
+# causes npm ci to skip devDependencies.
+RUN NODE_ENV=development npm ci
 
 FROM base AS builder
 WORKDIR /app

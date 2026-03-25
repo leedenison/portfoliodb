@@ -88,7 +88,7 @@ e2e-test:
 	@echo "Waiting for portfoliodb (gRPC)..."
 	@scripts/server-ready.sh localhost:50052
 	$(COMPOSE_E2E) exec -T postgres psql -U portfoliodb -d portfoliodb < e2e/fixtures/seed.sql
-	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) run --rm --profile test playwright sh -c "npm ci && npx playwright test"
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright sh -c "npm ci && npx playwright test"
 	@$(COMPOSE_E2E) --profile test down
 
 # E2E tests: record mode (real API calls, real keys from env, real rate limits).
@@ -100,7 +100,7 @@ e2e-record:
 	@echo "Waiting for portfoliodb (gRPC)..."
 	@scripts/server-ready.sh localhost:50052
 	$(COMPOSE_E2E) exec -T postgres psql -U portfoliodb -d portfoliodb < e2e/fixtures/seed-record.sql
-	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) run --rm --profile test playwright sh -c "npm ci && npx playwright test"
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright sh -c "npm ci && npx playwright test"
 	@$(COMPOSE_E2E) --profile test down
 
 test: server-test client-test db-test integration-test

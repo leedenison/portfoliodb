@@ -2,12 +2,18 @@ import { test, expect } from "@playwright/test";
 import path from "path";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB } from "../helpers/db";
+import { waitForWorkersIdle } from "../helpers/workers";
 
 test.beforeAll(async () => {
   await resetAndSeedBase();
 });
 
 test.afterAll(async () => {
+  // In record mode, wait for all workers (including price fetcher) to finish
+  // so the VCR cassette captures all HTTP interactions before shutdown.
+  if (process.env.VCR_MODE === "record") {
+    await waitForWorkersIdle({ timeoutMs: 180_000 });
+  }
   await closeRedis();
   await closeDB();
 });
@@ -63,6 +69,9 @@ test.describe("CSV ingestion flow", () => {
     await expect(
       page.locator("[data-testid='upload-modal']")
     ).not.toBeVisible({ timeout: 30_000 });
+
+    // Wait for all background workers (ingestion + price fetcher) to finish.
+    await waitForWorkersIdle();
 
     // Navigate to holdings and verify the 3 instruments appear.
     await page.goto("/holdings");

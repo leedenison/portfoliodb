@@ -7,7 +7,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 FROM base AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev
+# Install all deps (including dev) -- tailwindcss, postcss, etc. are needed
+# at build time. The final runner stage only copies the standalone output.
+RUN npm ci
 
 FROM base AS builder
 WORKDIR /app

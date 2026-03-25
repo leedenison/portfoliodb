@@ -46,7 +46,7 @@ services:
       - "8081:8080"
 
   playwright:
-    image: mcr.microsoft.com/playwright:v1.52.0-noble
+    image: mcr.microsoft.com/playwright:v1.58.2-noble
     working_dir: /e2e
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     environment:

@@ -8,7 +8,7 @@
     "report": "playwright show-report test-results/html"
   },
   "devDependencies": {
-    "@playwright/test": "^1.52.0",
+    "@playwright/test": "1.58.2",
     "ioredis": "^5.6.1"
   }
 }

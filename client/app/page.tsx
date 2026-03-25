@@ -30,7 +30,7 @@ export default function Home() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col bg-background">
+    <main data-testid="page-signin" className="flex min-h-screen flex-col bg-background">
       <AppHeader />
       <div className="bg-grid relative flex flex-1 flex-col items-center px-4 py-16 md:py-24">
         {/* Gradient fade over grid */}

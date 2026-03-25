@@ -100,7 +100,7 @@ export default function TxsPage() {
 
   return (
     <AppShell>
-      <div className="flex flex-1 flex-col items-center px-4 py-8">
+      <div data-testid="page-transactions" className="flex flex-1 flex-col items-center px-4 py-8">
         <div className="w-full max-w-5xl animate-fade-in space-y-5">
           <div className="flex flex-wrap items-baseline gap-3">
             <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">

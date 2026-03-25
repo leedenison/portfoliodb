@@ -106,7 +106,7 @@ export default function PerformancePage() {
 
   return (
     <AppShell>
-      <div className="flex flex-1 flex-col px-4 py-8">
+      <div data-testid="page-performance" className="flex flex-1 flex-col px-4 py-8">
         {state.status === "loading" && (
           <p className="text-text-muted">Loading...</p>
         )}

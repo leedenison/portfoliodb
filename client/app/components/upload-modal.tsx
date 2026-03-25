@@ -160,6 +160,7 @@ export function UploadModal() {
       onClose={closeUploadModal}
       title="Upload transactions"
       closable={!jobId}
+      data-testid="upload-modal"
     >
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -167,7 +168,7 @@ export function UploadModal() {
           <div className="space-y-3">
             <p className="font-medium text-accent-dark">Upload failed</p>
             {jobStatus.validationErrors.length > 0 && (
-              <div>
+              <div data-testid="upload-error-list">
                 <p className="text-sm font-medium text-text-primary">Validation errors</p>
                 <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
                   {jobStatus.validationErrors.map((e, i) => (
@@ -179,7 +180,7 @@ export function UploadModal() {
               </div>
             )}
             {jobStatus.identificationErrors.length > 0 && (
-              <div>
+              <div data-testid="upload-error-list">
                 <p className="text-sm font-medium text-text-primary">Identification errors</p>
                 <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
                   {jobStatus.identificationErrors.map((e, i) => (
@@ -199,7 +200,7 @@ export function UploadModal() {
             </button>
           </div>
         ) : jobId ? (
-          <div className="flex flex-col items-center gap-3 py-6">
+          <div data-testid="job-status-badge" className="flex flex-col items-center gap-3 py-6">
             <svg
               className="h-8 w-8 animate-spin text-primary"
               viewBox="0 0 24 24"
@@ -240,6 +241,7 @@ export function UploadModal() {
               </label>
               <select
                 id="upload-broker"
+                data-testid="select-broker"
                 value={broker}
                 onChange={(e) => {
                   setBroker(Number(e.target.value) as Broker);
@@ -315,6 +317,7 @@ export function UploadModal() {
               />
               <button
                 type="button"
+                data-testid="input-csv-file"
                 onClick={() => {
                   setFileInputActive(true);
                   fileInputRef.current?.click();
@@ -337,7 +340,7 @@ export function UploadModal() {
             {parseResult && (
               <div className="rounded-md border border-border bg-background p-4">
                 {parseResult.errors.length > 0 ? (
-                  <>
+                  <div data-testid="upload-error-list">
                     <p className="font-medium text-accent-dark">Parse errors</p>
                     <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
                       {parseResult.errors.map((e, i) => (
@@ -346,16 +349,17 @@ export function UploadModal() {
                         </li>
                       ))}
                     </ul>
-                  </>
+                  </div>
                 ) : (
                   <>
-                    <p className="text-sm text-text-primary">
+                    <div data-testid="upload-parse-preview" className="text-sm text-text-primary">
                       {parseResult.txs.length} transaction(s), from{" "}
                       {parseResult.periodFrom.toLocaleDateString()} to{" "}
                       {parseResult.periodTo.toLocaleDateString()}.
-                    </p>
+                    </div>
                     <button
                       type="button"
+                      data-testid="btn-upload-submit"
                       onClick={handleUpload}
                       disabled={!canUpload}
                       className="mt-3 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-dark disabled:opacity-50"

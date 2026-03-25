@@ -1,4 +1,4 @@
-.PHONY: tools generate build server-test db-test client-test integration-test integration-test-record run run-server init-db stop clean clean-generated clean-docker clean-next test
+.PHONY: tools generate build server-test db-test client-test integration-test integration-test-record e2e-test e2e-record run run-server init-db stop clean clean-generated clean-docker clean-next test
 
 # Load .env so DB_INITIALISE_SCRIPT etc. are available to run/init-db
 -include .env
@@ -8,6 +8,8 @@ export
 COMPOSE_RUN = docker compose -f docker/server/docker-compose.yml --env-file .env
 # Dev stack: same as above plus override with source mounts and live-reload (Air + next dev)
 COMPOSE_DEV = docker compose -f docker/server/docker-compose.yml -f docker/server/docker-compose.dev.yml --env-file .env
+# E2E stack: production-style build with e2e build tag, isolated ports, Playwright container
+COMPOSE_E2E = docker compose -f docker/server/docker-compose.yml -f docker/server/docker-compose.e2e.yml --env-file .env
 
 # Install Go and npm tooling required for generate and tests. Run once (or after adding deps).
 tools:
@@ -76,5 +78,29 @@ integration-test:
 
 integration-test-record:
 	VCR_MODE=record go test -tags integration -v -count=1 ./server/plugins/...
+
+# E2E tests: replay mode (VCR cassettes, dummy API keys, no rate limits).
+# Full stack at isolated ports: Postgres 5434, Redis 6381, Envoy 8081.
+e2e-test:
+	$(COMPOSE_E2E) up -d --build
+	@echo "Waiting for Postgres..."
+	@scripts/postgres-ready.sh "$(COMPOSE_E2E)"
+	@echo "Waiting for portfoliodb (gRPC)..."
+	@scripts/server-ready.sh localhost:50052
+	$(COMPOSE_E2E) exec -T postgres psql -U portfoliodb -d portfoliodb < e2e/fixtures/seed.sql
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) run --rm --profile test playwright sh -c "npm ci && npx playwright test"
+	@$(COMPOSE_E2E) --profile test down
+
+# E2E tests: record mode (real API calls, real keys from env, real rate limits).
+# Requires: OPENFIGI_API_KEY, MASSIVE_API_KEY, EODHD_API_KEY, OPENAI_API_KEY
+e2e-record:
+	E2E_VCR_MODE=record $(COMPOSE_E2E) up -d --build
+	@echo "Waiting for Postgres..."
+	@scripts/postgres-ready.sh "$(COMPOSE_E2E)"
+	@echo "Waiting for portfoliodb (gRPC)..."
+	@scripts/server-ready.sh localhost:50052
+	$(COMPOSE_E2E) exec -T postgres psql -U portfoliodb -d portfoliodb < e2e/fixtures/seed-record.sql
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) run --rm --profile test playwright sh -c "npm ci && npx playwright test"
+	@$(COMPOSE_E2E) --profile test down
 
 test: server-test client-test db-test integration-test

@@ -110,7 +110,7 @@ export default function UploadsPage() {
 
   return (
     <AppShell>
-      <div className="flex flex-1 flex-col items-center px-4 py-8">
+      <div data-testid="page-uploads" className="flex flex-1 flex-col items-center px-4 py-8">
         <div className="w-full max-w-4xl animate-fade-in space-y-5">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <div className="flex items-baseline gap-3">
@@ -125,6 +125,7 @@ export default function UploadsPage() {
             </div>
             <button
               type="button"
+              data-testid="btn-upload-transactions"
               onClick={() => openUploadModal(() => refresh())}
               className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-dark"
             >

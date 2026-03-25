@@ -9,7 +9,7 @@ COMPOSE_RUN = docker compose -f docker/docker-compose.yml --env-file .env
 # Dev stack: same as above plus override with source mounts and live-reload (Air + next dev)
 COMPOSE_DEV = docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml --env-file .env
 # E2E stack: production-style build with e2e build tag, isolated ports, Playwright container
-COMPOSE_E2E = docker compose -f docker/docker-compose.yml -f docker/docker-compose.e2e.yml --env-file .env
+COMPOSE_E2E = docker compose -p portfoliodb-e2e -f docker/docker-compose.yml -f docker/docker-compose.e2e.yml --env-file .env
 
 # Install Go and npm tooling required for generate and tests. Run once (or after adding deps).
 tools:

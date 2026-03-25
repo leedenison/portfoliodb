@@ -5,32 +5,13 @@ package price
 import (
 	"context"
 	"encoding/json"
-	"net/url"
 	"testing"
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/testutil/vcr"
-	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
 )
-
-func massiveSanitize(i *cassette.Interaction) error {
-	u, err := url.Parse(i.Request.URL)
-	if err != nil {
-		return err
-	}
-	q := u.Query()
-	if q.Has("apiKey") {
-		q.Set("apiKey", "REDACTED")
-		u.RawQuery = q.Encode()
-		i.Request.URL = u.String()
-	}
-	if _, ok := i.Request.Form["apiKey"]; ok {
-		i.Request.Form["apiKey"] = []string{"REDACTED"}
-	}
-	return nil
-}
 
 func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 	apiKey := vcr.EnvOrSkip(t, "MASSIVE_API_KEY")
@@ -76,7 +57,7 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, httpClient := vcr.New(t, tc.cassette, massiveSanitize)
+			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll)
 
 			p := NewPlugin(nil, nil, httpClient)
 			cfg, err := json.Marshal(configJSON{

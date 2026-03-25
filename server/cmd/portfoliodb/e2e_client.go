@@ -91,7 +91,7 @@ func sanitizeE2E(i *cassette.Interaction) error {
 	if err == nil {
 		q := u.Query()
 		changed := false
-		for _, param := range []string{"api_token", "api_key"} {
+		for _, param := range []string{"api_token", "api_key", "apiKey"} {
 			if q.Has(param) {
 				q.Set(param, "REDACTED")
 				changed = true

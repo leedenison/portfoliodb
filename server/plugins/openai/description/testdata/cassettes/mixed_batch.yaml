@@ -67,23 +67,23 @@ interactions:
             Cf-Cache-Status:
                 - DYNAMIC
             Cf-Ray:
-                - 9dd53bb0d9546346-LHR
+                - REDACTED
             Content-Type:
                 - application/json
             Date:
                 - Mon, 16 Mar 2026 16:46:19 GMT
             Openai-Organization:
-                - user-busobywxygdyvplna1ckeorb
+                - REDACTED
             Openai-Processing-Ms:
                 - "1389"
             Openai-Project:
-                - proj_OUgOMATgfCGxsOk3DLcka16C
+                - REDACTED
             Openai-Version:
                 - "2020-10-01"
             Server:
                 - cloudflare
             Set-Cookie:
-                - __cf_bm=BkTPJ0YmmRcIuWsIzYGMtQETnT6FVz14hwy9B6BtZXA-1773679577.7362118-1.0.1.1-Sm3XCpe6uUbq34hYk06A2fZSVrv59EF7lbPmhAp6zxRz11Xj.1obg_3xY0RwrBitmtjT3RpK9Kb8yn5vqb9uq7gwvsYTTDD8UPj0tLf3dSLlfJKUqnG4s.YJCUikciM5; HttpOnly; Secure; Path=/; Domain=api.openai.com; Expires=Mon, 16 Mar 2026 17:16:19 GMT
+                - REDACTED
             Strict-Transport-Security:
                 - max-age=31536000; includeSubDomains; preload
             X-Content-Type-Options:

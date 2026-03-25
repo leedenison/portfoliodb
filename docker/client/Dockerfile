@@ -1,12 +1,12 @@
 # Build Next.js standalone (same-origin API when served behind Envoy at :8080).
-FROM node:20-alpine AS base
+FROM node:25-alpine AS base
 RUN apk add --no-cache libc6-compat
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
 FROM base AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY client/package.json client/package-lock.json* ./
 # Install all deps (including dev) -- tailwindcss, postcss, etc. are needed
 # at build time. The final runner stage only copies the standalone output.
 RUN npm ci
@@ -14,7 +14,7 @@ RUN npm ci
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY client/ .
 RUN mkdir -p public
 # Same-origin: SPA and API both at localhost:8080 via Envoy
 ENV NEXT_PUBLIC_GRPC_WEB_BASE=

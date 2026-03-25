@@ -32,8 +32,8 @@ services:
 
   client:
     build:
-      context: ../../client
-      dockerfile: Dockerfile.dev
+      context: ../..
+      dockerfile: docker/client/Dockerfile.dev
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     env_file:
       - ../../.env

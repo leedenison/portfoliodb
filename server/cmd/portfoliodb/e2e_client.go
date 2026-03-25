@@ -41,13 +41,18 @@ func init() {
 	if err != nil {
 		log.Fatalf("e2e vcr recorder: %v", err)
 	}
+	log.Printf("e2e vcr: mode=%v cassette=%s", mode, cassettePath)
 }
 
 // stopE2ERecorder flushes recorded cassettes to disk (record mode)
 // or releases resources (replay mode). Called during graceful shutdown.
 func stopE2ERecorder() {
 	if e2eRecorder != nil {
-		_ = e2eRecorder.Stop()
+		if err := e2eRecorder.Stop(); err != nil {
+			log.Printf("e2e vcr: stop error: %v", err)
+		} else {
+			log.Printf("e2e vcr: recorder stopped, cassette flushed")
+		}
 	}
 }
 

@@ -1,8 +1,15 @@
 import { test, expect } from "@playwright/test";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
+import { resetAndSeedBase, seedFixture, closeDB } from "../helpers/db";
+
+test.beforeAll(async () => {
+  await resetAndSeedBase();
+  await seedFixture("instruments.sql");
+});
 
 test.afterAll(async () => {
   await closeRedis();
+  await closeDB();
 });
 
 test.describe("admin prices page", () => {

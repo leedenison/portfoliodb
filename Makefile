@@ -83,27 +83,26 @@ integration-test-record:
 
 # E2E tests: replay mode (VCR cassettes, dummy API keys, no rate limits).
 # Full stack at isolated ports: Postgres 5434, Redis 6381, Envoy 8081.
+# Each spec file seeds its own data via the db.ts helper.
 e2e-test:
 	$(COMPOSE_E2E) up -d --build
 	@echo "Waiting for Postgres..."
 	@scripts/postgres-ready.sh "$(COMPOSE_E2E)"
 	@echo "Waiting for portfoliodb (gRPC)..."
 	@scripts/server-ready.sh localhost:50052
-	$(COMPOSE_E2E) exec -T postgres psql -U portfoliodb -d portfoliodb < e2e/fixtures/seed.sql
-	$(COMPOSE_E2E) exec -T postgres psql -U portfoliodb -d portfoliodb < e2e/fixtures/instruments.sql
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test; \
 		rc=$$?; $(COMPOSE_E2E) --profile test down; exit $$rc
 
 # E2E tests: record mode (real API calls, real keys from env, real rate limits).
 # Requires: OPENFIGI_API_KEY, MASSIVE_API_KEY, EODHD_API_KEY, OPENAI_API_KEY
+# VCR_MODE is passed to both the server (for go-vcr) and Playwright (for seed logic).
 e2e-record:
 	VCR_MODE=record $(COMPOSE_E2E) up -d --build
 	@echo "Waiting for Postgres..."
 	@scripts/postgres-ready.sh "$(COMPOSE_E2E)"
 	@echo "Waiting for portfoliodb (gRPC)..."
 	@scripts/server-ready.sh localhost:50052
-	$(COMPOSE_E2E) exec -T postgres psql -U portfoliodb -d portfoliodb < e2e/fixtures/seed-record.sql
-	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test; \
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) VCR_MODE=record $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test; \
 		rc=$$?; $(COMPOSE_E2E) --profile test down; exit $$rc
 
 test: server-test client-test db-test integration-test

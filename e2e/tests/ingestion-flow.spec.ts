@@ -1,9 +1,15 @@
 import { test, expect } from "@playwright/test";
 import path from "path";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
+import { resetAndSeedBase, closeDB } from "../helpers/db";
+
+test.beforeAll(async () => {
+  await resetAndSeedBase();
+});
 
 test.afterAll(async () => {
   await closeRedis();
+  await closeDB();
 });
 
 test.describe("CSV ingestion flow", () => {

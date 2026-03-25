@@ -7,11 +7,6 @@ services:
       - "5434:5432"
     environment:
       POSTGRES_DB: portfoliodb
-      # Passed through for seed-record.sql psql \set backtick substitution.
-      OPENFIGI_API_KEY: ${OPENFIGI_API_KEY:-}
-      MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
-      EODHD_API_KEY: ${EODHD_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
 
   redis:
     ports: !override
@@ -53,6 +48,11 @@ services:
       E2E_BASE_URL: http://envoy:8080
       E2E_REDIS_URL: redis://redis:6379/0
       E2E_DATABASE_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb
+      VCR_MODE: ${VCR_MODE:-}
+      OPENFIGI_API_KEY: ${OPENFIGI_API_KEY:-}
+      MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
+      EODHD_API_KEY: ${EODHD_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - ../e2e:/e2e
     depends_on:

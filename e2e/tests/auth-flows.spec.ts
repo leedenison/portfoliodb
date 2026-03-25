@@ -5,9 +5,15 @@ import {
   deleteSession,
   closeRedis,
 } from "../helpers/auth";
+import { resetAndSeedBase, closeDB } from "../helpers/db";
+
+test.beforeAll(async () => {
+  await resetAndSeedBase();
+});
 
 test.afterAll(async () => {
   await closeRedis();
+  await closeDB();
 });
 
 test.describe("unauthenticated user", () => {
@@ -64,7 +70,7 @@ test.describe("admin user", () => {
     await injectSession(context, sessionId);
     await page.goto("/admin/prices");
     await expect(
-      page.locator("[data-testid='prices-table']")
+      page.locator("[data-testid='admin-layout']")
     ).toBeVisible({ timeout: 10_000 });
   });
 });

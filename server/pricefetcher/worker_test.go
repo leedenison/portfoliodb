@@ -158,7 +158,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), fxInstID, pluginID, gomock.Any(), from, to).Return(nil)
 
-	runCycle(ctx, mockDB, reg, nil, nil)
+	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
 	if stub.calls != 1 {
 		t.Errorf("expected 1 FetchPrices call for FX gap, got %d", stub.calls)
@@ -235,7 +235,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 		},
 	}, nil)
 
-	runCycle(ctx, mockDB, reg, nil, nil)
+	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
 	if stub.calls != 0 {
 		t.Errorf("expected 0 FetchPrices calls for blocked plugin, got %d", stub.calls)
@@ -279,7 +279,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().CreatePriceFetchBlock(gomock.Any(), instID, pluginID, "ticker not found").Return(nil)
 
-	runCycle(ctx, mockDB, reg, nil, nil)
+	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
 	if stub.calls != 1 {
 		t.Errorf("expected 1 FetchPrices call, got %d", stub.calls)
@@ -328,7 +328,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, gomock.Any(), gomock.Any(), to).Return(nil)
 
-	runCycle(ctx, mockDB, reg, nil, nil)
+	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
 	if stub.calls != 1 {
 		t.Errorf("expected 1 FetchPrices call (truncated), got %d", stub.calls)
@@ -374,7 +374,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 		},
 	}, nil)
 
-	runCycle(ctx, mockDB, reg, nil, nil)
+	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
 	if stub.calls != 0 {
 		t.Errorf("expected 0 FetchPrices calls for gap older than max history, got %d", stub.calls)

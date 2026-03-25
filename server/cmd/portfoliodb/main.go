@@ -39,6 +39,7 @@ import (
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
 	"github.com/leedenison/portfoliodb/server/service/ingestion"
 	"github.com/leedenison/portfoliodb/server/telemetry"
+	"github.com/leedenison/portfoliodb/server/worker"
 	"github.com/redis/go-redis/v9"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
@@ -200,11 +201,12 @@ func main() {
 	}
 	priceTrigger := make(chan struct{}, 1)
 	queue := make(chan *ingestion.JobRequest, 256)
+	workers := worker.NewRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ingestionLogger := logger.WithCategory(serverLogger, "server/service/ingestion")
-	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter, ingestionLogger, priceTrigger)
-	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger)
+	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter, ingestionLogger, priceTrigger, workers)
+	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
 	svc := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			logger.UnaryErrorInterceptor(serverLogger),
@@ -224,6 +226,7 @@ func main() {
 		DescRegistry:   descRegistry,
 		PriceRegistry:  priceRegistry,
 		PriceTrigger:   priceTrigger,
+		WorkerRegistry: workers,
 	}))
 	ingestionv1.RegisterIngestionServiceServer(svc, ingestion.NewServer(database, queue))
 	reflection.Register(svc)

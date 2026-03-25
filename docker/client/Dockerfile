@@ -1,4 +1,7 @@
 # Build Next.js standalone (same-origin API when served behind Envoy at :8080).
+FROM golang:1.25-alpine AS tools
+RUN go install github.com/bufbuild/buf/cmd/buf@latest
+
 FROM node:25-alpine AS base
 RUN apk add --no-cache libc6-compat
 ENV NODE_ENV=production
@@ -13,9 +16,7 @@ RUN npm ci
 
 FROM base AS builder
 WORKDIR /app
-RUN apk add --no-cache curl \
-    && curl -sSL "https://github.com/bufbuild/buf/releases/download/v1.66.0/buf-Linux-$(uname -m)" \
-       -o /usr/local/bin/buf && chmod +x /usr/local/bin/buf
+COPY --from=tools /go/bin/buf /usr/local/bin/buf
 COPY --from=deps /app/node_modules ./node_modules
 COPY client/ .
 COPY proto/ /proto/

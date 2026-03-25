@@ -59,6 +59,11 @@ func SanitizeAll(i *cassette.Interaction) error {
 		}
 	}
 
+	// Redact sensitive response headers (account identifiers, cookies).
+	for _, h := range []string{"Openai-Organization", "Openai-Project", "Set-Cookie", "Cf-Ray"} {
+		delete(i.Response.Headers, h)
+	}
+
 	return nil
 }
 

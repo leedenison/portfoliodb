@@ -168,7 +168,7 @@ export function UploadModal() {
           <div className="space-y-3">
             <p className="font-medium text-accent-dark">Upload failed</p>
             {jobStatus.validationErrors.length > 0 && (
-              <div data-testid="upload-error-list">
+              <div data-testid="upload-validation-errors">
                 <p className="text-sm font-medium text-text-primary">Validation errors</p>
                 <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
                   {jobStatus.validationErrors.map((e, i) => (
@@ -180,7 +180,7 @@ export function UploadModal() {
               </div>
             )}
             {jobStatus.identificationErrors.length > 0 && (
-              <div data-testid="upload-error-list">
+              <div data-testid="upload-identification-errors">
                 <p className="text-sm font-medium text-text-primary">Identification errors</p>
                 <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
                   {jobStatus.identificationErrors.map((e, i) => (
@@ -317,7 +317,6 @@ export function UploadModal() {
               />
               <button
                 type="button"
-                data-testid="input-csv-file"
                 onClick={() => {
                   setFileInputActive(true);
                   fileInputRef.current?.click();
@@ -340,7 +339,7 @@ export function UploadModal() {
             {parseResult && (
               <div className="rounded-md border border-border bg-background p-4">
                 {parseResult.errors.length > 0 ? (
-                  <div data-testid="upload-error-list">
+                  <div data-testid="upload-parse-errors">
                     <p className="font-medium text-accent-dark">Parse errors</p>
                     <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
                       {parseResult.errors.map((e, i) => (

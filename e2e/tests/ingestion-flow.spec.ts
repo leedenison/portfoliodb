@@ -111,12 +111,12 @@ test.describe("upload validation errors", () => {
 
     // The error list should appear with parse errors.
     await expect(
-      page.locator("[data-testid='upload-error-list']")
+      page.locator("[data-testid='upload-parse-errors']")
     ).toBeVisible();
 
     // There should be multiple error entries (invalid date, empty description,
     // unknown type).
-    const errorItems = page.locator("[data-testid='upload-error-list'] li");
+    const errorItems = page.locator("[data-testid='upload-parse-errors'] li");
     await expect(errorItems).toHaveCount(3);
 
     // The upload button should NOT be visible (errors prevent upload).

@@ -47,9 +47,7 @@ services:
       - "0:9901"
 
   playwright:
-    build:
-      context: ../..
-      dockerfile: docker/server/Dockerfile.playwright
+    image: mcr.microsoft.com/playwright:v1.52.0-noble
     working_dir: /e2e
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     environment:
@@ -57,15 +55,7 @@ services:
       E2E_REDIS_URL: redis://redis:6379/0
       E2E_DATABASE_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb
     volumes:
-      # Mount test sources and fixtures over the build-time npm ci'd workdir.
-      # node_modules/ from the image layer is preserved (not overwritten)
-      # because Docker keeps it from the lower layer when the mount is on /e2e.
-      - ../../e2e/tests:/e2e/tests
-      - ../../e2e/helpers:/e2e/helpers
-      - ../../e2e/fixtures:/e2e/fixtures
-      - ../../e2e/cassettes:/e2e/cassettes
-      - ../../e2e/playwright.config.ts:/e2e/playwright.config.ts
-      - ../../e2e/test-results:/e2e/test-results
+      - ../../e2e:/e2e
     depends_on:
       - envoy
     profiles:

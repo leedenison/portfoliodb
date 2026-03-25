@@ -1,4 +1,0 @@
-FROM mcr.microsoft.com/playwright:v1.52.0-noble
-WORKDIR /e2e
-COPY e2e/package.json e2e/package-lock.json ./
-RUN npm ci

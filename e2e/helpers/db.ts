@@ -147,6 +147,19 @@ export async function seedPluginConfig(): Promise<void> {
   );
 }
 
+// Override the Massive price plugin API key with an invalid value so that
+// price fetch attempts return 403 (permanent error) and create fetch blocks.
+// Only needed in record mode; in replay mode the VCR cassette replays the
+// recorded 403 responses regardless of the configured key.
+export async function corruptMassivePriceKey(): Promise<void> {
+  const c = await getClient();
+  await c.query(`
+    UPDATE plugin_config
+    SET config = jsonb_set(config, '{massive_api_key}', '"INVALID_E2E_KEY"')
+    WHERE plugin_id = 'massive' AND category = 'price'
+  `);
+}
+
 // Convenience: reset and seed the base data (users, portfolio, plugin config)
 // that all tests need.
 export async function resetAndSeedBase(): Promise<void> {

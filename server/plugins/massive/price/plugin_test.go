@@ -141,6 +141,25 @@ func TestFetchPrices_Forbidden(t *testing.T) {
 	}
 }
 
+func TestFetchPrices_Unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"status":"ERROR","error":"Unknown API Key"}`))
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, srv.Client())
+	ids := []pricefetcher.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	_, err := p.FetchPrices(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock, from, to)
+	var permErr *pricefetcher.ErrPermanent
+	if !errors.As(err, &permErr) {
+		t.Errorf("expected ErrPermanent on 401, got %v", err)
+	}
+}
+
 func TestFetchPrices_RateLimit(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)

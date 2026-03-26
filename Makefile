@@ -39,7 +39,7 @@ clean-generated:
 clean-docker:
 	$(COMPOSE_DEV) down --rmi local --volumes
 	docker compose -f docker/docker-compose.test.yml down --rmi local --volumes
-	$(COMPOSE_E2E) --profile test down --rmi local --volumes
+	$(COMPOSE_E2E) --profile test down --rmi local --volumes --remove-orphans
 
 # Remove client node_modules and .next (e.g. after switching Node versions). Re-run 'make tools' to reinstall.
 clean-next:
@@ -106,7 +106,12 @@ e2e-record:
 		scripts/postgres-ready.sh "$(COMPOSE_E2E)"; \
 		echo "Waiting for portfoliodb (gRPC)..."; \
 		scripts/server-ready.sh localhost:50052; \
-		HOST_UID=$$(id -u) HOST_GID=$$(id -g) VCR_MODE=record $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test; \
-		rc=$$?; $(COMPOSE_E2E) --profile test down; exit $$rc
+		logdir="/tmp/e2e-record-$$(date +%Y%m%d-%H%M%S)"; mkdir -p "$$logdir"; \
+		HOST_UID=$$(id -u) HOST_GID=$$(id -g) VCR_MODE=record $(COMPOSE_E2E) --profile test run --rm playwright \
+			sh -c 'npx playwright test 2>&1; echo $$? > /e2e/.e2e-rc' | tee "$$logdir/playwright.log"; \
+		rc=$$(cat e2e/.e2e-rc 2>/dev/null || echo 1); rm -f e2e/.e2e-rc; \
+		VCR_MODE=record $(COMPOSE_E2E) logs --no-log-prefix portfoliodb > "$$logdir/server.log" 2>&1; \
+		echo "Logs saved to $$logdir/"; \
+		$(COMPOSE_E2E) --profile test down; exit $$rc
 
 test: server-test client-test db-test integration-test

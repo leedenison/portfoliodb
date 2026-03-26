@@ -106,11 +106,11 @@ e2e-record:
 		scripts/postgres-ready.sh "$(COMPOSE_E2E)"; \
 		echo "Waiting for portfoliodb (gRPC)..."; \
 		scripts/server-ready.sh localhost:50052; \
-		HOST_UID=$$(id -u) HOST_GID=$$(id -g) VCR_MODE=record $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test; \
-		rc=$$?; \
-		logfile="/tmp/e2e-record-server-$$(date +%Y%m%d-%H%M%S).log"; \
-		VCR_MODE=record $(COMPOSE_E2E) logs --no-log-prefix portfoliodb > "$$logfile" 2>&1; \
-		echo "Server logs saved to $$logfile"; \
+		logdir="/tmp/e2e-record-$$(date +%Y%m%d-%H%M%S)"; mkdir -p "$$logdir"; \
+		HOST_UID=$$(id -u) HOST_GID=$$(id -g) VCR_MODE=record $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test 2>&1 | tee "$$logdir/playwright.log"; \
+		rc=$${PIPESTATUS[0]}; \
+		VCR_MODE=record $(COMPOSE_E2E) logs --no-log-prefix portfoliodb > "$$logdir/server.log" 2>&1; \
+		echo "Logs saved to $$logdir/"; \
 		$(COMPOSE_E2E) --profile test down; exit $$rc
 
 test: server-test client-test db-test integration-test

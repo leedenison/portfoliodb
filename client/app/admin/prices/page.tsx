@@ -368,17 +368,17 @@ function PriceFetchBlocksTab() {
   }
 
   return (
-    <div className="space-y-4">
+    <div data-testid="fetch-blocks-tab" className="space-y-4">
       <p className="text-sm text-text-muted">
         Instruments blocked from specific price plugins due to permanent errors
         (e.g. HTTP 403, 404). Clear a block to allow the system to retry.
       </p>
       {error && <ErrorAlert>{error}</ErrorAlert>}
       {blocks.length === 0 ? (
-        <p className="text-text-muted">No blocked instruments.</p>
+        <p data-testid="fetch-blocks-empty" className="text-text-muted">No blocked instruments.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table data-testid="fetch-blocks-table" className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-text-muted">
                 <th className="pb-2 pr-4 font-medium">Instrument</th>
@@ -392,7 +392,7 @@ function PriceFetchBlocksTab() {
               {blocks.map((block) => {
                 const key = `${block.instrumentId}:${block.pluginId}`;
                 return (
-                  <tr key={key} className="border-b border-border/50">
+                  <tr key={key} data-testid="fetch-block-row" className="border-b border-border/50">
                     <td className="py-2 pr-4 text-text-primary">
                       {block.instrumentDisplayName}
                     </td>
@@ -409,6 +409,7 @@ function PriceFetchBlocksTab() {
                     </td>
                     <td className="py-2 text-right">
                       <button
+                        data-testid="fetch-block-clear-btn"
                         type="button"
                         onClick={() => handleClear(block)}
                         disabled={clearing === key}

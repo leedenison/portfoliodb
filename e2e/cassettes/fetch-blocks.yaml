@@ -1,0 +1,590 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 938
+        host: api.openai.com
+        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: da74b617\ntype: STOCK\nDescription: AMZN - Amazon.com Inc.\n\nid: 5ce3067c\ntype: STOCK\nDescription: NVDA - NVIDIA Corp.\n\nid: f776a5f9\ntype: STOCK\nDescription: TSLA - Tesla Inc.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
+        headers:
+            Authorization:
+                - Bearer REDACTED
+            Content-Type:
+                - application/json
+        url: https://api.openai.com/v1/chat/completions
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: |
+            {
+              "id": "chatcmpl-DNencUWMT3A36afWTpcUjwi2H4eqX",
+              "object": "chat.completion",
+              "created": 1774530748,
+              "model": "gpt-4o-mini-2024-07-18",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\n  \"da74b617\": {\n    \"TICKER\": \"AMZN\"\n  },\n  \"5ce3067c\": {\n    \"TICKER\": \"NVDA\"\n  },\n  \"f776a5f9\": {\n    \"TICKER\": \"TSLA\"\n  }\n}",
+                    "refusal": null,
+                    "annotations": []
+                  },
+                  "logprobs": null,
+                  "finish_reason": "stop"
+                }
+              ],
+              "usage": {
+                "prompt_tokens": 233,
+                "completion_tokens": 65,
+                "total_tokens": 298,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0,
+                  "audio_tokens": 0
+                },
+                "completion_tokens_details": {
+                  "reasoning_tokens": 0,
+                  "audio_tokens": 0,
+                  "accepted_prediction_tokens": 0,
+                  "rejected_prediction_tokens": 0
+                }
+              },
+              "service_tier": "default",
+              "system_fingerprint": "fp_162e70eb98"
+            }
+        headers:
+            Access-Control-Expose-Headers:
+                - X-Request-ID
+            Alt-Svc:
+                - h3=":443"; ma=86400
+            Cf-Cache-Status:
+                - DYNAMIC
+            Content-Type:
+                - application/json
+            Date:
+                - Thu, 26 Mar 2026 13:12:30 GMT
+            Openai-Processing-Ms:
+                - "1348"
+            Openai-Version:
+                - "2020-10-01"
+            Server:
+                - cloudflare
+            Strict-Transport-Security:
+                - max-age=31536000; includeSubDomains; preload
+            X-Content-Type-Options:
+                - nosniff
+            X-Openai-Proxy-Wasm:
+                - v0.1
+            X-Ratelimit-Limit-Requests:
+                - "10000"
+            X-Ratelimit-Limit-Tokens:
+                - "200000"
+            X-Ratelimit-Remaining-Requests:
+                - "9999"
+            X-Ratelimit-Remaining-Tokens:
+                - "199804"
+            X-Ratelimit-Reset-Requests:
+                - 8.64s
+            X-Ratelimit-Reset-Tokens:
+                - 58ms
+            X-Request-Id:
+                - req_0b6145eedfc249bebdb54aa76743dfd0
+        status: 200 OK
+        code: 200
+        duration: 1.717667636s
+    - id: 1
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 64
+        host: api.openfigi.com
+        body: '[{"idType":"ID_ISIN","idValue":"US0231351067","currency":"USD"}]'
+        headers:
+            Content-Type:
+                - application/json
+            X-Openfigi-Apikey:
+                - REDACTED
+        url: https://api.openfigi.com/v3/mapping
+        method: POST
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        uncompressed: true
+        body: '[{"data":[{"figi":"BBG000BB0NB9","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"PE","compositeFIGI":"BBG000BB0MN8","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVPV84","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"US","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVPVH4","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"UA","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVPVY5","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"UC","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVPXP1","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"UN","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVPXX2","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"UP","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVPY88","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"UB","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVPYQ8","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"UM","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVPZ85","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"UX","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVQ3N8","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"UD","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVQ4Z3","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"UW","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVQ5J8","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"UF","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVQ5X2","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"VY","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVQ688","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"VJ","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000BVQ6R7","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"VK","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG000KCX4B3","name":"AMAZON.COM INC","ticker":"AMZNN","exchCode":"TQ","compositeFIGI":"BBG000KCX3Z9","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNN"},{"figi":"BBG004BVT6W0","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"CI","compositeFIGI":"BBG004BVT6W0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG004BVT6X9","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"CC","compositeFIGI":"BBG004BVT6W0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG004BVT6Y8","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"CE","compositeFIGI":"BBG004BVT6W0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG0089KKLM5","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"EO","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKLQ1","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XH","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKLS9","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XF","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKLV5","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XE","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKLW4","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XJ","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKLX3","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XL","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKLY2","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XG","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKLZ1","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XO","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKM43","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XA","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKM52","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"E1","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKM61","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XT","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKM70","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XW","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKM89","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XU","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKMB5","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XV","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG0089KKMD3","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"EU","compositeFIGI":"BBG0089KKMC4","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG00DGYRTP9","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"SW","compositeFIGI":"BBG00DGYRTP9","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG00DGYRTR7","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"SE","compositeFIGI":"BBG00DGYRTP9","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG00DJDN8Y2","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"VF","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG00GMD6Q52","name":"AMAZON.COM INC","ticker":"AMZNZ","exchCode":"PO","compositeFIGI":"BBG00GMD6Q43","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNZ"},{"figi":"BBG00GMD74K3","name":"AMAZON.COM INC","ticker":"AMZNZ","exchCode":"L3","compositeFIGI":"BBG00GMD74J5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNZ"},{"figi":"BBG00GMD7CB5","name":"AMAZON.COM INC","ticker":"AMZNZ","exchCode":"B3","compositeFIGI":"BBG00GMD7C98","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNZ"},{"figi":"BBG00JN8BJM7","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"XX","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG00JPR0JG2","name":"AMAZON.COM INC","ticker":"0R1O","exchCode":"LN","compositeFIGI":"BBG00JPR0JF3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"0R1O"},{"figi":"BBG00JPY8TN9","name":"AMAZON.COM INC","ticker":"0R1OL","exchCode":"L3","compositeFIGI":"BBG00JPY8TM0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"0R1OL"},{"figi":"BBG00JPY8XH7","name":"AMAZON.COM INC","ticker":"0R1OL","exchCode":"B3","compositeFIGI":"BBG00JPY8XG8","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"0R1OL"},{"figi":"BBG00JPY90T5","name":"AMAZON.COM INC","ticker":"0R1OL","exchCode":"PO","compositeFIGI":"BBG00JPY90S6","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"0R1OL"},{"figi":"BBG00PPYYJ67","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"EP","compositeFIGI":"BBG00PPYYJ58","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG00PPYYJ85","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"EZ","compositeFIGI":"BBG00PPYYJ76","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG00Q5MLYL7","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"X2","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG00QFZ5DZ6","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"X1","compositeFIGI":"BBG0089KKLM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG00THDVWM0","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"VL","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG00X1LZPH7","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"VG","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG00X1QDZC3","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"VP","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG00Y7B5FN9","name":"AMAZON.COM INC","ticker":"0R1OL","exchCode":"L1","compositeFIGI":"BBG00Y7B5FM0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"0R1OL"},{"figi":"BBG00Y7BD295","name":"AMAZON.COM INC","ticker":"AMZNZ","exchCode":"L1","compositeFIGI":"BBG00Y7BD286","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNZ"},{"figi":"BBG00YJ69QV0","name":"AMAZON.COM INC","ticker":"AMZNUSD","exchCode":"X9","compositeFIGI":"BBG00YJ69QT3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZNUSD"},{"figi":"BBG013N928T6","name":"AMAZON.COM INC","ticker":"AMZN_KZ","exchCode":"KZ","compositeFIGI":"BBG013N928S7","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN_KZ"},{"figi":"BBG01JS48508","name":"AMAZON.COM INC","ticker":"0R1OL","exchCode":"QX","compositeFIGI":"BBG01JS484Z3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"0R1OL"},{"figi":"BBG01V7WS9Z4","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"OC","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"},{"figi":"BBG01X4K29D1","name":"AMAZON.COM INC","ticker":"AMZN","exchCode":"OD","compositeFIGI":"BBG000BVPV84","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5PQL7","securityType2":"Common Stock","securityDescription":"AMZN"}]}]'
+        headers:
+            Cache-Control:
+                - private, no-cache, no-store, must-revalidate
+            Content-Security-Policy:
+                - 'default-src ''self'';base-uri ''self'';font-src ''self'' https: data:;form-action ''self'';frame-ancestors ''self'';img-src ''self'' data:;object-src ''none'';script-src ''self'';script-src-attr ''none'';style-src ''self'' https: ''unsafe-inline'';upgrade-insecure-requests'
+            Content-Type:
+                - application/json; charset=utf-8
+            Cross-Origin-Opener-Policy:
+                - same-origin
+            Cross-Origin-Resource-Policy:
+                - same-origin
+            Date:
+                - Thu, 26 Mar 2026 13:12:31 GMT
+            Expires:
+                - "0"
+            Origin-Agent-Cluster:
+                - ?1
+            Pragma:
+                - no-cache
+            Ratelimit-Limit:
+                - "250"
+            Ratelimit-Policy:
+                - 250;w=60
+            Ratelimit-Remaining:
+                - "249"
+            Ratelimit-Reset:
+                - "60"
+            Referrer-Policy:
+                - no-referrer
+            Server:
+                - istio-envoy
+            Strict-Transport-Security:
+                - max-age=31536000; includeSubDomains
+            Vary:
+                - Origin, Accept-Encoding
+            X-Content-Type-Options:
+                - nosniff
+            X-Dns-Prefetch-Control:
+                - "off"
+            X-Download-Options:
+                - noopen
+            X-Envoy-Upstream-Service-Time:
+                - "8"
+            X-Frame-Options:
+                - SAMEORIGIN
+            X-Permitted-Cross-Domain-Policies:
+                - none
+            X-Request-Id:
+                - b7c89ae1-f932-491b-888b-f61fa1839659
+            X-Xss-Protection:
+                - "0"
+        status: 200 OK
+        code: 200
+        duration: 1.003023367s
+    - id: 2
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: eodhd.com
+        form:
+            api_token:
+                - REDACTED
+            fmt:
+                - json
+            limit:
+                - "10"
+            type:
+                - stock
+        url: https://eodhd.com/api/search/US0231351067?api_token=REDACTED&fmt=json&limit=10&type=stock
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '[{"Code":"AMZN","Exchange":"US","Name":"Amazon.com Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US0231351067","isPrimary":true,"previousClose":211.71,"previousCloseDate":"2026-03-25"},{"Code":"AMZN","Exchange":"BA","Name":"Amazon.com Inc.","Type":"Common Stock","Country":"Argentina","Currency":"ARS","ISIN":"US0231351067","isPrimary":false,"previousClose":2136,"previousCloseDate":"2026-03-25"},{"Code":"AMZ","Exchange":"XETRA","Name":"Amazon.com Inc","Type":"Common Stock","Country":"UK","Currency":"EUR","ISIN":"US0231351067","isPrimary":false,"previousClose":183.46,"previousCloseDate":"2026-03-25"},{"Code":"AMZN","Exchange":"NEO","Name":"Amazon.com CDR","Type":"Common Stock","Country":"Canada","Currency":"CAD","ISIN":"US0231351067","isPrimary":false,"previousClose":24.41,"previousCloseDate":"2026-03-25"},{"Code":"AMZN","Exchange":"MX","Name":"Amazon.com Inc","Type":"Common Stock","Country":"Mexico","Currency":"MXN","ISIN":"US0231351067","isPrimary":false,"previousClose":3756.98,"previousCloseDate":"2026-03-25"},{"Code":"AMZ","Exchange":"F","Name":"Amazon.com Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0231351067","isPrimary":false,"previousClose":182.56,"previousCloseDate":"2026-03-25"},{"Code":"AMZ","Exchange":"STU","Name":"Amazon.com Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0231351067","isPrimary":false,"previousClose":182.72,"previousCloseDate":"2026-03-25"},{"Code":"AMZ","Exchange":"BE","Name":"Amazon.com Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0231351067","isPrimary":false,"previousClose":182.98,"previousCloseDate":"2026-03-18"},{"Code":"AMZ","Exchange":"MU","Name":"Amazon.com Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0231351067","isPrimary":false,"previousClose":183.38,"previousCloseDate":"2026-03-25"},{"Code":"AMZ","Exchange":"HM","Name":"Amazon.com Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0231351067","isPrimary":false,"previousClose":183.04,"previousCloseDate":"2026-03-25"}]'
+        headers:
+            Access-Control-Allow-Credentials:
+                - "true"
+            Access-Control-Allow-Headers:
+                - Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With
+            Access-Control-Allow-Methods:
+                - GET, POST, PUT, DELETE, OPTIONS
+            Cache-Control:
+                - no-cache, private
+            Content-Type:
+                - application/json
+            Date:
+                - Thu, 26 Mar 2026 13:12:31 GMT
+            Server:
+                - nginx/1.19.10
+            Vary:
+                - Accept-Encoding
+            X-Ratelimit-Limit:
+                - "1400"
+            X-Ratelimit-Remaining:
+                - "1399"
+        status: 200 OK
+        code: 200
+        duration: 1.65321475s
+    - id: 3
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 64
+        host: api.openfigi.com
+        body: '[{"idType":"ID_ISIN","idValue":"US67066G1040","currency":"USD"}]'
+        headers:
+            Content-Type:
+                - application/json
+            X-Openfigi-Apikey:
+                - REDACTED
+        url: https://api.openfigi.com/v3/mapping
+        method: POST
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        uncompressed: true
+        body: '[{"data":[{"figi":"BBG000BBJQV0","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"US","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBJR84","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"UA","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBJRH4","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"UC","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBJS55","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"UN","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBJSH2","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"UP","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBJTN3","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"UB","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBJW29","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"UM","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBJWW6","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"UX","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBJZK2","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"UD","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBK0R0","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"UW","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBK1P0","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"UF","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBK1W2","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"VY","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBK2B3","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"VJ","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG000BBK2J5","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"VK","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG00DJCXPK0","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"VF","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG00JNK1X95","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"EO","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1XD0","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XH","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1XG7","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XF","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1XJ4","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XE","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1XK2","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XJ","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1XL1","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XL","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1XN9","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XG","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1XP7","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XO","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1XV0","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XA","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1XW9","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"E1","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1XX8","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XT","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1XY7","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XW","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1XZ6","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XU","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1Y02","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XV","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1Y39","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XQ","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1Y48","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XX","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1Y57","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"XZ","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JNK1Y75","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"EU","compositeFIGI":"BBG00JNK1Y66","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00JPY8VW4","name":"NVIDIA CORP","ticker":"0R1IL","exchCode":"L3","compositeFIGI":"BBG00JPY8VV5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"0R1IL"},{"figi":"BBG00JPY8Y85","name":"NVIDIA CORP","ticker":"0R1IL","exchCode":"B3","compositeFIGI":"BBG00JPY8Y76","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"0R1IL"},{"figi":"BBG00JPY91P7","name":"NVIDIA CORP","ticker":"0R1IL","exchCode":"PO","compositeFIGI":"BBG00JPY91N9","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"0R1IL"},{"figi":"BBG00PPXWN26","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"EP","compositeFIGI":"BBG00PPXWN17","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00PPXWN44","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"EZ","compositeFIGI":"BBG00PPXWN35","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00PXNQS61","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"PE","compositeFIGI":"BBG00PXNQS52","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG00Q6SCN19","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"X2","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG00QFZK8F2","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"X1","compositeFIGI":"BBG00JNK1X95","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":null,"securityType2":"Common Stock","securityDescription":null},{"figi":"BBG00QG0YCM6","name":"NVIDIA CORP","ticker":"0R1I","exchCode":"LO","compositeFIGI":"BBG00JPR0YX0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"0R1I"},{"figi":"BBG00THD4DZ8","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"VL","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG00X1L86Z9","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"VG","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG00X1PPJ01","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"VP","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG00YJ73SW9","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"X9","compositeFIGI":"BBG00YJ73SV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG012MZMD09","name":"NVIDIA CORP","ticker":"0R1IL","exchCode":"L1","compositeFIGI":"BBG012MZMCZ3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"0R1IL"},{"figi":"BBG012QW01F6","name":"NVIDIA CORP","ticker":"NVDAN","exchCode":"TQ","compositeFIGI":"BBG012QW01D8","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAN"},{"figi":"BBG013NQ8FC4","name":"NVIDIA CORP","ticker":"NVDA_KZ","exchCode":"KZ","compositeFIGI":"BBG013NQ8FB5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA_KZ"},{"figi":"BBG01QSBFN90","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"CI","compositeFIGI":"BBG01QSBFN90","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG01QSBFNB7","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"CC","compositeFIGI":"BBG01QSBFN90","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG01V7W1VS2","name":"NVIDIA CORP","ticker":"NVDA","exchCode":"OC","compositeFIGI":"BBG000BBJQV0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDA"},{"figi":"BBG01YTQGW34","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"SW","compositeFIGI":"BBG01YTQGW34","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"},{"figi":"BBG01YTQGW52","name":"NVIDIA CORP","ticker":"NVDAUSD","exchCode":"SE","compositeFIGI":"BBG01YTQGW34","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5TZJ6","securityType2":"Common Stock","securityDescription":"NVDAUSD"}]}]'
+        headers:
+            Cache-Control:
+                - private, no-cache, no-store, must-revalidate
+            Content-Security-Policy:
+                - 'default-src ''self'';base-uri ''self'';font-src ''self'' https: data:;form-action ''self'';frame-ancestors ''self'';img-src ''self'' data:;object-src ''none'';script-src ''self'';script-src-attr ''none'';style-src ''self'' https: ''unsafe-inline'';upgrade-insecure-requests'
+            Content-Type:
+                - application/json; charset=utf-8
+            Cross-Origin-Opener-Policy:
+                - same-origin
+            Cross-Origin-Resource-Policy:
+                - same-origin
+            Date:
+                - Thu, 26 Mar 2026 13:12:32 GMT
+            Expires:
+                - "0"
+            Origin-Agent-Cluster:
+                - ?1
+            Pragma:
+                - no-cache
+            Ratelimit-Limit:
+                - "250"
+            Ratelimit-Policy:
+                - 250;w=60
+            Ratelimit-Remaining:
+                - "248"
+            Ratelimit-Reset:
+                - "60"
+            Referrer-Policy:
+                - no-referrer
+            Server:
+                - istio-envoy
+            Strict-Transport-Security:
+                - max-age=31536000; includeSubDomains
+            Vary:
+                - Origin, Accept-Encoding
+            X-Content-Type-Options:
+                - nosniff
+            X-Dns-Prefetch-Control:
+                - "off"
+            X-Download-Options:
+                - noopen
+            X-Envoy-Upstream-Service-Time:
+                - "6"
+            X-Frame-Options:
+                - SAMEORIGIN
+            X-Permitted-Cross-Domain-Policies:
+                - none
+            X-Request-Id:
+                - a987d9bf-509b-4f7b-af46-58591711202f
+            X-Xss-Protection:
+                - "0"
+        status: 200 OK
+        code: 200
+        duration: 93.414629ms
+    - id: 4
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: eodhd.com
+        form:
+            api_token:
+                - REDACTED
+            fmt:
+                - json
+            limit:
+                - "10"
+            type:
+                - stock
+        url: https://eodhd.com/api/search/US67066G1040?api_token=REDACTED&fmt=json&limit=10&type=stock
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '[{"Code":"NVDA","Exchange":"US","Name":"NVIDIA Corporation","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US67066G1040","isPrimary":true,"previousClose":178.68,"previousCloseDate":"2026-03-25"},{"Code":"NVD","Exchange":"XETRA","Name":"NVIDIA Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US67066G1040","isPrimary":false,"previousClose":154.92,"previousCloseDate":"2026-03-25"},{"Code":"NVD","Exchange":"F","Name":"NVIDIA Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US67066G1040","isPrimary":false,"previousClose":154.46,"previousCloseDate":"2026-03-25"},{"Code":"NVD","Exchange":"STU","Name":"NVIDIA Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US67066G1040","isPrimary":false,"previousClose":154.34,"previousCloseDate":"2026-03-25"},{"Code":"NVD","Exchange":"HM","Name":"NVIDIA Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US67066G1040","isPrimary":false,"previousClose":154.46,"previousCloseDate":"2026-03-25"},{"Code":"NVD","Exchange":"MU","Name":"NVIDIA Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US67066G1040","isPrimary":false,"previousClose":152.98,"previousCloseDate":"2026-03-25"},{"Code":"NVD","Exchange":"DU","Name":"NVIDIA Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US67066G1040","isPrimary":false,"previousClose":154.52,"previousCloseDate":"2026-03-25"},{"Code":"NVD","Exchange":"BE","Name":"NVIDIA Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US67066G1040","isPrimary":false,"previousClose":160.26,"previousCloseDate":"2026-03-05"},{"Code":"NVD","Exchange":"HA","Name":"NVIDIA Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US67066G1040","isPrimary":false,"previousClose":154.28,"previousCloseDate":"2026-03-25"}]'
+        headers:
+            Access-Control-Allow-Credentials:
+                - "true"
+            Access-Control-Allow-Headers:
+                - Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With
+            Access-Control-Allow-Methods:
+                - GET, POST, PUT, DELETE, OPTIONS
+            Cache-Control:
+                - no-cache, private
+            Content-Type:
+                - application/json
+            Date:
+                - Thu, 26 Mar 2026 13:12:33 GMT
+            Server:
+                - nginx/1.19.10
+            Vary:
+                - Accept-Encoding
+            X-Ratelimit-Limit:
+                - "1400"
+            X-Ratelimit-Remaining:
+                - "1398"
+        status: 200 OK
+        code: 200
+        duration: 287.50361ms
+    - id: 5
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 64
+        host: api.openfigi.com
+        body: '[{"idType":"ID_ISIN","idValue":"US88160R1014","currency":"USD"}]'
+        headers:
+            Content-Type:
+                - application/json
+            X-Openfigi-Apikey:
+                - REDACTED
+        url: https://api.openfigi.com/v3/mapping
+        method: POST
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        uncompressed: true
+        body: '[{"data":[{"figi":"BBG000N9MNX3","name":"TESLA INC","ticker":"TSLA","exchCode":"US","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9MPD0","name":"TESLA INC","ticker":"TSLA","exchCode":"UA","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9MQ48","name":"TESLA INC","ticker":"TSLA","exchCode":"UC","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9NTC2","name":"TESLA INC","ticker":"TSLA","exchCode":"UN","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9NV19","name":"TESLA INC","ticker":"TSLA","exchCode":"UP","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9NWK6","name":"TESLA INC","ticker":"TSLA","exchCode":"UB","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9NXS6","name":"TESLA INC","ticker":"TSLA","exchCode":"UM","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9NY95","name":"TESLA INC","ticker":"TSLA","exchCode":"UX","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9P1Q6","name":"TESLA INC","ticker":"TSLA","exchCode":"UD","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9P426","name":"TESLA INC","ticker":"TSLA","exchCode":"UW","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9P4S8","name":"TESLA INC","ticker":"TSLA","exchCode":"UF","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9P5L2","name":"TESLA INC","ticker":"TSLA","exchCode":"VY","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9P694","name":"TESLA INC","ticker":"TSLA","exchCode":"VJ","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG000N9Q808","name":"TESLA INC","ticker":"TSLA","exchCode":"VK","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG00DGYT0X1","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"SW","compositeFIGI":"BBG00DGYT0X1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DGYT0Z9","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"SE","compositeFIGI":"BBG00DGYT0X1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQB51","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"EO","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQB88","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XH","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBB4","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XF","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBD2","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XE","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBF0","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XJ","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBG9","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XL","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBH8","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XG","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBJ6","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XO","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBP9","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XA","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBQ8","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"E1","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBR7","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XT","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBS6","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XW","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBT5","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XU","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBV2","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XV","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DHTQBX0","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"EU","compositeFIGI":"BBG00DHTQBW1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00DJGFJJ7","name":"TESLA INC","ticker":"TSLA","exchCode":"VF","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG00JGL1J38","name":"TESLA INC","ticker":"TSLA","exchCode":"PE","compositeFIGI":"BBG00JGL1J29","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG00JN8JFM7","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"XX","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00JPR1250","name":"TESLA INC","ticker":"0R0X","exchCode":"LN","compositeFIGI":"BBG00JPR1241","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"0R0X"},{"figi":"BBG00JPY8WG0","name":"TESLA INC","ticker":"0R0XL","exchCode":"L3","compositeFIGI":"BBG00JPY8WF1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"0R0XL"},{"figi":"BBG00JPY8ZS0","name":"TESLA INC","ticker":"0R0XL","exchCode":"B3","compositeFIGI":"BBG00JPY8ZR1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"0R0XL"},{"figi":"BBG00JPY9382","name":"TESLA INC","ticker":"0R0XL","exchCode":"PO","compositeFIGI":"BBG00JPY9373","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"0R0XL"},{"figi":"BBG00PPZ8V48","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"EP","compositeFIGI":"BBG00PPZ8V39","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00PPZ8V66","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"EZ","compositeFIGI":"BBG00PPZ8V57","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00Q5MP6T6","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"X2","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG00QFZCCC5","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"X1","compositeFIGI":"BBG00DHTQB51","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":null},{"figi":"BBG00THGLSX1","name":"TESLA INC","ticker":"TSLA","exchCode":"VL","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG00X1NQKP5","name":"TESLA INC","ticker":"TSLA","exchCode":"VG","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG00X1S52Q6","name":"TESLA INC","ticker":"TSLA","exchCode":"VP","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG00Y7B5DD5","name":"TESLA INC","ticker":"0R0XL","exchCode":"L1","compositeFIGI":"BBG00Y7B5DC6","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"0R0XL"},{"figi":"BBG00YJLXD30","name":"TESLA INC","ticker":"TSLAUSD","exchCode":"X9","compositeFIGI":"BBG00YJLXD21","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAUSD"},{"figi":"BBG012QVSSW0","name":"TESLA INC","ticker":"TSLAN","exchCode":"TQ","compositeFIGI":"BBG012QVSSV1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAN"},{"figi":"BBG013QNP6V8","name":"TESLA INC","ticker":"TSLA_KZ","exchCode":"KZ","compositeFIGI":"BBG013QNP6T1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA_KZ"},{"figi":"BBG01QVXZ835","name":"TESLA INC","ticker":"TSLA","exchCode":"CI","compositeFIGI":"BBG01QVXZ835","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG01QVXZ844","name":"TESLA INC","ticker":"TSLA","exchCode":"CC","compositeFIGI":"BBG01QVXZ835","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG01V7YJ7B0","name":"TESLA INC","ticker":"TSLA","exchCode":"OC","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG01X4LT6R1","name":"TESLA INC","ticker":"TSLA","exchCode":"OD","compositeFIGI":"BBG000N9MNX3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLA"},{"figi":"BBG01X5TPG59","name":"TESLA INC","ticker":"TSLAN","exchCode":"EB","compositeFIGI":"BBG01X5TPG40","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAN"},{"figi":"BBG01X5TPH48","name":"TESLA INC","ticker":"TSLAN","exchCode":"IX","compositeFIGI":"BBG01X5TPH39","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAN"},{"figi":"BBG01X5TPK05","name":"TESLA INC","ticker":"TSLAN","exchCode":"I2","compositeFIGI":"BBG01X5TPJZ0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAN"},{"figi":"BBG01X5W7X19","name":"TESLA INC","ticker":"TSLAN","exchCode":"PO","compositeFIGI":"BBG01X5W7X00","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAN"},{"figi":"BBG01X5W7YN3","name":"TESLA INC","ticker":"TSLAN","exchCode":"L1","compositeFIGI":"BBG01X5W7YM4","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAN"},{"figi":"BBG01X5W7ZT4","name":"TESLA INC","ticker":"TSLAN","exchCode":"L3","compositeFIGI":"BBG01X5W7ZS5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAN"},{"figi":"BBG01X5W8127","name":"TESLA INC","ticker":"TSLAN","exchCode":"B3","compositeFIGI":"BBG01X5W8118","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001SQKGD7","securityType2":"Common Stock","securityDescription":"TSLAN"}]}]'
+        headers:
+            Cache-Control:
+                - private, no-cache, no-store, must-revalidate
+            Content-Security-Policy:
+                - 'default-src ''self'';base-uri ''self'';font-src ''self'' https: data:;form-action ''self'';frame-ancestors ''self'';img-src ''self'' data:;object-src ''none'';script-src ''self'';script-src-attr ''none'';style-src ''self'' https: ''unsafe-inline'';upgrade-insecure-requests'
+            Content-Type:
+                - application/json; charset=utf-8
+            Cross-Origin-Opener-Policy:
+                - same-origin
+            Cross-Origin-Resource-Policy:
+                - same-origin
+            Date:
+                - Thu, 26 Mar 2026 13:12:33 GMT
+            Expires:
+                - "0"
+            Origin-Agent-Cluster:
+                - ?1
+            Pragma:
+                - no-cache
+            Ratelimit-Limit:
+                - "250"
+            Ratelimit-Policy:
+                - 250;w=60
+            Ratelimit-Remaining:
+                - "247"
+            Ratelimit-Reset:
+                - "58"
+            Referrer-Policy:
+                - no-referrer
+            Server:
+                - istio-envoy
+            Strict-Transport-Security:
+                - max-age=31536000; includeSubDomains
+            Vary:
+                - Origin, Accept-Encoding
+            X-Content-Type-Options:
+                - nosniff
+            X-Dns-Prefetch-Control:
+                - "off"
+            X-Download-Options:
+                - noopen
+            X-Envoy-Upstream-Service-Time:
+                - "12"
+            X-Frame-Options:
+                - SAMEORIGIN
+            X-Permitted-Cross-Domain-Policies:
+                - none
+            X-Request-Id:
+                - 0b797a3a-1098-48ad-86d2-3213dcc41e8d
+            X-Xss-Protection:
+                - "0"
+        status: 200 OK
+        code: 200
+        duration: 99.485378ms
+    - id: 6
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: eodhd.com
+        form:
+            api_token:
+                - REDACTED
+            fmt:
+                - json
+            limit:
+                - "10"
+            type:
+                - stock
+        url: https://eodhd.com/api/search/US88160R1014?api_token=REDACTED&fmt=json&limit=10&type=stock
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '[{"Code":"TSLA","Exchange":"US","Name":"Tesla Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US88160R1014","isPrimary":true,"previousClose":385.95,"previousCloseDate":"2026-03-25"},{"Code":"0R0X","Exchange":"LSE","Name":"Tesla, Inc.","Type":"Common Stock","Country":"UK","Currency":"USD","ISIN":"US88160R1014","isPrimary":false,"previousClose":385.67,"previousCloseDate":"2026-03-25"},{"Code":"TL0","Exchange":"XETRA","Name":"Tesla Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US88160R1014","isPrimary":false,"previousClose":337.1,"previousCloseDate":"2026-03-25"},{"Code":"TL0","Exchange":"F","Name":"Tesla Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US88160R1014","isPrimary":false,"previousClose":334.3,"previousCloseDate":"2026-03-25"},{"Code":"TL0","Exchange":"STU","Name":"Tesla Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US88160R1014","isPrimary":false,"previousClose":333.65,"previousCloseDate":"2026-03-25"}]'
+        headers:
+            Access-Control-Allow-Credentials:
+                - "true"
+            Access-Control-Allow-Headers:
+                - Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With
+            Access-Control-Allow-Methods:
+                - GET, POST, PUT, DELETE, OPTIONS
+            Cache-Control:
+                - no-cache, private
+            Content-Type:
+                - application/json
+            Date:
+                - Thu, 26 Mar 2026 13:12:36 GMT
+            Server:
+                - nginx/1.19.10
+            Vary:
+                - Accept-Encoding
+            X-Ratelimit-Limit:
+                - "1400"
+            X-Ratelimit-Remaining:
+                - "1397"
+        status: 200 OK
+        code: 200
+        duration: 234.664229ms
+    - id: 7
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            adjusted:
+                - "false"
+            apiKey:
+                - REDACTED
+            sort:
+                - asc
+        url: https://api.massive.com/v2/aggs/ticker/TSLA/range/1/day/2024-01-29/2026-03-26?adjusted=false&apiKey=REDACTED&sort=asc
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: 92
+        body: '{"status":"ERROR","request_id":"b5f6d8d30be8c90bfa0d0ff65c7753e3","error":"Unknown API Key"}'
+        headers:
+            Content-Length:
+                - "92"
+            Content-Type:
+                - application/json
+            Date:
+                - Thu, 26 Mar 2026 13:12:37 GMT
+            Strict-Transport-Security:
+                - max-age=15724800; includeSubDomains
+            X-Request-Id:
+                - b5f6d8d30be8c90bfa0d0ff65c7753e3
+        status: 401 Unauthorized
+        code: 401
+        duration: 814.445347ms
+    - id: 8
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            adjusted:
+                - "false"
+            apiKey:
+                - REDACTED
+            sort:
+                - asc
+        url: https://api.massive.com/v2/aggs/ticker/NVDA/range/1/day/2024-01-28/2026-03-26?adjusted=false&apiKey=REDACTED&sort=asc
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: 92
+        body: '{"status":"ERROR","request_id":"c702379e1b4a12262706f89b0f4ba707","error":"Unknown API Key"}'
+        headers:
+            Content-Length:
+                - "92"
+            Content-Type:
+                - application/json
+            Date:
+                - Thu, 26 Mar 2026 13:12:48 GMT
+            Strict-Transport-Security:
+                - max-age=15724800; includeSubDomains
+            X-Request-Id:
+                - c702379e1b4a12262706f89b0f4ba707
+        status: 401 Unauthorized
+        code: 401
+        duration: 80.363175ms
+    - id: 9
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            adjusted:
+                - "false"
+            apiKey:
+                - REDACTED
+            sort:
+                - asc
+        url: https://api.massive.com/v2/aggs/ticker/AMZN/range/1/day/2024-01-27/2026-03-26?adjusted=false&apiKey=REDACTED&sort=asc
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: 92
+        body: '{"status":"ERROR","request_id":"8a49aa2bc98f5580e0e57b2ffa4b4f46","error":"Unknown API Key"}'
+        headers:
+            Content-Length:
+                - "92"
+            Content-Type:
+                - application/json
+            Date:
+                - Thu, 26 Mar 2026 13:13:00 GMT
+            Strict-Transport-Security:
+                - max-age=15724800; includeSubDomains
+            X-Request-Id:
+                - 8a49aa2bc98f5580e0e57b2ffa4b4f46
+        status: 401 Unauthorized
+        code: 401
+        duration: 106.272372ms

@@ -26,7 +26,7 @@ tools:
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright npm ci
 
 generate:
-	buf generate --template buf.gen.go.yaml && buf generate --template buf.gen.ts.yaml && buf generate --template buf.gen.e2e.yaml --path proto/e2e
+	buf generate --template buf.gen.go.yaml && buf generate --template buf.gen.ts.yaml && buf generate --template buf.gen.e2e.yaml --path proto/e2e --path proto/api
 	go generate ./server/db
 
 clean:
@@ -88,7 +88,7 @@ integration-test-record:
 # E2E tests: replay mode (VCR cassettes, dummy API keys, no rate limits).
 # Full stack at isolated ports: Postgres 5434, Redis 6381, Envoy 8081.
 # Each spec file seeds its own data via the db.ts helper.
-e2e-test:
+e2e-test: generate
 	@$(COMPOSE_E2E) up -d --build; \
 		echo "Waiting for Postgres..."; \
 		scripts/postgres-ready.sh "$(COMPOSE_E2E)"; \
@@ -100,7 +100,7 @@ e2e-test:
 # E2E tests: record mode (real API calls, real keys from env, real rate limits).
 # Requires: OPENFIGI_API_KEY, MASSIVE_API_KEY, EODHD_API_KEY, OPENAI_API_KEY
 # VCR_MODE is passed to both the server (for go-vcr) and Playwright (for seed logic).
-e2e-record:
+e2e-record: generate
 	@VCR_MODE=record $(COMPOSE_E2E) up -d --build; \
 		echo "Waiting for Postgres..."; \
 		scripts/postgres-ready.sh "$(COMPOSE_E2E)"; \

@@ -18,8 +18,8 @@ func (e *ErrRateLimit) Error() string {
 	return "massive rate limit (429)"
 }
 
-// ErrForbidden is returned when the Massive API responds with 403
-// (e.g. plan doesn't include the requested data timeframe).
+// ErrForbidden is returned when the Massive API responds with 401 or 403
+// (e.g. invalid API key, plan doesn't include the requested data).
 type ErrForbidden struct {
 	Path    string
 	Message string
@@ -94,10 +94,10 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 		}
 		return &ErrRateLimit{}
 	}
-	if resp.StatusCode == http.StatusForbidden {
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		body, _ := io.ReadAll(resp.Body)
 		if c.log != nil {
-			c.log.WarnContext(ctx, "massive forbidden (403)", "url", path, "body", string(body))
+			c.log.WarnContext(ctx, "massive auth error", "url", path, "status", resp.StatusCode, "body", string(body))
 		}
 		return &ErrForbidden{Path: path, Message: string(body)}
 	}

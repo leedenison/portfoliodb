@@ -5,7 +5,6 @@ import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import {
   resetAndSeedBase,
   corruptMassivePriceKey,
-  getClient,
   closeDB,
 } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
@@ -77,39 +76,6 @@ test.describe("fetch block full flow", () => {
 
     // Wait for all workers (ingestion + identification + price fetcher).
     await waitForWorkersIdle(browser);
-
-    // --- DIAGNOSTIC QUERIES (temporary) ---
-    const pg = await getClient();
-    const instruments = await pg.query(`
-      SELECT i.id, i.asset_class, i.currency, i.name
-      FROM instruments i
-      WHERE i.asset_class NOT IN ('CASH', 'FX') OR i.asset_class IS NULL
-    `);
-    console.log("DIAG instruments:", JSON.stringify(instruments.rows, null, 2));
-
-    const identifiers = await pg.query(`
-      SELECT ii.instrument_id, ii.identifier_type, ii.value
-      FROM instrument_identifiers ii
-      JOIN instruments i ON i.id = ii.instrument_id
-      WHERE i.asset_class NOT IN ('CASH', 'FX') OR i.asset_class IS NULL
-    `);
-    console.log("DIAG identifiers:", JSON.stringify(identifiers.rows, null, 2));
-
-    const idErrors = await pg.query(`
-      SELECT job_id, instrument_description, message
-      FROM identification_errors
-    `);
-    console.log("DIAG identification_errors:", JSON.stringify(idErrors.rows, null, 2));
-
-    const blocks = await pg.query(`SELECT * FROM price_fetch_blocks`);
-    console.log("DIAG fetch_blocks:", JSON.stringify(blocks.rows, null, 2));
-
-    const plugins = await pg.query(`
-      SELECT plugin_id, category, enabled, precedence
-      FROM plugin_config ORDER BY category, precedence
-    `);
-    console.log("DIAG plugin_config:", JSON.stringify(plugins.rows, null, 2));
-    // --- END DIAGNOSTIC QUERIES ---
 
     // Switch to admin context and check fetch blocks.
     const adminContext = await browser.newContext();

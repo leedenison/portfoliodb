@@ -11,7 +11,7 @@ const DATABASE_URL =
 
 let client: Client | null = null;
 
-export async function getClient(): Promise<Client> {
+async function getClient(): Promise<Client> {
   if (!client) {
     client = new Client(DATABASE_URL);
     await client.connect();

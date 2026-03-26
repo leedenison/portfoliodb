@@ -23,7 +23,7 @@ services:
       PORTFOLIODB_REDIS_URL: redis://redis:6379/0
       GOOGLE_OAUTH_CLIENT_ID: e2e-test-client-id
       ACCOUNT_CREATE_EMAIL_ALLOWLIST: "*@*"
-      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       E2E_CASSETTE_DIR: /cassettes
       VCR_MODE: ${VCR_MODE:-}
     volumes:

@@ -54,3 +54,8 @@ Interpret creatively and make unexpected choices that feel genuinely designed fo
 - Use Tailwind's arbitrary value syntax (`bg-[#1a1a2e]`, `text-[clamp(1rem,2vw,1.5rem)]`) for one-off values that don't warrant theme extension.
 - Leverage Tailwind's `group-hover`, `peer`, and container query utilities for interactive states.
 - Use `dark:` variants for dark mode support when appropriate.
+
+## E2E Testability
+
+- Place `data-testid` attributes on key interactive UI elements: page containers, tables, buttons, modals, and form inputs.
+- These provide stable selectors for Playwright E2E tests that do not break with styling or structural changes.

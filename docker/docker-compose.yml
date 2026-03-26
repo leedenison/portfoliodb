@@ -28,6 +28,8 @@ services:
     build:
       context: ..
       dockerfile: docker/server/Dockerfile
+      args:
+        BUILD_REV: ${BUILD_REV:-unknown}
     depends_on:
       postgres:
         condition: service_healthy

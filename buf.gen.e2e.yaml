@@ -1,0 +1,10 @@
+# TypeScript codegen for E2E test helpers.
+# Generates into e2e/gen/ so the e2e package is self-contained.
+# protoc-gen-es v2 generates both message types and service descriptors,
+# which @connectrpc/connect v2 uses directly via createClient().
+# Use: buf generate --template buf.gen.e2e.yaml --path proto/e2e
+version: v2
+plugins:
+  - local: e2e/node_modules/.bin/protoc-gen-es
+    out: e2e/gen
+    opt: target=ts

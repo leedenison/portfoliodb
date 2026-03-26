@@ -4,14 +4,17 @@ import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
+import { loadCassette, unloadCassette } from "../helpers/cassette";
 
 test.beforeAll(async () => {
+  await loadCassette("ingestion-flow");
   await resetAndSeedBase();
 });
 
 test.afterAll(async () => {
   await closeRedis();
   await closeDB();
+  await unloadCassette();
 });
 
 test.describe("CSV ingestion flow", () => {

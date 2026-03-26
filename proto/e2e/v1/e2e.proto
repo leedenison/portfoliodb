@@ -1,0 +1,26 @@
+// E2E test control service. Only registered when the server is built with
+// the "e2e" build tag. Allows Playwright tests to swap VCR cassettes between
+// test suites so each suite can be run and recorded in isolation.
+syntax = "proto3";
+
+package portfoliodb.e2e.v1;
+
+option go_package = "github.com/leedenison/portfoliodb/proto/e2e/v1;e2ev1";
+
+service E2eService {
+  // LoadCassette stops the current VCR recorder (flushing any recorded
+  // interactions) and starts a new one at $E2E_CASSETTE_DIR/{name}.
+  rpc LoadCassette(LoadCassetteRequest) returns (LoadCassetteResponse);
+
+  // UnloadCassette stops the current VCR recorder and sets the HTTP
+  // transport to nil so that any unexpected plugin HTTP calls fail fast.
+  rpc UnloadCassette(UnloadCassetteRequest) returns (UnloadCassetteResponse);
+}
+
+message LoadCassetteRequest {
+  string name = 1;
+}
+message LoadCassetteResponse {}
+
+message UnloadCassetteRequest {}
+message UnloadCassetteResponse {}

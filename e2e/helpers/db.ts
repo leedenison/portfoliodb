@@ -44,8 +44,10 @@ export async function resetData(): Promise<void> {
     CASCADE
   `);
   // Delete non-seed instruments (CASCADE removes identifiers, prices, etc).
+  // asset_class IS NULL covers broker-description-only instruments created
+  // when identification fails (EnsureInstrument stores NULL asset_class).
   await c.query(
-    `DELETE FROM instruments WHERE asset_class NOT IN ('CASH', 'FX')`
+    `DELETE FROM instruments WHERE asset_class IS NULL OR asset_class NOT IN ('CASH', 'FX')`
   );
 }
 

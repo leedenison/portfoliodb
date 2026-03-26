@@ -24,9 +24,9 @@ interactions:
         uncompressed: true
         body: |
             {
-              "id": "chatcmpl-DNencUWMT3A36afWTpcUjwi2H4eqX",
+              "id": "chatcmpl-DNhU9wMyGqBf1tbIJBHgLRHuKnTXZ",
               "object": "chat.completion",
-              "created": 1774530748,
+              "created": 1774541073,
               "model": "gpt-4o-mini-2024-07-18",
               "choices": [
                 {
@@ -69,9 +69,9 @@ interactions:
             Content-Type:
                 - application/json
             Date:
-                - Thu, 26 Mar 2026 13:12:30 GMT
+                - Thu, 26 Mar 2026 16:04:34 GMT
             Openai-Processing-Ms:
-                - "1348"
+                - "1392"
             Openai-Version:
                 - "2020-10-01"
             Server:
@@ -95,10 +95,10 @@ interactions:
             X-Ratelimit-Reset-Tokens:
                 - 58ms
             X-Request-Id:
-                - req_0b6145eedfc249bebdb54aa76743dfd0
+                - req_637e898c9d174ec780f996f070e01157
         status: 200 OK
         code: 200
-        duration: 1.717667636s
+        duration: 1.728052577s
     - id: 1
       request:
         proto: HTTP/1.1
@@ -135,7 +135,7 @@ interactions:
             Cross-Origin-Resource-Policy:
                 - same-origin
             Date:
-                - Thu, 26 Mar 2026 13:12:31 GMT
+                - Thu, 26 Mar 2026 16:04:34 GMT
             Expires:
                 - "0"
             Origin-Agent-Cluster:
@@ -147,9 +147,9 @@ interactions:
             Ratelimit-Policy:
                 - 250;w=60
             Ratelimit-Remaining:
-                - "249"
+                - "247"
             Ratelimit-Reset:
-                - "60"
+                - "41"
             Referrer-Policy:
                 - no-referrer
             Server:
@@ -165,18 +165,18 @@ interactions:
             X-Download-Options:
                 - noopen
             X-Envoy-Upstream-Service-Time:
-                - "8"
+                - "15"
             X-Frame-Options:
                 - SAMEORIGIN
             X-Permitted-Cross-Domain-Policies:
                 - none
             X-Request-Id:
-                - b7c89ae1-f932-491b-888b-f61fa1839659
+                - 530be795-9742-4618-91fc-41a390f7a4d4
             X-Xss-Protection:
                 - "0"
         status: 200 OK
         code: 200
-        duration: 1.003023367s
+        duration: 99.613919ms
     - id: 2
       request:
         proto: HTTP/1.1
@@ -214,7 +214,7 @@ interactions:
             Content-Type:
                 - application/json
             Date:
-                - Thu, 26 Mar 2026 13:12:31 GMT
+                - Thu, 26 Mar 2026 16:04:34 GMT
             Server:
                 - nginx/1.19.10
             Vary:
@@ -222,10 +222,10 @@ interactions:
             X-Ratelimit-Limit:
                 - "1400"
             X-Ratelimit-Remaining:
-                - "1399"
+                - "1397"
         status: 200 OK
         code: 200
-        duration: 1.65321475s
+        duration: 269.185611ms
     - id: 3
       request:
         proto: HTTP/1.1
@@ -262,7 +262,7 @@ interactions:
             Cross-Origin-Resource-Policy:
                 - same-origin
             Date:
-                - Thu, 26 Mar 2026 13:12:32 GMT
+                - Thu, 26 Mar 2026 16:04:35 GMT
             Expires:
                 - "0"
             Origin-Agent-Cluster:
@@ -274,9 +274,9 @@ interactions:
             Ratelimit-Policy:
                 - 250;w=60
             Ratelimit-Remaining:
-                - "248"
+                - "246"
             Ratelimit-Reset:
-                - "60"
+                - "41"
             Referrer-Policy:
                 - no-referrer
             Server:
@@ -292,18 +292,18 @@ interactions:
             X-Download-Options:
                 - noopen
             X-Envoy-Upstream-Service-Time:
-                - "6"
+                - "12"
             X-Frame-Options:
                 - SAMEORIGIN
             X-Permitted-Cross-Domain-Policies:
                 - none
             X-Request-Id:
-                - a987d9bf-509b-4f7b-af46-58591711202f
+                - 1cd7aaae-645d-4232-978d-edbacad65774
             X-Xss-Protection:
                 - "0"
         status: 200 OK
         code: 200
-        duration: 93.414629ms
+        duration: 96.881701ms
     - id: 4
       request:
         proto: HTTP/1.1
@@ -341,7 +341,7 @@ interactions:
             Content-Type:
                 - application/json
             Date:
-                - Thu, 26 Mar 2026 13:12:33 GMT
+                - Thu, 26 Mar 2026 16:04:37 GMT
             Server:
                 - nginx/1.19.10
             Vary:
@@ -349,10 +349,10 @@ interactions:
             X-Ratelimit-Limit:
                 - "1400"
             X-Ratelimit-Remaining:
-                - "1398"
+                - "1396"
         status: 200 OK
         code: 200
-        duration: 287.50361ms
+        duration: 244.879648ms
     - id: 5
       request:
         proto: HTTP/1.1
@@ -389,7 +389,7 @@ interactions:
             Cross-Origin-Resource-Policy:
                 - same-origin
             Date:
-                - Thu, 26 Mar 2026 13:12:33 GMT
+                - Thu, 26 Mar 2026 16:04:38 GMT
             Expires:
                 - "0"
             Origin-Agent-Cluster:
@@ -401,9 +401,9 @@ interactions:
             Ratelimit-Policy:
                 - 250;w=60
             Ratelimit-Remaining:
-                - "247"
+                - "245"
             Ratelimit-Reset:
-                - "58"
+                - "38"
             Referrer-Policy:
                 - no-referrer
             Server:
@@ -419,18 +419,18 @@ interactions:
             X-Download-Options:
                 - noopen
             X-Envoy-Upstream-Service-Time:
-                - "12"
+                - "15"
             X-Frame-Options:
                 - SAMEORIGIN
             X-Permitted-Cross-Domain-Policies:
                 - none
             X-Request-Id:
-                - 0b797a3a-1098-48ad-86d2-3213dcc41e8d
+                - 50c07fe9-b5b2-4348-a5ae-588e122b7dee
             X-Xss-Protection:
                 - "0"
         status: 200 OK
         code: 200
-        duration: 99.485378ms
+        duration: 100.891262ms
     - id: 6
       request:
         proto: HTTP/1.1
@@ -468,7 +468,7 @@ interactions:
             Content-Type:
                 - application/json
             Date:
-                - Thu, 26 Mar 2026 13:12:36 GMT
+                - Thu, 26 Mar 2026 16:04:40 GMT
             Server:
                 - nginx/1.19.10
             Vary:
@@ -476,10 +476,10 @@ interactions:
             X-Ratelimit-Limit:
                 - "1400"
             X-Ratelimit-Remaining:
-                - "1397"
+                - "1395"
         status: 200 OK
         code: 200
-        duration: 234.664229ms
+        duration: 244.314867ms
     - id: 7
       request:
         proto: HTTP/1.1
@@ -501,21 +501,21 @@ interactions:
         proto_major: 2
         proto_minor: 0
         content_length: 92
-        body: '{"status":"ERROR","request_id":"b5f6d8d30be8c90bfa0d0ff65c7753e3","error":"Unknown API Key"}'
+        body: '{"status":"ERROR","request_id":"20e6920bee9adb0f5f74920239ade58d","error":"Unknown API Key"}'
         headers:
             Content-Length:
                 - "92"
             Content-Type:
                 - application/json
             Date:
-                - Thu, 26 Mar 2026 13:12:37 GMT
+                - Thu, 26 Mar 2026 16:04:41 GMT
             Strict-Transport-Security:
                 - max-age=15724800; includeSubDomains
             X-Request-Id:
-                - b5f6d8d30be8c90bfa0d0ff65c7753e3
+                - 20e6920bee9adb0f5f74920239ade58d
         status: 401 Unauthorized
         code: 401
-        duration: 814.445347ms
+        duration: 79.078145ms
     - id: 8
       request:
         proto: HTTP/1.1
@@ -537,21 +537,21 @@ interactions:
         proto_major: 2
         proto_minor: 0
         content_length: 92
-        body: '{"status":"ERROR","request_id":"c702379e1b4a12262706f89b0f4ba707","error":"Unknown API Key"}'
+        body: '{"status":"ERROR","request_id":"afe37a5ba624dd278459d43218452ee9","error":"Unknown API Key"}'
         headers:
             Content-Length:
                 - "92"
             Content-Type:
                 - application/json
             Date:
-                - Thu, 26 Mar 2026 13:12:48 GMT
+                - Thu, 26 Mar 2026 16:04:53 GMT
             Strict-Transport-Security:
                 - max-age=15724800; includeSubDomains
             X-Request-Id:
-                - c702379e1b4a12262706f89b0f4ba707
+                - afe37a5ba624dd278459d43218452ee9
         status: 401 Unauthorized
         code: 401
-        duration: 80.363175ms
+        duration: 82.02368ms
     - id: 9
       request:
         proto: HTTP/1.1
@@ -573,18 +573,18 @@ interactions:
         proto_major: 2
         proto_minor: 0
         content_length: 92
-        body: '{"status":"ERROR","request_id":"8a49aa2bc98f5580e0e57b2ffa4b4f46","error":"Unknown API Key"}'
+        body: '{"status":"ERROR","request_id":"7d352078ea6d81667584e19ce1327d44","error":"Unknown API Key"}'
         headers:
             Content-Length:
                 - "92"
             Content-Type:
                 - application/json
             Date:
-                - Thu, 26 Mar 2026 13:13:00 GMT
+                - Thu, 26 Mar 2026 16:05:05 GMT
             Strict-Transport-Security:
                 - max-age=15724800; includeSubDomains
             X-Request-Id:
-                - 8a49aa2bc98f5580e0e57b2ffa4b4f46
+                - 7d352078ea6d81667584e19ce1327d44
         status: 401 Unauthorized
         code: 401
-        duration: 106.272372ms
+        duration: 140.674878ms

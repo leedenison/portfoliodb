@@ -1,0 +1,5 @@
+date,instrument_description,type,quantity,trading_currency,unit_price,isin
+2024-01-15,AAPL - Apple Inc.,BUYSTOCK,100,USD,185.50,US0378331005
+2024-01-16,AAPL - Apple Inc.,BUYSTOCK,50,USD,187.00,US0378331005
+2024-01-17,AAPL - Apple Inc.,SELLSTOCK,-30,USD,190.00,US0378331005
+2024-01-18,AAPL - Apple Inc.,SPLIT,2,USD,,US0378331005

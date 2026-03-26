@@ -107,8 +107,8 @@ e2e-record:
 		echo "Waiting for portfoliodb (gRPC)..."; \
 		scripts/server-ready.sh localhost:50052; \
 		logdir="/tmp/e2e-record-$$(date +%Y%m%d-%H%M%S)"; mkdir -p "$$logdir"; \
-		HOST_UID=$$(id -u) HOST_GID=$$(id -g) VCR_MODE=record $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test 2>&1 | tee "$$logdir/playwright.log"; \
-		rc=$${PIPESTATUS[0]}; \
+		HOST_UID=$$(id -u) HOST_GID=$$(id -g) VCR_MODE=record $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test > "$$logdir/playwright.log" 2>&1; \
+		rc=$$?; cat "$$logdir/playwright.log"; \
 		VCR_MODE=record $(COMPOSE_E2E) logs --no-log-prefix portfoliodb > "$$logdir/server.log" 2>&1; \
 		echo "Logs saved to $$logdir/"; \
 		$(COMPOSE_E2E) --profile test down; exit $$rc

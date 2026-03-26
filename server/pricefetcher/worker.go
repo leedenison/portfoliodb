@@ -44,6 +44,9 @@ type pluginEntry struct {
 
 func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) {
 	const name = "price_fetcher"
+	if counter != nil {
+		counter.Incr(ctx, "price_fetcher.cycles")
+	}
 	defer func() {
 		if workers != nil {
 			workers.SetIdle(name)

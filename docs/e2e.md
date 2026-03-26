@@ -49,6 +49,8 @@ E2E tests use `data-testid` attributes for stable element selection. These do no
 
 ## Running E2E tests
 
+Generated protobuf bindings (`e2e/gen/`, `proto/**/*.pb.go`) are gitignored. Run `make generate` before the first `make e2e-test` in a fresh checkout or worktree.
+
 ```bash
 # Replay mode (default, no API keys needed)
 make e2e-test

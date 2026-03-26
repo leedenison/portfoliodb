@@ -48,9 +48,9 @@ func (s *swappableTransport) swap(rt http.RoundTripper) {
 
 // Shared mutable state for the E2E recorder and transport.
 var (
-	e2eMu        sync.Mutex
-	e2eRec       *recorder.Recorder
-	e2eTransport = &swappableTransport{}
+	e2eMu          sync.Mutex
+	e2eRec         *recorder.Recorder
+	e2eTransport   = &swappableTransport{}
 	e2eCassetteDir string
 )
 
@@ -83,9 +83,7 @@ func (s *e2eService) LoadCassette(_ context.Context, req *e2ev1.LoadCassetteRequ
 }
 
 func (s *e2eService) UnloadCassette(context.Context, *e2ev1.UnloadCassetteRequest) (*e2ev1.UnloadCassetteResponse, error) {
-	if err := unloadCassette(); err != nil {
-		return nil, status.Errorf(codes.Internal, "unload cassette: %v", err)
-	}
+	unloadCassette()
 	return &e2ev1.UnloadCassetteResponse{}, nil
 }
 
@@ -125,7 +123,7 @@ func loadCassette(name string) error {
 	return nil
 }
 
-func unloadCassette() error {
+func unloadCassette() {
 	e2eMu.Lock()
 	defer e2eMu.Unlock()
 
@@ -137,7 +135,6 @@ func unloadCassette() error {
 		log.Printf("e2e: cassette unloaded")
 	}
 	e2eTransport.swap(nil)
-	return nil
 }
 
 func registerE2EService(svc *grpc.Server) {

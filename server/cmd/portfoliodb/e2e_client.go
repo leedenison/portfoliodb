@@ -35,4 +35,5 @@ func stopE2ERecorder() {
 		}
 		e2eRec = nil
 	}
+	e2eTransport.swap(nil)
 }

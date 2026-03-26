@@ -36,4 +36,5 @@ client/node_modules/
 e2e/node_modules/
 client/.next/
 client/gen/
+e2e/gen/
 *.tsbuildinfo

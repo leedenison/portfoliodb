@@ -16,6 +16,8 @@ services:
     build:
       context: ..
       dockerfile: docker/server/Dockerfile.e2e
+      args:
+        BUILD_REV: ${BUILD_REV:-unknown}
     environment:
       PORTFOLIODB_DB_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable
       PORTFOLIODB_REDIS_URL: redis://redis:6379/0

@@ -11,6 +11,10 @@ COMPOSE_DEV = docker compose -f docker/docker-compose.yml -f docker/docker-compo
 # E2E stack: production-style build with e2e build tag, isolated ports, Playwright container
 COMPOSE_E2E = docker compose -p portfoliodb-e2e -f docker/docker-compose.yml -f docker/docker-compose.e2e.yml --env-file .env
 
+# Git revision for Docker build args (works in both regular repos and worktrees).
+BUILD_REV ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+export BUILD_REV
+
 # Install Go and npm tooling required for generate and tests. Run once (or after adding deps).
 tools:
 	@command -v go >/dev/null 2>&1 || { echo "go is required; install from https://go.dev/dl"; exit 1; }
@@ -22,7 +26,7 @@ tools:
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright npm ci
 
 generate:
-	buf generate --template buf.gen.go.yaml && buf generate --template buf.gen.ts.yaml
+	buf generate --template buf.gen.go.yaml && buf generate --template buf.gen.ts.yaml && buf generate --template buf.gen.e2e.yaml --path proto/e2e
 	go generate ./server/db
 
 clean:

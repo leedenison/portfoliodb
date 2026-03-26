@@ -154,7 +154,7 @@ func main() {
 	)
 
 	interceptorConfig := auth.InterceptorConfig{
-		SkipAuthPrefixes: []string{"/grpc.reflection."},
+		SkipAuthPrefixes: append([]string{"/grpc.reflection."}, e2eSkipPrefixes()...),
 		NoSessionMethods: []string{
 			"/portfoliodb.auth.v1.AuthService/Auth",
 			"/portfoliodb.auth.v1.AuthService/AuthCLI",
@@ -232,6 +232,7 @@ func main() {
 	}))
 	ingestionv1.RegisterIngestionServiceServer(svc, ingestion.NewServer(database, queue))
 	reflection.Register(svc)
+	registerE2EService(svc)
 	lis, err := net.Listen("tcp", *grpcAddr)
 	if err != nil {
 		log.Fatalf("listen: %v", err)

@@ -9,10 +9,8 @@ COPY proto/ proto/
 COPY buf.yaml buf.gen.go.yaml ./
 RUN buf generate --template buf.gen.go.yaml
 COPY server/ server/
-COPY .git/HEAD .git/HEAD
-COPY .git/refs/ .git/refs/
-RUN REV=$(cat .git/HEAD | grep -o '[a-f0-9]\{40\}' || (cat .git/$(cat .git/HEAD | awk '{print $2}') 2>/dev/null || echo "unknown")) \
-    && go build -ldflags "-X main.buildRevision=$REV" -o /portfoliodb ./server/cmd/portfoliodb
+ARG BUILD_REV=unknown
+RUN go build -ldflags "-X main.buildRevision=$BUILD_REV" -o /portfoliodb ./server/cmd/portfoliodb
 
 FROM alpine:3.19
 RUN apk --no-cache add ca-certificates

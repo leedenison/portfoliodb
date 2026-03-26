@@ -3,7 +3,7 @@ import { seedSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB, seedFixture } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { getCounter, closeCountersRedis } from "../helpers/counters";
-import { setDisplayCurrency } from "../helpers/grpc";
+import { setDisplayCurrency } from "../helpers/api";
 import { TIMEOUT_REGULAR } from "../helpers/timeouts";
 
 test.beforeAll(async () => {

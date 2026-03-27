@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   unaryFetch,
   SessionLostError,
+  GrpcError,
   AuthServiceMethod,
   GetSessionServiceMethod,
   LogoutServiceMethod,
@@ -131,6 +132,47 @@ describe("grpc-web", () => {
       await expect(
         unaryFetch("https://api.example.com", "S/M", new Uint8Array(0))
       ).rejects.toThrow("response truncated");
+    });
+
+    it("throws GrpcError when grpc-status header indicates error (trailers-only)", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(new ArrayBuffer(0), {
+          status: 200,
+          headers: { "grpc-status": "12", "grpc-message": "method%20not%20found" },
+        })
+      );
+
+      const p = unaryFetch("https://api.example.com", "S/M", new Uint8Array(0));
+      await expect(p).rejects.toThrow(GrpcError);
+      await expect(p).rejects.toThrow("method not found");
+    });
+
+    it("throws SessionLostError when grpc-status header is UNAUTHENTICATED", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(new ArrayBuffer(0), {
+          status: 200,
+          headers: { "grpc-status": "16", "grpc-message": "missing%20or%20invalid%20session" },
+        })
+      );
+
+      const p = unaryFetch("https://api.example.com", "S/M", new Uint8Array(0));
+      await expect(p).rejects.toThrow(SessionLostError);
+    });
+
+    it("throws GrpcError when body starts with trailers frame (0x80)", async () => {
+      const trailers = new TextEncoder().encode("grpc-status:2\r\ngrpc-message:unknown\r\n");
+      const frame = new Uint8Array(5 + trailers.length);
+      frame[0] = 0x80;
+      new DataView(frame.buffer).setUint32(1, trailers.length, false);
+      frame.set(trailers, 5);
+
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(frame.buffer, { status: 200 })
+      );
+
+      const p = unaryFetch("https://api.example.com", "S/M", new Uint8Array(0));
+      await expect(p).rejects.toThrow(GrpcError);
+      await expect(p).rejects.toThrow("unknown");
     });
 
     it("throws SessionLostError on HTTP 401", async () => {

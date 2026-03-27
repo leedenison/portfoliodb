@@ -45,6 +45,15 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 			wantBars:   true,
 		},
 		{
+			name:       "fx_gbxusd_derived",
+			cassette:   "testdata/cassettes/fx_gbpusd",
+			ids:        []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBXUSD"}},
+			assetClass: db.AssetClassFX,
+			from:       time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
+			to:         time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC),
+			wantBars:   true,
+		},
+		{
 			name:       "fx_stock_for_comparison",
 			cassette:   "testdata/cassettes/fx_stock_aapl",
 			ids:        []pricefetcher.Identifier{{Type: "TICKER", Value: "AAPL"}},
@@ -84,6 +93,14 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 			for _, bar := range result.Bars {
 				if bar.Close <= 0 {
 					t.Errorf("bar %v: close=%v, want >0", bar.Date.Format("2006-01-02"), bar.Close)
+				}
+			}
+			// GBXUSD is derived from GBPUSD / 100; verify scaling happened.
+			if tc.name == "fx_gbxusd_derived" {
+				for _, bar := range result.Bars {
+					if bar.Close >= 0.1 {
+						t.Errorf("bar %v: close=%v, expected < 0.1 (GBPUSD/100)", bar.Date.Format("2006-01-02"), bar.Close)
+					}
 				}
 			}
 		})

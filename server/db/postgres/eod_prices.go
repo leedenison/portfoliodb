@@ -120,6 +120,7 @@ type exportPriceRow struct {
 	IdentifierType   string    `db:"identifier_type"`
 	IdentifierValue  string    `db:"value"`
 	IdentifierDomain string    `db:"domain"`
+	AssetClass       string    `db:"asset_class"`
 	PriceDate        time.Time `db:"price_date"`
 	Open             *float64  `db:"open"`
 	High             *float64  `db:"high"`
@@ -133,23 +134,26 @@ type exportPriceRow struct {
 func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow, error) {
 	const q = `
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
+			COALESCE(i.asset_class, '') AS asset_class,
 			ep.price_date, ep.open, ep.high, ep.low, ep.close,
 			ep.adjusted_close, ep.volume
 		FROM eod_prices ep
+		JOIN instruments i ON i.id = ep.instrument_id
 		JOIN LATERAL (
 			SELECT ii.identifier_type, ii.value, ii.domain
 			FROM instrument_identifiers ii
 			WHERE ii.instrument_id = ep.instrument_id
 			ORDER BY CASE ii.identifier_type
-				WHEN 'OPENFIGI_GLOBAL' THEN 1
-				WHEN 'OPENFIGI_SHARE_CLASS' THEN 2
+				WHEN 'TICKER' THEN 1
+				WHEN 'OCC' THEN 2
 				WHEN 'ISIN' THEN 3
-				WHEN 'CUSIP' THEN 4
-				WHEN 'SEDOL' THEN 5
-				WHEN 'OCC' THEN 6
-				WHEN 'OPRA' THEN 7
-				WHEN 'TICKER' THEN 8
-				WHEN 'BROKER_DESCRIPTION' THEN 9
+				WHEN 'OPENFIGI_GLOBAL' THEN 4
+				WHEN 'OPENFIGI_SHARE_CLASS' THEN 5
+				WHEN 'OPENFIGI_COMPOSITE' THEN 6
+				WHEN 'CUSIP' THEN 7
+				WHEN 'SEDOL' THEN 8
+				WHEN 'OPRA' THEN 9
+				WHEN 'BROKER_DESCRIPTION' THEN 10
 				ELSE 99
 			END
 			LIMIT 1
@@ -167,6 +171,7 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 			IdentifierType:   r.IdentifierType,
 			IdentifierValue:  r.IdentifierValue,
 			IdentifierDomain: r.IdentifierDomain,
+			AssetClass:       r.AssetClass,
 			PriceDate:        r.PriceDate,
 			Open:             r.Open,
 			High:             r.High,

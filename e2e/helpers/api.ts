@@ -6,7 +6,8 @@ import { createClient } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-node";
 import {
   ApiService,
-  type ImportPricesResponse,
+  JobStatus,
+  type GetJobResponse,
 } from "../gen/api/v1/api_pb";
 
 const COOKIE_NAME = "portfoliodb_session";
@@ -27,7 +28,8 @@ export async function setDisplayCurrency(
   );
 }
 
-export async function importPrices(
+/** Import prices and wait for the async job to complete. Returns the final job status. */
+export async function importPricesAndWait(
   sessionId: string,
   prices: Array<{
     identifierType: string;
@@ -40,9 +42,18 @@ export async function importPrices(
     low?: number;
     assetClass?: string;
   }>,
-): Promise<ImportPricesResponse> {
-  return await client.importPrices(
-    { prices },
-    { headers: { Cookie: `${COOKIE_NAME}=${sessionId}` } },
-  );
+  timeoutMs = 30_000,
+): Promise<GetJobResponse> {
+  const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
+  const resp = await client.importPrices({ prices }, { headers });
+  const jobId = resp.jobId;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const job = await client.getJob({ jobId }, { headers });
+    if (job.status === JobStatus.SUCCESS || job.status === JobStatus.FAILED) {
+      return job;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`price import job ${jobId} did not complete within ${timeoutMs}ms`);
 }

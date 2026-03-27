@@ -110,6 +110,7 @@ func loadCassette(name string) error {
 		recorder.WithMode(mode),
 		recorder.WithSkipRequestLatency(true),
 		recorder.WithHook(vcr.SanitizeAll, recorder.BeforeSaveHook),
+		recorder.WithMatcher(vcr.E2EMatcher),
 	}
 
 	rec, err := recorder.New(path, opts...)

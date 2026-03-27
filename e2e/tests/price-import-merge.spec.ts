@@ -20,7 +20,8 @@ import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { uploadCSVAndWait } from "../helpers/upload";
-import { importPrices } from "../helpers/api";
+import { importPricesAndWait } from "../helpers/api";
+import { JobStatus } from "../gen/api/v1/api_pb";
 import { Client } from "pg";
 
 const DATABASE_URL =
@@ -62,7 +63,7 @@ test.describe("price-first instrument merge", () => {
 
     // Step 1: Import prices for an unknown instrument (TICKER AAPL, no
     // asset_class). Plugins are skipped; instrument created with just TICKER.
-    const priceResp = await importPrices(adminSessionId, [
+    const priceResp = await importPricesAndWait(adminSessionId, [
       {
         identifierType: "TICKER",
         identifierValue: "AAPL",
@@ -76,8 +77,8 @@ test.describe("price-first instrument merge", () => {
         close: 191.25,
       },
     ]);
-    expect(priceResp.upsertedCount).toBe(2);
-    expect(priceResp.errors).toHaveLength(0);
+    expect(priceResp.status).toBe(JobStatus.SUCCESS);
+    expect(priceResp.validationErrors).toHaveLength(0);
 
     // Step 2: Verify the instrument exists with only the TICKER identifier.
     const preEnrich = await db.query(

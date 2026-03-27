@@ -245,6 +245,10 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 }
 
 func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
+	saved := PluginRetryBackoff
+	PluginRetryBackoff = time.Millisecond
+	defer func() { PluginRetryBackoff = saved }()
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -355,6 +359,10 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 }
 
 func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
+	saved := PluginRetryBackoff
+	PluginRetryBackoff = time.Millisecond
+	defer func() { PluginRetryBackoff = saved }()
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -429,3 +437,99 @@ func TestHintsSummary_Empty(t *testing.T) {
 		t.Errorf("HintsSummary(nil) = %q, want empty", got)
 	}
 }
+
+func TestCallPluginWithRetry_SuccessNoRetry(t *testing.T) {
+	p := &fakePlugin{
+		inst: &identifier.Instrument{Name: "OK"},
+		ids:  []identifier.Identifier{{Type: "TICKER", Value: "X"}},
+	}
+	inst, ids, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inst.Name != "OK" {
+		t.Errorf("inst.Name = %q, want OK", inst.Name)
+	}
+	if len(ids) != 1 {
+		t.Errorf("len(ids) = %d, want 1", len(ids))
+	}
+}
+
+func TestCallPluginWithRetry_ErrNotIdentified_NoRetry(t *testing.T) {
+	p := &fakePlugin{err: identifier.ErrNotIdentified}
+	_, _, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
+	if !errors.Is(err, identifier.ErrNotIdentified) {
+		t.Errorf("err = %v, want ErrNotIdentified", err)
+	}
+}
+
+// retryPlugin fails once with a transient error, then succeeds on retry.
+type retryPlugin struct {
+	callCount int
+	inst      *identifier.Instrument
+	ids       []identifier.Identifier
+}
+
+func (p *retryPlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+	p.callCount++
+	if p.callCount == 1 {
+		return nil, nil, errors.New("temporary failure")
+	}
+	return p.inst, p.ids, nil
+}
+
+func (p *retryPlugin) AcceptableSecurityTypes() map[string]bool { return nil }
+func (p *retryPlugin) DefaultConfig() []byte                    { return nil }
+func (p *retryPlugin) DisplayName() string                      { return "Retry" }
+
+func TestCallPluginWithRetry_RetrySucceeds(t *testing.T) {
+	p := &retryPlugin{
+		inst: &identifier.Instrument{Name: "Retried"},
+		ids:  []identifier.Identifier{{Type: "TICKER", Value: "X"}},
+	}
+	inst, _, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inst.Name != "Retried" {
+		t.Errorf("inst.Name = %q, want Retried", inst.Name)
+	}
+	if p.callCount != 2 {
+		t.Errorf("callCount = %d, want 2", p.callCount)
+	}
+}
+
+func TestCallPluginWithRetry_ParentCancelStopsRetry(t *testing.T) {
+	// Verify that cancelling the parent context propagates to the retry attempt
+	// (i.e. we no longer use context.Background() for retry).
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &cancelOnRetryPlugin{cancel: cancel, inst: &identifier.Instrument{Name: "Never"}}
+	inst, _, err := callPluginWithRetry(ctx, p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
+	if err == nil {
+		t.Fatalf("expected error from cancelled context, got inst=%v", inst)
+	}
+}
+
+// cancelOnRetryPlugin fails the first call with a transient error (triggering retry),
+// then cancels the parent context so the retry's context is also cancelled.
+type cancelOnRetryPlugin struct {
+	cancel    context.CancelFunc
+	callCount int
+	inst      *identifier.Instrument
+}
+
+func (p *cancelOnRetryPlugin) Identify(ctx context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+	p.callCount++
+	if p.callCount == 1 {
+		p.cancel()
+		return nil, nil, errors.New("transient")
+	}
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
+	return p.inst, nil, nil
+}
+
+func (p *cancelOnRetryPlugin) AcceptableSecurityTypes() map[string]bool { return nil }
+func (p *cancelOnRetryPlugin) DefaultConfig() []byte                    { return nil }
+func (p *cancelOnRetryPlugin) DisplayName() string                      { return "CancelOnRetry" }

@@ -10,6 +10,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	descpkg "github.com/leedenison/portfoliodb/server/identifier/description"
+	"github.com/leedenison/portfoliodb/server/service/identification"
 	"go.uber.org/mock/gomock"
 )
 
@@ -475,6 +476,10 @@ func TestResolve_TwoPlugins_SameType_HighPrecedenceWins(t *testing.T) {
 }
 
 func TestResolve_PluginTimeout_FallbackAndMessage(t *testing.T) {
+	saved := identification.PluginRetryBackoff
+	identification.PluginRetryBackoff = time.Millisecond
+	defer func() { identification.PluginRetryBackoff = saved }()
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -507,6 +512,10 @@ func TestResolve_PluginTimeout_FallbackAndMessage(t *testing.T) {
 }
 
 func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
+	saved := identification.PluginRetryBackoff
+	identification.PluginRetryBackoff = time.Millisecond
+	defer func() { identification.PluginRetryBackoff = saved }()
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -662,6 +671,10 @@ func (p *retryPlugin) DefaultConfig() []byte                    { return nil }
 func (p *retryPlugin) DisplayName() string                      { return "Retry" }
 
 func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
+	saved := identification.PluginRetryBackoff
+	identification.PluginRetryBackoff = time.Millisecond
+	defer func() { identification.PluginRetryBackoff = saved }()
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -697,3 +710,4 @@ func TestResolve_PluginFailsThenRetrySucceeds(t *testing.T) {
 		t.Errorf("unexpected IdErr after retry success: %+v", r.IdErr)
 	}
 }
+

@@ -89,11 +89,6 @@ func batchItemDescByID(items []description.BatchItem, id string) string {
 	return ""
 }
 
-// filterIdentifierHints keeps only hints whose Type is in the controlled vocabulary.
-func filterIdentifierHints(ctx context.Context, hints []identifier.Identifier) []identifier.Identifier {
-	return identification.FilterIdentifierHints(ctx, hints, ingestionLogger())
-}
-
 // runDescriptionPluginsBatch runs description plugins on all items via ExtractBatch. Only items whose security type is acceptable to a plugin are passed to that plugin. First plugin that returns a non-empty map wins. Result is keyed by BatchItem.ID.
 func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, broker, source string, items []description.BatchItem) (map[string][]identifier.Identifier, error) {
 	if descRegistry == nil || len(items) == 0 {
@@ -137,7 +132,7 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 		}
 		hasAny := false
 		for id, hints := range out {
-			filteredHints := filterIdentifierHints(ctx, hints)
+			filteredHints := identification.FilterIdentifierHints(ctx, hints, ingestionLogger())
 			if len(filteredHints) > 0 {
 				merged[id] = filteredHints
 				resolved[id] = true

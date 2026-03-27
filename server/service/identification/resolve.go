@@ -147,11 +147,13 @@ func ResolveWithPlugins(
 		l.DebugContext(ctx, "instrument resolution: no enabled identifier plugins", "source", source, "instrument_description", instrumentDescription)
 	}
 
+	// Winner selection relies on inputs being ordered by precedence (descending),
+	// which is guaranteed by ListEnabledPluginConfigs. The first successful
+	// result in iteration order wins.
 	type result struct {
-		precedence int
-		inst       *identifier.Instrument
-		ids        []identifier.Identifier
-		err        error
+		inst *identifier.Instrument
+		ids  []identifier.Identifier
+		err  error
 	}
 	results := make([]result, len(inputs))
 	var wg sync.WaitGroup
@@ -162,7 +164,7 @@ func ResolveWithPlugins(
 			in := inputs[idx]
 			timeout := timeoutFromConfig(in.config.Config)
 			inst, ids, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, hints, identifierHints, timeout)
-			results[idx] = result{precedence: in.config.Precedence, inst: inst, ids: ids, err: err}
+			results[idx] = result{inst: inst, ids: ids, err: err}
 		}(i)
 	}
 	wg.Wait()
@@ -335,7 +337,7 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte
 	if err2 != nil {
 		return nil, nil, err2
 	}
-	return inst, ids, err2
+	return inst, ids, nil
 }
 
 // resolveLogger returns the provided logger or falls back to slog.Default().

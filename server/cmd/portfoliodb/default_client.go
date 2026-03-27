@@ -9,8 +9,11 @@ import (
 	"google.golang.org/grpc"
 )
 
+// newPluginHTTPClient returns the shared HTTP client for plugins.
+// Timeout is a safety net only; effective per-plugin timeouts are controlled
+// via context deadlines (timeout_seconds in plugin_config.config JSONB).
 func newPluginHTTPClient() *http.Client {
-	return &http.Client{Timeout: 30 * time.Second}
+	return &http.Client{Timeout: 5 * time.Minute}
 }
 
 func newDescriptionHTTPClient() *http.Client {

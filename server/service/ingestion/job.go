@@ -5,5 +5,5 @@ package ingestion
 // and loaded by the worker; only the job ID and type travel on the channel.
 type JobRequest struct {
 	JobID   string
-	JobType string // "tx" or "price_import"
+	JobType string // "tx" or "price"
 }

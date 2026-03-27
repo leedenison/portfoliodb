@@ -83,7 +83,7 @@ func TestCreateJob_PriceImport(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|pi", "U", "u@pi.com")
 	jobID, err := p.CreateJob(ctx, db.CreateJobParams{
 		UserID:  userID,
-		JobType: "price_import",
+		JobType: "price",
 		Payload: []byte("price-data"),
 	})
 	if err != nil {
@@ -113,7 +113,7 @@ func TestListPendingJobs(t *testing.T) {
 	})
 	j2, _ := p.CreateJob(ctx, db.CreateJobParams{
 		UserID:  userID,
-		JobType: "price_import",
+		JobType: "price",
 	})
 	// Mark j1 as RUNNING (should still be returned).
 	_ = p.SetJobStatus(ctx, j1, apiv1.JobStatus_RUNNING)
@@ -133,7 +133,7 @@ func TestListPendingJobs(t *testing.T) {
 	if got, ok := byID[j1]; !ok || got.JobType != "tx" {
 		t.Fatalf("j1 not found or wrong type: %+v", byID)
 	}
-	if got, ok := byID[j2]; !ok || got.JobType != "price_import" {
+	if got, ok := byID[j2]; !ok || got.JobType != "price" {
 		t.Fatalf("j2 not found or wrong type: %+v", byID)
 	}
 }

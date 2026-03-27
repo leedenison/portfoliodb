@@ -226,7 +226,7 @@ type PendingJob struct {
 // CreateJobParams holds the parameters for creating a new job.
 type CreateJobParams struct {
 	UserID     string
-	JobType    string // "tx" or "price_import"
+	JobType    string // "tx" or "price"
 	Broker     string // tx only
 	Source     string // tx only
 	Filename   string

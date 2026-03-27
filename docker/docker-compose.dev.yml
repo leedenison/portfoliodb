@@ -23,7 +23,7 @@ services:
       # Single level (info, warn, error, debug) or JSON e.g. {"server/plugins": "debug", "default": "info"}
       LOG_LEVEL: ${LOG_LEVEL:-debug}
     volumes:
-      - ../../:/app
+      - ..:/app
     command: [ "air" ]
 
   envoy:

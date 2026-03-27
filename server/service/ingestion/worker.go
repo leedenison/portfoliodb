@@ -65,6 +65,9 @@ func processJob(ctx context.Context, database db.DB, registry *identifier.Regist
 			}
 			pricefetcher.Trigger(priceTrigger)
 		}
+	case "price":
+		processPriceImport(ctx, database, registry, j)
+		pricefetcher.Trigger(priceTrigger)
 	default:
 		log.Printf("ingestion job %s: unknown job type %q", j.JobID, j.JobType)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)

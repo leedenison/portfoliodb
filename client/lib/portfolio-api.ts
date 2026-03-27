@@ -591,21 +591,13 @@ export async function* exportPrices(): AsyncGenerator<ExportPriceRow> {
   }
 }
 
-export interface ImportPricesResult {
-  upsertedCount: number;
-  errors: Array<{ index: number; message: string }>;
-}
-
-/** Import (upsert) prices (admin only). */
-export async function importPrices(prices: ImportPriceRow[]): Promise<ImportPricesResult> {
+/** Import (upsert) prices (admin only). Returns a job ID for async processing. */
+export async function importPrices(prices: ImportPriceRow[]): Promise<string> {
   const base = getBaseUrl();
   const req = create(ImportPricesRequestSchema, { prices });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "ImportPrices", toBinary(ImportPricesRequestSchema, req), { credentials: "include" });
   const res = fromBinary(ImportPricesResponseSchema, resBytes);
-  return {
-    upsertedCount: res.upsertedCount,
-    errors: res.errors.map((e) => ({ index: e.index, message: e.message })),
-  };
+  return res.jobId;
 }
 
 /** A single day's portfolio value point. */

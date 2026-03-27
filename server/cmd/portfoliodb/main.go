@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"log/slog"
 	"net"
@@ -209,7 +210,27 @@ func main() {
 	ingestionLogger := logger.WithCategory(serverLogger, "server/service/ingestion")
 	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter, ingestionLogger, priceTrigger, workers)
 	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
+	// Re-enqueue incomplete jobs from a previous run.
+	if pending, err := database.ListPendingJobs(ctx); err == nil {
+		for _, p := range pending {
+			select {
+			case queue <- &ingestion.JobRequest{JobID: p.ID, JobType: p.JobType}:
+				log.Printf("re-enqueued %s job %s", p.JobType, p.ID)
+			default:
+				log.Printf("queue full, skipping re-enqueue of job %s", p.ID)
+			}
+		}
+	}
+	enqueueJob := func(jobID, jobType string) error {
+		select {
+		case queue <- &ingestion.JobRequest{JobID: jobID, JobType: jobType}:
+			return nil
+		default:
+			return fmt.Errorf("job queue full")
+		}
+	}
 	svc := grpc.NewServer(
+		grpc.MaxRecvMsgSize(32<<20),
 		grpc.ChainUnaryInterceptor(
 			logger.UnaryErrorInterceptor(serverLogger),
 			auth.UnaryInterceptor(interceptorConfig),
@@ -229,6 +250,7 @@ func main() {
 		PriceRegistry:  priceRegistry,
 		PriceTrigger:   priceTrigger,
 		WorkerRegistry: workers,
+		EnqueueJob:     api.JobEnqueuer(enqueueJob),
 	}))
 	ingestionv1.RegisterIngestionServiceServer(svc, ingestion.NewServer(database, queue))
 	reflection.Register(svc)

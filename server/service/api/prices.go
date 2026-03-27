@@ -3,16 +3,14 @@ package api
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
-	"github.com/leedenison/portfoliodb/server/identifier"
-	"github.com/leedenison/portfoliodb/server/service/identification"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -128,125 +126,31 @@ func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiSe
 	return nil
 }
 
-// ImportPrices upserts EOD prices resolved by instrument identifier. When an
-// instrument is unknown, identifier plugins are called (if asset_class is set)
-// or the instrument is created with just the supplied identifier. Admin only.
+// ImportPrices creates an async job to upsert EOD prices. Admin only.
+// The serialized request is persisted to the DB and processed by the worker.
 func (s *Server) ImportPrices(ctx context.Context, req *apiv1.ImportPricesRequest) (*apiv1.ImportPricesResponse, error) {
-	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+	u, authErr := auth.RequireAdmin(ctx)
+	if authErr != nil {
 		return nil, authErr
 	}
-
-	var prices []db.EODPrice
-	var errors []*apiv1.ImportPriceError
-
-	// Dedup cache: avoid calling plugins N times for the same identifier across different price dates.
-	type resolveEntry struct {
-		instID string
-		err    error
+	if len(req.GetPrices()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "no prices provided")
 	}
-	resolveCache := make(map[string]*resolveEntry)
-
-	for i, row := range req.GetPrices() {
-		priceDate, err := time.Parse("2006-01-02", row.GetPriceDate())
-		if err != nil {
-			errors = append(errors, &apiv1.ImportPriceError{
-				Index:   int32(i),
-				Message: fmt.Sprintf("invalid price_date %q: %v", row.GetPriceDate(), err),
-			})
-			continue
-		}
-
-		cacheKey := row.GetIdentifierType() + "\x00" + row.GetIdentifierDomain() + "\x00" + row.GetIdentifierValue()
-		entry, cached := resolveCache[cacheKey]
-		if !cached {
-			instID, resolveErr := s.resolveOrIdentifyInstrument(ctx, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), row.GetAssetClass())
-			entry = &resolveEntry{instID: instID, err: resolveErr}
-			resolveCache[cacheKey] = entry
-		}
-		if entry.err != nil {
-			errors = append(errors, &apiv1.ImportPriceError{
-				Index:   int32(i),
-				Message: entry.err.Error(),
-			})
-			continue
-		}
-
-		p := db.EODPrice{
-			InstrumentID: entry.instID,
-			PriceDate:    priceDate,
-			Close:        row.GetClose(),
-			DataProvider: "import",
-		}
-		if row.Open != nil {
-			p.Open = row.Open
-		}
-		if row.High != nil {
-			p.High = row.High
-		}
-		if row.Low != nil {
-			p.Low = row.Low
-		}
-		if row.Volume != nil {
-			p.Volume = row.Volume
-		}
-		prices = append(prices, p)
-	}
-
-	if len(prices) > 0 {
-		if err := s.db.UpsertPrices(ctx, prices); err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
-		}
-	}
-
-	return &apiv1.ImportPricesResponse{
-		UpsertedCount: int32(len(prices)),
-		Errors:        errors,
-	}, nil
-}
-
-// resolveOrIdentifyInstrument finds an instrument by identifier, or creates one.
-// When assetClass is set and the instrument is unknown, identifier plugins are called
-// (ResolveWithPlugins handles the DB lookup internally). When assetClass is empty,
-// plugins are skipped and the instrument is created with just the supplied identifier.
-func (s *Server) resolveOrIdentifyInstrument(ctx context.Context, idType, domain, value, assetClass string) (string, error) {
-	hint := identifier.Identifier{Type: idType, Domain: domain, Value: value}
-
-	// When asset_class is set and plugins are available, delegate entirely to
-	// ResolveWithPlugins which does DB lookup -> plugin calls -> fallback.
-	if assetClass != "" && s.pluginRegistry != nil {
-		fallback := func(ctx context.Context, database db.DB) (string, error) {
-			return s.ensureWithSuppliedIdentifier(ctx, idType, domain, value)
-		}
-		hints := identifier.Hints{SecurityTypeHint: assetClass}
-		result, err := identification.ResolveWithPlugins(ctx, s.db, s.pluginRegistry,
-			"", "", "", hints,
-			[]identifier.Identifier{hint},
-			false, fallback, nil, nil, 0)
-		if err != nil {
-			return "", fmt.Errorf("identification error for %s %q: %v", idType, value, err)
-		}
-		return result.InstrumentID, nil
-	}
-
-	// No plugins: DB lookup, then create with just the supplied identifier.
-	ids, err := identification.ResolveByHintsDBOnly(ctx, s.db, []identifier.Identifier{hint})
+	payload, err := proto.Marshal(req)
 	if err != nil {
-		return "", fmt.Errorf("lookup error for %s %q: %v", idType, value, err)
+		return nil, status.Error(codes.Internal, fmt.Sprintf("serialize request: %v", err))
 	}
-	if len(ids) > 1 {
-		return "", fmt.Errorf("ambiguous: multiple instruments match %s %q", idType, value)
+	jobID, err := s.db.CreateJob(ctx, db.CreateJobParams{
+		UserID:  u.ID,
+		JobType: "price",
+		Payload: payload,
+	})
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
-	if len(ids) == 1 {
-		return ids[0], nil
+	if err := s.enqueueJob(jobID, "price"); err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
 	}
-	return s.ensureWithSuppliedIdentifier(ctx, idType, domain, value)
+	return &apiv1.ImportPricesResponse{JobId: jobID}, nil
 }
 
-// ensureWithSuppliedIdentifier creates an instrument with just the given identifier.
-func (s *Server) ensureWithSuppliedIdentifier(ctx context.Context, idType, domain, value string) (string, error) {
-	slog.Debug("creating instrument from price import with supplied identifier only",
-		"identifier_type", idType, "identifier_domain", domain, "identifier_value", value)
-	return s.db.EnsureInstrument(ctx, "", "", "", "", "", "",
-		[]db.IdentifierInput{{Type: idType, Domain: domain, Value: value, Canonical: true}},
-		"", nil, nil)
-}

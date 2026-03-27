@@ -58,17 +58,21 @@ CREATE TABLE txs (
 CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, timestamp);
 
 -- Async ingestion jobs. status and validation_errors surfaced via front-end API.
+-- job_type distinguishes tx uploads from price imports; broker/source are tx-specific.
+-- payload stores the serialized protobuf request and is cleared after processing.
 CREATE TABLE ingestion_jobs (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  broker       TEXT NOT NULL,
-  source       TEXT NOT NULL,
+  job_type     TEXT NOT NULL DEFAULT 'tx' CHECK (job_type IN ('tx', 'price')),
+  broker       TEXT,
+  source       TEXT,
   filename     TEXT,
   period_from  TIMESTAMPTZ,
   period_to    TIMESTAMPTZ,
   status       TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED')),
   total_count      INT NOT NULL DEFAULT 0,
   processed_count  INT NOT NULL DEFAULT 0,
+  payload      BYTEA,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

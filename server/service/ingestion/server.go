@@ -10,6 +10,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // Server implements IngestionService.
@@ -40,26 +41,26 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 	if len(periodErrs) > 0 {
 		return nil, status.Error(codes.InvalidArgument, periodErrs[0].Message)
 	}
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("serialize request: %v", err))
+	}
 	brokerStr, _ := brokerToString(req.Broker)
-	jobID, err := s.db.CreateJob(ctx, u.ID, brokerStr, req.GetSource(), req.GetFilename(), req.PeriodFrom, req.PeriodTo)
+	jobID, err := s.db.CreateJob(ctx, db.CreateJobParams{
+		UserID:     u.ID,
+		JobType:    "tx",
+		Broker:     brokerStr,
+		Source:     req.GetSource(),
+		Filename:   req.GetFilename(),
+		PeriodFrom: req.PeriodFrom,
+		PeriodTo:   req.PeriodTo,
+		Payload:    payload,
+	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	txs := req.GetTxs()
-	if txs == nil {
-		txs = []*apiv1.Tx{}
-	}
 	select {
-	case s.queue <- &JobRequest{
-		JobID:      jobID,
-		UserID:     u.ID,
-		Broker:     brokerStr,
-		Source:     req.GetSource(),
-		Bulk:       true,
-		PeriodFrom: req.PeriodFrom,
-		PeriodTo:   req.PeriodTo,
-		Txs:        txs,
-	}:
+	case s.queue <- &JobRequest{JobID: jobID, JobType: "tx"}:
 	default:
 		return nil, status.Error(codes.Unavailable, "job queue full")
 	}
@@ -81,20 +82,29 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 	if req.Tx == nil {
 		return nil, status.Error(codes.InvalidArgument, "tx required")
 	}
+	// Wrap single tx in UpsertTxsRequest for uniform payload format.
 	brokerStr, _ := brokerToString(req.Broker)
-	jobID, err := s.db.CreateJob(ctx, u.ID, brokerStr, req.GetSource(), "", nil, nil)
+	wrapped := &ingestionv1.UpsertTxsRequest{
+		Broker:   req.Broker,
+		Source:   req.GetSource(),
+		Txs:     []*apiv1.Tx{req.Tx},
+	}
+	payload, err := proto.Marshal(wrapped)
+	if err != nil {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("serialize request: %v", err))
+	}
+	jobID, err := s.db.CreateJob(ctx, db.CreateJobParams{
+		UserID:  u.ID,
+		JobType: "tx",
+		Broker:  brokerStr,
+		Source:  req.GetSource(),
+		Payload: payload,
+	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	select {
-	case s.queue <- &JobRequest{
-		JobID:  jobID,
-		UserID: u.ID,
-		Broker: brokerStr,
-		Source: req.GetSource(),
-		Bulk:   false,
-		Txs:    []*apiv1.Tx{req.Tx},
-	}:
+	case s.queue <- &JobRequest{JobID: jobID, JobType: "tx"}:
 	default:
 		return nil, status.Error(codes.Unavailable, "job queue full")
 	}

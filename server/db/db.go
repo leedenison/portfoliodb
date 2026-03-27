@@ -208,6 +208,7 @@ type ValuationDB interface {
 // JobRow is a job summary for list views.
 type JobRow struct {
 	ID                       string
+	JobType                  string
 	Filename                 string
 	Broker                   string
 	Status                   string
@@ -216,16 +217,36 @@ type JobRow struct {
 	IdentificationErrorCount int32
 }
 
+// PendingJob is a job awaiting processing, returned by ListPendingJobs.
+type PendingJob struct {
+	ID      string
+	JobType string
+}
+
+// CreateJobParams holds the parameters for creating a new job.
+type CreateJobParams struct {
+	UserID     string
+	JobType    string // "tx" or "price"
+	Broker     string // tx only
+	Source     string // tx only
+	Filename   string
+	PeriodFrom *timestamppb.Timestamp
+	PeriodTo   *timestamppb.Timestamp
+	Payload    []byte // serialized protobuf request
+}
+
 // JobDB provides ingestion job operations.
 type JobDB interface {
-	CreateJob(ctx context.Context, userID, broker, source, filename string, periodFrom, periodTo *timestamppb.Timestamp) (string, error)
+	CreateJob(ctx context.Context, params CreateJobParams) (string, error)
 	GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []IdentificationError, string, int32, int32, error) // returns (status, validationErrors, idErrors, userID, totalCount, processedCount, error)
 	SetJobStatus(ctx context.Context, jobID string, status apiv1.JobStatus) error
 	SetJobTotalCount(ctx context.Context, jobID string, total int32) error
 	IncrJobProcessedCount(ctx context.Context, jobID string) error
 	AppendValidationErrors(ctx context.Context, jobID string, errs []*apiv1.ValidationError) error
 	AppendIdentificationErrors(ctx context.Context, jobID string, errs []IdentificationError) error
-	ListPendingJobIDs(ctx context.Context) ([]string, error)
+	LoadJobPayload(ctx context.Context, jobID string) ([]byte, error)
+	ClearJobPayload(ctx context.Context, jobID string) error
+	ListPendingJobs(ctx context.Context) ([]PendingJob, error)
 	// ListJobs returns jobs for a user, newest first, with error counts. Returns (rows, totalCount, nextPageToken, error).
 	ListJobs(ctx context.Context, userID string, pageSize int32, pageToken string) ([]JobRow, int32, string, error)
 }

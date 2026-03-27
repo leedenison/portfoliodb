@@ -1,18 +1,9 @@
 package ingestion
 
-import (
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	"google.golang.org/protobuf/types/known/timestamppb"
-)
-
 // JobRequest is a unit of work for the ingestion worker.
+// The actual payload data is persisted in the database (ingestion_jobs.payload)
+// and loaded by the worker; only the job ID and type travel on the channel.
 type JobRequest struct {
-	JobID      string
-	UserID     string
-	Broker     string
-	Source     string
-	Bulk       bool
-	PeriodFrom *timestamppb.Timestamp
-	PeriodTo   *timestamppb.Timestamp
-	Txs        []*apiv1.Tx
+	JobID   string
+	JobType string // "tx" or "price"
 }

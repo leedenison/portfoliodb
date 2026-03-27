@@ -8,32 +8,45 @@ import (
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // CreateJob implements db.JobDB.
-func (p *Postgres) CreateJob(ctx context.Context, userID, broker, source, filename string, periodFrom, periodTo *timestamppb.Timestamp) (string, error) {
-	userUUID, err := uuid.Parse(userID)
+func (p *Postgres) CreateJob(ctx context.Context, params db.CreateJobParams) (string, error) {
+	userUUID, err := uuid.Parse(params.UserID)
 	if err != nil {
 		return "", fmt.Errorf("invalid user id: %w", err)
 	}
 	var fromT, toT interface{}
-	if periodFrom != nil && periodFrom.IsValid() {
-		fromT = periodFrom.AsTime()
+	if params.PeriodFrom != nil && params.PeriodFrom.IsValid() {
+		fromT = params.PeriodFrom.AsTime()
 	}
-	if periodTo != nil && periodTo.IsValid() {
-		toT = periodTo.AsTime()
+	if params.PeriodTo != nil && params.PeriodTo.IsValid() {
+		toT = params.PeriodTo.AsTime()
 	}
-	var filenameVal interface{}
-	if filename != "" {
-		filenameVal = filename
+	var filenameVal, brokerVal, sourceVal interface{}
+	if params.Filename != "" {
+		filenameVal = params.Filename
+	}
+	if params.Broker != "" {
+		brokerVal = params.Broker
+	}
+	if params.Source != "" {
+		sourceVal = params.Source
+	}
+	var payloadVal interface{}
+	if len(params.Payload) > 0 {
+		payloadVal = params.Payload
+	}
+	jobType := params.JobType
+	if jobType == "" {
+		jobType = "tx"
 	}
 	var id uuid.UUID
 	err = p.q.QueryRowContext(ctx, `
-		INSERT INTO ingestion_jobs (user_id, broker, source, filename, period_from, period_to, status)
-		VALUES ($1, $2, $3, $4, $5, $6, 'PENDING')
+		INSERT INTO ingestion_jobs (user_id, job_type, broker, source, filename, period_from, period_to, payload, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')
 		RETURNING id
-	`, userUUID, broker, source, filenameVal, fromT, toT).Scan(&id)
+	`, userUUID, jobType, brokerVal, sourceVal, filenameVal, fromT, toT, payloadVal).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("create job: %w", err)
 	}
@@ -164,22 +177,53 @@ func (p *Postgres) AppendIdentificationErrors(ctx context.Context, jobID string,
 	return nil
 }
 
-// ListPendingJobIDs implements db.JobDB.
-func (p *Postgres) ListPendingJobIDs(ctx context.Context) ([]string, error) {
-	rows, err := p.q.QueryContext(ctx, `SELECT id FROM ingestion_jobs WHERE status = 'PENDING' ORDER BY created_at`)
+// LoadJobPayload implements db.JobDB.
+func (p *Postgres) LoadJobPayload(ctx context.Context, jobID string) ([]byte, error) {
+	jobUUID, err := uuid.Parse(jobID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid job id: %w", err)
+	}
+	var payload []byte
+	err = p.q.QueryRowContext(ctx, `SELECT payload FROM ingestion_jobs WHERE id = $1`, jobUUID).Scan(&payload)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("job not found: %s", jobID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load job payload: %w", err)
+	}
+	return payload, nil
+}
+
+// ClearJobPayload implements db.JobDB.
+func (p *Postgres) ClearJobPayload(ctx context.Context, jobID string) error {
+	jobUUID, err := uuid.Parse(jobID)
+	if err != nil {
+		return fmt.Errorf("invalid job id: %w", err)
+	}
+	_, err = p.q.ExecContext(ctx, `UPDATE ingestion_jobs SET payload = NULL WHERE id = $1`, jobUUID)
+	if err != nil {
+		return fmt.Errorf("clear job payload: %w", err)
+	}
+	return nil
+}
+
+// ListPendingJobs implements db.JobDB.
+func (p *Postgres) ListPendingJobs(ctx context.Context) ([]db.PendingJob, error) {
+	rows, err := p.q.QueryContext(ctx, `SELECT id, job_type FROM ingestion_jobs WHERE status IN ('PENDING', 'RUNNING') ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list pending jobs: %w", err)
 	}
 	defer rows.Close()
-	var ids []string
+	var jobs []db.PendingJob
 	for rows.Next() {
 		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var jobType string
+		if err := rows.Scan(&id, &jobType); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id.String())
+		jobs = append(jobs, db.PendingJob{ID: id.String(), JobType: jobType})
 	}
-	return ids, rows.Err()
+	return jobs, rows.Err()
 }
 
 // ListJobs implements db.JobDB.
@@ -200,7 +244,7 @@ func (p *Postgres) ListJobs(ctx context.Context, userID string, pageSize int32, 
 	}
 
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT j.id, COALESCE(j.filename, ''), j.broker, j.status, j.created_at,
+		SELECT j.id, j.job_type, COALESCE(j.filename, ''), COALESCE(j.broker, ''), j.status, j.created_at,
 			(SELECT COUNT(*) FROM validation_errors WHERE job_id = j.id),
 			(SELECT COUNT(*) FROM identification_errors WHERE job_id = j.id)
 		FROM ingestion_jobs j
@@ -217,7 +261,7 @@ func (p *Postgres) ListJobs(ctx context.Context, userID string, pageSize int32, 
 	for rows.Next() {
 		var r db.JobRow
 		var id uuid.UUID
-		if err := rows.Scan(&id, &r.Filename, &r.Broker, &r.Status, &r.CreatedAt, &r.ValidationErrorCount, &r.IdentificationErrorCount); err != nil {
+		if err := rows.Scan(&id, &r.JobType, &r.Filename, &r.Broker, &r.Status, &r.CreatedAt, &r.ValidationErrorCount, &r.IdentificationErrorCount); err != nil {
 			return nil, 0, "", err
 		}
 		r.ID = id.String()

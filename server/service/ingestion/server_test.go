@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/leedenison/portfoliodb/server/auth"
+	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/testutil"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
@@ -75,10 +76,18 @@ func TestUpsertTxs_Success(t *testing.T) {
 	periodTo := timestamppb.Now()
 	queue := make(chan *JobRequest, 1)
 	defer close(queue)
-	srv, db := newIngestionServerWithMock(t, queue)
-	db.EXPECT().
-		CreateJob(gomock.Any(), "user-1", "IBKR", "IBKR:test:statement", "", periodFrom, periodTo).
-		Return("job-123", nil)
+	srv, mockDB := newIngestionServerWithMock(t, queue)
+	mockDB.EXPECT().
+		CreateJob(gomock.Any(), gomock.AssignableToTypeOf(db.CreateJobParams{})).
+		DoAndReturn(func(_ context.Context, p db.CreateJobParams) (string, error) {
+			if p.UserID != "user-1" || p.Broker != "IBKR" || p.Source != "IBKR:test:statement" || p.JobType != "tx" {
+				t.Errorf("CreateJob params: %+v", p)
+			}
+			if len(p.Payload) == 0 {
+				t.Error("expected non-empty payload")
+			}
+			return "job-123", nil
+		})
 	ctx := authCtx("user-1")
 	resp, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
 		Broker:     apiv1.Broker_IBKR,
@@ -95,7 +104,7 @@ func TestUpsertTxs_Success(t *testing.T) {
 	}
 	select {
 	case j := <-queue:
-		if j.JobID != "job-123" || j.UserID != "user-1" || j.Broker != "IBKR" || j.Source != "IBKR:test:statement" || !j.Bulk {
+		if j.JobID != "job-123" || j.JobType != "tx" {
 			t.Fatalf("got JobRequest %+v", j)
 		}
 	default:

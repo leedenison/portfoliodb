@@ -5,12 +5,33 @@ import (
 	"testing"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// marshalPayload serializes an UpsertTxsRequest for test fixtures.
+func marshalPayload(t *testing.T, req *ingestionv1.UpsertTxsRequest) []byte {
+	t.Helper()
+	b, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return b
+}
+
+// expectLoadPayload sets up LoadJobPayload + ClearJobPayload + GetJob(userID) mocks.
+func expectLoadPayload(database *mock.MockDB, jobID, userID string, payload []byte) {
+	database.EXPECT().LoadJobPayload(gomock.Any(), jobID).Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), jobID).Return(nil)
+	database.EXPECT().GetJob(gomock.Any(), jobID).Return(
+		apiv1.JobStatus_RUNNING, nil, nil, userID, int32(0), int32(0), nil,
+	)
+}
 
 func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -24,25 +45,23 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 	txs := []*apiv1.Tx{
 		{Timestamp: from, InstrumentDescription: "UNKNOWN", Type: apiv1.TxType_BUYSTOCK, Quantity: 1, Account: ""},
 	}
-	j := &JobRequest{
-		JobID:      "job-1",
-		UserID:     "user-1",
-		Broker:     "IBKR",
+	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
+		Broker:     apiv1.Broker_IBKR,
 		Source:     "IBKR:test:statement",
-		Bulk:       true,
 		PeriodFrom: from,
 		PeriodTo:   to,
 		Txs:        txs,
-	}
+	})
+	j := &JobRequest{JobID: "job-1", JobType: "tx"}
 
-	// processBulk: SetJobStatus RUNNING already done in processJob
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-1", apiv1.JobStatus_RUNNING).
 		Return(nil)
+	expectLoadPayload(database, "job-1", "user-1", payload)
 	database.EXPECT().
 		SetJobTotalCount(gomock.Any(), "job-1", int32(1)).
 		Return(nil)
-	// Resolve for "UNKNOWN": DB miss, nil descRegistry → extraction failed, EnsureInstrument broker-only
+	// Resolve for "UNKNOWN": DB miss, nil descRegistry -> extraction failed, EnsureInstrument broker-only
 	database.EXPECT().
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "UNKNOWN").
 		Return("", nil)
@@ -68,7 +87,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 			return nil
 		})
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", from, to, txs, []string{"broker-only-id"}).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"broker-only-id"}).
 		Return(nil)
 	database.EXPECT().
 		ListHoldingDeclarations(gomock.Any(), "user-1").
@@ -89,36 +108,32 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	ctx := context.Background()
 	from := timestamppb.Now()
 	to := timestamppb.Now()
-	// Two txs with same instrument description - should resolve once and use cache for second
 	txs := []*apiv1.Tx{
 		{Timestamp: timestamppb.New(from.AsTime().Add(-1)), InstrumentDescription: "CACHED", Type: apiv1.TxType_BUYSTOCK, Quantity: 1, Account: ""},
 		{Timestamp: timestamppb.New(from.AsTime().Add(1)), InstrumentDescription: "CACHED", Type: apiv1.TxType_BUYSTOCK, Quantity: 2, Account: ""},
 	}
-	j := &JobRequest{
-		JobID:      "job-2",
-		UserID:     "user-1",
-		Broker:     "IBKR",
+	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
+		Broker:     apiv1.Broker_IBKR,
 		Source:     "IBKR:test:statement",
-		Bulk:       true,
 		PeriodFrom: from,
 		PeriodTo:   to,
 		Txs:        txs,
-	}
+	})
+	j := &JobRequest{JobID: "job-2", JobType: "tx"}
 
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-2", apiv1.JobStatus_RUNNING).
 		Return(nil)
+	expectLoadPayload(database, "job-2", "user-1", payload)
 	database.EXPECT().
 		SetJobTotalCount(gomock.Any(), "job-2", int32(2)).
 		Return(nil)
-	// First resolve: DB miss, nil descRegistry → extraction failed, EnsureInstrument
 	database.EXPECT().
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "CACHED").
 		Return("", nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "", "", "", "CACHED", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR:test:statement", Value: "CACHED", Canonical: false}}, "", nil, nil).
 		Return("cached-inst-id", nil)
-	// Second tx hits cache - no additional DB calls
 	database.EXPECT().
 		IncrJobProcessedCount(gomock.Any(), "job-2").
 		Return(nil).Times(2)
@@ -126,7 +141,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		AppendIdentificationErrors(gomock.Any(), "job-2", gomock.Any()).
 		Return(nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", from, to, txs, []string{"cached-inst-id", "cached-inst-id"}).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"cached-inst-id", "cached-inst-id"}).
 		Return(nil)
 	database.EXPECT().
 		ListHoldingDeclarations(gomock.Any(), "user-1").
@@ -151,20 +166,19 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		{Timestamp: from, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: ""},
 		{Timestamp: from, InstrumentDescription: "SPLIT", Type: apiv1.TxType_SPLIT, Quantity: 1, Account: ""},
 	}
-	j := &JobRequest{
-		JobID:      "job-split",
-		UserID:     "user-1",
-		Broker:     "IBKR",
+	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
+		Broker:     apiv1.Broker_IBKR,
 		Source:     "IBKR:test:statement",
-		Bulk:       true,
 		PeriodFrom: from,
 		PeriodTo:   to,
 		Txs:        txs,
-	}
+	})
+	j := &JobRequest{JobID: "job-split", JobType: "tx"}
 
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-split", apiv1.JobStatus_RUNNING).
 		Return(nil)
+	expectLoadPayload(database, "job-split", "user-1", payload)
 	database.EXPECT().
 		SetJobTotalCount(gomock.Any(), "job-split", int32(1)).
 		Return(nil)
@@ -180,9 +194,8 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 	database.EXPECT().
 		AppendIdentificationErrors(gomock.Any(), "job-split", gomock.Any()).
 		Return(nil)
-	// ReplaceTxsInPeriod must be called with only the non-None tx (AAPL), not the SPLIT
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", from, to, gomock.Len(1), []string{"aapl-id"}).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Len(1), []string{"aapl-id"}).
 		DoAndReturn(func(_ context.Context, _, _ string, _, _ *timestamppb.Timestamp, storedTxs []*apiv1.Tx, ids []string) error {
 			if len(storedTxs) != 1 || storedTxs[0].InstrumentDescription != "AAPL" || storedTxs[0].Type != apiv1.TxType_BUYSTOCK {
 				t.Errorf("ReplaceTxsInPeriod called with %d txs, expected 1 (AAPL BUYSTOCK)", len(storedTxs))
@@ -206,25 +219,23 @@ func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
-	j := &JobRequest{
-		JobID:  "job-single-split",
-		UserID: "user-1",
-		Broker: "IBKR",
+	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
+		Broker: apiv1.Broker_IBKR,
 		Source: "IBKR:test:statement",
-		Bulk:   false,
 		Txs:    []*apiv1.Tx{{Timestamp: timestamppb.Now(), InstrumentDescription: "SPLIT", Type: apiv1.TxType_SPLIT, Quantity: 1, Account: ""}},
-	}
+	})
+	j := &JobRequest{JobID: "job-single-split", JobType: "tx"}
 
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-single-split", apiv1.JobStatus_RUNNING).
 		Return(nil)
-	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-single-split", apiv1.JobStatus_SUCCESS).
-		Return(nil)
+	expectLoadPayload(database, "job-single-split", "user-1", payload)
 	database.EXPECT().
 		ListHoldingDeclarations(gomock.Any(), "user-1").
 		Return(nil, nil)
-	// No Resolve, no CreateTx - SPLIT is dropped
+	database.EXPECT().
+		SetJobStatus(gomock.Any(), "job-single-split", apiv1.JobStatus_SUCCESS).
+		Return(nil)
 
 	processJob(ctx, database, registry, nil, nil, j, nil)
 }

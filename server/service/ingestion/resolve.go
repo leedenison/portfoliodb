@@ -4,18 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
-	"sync"
-	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
+	"github.com/leedenison/portfoliodb/server/service/identification"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
@@ -33,28 +29,7 @@ func identifierHintsFromTx(ctx context.Context, tx *apiv1.Tx) []identifier.Ident
 		typeStr := apiv1.IdentifierType_name[int32(h.GetType())]
 		raw = append(raw, identifier.Identifier{Type: typeStr, Domain: h.GetDomain(), Value: h.GetValue()})
 	}
-	return filterIdentifierHints(ctx, raw)
-}
-
-// filterIdentifierHints keeps only hints whose Type is in the controlled vocabulary (identifier.AllowedIdentifierTypes).
-// Invalid types are discarded and logged at debug; ingestion is not halted.
-func filterIdentifierHints(ctx context.Context, hints []identifier.Identifier) []identifier.Identifier {
-	if len(hints) == 0 {
-		return nil
-	}
-	out := make([]identifier.Identifier, 0, len(hints))
-	for _, h := range hints {
-		typ := strings.TrimSpace(h.Type)
-		if typ == "" {
-			continue
-		}
-		if identifier.AllowedIdentifierTypes[typ] {
-			out = append(out, h)
-		} else {
-			ingestionLogger().DebugContext(ctx, "identifier hint discarded: type not in vocabulary", "type", typ, "value", h.Value)
-		}
-	}
-	return out
+	return identification.FilterIdentifierHints(ctx, raw, ingestionLogger())
 }
 
 // Resolution order: (1) DB lookup by (source, instrument_description), (2) in-batch cache,
@@ -69,44 +44,9 @@ func ingestionLogger() *slog.Logger {
 	return slog.Default()
 }
 
-// hintsSummary returns a short summary of hints for debug logging (e.g. "TICKER:AAPL, FIGI:...").
-func hintsSummary(hints []identifier.Identifier) string {
-	if len(hints) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for i, h := range hints {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(h.Type)
-		if h.Domain != "" {
-			b.WriteString("(")
-			b.WriteString(h.Domain)
-			b.WriteString(")")
-		}
-		b.WriteString(":")
-		b.WriteString(h.Value)
-	}
-	return b.String()
-}
-
-// instrumentSummary returns a short summary of an instrument for debug logging.
-func instrumentSummary(inst *identifier.Instrument) string {
-	if inst == nil {
-		return ""
-	}
-	return inst.Name + " (" + inst.AssetClass + "/" + inst.Exchange + ")"
-}
-
-const (
-	defaultPluginTimeout = 30 * time.Second
-	pluginRetryBackoff   = 2 * time.Second
-)
-
 // Distinct messages for identification errors (per spec).
 const (
-	MsgExtractionFailed     = "description extraction failed"
+	MsgExtractionFailed      = "description extraction failed"
 	MsgBrokerDescriptionOnly = "broker description only"
 	MsgPluginTimeout         = "plugin timeout"
 	MsgPluginUnavailable     = "plugin unavailable"
@@ -114,9 +54,9 @@ const (
 
 // resolveResult holds the outcome of resolving one (source, instrument_description).
 type resolveResult struct {
-	InstrumentID   string
-	IdErr          *db.IdentificationError
-	FirstRowIndex  int32
+	InstrumentID  string
+	IdErr         *db.IdentificationError
+	FirstRowIndex int32
 }
 
 // cacheKey returns a key for the batch cache. Same (source, description) in a batch resolves once.
@@ -147,44 +87,6 @@ func batchItemDescByID(items []description.BatchItem, id string) string {
 		}
 	}
 	return ""
-}
-
-// resolveByHintsDBOnly looks up each hint by (type, domain, value) and returns unique instrument IDs (in order of first occurrence).
-//
-// Fallback when domain is empty: If the hint has domain == "" and the exact (type, domain, value) lookup finds nothing,
-// we perform a second lookup by (type, value) only, ignoring domain. That allows e.g. (TICKER, "", "AAPL") to match
-// a stored row (TICKER, "US", "AAPL"). We do this because:
-//   - Empty domain means the user supplied only a ticker (no exchange), or we only extracted a ticker from the
-//     instrument description (e.g. a description plugin returned "AAPL" with no exchange). In those cases the user
-//     is effectively saying "resolve this to any valid ticker/exchange combo."
-//   - In storage we persist TICKER with domain set to the exchange code (e.g. "US" for US exchanges). So
-//     FindInstrumentByIdentifier(type, "", value) looks for domain IS NULL and does not match those rows. The
-//     fallback FindInstrumentByTypeAndValue(type, value) matches any domain; if exactly one instrument has that
-//     (type, value), we use it. If multiple instruments match (same ticker on different exchanges), the fallback
-//     returns "" and we do not resolve (ambiguous).
-func resolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints []identifier.Identifier) ([]string, error) {
-	seen := make(map[string]bool)
-	var ids []string
-	for _, h := range hints {
-		if h.Type == "" || h.Value == "" {
-			continue
-		}
-		id, err := database.FindInstrumentByIdentifier(ctx, h.Type, h.Domain, h.Value)
-		if err != nil {
-			return nil, err
-		}
-		if id == "" && h.Domain == "" {
-			id, err = database.FindInstrumentByTypeAndValue(ctx, h.Type, h.Value)
-			if err != nil {
-				return nil, err
-			}
-		}
-		if id != "" && !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
-		}
-	}
-	return ids, nil
 }
 
 // runDescriptionPluginsBatch runs description plugins on all items via ExtractBatch. Only items whose security type is acceptable to a plugin are passed to that plugin. First plugin that returns a non-empty map wins. Result is keyed by BatchItem.ID.
@@ -230,7 +132,7 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 		}
 		hasAny := false
 		for id, hints := range out {
-			filteredHints := filterIdentifierHints(ctx, hints)
+			filteredHints := identification.FilterIdentifierHints(ctx, hints, ingestionLogger())
 			if len(filteredHints) > 0 {
 				merged[id] = filteredHints
 				resolved[id] = true
@@ -240,7 +142,7 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 		if hasAny {
 			for id, hints := range out {
 				if len(hints) > 0 {
-					ingestionLogger().DebugContext(ctx, "description plugin batch result: hints", "plugin_id", c.PluginID, "batch_id", id, "instrument_description", batchItemDescByID(filtered, id), "hints", hintsSummary(hints))
+					ingestionLogger().DebugContext(ctx, "description plugin batch result: hints", "plugin_id", c.PluginID, "batch_id", id, "instrument_description", batchItemDescByID(filtered, id), "hints", identification.HintsSummary(hints))
 				}
 			}
 		} else {
@@ -256,45 +158,6 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 	return nil, nil
 }
 
-// pluginConfigJSON is the shape we read from identifier_plugin_config.config (JSONB).
-type pluginConfigJSON struct {
-	TimeoutSeconds *int `json:"timeout_seconds"`
-}
-
-// timeoutFromConfig parses config JSON and returns timeout; uses default if missing or invalid.
-func timeoutFromConfig(config []byte) time.Duration {
-	if len(config) == 0 {
-		return defaultPluginTimeout
-	}
-	var c pluginConfigJSON
-	if err := json.Unmarshal(config, &c); err != nil {
-		return defaultPluginTimeout
-	}
-	if c.TimeoutSeconds == nil || *c.TimeoutSeconds <= 0 {
-		return defaultPluginTimeout
-	}
-	return time.Duration(*c.TimeoutSeconds) * time.Second
-}
-
-// callPluginWithRetry calls Identify once; on non-ErrNotIdentified error, sleeps backoff and tries once more.
-func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, timeout time.Duration) (*identifier.Instrument, []identifier.Identifier, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	inst, ids, err := p.Identify(ctx, config, broker, source, instrumentDescription, hints, identifierHints)
-	if err == nil || errors.Is(err, identifier.ErrNotIdentified) {
-		return inst, ids, err
-	}
-	// Retry once with backoff (use new context so retry is not cancelled by parent)
-	time.Sleep(pluginRetryBackoff)
-	ctx2, cancel2 := context.WithTimeout(context.Background(), timeout)
-	defer cancel2()
-	inst, ids, err2 := p.Identify(ctx2, config, broker, source, instrumentDescription, hints, identifierHints)
-	if err2 != nil {
-		return nil, nil, err2
-	}
-	return inst, ids, err2
-}
-
 // Resolve resolves (source, instrumentDescription) to an instrument_id using the batch cache, then (when no client
 // identifier_hints) pre-extracted description hints, then identifier plugins.
 // The caller is responsible for populating cache (DB hits by source+description) and extractedHintsCache
@@ -307,7 +170,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		if r, ok := cache[key]; ok {
 			// If this tx has client identifier_hints, verify they resolve to the cached instrument (batch conflict check).
 			if len(identifierHints) > 0 {
-				ids, err := resolveByHintsDBOnly(ctx, database, identifierHints)
+				ids, err := identification.ResolveByHintsDBOnly(ctx, database, identifierHints)
 				if err != nil {
 					return resolveResult{}, err
 				}
@@ -322,9 +185,9 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		}
 	}
 
-	// Path A: client supplied identifier_hints — resolve by identifiers only; do not store (source, description).
+	// Path A: client supplied identifier_hints -- resolve by identifiers only; do not store (source, description).
 	if len(identifierHints) > 0 {
-		ids, err := resolveByHintsDBOnly(ctx, database, identifierHints)
+		ids, err := identification.ResolveByHintsDBOnly(ctx, database, identifierHints)
 		if err != nil {
 			return resolveResult{}, err
 		}
@@ -339,10 +202,10 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			return r, nil
 		}
 		// No DB hit: call identifier plugins with hints; do not store (source, description).
-		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, counter, false, 0)
+		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, counter, false)
 	}
 
-	// Path B: no client hints — use pre-extracted description hints, then identifier plugins.
+	// Path B: no client hints -- use pre-extracted description hints, then identifier plugins.
 	// DB lookup by (source, description) and batch description extraction are handled by the
 	// caller's pre-pass; DB hits are already in cache (caught above), misses proceed here.
 	var extractedHints []identifier.Identifier
@@ -378,8 +241,8 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	figiHints := hintsByType(extractedHints, "OPENFIGI_SHARE_CLASS")
 	if len(tickerHints) > 0 && len(figiHints) > 0 {
 		// Resolve with nil cache and nil counter so we don't pollute cache or double-count identify attempts.
-		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, tickerHints, nil, key, rowIndex, nil, true, 0)
-		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, figiHints, nil, key, rowIndex, nil, true, 0)
+		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, tickerHints, nil, key, rowIndex, nil, true)
+		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, figiHints, nil, key, rowIndex, nil, true)
 		idByTicker := resultByTicker.InstrumentID
 		idByFigi := resultByFigi.InstrumentID
 		// Consider "unresolved" (broker-description-only) as empty for mismatch check
@@ -395,7 +258,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	}
 
 	// Resolve by (validated) hints; always store (source, description) when ensuring.
-	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, counter, true, 0)
+	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, counter, true)
 }
 
 // hintsByType returns hints whose Type equals typ (e.g. "TICKER", "OPENFIGI_SHARE_CLASS").
@@ -409,182 +272,30 @@ func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identif
 	return out
 }
 
-// maxResolveDepth limits recursive underlying resolution (derivative -> underlying -> stop).
-const maxResolveDepth = 2
+// resolveWithIdentifierPlugins delegates to the shared identification package and wraps the result
+// in ingestion-specific resolveResult with cache and error handling.
+func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, key string, rowIndex int32, counter telemetry.CounterIncrementer, storeSourceDescription bool) (resolveResult, error) {
+	// Ingestion-specific fallback: broker-description-only instrument.
+	fallback := func(ctx context.Context, database db.DB) (string, error) {
+		return database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "",
+			[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}},
+			"", nil, nil)
+	}
 
-// resolveWithIdentifierPlugins calls enabled identifier plugins with the given hints, merges results, and ensures instrument.
-// When storeSourceDescription is false (client supplied hints), (source, description) is not added to identifiers.
-// depth tracks recursion for underlying resolution; callers pass 0.
-func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, key string, rowIndex int32, counter telemetry.CounterIncrementer, storeSourceDescription bool, depth int) (resolveResult, error) {
-	// Optional: if all hints already resolve to one instrument in DB, use it (avoids plugin call).
-	ids, err := resolveByHintsDBOnly(ctx, database, identifierHints)
+	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, storeSourceDescription, fallback, counter, ingestionLogger(), 0)
 	if err != nil {
 		return resolveResult{}, err
 	}
-	if len(ids) == 1 {
-		r := resolveResult{InstrumentID: ids[0], FirstRowIndex: rowIndex}
-		if cache != nil {
-			cache[key] = r
-		}
-		return r, nil
-	}
 
-	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryIdentifier)
-	if err != nil {
-		return resolveResult{}, err
-	}
-	type pluginInput struct {
-		config db.PluginConfigRow
-		plugin identifier.Plugin
-	}
-	var inputs []pluginInput
-	for _, c := range configs {
-		p := registry.Get(c.PluginID)
-		if p == nil {
-			continue
+	r := resolveResult{InstrumentID: result.InstrumentID, FirstRowIndex: rowIndex}
+	if !result.Identified {
+		msg := MsgBrokerDescriptionOnly
+		if result.HadTimeout {
+			msg = MsgPluginTimeout
+		} else if result.HadError {
+			msg = MsgPluginUnavailable
 		}
-		acceptable := p.AcceptableSecurityTypes()
-		if len(acceptable) > 0 && !acceptable[hints.SecurityTypeHint] {
-			continue
-		}
-		inputs = append(inputs, pluginInput{config: c, plugin: p})
-	}
-	if len(inputs) > 0 && counter != nil {
-		counter.Incr(ctx, "instruments.resolution.totals.identify.attempts")
-	}
-	if len(inputs) == 0 {
-		ingestionLogger().DebugContext(ctx, "instrument resolution: no enabled identifier plugins", "source", source, "instrument_description", instrumentDescription)
-	}
-
-	type result struct {
-		precedence int
-		inst       *identifier.Instrument
-		ids        []identifier.Identifier
-		err        error
-	}
-	results := make([]result, len(inputs))
-	var wg sync.WaitGroup
-	for i := range inputs {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			in := inputs[idx]
-			timeout := timeoutFromConfig(in.config.Config)
-			inst, ids, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, hints, identifierHints, timeout)
-			results[idx] = result{precedence: in.config.Precedence, inst: inst, ids: ids, err: err}
-		}(i)
-	}
-	wg.Wait()
-
-	for i := range results {
-		in := inputs[i]
-		r := &results[i]
-		if r.err != nil {
-			ingestionLogger().DebugContext(ctx, "identifier plugin result", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "err", r.err)
-		} else if r.inst != nil {
-			ingestionLogger().DebugContext(ctx, "identifier plugin result", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "instrument_name", r.inst.Name, "instrument", instrumentSummary(r.inst), "identifiers", hintsSummary(r.ids))
-		} else {
-			ingestionLogger().DebugContext(ctx, "identifier plugin result", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "result", "not_identified")
-		}
-	}
-
-	var winner *result
-	var winnerIdx int
-	var hadTimeout, hadOtherErr bool
-	for i := range results {
-		r := &results[i]
-		if r.err == nil && r.inst != nil {
-			if winner == nil {
-				winner = r
-				winnerIdx = i
-			}
-			continue
-		}
-		if errors.Is(r.err, identifier.ErrNotIdentified) {
-			continue
-		}
-		if errors.Is(r.err, context.DeadlineExceeded) {
-			hadTimeout = true
-		} else {
-			hadOtherErr = true
-		}
-	}
-
-	if winner != nil {
-		ingestionLogger().DebugContext(ctx, "identifier plugin chosen", "plugin_id", inputs[winnerIdx].config.PluginID, "instrument_description", instrumentDescription, "instrument_name", winner.inst.Name)
-		seenType := make(map[string]bool)
-		var mergedIds []identifier.Identifier
-		for i := range results {
-			r := &results[i]
-			if r.err != nil || r.inst == nil {
-				continue
-			}
-			for _, idn := range r.ids {
-				if !seenType[idn.Type] {
-					seenType[idn.Type] = true
-					mergedIds = append(mergedIds, idn)
-				}
-			}
-		}
-		identifiers := make([]db.IdentifierInput, 0, len(mergedIds)+1)
-		hasSource := false
-		for _, idn := range mergedIds {
-			identifiers = append(identifiers, db.IdentifierInput{Type: idn.Type, Domain: idn.Domain, Value: idn.Value, Canonical: true})
-			if idn.Type == "BROKER_DESCRIPTION" && idn.Domain == source && idn.Value == instrumentDescription {
-				hasSource = true
-			}
-		}
-		if storeSourceDescription && !hasSource {
-			identifiers = append(identifiers, db.IdentifierInput{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false})
-		}
-		inst := winner.inst
-		var underlyingID string
-		var validFrom, validTo *time.Time
-		if inst.ValidFrom != nil {
-			validFrom = inst.ValidFrom
-		}
-		if inst.ValidTo != nil {
-			validTo = inst.ValidTo
-		}
-		if len(inst.UnderlyingIdentifiers) > 0 && depth < maxResolveDepth {
-			uHints := identifier.Hints{
-				SecurityTypeHint: identifier.UnderlyingSecTypeHint(inst.AssetClass),
-			}
-			uIdnHints := make([]identifier.Identifier, len(inst.UnderlyingIdentifiers))
-			copy(uIdnHints, inst.UnderlyingIdentifiers)
-			uResult, uErr := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, "", uHints, uIdnHints, nil, "", 0, counter, false, depth+1)
-			if uErr != nil {
-				ingestionLogger().WarnContext(ctx, "underlying resolution failed", "instrument_description", instrumentDescription, "err", uErr)
-			} else if uResult.InstrumentID != "" {
-				underlyingID = uResult.InstrumentID
-			}
-		}
-		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validTo)
-		if err != nil {
-			return resolveResult{}, err
-		}
-		r := resolveResult{InstrumentID: id, FirstRowIndex: rowIndex}
-		if cache != nil {
-			cache[key] = r
-		}
-		return r, nil
-	}
-
-	// Unresolved: broker-description-only
-	id, err := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil)
-	if err != nil {
-		return resolveResult{}, err
-	}
-	msg := MsgBrokerDescriptionOnly
-	if hadTimeout {
-		msg = MsgPluginTimeout
-	} else if hadOtherErr {
-		msg = MsgPluginUnavailable
-	}
-	r := resolveResult{
-		InstrumentID:  id,
-		FirstRowIndex: rowIndex,
-		IdErr:         &db.IdentificationError{RowIndex: rowIndex, InstrumentDescription: instrumentDescription, Message: msg},
+		r.IdErr = &db.IdentificationError{RowIndex: rowIndex, InstrumentDescription: instrumentDescription, Message: msg}
 	}
 	if cache != nil {
 		cache[key] = r

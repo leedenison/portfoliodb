@@ -21,7 +21,7 @@ describe("pricesToCsv", () => {
     const lines = csv.trim().split("\n");
     expect(lines).toHaveLength(2);
     expect(lines[0]).toBe(
-      "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume"
+      "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class"
     );
     expect(lines[1]).toContain("ISIN");
     expect(lines[1]).toContain("US0378331005");
@@ -31,7 +31,7 @@ describe("pricesToCsv", () => {
 
   it("includes optional fields when present", () => {
     const csv = pricesToCsv([
-      makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n }),
+      makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n, assetClass: "STOCK" }),
     ]);
     const lines = csv.trim().split("\n");
     const fields = lines[1].split(",");
@@ -40,6 +40,7 @@ describe("pricesToCsv", () => {
     expect(fields[6]).toBe("184.8"); // low
     expect(fields[8]).toBe("185.9"); // adjusted_close
     expect(fields[9]).toBe("50000000"); // volume
+    expect(fields[10]).toBe("STOCK"); // asset_class
   });
 
   it("leaves optional fields empty when absent", () => {
@@ -65,7 +66,7 @@ describe("pricesToCsv", () => {
 });
 
 describe("csvToPrices", () => {
-  const HEADER = "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume";
+  const HEADER = "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class";
 
   it("parses valid CSV", () => {
     const csv = `${HEADER}\nISIN,US0378331005,,2024-01-15,185.5,186.2,184.8,185.9,185.9,50000000`;
@@ -148,6 +149,20 @@ describe("csvToPrices", () => {
     expect(result.errors).toHaveLength(0);
     expect(result.prices[0].identifierType).toBe("BROKER_DESCRIPTION");
     expect(result.prices[0].identifierDomain).toBe("Fidelity:web:fidelity-csv");
+  });
+
+  it("parses asset_class column", () => {
+    const csv = `${HEADER}\nTICKER,AAPL,XNAS,2024-01-15,,,,185.9,,,STOCK`;
+    const result = csvToPrices(csv);
+    expect(result.errors).toHaveLength(0);
+    expect(result.prices[0].assetClass).toBe("STOCK");
+  });
+
+  it("handles empty asset_class", () => {
+    const csv = `${HEADER}\nTICKER,AAPL,XNAS,2024-01-15,,,,185.9,,`;
+    const result = csvToPrices(csv);
+    expect(result.errors).toHaveLength(0);
+    expect(result.prices[0].assetClass).toBe("");
   });
 
   it("round-trips through pricesToCsv and csvToPrices", () => {

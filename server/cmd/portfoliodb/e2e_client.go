@@ -8,10 +8,13 @@ import (
 	"time"
 )
 
+// newPluginHTTPClient returns the shared HTTP client for plugins.
+// Timeout is a safety net only; effective per-plugin timeouts are controlled
+// via context deadlines (timeout_seconds in plugin_config.config JSONB).
 func newPluginHTTPClient() *http.Client {
 	return &http.Client{
 		Transport: e2eTransport,
-		Timeout:   30 * time.Second,
+		Timeout:   5 * time.Minute,
 	}
 }
 

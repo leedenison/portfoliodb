@@ -2,6 +2,7 @@ package pricefetcher
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,8 @@ import (
 	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/worker"
 )
+
+const DefaultPricePluginTimeout = 60 * time.Second
 
 // RunWorker processes price fetch cycles triggered via the trigger channel.
 // It blocks until ctx is cancelled. Each signal on trigger runs one cycle;
@@ -180,7 +183,9 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 				if inst.AssetClass != nil {
 					assetClass = *inst.AssetClass
 				}
-				result, err := pe.plugin.FetchPrices(ctx, pe.config, pfIDs, assetClass, gap.From, gap.To)
+					callCtx, callCancel := context.WithTimeout(ctx, timeoutFromConfig(pe.config))
+				result, err := pe.plugin.FetchPrices(callCtx, pe.config, pfIDs, assetClass, gap.From, gap.To)
+				callCancel()
 				if err != nil {
 					var permErr *ErrPermanent
 					if errors.As(err, &permErr) {
@@ -290,6 +295,25 @@ func barsToEODPrices(instrumentID, provider string, bars []DailyBar) []db.EODPri
 		}
 	}
 	return out
+}
+
+type pluginConfigJSON struct {
+	TimeoutSeconds *int `json:"timeout_seconds"`
+}
+
+// timeoutFromConfig parses timeout_seconds from plugin config JSON; defaults to DefaultPricePluginTimeout.
+func timeoutFromConfig(config []byte) time.Duration {
+	if len(config) == 0 {
+		return DefaultPricePluginTimeout
+	}
+	var c pluginConfigJSON
+	if err := json.Unmarshal(config, &c); err != nil {
+		return DefaultPricePluginTimeout
+	}
+	if c.TimeoutSeconds == nil || *c.TimeoutSeconds <= 0 {
+		return DefaultPricePluginTimeout
+	}
+	return time.Duration(*c.TimeoutSeconds) * time.Second
 }
 
 // Trigger sends a non-blocking signal on a price trigger channel.

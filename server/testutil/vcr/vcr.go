@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -128,4 +129,38 @@ func EnvOrSkip(t *testing.T, name string) string {
 		return v
 	}
 	return "REDACTED"
+}
+
+// dateRe matches ISO date segments (YYYY-MM-DD) in URL paths. Used to
+// normalize date-dependent URLs so cassettes recorded on one day still
+// replay correctly on subsequent days.
+var dateRe = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
+
+// normalizeURL replaces ISO date segments in the URL path with a fixed
+// placeholder so that date-dependent URLs (e.g. Massive DailyBars) match
+// cassette entries regardless of when the test runs.
+func normalizeURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	u.Path = dateRe.ReplaceAllString(u.Path, "DATE")
+	return u.String()
+}
+
+// E2EMatcher is a relaxed cassette matcher for E2E tests. It normalizes
+// ISO date segments in URL paths before comparing so that cassettes
+// recorded on one date replay correctly on another. It matches on method,
+// normalized URL, host, and request body.
+func E2EMatcher(r *http.Request, i cassette.Request) bool {
+	if r.Method != i.Method {
+		return false
+	}
+	if normalizeURL(r.URL.String()) != normalizeURL(i.URL) {
+		return false
+	}
+	if r.Host != i.Host {
+		return false
+	}
+	return true
 }

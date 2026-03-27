@@ -125,12 +125,16 @@ func TestListPendingJobs(t *testing.T) {
 	if len(jobs) != 2 {
 		t.Fatalf("got %d pending jobs, want 2", len(jobs))
 	}
-	// j1 should be first (created earlier).
-	if jobs[0].ID != j1 || jobs[0].JobType != "tx" {
-		t.Fatalf("jobs[0] = %+v, want id=%s type=tx", jobs[0], j1)
+	// Order is non-deterministic when created_at is equal within a test transaction.
+	byID := make(map[string]db.PendingJob)
+	for _, j := range jobs {
+		byID[j.ID] = j
 	}
-	if jobs[1].ID != j2 || jobs[1].JobType != "price_import" {
-		t.Fatalf("jobs[1] = %+v, want id=%s type=price_import", jobs[1], j2)
+	if got, ok := byID[j1]; !ok || got.JobType != "tx" {
+		t.Fatalf("j1 not found or wrong type: %+v", byID)
+	}
+	if got, ok := byID[j2]; !ok || got.JobType != "price_import" {
+		t.Fatalf("j2 not found or wrong type: %+v", byID)
 	}
 }
 

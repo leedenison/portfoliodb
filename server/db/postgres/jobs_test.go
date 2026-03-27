@@ -15,7 +15,16 @@ func TestCreateJob_GetJob(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|j", "U", "u@u.com")
 	from := timestamppb.Now()
 	to := timestamppb.Now()
-	jobID, err := p.CreateJob(ctx, userID, "IBKR", "IBKR:test:statement", "test.csv", from, to)
+	jobID, err := p.CreateJob(ctx, db.CreateJobParams{
+		UserID:     userID,
+		JobType:    "tx",
+		Broker:     "IBKR",
+		Source:     "IBKR:test:statement",
+		Filename:   "test.csv",
+		PeriodFrom: from,
+		PeriodTo:   to,
+		Payload:    []byte("test-payload"),
+	})
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -32,6 +41,28 @@ func TestCreateJob_GetJob(t *testing.T) {
 	if totalCount != 0 || processedCount != 0 {
 		t.Fatalf("initial counts: total=%d processed=%d", totalCount, processedCount)
 	}
+
+	// Test LoadJobPayload.
+	payload, err := p.LoadJobPayload(ctx, jobID)
+	if err != nil {
+		t.Fatalf("load payload: %v", err)
+	}
+	if string(payload) != "test-payload" {
+		t.Fatalf("payload = %q, want test-payload", payload)
+	}
+
+	// Test ClearJobPayload.
+	if err := p.ClearJobPayload(ctx, jobID); err != nil {
+		t.Fatalf("clear payload: %v", err)
+	}
+	cleared, err := p.LoadJobPayload(ctx, jobID)
+	if err != nil {
+		t.Fatalf("load cleared payload: %v", err)
+	}
+	if cleared != nil {
+		t.Fatalf("cleared payload = %v, want nil", cleared)
+	}
+
 	_ = p.SetJobStatus(ctx, jobID, apiv1.JobStatus_SUCCESS)
 	_ = p.SetJobTotalCount(ctx, jobID, 5)
 	_ = p.IncrJobProcessedCount(ctx, jobID)
@@ -46,6 +77,63 @@ func TestCreateJob_GetJob(t *testing.T) {
 	}
 }
 
+func TestCreateJob_PriceImport(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|pi", "U", "u@pi.com")
+	jobID, err := p.CreateJob(ctx, db.CreateJobParams{
+		UserID:  userID,
+		JobType: "price_import",
+		Payload: []byte("price-data"),
+	})
+	if err != nil {
+		t.Fatalf("create price import job: %v", err)
+	}
+	if jobID == "" {
+		t.Fatal("expected job id")
+	}
+	status, _, _, jobUserID, _, _, err := p.GetJob(ctx, jobID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if status != apiv1.JobStatus_PENDING || jobUserID != userID {
+		t.Fatalf("get job: status=%v user=%s", status, jobUserID)
+	}
+}
+
+func TestListPendingJobs(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|pj", "U", "u@pj.com")
+	j1, _ := p.CreateJob(ctx, db.CreateJobParams{
+		UserID:  userID,
+		JobType: "tx",
+		Broker:  "IBKR",
+		Source:  "IBKR:test:statement",
+	})
+	j2, _ := p.CreateJob(ctx, db.CreateJobParams{
+		UserID:  userID,
+		JobType: "price_import",
+	})
+	// Mark j1 as RUNNING (should still be returned).
+	_ = p.SetJobStatus(ctx, j1, apiv1.JobStatus_RUNNING)
+
+	jobs, err := p.ListPendingJobs(ctx)
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("got %d pending jobs, want 2", len(jobs))
+	}
+	// j1 should be first (created earlier).
+	if jobs[0].ID != j1 || jobs[0].JobType != "tx" {
+		t.Fatalf("jobs[0] = %+v, want id=%s type=tx", jobs[0], j1)
+	}
+	if jobs[1].ID != j2 || jobs[1].JobType != "price_import" {
+		t.Fatalf("jobs[1] = %+v, want id=%s type=price_import", jobs[1], j2)
+	}
+}
+
 func TestListJobs(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -54,8 +142,24 @@ func TestListJobs(t *testing.T) {
 	to := timestamppb.Now()
 
 	// Create two jobs.
-	j1, _ := p.CreateJob(ctx, userID, "IBKR", "IBKR:test:statement", "file1.csv", from, to)
-	_, _ = p.CreateJob(ctx, userID, "Fidelity", "Fidelity:web:fidelity-csv", "file2.csv", from, to)
+	j1, _ := p.CreateJob(ctx, db.CreateJobParams{
+		UserID:     userID,
+		JobType:    "tx",
+		Broker:     "IBKR",
+		Source:     "IBKR:test:statement",
+		Filename:   "file1.csv",
+		PeriodFrom: from,
+		PeriodTo:   to,
+	})
+	_, _ = p.CreateJob(ctx, db.CreateJobParams{
+		UserID:     userID,
+		JobType:    "tx",
+		Broker:     "Fidelity",
+		Source:     "Fidelity:web:fidelity-csv",
+		Filename:   "file2.csv",
+		PeriodFrom: from,
+		PeriodTo:   to,
+	})
 
 	// Add errors to j1.
 	_ = p.AppendValidationErrors(ctx, j1, []*apiv1.ValidationError{{RowIndex: 0, Field: "x", Message: "y"}})

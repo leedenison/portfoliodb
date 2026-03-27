@@ -7,12 +7,14 @@ import (
 	"log/slog"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/worker"
+	"google.golang.org/protobuf/proto"
 )
 
 // ingestionLog is the logger for resolution and plugin orchestration (category server/service/ingestion).
@@ -54,58 +56,99 @@ func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, re
 
 func processJob(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest, priceTrigger chan<- struct{}) {
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_RUNNING)
-	if process(ctx, database, registry, descRegistry, counter, j) {
-		if err := recalcAfterIngestion(ctx, database, j.UserID); err != nil {
-			log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
+
+	switch j.JobType {
+	case "tx":
+		if ok, userID := processTx(ctx, database, registry, descRegistry, counter, j); ok {
+			if err := recalcAfterIngestion(ctx, database, userID); err != nil {
+				log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
+			}
+			pricefetcher.Trigger(priceTrigger)
 		}
-		pricefetcher.Trigger(priceTrigger)
+	default:
+		log.Printf("ingestion job %s: unknown job type %q", j.JobID, j.JobType)
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 	}
 }
 
-func process(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest) bool {
+// loadAndClearPayload loads the serialized payload from the DB and clears it.
+func loadAndClearPayload(ctx context.Context, database db.DB, jobID string) ([]byte, error) {
+	payload, err := database.LoadJobPayload(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	_ = database.ClearJobPayload(ctx, jobID)
+	return payload, nil
+}
+
+func processTx(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest) (bool, string) {
+	// Look up userID from the job row.
+	_, _, _, userID, _, _, _ := database.GetJob(ctx, j.JobID)
+
+	payload, err := loadAndClearPayload(ctx, database, j.JobID)
+	if err != nil {
+		log.Printf("ingestion job %s: load payload: %v", j.JobID, err)
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		return false, ""
+	}
+	var req ingestionv1.UpsertTxsRequest
+	if err := proto.Unmarshal(payload, &req); err != nil {
+		log.Printf("ingestion job %s: unmarshal payload: %v", j.JobID, err)
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		return false, ""
+	}
+
+	txs := req.GetTxs()
+	if txs == nil {
+		txs = []*apiv1.Tx{}
+	}
+	source := req.GetSource()
+	broker, _ := brokerToStr(req.Broker)
+	bulk := req.PeriodFrom != nil && req.PeriodTo != nil
+
 	// Validate.
-	errs := ValidateTxs(j.Txs)
+	errs := ValidateTxs(txs)
 	if len(errs) > 0 {
 		_ = database.AppendValidationErrors(ctx, j.JobID, errs)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-		return false
+		return false, ""
 	}
 	// Filter non-stored tx types (e.g. SPLIT).
-	txsToProcess, originalIndices := filterStoredTxs(j.Txs)
+	txsToProcess, originalIndices := filterStoredTxs(txs)
 	if len(txsToProcess) == 0 {
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
-		return true
+		return true, userID
 	}
 	_ = database.SetJobTotalCount(ctx, j.JobID, int32(len(txsToProcess)))
 	// Extract description hints.
-	cache, extractedHintsCache, err := extractDescHints(ctx, database, descRegistry, counter, j.Source, j.Broker, txsToProcess)
+	cache, extractedHintsCache, err := extractDescHints(ctx, database, descRegistry, counter, source, broker, txsToProcess)
 	if err != nil {
 		log.Printf("ingestion job %s: extract description hints: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
 			{RowIndex: -1, Field: "txs", Message: err.Error()},
 		})
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-		return false
+		return false, ""
 	}
 	// Resolve instruments.
-	instrumentIDs, idErrs, err := resolveInstruments(ctx, database, registry, j.Broker, j.Source, j.JobID, counter, txsToProcess, originalIndices, cache, extractedHintsCache)
+	instrumentIDs, idErrs, err := resolveInstruments(ctx, database, registry, broker, source, j.JobID, counter, txsToProcess, originalIndices, cache, extractedHintsCache)
 	if err != nil {
 		log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
 			{RowIndex: -1, Field: "instrument_description", Message: err.Error()},
 		})
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-		return false
+		return false, ""
 	}
 	if len(idErrs) > 0 {
 		_ = database.AppendIdentificationErrors(ctx, j.JobID, idErrs)
 	}
 	// Store transactions.
 	var storeErr error
-	if j.Bulk {
-		storeErr = database.ReplaceTxsInPeriod(ctx, j.UserID, j.Broker, j.PeriodFrom, j.PeriodTo, txsToProcess, instrumentIDs)
+	if bulk {
+		storeErr = database.ReplaceTxsInPeriod(ctx, userID, broker, req.PeriodFrom, req.PeriodTo, txsToProcess, instrumentIDs)
 	} else {
-		storeErr = database.CreateTx(ctx, j.UserID, j.Broker, txsToProcess[0].GetAccount(), txsToProcess[0], instrumentIDs[0])
+		storeErr = database.CreateTx(ctx, userID, broker, txsToProcess[0].GetAccount(), txsToProcess[0], instrumentIDs[0])
 	}
 	if storeErr != nil {
 		log.Printf("ingestion job %s: %v", j.JobID, storeErr)
@@ -113,11 +156,11 @@ func process(ctx context.Context, database db.DB, registry *identifier.Registry,
 			{RowIndex: -1, Field: "txs", Message: storeErr.Error()},
 		})
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-		return false
+		return false, ""
 	}
 
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
-	return true
+	return true, userID
 }
 
 // filterStoredTxs returns only txs with stored types and their original indices.
@@ -199,4 +242,18 @@ func resolveInstruments(ctx context.Context, database db.DB, registry *identifie
 		}
 	}
 	return instrumentIDs, idErrs, nil
+}
+
+// brokerToStr converts a proto Broker enum to its string representation.
+func brokerToStr(b apiv1.Broker) (string, error) {
+	switch b {
+	case apiv1.Broker_IBKR:
+		return "IBKR", nil
+	case apiv1.Broker_SCHB:
+		return "SCHB", nil
+	case apiv1.Broker_FIDELITY:
+		return "Fidelity", nil
+	default:
+		return "", fmt.Errorf("unknown broker")
+	}
 }

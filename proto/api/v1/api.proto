@@ -608,9 +608,12 @@ message ExportPriceRow {
   double close = 8;
   optional double adjusted_close = 9;
   optional int64 volume = 10;
+  string asset_class = 11;       // denormalized from instrument (e.g. "STOCK", "OPTION")
 }
 
-// ImportPriceRow is one price row to import; same structure as ExportPriceRow.
+// ImportPriceRow is one price row to import. When the instrument is unknown, asset_class
+// is used as the security type hint for identifier plugin routing. When empty, plugins
+// are skipped and the instrument is created with just the supplied identifier.
 message ImportPriceRow {
   string identifier_type = 1;
   string identifier_value = 2;
@@ -622,6 +625,7 @@ message ImportPriceRow {
   double close = 8;
   optional double adjusted_close = 9;
   optional int64 volume = 10;
+  string asset_class = 11;       // optional; security type hint for plugin routing on unknown instruments
 }
 
 message ImportPricesRequest {

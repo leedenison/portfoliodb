@@ -288,6 +288,7 @@ type ExportPriceRow struct {
 	IdentifierType   string
 	IdentifierValue  string
 	IdentifierDomain string
+	AssetClass       string
 	PriceDate        time.Time
 	Open             *float64
 	High             *float64

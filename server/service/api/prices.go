@@ -3,11 +3,14 @@ package api
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/service/identification"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -99,6 +102,7 @@ func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiSe
 			IdentifierType:   r.IdentifierType,
 			IdentifierValue:  r.IdentifierValue,
 			IdentifierDomain: r.IdentifierDomain,
+			AssetClass:       r.AssetClass,
 			PriceDate:        r.PriceDate.Format("2006-01-02"),
 			Close:            r.Close,
 		}
@@ -124,7 +128,9 @@ func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiSe
 	return nil
 }
 
-// ImportPrices upserts EOD prices resolved by instrument identifier. Admin only.
+// ImportPrices upserts EOD prices resolved by instrument identifier. When an
+// instrument is unknown, identifier plugins are called (if asset_class is set)
+// or the instrument is created with just the supplied identifier. Admin only.
 func (s *Server) ImportPrices(ctx context.Context, req *apiv1.ImportPricesRequest) (*apiv1.ImportPricesResponse, error) {
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return nil, authErr
@@ -132,6 +138,13 @@ func (s *Server) ImportPrices(ctx context.Context, req *apiv1.ImportPricesReques
 
 	var prices []db.EODPrice
 	var errors []*apiv1.ImportPriceError
+
+	// Dedup cache: avoid calling plugins N times for the same identifier across different price dates.
+	type resolveEntry struct {
+		instID string
+		err    error
+	}
+	resolveCache := make(map[string]*resolveEntry)
 
 	for i, row := range req.GetPrices() {
 		priceDate, err := time.Parse("2006-01-02", row.GetPriceDate())
@@ -143,17 +156,23 @@ func (s *Server) ImportPrices(ctx context.Context, req *apiv1.ImportPricesReques
 			continue
 		}
 
-		instID, err := s.resolveInstrument(ctx, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue())
-		if err != nil {
+		cacheKey := row.GetIdentifierType() + "\x00" + row.GetIdentifierDomain() + "\x00" + row.GetIdentifierValue()
+		entry, cached := resolveCache[cacheKey]
+		if !cached {
+			instID, resolveErr := s.resolveOrIdentifyInstrument(ctx, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), row.GetAssetClass())
+			entry = &resolveEntry{instID: instID, err: resolveErr}
+			resolveCache[cacheKey] = entry
+		}
+		if entry.err != nil {
 			errors = append(errors, &apiv1.ImportPriceError{
 				Index:   int32(i),
-				Message: err.Error(),
+				Message: entry.err.Error(),
 			})
 			continue
 		}
 
 		p := db.EODPrice{
-			InstrumentID: instID,
+			InstrumentID: entry.instID,
 			PriceDate:    priceDate,
 			Close:        row.GetClose(),
 			DataProvider: "import",
@@ -185,27 +204,49 @@ func (s *Server) ImportPrices(ctx context.Context, req *apiv1.ImportPricesReques
 	}, nil
 }
 
-// resolveInstrument finds instrument ID by identifier type, domain, and value.
-func (s *Server) resolveInstrument(ctx context.Context, idType, domain, value string) (string, error) {
-	var instID string
-	var err error
+// resolveOrIdentifyInstrument finds an instrument by identifier, or creates one.
+// When assetClass is set and the instrument is unknown, identifier plugins are called
+// (ResolveWithPlugins handles the DB lookup internally). When assetClass is empty,
+// plugins are skipped and the instrument is created with just the supplied identifier.
+func (s *Server) resolveOrIdentifyInstrument(ctx context.Context, idType, domain, value, assetClass string) (string, error) {
+	hint := identifier.Identifier{Type: idType, Domain: domain, Value: value}
 
-	switch idType {
-	case "BROKER_DESCRIPTION":
-		instID, err = s.db.FindInstrumentBySourceDescription(ctx, domain, value)
-	default:
-		if domain != "" {
-			instID, err = s.db.FindInstrumentByIdentifier(ctx, idType, domain, value)
-		} else {
-			instID, err = s.db.FindInstrumentByTypeAndValue(ctx, idType, value)
+	// When asset_class is set and plugins are available, delegate entirely to
+	// ResolveWithPlugins which does DB lookup -> plugin calls -> fallback.
+	if assetClass != "" && s.pluginRegistry != nil {
+		fallback := func(ctx context.Context, database db.DB) (string, error) {
+			return s.ensureWithSuppliedIdentifier(ctx, idType, domain, value)
 		}
+		hints := identifier.Hints{SecurityTypeHint: assetClass}
+		result, err := identification.ResolveWithPlugins(ctx, s.db, s.pluginRegistry,
+			"", "", "", hints,
+			[]identifier.Identifier{hint},
+			false, fallback, nil, nil, 0)
+		if err != nil {
+			return "", fmt.Errorf("identification error for %s %q: %v", idType, value, err)
+		}
+		return result.InstrumentID, nil
 	}
 
+	// No plugins: DB lookup, then create with just the supplied identifier.
+	ids, err := identification.ResolveByHintsDBOnly(ctx, s.db, []identifier.Identifier{hint})
 	if err != nil {
 		return "", fmt.Errorf("lookup error for %s %q: %v", idType, value, err)
 	}
-	if instID == "" {
-		return "", fmt.Errorf("instrument not found for %s %q", idType, value)
+	if len(ids) > 1 {
+		return "", fmt.Errorf("ambiguous: multiple instruments match %s %q", idType, value)
 	}
-	return instID, nil
+	if len(ids) == 1 {
+		return ids[0], nil
+	}
+	return s.ensureWithSuppliedIdentifier(ctx, idType, domain, value)
+}
+
+// ensureWithSuppliedIdentifier creates an instrument with just the given identifier.
+func (s *Server) ensureWithSuppliedIdentifier(ctx context.Context, idType, domain, value string) (string, error) {
+	slog.Debug("creating instrument from price import with supplied identifier only",
+		"identifier_type", idType, "identifier_domain", domain, "identifier_value", value)
+	return s.db.EnsureInstrument(ctx, "", "", "", "", "", "",
+		[]db.IdentifierInput{{Type: idType, Domain: domain, Value: value, Canonical: true}},
+		"", nil, nil)
 }

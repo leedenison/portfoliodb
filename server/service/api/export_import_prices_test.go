@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	dbpkg "github.com/leedenison/portfoliodb/server/db"
-	"github.com/leedenison/portfoliodb/server/testutil"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	dbpkg "github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/testutil"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 )
@@ -25,9 +26,10 @@ func TestExportPrices_Success(t *testing.T) {
 	vol := int64(50000000)
 	rows := []dbpkg.ExportPriceRow{
 		{
-			IdentifierType:   "ISIN",
-			IdentifierValue:  "US0378331005",
-			IdentifierDomain: "",
+			IdentifierType:   "TICKER",
+			IdentifierValue:  "AAPL",
+			IdentifierDomain: "US",
+			AssetClass:       "STOCK",
 			PriceDate:        time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
 			Open:             &open,
 			Close:            185.90,
@@ -46,8 +48,11 @@ func TestExportPrices_Success(t *testing.T) {
 		t.Fatalf("expected 1 row streamed, got %d", len(stream.sent))
 	}
 	row := stream.sent[0]
-	if row.GetIdentifierType() != "ISIN" || row.GetIdentifierValue() != "US0378331005" {
+	if row.GetIdentifierType() != "TICKER" || row.GetIdentifierValue() != "AAPL" {
 		t.Fatalf("got identifier %s %s", row.GetIdentifierType(), row.GetIdentifierValue())
+	}
+	if row.GetAssetClass() != "STOCK" {
+		t.Fatalf("expected asset_class=STOCK, got %s", row.GetAssetClass())
 	}
 	if row.GetPriceDate() != "2024-01-15" {
 		t.Fatalf("expected date 2024-01-15, got %s", row.GetPriceDate())
@@ -90,8 +95,12 @@ func TestImportPrices_NonAdmin_PermissionDenied(t *testing.T) {
 	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 }
 
-func TestImportPrices_Success(t *testing.T) {
+func TestImportPrices_KnownInstrument(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
+	// ResolveByHintsDBOnly: exact match fails (no domain), fallback by type+value finds it.
+	db.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").
+		Return("", nil)
 	db.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").
 		Return("inst-1", nil)
@@ -131,11 +140,25 @@ func TestImportPrices_Success(t *testing.T) {
 	}
 }
 
-func TestImportPrices_UnknownInstrument(t *testing.T) {
+func TestImportPrices_UnknownInstrument_NoAssetClass_CreatesWithIdentifier(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
+	// DB lookup: not found.
+	db.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "UNKNOWN123").
+		Return("", nil)
 	db.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "UNKNOWN123").
 		Return("", nil)
+	// No asset_class: skip plugins, create with supplied identifier.
+	db.EXPECT().
+		EnsureInstrument(gomock.Any(), "", "", "", "", "", "",
+			[]dbpkg.IdentifierInput{{Type: "ISIN", Domain: "", Value: "UNKNOWN123", Canonical: true}},
+			"", nil, nil).
+		Return("new-inst", nil)
+	db.EXPECT().
+		UpsertPrices(gomock.Any(), gomock.Any()).
+		Return(nil)
+
 	ctx := adminCtx("user-1", "sub|1")
 	resp, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{
 		Prices: []*apiv1.ImportPriceRow{{
@@ -148,11 +171,134 @@ func TestImportPrices_UnknownInstrument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ImportPrices: %v", err)
 	}
-	if resp.GetUpsertedCount() != 0 || len(resp.GetErrors()) != 1 {
-		t.Fatalf("expected upserted=0, errors=1; got upserted=%d, errors=%d", resp.GetUpsertedCount(), len(resp.GetErrors()))
+	if resp.GetUpsertedCount() != 1 || len(resp.GetErrors()) != 0 {
+		t.Fatalf("expected upserted=1, errors=0; got upserted=%d, errors=%d", resp.GetUpsertedCount(), len(resp.GetErrors()))
 	}
-	if resp.GetErrors()[0].GetIndex() != 0 {
-		t.Fatalf("expected error index=0, got %d", resp.GetErrors()[0].GetIndex())
+}
+
+func TestImportPrices_UnknownInstrument_WithAssetClass_CallsPlugins(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	registry := identifier.NewRegistry()
+	srv.pluginRegistry = registry
+	registry.Register("test", &fakeIDPlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Test Corp"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US1234567890"}, {Type: "TICKER", Domain: "US", Value: "TEST"}},
+	})
+
+	// DB lookup: not found (ResolveWithPlugins does the DB check internally).
+	db.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "TEST").
+		Return("", nil)
+	db.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "TEST").
+		Return("", nil)
+	db.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), dbpkg.PluginCategoryIdentifier).
+		Return([]dbpkg.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
+	db.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Test Corp", "", "", gomock.Any(), "", nil, nil).
+		Return("plugin-inst", nil)
+	db.EXPECT().
+		UpsertPrices(gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	ctx := adminCtx("user-1", "sub|1")
+	resp, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{
+		Prices: []*apiv1.ImportPriceRow{{
+			IdentifierType:  "TICKER",
+			IdentifierValue: "TEST",
+			AssetClass:      "STOCK",
+			PriceDate:       "2024-01-15",
+			Close:           50.0,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ImportPrices: %v", err)
+	}
+	if resp.GetUpsertedCount() != 1 || len(resp.GetErrors()) != 0 {
+		t.Fatalf("expected upserted=1, errors=0; got upserted=%d, errors=%d", resp.GetUpsertedCount(), len(resp.GetErrors()))
+	}
+}
+
+func TestImportPrices_UnknownInstrument_PluginsFail_FallbackToIdentifier(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	registry := identifier.NewRegistry()
+	srv.pluginRegistry = registry
+	registry.Register("test", &fakeIDPlugin{err: identifier.ErrNotIdentified})
+
+	// DB lookup: not found (ResolveWithPlugins does the DB check internally).
+	db.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "FAIL").
+		Return("", nil)
+	db.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "FAIL").
+		Return("", nil)
+	db.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), dbpkg.PluginCategoryIdentifier).
+		Return([]dbpkg.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
+	// Fallback: create with supplied identifier.
+	db.EXPECT().
+		EnsureInstrument(gomock.Any(), "", "", "", "", "", "",
+			[]dbpkg.IdentifierInput{{Type: "TICKER", Domain: "", Value: "FAIL", Canonical: true}},
+			"", nil, nil).
+		Return("fallback-inst", nil)
+	db.EXPECT().
+		UpsertPrices(gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	ctx := adminCtx("user-1", "sub|1")
+	resp, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{
+		Prices: []*apiv1.ImportPriceRow{{
+			IdentifierType:  "TICKER",
+			IdentifierValue: "FAIL",
+			AssetClass:      "STOCK",
+			PriceDate:       "2024-01-15",
+			Close:           10.0,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ImportPrices: %v", err)
+	}
+	if resp.GetUpsertedCount() != 1 || len(resp.GetErrors()) != 0 {
+		t.Fatalf("expected upserted=1, errors=0; got upserted=%d, errors=%d", resp.GetUpsertedCount(), len(resp.GetErrors()))
+	}
+}
+
+func TestImportPrices_DedupCache(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	// Same identifier across two rows: DB lookup called only once.
+	db.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").
+		Return("", nil).Times(1)
+	db.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "ISIN", "US0378331005").
+		Return("", nil).Times(1)
+	db.EXPECT().
+		EnsureInstrument(gomock.Any(), "", "", "", "", "", "",
+			[]dbpkg.IdentifierInput{{Type: "ISIN", Domain: "", Value: "US0378331005", Canonical: true}},
+			"", nil, nil).
+		Return("new-inst", nil).Times(1)
+	db.EXPECT().
+		UpsertPrices(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, prices []dbpkg.EODPrice) error {
+			if len(prices) != 2 {
+				t.Errorf("expected 2 prices, got %d", len(prices))
+			}
+			return nil
+		})
+
+	ctx := adminCtx("user-1", "sub|1")
+	resp, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{
+		Prices: []*apiv1.ImportPriceRow{
+			{IdentifierType: "ISIN", IdentifierValue: "US0378331005", PriceDate: "2024-01-15", Close: 100},
+			{IdentifierType: "ISIN", IdentifierValue: "US0378331005", PriceDate: "2024-01-16", Close: 101},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ImportPrices: %v", err)
+	}
+	if resp.GetUpsertedCount() != 2 || len(resp.GetErrors()) != 0 {
+		t.Fatalf("expected upserted=2, errors=0; got upserted=%d, errors=%d", resp.GetUpsertedCount(), len(resp.GetErrors()))
 	}
 }
 
@@ -175,10 +321,10 @@ func TestImportPrices_InvalidDate(t *testing.T) {
 	}
 }
 
-func TestImportPrices_BrokerDescription(t *testing.T) {
+func TestImportPrices_BrokerDescription_Known(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
-		FindInstrumentBySourceDescription(gomock.Any(), "Fidelity:web:fidelity-csv", "APPLE INC").
+		FindInstrumentByIdentifier(gomock.Any(), "BROKER_DESCRIPTION", "Fidelity:web:fidelity-csv", "APPLE INC").
 		Return("inst-2", nil)
 	db.EXPECT().
 		UpsertPrices(gomock.Any(), gomock.Any()).
@@ -201,7 +347,7 @@ func TestImportPrices_BrokerDescription(t *testing.T) {
 	}
 }
 
-func TestImportPrices_TickerWithDomain(t *testing.T) {
+func TestImportPrices_TickerWithDomain_Known(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "XNAS", "AAPL").
@@ -238,3 +384,17 @@ func TestImportPrices_Empty(t *testing.T) {
 		t.Fatalf("expected empty response, got upserted=%d, errors=%d", resp.GetUpsertedCount(), len(resp.GetErrors()))
 	}
 }
+
+// fakeIDPlugin is a test double for identifier.Plugin used by price import tests.
+type fakeIDPlugin struct {
+	inst *identifier.Instrument
+	ids  []identifier.Identifier
+	err  error
+}
+
+func (p *fakeIDPlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+	return p.inst, p.ids, p.err
+}
+func (p *fakeIDPlugin) AcceptableSecurityTypes() map[string]bool { return nil }
+func (p *fakeIDPlugin) DefaultConfig() []byte                    { return nil }
+func (p *fakeIDPlugin) DisplayName() string                      { return "FakeID" }

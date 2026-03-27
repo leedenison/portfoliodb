@@ -155,7 +155,7 @@ func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	// Create instrument with both ISIN (priority 3) and TICKER (priority 8).
+	// Create instrument with both ISIN (priority 3) and TICKER (priority 1).
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "Apple", "", "", []db.IdentifierInput{
 		{Type: "TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
 		{Type: "ISIN", Value: "US0378331005", Canonical: true},
@@ -173,12 +173,15 @@ func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
-	// ISIN should win over TICKER.
-	if rows[0].IdentifierType != "ISIN" {
-		t.Errorf("expected ISIN, got %s", rows[0].IdentifierType)
+	// TICKER should win over ISIN (most plugin-compatible).
+	if rows[0].IdentifierType != "TICKER" {
+		t.Errorf("expected TICKER, got %s", rows[0].IdentifierType)
 	}
-	if rows[0].IdentifierValue != "US0378331005" {
-		t.Errorf("expected US0378331005, got %s", rows[0].IdentifierValue)
+	if rows[0].IdentifierValue != "AAPL" {
+		t.Errorf("expected AAPL, got %s", rows[0].IdentifierValue)
+	}
+	if rows[0].AssetClass != "STOCK" {
+		t.Errorf("expected asset_class=STOCK, got %s", rows[0].AssetClass)
 	}
 	if rows[0].Close != 185.90 {
 		t.Errorf("expected close=185.90, got %v", rows[0].Close)

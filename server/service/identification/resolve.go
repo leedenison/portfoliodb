@@ -16,9 +16,11 @@ import (
 
 const (
 	DefaultPluginTimeout = 30 * time.Second
-	PluginRetryBackoff   = 2 * time.Second
 	MaxResolveDepth      = 2
 )
+
+// PluginRetryBackoff is the delay before retrying a failed plugin call. Variable (not const) so tests can shorten it.
+var PluginRetryBackoff = 2 * time.Second
 
 // ResolveResult holds the outcome of plugin-based instrument resolution.
 type ResolveResult struct {
@@ -163,7 +165,7 @@ func ResolveWithPlugins(
 			defer wg.Done()
 			in := inputs[idx]
 			timeout := timeoutFromConfig(in.config.Config)
-			inst, ids, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, hints, identifierHints, timeout)
+			inst, ids, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, hints, identifierHints, timeout, PluginRetryBackoff)
 			results[idx] = result{inst: inst, ids: ids, err: err}
 		}(i)
 	}
@@ -322,18 +324,20 @@ func timeoutFromConfig(config []byte) time.Duration {
 }
 
 // callPluginWithRetry calls Identify once; on non-ErrNotIdentified error, sleeps backoff and tries once more.
-func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, timeout time.Duration) (*identifier.Instrument, []identifier.Identifier, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+// The retry derives its timeout from the original parent context (not the timed-out first-attempt context)
+// so it gets a fresh deadline while still honouring parent cancellation (e.g. client disconnect).
+func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, timeout, backoff time.Duration) (*identifier.Instrument, []identifier.Identifier, error) {
+	attemptCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	inst, ids, err := p.Identify(ctx, config, broker, source, instrumentDescription, hints, identifierHints)
+	inst, ids, err := p.Identify(attemptCtx, config, broker, source, instrumentDescription, hints, identifierHints)
 	if err == nil || errors.Is(err, identifier.ErrNotIdentified) {
 		return inst, ids, err
 	}
-	// Retry once with backoff (use new context so retry is not cancelled by parent)
-	time.Sleep(PluginRetryBackoff)
-	ctx2, cancel2 := context.WithTimeout(context.Background(), timeout)
-	defer cancel2()
-	inst, ids, err2 := p.Identify(ctx2, config, broker, source, instrumentDescription, hints, identifierHints)
+	// Retry once with backoff; derive from parent ctx so cancellation still propagates.
+	time.Sleep(backoff)
+	retryCtx, retryCancel := context.WithTimeout(ctx, timeout)
+	defer retryCancel()
+	inst, ids, err2 := p.Identify(retryCtx, config, broker, source, instrumentDescription, hints, identifierHints)
 	if err2 != nil {
 		return nil, nil, err2
 	}

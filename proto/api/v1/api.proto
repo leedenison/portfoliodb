@@ -381,7 +381,7 @@ message Job {
   google.protobuf.Timestamp created_at = 5;
   int32 validation_error_count = 6;
   int32 identification_error_count = 7;
-  string job_type = 8;  // "tx" or "price_import"
+  string job_type = 8;  // "tx" or "price"
 }
 
 message ListJobsRequest {

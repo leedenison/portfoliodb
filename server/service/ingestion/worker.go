@@ -65,7 +65,7 @@ func processJob(ctx context.Context, database db.DB, registry *identifier.Regist
 			}
 			pricefetcher.Trigger(priceTrigger)
 		}
-	case "price_import":
+	case "price":
 		processPriceImport(ctx, database, registry, j)
 		pricefetcher.Trigger(priceTrigger)
 	default:

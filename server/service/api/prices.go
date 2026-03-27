@@ -142,13 +142,13 @@ func (s *Server) ImportPrices(ctx context.Context, req *apiv1.ImportPricesReques
 	}
 	jobID, err := s.db.CreateJob(ctx, db.CreateJobParams{
 		UserID:  u.ID,
-		JobType: "price_import",
+		JobType: "price",
 		Payload: payload,
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	if err := s.enqueueJob(jobID, "price_import"); err != nil {
+	if err := s.enqueueJob(jobID, "price"); err != nil {
 		return nil, status.Error(codes.Unavailable, err.Error())
 	}
 	return &apiv1.ImportPricesResponse{JobId: jobID}, nil

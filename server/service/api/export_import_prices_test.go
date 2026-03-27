@@ -106,16 +106,16 @@ func TestImportPrices_Success_CreatesJob(t *testing.T) {
 	var enqueued bool
 	srv.enqueueJob = func(jobID, jobType string) error {
 		enqueued = true
-		if jobType != "price_import" {
-			t.Errorf("expected job type price_import, got %s", jobType)
+		if jobType != "price" {
+			t.Errorf("expected job type price, got %s", jobType)
 		}
 		return nil
 	}
 	db.EXPECT().
 		CreateJob(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, p dbpkg.CreateJobParams) (string, error) {
-			if p.JobType != "price_import" {
-				t.Errorf("expected job_type=price_import, got %s", p.JobType)
+			if p.JobType != "price" {
+				t.Errorf("expected job_type=price, got %s", p.JobType)
 			}
 			if p.UserID != "user-1" {
 				t.Errorf("expected user_id=user-1, got %s", p.UserID)

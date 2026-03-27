@@ -185,13 +185,13 @@ func TestImportPrices_UnknownInstrument_WithAssetClass_CallsPlugins(t *testing.T
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US1234567890"}, {Type: "TICKER", Domain: "US", Value: "TEST"}},
 	})
 
-	// DB lookup: not found.
+	// DB lookup: not found (ResolveWithPlugins does the DB check internally).
 	db.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "TEST").
-		Return("", nil).Times(2) // once in resolveOrIdentifyInstrument, once in ResolveWithPlugins
+		Return("", nil)
 	db.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "TEST").
-		Return("", nil).Times(2)
+		Return("", nil)
 	db.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), dbpkg.PluginCategoryIdentifier).
 		Return([]dbpkg.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
@@ -226,13 +226,13 @@ func TestImportPrices_UnknownInstrument_PluginsFail_FallbackToIdentifier(t *test
 	srv.pluginRegistry = registry
 	registry.Register("test", &fakeIDPlugin{err: identifier.ErrNotIdentified})
 
-	// DB lookup: not found.
+	// DB lookup: not found (ResolveWithPlugins does the DB check internally).
 	db.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "FAIL").
-		Return("", nil).Times(2)
+		Return("", nil)
 	db.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "FAIL").
-		Return("", nil).Times(2)
+		Return("", nil)
 	db.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), dbpkg.PluginCategoryIdentifier).
 		Return([]dbpkg.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)

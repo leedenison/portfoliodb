@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
@@ -204,25 +205,14 @@ func (s *Server) ImportPrices(ctx context.Context, req *apiv1.ImportPricesReques
 }
 
 // resolveOrIdentifyInstrument finds an instrument by identifier, or creates one.
-// When assetClass is set and the instrument is unknown, identifier plugins are called.
-// When assetClass is empty, plugins are skipped and the instrument is created with
-// just the supplied identifier.
+// When assetClass is set and the instrument is unknown, identifier plugins are called
+// (ResolveWithPlugins handles the DB lookup internally). When assetClass is empty,
+// plugins are skipped and the instrument is created with just the supplied identifier.
 func (s *Server) resolveOrIdentifyInstrument(ctx context.Context, idType, domain, value, assetClass string) (string, error) {
 	hint := identifier.Identifier{Type: idType, Domain: domain, Value: value}
 
-	// DB lookup first.
-	ids, err := identification.ResolveByHintsDBOnly(ctx, s.db, []identifier.Identifier{hint})
-	if err != nil {
-		return "", fmt.Errorf("lookup error for %s %q: %v", idType, value, err)
-	}
-	if len(ids) > 1 {
-		return "", fmt.Errorf("ambiguous: multiple instruments match %s %q", idType, value)
-	}
-	if len(ids) == 1 {
-		return ids[0], nil
-	}
-
-	// Unknown instrument: try plugins if asset_class is set.
+	// When asset_class is set and plugins are available, delegate entirely to
+	// ResolveWithPlugins which does DB lookup -> plugin calls -> fallback.
 	if assetClass != "" && s.pluginRegistry != nil {
 		fallback := func(ctx context.Context, database db.DB) (string, error) {
 			return s.ensureWithSuppliedIdentifier(ctx, idType, domain, value)
@@ -238,12 +228,24 @@ func (s *Server) resolveOrIdentifyInstrument(ctx context.Context, idType, domain
 		return result.InstrumentID, nil
 	}
 
-	// No asset class or no plugins: create with just the supplied identifier.
+	// No plugins: DB lookup, then create with just the supplied identifier.
+	ids, err := identification.ResolveByHintsDBOnly(ctx, s.db, []identifier.Identifier{hint})
+	if err != nil {
+		return "", fmt.Errorf("lookup error for %s %q: %v", idType, value, err)
+	}
+	if len(ids) > 1 {
+		return "", fmt.Errorf("ambiguous: multiple instruments match %s %q", idType, value)
+	}
+	if len(ids) == 1 {
+		return ids[0], nil
+	}
 	return s.ensureWithSuppliedIdentifier(ctx, idType, domain, value)
 }
 
 // ensureWithSuppliedIdentifier creates an instrument with just the given identifier.
 func (s *Server) ensureWithSuppliedIdentifier(ctx context.Context, idType, domain, value string) (string, error) {
+	slog.Debug("creating instrument from price import with supplied identifier only",
+		"identifier_type", idType, "identifier_domain", domain, "identifier_value", value)
 	return s.db.EnsureInstrument(ctx, "", "", "", "", "", "",
 		[]db.IdentifierInput{{Type: idType, Domain: domain, Value: value, Canonical: true}},
 		"", nil, nil)

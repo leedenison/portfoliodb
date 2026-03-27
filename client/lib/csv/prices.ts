@@ -8,7 +8,7 @@ import type { ExportPriceRow, ImportPriceRow } from "@/gen/api/v1/api_pb";
 import type { ParseError } from "./standard";
 import { parseCSVLine } from "./standard";
 
-const HEADER = "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume";
+const HEADER = "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class";
 
 const REQUIRED_COLUMNS = new Set(["identifier_type", "identifier_value", "price_date", "close"]);
 
@@ -43,6 +43,7 @@ export function pricesToCsv(rows: ExportPriceRow[]): string {
       String(r.close),
       fmtOptNum(r.adjustedClose),
       fmtOptBigint(r.volume),
+      escapeField(r.assetClass),
     ].join(","));
   }
   return lines.join("\n") + "\n";
@@ -122,6 +123,7 @@ export function csvToPrices(text: string): PriceParseResult {
       identifierDomain: get("identifier_domain"),
       priceDate,
       close,
+      assetClass: get("asset_class"),
     });
 
     const openStr = get("open");

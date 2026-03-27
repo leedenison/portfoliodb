@@ -4,9 +4,9 @@ import { useRef, useState } from "react";
 import { Modal } from "@/app/components/modal";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { csvToPrices } from "@/lib/csv/prices";
-import { importPrices } from "@/lib/portfolio-api";
+import { importPricesBatched } from "@/lib/portfolio-api";
 import type { PriceParseResult } from "@/lib/csv/prices";
-import type { ImportPricesResult } from "@/lib/portfolio-api";
+import type { ImportPricesResult, ImportProgress } from "@/lib/portfolio-api";
 
 type Phase = "idle" | "preview" | "result";
 
@@ -26,6 +26,7 @@ export function ImportPricesModal({
   const [importError, setImportError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [fileInputActive, setFileInputActive] = useState(false);
+  const [progress, setProgress] = useState<ImportProgress | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function reset() {
@@ -36,6 +37,7 @@ export function ImportPricesModal({
     setImportError(null);
     setFile(null);
     setFileInputActive(false);
+    setProgress(null);
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -65,7 +67,7 @@ export function ImportPricesModal({
     setImporting(true);
     setImportError(null);
     try {
-      const result = await importPrices(parseResult.prices);
+      const result = await importPricesBatched(parseResult.prices, setProgress);
       setImportResult(result);
       setPhase("result");
     } catch (err) {
@@ -186,6 +188,13 @@ export function ImportPricesModal({
                 Cancel
               </button>
             </div>
+
+            {importing && progress && (
+              <p className="text-xs text-text-muted">
+                {progress.completedRows.toLocaleString()} / {progress.totalRows.toLocaleString()} rows processed
+                ({progress.upsertedCount.toLocaleString()} upserted, {progress.errorCount} error{progress.errorCount !== 1 ? "s" : ""})
+              </p>
+            )}
           </div>
         )}
 

@@ -210,6 +210,7 @@ func main() {
 	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter, ingestionLogger, priceTrigger, workers)
 	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
 	svc := grpc.NewServer(
+		grpc.MaxRecvMsgSize(16<<20),
 		grpc.ChainUnaryInterceptor(
 			logger.UnaryErrorInterceptor(serverLogger),
 			auth.UnaryInterceptor(interceptorConfig),

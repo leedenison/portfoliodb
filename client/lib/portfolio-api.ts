@@ -608,6 +608,41 @@ export async function importPrices(prices: ImportPriceRow[]): Promise<ImportPric
   };
 }
 
+const IMPORT_BATCH_SIZE = 25_000;
+
+export interface ImportProgress {
+  completedRows: number;
+  totalRows: number;
+  upsertedCount: number;
+  errorCount: number;
+}
+
+/** Import prices in batches to avoid gRPC message size limits. */
+export async function importPricesBatched(
+  prices: ImportPriceRow[],
+  onProgress?: (progress: ImportProgress) => void,
+): Promise<ImportPricesResult> {
+  let totalUpserted = 0;
+  const allErrors: Array<{ index: number; message: string }> = [];
+
+  for (let offset = 0; offset < prices.length; offset += IMPORT_BATCH_SIZE) {
+    const batch = prices.slice(offset, offset + IMPORT_BATCH_SIZE);
+    const result = await importPrices(batch);
+    totalUpserted += result.upsertedCount;
+    for (const e of result.errors) {
+      allErrors.push({ index: e.index + offset, message: e.message });
+    }
+    onProgress?.({
+      completedRows: Math.min(offset + IMPORT_BATCH_SIZE, prices.length),
+      totalRows: prices.length,
+      upsertedCount: totalUpserted,
+      errorCount: allErrors.length,
+    });
+  }
+
+  return { upsertedCount: totalUpserted, errors: allErrors };
+}
+
 /** A single day's portfolio value point. */
 export interface ValuationPointUI {
   date: string;

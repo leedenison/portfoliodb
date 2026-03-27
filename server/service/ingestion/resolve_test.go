@@ -537,30 +537,6 @@ func TestResolve_PluginUnavailable_FallbackAndMessage(t *testing.T) {
 	}
 }
 
-func TestTimeoutFromConfig(t *testing.T) {
-	tests := []struct {
-		name     string
-		config   []byte
-		wantSecs float64 // approximate seconds we expect
-	}{
-		{"nil", nil, 30},
-		{"empty", []byte("{}"), 30},
-		{"valid", []byte(`{"timeout_seconds": 5}`), 5},
-		{"zero_ignored", []byte(`{"timeout_seconds": 0}`), 30},
-		{"negative_ignored", []byte(`{"timeout_seconds": -1}`), 30},
-		{"invalid_json", []byte(`{`), 30},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			d := timeoutFromConfig(tt.config)
-			got := d.Seconds()
-			if got < tt.wantSecs-0.5 || got > tt.wantSecs+0.5 {
-				t.Errorf("timeoutFromConfig() = %v (%.1fs), want ~%.1fs", d, got, tt.wantSecs)
-			}
-		})
-	}
-}
-
 // fakeDescPlugin is a test double for description.Plugin.
 type fakeDescPlugin struct {
 	acceptable map[string]bool

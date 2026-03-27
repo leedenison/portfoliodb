@@ -71,7 +71,7 @@ func (p *Plugin) AcceptableCurrencies() map[string]bool {
 }
 
 func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []pricefetcher.Identifier, assetClass string, from, to time.Time) (*pricefetcher.FetchResult, error) {
-	ticker := tickerForAssetClass(identifiers, assetClass)
+	ticker, fxDivisor := tickerForAssetClass(identifiers, assetClass)
 	if ticker == "" {
 		return nil, pricefetcher.ErrNoData
 	}
@@ -120,33 +120,39 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 			Volume: &v,
 		}
 	}
+	if fxDivisor != 1 {
+		result = pricefetcher.ScaleBars(result, fxDivisor)
+	}
 	return &pricefetcher.FetchResult{Bars: result}, nil
 }
 
 // tickerForAssetClass picks the appropriate ticker from identifiers.
-func tickerForAssetClass(ids []pricefetcher.Identifier, assetClass string) string {
+// For FX pairs it also returns a divisor for derived pairs (e.g. GBXUSD);
+// for all other cases divisor is 1.
+func tickerForAssetClass(ids []pricefetcher.Identifier, assetClass string) (string, float64) {
 	if assetClass == db.AssetClassOption {
 		for _, id := range ids {
 			if id.Type == "OCC" && id.Value != "" {
-				return "O:" + id.Value
+				return "O:" + id.Value, 1
 			}
 		}
-		return ""
+		return "", 1
 	}
 	if assetClass == db.AssetClassFX {
 		for _, id := range ids {
 			if id.Type == "FX_PAIR" && id.Value != "" {
-				return "C:" + id.Value
+				source, divisor := pricefetcher.RewriteFXPair(id.Value)
+				return "C:" + source, divisor
 			}
 		}
-		return ""
+		return "", 1
 	}
 	for _, id := range ids {
 		if id.Type == "TICKER" && id.Value != "" {
-			return id.Value
+			return id.Value, 1
 		}
 	}
-	return ""
+	return "", 1
 }
 
 const (

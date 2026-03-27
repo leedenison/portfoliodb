@@ -92,9 +92,64 @@ type Plugin interface {
 	// assetClass is the instrument's asset class so the plugin can adjust
 	// behavior (e.g. stock ticker vs option OCC symbol format).
 	// Returns ErrNoData when the plugin has no data for this instrument.
+	//
+	// Derived FX pairs: some FX pairs cannot be fetched directly from data
+	// providers (e.g. GBXUSD for British pence). Plugins must handle these
+	// by fetching the source pair and scaling the result. Use RewriteFXPair
+	// to detect derived pairs and ScaleBars to apply the conversion.
 	FetchPrices(ctx context.Context, config []byte, identifiers []Identifier, assetClass string, from, to time.Time) (*FetchResult, error)
 
 	// DefaultConfig returns the plugin's default config JSON. Inserted on
 	// startup when no row exists so the admin can edit via the UI.
 	DefaultConfig() []byte
+}
+
+// DerivedFXPair describes an FX pair that is derived from another by
+// dividing all prices by a fixed factor.
+type DerivedFXPair struct {
+	SourcePair string
+	Divisor    float64
+}
+
+// DerivedFXPairs maps FX pair values that cannot be fetched directly to
+// their source pair and a divisor. GBXUSD (British pence) is derived from
+// GBPUSD by dividing by 100 because 1 GBX = 0.01 GBP.
+var DerivedFXPairs = map[string]DerivedFXPair{
+	"GBXUSD": {SourcePair: "GBPUSD", Divisor: 100},
+}
+
+// RewriteFXPair checks whether value is a derived FX pair. If so it returns
+// the source pair and divisor; otherwise it returns value unchanged with
+// divisor 1.
+func RewriteFXPair(value string) (string, float64) {
+	if d, ok := DerivedFXPairs[value]; ok {
+		return d.SourcePair, d.Divisor
+	}
+	return value, 1
+}
+
+// ScaleBars divides all price fields (Open, High, Low, Close) by divisor.
+// Volume is left unchanged. Returns a new slice.
+func ScaleBars(bars []DailyBar, divisor float64) []DailyBar {
+	out := make([]DailyBar, len(bars))
+	for i, b := range bars {
+		out[i] = DailyBar{
+			Date:   b.Date,
+			Close:  b.Close / divisor,
+			Volume: b.Volume,
+		}
+		if b.Open != nil {
+			v := *b.Open / divisor
+			out[i].Open = &v
+		}
+		if b.High != nil {
+			v := *b.High / divisor
+			out[i].High = &v
+		}
+		if b.Low != nil {
+			v := *b.Low / divisor
+			out[i].Low = &v
+		}
+	}
+	return out
 }

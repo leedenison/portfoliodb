@@ -13,6 +13,9 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// JobEnqueuer enqueues a job for async processing. Returns an error if the queue is full.
+type JobEnqueuer func(jobID, jobType string) error
+
 // Server implements ApiService.
 type Server struct {
 	apiv1.UnimplementedApiServiceServer
@@ -24,6 +27,7 @@ type Server struct {
 	priceRegistry  *pricefetcher.Registry
 	priceTrigger   chan<- struct{}
 	workerRegistry *worker.Registry
+	enqueueJob     JobEnqueuer
 }
 
 // ServerConfig configures the API server.
@@ -36,6 +40,7 @@ type ServerConfig struct {
 	PriceRegistry  *pricefetcher.Registry   // optional; enables display_name in price plugin list
 	PriceTrigger   chan<- struct{}           // optional; when set, TriggerPriceFetch sends on it
 	WorkerRegistry *worker.Registry         // optional; when set, ListWorkers returns worker status
+	EnqueueJob     JobEnqueuer              // optional; when set, ImportPrices enqueues async jobs
 }
 
 // NewServer returns a new API server.
@@ -49,6 +54,7 @@ func NewServer(cfg ServerConfig) *Server {
 		priceRegistry:  cfg.PriceRegistry,
 		priceTrigger:   cfg.PriceTrigger,
 		workerRegistry: cfg.WorkerRegistry,
+		enqueueJob:     cfg.EnqueueJob,
 	}
 }
 

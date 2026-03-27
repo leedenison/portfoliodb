@@ -74,6 +74,7 @@ func (s *Server) ListJobs(ctx context.Context, req *apiv1.ListJobsRequest) (*api
 			CreatedAt:                timestamppb.New(r.CreatedAt),
 			ValidationErrorCount:     r.ValidationErrorCount,
 			IdentificationErrorCount: r.IdentificationErrorCount,
+			JobType:                  r.JobType,
 		})
 	}
 	return &apiv1.ListJobsResponse{Jobs: jobs, NextPageToken: nextToken, TotalCount: totalCount}, nil

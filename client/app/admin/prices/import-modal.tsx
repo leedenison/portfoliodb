@@ -1,14 +1,15 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/app/components/modal";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { csvToPrices } from "@/lib/csv/prices";
-import { importPrices } from "@/lib/portfolio-api";
+import { importPrices, getJob } from "@/lib/portfolio-api";
+import { JobStatus } from "@/gen/api/v1/api_pb";
 import type { PriceParseResult } from "@/lib/csv/prices";
-import type { ImportPricesResult } from "@/lib/portfolio-api";
+import type { GetJobResult } from "@/lib/portfolio-api";
 
-type Phase = "idle" | "preview" | "result";
+type Phase = "idle" | "preview" | "processing" | "result";
 
 export function ImportPricesModal({
   open,
@@ -21,8 +22,8 @@ export function ImportPricesModal({
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [parseResult, setParseResult] = useState<PriceParseResult | null>(null);
-  const [importResult, setImportResult] = useState<ImportPricesResult | null>(null);
-  const [importing, setImporting] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<GetJobResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [fileInputActive, setFileInputActive] = useState(false);
@@ -31,16 +32,18 @@ export function ImportPricesModal({
   function reset() {
     setPhase("idle");
     setParseResult(null);
-    setImportResult(null);
-    setImporting(false);
+    setJobId(null);
+    setJobStatus(null);
     setImportError(null);
     setFile(null);
     setFileInputActive(false);
     if (fileRef.current) fileRef.current.value = "";
   }
 
+  const processing = phase === "processing";
+
   function handleClose() {
-    if (importing) return;
+    if (processing) return;
     reset();
     onClose();
   }
@@ -62,18 +65,40 @@ export function ImportPricesModal({
 
   async function handleImport() {
     if (!parseResult) return;
-    setImporting(true);
+    setPhase("processing");
     setImportError(null);
     try {
-      const result = await importPrices(parseResult.prices);
-      setImportResult(result);
-      setPhase("result");
+      const id = await importPrices(parseResult.prices);
+      setJobId(id);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setImporting(false);
+      setPhase("preview");
     }
   }
+
+  // Poll job status.
+  useEffect(() => {
+    if (!jobId || phase !== "processing") return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const result = await getJob(jobId);
+        if (cancelled) return;
+        setJobStatus(result);
+        if (result.status === JobStatus.SUCCESS || result.status === JobStatus.FAILED) {
+          setPhase("result");
+        }
+      } catch {
+        // Ignore transient poll errors.
+      }
+    };
+    poll();
+    const t = setInterval(poll, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [jobId, phase]);
 
   function handleDone() {
     onComplete?.();
@@ -86,7 +111,7 @@ export function ImportPricesModal({
       open={open}
       onClose={handleClose}
       title="Import prices"
-      closable={!importing}
+      closable={!processing}
     >
       <div className="flex flex-col gap-4 overflow-y-auto p-5">
         {phase === "idle" && (
@@ -172,15 +197,14 @@ export function ImportPricesModal({
               <button
                 type="button"
                 onClick={handleImport}
-                disabled={importing || parseResult.prices.length === 0}
+                disabled={parseResult.prices.length === 0}
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {importing ? "Importing..." : "Import"}
+                Import
               </button>
               <button
                 type="button"
                 onClick={reset}
-                disabled={importing}
                 className="rounded-md border border-border px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:opacity-50"
               >
                 Cancel
@@ -189,31 +213,52 @@ export function ImportPricesModal({
           </div>
         )}
 
-        {phase === "result" && importResult && (
-          <div className="space-y-4">
+        {phase === "processing" && (
+          <div className="space-y-3">
             <p className="text-sm text-text-primary">
-              Import complete:{" "}
-              <span className="font-semibold">{importResult.upsertedCount}</span>{" "}
-              price{importResult.upsertedCount !== 1 ? "s" : ""} upserted.
+              Importing prices...
             </p>
+            {jobStatus && (
+              <p className="text-xs text-text-muted">
+                Processed {jobStatus.processedCount.toLocaleString()} of {jobStatus.totalCount.toLocaleString()} prices...
+              </p>
+            )}
+          </div>
+        )}
 
-            {importResult.errors.length > 0 && (
+        {phase === "result" && jobStatus && (
+          <div className="space-y-4">
+            {jobStatus.status === JobStatus.SUCCESS ? (
+              <p className="text-sm text-text-primary">
+                Import complete:{" "}
+                <span className="font-semibold">{jobStatus.processedCount.toLocaleString()}</span>{" "}
+                price{jobStatus.processedCount !== 1 ? "s" : ""} processed.
+              </p>
+            ) : (
+              <p className="text-sm text-accent-dark font-medium">
+                Import failed.
+              </p>
+            )}
+
+            {jobStatus.validationErrors.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-medium text-accent-dark">
-                  {importResult.errors.length} error{importResult.errors.length !== 1 ? "s" : ""}
+                  {jobStatus.validationErrors.length} error{jobStatus.validationErrors.length !== 1 ? "s" : ""}
                 </p>
                 <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-surface">
                   <table className="w-full border-collapse text-xs">
                     <thead>
                       <tr className="border-b border-border bg-primary-dark/[0.03]">
-                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Index</th>
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Row</th>
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Field</th>
                         <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Error</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {importResult.errors.map((e, i) => (
+                      {jobStatus.validationErrors.map((e, i) => (
                         <tr key={i} className="border-b border-border/40 last:border-0">
-                          <td className="px-3 py-1.5 font-mono text-text-muted">{e.index}</td>
+                          <td className="px-3 py-1.5 font-mono text-text-muted">{e.rowIndex}</td>
+                          <td className="px-3 py-1.5 font-mono text-text-primary">{e.field}</td>
                           <td className="px-3 py-1.5 text-accent-dark">{e.message}</td>
                         </tr>
                       ))}

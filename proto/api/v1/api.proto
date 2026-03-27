@@ -381,6 +381,7 @@ message Job {
   google.protobuf.Timestamp created_at = 5;
   int32 validation_error_count = 6;
   int32 identification_error_count = 7;
+  string job_type = 8;  // "tx" or "price_import"
 }
 
 message ListJobsRequest {
@@ -633,8 +634,7 @@ message ImportPricesRequest {
 }
 
 message ImportPricesResponse {
-  int32 upserted_count = 1;
-  repeated ImportPriceError errors = 2;
+  string job_id = 1;
 }
 
 message ImportPriceError {

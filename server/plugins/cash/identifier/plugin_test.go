@@ -73,7 +73,7 @@ func TestPlugin_Identify_NoCurrency_ReturnsErrNotIdentified(t *testing.T) {
 	p := NewPlugin(database)
 
 	ctx := context.Background()
-	hints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
 	inst, ids, err := p.Identify(ctx, nil, "", "", "AAPL", identifier.Hints{}, hints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {

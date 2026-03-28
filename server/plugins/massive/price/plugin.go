@@ -49,7 +49,7 @@ func (p *Plugin) DefaultConfig() []byte {
 }
 
 func (p *Plugin) SupportedIdentifierTypes() []string {
-	return []string{"TICKER", "OCC", "FX_PAIR"}
+	return []string{"MIC_TICKER", "OPENFIGI_TICKER", "OCC", "FX_PAIR"}
 }
 
 func (p *Plugin) AcceptableAssetClasses() map[string]bool {
@@ -148,7 +148,12 @@ func tickerForAssetClass(ids []pricefetcher.Identifier, assetClass string) (stri
 		return "", 1
 	}
 	for _, id := range ids {
-		if id.Type == "TICKER" && id.Value != "" {
+		if id.Type == "MIC_TICKER" && id.Value != "" {
+			return id.Value, 1
+		}
+	}
+	for _, id := range ids {
+		if id.Type == "OPENFIGI_TICKER" && id.Value != "" {
 			return id.Value, 1
 		}
 	}

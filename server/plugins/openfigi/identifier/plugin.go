@@ -125,7 +125,7 @@ func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, f
 			return nil, nil, false
 		}
 		inst.UnderlyingIdentifiers = []identifier.Identifier{
-			{Type: "TICKER", Value: symbol},
+			{Type: "MIC_TICKER", Value: symbol},
 		}
 	}
 	return inst, ids, true
@@ -134,7 +134,7 @@ func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, f
 // openFIGIIDTypeFromHint maps our identifier type (proto IdentifierType name) to OpenFIGI Mapping API idType.
 // Returns empty string if the hint type is not supported by OpenFIGI Mapping.
 var openFIGIIDTypeFromHint = map[string]string{
-	"TICKER": "TICKER", "ISIN": "ID_ISIN", "CUSIP": "ID_CUSIP", "SEDOL": "ID_SEDOL", "CINS": "ID_CINS", "WERTPAPIER": "ID_WERTPAPIER",
+	"MIC_TICKER": "TICKER", "OPENFIGI_TICKER": "TICKER", "ISIN": "ID_ISIN", "CUSIP": "ID_CUSIP", "SEDOL": "ID_SEDOL", "CINS": "ID_CINS", "WERTPAPIER": "ID_WERTPAPIER",
 	"OCC": "OCC_SYMBOL", "OPRA": "OPRA_SYMBOL", "FUT_OPT": "UNIQUE_ID_FUT_OPT",
 	"OPENFIGI_GLOBAL": "ID_BB_GLOBAL", "OPENFIGI_SHARE_CLASS": "ID_BB_GLOBAL_SHARE_CLASS_LEVEL", "OPENFIGI_COMPOSITE": "COMPOSITE_ID_BB_GLOBAL",
 }

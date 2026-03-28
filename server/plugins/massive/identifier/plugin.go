@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -17,10 +18,15 @@ import (
 // PluginID is the stable plugin_id for registration and identifier_plugin_config.
 const PluginID = "massive"
 
+// defaultExpiredDerivativeHorizon is the default number of days after which an
+// expired derivative is skipped without hitting the API.
+const defaultExpiredDerivativeHorizon = 180
+
 type configJSON struct {
-	MassiveAPIKey  string `json:"massive_api_key"`
-	MassiveBaseURL string `json:"massive_base_url"` // for testing
-	CallsPerMin    *int   `json:"massive_calls_per_min"`  // nil or absent = unlimited
+	MassiveAPIKey            string `json:"massive_api_key"`
+	MassiveBaseURL           string `json:"massive_base_url"`            // for testing
+	CallsPerMin              *int   `json:"massive_calls_per_min"`       // nil or absent = unlimited
+	ExpiredDerivativeHorizon *int   `json:"expired_derivative_horizon"`  // days; nil = default (180)
 }
 
 // Plugin implements identifier.Plugin using the Massive REST API.
@@ -31,9 +37,10 @@ type Plugin struct {
 	log        *slog.Logger
 	httpClient *http.Client
 
-	mu         sync.Mutex
-	client     *client.Client
-	lastConfig string // raw config JSON used to detect changes
+	mu            sync.Mutex
+	client        *client.Client
+	lastConfig    string // raw config JSON used to detect changes
+	expiryHorizon time.Duration
 }
 
 // NewPlugin returns a plugin. counter and log are optional (nil for tests).
@@ -44,7 +51,8 @@ func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClien
 func (p *Plugin) DisplayName() string { return "Massive" }
 
 func (p *Plugin) DefaultConfig() []byte {
-	cfg := configJSON{}
+	horizon := defaultExpiredDerivativeHorizon
+	cfg := configJSON{ExpiredDerivativeHorizon: &horizon}
 	out, _ := json.Marshal(cfg)
 	return out
 }
@@ -122,15 +130,23 @@ func (p *Plugin) getClient(config []byte) (*client.Client, error) {
 	if cfg.CallsPerMin != nil {
 		perMin = *cfg.CallsPerMin
 	}
+	horizon := defaultExpiredDerivativeHorizon
+	if cfg.ExpiredDerivativeHorizon != nil {
+		horizon = *cfg.ExpiredDerivativeHorizon
+	}
 	limiter := client.NewRateLimiter(perMin)
 	p.client = client.New(cfg.MassiveAPIKey, cfg.MassiveBaseURL, limiter, p.log, p.httpClient)
+	p.expiryHorizon = time.Duration(horizon) * 24 * time.Hour
 	p.lastConfig = raw
 	return p.client, nil
 }
 
-// identifyStock looks up a stock via TICKER hint and the ticker overview API.
+// identifyStock looks up a stock via MIC_TICKER/OPENFIGI_TICKER hint and the ticker overview API.
 func (p *Plugin) identifyStock(ctx context.Context, c *client.Client, hints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
-	ticker := findHint(hints, "TICKER")
+	ticker := findHint(hints, "MIC_TICKER")
+	if ticker == "" {
+		ticker = findHint(hints, "OPENFIGI_TICKER")
+	}
 	if ticker == "" {
 		return nil, nil, identifier.ErrNotIdentified
 	}
@@ -151,6 +167,8 @@ func (p *Plugin) identifyStock(ctx context.Context, c *client.Client, hints []id
 }
 
 // identifyOption looks up an option via OCC hint, falling back to TICKER.
+// Options whose expiry (from the OCC symbol) is older than expiryHorizon are
+// skipped without an API call.
 func (p *Plugin) identifyOption(ctx context.Context, c *client.Client, hints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
 	raw := findHint(hints, "OCC")
 	if raw == "" {
@@ -159,6 +177,13 @@ func (p *Plugin) identifyOption(ctx context.Context, c *client.Client, hints []i
 	compact, ok := derivative.OCCCompact(raw)
 	if !ok {
 		return nil, nil, identifier.ErrNotIdentified
+	}
+	if p.expiryHorizon > 0 {
+		if expiry, ok := derivative.OCCExpiry(compact); ok {
+			if time.Since(expiry) > p.expiryHorizon {
+				return nil, nil, identifier.ErrNotIdentified
+			}
+		}
 	}
 	return p.identifyOptionByOCC(ctx, c, "O:"+compact)
 }

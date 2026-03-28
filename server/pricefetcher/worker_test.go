@@ -86,15 +86,15 @@ func TestPluginAccepts(t *testing.T) {
 
 func TestFilterIdentifiers(t *testing.T) {
 	ids := []db.IdentifierInput{
-		{Type: "TICKER", Value: "AAPL"},
+		{Type: "MIC_TICKER", Value: "AAPL"},
 		{Type: "ISIN", Value: "US0378331005"},
 		{Type: "OCC", Value: "AAPL250321C00150000"},
 	}
-	got := filterIdentifiers([]string{"TICKER", "OCC"}, ids)
+	got := filterIdentifiers([]string{"MIC_TICKER", "OCC"}, ids)
 	if len(got) != 2 {
 		t.Fatalf("expected 2, got %d", len(got))
 	}
-	if got[0].Type != "TICKER" || got[1].Type != "OCC" {
+	if got[0].Type != "MIC_TICKER" || got[1].Type != "OCC" {
 		t.Errorf("unexpected types: %s, %s", got[0].Type, got[1].Type)
 	}
 }
@@ -206,7 +206,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 	pluginID := "test-plugin"
 
 	stub := &fetchStub{
-		idTypes: []string{"TICKER"},
+		idTypes: []string{"MIC_TICKER"},
 		result:  &FetchResult{Bars: []DailyBar{{Date: time.Now(), Close: 100}}},
 	}
 	reg := NewRegistry()
@@ -230,7 +230,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 			ID:         instID,
 			AssetClass: strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{
-				{Type: "TICKER", Value: "AAPL"},
+				{Type: "MIC_TICKER", Value: "AAPL"},
 			},
 		},
 	}, nil)
@@ -251,7 +251,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 	pluginID := "test-plugin"
 
 	stub := &fetchStub{
-		idTypes: []string{"TICKER"},
+		idTypes: []string{"MIC_TICKER"},
 		err:     &ErrPermanent{Reason: "ticker not found"},
 	}
 	reg := NewRegistry()
@@ -273,7 +273,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 			ID:         instID,
 			AssetClass: strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{
-				{Type: "TICKER", Value: "AAPL"},
+				{Type: "MIC_TICKER", Value: "AAPL"},
 			},
 		},
 	}, nil)
@@ -303,7 +303,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	// Bar date must be within the truncated gap range [now-30, now).
 	barDate := now.AddDate(0, 0, -1)
 	stub := &fetchStub{
-		idTypes: []string{"TICKER"},
+		idTypes: []string{"MIC_TICKER"},
 		result:  &FetchResult{Bars: []DailyBar{{Date: barDate, Close: 100}}},
 	}
 	reg := NewRegistry()
@@ -322,7 +322,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 			ID:         instID,
 			AssetClass: strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{
-				{Type: "TICKER", Value: "AAPL"},
+				{Type: "MIC_TICKER", Value: "AAPL"},
 			},
 		},
 	}, nil)
@@ -345,7 +345,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 	maxDays := 30
 
 	stub := &fetchStub{
-		idTypes: []string{"TICKER"},
+		idTypes: []string{"MIC_TICKER"},
 		result:  &FetchResult{Bars: []DailyBar{{Date: time.Now(), Close: 100}}},
 	}
 	reg := NewRegistry()
@@ -369,7 +369,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 			ID:         instID,
 			AssetClass: strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{
-				{Type: "TICKER", Value: "AAPL"},
+				{Type: "MIC_TICKER", Value: "AAPL"},
 			},
 		},
 	}, nil)

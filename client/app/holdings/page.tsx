@@ -139,7 +139,7 @@ export default function UserHoldingsPage() {
                         ) : (
                           holdings.holdings.map((h, i) => {
                             const ticker = h.instrument?.identifiers?.find(
-                              (id) => id.type === IdentifierType.TICKER
+                              (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
                             )?.value;
                             return (
                               <tr

@@ -25,7 +25,7 @@ func TestExportPrices_Success(t *testing.T) {
 	vol := int64(50000000)
 	rows := []dbpkg.ExportPriceRow{
 		{
-			IdentifierType:   "TICKER",
+			IdentifierType:   "MIC_TICKER",
 			IdentifierValue:  "AAPL",
 			IdentifierDomain: "US",
 			AssetClass:       "STOCK",
@@ -47,7 +47,7 @@ func TestExportPrices_Success(t *testing.T) {
 		t.Fatalf("expected 1 row streamed, got %d", len(stream.sent))
 	}
 	row := stream.sent[0]
-	if row.GetIdentifierType() != "TICKER" || row.GetIdentifierValue() != "AAPL" {
+	if row.GetIdentifierType() != "MIC_TICKER" || row.GetIdentifierValue() != "AAPL" {
 		t.Fatalf("got identifier %s %s", row.GetIdentifierType(), row.GetIdentifierValue())
 	}
 	if row.GetAssetClass() != "STOCK" {

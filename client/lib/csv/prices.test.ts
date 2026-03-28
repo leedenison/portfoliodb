@@ -135,11 +135,11 @@ describe("csvToPrices", () => {
     expect(result.errors[0].field).toBe("identifier_type");
   });
 
-  it("handles TICKER with domain", () => {
-    const csv = `${HEADER}\nTICKER,AAPL,XNAS,2024-01-15,,,,185.9,,`;
+  it("handles MIC_TICKER with domain", () => {
+    const csv = `${HEADER}\nMIC_TICKER,AAPL,XNAS,2024-01-15,,,,185.9,,`;
     const result = csvToPrices(csv);
     expect(result.errors).toHaveLength(0);
-    expect(result.prices[0].identifierType).toBe("TICKER");
+    expect(result.prices[0].identifierType).toBe("MIC_TICKER");
     expect(result.prices[0].identifierDomain).toBe("XNAS");
   });
 
@@ -152,14 +152,14 @@ describe("csvToPrices", () => {
   });
 
   it("parses asset_class column", () => {
-    const csv = `${HEADER}\nTICKER,AAPL,XNAS,2024-01-15,,,,185.9,,,STOCK`;
+    const csv = `${HEADER}\nMIC_TICKER,AAPL,XNAS,2024-01-15,,,,185.9,,,STOCK`;
     const result = csvToPrices(csv);
     expect(result.errors).toHaveLength(0);
     expect(result.prices[0].assetClass).toBe("STOCK");
   });
 
   it("handles empty asset_class", () => {
-    const csv = `${HEADER}\nTICKER,AAPL,XNAS,2024-01-15,,,,185.9,,`;
+    const csv = `${HEADER}\nMIC_TICKER,AAPL,XNAS,2024-01-15,,,,185.9,,`;
     const result = csvToPrices(csv);
     expect(result.errors).toHaveLength(0);
     expect(result.prices[0].assetClass).toBe("");
@@ -168,7 +168,7 @@ describe("csvToPrices", () => {
   it("round-trips through pricesToCsv and csvToPrices", () => {
     const original = [
       makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n }),
-      makeRow({ identifierType: "TICKER", identifierValue: "AAPL", identifierDomain: "XNAS", priceDate: "2024-01-16", close: 186.5 }),
+      makeRow({ identifierType: "MIC_TICKER", identifierValue: "AAPL", identifierDomain: "XNAS", priceDate: "2024-01-16", close: 186.5 }),
     ];
     const csv = pricesToCsv(original);
     const result = csvToPrices(csv);
@@ -178,7 +178,7 @@ describe("csvToPrices", () => {
     expect(result.prices[0].close).toBe(185.9);
     expect(result.prices[0].open).toBe(185.5);
     expect(result.prices[0].volume).toBe(50000000n);
-    expect(result.prices[1].identifierType).toBe("TICKER");
+    expect(result.prices[1].identifierType).toBe("MIC_TICKER");
     expect(result.prices[1].identifierDomain).toBe("XNAS");
     expect(result.prices[1].close).toBe(186.5);
     expect(result.prices[1].open).toBeUndefined();
@@ -195,7 +195,7 @@ describe("csvToPrices", () => {
       HEADER,
       "ISIN,US0378331005,,2024-01-15,,,,185.9,,",
       "ISIN,,,2024-01-16,,,,100,,", // missing identifier_value
-      "TICKER,GOOG,XNAS,2024-01-17,,,,200,,",
+      "MIC_TICKER,GOOG,XNAS,2024-01-17,,,,200,,",
     ].join("\n");
     const result = csvToPrices(csv);
     expect(result.prices).toHaveLength(2);

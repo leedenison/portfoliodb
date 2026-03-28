@@ -56,7 +56,7 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 		{
 			name:       "fx_stock_for_comparison",
 			cassette:   "testdata/cassettes/fx_stock_aapl",
-			ids:        []pricefetcher.Identifier{{Type: "TICKER", Value: "AAPL"}},
+			ids:        []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 			assetClass: db.AssetClassStock,
 			from:       time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
 			to:         time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC),

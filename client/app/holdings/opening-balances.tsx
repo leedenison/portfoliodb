@@ -126,7 +126,7 @@ export function OpeningBalances() {
                 ) : (
                   declarations.map((d) => {
                     const ticker = d.instrument?.identifiers?.find(
-                      (id) => id.type === IdentifierType.TICKER
+                      (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
                     )?.value;
                     return (
                       <tr

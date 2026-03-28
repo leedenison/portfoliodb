@@ -28,10 +28,12 @@ type Instrument struct {
 	ValidTo   *time.Time
 }
 
-// Identifier is an opaque (type, domain, value) for an instrument (e.g. CUSIP, ISIN, TICKER+exchange, broker description).
-// Domain is optional (e.g. exchange code for TICKER). Broker descriptions use Type = source, Domain = "", Value = full instrument_description.
+// Identifier is an opaque (type, domain, value) for an instrument (e.g. CUSIP, ISIN, MIC_TICKER+MIC, broker description).
+// Domain is optional. For MIC_TICKER, domain is an ISO 10383 MIC code (empty when unknown).
+// For OPENFIGI_TICKER, domain is a Bloomberg/OpenFIGI exchange code (e.g. "US").
+// Broker descriptions use Type = source, Domain = "", Value = full instrument_description.
 type Identifier struct {
-	Type   string // e.g. "CUSIP", "ISIN", "TICKER", "FIGI"
-	Domain string // optional; e.g. exchange code for TICKER
+	Type   string // e.g. "CUSIP", "ISIN", "MIC_TICKER", "OPENFIGI_TICKER"
+	Domain string // optional; MIC for MIC_TICKER, exchange code for OPENFIGI_TICKER
 	Value  string
 }

@@ -23,7 +23,7 @@ var errIdentifierExists = errors.New("identifier already exists for another inst
 // identAlias is the alias used for instrument_identifiers in the subqueries.
 func instrumentDisplayNameSQL(instAlias, identAlias string) string {
 	return fmt.Sprintf(`COALESCE(
-		(SELECT %[2]s.value FROM instrument_identifiers %[2]s WHERE %[2]s.instrument_id = %[1]s.id AND %[2]s.identifier_type = 'TICKER' ORDER BY %[2]s.domain, %[2]s.value LIMIT 1),
+		(SELECT %[2]s.value FROM instrument_identifiers %[2]s WHERE %[2]s.instrument_id = %[1]s.id AND %[2]s.identifier_type IN ('MIC_TICKER', 'OPENFIGI_TICKER') ORDER BY CASE %[2]s.identifier_type WHEN 'MIC_TICKER' THEN 0 ELSE 1 END, %[2]s.domain, %[2]s.value LIMIT 1),
 		NULLIF(%[1]s.name, ''),
 		(SELECT %[2]s.value FROM instrument_identifiers %[2]s WHERE %[2]s.instrument_id = %[1]s.id AND %[2]s.identifier_type = 'BROKER_DESCRIPTION' ORDER BY %[2]s.domain, %[2]s.value LIMIT 1),
 		%[1]s.id::text

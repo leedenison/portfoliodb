@@ -30,9 +30,9 @@ func TestIntegration_OpenAI_ExtractBatch(t *testing.T) {
 				{ID: "a3", InstrumentDescription: "GOOGL ALPHABET INC CL A", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}},
 			},
 			wantType: map[string]string{
-				"a1": "TICKER",
-				"a2": "TICKER",
-				"a3": "TICKER",
+				"a1": "MIC_TICKER",
+				"a2": "MIC_TICKER",
+				"a3": "MIC_TICKER",
 			},
 		},
 		{
@@ -53,7 +53,7 @@ func TestIntegration_OpenAI_ExtractBatch(t *testing.T) {
 				{ID: "c2", InstrumentDescription: "SPY 20DEC25 600 P", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}},
 			},
 			wantType: map[string]string{
-				"c1": "TICKER",
+				"c1": "MIC_TICKER",
 				"c2": "OCC",
 			},
 		},

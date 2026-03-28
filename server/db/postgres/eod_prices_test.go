@@ -155,9 +155,9 @@ func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	// Create instrument with both ISIN (priority 3) and TICKER (priority 1).
+	// Create instrument with both ISIN (priority 3) and MIC_TICKER (priority 1).
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "Apple", "", "", []db.IdentifierInput{
-		{Type: "TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
 		{Type: "ISIN", Value: "US0378331005", Canonical: true},
 	}, "", nil, nil)
 	if err != nil {
@@ -173,9 +173,9 @@ func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
-	// TICKER should win over ISIN (most plugin-compatible).
-	if rows[0].IdentifierType != "TICKER" {
-		t.Errorf("expected TICKER, got %s", rows[0].IdentifierType)
+	// MIC_TICKER should win over ISIN (most plugin-compatible).
+	if rows[0].IdentifierType != "MIC_TICKER" {
+		t.Errorf("expected MIC_TICKER, got %s", rows[0].IdentifierType)
 	}
 	if rows[0].IdentifierValue != "AAPL" {
 		t.Errorf("expected AAPL, got %s", rows[0].IdentifierValue)

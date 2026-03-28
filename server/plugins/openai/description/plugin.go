@@ -123,7 +123,7 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 		if norm.OCC != "" {
 			out[id] = []identifier.Identifier{{Type: "OCC", Domain: "", Value: norm.OCC}}
 		} else if norm.Ticker != "" {
-			out[id] = []identifier.Identifier{{Type: "TICKER", Domain: "", Value: norm.Ticker}}
+			out[id] = []identifier.Identifier{{Type: "MIC_TICKER", Domain: "", Value: norm.Ticker}}
 		}
 	}
 	if p.counter != nil {

@@ -32,11 +32,11 @@ func TestResolveByHintsDBOnly_ExactMatch(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "US", "AAPL").
+		FindInstrumentByIdentifier(gomock.Any(), "OPENFIGI_TICKER", "US", "AAPL").
 		Return("inst-1", nil)
 
 	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
-		{Type: "TICKER", Domain: "US", Value: "AAPL"},
+		{Type: "OPENFIGI_TICKER", Domain: "US", Value: "AAPL"},
 	})
 	if err != nil {
 		t.Fatalf("ResolveByHintsDBOnly: %v", err)
@@ -53,15 +53,15 @@ func TestResolveByHintsDBOnly_FallbackByTypeAndValue(t *testing.T) {
 
 	// Exact match fails (domain is empty, stored domain is "US")
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "AAPL").
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("", nil)
 	// Fallback by (type, value) finds it
 	database.EXPECT().
-		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "AAPL").
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("inst-1", nil)
 
 	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
-		{Type: "TICKER", Domain: "", Value: "AAPL"},
+		{Type: "MIC_TICKER", Domain: "", Value: "AAPL"},
 	})
 	if err != nil {
 		t.Fatalf("ResolveByHintsDBOnly: %v", err)
@@ -79,7 +79,7 @@ func TestResolveByHintsDBOnly_SkipsEmptyTypeAndValue(t *testing.T) {
 
 	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
 		{Type: "", Value: "AAPL"},
-		{Type: "TICKER", Value: ""},
+		{Type: "MIC_TICKER", Value: ""},
 	})
 	if err != nil {
 		t.Fatalf("ResolveByHintsDBOnly: %v", err)
@@ -96,14 +96,14 @@ func TestResolveByHintsDBOnly_Deduplicates(t *testing.T) {
 
 	// Two hints resolve to the same instrument
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "US", "AAPL").
+		FindInstrumentByIdentifier(gomock.Any(), "OPENFIGI_TICKER", "US", "AAPL").
 		Return("inst-1", nil)
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").
 		Return("inst-1", nil)
 
 	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
-		{Type: "TICKER", Domain: "US", Value: "AAPL"},
+		{Type: "OPENFIGI_TICKER", Domain: "US", Value: "AAPL"},
 		{Type: "ISIN", Value: "US0378331005"},
 	})
 	if err != nil {
@@ -116,7 +116,7 @@ func TestResolveByHintsDBOnly_Deduplicates(t *testing.T) {
 
 func TestFilterIdentifierHints_ValidAndInvalid(t *testing.T) {
 	hints := []identifier.Identifier{
-		{Type: "TICKER", Value: "AAPL"},
+		{Type: "MIC_TICKER", Value: "AAPL"},
 		{Type: "BOGUS_TYPE", Value: "XYZ"},
 		{Type: "ISIN", Value: "US0378331005"},
 		{Type: "", Value: "empty"},
@@ -125,8 +125,8 @@ func TestFilterIdentifierHints_ValidAndInvalid(t *testing.T) {
 	if len(out) != 2 {
 		t.Fatalf("got %d hints, want 2", len(out))
 	}
-	if out[0].Type != "TICKER" || out[1].Type != "ISIN" {
-		t.Errorf("got types %q, %q, want TICKER, ISIN", out[0].Type, out[1].Type)
+	if out[0].Type != "MIC_TICKER" || out[1].Type != "ISIN" {
+		t.Errorf("got types %q, %q, want MIC_TICKER, ISIN", out[0].Type, out[1].Type)
 	}
 }
 
@@ -144,15 +144,15 @@ func TestResolveWithPlugins_DBHit(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "AAPL").
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("", nil)
 	database.EXPECT().
-		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "AAPL").
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("existing-id", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "TICKER", Value: "AAPL"}},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 		false, nil, nil, nil, 0)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -172,14 +172,14 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
-		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "TICKER", Domain: "US", Value: "AAPL"}},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "OPENFIGI_TICKER", Domain: "US", Value: "AAPL"}},
 	})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "AAPL").
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
 		Return("", nil)
 	database.EXPECT().
-		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "AAPL").
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
@@ -190,7 +190,7 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "TICKER", Value: "AAPL"}},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 		false, nil, nil, nil, 0)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -211,10 +211,10 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "XYZ").
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "XYZ").
 		Return("", nil)
 	database.EXPECT().
-		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "XYZ").
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "XYZ").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
@@ -228,7 +228,7 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "TICKER", Value: "XYZ"}},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "XYZ"}},
 		false, fallback, nil, nil, 0)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -256,10 +256,10 @@ func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
 	registry.Register("slow", &fakePlugin{err: context.DeadlineExceeded})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "SLOW").
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "SLOW").
 		Return("", nil)
 	database.EXPECT().
-		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "SLOW").
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "SLOW").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
@@ -271,7 +271,7 @@ func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "TICKER", Value: "SLOW"}},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "SLOW"}},
 		false, fallback, nil, nil, 0)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -292,10 +292,10 @@ func TestResolveWithPlugins_NilFallback_ReturnsEmpty(t *testing.T) {
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "XYZ").
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "XYZ").
 		Return("", nil)
 	database.EXPECT().
-		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "XYZ").
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "XYZ").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
@@ -303,7 +303,7 @@ func TestResolveWithPlugins_NilFallback_ReturnsEmpty(t *testing.T) {
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "TICKER", Value: "XYZ"}},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "XYZ"}},
 		false, nil, nil, nil, 0)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -326,10 +326,10 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 	})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", desc).
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", desc).
 		Return("", nil)
 	database.EXPECT().
-		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", desc).
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", desc).
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
@@ -351,7 +351,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"IBKR", source, desc, identifier.Hints{},
-		[]identifier.Identifier{{Type: "TICKER", Value: desc}},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: desc}},
 		true, nil, nil, nil, 0)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -370,10 +370,10 @@ func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
 	registry.Register("bad", &fakePlugin{err: errors.New("connection refused")})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "TICKER", "", "BAD").
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "BAD").
 		Return("", nil)
 	database.EXPECT().
-		FindInstrumentByTypeAndValue(gomock.Any(), "TICKER", "BAD").
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "BAD").
 		Return("", nil)
 	database.EXPECT().
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
@@ -385,7 +385,7 @@ func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
-		[]identifier.Identifier{{Type: "TICKER", Value: "BAD"}},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "BAD"}},
 		false, fallback, nil, nil, 0)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
@@ -421,11 +421,11 @@ func TestTimeoutFromConfig(t *testing.T) {
 
 func TestHintsSummary(t *testing.T) {
 	hints := []identifier.Identifier{
-		{Type: "TICKER", Domain: "US", Value: "AAPL"},
+		{Type: "OPENFIGI_TICKER", Domain: "US", Value: "AAPL"},
 		{Type: "ISIN", Value: "US0378331005"},
 	}
 	got := HintsSummary(hints)
-	want := "TICKER(US):AAPL, ISIN:US0378331005"
+	want := "OPENFIGI_TICKER(US):AAPL, ISIN:US0378331005"
 	if got != want {
 		t.Errorf("HintsSummary = %q, want %q", got, want)
 	}
@@ -441,7 +441,7 @@ func TestHintsSummary_Empty(t *testing.T) {
 func TestCallPluginWithRetry_SuccessNoRetry(t *testing.T) {
 	p := &fakePlugin{
 		inst: &identifier.Instrument{Name: "OK"},
-		ids:  []identifier.Identifier{{Type: "TICKER", Value: "X"}},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "X"}},
 	}
 	inst, ids, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
 	if err != nil {
@@ -485,7 +485,7 @@ func (p *retryPlugin) DisplayName() string                      { return "Retry"
 func TestCallPluginWithRetry_RetrySucceeds(t *testing.T) {
 	p := &retryPlugin{
 		inst: &identifier.Instrument{Name: "Retried"},
-		ids:  []identifier.Identifier{{Type: "TICKER", Value: "X"}},
+		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "X"}},
 	}
 	inst, _, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
 	if err != nil {

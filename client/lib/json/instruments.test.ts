@@ -53,19 +53,19 @@ describe("instrumentsToJson", () => {
       { assetClass: "STOCK", exchange: "XNAS", currency: "USD", name: "Apple" },
       [
         { type: IdentifierType.ISIN, value: "US0378331005", canonical: true },
-        { type: IdentifierType.TICKER, value: "AAPL", canonical: true, domain: "XNAS" },
+        { type: IdentifierType.MIC_TICKER, value: "AAPL", canonical: true, domain: "XNAS" },
       ]
     );
     const out = JSON.parse(instrumentsToJson([inst]));
     expect(out).toHaveLength(1);
     expect(out[0].identifiers[0].type).toBe("ISIN");
-    expect(out[0].identifiers[1].type).toBe("TICKER");
+    expect(out[0].identifiers[1].type).toBe("MIC_TICKER");
     expect(out[0].identifiers[1].domain).toBe("XNAS");
   });
 
   it("emits underlying_index for derivatives, underlying appears before derivative", () => {
     const stock = makeInstrument("u1", { assetClass: "STOCK" }, [
-      { type: IdentifierType.TICKER, value: "AAPL", canonical: true },
+      { type: IdentifierType.MIC_TICKER, value: "AAPL", canonical: true },
     ]);
     const option = create(InstrumentSchema, {
       id: "o1",
@@ -121,7 +121,7 @@ describe("jsonToInstruments", () => {
         name: "Apple",
         identifiers: [
           { type: "ISIN", value: "US0378331005", canonical: true },
-          { type: "TICKER", value: "AAPL", canonical: true, domain: "XNAS" },
+          { type: "MIC_TICKER", value: "AAPL", canonical: true, domain: "XNAS" },
         ],
       },
     ]));
@@ -153,7 +153,7 @@ describe("jsonToInstruments", () => {
       { assetClass: "ETF", exchange: "ARCX", currency: "USD", name: "SPDR S&P 500" },
       [
         { type: IdentifierType.ISIN, value: "US78462F1030", canonical: true },
-        { type: IdentifierType.TICKER, value: "SPY", canonical: true, domain: "ARCX" },
+        { type: IdentifierType.MIC_TICKER, value: "SPY", canonical: true, domain: "ARCX" },
       ]
     );
     const { instruments, errors } = jsonToInstruments(instrumentsToJson([inst]));

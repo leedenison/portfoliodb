@@ -34,15 +34,15 @@ func TestStockFromSearch(t *testing.T) {
 		t.Errorf("Name = %q, want Apple Inc", inst.Name)
 	}
 
-	wantIDs := map[string]bool{"TICKER": false, "ISIN": false}
+	wantIDs := map[string]bool{"MIC_TICKER": false, "ISIN": false}
 	for _, id := range ids {
 		wantIDs[id.Type] = true
-		if id.Type == "TICKER" {
-			if id.Domain != "US" {
-				t.Errorf("TICKER Domain = %q, want US", id.Domain)
+		if id.Type == "MIC_TICKER" {
+			if id.Domain != "" {
+				t.Errorf("MIC_TICKER Domain = %q, want empty", id.Domain)
 			}
 			if id.Value != "AAPL" {
-				t.Errorf("TICKER Value = %q, want AAPL", id.Value)
+				t.Errorf("MIC_TICKER Value = %q, want AAPL", id.Value)
 			}
 		}
 		if id.Type == "ISIN" && id.Value != "US0378331005" {
@@ -68,10 +68,10 @@ func TestStockFromSearch_NoISIN(t *testing.T) {
 	_, ids := stockFromSearch(r)
 
 	if len(ids) != 1 {
-		t.Errorf("got %d identifiers, want 1 (TICKER only)", len(ids))
+		t.Errorf("got %d identifiers, want 1 (MIC_TICKER only)", len(ids))
 	}
-	if ids[0].Type != "TICKER" {
-		t.Errorf("identifier type = %q, want TICKER", ids[0].Type)
+	if ids[0].Type != "MIC_TICKER" {
+		t.Errorf("identifier type = %q, want MIC_TICKER", ids[0].Type)
 	}
 }
 

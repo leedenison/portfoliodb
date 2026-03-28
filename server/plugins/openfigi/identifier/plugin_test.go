@@ -44,7 +44,7 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 	})
 	ctx := context.Background()
 	p := NewPlugin(nil, nil, http.DefaultClient)
-	hints := []identifier.Identifier{{Type: "TICKER", Value: "IBM"}}
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "IBM"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Hints{}, hints)
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
@@ -60,7 +60,7 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 		if id.Type == "OPENFIGI_GLOBAL" && id.Value == "BBG000BLNNH6" {
 			hasFIGI = true
 		}
-		if id.Type == "TICKER" && id.Value == "IBM" && id.Domain == "US" {
+		if id.Type == "OPENFIGI_TICKER" && id.Value == "IBM" && id.Domain == "US" {
 			hasTicker = true
 		}
 	}
@@ -150,7 +150,7 @@ func TestPlugin_Identify_OpenFIGIMapping_FromTickerHint(t *testing.T) {
 	})
 	ctx := context.Background()
 	p := NewPlugin(nil, nil, http.DefaultClient)
-	hints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "Apple Inc", identifier.Hints{}, hints)
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
@@ -162,7 +162,7 @@ func TestPlugin_Identify_OpenFIGIMapping_FromTickerHint(t *testing.T) {
 		t.Errorf("inst.Name = %q", inst.Name)
 	}
 	if len(ids) < 2 {
-		t.Errorf("expected OPENFIGI_GLOBAL and TICKER, got %+v", ids)
+		t.Errorf("expected OPENFIGI_GLOBAL and OPENFIGI_TICKER, got %+v", ids)
 	}
 }
 
@@ -199,7 +199,7 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDotConvertedToSlash(t *testing.T)
 	})
 	ctx := context.Background()
 	p := NewPlugin(nil, nil, http.DefaultClient)
-	hints := []identifier.Identifier{{Type: "TICKER", Value: "BRK.B"}}
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "BRK B BERKSHIRE HATHAWAY INC-CL B", identifier.Hints{}, hints)
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
@@ -207,11 +207,11 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDotConvertedToSlash(t *testing.T)
 	if inst == nil || inst.Name != "BERKSHIRE HATHAWAY INC-CL B" {
 		t.Errorf("instrument = %+v", inst)
 	}
-	// Returned TICKER identifier should use canonical dot separator.
+	// Returned OPENFIGI_TICKER identifier should use canonical dot separator.
 	for _, id := range ids {
-		if id.Type == "TICKER" {
+		if id.Type == "OPENFIGI_TICKER" {
 			if id.Value != "BRK.B" {
-				t.Errorf("returned TICKER value = %q, want canonical %q", id.Value, "BRK.B")
+				t.Errorf("returned OPENFIGI_TICKER value = %q, want canonical %q", id.Value, "BRK.B")
 			}
 			break
 		}
@@ -251,7 +251,7 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDashConvertedToSlash(t *testing.T
 	})
 	ctx := context.Background()
 	p := NewPlugin(nil, nil, http.DefaultClient)
-	hints := []identifier.Identifier{{Type: "TICKER", Value: "BRK-B"}}
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK-B"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "BRK-B", identifier.Hints{}, hints)
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
@@ -260,9 +260,9 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDashConvertedToSlash(t *testing.T
 		t.Errorf("instrument = %+v", inst)
 	}
 	for _, id := range ids {
-		if id.Type == "TICKER" {
+		if id.Type == "OPENFIGI_TICKER" {
 			if id.Value != "BRK.B" {
-				t.Errorf("returned TICKER value = %q, want canonical %q", id.Value, "BRK.B")
+				t.Errorf("returned OPENFIGI_TICKER value = %q, want canonical %q", id.Value, "BRK.B")
 			}
 			break
 		}
@@ -298,7 +298,7 @@ func TestPlugin_Identify_ErrNotIdentified_WhenMappingReturnsNoResults(t *testing
 	})
 	ctx := context.Background()
 	p := NewPlugin(nil, nil, http.DefaultClient)
-	hints := []identifier.Identifier{{Type: "TICKER", Value: "UNKNOWN"}}
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "UNKNOWN"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "UNKNOWN THING XYZ", identifier.Hints{}, hints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
@@ -321,7 +321,7 @@ func TestPlugin_Identify_ErrNotIdentified_WhenMappingReturnsEmpty(t *testing.T) 
 	})
 	ctx := context.Background()
 	p := NewPlugin(nil, nil, http.DefaultClient)
-	hints := []identifier.Identifier{{Type: "TICKER", Value: "SOMEUNKNOWN"}}
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "SOMEUNKNOWN"}}
 	_, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "SOME UNKNOWN", identifier.Hints{}, hints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v", err)
@@ -357,7 +357,7 @@ func TestPlugin_Identify_Option_ErrNotIdentified_WhenUnderlyingUnparseable(t *te
 	})
 	ctx := context.Background()
 	p := NewPlugin(nil, nil, http.DefaultClient)
-	hints := []identifier.Identifier{{Type: "TICKER", Value: "UNPARSEABLE"}}
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "UNPARSEABLE"}}
 	_, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "Some Exotic Option",
 		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
@@ -417,7 +417,7 @@ func TestPlugin_Identify_Option_WithUnderlying(t *testing.T) {
 		t.Errorf("inst.AssetClass = %q, want OPTION", inst.AssetClass)
 	}
 	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{TICKER AAPL}]", inst.UnderlyingIdentifiers)
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", inst.UnderlyingIdentifiers)
 	}
 	if len(ids) == 0 {
 		t.Error("expected identifiers")
@@ -476,7 +476,7 @@ func TestPlugin_Identify_Option_OCCSpacePadded(t *testing.T) {
 		t.Errorf("inst.AssetClass = %q, want OPTION", inst.AssetClass)
 	}
 	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{TICKER AAPL}]", inst.UnderlyingIdentifiers)
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", inst.UnderlyingIdentifiers)
 	}
 }
 

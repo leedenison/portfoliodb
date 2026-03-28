@@ -44,7 +44,7 @@ func TestStockFromTicker(t *testing.T) {
 	if len(ids) != 3 {
 		t.Fatalf("len(ids) = %d, want 3", len(ids))
 	}
-	assertID(t, ids[0], "TICKER", "XNAS", "AAPL")
+	assertID(t, ids[0], "MIC_TICKER", "XNAS", "AAPL")
 	assertID(t, ids[1], "OPENFIGI_COMPOSITE", "", "BBG000B9XRY4")
 	assertID(t, ids[2], "OPENFIGI_SHARE_CLASS", "", "BBG001S5N8V8")
 }
@@ -70,9 +70,9 @@ func TestStockFromTicker_NoFIGI(t *testing.T) {
 	}
 	_, ids := stockFromTicker(r)
 	if len(ids) != 1 {
-		t.Fatalf("len(ids) = %d, want 1 (TICKER only)", len(ids))
+		t.Fatalf("len(ids) = %d, want 1 (MIC_TICKER only)", len(ids))
 	}
-	assertID(t, ids[0], "TICKER", "XNYS", "TEST")
+	assertID(t, ids[0], "MIC_TICKER", "XNYS", "TEST")
 }
 
 func TestOptionFromContract(t *testing.T) {
@@ -102,12 +102,12 @@ func TestOptionFromContract(t *testing.T) {
 	if len(inst.UnderlyingIdentifiers) != 1 {
 		t.Fatalf("len(UnderlyingIdentifiers) = %d, want 1", len(inst.UnderlyingIdentifiers))
 	}
-	assertID(t, inst.UnderlyingIdentifiers[0], "TICKER", "", "AAPL")
+	assertID(t, inst.UnderlyingIdentifiers[0], "MIC_TICKER", "", "AAPL")
 	if len(ids) != 2 {
 		t.Fatalf("len(ids) = %d, want 2", len(ids))
 	}
 	assertID(t, ids[0], "OCC", "", "AAPL251219C00230000")
-	assertID(t, ids[1], "TICKER", "BATO", "AAPL251219C00230000")
+	assertID(t, ids[1], "MIC_TICKER", "BATO", "AAPL251219C00230000")
 }
 
 func TestOptionFromContract_NoUnderlying(t *testing.T) {

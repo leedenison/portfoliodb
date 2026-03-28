@@ -22,7 +22,8 @@ const IDENTIFIER_LABELS: Record<number, string> = {
   [IdentifierType.OPENFIGI_GLOBAL]: "FIGI Global",
   [IdentifierType.OPENFIGI_SHARE_CLASS]: "FIGI Share",
   [IdentifierType.OPENFIGI_COMPOSITE]: "FIGI Composite",
-  [IdentifierType.TICKER]: "Ticker",
+  [IdentifierType.MIC_TICKER]: "Ticker",
+  [IdentifierType.OPENFIGI_TICKER]: "Ticker",
   [IdentifierType.BROKER_DESCRIPTION]: "Broker Desc",
   [IdentifierType.CURRENCY]: "Currency",
 };
@@ -33,7 +34,7 @@ function idLabel(id: InstrumentIdentifier): string {
 
 function displayName(inst: Instrument): string {
   const ticker = inst.identifiers.find(
-    (id) => id.type === IdentifierType.TICKER
+    (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
   );
   if (ticker) return ticker.value;
   if (inst.name) return inst.name;

@@ -234,10 +234,10 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		return r, nil
 	}
 
-	// When extraction returned both TICKER and OPENFIGI_SHARE_CLASS, resolve each separately and validate they match.
-	// If they resolve to different instruments, increment counter, log error, and use TICKER.
+	// When extraction returned both MIC_TICKER and OPENFIGI_SHARE_CLASS, resolve each separately and validate they match.
+	// If they resolve to different instruments, increment counter, log error, and use MIC_TICKER.
 	hintsToUse := extractedHints
-	tickerHints := hintsByType(extractedHints, "TICKER")
+	tickerHints := hintsByType(extractedHints, "MIC_TICKER")
 	figiHints := hintsByType(extractedHints, "OPENFIGI_SHARE_CLASS")
 	if len(tickerHints) > 0 && len(figiHints) > 0 {
 		// Resolve with nil cache and nil counter so we don't pollute cache or double-count identify attempts.
@@ -250,7 +250,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			if counter != nil {
 				counter.Incr(ctx, "instruments.resolution.totals.description.identifier_mismatch")
 			}
-			ingestionLogger().ErrorContext(ctx, "TICKER and OPENFIGI_SHARE_CLASS resolved to different instruments; using TICKER",
+			ingestionLogger().ErrorContext(ctx, "MIC_TICKER and OPENFIGI_SHARE_CLASS resolved to different instruments; using MIC_TICKER",
 				"source", source, "instrument_description", instrumentDescription,
 				"instrument_id_by_ticker", idByTicker, "instrument_id_by_figi", idByFigi)
 			hintsToUse = tickerHints
@@ -261,7 +261,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, counter, true)
 }
 
-// hintsByType returns hints whose Type equals typ (e.g. "TICKER", "OPENFIGI_SHARE_CLASS").
+// hintsByType returns hints whose Type equals typ (e.g. "MIC_TICKER", "OPENFIGI_SHARE_CLASS").
 func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identifier {
 	var out []identifier.Identifier
 	for _, h := range hints {

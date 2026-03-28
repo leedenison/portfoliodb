@@ -177,7 +177,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
       const v = get(tickerCol);
       if (v) {
         const domain = tickerExchangeCol >= 0 ? get(tickerExchangeCol) || undefined : undefined;
-        identifierHints.push({ type: IdentifierType.TICKER, value: v, ...(domain ? { domain } : {}) });
+        identifierHints.push({ type: IdentifierType.MIC_TICKER, value: v, ...(domain ? { domain } : {}) });
       }
     }
     if (openfigiShareClassCol >= 0) {

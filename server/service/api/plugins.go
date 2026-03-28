@@ -181,7 +181,7 @@ func (s *Server) ListPriceFetchBlocks(ctx context.Context, req *apiv1.ListPriceF
 				}
 				if name == "" {
 					for _, ident := range inst.Identifiers {
-						if ident.Type == "TICKER" && ident.Value != "" {
+						if (ident.Type == "MIC_TICKER" || ident.Type == "OPENFIGI_TICKER") && ident.Value != "" {
 							name = ident.Value
 							break
 						}

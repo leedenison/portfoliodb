@@ -4,8 +4,8 @@
 //
 // [Instrument] holds security-master data (asset class, exchange, currency, etc.).
 // [Identifier] is an opaque (Type, Domain, Value) triple. Type must be from
-// [AllowedIdentifierTypes] (e.g. "TICKER", "ISIN", "CUSIP", "OCC"). Domain is
-// optional context such as an exchange code for TICKER. Broker descriptions use
+// [AllowedIdentifierTypes] (e.g. "MIC_TICKER", "OPENFIGI_TICKER", "ISIN", "CUSIP", "OCC"). Domain is
+// optional context: ISO 10383 MIC for MIC_TICKER, Bloomberg exchange code for OPENFIGI_TICKER. Broker descriptions use
 // Type = "BROKER_DESCRIPTION", Domain = source, Value = full instrument_description.
 //
 // [Hints] carries optional resolution context (exchange, currency, MIC, security

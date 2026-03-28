@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -35,7 +37,7 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
-	idHints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
 	inst, ids, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if err != nil {
@@ -89,7 +91,7 @@ func TestPlugin_Identify_Stock_SplitTickerNormalized(t *testing.T) {
 			p := NewPlugin(nil, nil, http.DefaultClient)
 			cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 			hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
-			idHints := []identifier.Identifier{{Type: "TICKER", Value: tt.input}}
+			idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: tt.input}}
 
 			inst, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 			if err != nil {
@@ -120,7 +122,7 @@ func TestPlugin_Identify_Stock_IndexReturnsNotIdentified(t *testing.T) {
 	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
-	idHints := []identifier.Identifier{{Type: "TICKER", Value: "SPX"}}
+	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "SPX"}}
 
 	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
@@ -186,7 +188,7 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
 	}
 	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{TICKER AAPL}]", inst.UnderlyingIdentifiers)
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", inst.UnderlyingIdentifiers)
 	}
 	if len(ids) != 2 {
 		t.Fatalf("len(ids) = %d, want 2", len(ids))
@@ -232,7 +234,7 @@ func TestPlugin_Identify_Option_OCC_SpacePadded(t *testing.T) {
 		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
 	}
 	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{TICKER AAPL}]", inst.UnderlyingIdentifiers)
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", inst.UnderlyingIdentifiers)
 	}
 }
 
@@ -266,7 +268,7 @@ func TestPlugin_Identify_Option_NoOCC(t *testing.T) {
 	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: "http://unused"})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
-	idHints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
 	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
@@ -283,7 +285,7 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
-	idHints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
 	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if err == nil {
@@ -318,6 +320,157 @@ func TestPlugin_AcceptableSecurityTypes(t *testing.T) {
 	}
 	if types[identifier.SecurityTypeHintFuture] {
 		t.Error("FUTURE should not be acceptable")
+	}
+}
+
+// makeOCC builds a compact OCC symbol for the given ticker, date, and strike.
+// Example: makeOCC("AAPL", t, "C", 230) → "AAPL251219C00230000".
+func makeOCC(ticker string, expiry time.Time, pc string, strike int) string {
+	return fmt.Sprintf("%s%s%s%08d", ticker, expiry.Format("060102"), pc, strike*1000)
+}
+
+func TestPlugin_Identify_Option_ExpiredBeyondHorizon(t *testing.T) {
+	apiCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalled = true
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	// OCC expired 200 days ago — beyond the default 180-day horizon.
+	expiry := time.Now().AddDate(0, 0, -200)
+	occ := makeOCC("AAPL", expiry, "C", 230)
+
+	p := NewPlugin(nil, nil, http.DefaultClient)
+	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
+	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
+
+	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	if !errors.Is(err, identifier.ErrNotIdentified) {
+		t.Fatalf("expected ErrNotIdentified, got %v", err)
+	}
+	if apiCalled {
+		t.Fatal("API should not have been called for expired option beyond horizon")
+	}
+}
+
+func TestPlugin_Identify_Option_ExpiredWithinHorizon(t *testing.T) {
+	// OCC expired 90 days ago — within the default 180-day horizon.
+	expiry := time.Now().AddDate(0, 0, -90)
+	occ := makeOCC("AAPL", expiry, "C", 230)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := client.APIResponse[client.OptionsContractResult]{
+			Status: "OK",
+			Results: client.OptionsContractResult{
+				Ticker:            "O:" + occ,
+				UnderlyingTicker:  "AAPL",
+				ContractType:      "call",
+				ExpirationDate:    expiry.Format("2006-01-02"),
+				StrikePrice:       230.0,
+				SharesPerContract: 100,
+				PrimaryExchange:   "BATO",
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, http.DefaultClient)
+	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
+	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
+
+	inst, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inst.AssetClass != db.AssetClassOption {
+		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
+	}
+}
+
+func TestPlugin_Identify_Option_CustomHorizon(t *testing.T) {
+	apiCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalled = true
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	// OCC expired 40 days ago — beyond a custom 30-day horizon.
+	expiry := time.Now().AddDate(0, 0, -40)
+	occ := makeOCC("AAPL", expiry, "P", 150)
+	horizon := 30
+
+	p := NewPlugin(nil, nil, http.DefaultClient)
+	cfg := mustMarshal(t, configJSON{
+		MassiveBaseURL:           srv.URL,
+		ExpiredDerivativeHorizon: &horizon,
+	})
+	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
+	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
+
+	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	if !errors.Is(err, identifier.ErrNotIdentified) {
+		t.Fatalf("expected ErrNotIdentified, got %v", err)
+	}
+	if apiCalled {
+		t.Fatal("API should not have been called for expired option beyond custom horizon")
+	}
+}
+
+func TestPlugin_Identify_Option_FutureExpiry(t *testing.T) {
+	// OCC that hasn't expired yet — should always call API.
+	expiry := time.Now().AddDate(0, 3, 0)
+	occ := makeOCC("AAPL", expiry, "C", 300)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := client.APIResponse[client.OptionsContractResult]{
+			Status: "OK",
+			Results: client.OptionsContractResult{
+				Ticker:            "O:" + occ,
+				UnderlyingTicker:  "AAPL",
+				ContractType:      "call",
+				ExpirationDate:    expiry.Format("2006-01-02"),
+				StrikePrice:       300.0,
+				SharesPerContract: 100,
+				PrimaryExchange:   "BATO",
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, http.DefaultClient)
+	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
+	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
+	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
+
+	inst, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inst.AssetClass != db.AssetClassOption {
+		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
+	}
+}
+
+func TestPlugin_DefaultConfig_IncludesHorizon(t *testing.T) {
+	p := NewPlugin(nil, nil, http.DefaultClient)
+	cfg := p.DefaultConfig()
+	var parsed configJSON
+	if err := json.Unmarshal(cfg, &parsed); err != nil {
+		t.Fatalf("invalid default config JSON: %v", err)
+	}
+	if parsed.ExpiredDerivativeHorizon == nil {
+		t.Fatal("expected expired_derivative_horizon in default config")
+	}
+	if *parsed.ExpiredDerivativeHorizon != defaultExpiredDerivativeHorizon {
+		t.Errorf("expired_derivative_horizon = %d, want %d", *parsed.ExpiredDerivativeHorizon, defaultExpiredDerivativeHorizon)
 	}
 }
 

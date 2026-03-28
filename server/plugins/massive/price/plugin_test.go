@@ -38,7 +38,7 @@ func TestFetchPrices_Stock(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC)
 
@@ -111,7 +111,7 @@ func TestFetchPrices_NotFound(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "TICKER", Value: "INVALID"}}
+	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "INVALID"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -130,7 +130,7 @@ func TestFetchPrices_Forbidden(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -149,7 +149,7 @@ func TestFetchPrices_Unauthorized(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -167,7 +167,7 @@ func TestFetchPrices_RateLimit(t *testing.T) {
 	defer srv.Close()
 
 	p := NewPlugin(nil, nil, srv.Client())
-	ids := []pricefetcher.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
@@ -228,7 +228,7 @@ func TestPluginInterface(t *testing.T) {
 		t.Errorf("AcceptableExchanges should be nil, got %v", ex)
 	}
 	types := p.SupportedIdentifierTypes()
-	if len(types) != 3 || types[0] != "TICKER" || types[1] != "OCC" || types[2] != "FX_PAIR" {
+	if len(types) != 4 || types[0] != "MIC_TICKER" || types[1] != "OPENFIGI_TICKER" || types[2] != "OCC" || types[3] != "FX_PAIR" {
 		t.Errorf("SupportedIdentifierTypes = %v", types)
 	}
 }
@@ -279,11 +279,11 @@ func TestTickerForAssetClass(t *testing.T) {
 		wantTicker  string
 		wantDivisor float64
 	}{
-		{"stock_ticker", []pricefetcher.Identifier{{Type: "TICKER", Value: "AAPL"}}, db.AssetClassStock, "AAPL", 1},
+		{"stock_ticker", []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, db.AssetClassStock, "AAPL", 1},
 		{"option_occ", []pricefetcher.Identifier{{Type: "OCC", Value: "AAPL250321C00150000"}}, db.AssetClassOption, "O:AAPL250321C00150000", 1},
 		{"fx_pair", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}, db.AssetClassFX, "C:EURUSD", 1},
 		{"fx_gbxusd", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBXUSD"}}, db.AssetClassFX, "C:GBPUSD", 100},
-		{"fx_no_match", []pricefetcher.Identifier{{Type: "TICKER", Value: "EURUSD"}}, db.AssetClassFX, "", 1},
+		{"fx_no_match", []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "EURUSD"}}, db.AssetClassFX, "", 1},
 		{"stock_no_match", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}, db.AssetClassStock, "", 1},
 	}
 	for _, tc := range tests {

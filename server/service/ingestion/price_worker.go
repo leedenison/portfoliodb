@@ -44,6 +44,17 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 	resolveCache := make(map[string]*resolveEntry)
 
 	for i, row := range rows {
+		idType := row.GetIdentifierType()
+		if !identifier.AllowedIdentifierTypes[idType] {
+			valErrs = append(valErrs, &apiv1.ValidationError{
+				RowIndex: int32(i),
+				Field:    "identifier_type",
+				Message:  fmt.Sprintf("unknown identifier_type %q", idType),
+			})
+			_ = database.IncrJobProcessedCount(ctx, j.JobID)
+			continue
+		}
+
 		priceDate, err := time.Parse("2006-01-02", row.GetPriceDate())
 		if err != nil {
 			valErrs = append(valErrs, &apiv1.ValidationError{

@@ -3,10 +3,17 @@
  */
 
 import { create } from "@bufbuild/protobuf";
-import { ImportPriceRowSchema } from "@/gen/api/v1/api_pb";
+import { ImportPriceRowSchema, IdentifierTypeSchema } from "@/gen/api/v1/api_pb";
 import type { ExportPriceRow, ImportPriceRow } from "@/gen/api/v1/api_pb";
 import type { ParseError } from "./standard";
 import { parseCSVLine } from "./standard";
+
+/** Valid identifier type names from the proto IdentifierType enum (excluding UNSPECIFIED). */
+const VALID_IDENTIFIER_TYPES = new Set(
+  IdentifierTypeSchema.values
+    .filter((v) => v.number !== 0)
+    .map((v) => v.name),
+);
 
 const HEADER = "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class";
 
@@ -96,6 +103,10 @@ export function csvToPrices(text: string): PriceParseResult {
 
     if (!identifierType) {
       errors.push({ rowIndex, field: "identifier_type", message: "identifier_type is required" });
+      continue;
+    }
+    if (!VALID_IDENTIFIER_TYPES.has(identifierType)) {
+      errors.push({ rowIndex, field: "identifier_type", message: `unknown identifier_type: ${identifierType}` });
       continue;
     }
     if (!identifierValue) {

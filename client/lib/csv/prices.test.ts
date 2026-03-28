@@ -190,6 +190,15 @@ describe("csvToPrices", () => {
     expect(result.prices).toHaveLength(0);
   });
 
+  it("rejects unknown identifier_type", () => {
+    const csv = `${HEADER}\nTICKER,AAPL,XNAS,2024-01-15,,,,185.9,,`;
+    const result = csvToPrices(csv);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].field).toBe("identifier_type");
+    expect(result.errors[0].message).toContain("unknown identifier_type");
+    expect(result.prices).toHaveLength(0);
+  });
+
   it("handles multiple rows with mixed valid and invalid", () => {
     const csv = [
       HEADER,

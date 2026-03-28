@@ -4,6 +4,7 @@
 package derivative
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -158,6 +159,30 @@ func OCCPadded(occ string) (string, bool) {
 	root := compact[:len(compact)-occSuffixLen]
 	padded := root + strings.Repeat(" ", 6-len(root)) + compact[len(compact)-occSuffixLen:]
 	return padded, true
+}
+
+// BuildOCCCompact constructs a compact OCC identifier from its components.
+// Symbol must be 1-6 uppercase letters/digits. PutCall must be "C" or "P".
+// Strike is encoded as price*1000 zero-padded to 8 digits.
+// Returns ("", false) if the inputs are invalid.
+func BuildOCCCompact(symbol string, expiry time.Time, putCall string, strike float64) (string, bool) {
+	sym := strings.TrimSpace(strings.ToUpper(symbol))
+	if len(sym) < 1 || len(sym) > 6 {
+		return "", false
+	}
+	pc := strings.ToUpper(putCall)
+	if pc != "C" && pc != "P" {
+		return "", false
+	}
+	if expiry.IsZero() || strike < 0 {
+		return "", false
+	}
+	strikeCents := int(strike*1000 + 0.5)
+	if strikeCents > 99999999 {
+		return "", false
+	}
+	yy := expiry.Year() % 100
+	return sym + fmt.Sprintf("%02d%02d%02d", yy, expiry.Month(), expiry.Day()) + pc + fmt.Sprintf("%08d", strikeCents), true
 }
 
 func parseYYMMDD(yymmdd string) (time.Time, bool) {

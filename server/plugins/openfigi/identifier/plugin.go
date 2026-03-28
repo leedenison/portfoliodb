@@ -86,7 +86,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	if err != nil {
 		return nil, nil, err
 	}
-	if inst, ids, ok := p.resolveResults(ctx, results, true); ok {
+	if inst, ids, ok := p.resolveResults(results, true); ok {
 		return inst, ids, nil
 	}
 	return nil, nil, identifier.ErrNotIdentified
@@ -97,7 +97,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 // resolve the underlying through the full plugin pipeline.
 // If fallbackFirst is true and there are multiple results with no STOCK+common match, the first result is used.
 // It returns (inst, ids, true) when a result was chosen, (nil, nil, false) otherwise.
-func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, fallbackFirst bool) (*identifier.Instrument, []identifier.Identifier, bool) {
+func (p *Plugin) resolveResults(results []OpenFIGIResult, fallbackFirst bool) (*identifier.Instrument, []identifier.Identifier, bool) {
 	if len(results) == 0 {
 		return nil, nil, false
 	}
@@ -120,12 +120,22 @@ func (p *Plugin) resolveResults(ctx context.Context, results []OpenFIGIResult, f
 	}
 	inst, ids := openFIGIResultToInstrument(&results[idx], p.log)
 	if isDerivative(&results[idx]) {
-		symbol, _, ok := p.getUnderlyingSymbol(ctx, results[idx].Ticker)
-		if !ok || symbol == "" {
+		parsed, ok := derivative.ParseOptionTicker(results[idx].Ticker)
+		if !ok || parsed.Symbol == "" {
 			return nil, nil, false
 		}
 		inst.UnderlyingIdentifiers = []identifier.Identifier{
-			{Type: "MIC_TICKER", Value: symbol},
+			{Type: "MIC_TICKER", Value: parsed.Symbol},
+		}
+		// Convert parsed option ticker to OCC and replace OPENFIGI_TICKER.
+		if occ, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, parsed.Strike); ok {
+			replaced := ids[:0]
+			for _, id := range ids {
+				if id.Type != "OPENFIGI_TICKER" {
+					replaced = append(replaced, id)
+				}
+			}
+			ids = append(replaced, identifier.Identifier{Type: "OCC", Value: occ})
 		}
 	}
 	return inst, ids, true
@@ -184,10 +194,3 @@ func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []ide
 	return nil, nil
 }
 
-// getUnderlyingSymbol resolves the underlying ticker for a derivative using the derivative library only (no OpenAI).
-func (p *Plugin) getUnderlyingSymbol(ctx context.Context, derivativeTicker string) (symbol, exchangeHint string, ok bool) {
-	if u, parseOk := derivative.ParseOptionTicker(derivativeTicker); parseOk {
-		return u.Symbol, u.ExchangeHint, true
-	}
-	return "", "", false
-}

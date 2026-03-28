@@ -109,6 +109,70 @@ func TestParseOptionTicker(t *testing.T) {
 	}
 }
 
+func TestBuildOCCCompact(t *testing.T) {
+	tests := []struct {
+		name    string
+		symbol  string
+		expiry  time.Time
+		putCall string
+		strike  float64
+		want    string
+		ok      bool
+	}{
+		{"call", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", 200, "AAPL251219C00200000", true},
+		{"put", "SPY", time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC), "P", 600, "SPY250117P00600000", true},
+		{"fractional strike", "IBM", time.Date(2025, 3, 20, 0, 0, 0, 0, time.UTC), "C", 105.5, "IBM250320C00105500", true},
+		{"1-char symbol", "A", time.Date(2025, 6, 20, 0, 0, 0, 0, time.UTC), "C", 50, "A250620C00050000", true},
+		{"6-char symbol", "BRKB12", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "P", 230, "BRKB12251219P00230000", true},
+		{"lowercase input", "aapl", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "c", 200, "AAPL251219C00200000", true},
+		{"empty symbol", "", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", 200, "", false},
+		{"symbol too long", "TOOLONG", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", 200, "", false},
+		{"bad putCall", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "X", 200, "", false},
+		{"zero expiry", "AAPL", time.Time{}, "C", 200, "", false},
+		{"negative strike", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", -1, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := BuildOCCCompact(tt.symbol, tt.expiry, tt.putCall, tt.strike)
+			if ok != tt.ok {
+				t.Errorf("BuildOCCCompact() ok = %v, want %v", ok, tt.ok)
+			}
+			if got != tt.want {
+				t.Errorf("BuildOCCCompact() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildOCCCompact_RoundTrip(t *testing.T) {
+	// Build a compact OCC, pad it to 21-char form, then parse it back — fields should match.
+	sym, expiry, pc, strike := "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", 200.0
+	occ, ok := BuildOCCCompact(sym, expiry, pc, strike)
+	if !ok {
+		t.Fatal("BuildOCCCompact failed")
+	}
+	padded, ok := OCCPadded(occ)
+	if !ok {
+		t.Fatalf("OCCPadded(%q) failed", occ)
+	}
+	parsed, ok := ParseOptionTicker(padded)
+	if !ok {
+		t.Fatal("ParseOptionTicker failed on padded OCC")
+	}
+	if parsed.Symbol != sym {
+		t.Errorf("Symbol = %q, want %q", parsed.Symbol, sym)
+	}
+	if !parsed.Expiry.Equal(expiry) {
+		t.Errorf("Expiry = %v, want %v", parsed.Expiry, expiry)
+	}
+	if parsed.PutCall != pc {
+		t.Errorf("PutCall = %q, want %q", parsed.PutCall, pc)
+	}
+	if parsed.Strike != strike {
+		t.Errorf("Strike = %v, want %v", parsed.Strike, strike)
+	}
+}
+
 func TestOCCCompact(t *testing.T) {
 	tests := []struct {
 		name string

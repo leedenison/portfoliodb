@@ -78,7 +78,7 @@ export function parseCSVLine(line: string): string[] {
 /**
  * Parse standard-format CSV text into Tx array and period.
  * Header names are case-insensitive. Required: date (or timestamp), instrument_description, type, quantity.
- * Optional: trading_currency, settlement_currency, unit_price, account, exchange_code_hint (or exchange), mic_hint (or mic), isin, ticker, ticker_exchange (or ticker_domain), openfigi_share_class, occ.
+ * Optional: trading_currency, settlement_currency, unit_price, account, exchange_code, mic, ticker, isin, openfigi_share_class, occ.
  */
 export function parseStandardCSV(csvText: string): StandardParseResult {
   const errors: ParseError[] = [];
@@ -105,11 +105,10 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
   const settlementCurrencyCol = col("settlement_currency");
   const priceCol = col("unit_price");
   const accountCol = col("account");
-  const exchangeHintCol = col("exchange_code_hint") >= 0 ? col("exchange_code_hint") : col("exchange");
-  const micHintCol = col("mic_hint") >= 0 ? col("mic_hint") : col("mic");
+  const exchangeCodeCol = col("exchange_code");
+  const micCol = col("mic");
   const isinCol = col("isin");
   const tickerCol = col("ticker");
-  const tickerExchangeCol = col("ticker_exchange") >= 0 ? col("ticker_exchange") : col("ticker_domain");
   const openfigiShareClassCol = col("openfigi_share_class");
   const occCol = col("occ");
 
@@ -165,8 +164,8 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
     }
 
     const account = accountCol >= 0 ? get(accountCol) : "";
-    const exchangeCodeHint = exchangeHintCol >= 0 ? get(exchangeHintCol) || undefined : undefined;
-    const micHint = micHintCol >= 0 ? get(micHintCol) || undefined : undefined;
+    const exchangeCode = exchangeCodeCol >= 0 ? get(exchangeCodeCol) || undefined : undefined;
+    const mic = micCol >= 0 ? get(micCol) || undefined : undefined;
 
     const identifierHints: Array<{ type: IdentifierType; value: string; domain?: string }> = [];
     if (isinCol >= 0) {
@@ -176,8 +175,15 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
     if (tickerCol >= 0) {
       const v = get(tickerCol);
       if (v) {
-        const domain = tickerExchangeCol >= 0 ? get(tickerExchangeCol) || undefined : undefined;
-        identifierHints.push({ type: IdentifierType.MIC_TICKER, value: v, ...(domain ? { domain } : {}) });
+        if (exchangeCode) {
+          identifierHints.push({ type: IdentifierType.OPENFIGI_TICKER, value: v, domain: exchangeCode });
+        }
+        if (mic) {
+          identifierHints.push({ type: IdentifierType.MIC_TICKER, value: v, domain: mic });
+        }
+        if (!exchangeCode && !mic) {
+          identifierHints.push({ type: IdentifierType.MIC_TICKER, value: v });
+        }
       }
     }
     if (openfigiShareClassCol >= 0) {
@@ -203,8 +209,6 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
         ...(tradingCurrency ? { tradingCurrency } : {}),
         ...(settlementCurrency ? { settlementCurrency } : {}),
         ...(unitPrice !== undefined && !Number.isNaN(unitPrice) ? { unitPrice } : {}),
-        ...(exchangeCodeHint ? { exchangeCodeHint } : {}),
-        ...(micHint ? { micHint } : {}),
         ...(identifierHints.length > 0
           ? {
               identifierHints: identifierHints.map((h) =>

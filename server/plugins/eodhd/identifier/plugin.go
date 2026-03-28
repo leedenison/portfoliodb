@@ -67,9 +67,10 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		return nil, nil, identifier.ErrNotIdentified
 	}
 
+	exchHint := exchangeHintFromIdentifiers(identifierHints)
 	var opts []client.SearchOption
-	if hints.ExchangeCode != "" {
-		opts = append(opts, client.WithExchange(hints.ExchangeCode))
+	if exchHint != "" {
+		opts = append(opts, client.WithExchange(exchHint))
 	}
 	opts = append(opts, client.WithLimit(10))
 
@@ -84,7 +85,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		return nil, nil, err
 	}
 
-	match := bestMatch(results, hints.ExchangeCode)
+	match := bestMatch(results, exchHint)
 	if match == nil {
 		p.reportOutcome(ctx, identifier.ErrNotIdentified)
 		return nil, nil, identifier.ErrNotIdentified
@@ -154,6 +155,17 @@ func (p *Plugin) getClient(config []byte) (*client.Client, error) {
 	p.client = client.New(cfg.EODHDAPIKey, cfg.EODHDBaseURL, limiter, p.log, p.httpClient)
 	p.lastConfig = raw
 	return p.client, nil
+}
+
+// exchangeHintFromIdentifiers returns the Domain of the first OPENFIGI_TICKER
+// hint, which uses Bloomberg exchange codes compatible with EODHD's search API.
+func exchangeHintFromIdentifiers(hints []identifier.Identifier) string {
+	for _, h := range hints {
+		if h.Type == "OPENFIGI_TICKER" && h.Domain != "" {
+			return h.Domain
+		}
+	}
+	return ""
 }
 
 // pickQuery selects the best query string and its type from identifier hints.

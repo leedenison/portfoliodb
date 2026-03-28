@@ -54,9 +54,9 @@ func TestIntegration_EODHD_Identify(t *testing.T) {
 		{
 			name:     "stock_exchange_hint",
 			cassette: "testdata/cassettes/stock_exchange_hint",
-			hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock, ExchangeCode: "US"},
+			hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 			idHints: []identifier.Identifier{
-				{Type: "MIC_TICKER", Value: "AAPL"},
+				{Type: "OPENFIGI_TICKER", Domain: "US", Value: "AAPL"},
 			},
 			wantClass: "STOCK",
 		},

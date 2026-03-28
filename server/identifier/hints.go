@@ -18,9 +18,7 @@ const (
 // Hints are optional resolution hints passed to description and identifier plugins.
 // SecurityTypeHint is derived from the transaction type and used for plugin routing; vocabulary is the same as asset class.
 type Hints struct {
-	ExchangeCode   string
-	Currency       string
-	MIC            string
+	Currency         string
 	SecurityTypeHint string
 }
 

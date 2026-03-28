@@ -124,14 +124,10 @@ message Tx {
   string instrument_id = 8;
   // Account (opaque string). Required.
   string account = 9;
-  // Optional exchange code hint to narrow identification (e.g. "US"). Not stored as canonical; only API-confirmed exchange is written to the instrument.
-  string exchange_code_hint = 10;
-  // Optional MIC (market identifier code) hint. Not stored as canonical; used only to narrow resolution.
-  string mic_hint = 11;
   // Optional external identifier hints (e.g. ISIN, CUSIP, FIGI, MIC_TICKER). When supplied, resolution uses these and does not store (source, description) on the instrument.
-  repeated InstrumentIdentifier identifier_hints = 12;
+  repeated InstrumentIdentifier identifier_hints = 10;
   // NULL for real transactions, 'INITIALIZE' for synthetic opening-balance transactions.
-  string synthetic_purpose = 13;
+  string synthetic_purpose = 11;
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,

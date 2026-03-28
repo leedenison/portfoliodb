@@ -45,9 +45,7 @@ func HintsFromTx(tx *apiv1.Tx) identifier.Hints {
 		return identifier.Hints{}
 	}
 	return identifier.Hints{
-		ExchangeCode:     tx.GetExchangeCodeHint(),
 		Currency:         tx.GetTradingCurrency(),
-		MIC:              tx.GetMicHint(),
 		SecurityTypeHint: TxTypeToSecurityTypeHint(tx.GetType()),
 	}
 }

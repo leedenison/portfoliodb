@@ -8,10 +8,10 @@
 // optional context: ISO 10383 MIC for MIC_TICKER, Bloomberg exchange code for OPENFIGI_TICKER. Broker descriptions use
 // Type = "BROKER_DESCRIPTION", Domain = source, Value = full instrument_description.
 //
-// [Hints] carries optional resolution context (exchange, currency, MIC, security
-// type hint). Plugins may use hints to narrow API queries but must not write
-// hint values to the returned Instrument; only data confirmed by the upstream
-// service is canonical.
+// [Hints] carries optional resolution context (currency, security type hint).
+// Plugins may use hints to narrow API queries but must not write hint values
+// to the returned Instrument; only data confirmed by the upstream service is
+// canonical.
 //
 // # Plugin interface
 //

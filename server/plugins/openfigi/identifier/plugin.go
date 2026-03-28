@@ -140,7 +140,7 @@ var openFIGIIDTypeFromHint = map[string]string{
 }
 
 // tryOpenFIGIFromHints tries OpenFIGI Mapping for each hint (in order); returns first non-empty result set.
-// Uses only Mapping API (no Search). hints.ExchangeCode, Currency (trading currency), MIC narrow results when the hint has no domain.
+// Uses only Mapping API (no Search). For MIC_TICKER hints, Domain is sent as micCode; for OPENFIGI_TICKER, as exchCode.
 // We do not use the security type hint as securityType2 (our vocabulary does not match OpenFIGI's). The plugin already prefers EQUITY+common when multiple results exist.
 func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []identifier.Identifier, hints identifier.Hints) ([]OpenFIGIResult, error) {
 	for _, h := range identifierHints {
@@ -165,16 +165,13 @@ func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []ide
 			idValue = padded
 		}
 		job := MappingJob{IDType: idType, IDValue: idValue}
-		if h.Domain != "" {
+		if ourType == "MIC_TICKER" && h.Domain != "" {
+			job.MICCode = h.Domain
+		} else if ourType == "OPENFIGI_TICKER" && h.Domain != "" {
 			job.ExchCode = h.Domain
-		} else if hints.ExchangeCode != "" {
-			job.ExchCode = hints.ExchangeCode
 		}
 		if hints.Currency != "" {
 			job.Currency = hints.Currency
-		}
-		if hints.MIC != "" {
-			job.MICCode = hints.MIC
 		}
 		results, err := p.openfigi.Mapping(ctx, job)
 		if err != nil {

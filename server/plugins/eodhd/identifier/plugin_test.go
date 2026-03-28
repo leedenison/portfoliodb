@@ -42,7 +42,7 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 
 	inst, ids, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-		[]identifier.Identifier{{Type: "TICKER", Value: "AAPL"}},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 	)
 
 	if err != nil {
@@ -55,7 +55,7 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 		t.Errorf("Name = %q, want Apple Inc", inst.Name)
 	}
 	if len(ids) != 2 {
-		t.Errorf("got %d identifiers, want 2 (TICKER+ISIN)", len(ids))
+		t.Errorf("got %d identifiers, want 2 (MIC_TICKER+ISIN)", len(ids))
 	}
 }
 
@@ -114,7 +114,7 @@ func TestPlugin_Identify_SplitTickerNormalized(t *testing.T) {
 
 			inst, ids, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 				identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
-				[]identifier.Identifier{{Type: "TICKER", Value: tt.input}},
+				[]identifier.Identifier{{Type: "MIC_TICKER", Value: tt.input}},
 			)
 			if err != nil {
 				t.Fatalf("Identify(%q): %v", tt.input, err)
@@ -122,11 +122,11 @@ func TestPlugin_Identify_SplitTickerNormalized(t *testing.T) {
 			if inst == nil {
 				t.Fatalf("Identify(%q): nil instrument", tt.input)
 			}
-			// Returned TICKER identifier should use canonical dot.
+			// Returned MIC_TICKER identifier should use canonical dot.
 			for _, id := range ids {
-				if id.Type == "TICKER" {
+				if id.Type == "MIC_TICKER" {
 					if id.Value != "BRK.B" {
-						t.Errorf("returned TICKER value = %q, want canonical %q", id.Value, "BRK.B")
+						t.Errorf("returned MIC_TICKER value = %q, want canonical %q", id.Value, "BRK.B")
 					}
 					break
 				}
@@ -174,7 +174,7 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 
 	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 		identifier.Hints{},
-		[]identifier.Identifier{{Type: "TICKER", Value: "AAPL"}},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 	)
 
 	if err == nil {
@@ -197,7 +197,7 @@ func TestPlugin_Identify_EmptyResults(t *testing.T) {
 
 	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 		identifier.Hints{},
-		[]identifier.Identifier{{Type: "TICKER", Value: "AAPL"}},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 	)
 
 	if !errors.Is(err, identifier.ErrNotIdentified) {
@@ -218,7 +218,7 @@ func TestPlugin_Identify_NonStockFiltered(t *testing.T) {
 
 	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 		identifier.Hints{},
-		[]identifier.Identifier{{Type: "TICKER", Value: "SPY"}},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "SPY"}},
 	)
 
 	if !errors.Is(err, identifier.ErrNotIdentified) {

@@ -37,7 +37,7 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
-	idHints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
 	inst, ids, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if err != nil {
@@ -91,7 +91,7 @@ func TestPlugin_Identify_Stock_SplitTickerNormalized(t *testing.T) {
 			p := NewPlugin(nil, nil, http.DefaultClient)
 			cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 			hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
-			idHints := []identifier.Identifier{{Type: "TICKER", Value: tt.input}}
+			idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: tt.input}}
 
 			inst, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 			if err != nil {
@@ -122,7 +122,7 @@ func TestPlugin_Identify_Stock_IndexReturnsNotIdentified(t *testing.T) {
 	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
-	idHints := []identifier.Identifier{{Type: "TICKER", Value: "SPX"}}
+	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "SPX"}}
 
 	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
@@ -188,7 +188,7 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
 	}
 	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{TICKER AAPL}]", inst.UnderlyingIdentifiers)
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", inst.UnderlyingIdentifiers)
 	}
 	if len(ids) != 2 {
 		t.Fatalf("len(ids) = %d, want 2", len(ids))
@@ -234,7 +234,7 @@ func TestPlugin_Identify_Option_OCC_SpacePadded(t *testing.T) {
 		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
 	}
 	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{TICKER AAPL}]", inst.UnderlyingIdentifiers)
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", inst.UnderlyingIdentifiers)
 	}
 }
 
@@ -268,7 +268,7 @@ func TestPlugin_Identify_Option_NoOCC(t *testing.T) {
 	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: "http://unused"})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
-	idHints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
 	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
@@ -285,7 +285,7 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 	p := NewPlugin(nil, nil, http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
-	idHints := []identifier.Identifier{{Type: "TICKER", Value: "AAPL"}}
+	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
 	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if err == nil {

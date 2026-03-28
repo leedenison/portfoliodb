@@ -69,7 +69,7 @@ type Plugin interface {
 	DisplayName() string
 
 	// SupportedIdentifierTypes returns identifier types this plugin can use
-	// to look up prices (e.g. ["TICKER", "OCC"]). The orchestrator passes
+	// to look up prices (e.g. ["MIC_TICKER", "OPENFIGI_TICKER", "OCC"]). The orchestrator passes
 	// only identifiers of these types to FetchPrices. An instrument is
 	// eligible for this plugin if it has ANY of these identifier types.
 	SupportedIdentifierTypes() []string

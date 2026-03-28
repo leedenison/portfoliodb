@@ -13,8 +13,8 @@ ON CONFLICT (id) DO NOTHING;
 -- Identifiers.
 INSERT INTO instrument_identifiers (instrument_id, identifier_type, value, canonical)
 VALUES
-  ('e2e00000-0000-0000-0000-000000000201', 'TICKER', 'DBNA', true),
-  ('e2e00000-0000-0000-0000-000000000202', 'TICKER', 'DBNB', true)
+  ('e2e00000-0000-0000-0000-000000000201', 'MIC_TICKER', 'DBNA', true),
+  ('e2e00000-0000-0000-0000-000000000202', 'MIC_TICKER', 'DBNB', true)
 ON CONFLICT DO NOTHING;
 
 -- Transactions for the regular test user.

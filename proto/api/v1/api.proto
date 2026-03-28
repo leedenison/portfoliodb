@@ -59,20 +59,22 @@ enum IdentifierType {
   OPENFIGI_GLOBAL = 9;
   OPENFIGI_SHARE_CLASS = 10;
   OPENFIGI_COMPOSITE = 11;
-  TICKER = 12;
-  BROKER_DESCRIPTION = 13;
-  CURRENCY = 14;
-  FX_PAIR = 15;
+  BROKER_DESCRIPTION = 12;
+  CURRENCY = 13;
+  FX_PAIR = 14;
+  MIC_TICKER = 15;
+  OPENFIGI_TICKER = 16;
 }
 
 // InstrumentIdentifier is one (type, domain, value) for an instrument.
 // For BROKER_DESCRIPTION, domain is the source (e.g. "Fidelity:web:fidelity-csv") and value is the instrument_description.
-// For TICKER, domain is the exchange code when present. canonical = false only for broker-description identifiers.
+// For MIC_TICKER, domain is an ISO 10383 MIC code (or empty when unknown). For OPENFIGI_TICKER, domain is a Bloomberg/OpenFIGI exchange code (e.g. "US").
+// canonical = false only for broker-description identifiers.
 message InstrumentIdentifier {
   IdentifierType type = 1;
   string value = 2;
   bool canonical = 3;
-  string domain = 4; // optional; e.g. exchange code for TICKER, source for BROKER_DESCRIPTION
+  string domain = 4; // optional; MIC for MIC_TICKER, exchange code for OPENFIGI_TICKER, source for BROKER_DESCRIPTION
 }
 
 // Instrument is canonical security-master data for an instrument, with its identifiers.
@@ -126,7 +128,7 @@ message Tx {
   string exchange_code_hint = 10;
   // Optional MIC (market identifier code) hint. Not stored as canonical; used only to narrow resolution.
   string mic_hint = 11;
-  // Optional external identifier hints (e.g. ISIN, CUSIP, FIGI, TICKER). When supplied, resolution uses these and does not store (source, description) on the instrument.
+  // Optional external identifier hints (e.g. ISIN, CUSIP, FIGI, MIC_TICKER). When supplied, resolution uses these and does not store (source, description) on the instrument.
   repeated InstrumentIdentifier identifier_hints = 12;
   // NULL for real transactions, 'INITIALIZE' for synthetic opening-balance transactions.
   string synthetic_purpose = 13;
@@ -599,9 +601,9 @@ message ExportPricesRequest {}
 
 // ExportPriceRow is one price row with instrument identifier context.
 message ExportPriceRow {
-  string identifier_type = 1;    // IdentifierType name (e.g. "ISIN", "TICKER")
+  string identifier_type = 1;    // IdentifierType name (e.g. "ISIN", "MIC_TICKER", "OPENFIGI_TICKER")
   string identifier_value = 2;
-  string identifier_domain = 3;  // MIC for TICKER, source for BROKER_DESCRIPTION, empty otherwise
+  string identifier_domain = 3;  // MIC for MIC_TICKER, exchange code for OPENFIGI_TICKER, source for BROKER_DESCRIPTION, empty otherwise
   string price_date = 4;         // "YYYY-MM-DD"
   optional double open = 5;
   optional double high = 6;

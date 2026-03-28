@@ -174,7 +174,7 @@ describe("portfolio-api", () => {
                 exchange: "XNAS",
                 currency: "USD",
                 identifiers: [
-                  { type: IdentifierType.TICKER, value: "AAPL", domain: "XNAS", canonical: true },
+                  { type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS", canonical: true },
                 ],
               },
             ],

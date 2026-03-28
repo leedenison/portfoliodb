@@ -30,7 +30,7 @@ type Tab = "accounts" | "instruments";
 
 function displayName(inst: Instrument): string {
   const ticker = inst.identifiers.find(
-    (id) => id.type === IdentifierType.TICKER
+    (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
   );
   if (ticker) return ticker.value;
   if (inst.name) return inst.name;

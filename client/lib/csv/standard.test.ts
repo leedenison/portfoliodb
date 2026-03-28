@@ -224,7 +224,7 @@ not-a-date,FOO,BUYSTOCK,5
       expect.objectContaining({ type: IdentifierType.ISIN, value: "US0378331005", canonical: false })
     );
     expect(result.txs[0].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.TICKER, value: "AAPL", domain: "US", canonical: false })
+      expect.objectContaining({ type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "US", canonical: false })
     );
     expect(result.txs[0].identifierHints).toContainEqual(
       expect.objectContaining({ type: IdentifierType.OPENFIGI_SHARE_CLASS, value: "BG0000000000", canonical: false })
@@ -245,7 +245,7 @@ not-a-date,FOO,BUYSTOCK,5
     expect(result.errors).toHaveLength(0);
     expect(result.txs).toHaveLength(1);
     expect(result.txs[0].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.TICKER, value: "SYM", domain: "LON", canonical: false })
+      expect.objectContaining({ type: IdentifierType.MIC_TICKER, value: "SYM", domain: "LON", canonical: false })
     );
   });
 });

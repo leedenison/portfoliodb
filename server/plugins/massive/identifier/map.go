@@ -37,14 +37,14 @@ func optionFromContract(r *client.OptionsContractResult) (*identifier.Instrument
 	}
 	if r.UnderlyingTicker != "" {
 		inst.UnderlyingIdentifiers = []identifier.Identifier{
-			{Type: "TICKER", Value: r.UnderlyingTicker},
+			{Type: "MIC_TICKER", Value: r.UnderlyingTicker},
 		}
 	}
 	var ids []identifier.Identifier
 	if r.Ticker != "" {
 		occVal := strings.TrimPrefix(r.Ticker, "O:")
 		ids = append(ids, identifier.Identifier{Type: "OCC", Value: occVal})
-		ids = append(ids, identifier.Identifier{Type: "TICKER", Domain: r.PrimaryExchange, Value: occVal})
+		ids = append(ids, identifier.Identifier{Type: "MIC_TICKER", Domain: r.PrimaryExchange, Value: occVal})
 	}
 	return inst, ids
 }
@@ -53,7 +53,7 @@ func optionFromContract(r *client.OptionsContractResult) (*identifier.Instrument
 func tickerIdentifiers(r *client.TickerOverviewResult) []identifier.Identifier {
 	var ids []identifier.Identifier
 	if r.Ticker != "" {
-		ids = append(ids, identifier.Identifier{Type: "TICKER", Domain: r.PrimaryExchange, Value: r.Ticker})
+		ids = append(ids, identifier.Identifier{Type: "MIC_TICKER", Domain: r.PrimaryExchange, Value: r.Ticker})
 	}
 	if r.CompositeFIGI != "" {
 		ids = append(ids, identifier.Identifier{Type: "OPENFIGI_COMPOSITE", Value: r.CompositeFIGI})

@@ -29,7 +29,7 @@ func TestIntegration_EODHD_Identify(t *testing.T) {
 			cassette: "testdata/cassettes/stock_aapl",
 			hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 			idHints: []identifier.Identifier{
-				{Type: "TICKER", Value: "AAPL"},
+				{Type: "MIC_TICKER", Value: "AAPL"},
 			},
 			wantClass: "STOCK",
 		},
@@ -38,7 +38,7 @@ func TestIntegration_EODHD_Identify(t *testing.T) {
 			cassette: "testdata/cassettes/stock_brk_b",
 			hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 			idHints: []identifier.Identifier{
-				{Type: "TICKER", Value: "BRK-B"},
+				{Type: "MIC_TICKER", Value: "BRK-B"},
 			},
 			wantClass: "STOCK",
 		},
@@ -56,7 +56,7 @@ func TestIntegration_EODHD_Identify(t *testing.T) {
 			cassette: "testdata/cassettes/stock_exchange_hint",
 			hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock, ExchangeCode: "US"},
 			idHints: []identifier.Identifier{
-				{Type: "TICKER", Value: "AAPL"},
+				{Type: "MIC_TICKER", Value: "AAPL"},
 			},
 			wantClass: "STOCK",
 		},
@@ -65,7 +65,7 @@ func TestIntegration_EODHD_Identify(t *testing.T) {
 			cassette: "testdata/cassettes/not_found",
 			hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 			idHints: []identifier.Identifier{
-				{Type: "TICKER", Value: "ZZZZNOTREAL"},
+				{Type: "MIC_TICKER", Value: "ZZZZNOTREAL"},
 			},
 			wantErr: identifier.ErrNotIdentified,
 		},

@@ -28,7 +28,7 @@ func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 			cassette: "testdata/cassettes/stock_ibm_ticker",
 			hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 			idHints: []identifier.Identifier{
-				{Type: "TICKER", Value: "IBM"},
+				{Type: "MIC_TICKER", Value: "IBM"},
 			},
 			wantClass: "STOCK",
 		},
@@ -55,7 +55,7 @@ func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 			cassette: "testdata/cassettes/not_found",
 			hints:    identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 			idHints: []identifier.Identifier{
-				{Type: "TICKER", Value: "ZZZZNOTREAL"},
+				{Type: "MIC_TICKER", Value: "ZZZZNOTREAL"},
 			},
 			wantErr: identifier.ErrNotIdentified,
 		},

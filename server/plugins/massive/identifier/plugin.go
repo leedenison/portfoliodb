@@ -141,9 +141,12 @@ func (p *Plugin) getClient(config []byte) (*client.Client, error) {
 	return p.client, nil
 }
 
-// identifyStock looks up a stock via TICKER hint and the ticker overview API.
+// identifyStock looks up a stock via MIC_TICKER/OPENFIGI_TICKER hint and the ticker overview API.
 func (p *Plugin) identifyStock(ctx context.Context, c *client.Client, hints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
-	ticker := findHint(hints, "TICKER")
+	ticker := findHint(hints, "MIC_TICKER")
+	if ticker == "" {
+		ticker = findHint(hints, "OPENFIGI_TICKER")
+	}
 	if ticker == "" {
 		return nil, nil, identifier.ErrNotIdentified
 	}

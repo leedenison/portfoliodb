@@ -24,7 +24,7 @@ func TestListInstruments_Success(t *testing.T) {
 	rows := []*dbpkg.InstrumentRow{
 		{ID: "id-1", Name: strPtr("Apple"), AssetClass: strPtr("STOCK"), ExchangeMIC: strPtr("XNAS"), Currency: strPtr("USD"),
 			Identifiers: []dbpkg.IdentifierInput{
-				{Type: "TICKER", Value: "AAPL", Domain: "XNAS", Canonical: true},
+				{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS", Canonical: true},
 				{Type: "ISIN", Value: "US0378331005", Canonical: true},
 			}},
 	}

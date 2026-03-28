@@ -157,12 +157,12 @@ func (p *Plugin) getClient(config []byte) (*client.Client, error) {
 }
 
 // pickQuery selects the best query string and its type from identifier hints.
-// Prefers TICKER over ISIN.
+// Prefers MIC_TICKER/OPENFIGI_TICKER over ISIN.
 func pickQuery(hints []identifier.Identifier) (string, string) {
 	var isin string
 	for _, h := range hints {
-		if h.Type == "TICKER" && h.Value != "" {
-			return identifier.NormalizeSplitTicker(h.Value, "-"), "TICKER"
+		if (h.Type == "MIC_TICKER" || h.Type == "OPENFIGI_TICKER") && h.Value != "" {
+			return identifier.NormalizeSplitTicker(h.Value, "-"), h.Type
 		}
 		if h.Type == "ISIN" && h.Value != "" && isin == "" {
 			isin = h.Value

@@ -50,7 +50,7 @@ export function DeclarationForm({
   useEffect(() => {
     if (editing?.instrument) {
       const ticker = editing.instrument.identifiers?.find(
-        (id) => id.type === IdentifierType.TICKER
+        (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
       )?.value;
       setInstrumentLabel(ticker || editing.instrument.name || editing.instrumentId);
     }
@@ -113,7 +113,7 @@ export function DeclarationForm({
   const selectInstrument = (inst: Instrument) => {
     setInstrumentId(inst.id);
     const ticker = inst.identifiers?.find(
-      (id) => id.type === IdentifierType.TICKER
+      (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
     )?.value;
     setInstrumentLabel(ticker || inst.name || inst.id);
     setInstrumentSearch("");
@@ -207,7 +207,7 @@ export function DeclarationForm({
                   <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-surface shadow-lg">
                     {searchResults.map((inst) => {
                       const ticker = inst.identifiers?.find(
-                        (id) => id.type === IdentifierType.TICKER
+                        (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
                       )?.value;
                       return (
                         <button

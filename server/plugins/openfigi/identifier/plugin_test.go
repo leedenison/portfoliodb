@@ -419,8 +419,17 @@ func TestPlugin_Identify_Option_WithUnderlying(t *testing.T) {
 	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
 		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", inst.UnderlyingIdentifiers)
 	}
-	if len(ids) == 0 {
-		t.Error("expected identifiers")
+	hasOCC := false
+	for _, id := range ids {
+		if id.Type == "OCC" && id.Value == "AAPL251219C00200000" {
+			hasOCC = true
+		}
+		if id.Type == "OPENFIGI_TICKER" {
+			t.Errorf("unexpected OPENFIGI_TICKER identifier for option: %+v", id)
+		}
+	}
+	if !hasOCC {
+		t.Errorf("expected OCC identifier, got %+v", ids)
 	}
 }
 
@@ -477,6 +486,64 @@ func TestPlugin_Identify_Option_OCCSpacePadded(t *testing.T) {
 	}
 	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
 		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", inst.UnderlyingIdentifiers)
+	}
+}
+
+func TestPlugin_Identify_Option_ClassicTickerConvertedToOCC(t *testing.T) {
+	// OpenFIGI often returns Classic-format tickers for options (e.g. "AAPL 12/19/25 C200").
+	// The plugin should convert these to OCC format identifiers.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/v3/mapping" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode([]MappingResponseItem{
+			{Data: []OpenFIGIResult{{
+				FIGI:          "BBG00OPTION2",
+				Ticker:        "AAPL 12/19/25 C200",
+				Name:          "AAPL Dec 2025 200 Call",
+				ExchCode:      "US",
+				SecurityType:  "Option",
+				SecurityType2: "Equity Option",
+				MarketSector:  "Equity",
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{
+		"openfigi_api_key":  "test-key",
+		"openfigi_base_url": server.URL,
+	})
+	ctx := context.Background()
+	p := NewPlugin(nil, nil, http.DefaultClient)
+	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00200000"}}
+	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
+		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if inst == nil {
+		t.Fatal("expected instrument")
+	}
+	if inst.AssetClass != "OPTION" {
+		t.Errorf("inst.AssetClass = %q, want OPTION", inst.AssetClass)
+	}
+	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", inst.UnderlyingIdentifiers)
+	}
+	hasOCC := false
+	for _, id := range ids {
+		if id.Type == "OCC" && id.Value == "AAPL251219C00200000" {
+			hasOCC = true
+		}
+		if id.Type == "OPENFIGI_TICKER" {
+			t.Errorf("unexpected OPENFIGI_TICKER identifier for option: %+v", id)
+		}
+	}
+	if !hasOCC {
+		t.Errorf("expected OCC identifier AAPL251219C00200000, got %+v", ids)
 	}
 }
 

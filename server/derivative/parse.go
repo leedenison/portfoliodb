@@ -137,6 +137,17 @@ func OCCCompact(occ string) (string, bool) {
 	return compact, true
 }
 
+// OCCExpiry extracts the expiration date from a compact OCC identifier
+// (e.g. "AAPL251219C00230000"). Returns (zero, false) if the OCC is invalid.
+func OCCExpiry(occ string) (time.Time, bool) {
+	compact, ok := OCCCompact(occ)
+	if !ok {
+		return time.Time{}, false
+	}
+	suffix := compact[len(compact)-occSuffixLen:]
+	return parseYYMMDD(suffix[:6])
+}
+
 // OCCPadded normalizes an OCC identifier to the standard 21-character space-padded
 // format (e.g. "AAPL  251219C00230000"). Returns ("", false) if the input is not a valid OCC.
 func OCCPadded(occ string) (string, bool) {

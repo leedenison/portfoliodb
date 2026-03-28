@@ -88,9 +88,10 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 }
 
 const (
-	counterSucceeded = "instruments.identification.massive.request.succeeded"
-	counterFailed    = "instruments.identification.massive.request.failed"
-	counterRateLimit = "instruments.identification.massive.request.rate_limit"
+	counterSucceeded     = "instruments.identification.massive.request.succeeded"
+	counterFailed        = "instruments.identification.massive.request.failed"
+	counterRateLimit     = "instruments.identification.massive.request.rate_limit"
+	counterExpirySkipped = "instruments.identification.massive.option.expiry_skipped"
 )
 
 func (p *Plugin) reportOutcome(ctx context.Context, err error) {
@@ -181,6 +182,14 @@ func (p *Plugin) identifyOption(ctx context.Context, c *client.Client, hints []i
 	if p.expiryHorizon > 0 {
 		if expiry, ok := derivative.OCCExpiry(compact); ok {
 			if time.Since(expiry) > p.expiryHorizon {
+				if p.log != nil {
+					p.log.InfoContext(ctx, "massive: skipping expired option beyond horizon",
+						"occ", compact, "expiry", expiry.Format("2006-01-02"),
+						"horizon_days", int(p.expiryHorizon.Hours()/24))
+				}
+				if p.counter != nil {
+					p.counter.Incr(ctx, counterExpirySkipped)
+				}
 				return nil, nil, identifier.ErrNotIdentified
 			}
 		}

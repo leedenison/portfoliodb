@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,7 +14,22 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
+	"github.com/leedenison/portfoliodb/server/telemetry"
 )
+
+type recordingCounter struct {
+	counts map[string]int
+}
+
+var _ telemetry.CounterIncrementer = (*recordingCounter)(nil)
+
+func (r *recordingCounter) Incr(_ context.Context, name string) {
+	r.counts[name]++
+}
+
+func (r *recordingCounter) IncrBy(_ context.Context, name string, n int64) {
+	r.counts[name] += int(n)
+}
 
 func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -341,7 +357,8 @@ func TestPlugin_Identify_Option_ExpiredBeyondHorizon(t *testing.T) {
 	expiry := time.Now().AddDate(0, 0, -200)
 	occ := makeOCC("AAPL", expiry, "C", 230)
 
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	ctr := &recordingCounter{counts: map[string]int{}}
+	p := NewPlugin(ctr, slog.Default(), http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
@@ -352,6 +369,9 @@ func TestPlugin_Identify_Option_ExpiredBeyondHorizon(t *testing.T) {
 	}
 	if apiCalled {
 		t.Fatal("API should not have been called for expired option beyond horizon")
+	}
+	if got := ctr.counts[counterExpirySkipped]; got != 1 {
+		t.Errorf("expiry_skipped counter = %d, want 1", got)
 	}
 }
 
@@ -405,7 +425,8 @@ func TestPlugin_Identify_Option_CustomHorizon(t *testing.T) {
 	occ := makeOCC("AAPL", expiry, "P", 150)
 	horizon := 30
 
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	ctr := &recordingCounter{counts: map[string]int{}}
+	p := NewPlugin(ctr, slog.Default(), http.DefaultClient)
 	cfg := mustMarshal(t, configJSON{
 		MassiveBaseURL:           srv.URL,
 		ExpiredDerivativeHorizon: &horizon,
@@ -419,6 +440,9 @@ func TestPlugin_Identify_Option_CustomHorizon(t *testing.T) {
 	}
 	if apiCalled {
 		t.Fatal("API should not have been called for expired option beyond custom horizon")
+	}
+	if got := ctr.counts[counterExpirySkipped]; got != 1 {
+		t.Errorf("expiry_skipped counter = %d, want 1", got)
 	}
 }
 

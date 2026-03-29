@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { ErrorAlert } from "@/app/components/error-alert";
+import { IgnoredAssetClassEditor } from "@/app/components/ignored-asset-class-editor";
 import { useAuth } from "@/contexts/auth-context";
 import { getDisplayCurrency, setDisplayCurrency } from "@/lib/portfolio-api";
 
@@ -106,6 +107,8 @@ export default function SettingsPage() {
                 )}
               </div>
             </div>
+
+            <IgnoredAssetClassEditor authStatus={state.status} />
           </div>
         )}
       </div>

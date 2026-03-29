@@ -88,6 +88,23 @@ func (c *Client) Search(ctx context.Context, query string, opts ...SearchOption)
 	return results, nil
 }
 
+// EODPrices fetches end-of-day OHLCV bars for the given symbol.
+// symbol is in EODHD format: "{ticker}.{exchange}" (e.g. "AAPL.US") or
+// "{pair}.FOREX" for FX. from and to are YYYY-MM-DD strings (inclusive).
+func (c *Client) EODPrices(ctx context.Context, symbol, from, to string) ([]EODBar, error) {
+	path := "/api/eod/" + url.PathEscape(symbol)
+	q := url.Values{}
+	q.Set("fmt", "json")
+	q.Set("period", "d")
+	q.Set("from", from)
+	q.Set("to", to)
+	var bars []EODBar
+	if err := c.get(ctx, path, q, &bars); err != nil {
+		return nil, err
+	}
+	return bars, nil
+}
+
 // get issues a rate-limited GET request and decodes the JSON response into out.
 func (c *Client) get(ctx context.Context, path string, extra url.Values, out any) error {
 	if err := c.limiter.Wait(ctx); err != nil {

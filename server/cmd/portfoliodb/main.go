@@ -31,6 +31,7 @@ import (
 	cashid "github.com/leedenison/portfoliodb/server/plugins/cash/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
 	eodhdplugin "github.com/leedenison/portfoliodb/server/plugins/eodhd/identifier"
+	eodhdprice "github.com/leedenison/portfoliodb/server/plugins/eodhd/price"
 	massiveplugin "github.com/leedenison/portfoliodb/server/plugins/massive/identifier"
 	massiveprice "github.com/leedenison/portfoliodb/server/plugins/massive/price"
 	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
@@ -197,6 +198,7 @@ func main() {
 	}
 	priceRegistry := pricefetcher.NewRegistry()
 	priceRegistry.Register(massiveprice.PluginID, massiveprice.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive/price"), pluginHTTPClient))
+	priceRegistry.Register(eodhdprice.PluginID, eodhdprice.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/eodhd/price"), pluginHTTPClient, exchMap))
 	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryPrice, priceRegistry.ListIDs(), func(id string) []byte {
 		if p := priceRegistry.Get(id); p != nil {
 			return p.DefaultConfig()

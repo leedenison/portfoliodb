@@ -24,13 +24,14 @@ func marshalPayload(t *testing.T, req *ingestionv1.UpsertTxsRequest) []byte {
 	return b
 }
 
-// expectLoadPayload sets up LoadJobPayload + ClearJobPayload + GetJob(userID) mocks.
+// expectLoadPayload sets up LoadJobPayload + ClearJobPayload + GetJob(userID) + ListIgnoredAssetClasses mocks.
 func expectLoadPayload(database *mock.MockDB, jobID, userID string, payload []byte) {
 	database.EXPECT().LoadJobPayload(gomock.Any(), jobID).Return(payload, nil)
 	database.EXPECT().ClearJobPayload(gomock.Any(), jobID).Return(nil)
 	database.EXPECT().GetJob(gomock.Any(), jobID).Return(
 		apiv1.JobStatus_RUNNING, nil, nil, userID, int32(0), int32(0), nil,
 	)
+	database.EXPECT().ListIgnoredAssetClasses(gomock.Any(), userID).Return(nil, nil)
 }
 
 func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *testing.T) {

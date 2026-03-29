@@ -51,63 +51,53 @@ func TestHintsFromTx_Currency(t *testing.T) {
 	})
 }
 
-func TestAssetClassToTxTypes(t *testing.T) {
+func TestAssetClassToTxTypeStrings(t *testing.T) {
 	t.Run("CASH maps to expected types", func(t *testing.T) {
-		types := AssetClassToTxTypes(identifier.SecurityTypeHintCash)
-		names := make([]string, len(types))
-		for i, tt := range types {
-			names[i] = tt.String()
-		}
-		sort.Strings(names)
+		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintCash)
+		sort.Strings(strs)
 		want := []string{"CASHFLOW", "INCOME", "INVEXPENSE", "JRNLFUND", "MARGININTEREST", "REINVEST", "RETOFCAP", "TRANSFER"}
 		sort.Strings(want)
-		if len(names) != len(want) {
-			t.Fatalf("got %v, want %v", names, want)
+		if len(strs) != len(want) {
+			t.Fatalf("got %v, want %v", strs, want)
 		}
-		for i := range names {
-			if names[i] != want[i] {
-				t.Errorf("index %d: got %q, want %q", i, names[i], want[i])
+		for i := range strs {
+			if strs[i] != want[i] {
+				t.Errorf("index %d: got %q, want %q", i, strs[i], want[i])
 			}
 		}
 	})
 	t.Run("FUTURE maps to BUYFUTURE and SELLFUTURE", func(t *testing.T) {
-		types := AssetClassToTxTypes(identifier.SecurityTypeHintFuture)
-		names := make([]string, len(types))
-		for i, tt := range types {
-			names[i] = tt.String()
-		}
-		sort.Strings(names)
+		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintFuture)
+		sort.Strings(strs)
 		want := []string{"BUYFUTURE", "SELLFUTURE"}
-		if len(names) != len(want) {
-			t.Fatalf("got %v, want %v", names, want)
+		if len(strs) != len(want) {
+			t.Fatalf("got %v, want %v", strs, want)
 		}
-		for i := range names {
-			if names[i] != want[i] {
-				t.Errorf("index %d: got %q, want %q", i, names[i], want[i])
+		for i := range strs {
+			if strs[i] != want[i] {
+				t.Errorf("index %d: got %q, want %q", i, strs[i], want[i])
 			}
 		}
 	})
 	t.Run("ETF has no mapped types", func(t *testing.T) {
-		types := AssetClassToTxTypes(identifier.SecurityTypeHintETF)
-		if len(types) != 0 {
-			t.Errorf("expected empty, got %v", types)
+		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintETF)
+		if len(strs) != 0 {
+			t.Errorf("expected empty, got %v", strs)
 		}
 	})
-}
-
-func TestAssetClassToTxTypeStrings(t *testing.T) {
-	strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintOption)
-	sort.Strings(strs)
-	want := []string{"BUYOPT", "CLOSUREOPT", "SELLOPT"}
-	sort.Strings(want)
-	if len(strs) != len(want) {
-		t.Fatalf("got %v, want %v", strs, want)
-	}
-	for i := range strs {
-		if strs[i] != want[i] {
-			t.Errorf("index %d: got %q, want %q", i, strs[i], want[i])
+	t.Run("OPTION maps correctly", func(t *testing.T) {
+		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintOption)
+		sort.Strings(strs)
+		want := []string{"BUYOPT", "CLOSUREOPT", "SELLOPT"}
+		if len(strs) != len(want) {
+			t.Fatalf("got %v, want %v", strs, want)
 		}
-	}
+		for i := range strs {
+			if strs[i] != want[i] {
+				t.Errorf("index %d: got %q, want %q", i, strs[i], want[i])
+			}
+		}
+	})
 }
 
 func TestTxIgnored(t *testing.T) {

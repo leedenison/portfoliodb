@@ -73,6 +73,13 @@ import {
   GetDisplayCurrencyResponseSchema,
   SetDisplayCurrencyRequestSchema,
   SetDisplayCurrencyResponseSchema,
+  GetIgnoredAssetClassesRequestSchema,
+  GetIgnoredAssetClassesResponseSchema,
+  SetIgnoredAssetClassesRequestSchema,
+  SetIgnoredAssetClassesResponseSchema,
+  CountIgnoredTxsRequestSchema,
+  CountIgnoredTxsResponseSchema,
+  IgnoredAssetClassRuleSchema,
   JobStatus,
   WorkerState,
 } from "@/gen/api/v1/api_pb";
@@ -747,4 +754,60 @@ export async function listWorkers(): Promise<WorkerRow[]> {
     queueDepth: w.queueDepth,
     updatedAt: w.updatedAt ? timestampDate(w.updatedAt) : undefined,
   }));
+}
+
+// Ignored asset classes
+
+export interface IgnoredAssetClassRule {
+  broker: string;
+  account: string; // empty = all accounts for broker
+  assetClass: string;
+}
+
+export async function getIgnoredAssetClasses(): Promise<IgnoredAssetClassRule[]> {
+  const base = getBaseUrl();
+  const req = create(GetIgnoredAssetClassesRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "GetIgnoredAssetClasses", toBinary(GetIgnoredAssetClassesRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(GetIgnoredAssetClassesResponseSchema, resBytes);
+  return (res.rules ?? []).map((r) => ({
+    broker: r.broker,
+    account: r.account,
+    assetClass: r.assetClass,
+  }));
+}
+
+export async function setIgnoredAssetClasses(rules: IgnoredAssetClassRule[]): Promise<void> {
+  const base = getBaseUrl();
+  const req = create(SetIgnoredAssetClassesRequestSchema, {
+    rules: rules.map((r) =>
+      create(IgnoredAssetClassRuleSchema, {
+        broker: r.broker,
+        account: r.account,
+        assetClass: r.assetClass,
+      })
+    ),
+  });
+  await unaryFetch(base, ApiServicePrefix + "SetIgnoredAssetClasses", toBinary(SetIgnoredAssetClassesRequestSchema, req), {
+    credentials: "include",
+  });
+}
+
+export async function countIgnoredTxs(rules: IgnoredAssetClassRule[]): Promise<{ txCount: number; declarationCount: number }> {
+  const base = getBaseUrl();
+  const req = create(CountIgnoredTxsRequestSchema, {
+    rules: rules.map((r) =>
+      create(IgnoredAssetClassRuleSchema, {
+        broker: r.broker,
+        account: r.account,
+        assetClass: r.assetClass,
+      })
+    ),
+  });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "CountIgnoredTxs", toBinary(CountIgnoredTxsRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(CountIgnoredTxsResponseSchema, resBytes);
+  return { txCount: res.txCount, declarationCount: res.declarationCount };
 }

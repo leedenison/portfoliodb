@@ -136,13 +136,13 @@ The system should support the ability to fetch data on stock splits, mergers, de
 
 Portfoliodb should support OFX style transaction types.  For investments:
 
-* Buys: BUYDEBT, BUYMF, BUYOPT, BUYOTHER, BUYSTOCK
-* Sells: SELLDEBT, SELLMF, SELLOPT, SELLOTHER, SELLSTOCK
+* Buys: BUYDEBT, BUYFUTURE, BUYMF, BUYOPT, BUYOTHER, BUYSTOCK
+* Sells: SELLDEBT, SELLFUTURE, SELLMF, SELLOPT, SELLOTHER, SELLSTOCK
 * Other actions: INCOME, INVEXPENSE, REINVEST, RETOFCAP, SPLIT, TRANSFER, JRNLFUND, JRNLSEC, MARGININTEREST, CLOSUREOPT, CASHFLOW
 
 CASHFLOW represents a change in cash balance, such as the cash leg of a security purchase or sale.  When a broker reports a trade as a single row containing both the security quantity change and the cash amount, uploaders may split this into two transactions: the security transaction (e.g. BUYSTOCK) and a CASHFLOW transaction for the corresponding cash movement.
 
-For instrument resolution, JRNLFUND and CASHFLOW are treated as security type hint Cash and JRNLSEC as Stock. Transaction types that are not stored (e.g. **TxType** SPLIT) are dropped on upload.
+For instrument resolution, BUYFUTURE and SELLFUTURE are treated as security type hint Future, JRNLFUND and CASHFLOW as Cash, and JRNLSEC as Stock. Transaction types that are not stored (e.g. **TxType** SPLIT) are dropped on upload.
 
 For cash accounts (when support is added):
 

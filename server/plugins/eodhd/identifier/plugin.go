@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"sync"
 
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/client"
-	eodhdmigrations "github.com/leedenison/portfoliodb/server/plugins/eodhd/identifier/migrations"
+	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
@@ -24,30 +23,22 @@ type configJSON struct {
 	CallsPerMin  *int   `json:"eodhd_calls_per_min"`
 }
 
-// ExchangeCodeDB looks up EODHD exchange code to MIC mappings.
-type ExchangeCodeDB interface {
-	LookupMICsByEODHDCode(ctx context.Context, code string) ([]string, error)
-}
-
 // Plugin implements identifier.Plugin using the EODHD REST API.
 type Plugin struct {
 	counter    telemetry.CounterIncrementer
 	log        *slog.Logger
 	httpClient *http.Client
-	exchDB     ExchangeCodeDB
+	exchMap    *exchangemap.ExchangeMap
 
 	mu         sync.Mutex
 	client     *client.Client
 	lastConfig string
 }
 
-// NewPlugin returns a plugin. counter, log and exchDB are optional (nil for tests).
-func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client, exchDB ExchangeCodeDB) *Plugin {
-	return &Plugin{counter: counter, log: log, httpClient: httpClient, exchDB: exchDB}
+// NewPlugin returns a plugin. counter, log and exchMap are optional (nil for tests).
+func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client, exchMap *exchangemap.ExchangeMap) *Plugin {
+	return &Plugin{counter: counter, log: log, httpClient: httpClient, exchMap: exchMap}
 }
-
-// MigrationFS implements migrate.Migrator.
-func (p *Plugin) MigrationFS() fs.FS { return eodhdmigrations.Files }
 
 func (p *Plugin) DisplayName() string { return "EODHD" }
 
@@ -109,7 +100,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		return nil, nil, identifier.ErrNotIdentified
 	}
 
-	inst, ids := stockFromSearch(ctx, match, p.exchDB)
+	inst, ids := stockFromSearch(match, p.exchMap)
 	if inst == nil {
 		p.reportOutcome(ctx, identifier.ErrNotIdentified)
 		return nil, nil, identifier.ErrNotIdentified

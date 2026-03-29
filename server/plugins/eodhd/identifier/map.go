@@ -1,21 +1,21 @@
 package identifier
 
 import (
-	"context"
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/client"
+	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
 )
 
 // stockFromSearch maps an EODHD search result to an Instrument and identifiers.
-// Returns nil if the result is not a stock type. exchDB may be nil.
-func stockFromSearch(ctx context.Context, r *client.SearchResult, exchDB ExchangeCodeDB) (*identifier.Instrument, []identifier.Identifier) {
+// Returns nil if the result is not a stock type. exchMap may be nil.
+func stockFromSearch(r *client.SearchResult, exchMap *exchangemap.ExchangeMap) (*identifier.Instrument, []identifier.Identifier) {
 	if !isStockType(r.Type) {
 		return nil, nil
 	}
-	exchange := resolveExchange(ctx, r.Exchange, exchDB)
+	exchange := resolveExchange(r.Exchange, exchMap)
 	inst := &identifier.Instrument{
 		AssetClass: db.AssetClassStock,
 		Exchange:   exchange,
@@ -33,12 +33,12 @@ func stockFromSearch(ctx context.Context, r *client.SearchResult, exchDB Exchang
 }
 
 // resolveExchange maps an EODHD exchange code to the first operating MIC.
-func resolveExchange(ctx context.Context, eodhdCode string, exchDB ExchangeCodeDB) string {
-	if exchDB == nil || eodhdCode == "" {
+func resolveExchange(eodhdCode string, exchMap *exchangemap.ExchangeMap) string {
+	if exchMap == nil || eodhdCode == "" {
 		return ""
 	}
-	mics, err := exchDB.LookupMICsByEODHDCode(ctx, eodhdCode)
-	if err != nil || len(mics) == 0 {
+	mics := exchMap.EODHDCodeToMICs(eodhdCode)
+	if len(mics) == 0 {
 		return ""
 	}
 	return mics[0]

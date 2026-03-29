@@ -1,10 +1,10 @@
 package identifier
 
 import (
-	"context"
 	"testing"
 
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/client"
+	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
 )
 
 func TestStockFromSearch(t *testing.T) {
@@ -17,7 +17,7 @@ func TestStockFromSearch(t *testing.T) {
 		ISIN:     "US0378331005",
 	}
 
-	inst, ids := stockFromSearch(context.Background(), r, nil)
+	inst, ids := stockFromSearch(r, nil)
 
 	if inst == nil {
 		t.Fatal("expected instrument")
@@ -26,7 +26,7 @@ func TestStockFromSearch(t *testing.T) {
 		t.Errorf("AssetClass = %q, want STOCK", inst.AssetClass)
 	}
 	if inst.Exchange != "" {
-		t.Errorf("Exchange = %q, want empty (EODHD codes are not MICs)", inst.Exchange)
+		t.Errorf("Exchange = %q, want empty (no exchMap)", inst.Exchange)
 	}
 	if inst.Currency != "USD" {
 		t.Errorf("Currency = %q, want USD", inst.Currency)
@@ -66,7 +66,7 @@ func TestStockFromSearch_NoISIN(t *testing.T) {
 		Currency: "USD",
 	}
 
-	_, ids := stockFromSearch(context.Background(), r, nil)
+	_, ids := stockFromSearch(r, nil)
 
 	if len(ids) != 1 {
 		t.Errorf("got %d identifiers, want 1 (MIC_TICKER only)", len(ids))
@@ -85,7 +85,7 @@ func TestStockFromSearch_NonStockType(t *testing.T) {
 		Currency: "USD",
 	}
 
-	inst, _ := stockFromSearch(context.Background(), r, nil)
+	inst, _ := stockFromSearch(r, nil)
 
 	if inst != nil {
 		t.Error("expected nil instrument for non-stock type")
@@ -133,17 +133,8 @@ func TestBestMatch_NoResults(t *testing.T) {
 	}
 }
 
-// stubExchDB implements ExchangeCodeDB for testing.
-type stubExchDB struct {
-	mics map[string][]string
-}
-
-func (s *stubExchDB) LookupMICsByEODHDCode(_ context.Context, code string) ([]string, error) {
-	return s.mics[code], nil
-}
-
-func TestStockFromSearch_WithExchangeDB(t *testing.T) {
-	db := &stubExchDB{mics: map[string][]string{"US": {"XNAS", "XNYS", "OTCM"}}}
+func TestStockFromSearch_WithExchangeMap(t *testing.T) {
+	exchMap := exchangemap.New()
 	r := &client.SearchResult{
 		Code:     "AAPL",
 		Exchange: "US",
@@ -153,7 +144,7 @@ func TestStockFromSearch_WithExchangeDB(t *testing.T) {
 		ISIN:     "US0378331005",
 	}
 
-	inst, ids := stockFromSearch(context.Background(), r, db)
+	inst, ids := stockFromSearch(r, exchMap)
 
 	if inst == nil {
 		t.Fatal("expected instrument")
@@ -161,7 +152,6 @@ func TestStockFromSearch_WithExchangeDB(t *testing.T) {
 	if inst.Exchange != "XNAS" {
 		t.Errorf("Exchange = %q, want XNAS (first MIC for US)", inst.Exchange)
 	}
-	// MIC_TICKER domain should also be the resolved exchange
 	for _, id := range ids {
 		if id.Type == "MIC_TICKER" && id.Domain != "XNAS" {
 			t.Errorf("MIC_TICKER Domain = %q, want XNAS", id.Domain)
@@ -169,16 +159,16 @@ func TestStockFromSearch_WithExchangeDB(t *testing.T) {
 	}
 }
 
-func TestResolveExchange_NilDB(t *testing.T) {
-	got := resolveExchange(context.Background(), "US", nil)
+func TestResolveExchange_NilMap(t *testing.T) {
+	got := resolveExchange("US", nil)
 	if got != "" {
-		t.Errorf("resolveExchange with nil DB = %q, want empty", got)
+		t.Errorf("resolveExchange with nil map = %q, want empty", got)
 	}
 }
 
 func TestResolveExchange_EmptyCode(t *testing.T) {
-	db := &stubExchDB{mics: map[string][]string{"US": {"XNAS"}}}
-	got := resolveExchange(context.Background(), "", db)
+	exchMap := exchangemap.New()
+	got := resolveExchange("", exchMap)
 	if got != "" {
 		t.Errorf("resolveExchange with empty code = %q, want empty", got)
 	}

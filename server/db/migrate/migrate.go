@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"hash/fnv"
 	"io/fs"
 	"regexp"
 	"sort"
@@ -53,96 +52,6 @@ func Up(ctx context.Context, db *sql.DB, migrations fs.FS) error {
 		}
 	}
 	return nil
-}
-
-// UpPlugin applies pending migrations from the given fs.FS for a specific plugin.
-// It uses plugin_schema_migrations (plugin_id, version) for tracking and a
-// per-plugin advisory lock to prevent concurrent application.
-func UpPlugin(ctx context.Context, db *sql.DB, pluginID string, migrations fs.FS) error {
-	if err := createPluginSchemaMigrations(ctx, db); err != nil {
-		return fmt.Errorf("create plugin_schema_migrations: %w", err)
-	}
-	lockID := pluginAdvisoryLockID(pluginID)
-	acquired, err := tryAdvisoryLock(ctx, db, 30*time.Second, lockID)
-	if err != nil {
-		return fmt.Errorf("advisory lock: %w", err)
-	}
-	if !acquired {
-		return fmt.Errorf("advisory lock: timeout waiting for plugin migration lock")
-	}
-	defer releaseAdvisoryLock(context.Background(), db, lockID)
-
-	names, err := listMigrations(migrations)
-	if err != nil {
-		return fmt.Errorf("list migrations: %w", err)
-	}
-	for _, name := range names {
-		version := versionFromName(name)
-		if version == "" {
-			continue
-		}
-		applied, err := isPluginApplied(ctx, db, pluginID, version)
-		if err != nil {
-			return fmt.Errorf("check applied %s: %w", version, err)
-		}
-		if applied {
-			continue
-		}
-		if err := applyPluginMigration(ctx, db, migrations, name, pluginID, version); err != nil {
-			return fmt.Errorf("apply %s: %w", name, err)
-		}
-	}
-	return nil
-}
-
-func createPluginSchemaMigrations(ctx context.Context, db *sql.DB) error {
-	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS plugin_schema_migrations (
-		plugin_id TEXT NOT NULL,
-		version   TEXT NOT NULL,
-		PRIMARY KEY (plugin_id, version)
-	)`)
-	return err
-}
-
-func pluginAdvisoryLockID(pluginID string) int64 {
-	h := fnv.New64a()
-	h.Write([]byte("plugin-migrate:" + pluginID))
-	return int64(h.Sum64())
-}
-
-func isPluginApplied(ctx context.Context, db *sql.DB, pluginID, version string) (bool, error) {
-	var n int
-	err := db.QueryRowContext(ctx,
-		`SELECT 1 FROM plugin_schema_migrations WHERE plugin_id = $1 AND version = $2`,
-		pluginID, version).Scan(&n)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func applyPluginMigration(ctx context.Context, db *sql.DB, migrations fs.FS, name, pluginID, version string) error {
-	body, err := fs.ReadFile(migrations, name)
-	if err != nil {
-		return err
-	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, string(body)); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO plugin_schema_migrations (plugin_id, version) VALUES ($1, $2)`,
-		pluginID, version); err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 func createSchemaMigrations(ctx context.Context, db *sql.DB) error {

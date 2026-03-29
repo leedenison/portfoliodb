@@ -11,7 +11,6 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/leedenison/portfoliodb/server/db/migrate"
 	"github.com/leedenison/portfoliodb/server/migrations"
-	eodhdmigrations "github.com/leedenison/portfoliodb/server/plugins/eodhd/identifier/migrations"
 	_ "github.com/lib/pq"
 )
 
@@ -34,9 +33,6 @@ func TestMain(m *testing.M) {
 		}
 		if err := migrate.Up(context.Background(), conn, migrations.Files); err != nil {
 			log.Fatalf("TestMain migrate: %v", err)
-		}
-		if err := migrate.UpPlugin(context.Background(), conn, "eodhd", eodhdmigrations.Files); err != nil {
-			log.Fatalf("TestMain eodhd migrate: %v", err)
 		}
 	}
 	os.Exit(m.Run())

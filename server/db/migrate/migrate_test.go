@@ -5,35 +5,12 @@ import (
 	"testing/fstest"
 )
 
-func TestPluginAdvisoryLockID_Deterministic(t *testing.T) {
-	a := pluginAdvisoryLockID("eodhd")
-	b := pluginAdvisoryLockID("eodhd")
-	if a != b {
-		t.Errorf("non-deterministic: %d != %d", a, b)
-	}
-}
-
-func TestPluginAdvisoryLockID_DiffersFromCore(t *testing.T) {
-	id := pluginAdvisoryLockID("eodhd")
-	if id == advisoryLockID {
-		t.Error("plugin lock ID should differ from core lock ID")
-	}
-}
-
-func TestPluginAdvisoryLockID_DiffersPerPlugin(t *testing.T) {
-	a := pluginAdvisoryLockID("eodhd")
-	b := pluginAdvisoryLockID("massive")
-	if a == b {
-		t.Errorf("different plugins should have different lock IDs: %d", a)
-	}
-}
-
-func TestListMigrations_PluginFS(t *testing.T) {
+func TestListMigrations(t *testing.T) {
 	fs := fstest.MapFS{
-		"001_init.sql":   {Data: []byte("CREATE TABLE t (id INT);")},
-		"002_seed.sql":   {Data: []byte("INSERT INTO t VALUES (1);")},
-		"readme.txt":     {Data: []byte("not a migration")},
-		"003_extra.sql":  {Data: []byte("ALTER TABLE t ADD col TEXT;")},
+		"001_init.sql":  {Data: []byte("CREATE TABLE t (id INT);")},
+		"002_seed.sql":  {Data: []byte("INSERT INTO t VALUES (1);")},
+		"readme.txt":    {Data: []byte("not a migration")},
+		"003_extra.sql": {Data: []byte("ALTER TABLE t ADD col TEXT;")},
 	}
 
 	names, err := listMigrations(fs)

@@ -33,7 +33,6 @@ type DB interface {
 	EODPriceListDB
 	HoldingDeclarationDB
 	IgnoredAssetClassDB
-	EODHDExchangeCodeDB
 }
 
 // PriceFetchBlockDB manages permanently blocked (instrument, plugin) pairs.
@@ -486,11 +485,4 @@ type IgnoredAssetClassDB interface {
 	// CountIgnoredTxs returns the number of regular txs and holding declarations
 	// that would be deleted if the given rules were applied (net new vs current).
 	CountIgnoredTxs(ctx context.Context, userID string, rules []IgnoredAssetClass, assetClassToTxTypes map[string][]string) (txCount int32, declCount int32, err error)
-}
-
-// EODHDExchangeCodeDB looks up EODHD exchange code to MIC mappings.
-type EODHDExchangeCodeDB interface {
-	// LookupMICsByEODHDCode returns the operating MIC(s) for an EODHD exchange code.
-	// Returns nil if the code is not found.
-	LookupMICsByEODHDCode(ctx context.Context, code string) ([]string, error)
 }

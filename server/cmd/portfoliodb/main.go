@@ -29,6 +29,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/migrations"
 	cashdesc "github.com/leedenison/portfoliodb/server/plugins/cash/description"
 	cashid "github.com/leedenison/portfoliodb/server/plugins/cash/identifier"
+	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
 	eodhdplugin "github.com/leedenison/portfoliodb/server/plugins/eodhd/identifier"
 	massiveplugin "github.com/leedenison/portfoliodb/server/plugins/massive/identifier"
 	massiveprice "github.com/leedenison/portfoliodb/server/plugins/massive/price"
@@ -171,7 +172,8 @@ func main() {
 	pluginRegistry := identifier.NewRegistry()
 	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openfigi"), pluginHTTPClient))
 	pluginRegistry.Register(massiveplugin.PluginID, massiveplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive"), pluginHTTPClient))
-	eodhdPlugin := eodhdplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/eodhd"), pluginHTTPClient, database)
+	exchMap := exchangemap.New()
+	eodhdPlugin := eodhdplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/eodhd"), pluginHTTPClient, exchMap)
 	pluginRegistry.Register(eodhdplugin.PluginID, eodhdPlugin)
 	pluginRegistry.Register(cashid.PluginID, cashid.NewPlugin(database))
 	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryIdentifier, pluginRegistry.ListIDs(), func(id string) []byte {
@@ -203,19 +205,6 @@ func main() {
 	}); err != nil {
 		log.Fatalf("ensure price plugin configs: %v", err)
 	}
-	// Run plugin migrations for plugins that implement migrate.Migrator.
-	for id, p := range map[string]any{
-		eodhdplugin.PluginID: eodhdPlugin,
-	} {
-		if m, ok := p.(migrate.Migrator); ok {
-			if mfs := m.MigrationFS(); mfs != nil {
-				if err := migrate.UpPlugin(ctx, rawConn, id, mfs); err != nil {
-					log.Fatalf("plugin %s migrate: %v", id, err)
-				}
-			}
-		}
-	}
-
 	priceTrigger := make(chan struct{}, 1)
 	queue := make(chan *ingestion.JobRequest, 256)
 	workers := worker.NewRegistry()

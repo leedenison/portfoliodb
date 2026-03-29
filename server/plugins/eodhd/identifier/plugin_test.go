@@ -37,7 +37,7 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, httpClient)
+	p := NewPlugin(nil, nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
 	inst, ids, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
@@ -67,7 +67,7 @@ func TestPlugin_Identify_ISIN_Fallback(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, httpClient)
+	p := NewPlugin(nil, nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
 	inst, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
@@ -109,7 +109,7 @@ func TestPlugin_Identify_SplitTickerNormalized(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := NewPlugin(nil, nil, httpClient)
+			p := NewPlugin(nil, nil, httpClient, nil)
 			cfg := testConfig(t, srv.URL)
 
 			inst, ids, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
@@ -136,7 +136,7 @@ func TestPlugin_Identify_SplitTickerNormalized(t *testing.T) {
 }
 
 func TestPlugin_Identify_NoHints(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	cfg := testConfig(t, "http://unused")
 
 	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
@@ -150,7 +150,7 @@ func TestPlugin_Identify_NoHints(t *testing.T) {
 }
 
 func TestPlugin_Identify_NoTickerOrISIN(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	cfg := testConfig(t, "http://unused")
 
 	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
@@ -169,7 +169,7 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, httpClient)
+	p := NewPlugin(nil, nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
 	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
@@ -192,7 +192,7 @@ func TestPlugin_Identify_EmptyResults(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, httpClient)
+	p := NewPlugin(nil, nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
 	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
@@ -213,7 +213,7 @@ func TestPlugin_Identify_NonStockFiltered(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, httpClient)
+	p := NewPlugin(nil, nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
 	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
@@ -227,7 +227,7 @@ func TestPlugin_Identify_NonStockFiltered(t *testing.T) {
 }
 
 func TestPlugin_DefaultConfig(t *testing.T) {
-	p := NewPlugin(nil, nil, nil)
+	p := NewPlugin(nil, nil, nil, nil)
 	cfg := p.DefaultConfig()
 
 	var parsed configJSON
@@ -240,7 +240,7 @@ func TestPlugin_DefaultConfig(t *testing.T) {
 }
 
 func TestPlugin_AcceptableSecurityTypes(t *testing.T) {
-	p := NewPlugin(nil, nil, nil)
+	p := NewPlugin(nil, nil, nil, nil)
 	types := p.AcceptableSecurityTypes()
 
 	if !types[identifier.SecurityTypeHintStock] {

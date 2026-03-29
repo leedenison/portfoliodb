@@ -2,6 +2,9 @@
 proto/**/*.pb.go
 **/*_mock.go
 
+# Make stamps
+.stamps/
+
 # Binaries
 /portfoliodb
 *.exe

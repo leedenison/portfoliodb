@@ -171,7 +171,8 @@ func main() {
 	pluginRegistry := identifier.NewRegistry()
 	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openfigi"), pluginHTTPClient))
 	pluginRegistry.Register(massiveplugin.PluginID, massiveplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive"), pluginHTTPClient))
-	pluginRegistry.Register(eodhdplugin.PluginID, eodhdplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/eodhd"), pluginHTTPClient))
+	eodhdPlugin := eodhdplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/eodhd"), pluginHTTPClient, database)
+	pluginRegistry.Register(eodhdplugin.PluginID, eodhdPlugin)
 	pluginRegistry.Register(cashid.PluginID, cashid.NewPlugin(database))
 	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryIdentifier, pluginRegistry.ListIDs(), func(id string) []byte {
 		if p := pluginRegistry.Get(id); p != nil {
@@ -202,6 +203,19 @@ func main() {
 	}); err != nil {
 		log.Fatalf("ensure price plugin configs: %v", err)
 	}
+	// Run plugin migrations for plugins that implement migrate.Migrator.
+	for id, p := range map[string]any{
+		eodhdplugin.PluginID: eodhdPlugin,
+	} {
+		if m, ok := p.(migrate.Migrator); ok {
+			if mfs := m.MigrationFS(); mfs != nil {
+				if err := migrate.UpPlugin(ctx, rawConn, id, mfs); err != nil {
+					log.Fatalf("plugin %s migrate: %v", id, err)
+				}
+			}
+		}
+	}
+
 	priceTrigger := make(chan struct{}, 1)
 	queue := make(chan *ingestion.JobRequest, 256)
 	workers := worker.NewRegistry()

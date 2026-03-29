@@ -1,6 +1,7 @@
 package identifier
 
 import (
+	"context"
 	"testing"
 
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/client"
@@ -16,7 +17,7 @@ func TestStockFromSearch(t *testing.T) {
 		ISIN:     "US0378331005",
 	}
 
-	inst, ids := stockFromSearch(r)
+	inst, ids := stockFromSearch(context.Background(), r, nil)
 
 	if inst == nil {
 		t.Fatal("expected instrument")
@@ -65,7 +66,7 @@ func TestStockFromSearch_NoISIN(t *testing.T) {
 		Currency: "USD",
 	}
 
-	_, ids := stockFromSearch(r)
+	_, ids := stockFromSearch(context.Background(), r, nil)
 
 	if len(ids) != 1 {
 		t.Errorf("got %d identifiers, want 1 (MIC_TICKER only)", len(ids))
@@ -84,7 +85,7 @@ func TestStockFromSearch_NonStockType(t *testing.T) {
 		Currency: "USD",
 	}
 
-	inst, _ := stockFromSearch(r)
+	inst, _ := stockFromSearch(context.Background(), r, nil)
 
 	if inst != nil {
 		t.Error("expected nil instrument for non-stock type")
@@ -129,6 +130,57 @@ func TestBestMatch_NoResults(t *testing.T) {
 
 	if got != nil {
 		t.Error("expected nil for empty results")
+	}
+}
+
+// stubExchDB implements ExchangeCodeDB for testing.
+type stubExchDB struct {
+	mics map[string][]string
+}
+
+func (s *stubExchDB) LookupMICsByEODHDCode(_ context.Context, code string) ([]string, error) {
+	return s.mics[code], nil
+}
+
+func TestStockFromSearch_WithExchangeDB(t *testing.T) {
+	db := &stubExchDB{mics: map[string][]string{"US": {"XNAS", "XNYS", "OTCM"}}}
+	r := &client.SearchResult{
+		Code:     "AAPL",
+		Exchange: "US",
+		Name:     "Apple Inc",
+		Type:     "Common Stock",
+		Currency: "USD",
+		ISIN:     "US0378331005",
+	}
+
+	inst, ids := stockFromSearch(context.Background(), r, db)
+
+	if inst == nil {
+		t.Fatal("expected instrument")
+	}
+	if inst.Exchange != "XNAS" {
+		t.Errorf("Exchange = %q, want XNAS (first MIC for US)", inst.Exchange)
+	}
+	// MIC_TICKER domain should also be the resolved exchange
+	for _, id := range ids {
+		if id.Type == "MIC_TICKER" && id.Domain != "XNAS" {
+			t.Errorf("MIC_TICKER Domain = %q, want XNAS", id.Domain)
+		}
+	}
+}
+
+func TestResolveExchange_NilDB(t *testing.T) {
+	got := resolveExchange(context.Background(), "US", nil)
+	if got != "" {
+		t.Errorf("resolveExchange with nil DB = %q, want empty", got)
+	}
+}
+
+func TestResolveExchange_EmptyCode(t *testing.T) {
+	db := &stubExchDB{mics: map[string][]string{"US": {"XNAS"}}}
+	got := resolveExchange(context.Background(), "", db)
+	if got != "" {
+		t.Errorf("resolveExchange with empty code = %q, want empty", got)
 	}
 }
 

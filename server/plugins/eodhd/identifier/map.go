@@ -1,6 +1,7 @@
 package identifier
 
 import (
+	"context"
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/db"
@@ -8,26 +9,39 @@ import (
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/client"
 )
 
-// stockFromSearch maps an EODHD search result (and optional fundamentals) to
-// an Instrument and identifiers. Returns nil if the result is not a stock type.
-func stockFromSearch(r *client.SearchResult) (*identifier.Instrument, []identifier.Identifier) {
+// stockFromSearch maps an EODHD search result to an Instrument and identifiers.
+// Returns nil if the result is not a stock type. exchDB may be nil.
+func stockFromSearch(ctx context.Context, r *client.SearchResult, exchDB ExchangeCodeDB) (*identifier.Instrument, []identifier.Identifier) {
 	if !isStockType(r.Type) {
 		return nil, nil
 	}
+	exchange := resolveExchange(ctx, r.Exchange, exchDB)
 	inst := &identifier.Instrument{
 		AssetClass: db.AssetClassStock,
-		Exchange:   "", // EODHD exchange codes (e.g. "US", "XETRA") are not ISO 10383 MICs
+		Exchange:   exchange,
 		Currency:   strings.ToUpper(r.Currency),
 		Name:       r.Name,
 	}
 	var ids []identifier.Identifier
 	if r.Code != "" {
-		ids = append(ids, identifier.Identifier{Type: "MIC_TICKER", Domain: "", Value: identifier.NormalizeSplitTicker(r.Code, ".")})
+		ids = append(ids, identifier.Identifier{Type: "MIC_TICKER", Domain: exchange, Value: identifier.NormalizeSplitTicker(r.Code, ".")})
 	}
 	if r.ISIN != "" {
 		ids = append(ids, identifier.Identifier{Type: "ISIN", Value: r.ISIN})
 	}
 	return inst, ids
+}
+
+// resolveExchange maps an EODHD exchange code to the first operating MIC.
+func resolveExchange(ctx context.Context, eodhdCode string, exchDB ExchangeCodeDB) string {
+	if exchDB == nil || eodhdCode == "" {
+		return ""
+	}
+	mics, err := exchDB.LookupMICsByEODHDCode(ctx, eodhdCode)
+	if err != nil || len(mics) == 0 {
+		return ""
+	}
+	return mics[0]
 }
 
 // bestMatch selects the best search result for a stock. It filters to stock

@@ -1,0 +1,365 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 810
+        host: api.openai.com
+        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: 3b82f06b\ntype: STOCK\nDescription: INTC - Intel Corp.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
+        headers:
+            Authorization:
+                - Bearer REDACTED
+            Content-Type:
+                - application/json
+        url: https://api.openai.com/v1/chat/completions
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: |
+            {
+              "id": "chatcmpl-DOhKy4YP1i02zN99CZ6HiQPpphEAM",
+              "object": "chat.completion",
+              "created": 1774778832,
+              "model": "gpt-4o-mini-2024-07-18",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "{ \"3b82f06b\": { \"TICKER\": \"INTC\" } }",
+                    "refusal": null,
+                    "annotations": []
+                  },
+                  "logprobs": null,
+                  "finish_reason": "stop"
+                }
+              ],
+              "usage": {
+                "prompt_tokens": 193,
+                "completion_tokens": 21,
+                "total_tokens": 214,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0,
+                  "audio_tokens": 0
+                },
+                "completion_tokens_details": {
+                  "reasoning_tokens": 0,
+                  "audio_tokens": 0,
+                  "accepted_prediction_tokens": 0,
+                  "rejected_prediction_tokens": 0
+                }
+              },
+              "service_tier": "default",
+              "system_fingerprint": "fp_f8f4a36a85"
+            }
+        headers:
+            Access-Control-Expose-Headers:
+                - X-Request-ID
+            Alt-Svc:
+                - h3=":443"; ma=86400
+            Cf-Cache-Status:
+                - DYNAMIC
+            Content-Type:
+                - application/json
+            Date:
+                - Sun, 29 Mar 2026 10:07:13 GMT
+            Openai-Processing-Ms:
+                - "525"
+            Openai-Version:
+                - "2020-10-01"
+            Server:
+                - cloudflare
+            Strict-Transport-Security:
+                - max-age=31536000; includeSubDomains; preload
+            X-Content-Type-Options:
+                - nosniff
+            X-Openai-Proxy-Wasm:
+                - v0.1
+            X-Ratelimit-Limit-Requests:
+                - "10000"
+            X-Ratelimit-Limit-Tokens:
+                - "200000"
+            X-Ratelimit-Remaining-Requests:
+                - "9999"
+            X-Ratelimit-Remaining-Tokens:
+                - "199834"
+            X-Ratelimit-Reset-Requests:
+                - 8.64s
+            X-Ratelimit-Reset-Tokens:
+                - 49ms
+            X-Request-Id:
+                - req_7fb526cad4964ca281cc4954ca161617
+        status: 200 OK
+        code: 200
+        duration: 2.323331599s
+    - id: 1
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 64
+        host: api.openfigi.com
+        body: '[{"idType":"ID_ISIN","idValue":"US4581401001","currency":"USD"}]'
+        headers:
+            Content-Type:
+                - application/json
+            X-Openfigi-Apikey:
+                - REDACTED
+        url: https://api.openfigi.com/v3/mapping
+        method: POST
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        uncompressed: true
+        body: '[{"data":[{"figi":"BBG000C0G1D1","name":"INTEL CORP","ticker":"INTC","exchCode":"US","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0G597","name":"INTEL CORP","ticker":"INTC","exchCode":"UA","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0G631","name":"INTEL CORP","ticker":"INTC","exchCode":"UC","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0G6Y7","name":"INTEL CORP","ticker":"INTC","exchCode":"UN","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0G7Y5","name":"INTEL CORP","ticker":"INTC","exchCode":"UP","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0G8X4","name":"INTEL CORP","ticker":"INTC","exchCode":"UB","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0G9H0","name":"INTEL CORP","ticker":"INTC","exchCode":"UM","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0G9V4","name":"INTEL CORP","ticker":"INTC","exchCode":"UX","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0GDG2","name":"INTEL CORP","ticker":"INTC","exchCode":"UD","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0GFS4","name":"INTEL CORP","ticker":"INTC","exchCode":"UW","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0GG02","name":"INTEL CORP","ticker":"INTC","exchCode":"UF","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0GG57","name":"INTEL CORP","ticker":"INTC","exchCode":"VY","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0GGB0","name":"INTEL CORP","ticker":"INTC","exchCode":"VJ","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG000C0GH55","name":"INTEL CORP","ticker":"INTC","exchCode":"VK","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF770","name":"INTEL CORP","ticker":"INTC","exchCode":"EO","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF7B5","name":"INTEL CORP","ticker":"INTC","exchCode":"XH","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF7D3","name":"INTEL CORP","ticker":"INTC","exchCode":"XF","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF7G0","name":"INTEL CORP","ticker":"INTC","exchCode":"XE","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF7H9","name":"INTEL CORP","ticker":"INTC","exchCode":"XJ","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF7J7","name":"INTEL CORP","ticker":"INTC","exchCode":"XL","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF7K5","name":"INTEL CORP","ticker":"INTC","exchCode":"XG","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF7L4","name":"INTEL CORP","ticker":"INTC","exchCode":"XO","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF7R8","name":"INTEL CORP","ticker":"INTC","exchCode":"XA","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF7S7","name":"INTEL CORP","ticker":"INTC","exchCode":"E1","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF7T6","name":"INTEL CORP","ticker":"INTC","exchCode":"XT","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF7V3","name":"INTEL CORP","ticker":"INTC","exchCode":"XW","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG003PCF7W2","name":"INTEL CORP","ticker":"INTC","exchCode":"XU","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG004BW0ZN5","name":"INTEL CORP","ticker":"INTC","exchCode":"CI","compositeFIGI":"BBG004BW0ZN5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG004BW0ZQ2","name":"INTEL CORP","ticker":"INTC","exchCode":"CC","compositeFIGI":"BBG004BW0ZN5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG004BW0ZS0","name":"INTEL CORP","ticker":"INTC","exchCode":"CE","compositeFIGI":"BBG004BW0ZN5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG005924Q20","name":"INTEL CORP","ticker":"INTC","exchCode":"XV","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG00DGYSNK6","name":"INTEL CORP","ticker":"INTCUSD","exchCode":"SW","compositeFIGI":"BBG00DGYSNK6","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTCUSD"},{"figi":"BBG00DGYSNM4","name":"INTEL CORP","ticker":"INTCUSD","exchCode":"SE","compositeFIGI":"BBG00DGYSNK6","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTCUSD"},{"figi":"BBG00DJCZPP3","name":"INTEL CORP","ticker":"INTC","exchCode":"VF","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG00GQGGP89","name":"INTEL CORP","ticker":"INTC","exchCode":"EU","compositeFIGI":"BBG00GQGGP70","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG00JN82912","name":"INTEL CORP","ticker":"INTC","exchCode":"XX","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG00JXJHHK2","name":"INTEL CORP","ticker":"INTCN","exchCode":"PO","compositeFIGI":"BBG00JXJHHJ4","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTCN"},{"figi":"BBG00JXJKQH2","name":"INTEL CORP","ticker":"INTCN","exchCode":"L3","compositeFIGI":"BBG00JXJKQG3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTCN"},{"figi":"BBG00JXJL4N3","name":"INTEL CORP","ticker":"INTCN","exchCode":"B3","compositeFIGI":"BBG00JXJL4M4","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTCN"},{"figi":"BBG00PPY4MK7","name":"INTEL CORP","ticker":"INTC","exchCode":"EP","compositeFIGI":"BBG00PPY4MJ9","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG00PPY4MM5","name":"INTEL CORP","ticker":"INTC","exchCode":"EZ","compositeFIGI":"BBG00PPY4ML6","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG00Q5MMXJ1","name":"INTEL CORP","ticker":"INTC","exchCode":"X2","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG00QFYX3Q0","name":"INTEL CORP","ticker":"INTC","exchCode":"X1","compositeFIGI":"BBG003PCF770","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":null},{"figi":"BBG00QKLW2G6","name":"INTEL CORP","ticker":"0R24","exchCode":"LN","compositeFIGI":"BBG00QJ0ZFM5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"0R24"},{"figi":"BBG00THD6F27","name":"INTEL CORP","ticker":"INTC","exchCode":"VL","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG00X1LB729","name":"INTEL CORP","ticker":"INTC","exchCode":"VG","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG00X1PRJ36","name":"INTEL CORP","ticker":"INTC","exchCode":"VP","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG00Y91P5N9","name":"INTEL CORP","ticker":"INTCN","exchCode":"L1","compositeFIGI":"BBG00Y91P5M0","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTCN"},{"figi":"BBG00YB9J0Y5","name":"INTEL CORP","ticker":"INTC","exchCode":"PE","compositeFIGI":"BBG00YB9J0X6","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG00YJ7G1T8","name":"INTEL CORP","ticker":"INTC","exchCode":"X9","compositeFIGI":"BBG00YJ7G1S9","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG00YJJDZ38","name":"INTEL CORP","ticker":"0R24L","exchCode":"PO","compositeFIGI":"BBG00YJJDZ29","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"0R24L"},{"figi":"BBG00YJJG9S6","name":"INTEL CORP","ticker":"0R24L","exchCode":"B3","compositeFIGI":"BBG00YJJG9R7","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"0R24L"},{"figi":"BBG00YJJH086","name":"INTEL CORP","ticker":"0R24L","exchCode":"L3","compositeFIGI":"BBG00YJJH077","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"0R24L"},{"figi":"BBG00YJJH2S0","name":"INTEL CORP","ticker":"0R24L","exchCode":"L1","compositeFIGI":"BBG00YJJH2R1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"0R24L"},{"figi":"BBG012QVYXF1","name":"INTEL CORP","ticker":"INTCN","exchCode":"TQ","compositeFIGI":"BBG012QVYXD3","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTCN"},{"figi":"BBG013QNL4Y4","name":"INTEL CORP","ticker":"INTC_KZ","exchCode":"KZ","compositeFIGI":"BBG013QNL4X5","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC_KZ"},{"figi":"BBG01V7W3VV6","name":"INTEL CORP","ticker":"INTC","exchCode":"OC","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"},{"figi":"BBG01X4JDV34","name":"INTEL CORP","ticker":"INTC","exchCode":"OD","compositeFIGI":"BBG000C0G1D1","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5SF65","securityType2":"Common Stock","securityDescription":"INTC"}]}]'
+        headers:
+            Cache-Control:
+                - private, no-cache, no-store, must-revalidate
+            Content-Security-Policy:
+                - 'default-src ''self'';base-uri ''self'';font-src ''self'' https: data:;form-action ''self'';frame-ancestors ''self'';img-src ''self'' data:;object-src ''none'';script-src ''self'';script-src-attr ''none'';style-src ''self'' https: ''unsafe-inline'';upgrade-insecure-requests'
+            Content-Type:
+                - application/json; charset=utf-8
+            Cross-Origin-Opener-Policy:
+                - same-origin
+            Cross-Origin-Resource-Policy:
+                - same-origin
+            Date:
+                - Sun, 29 Mar 2026 10:07:13 GMT
+            Expires:
+                - "0"
+            Origin-Agent-Cluster:
+                - ?1
+            Pragma:
+                - no-cache
+            Ratelimit-Limit:
+                - "250"
+            Ratelimit-Policy:
+                - 250;w=60
+            Ratelimit-Remaining:
+                - "248"
+            Ratelimit-Reset:
+                - "33"
+            Referrer-Policy:
+                - no-referrer
+            Server:
+                - istio-envoy
+            Strict-Transport-Security:
+                - max-age=31536000; includeSubDomains
+            Vary:
+                - Origin, Accept-Encoding
+            X-Content-Type-Options:
+                - nosniff
+            X-Dns-Prefetch-Control:
+                - "off"
+            X-Download-Options:
+                - noopen
+            X-Envoy-Upstream-Service-Time:
+                - "14"
+            X-Frame-Options:
+                - SAMEORIGIN
+            X-Permitted-Cross-Domain-Policies:
+                - none
+            X-Request-Id:
+                - 90137c49-401a-4d6c-81fb-daf1ee3744d4
+            X-Xss-Protection:
+                - "0"
+        status: 200 OK
+        code: 200
+        duration: 100.131063ms
+    - id: 2
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: eodhd.com
+        form:
+            api_token:
+                - REDACTED
+            fmt:
+                - json
+            limit:
+                - "10"
+            type:
+                - stock
+        url: https://eodhd.com/api/search/US4581401001?api_token=REDACTED&fmt=json&limit=10&type=stock
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '[{"Code":"INTC","Exchange":"US","Name":"Intel Corporation","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US4581401001","isPrimary":true,"previousClose":43.13,"previousCloseDate":"2026-03-27"},{"Code":"INTC","Exchange":"BA","Name":"Intel Corp. CEDEAR","Type":"Common Stock","Country":"Argentina","Currency":"ARS","ISIN":"US4581401001","isPrimary":false,"previousClose":12730,"previousCloseDate":"2026-03-27"},{"Code":"INL","Exchange":"XETRA","Name":"Intel Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US4581401001","isPrimary":false,"previousClose":37.77,"previousCloseDate":"2026-03-27"},{"Code":"INTC","Exchange":"NEO","Name":"INTEL CDR (CAD HEDGED)","Type":"Common Stock","Country":"Canada","Currency":"CAD","ISIN":"US4581401001","isPrimary":false,"previousClose":24.48,"previousCloseDate":"2026-03-27"},{"Code":"INL","Exchange":"F","Name":"Intel Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US4581401001","isPrimary":false,"previousClose":37.4,"previousCloseDate":"2026-03-27"},{"Code":"INTC","Exchange":"MX","Name":"Intel Corporation","Type":"Common Stock","Country":"Mexico","Currency":"MXN","ISIN":"US4581401001","isPrimary":false,"previousClose":781,"previousCloseDate":"2026-03-27"},{"Code":"INL","Exchange":"STU","Name":"Intel Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US4581401001","isPrimary":false,"previousClose":38.51,"previousCloseDate":"2026-03-26"},{"Code":"INL","Exchange":"BE","Name":"Intel Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US4581401001","isPrimary":false,"previousClose":39.155,"previousCloseDate":"2026-03-18"},{"Code":"INL","Exchange":"DU","Name":"Intel Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US4581401001","isPrimary":false,"previousClose":37.335,"previousCloseDate":"2026-03-27"},{"Code":"INL","Exchange":"HM","Name":"Intel Corporation","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US4581401001","isPrimary":false,"previousClose":37.85,"previousCloseDate":"2026-03-27"}]'
+        headers:
+            Access-Control-Allow-Credentials:
+                - "true"
+            Access-Control-Allow-Headers:
+                - Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With
+            Access-Control-Allow-Methods:
+                - GET, POST, PUT, DELETE, OPTIONS
+            Cache-Control:
+                - no-cache, private
+            Content-Type:
+                - application/json
+            Date:
+                - Sun, 29 Mar 2026 10:07:13 GMT
+            Server:
+                - nginx/1.19.10
+            Vary:
+                - Accept-Encoding
+            X-Ratelimit-Limit:
+                - "1400"
+            X-Ratelimit-Remaining:
+                - "1398"
+        status: 200 OK
+        code: 200
+        duration: 227.169208ms
+    - id: 3
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            adjusted:
+                - "false"
+            apiKey:
+                - REDACTED
+            sort:
+                - asc
+        url: https://api.massive.com/v2/aggs/ticker/INTC/range/1/day/2025-09-24/2026-03-29?adjusted=false&apiKey=REDACTED&sort=asc
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"ticker":"INTC","queryCount":128,"resultsCount":128,"adjusted":false,"results":[{"v":1.64458509e+08,"vw":30.7768,"o":29.38,"c":31.22,"h":31.7,"l":29.23,"t":1758686400000,"n":623511},{"v":2.9570929e+08,"vw":33.0765,"o":31.61,"c":33.99,"h":34.25,"l":31.21,"t":1758772800000,"n":1115607},{"v":2.68583278e+08,"vw":35.4495,"o":35.015,"c":35.5,"h":36.3,"l":34.49,"t":1758859200000,"n":1145695},{"v":1.52605909e+08,"vw":34.5252,"o":34.52,"c":34.48,"h":35.05,"l":33.73,"t":1759118400000,"n":650428},{"v":1.24818376e+08,"vw":33.4875,"o":33.93,"c":33.55,"h":34.235,"l":33.02,"t":1759204800000,"n":477960},{"v":1.6264965e+08,"vw":34.9517,"o":33.53,"c":35.94,"h":36.06,"l":33.5,"t":1759291200000,"n":629020},{"v":1.49361652e+08,"vw":36.6826,"o":35.76,"c":37.3,"h":37.57,"l":35.44,"t":1759377600000,"n":613912},{"v":1.25359342e+08,"vw":37.242,"o":37.95,"c":36.83,"h":38.08,"l":36.45,"t":1759464000000,"n":563681},{"v":1.12086069e+08,"vw":37.2908,"o":37.19,"c":36.59,"h":38.68,"l":36.43,"t":1759723200000,"n":528691},{"v":1.11140155e+08,"vw":37.2884,"o":36.64,"c":37.17,"h":38.0468,"l":36.3501,"t":1759809600000,"n":493924},{"v":1.03202085e+08,"vw":37.0304,"o":36.545,"c":37.43,"h":37.79,"l":35.9102,"t":1759896000000,"n":426625},{"v":8.9884658e+07,"vw":37.4491,"o":37.53,"c":37.8,"h":38.1,"l":36.86,"t":1759982400000,"n":377196},{"v":1.83063296e+08,"vw":37.5858,"o":38.46,"c":36.37,"h":39.65,"l":36.3,"t":1760068800000,"n":745508},{"v":1.04020679e+08,"vw":37.0593,"o":36.44,"c":37.22,"h":37.51,"l":36.28,"t":1760328000000,"n":444731},{"v":1.17908345e+08,"vw":35.65,"o":36,"c":35.63,"h":36.545,"l":34.69,"t":1760414400000,"n":539089},{"v":9.9242706e+07,"vw":36.6662,"o":36.4,"c":37.15,"h":37.485,"l":35.64,"t":1760500800000,"n":400155},{"v":8.3357846e+07,"vw":37.1204,"o":37.15,"c":36.84,"h":38.02,"l":36.41,"t":1760587200000,"n":378643},{"v":1.19394707e+08,"vw":37.1983,"o":36.36,"c":37.01,"h":38.38,"l":36.08,"t":1760673600000,"n":512445},{"v":8.0230234e+07,"vw":38.0655,"o":37.57,"c":38.1,"h":38.5198,"l":37.56,"t":1760932800000,"n":373355},{"v":7.3134908e+07,"vw":38.0398,"o":38.14,"c":38.12,"h":38.35,"l":37.67,"t":1761019200000,"n":296058},{"v":8.7099905e+07,"vw":36.8211,"o":37.835,"c":36.92,"h":37.93,"l":36.0401,"t":1761105600000,"n":378617},{"v":1.21974238e+08,"vw":38.4315,"o":36.6,"c":38.16,"h":38.4,"l":36.4301,"t":1761192000000,"n":535312},{"v":2.46379974e+08,"vw":39.026,"o":40.02,"c":38.28,"h":41.12,"l":37.83,"t":1761278400000,"n":1108422},{"v":1.60007604e+08,"vw":39.6973,"o":38.39,"c":39.54,"h":40.67,"l":38.23,"t":1761537600000,"n":677423},{"v":1.8125637e+08,"vw":41.48,"o":39.59,"c":41.53,"h":42.48,"l":39.54,"t":1761624000000,"n":807185},{"v":1.06962947e+08,"vw":41.4765,"o":41.6,"c":41.34,"h":42.04,"l":40.92,"t":1761710400000,"n":463828},{"v":8.4855468e+07,"vw":40.7784,"o":40.97,"c":40.16,"h":41.43,"l":40.11,"t":1761796800000,"n":367829},{"v":8.0471369e+07,"vw":40.1636,"o":40.68,"c":39.99,"h":40.8263,"l":39.79,"t":1761883200000,"n":322809},{"v":6.1267512e+07,"vw":39.6584,"o":40.25,"c":39.5,"h":40.45,"l":39.05,"t":1762146000000,"n":325372},{"v":1.02250306e+08,"vw":37.6372,"o":38.14,"c":37.03,"h":38.25,"l":36.63,"t":1762232400000,"n":472247},{"v":7.4631599e+07,"vw":38.0484,"o":37.415,"c":38.38,"h":38.6898,"l":37.11,"t":1762318800000,"n":336954},{"v":7.7629908e+07,"vw":37.4714,"o":38.335,"c":37.24,"h":39.8446,"l":36.8,"t":1762405200000,"n":349561},{"v":9.5521436e+07,"vw":37.5762,"o":37.26,"c":38.13,"h":38.27,"l":36.97,"t":1762491600000,"n":463771},{"v":7.7820266e+07,"vw":38.5274,"o":38.93,"c":38.45,"h":39.525,"l":37.9659,"t":1762750800000,"n":332191},{"v":5.3741898e+07,"vw":37.9254,"o":38.145,"c":37.88,"h":38.22,"l":37.49,"t":1762837200000,"n":264700},{"v":5.3875959e+07,"vw":37.9097,"o":38.06,"c":37.89,"h":38.2,"l":37.3525,"t":1762923600000,"n":254102},{"v":9.559317e+07,"vw":36.1524,"o":37.27,"c":35.91,"h":37.31,"l":35.45,"t":1763010000000,"n":418475},{"v":7.171618e+07,"vw":35.455,"o":35.025,"c":35.52,"h":36.1,"l":34.62,"t":1763096400000,"n":363499},{"v":7.2580118e+07,"vw":35.0127,"o":35.445,"c":34.71,"h":35.73,"l":34.23,"t":1763355600000,"n":345651},{"v":6.1504802e+07,"vw":34.2448,"o":34.25,"c":34.33,"h":34.76,"l":33.57,"t":1763442000000,"n":316603},{"v":6.7115474e+07,"vw":35.006,"o":34.33,"c":35.11,"h":35.7499,"l":34.25,"t":1763528400000,"n":318293},{"v":9.6389096e+07,"vw":34.7195,"o":36,"c":33.62,"h":36.68,"l":33.48,"t":1763614800000,"n":430851},{"v":1.0564167e+08,"vw":34.1277,"o":33.51,"c":34.5,"h":34.98,"l":32.89,"t":1763701200000,"n":401417},{"v":1.03804208e+08,"vw":35.7354,"o":34.97,"c":35.79,"h":36.155,"l":34.685,"t":1763960400000,"n":329685},{"v":6.2203283e+07,"vw":35.7055,"o":35.55,"c":35.83,"h":36.13,"l":34.68,"t":1764046800000,"n":244857},{"v":5.4563435e+07,"vw":36.8,"o":36.2,"c":36.81,"h":37.24,"l":36.13,"t":1764133200000,"n":246863},{"v":9.5799486e+07,"vw":39.5046,"o":37.4,"c":40.56,"h":40.59,"l":37.34,"t":1764306000000,"n":437219},{"v":7.4534896e+07,"vw":39.9905,"o":39.86,"c":40.01,"h":40.375,"l":39.6,"t":1764565200000,"n":355873},{"v":1.67205815e+08,"vw":42.6254,"o":40.47,"c":43.47,"h":43.68,"l":40.05,"t":1764651600000,"n":637376},{"v":9.1957186e+07,"vw":43.5025,"o":43.385,"c":43.76,"h":44.02,"l":42.51,"t":1764738000000,"n":395663},{"v":1.07850164e+08,"vw":41.3967,"o":43.26,"c":40.5,"h":43.2801,"l":40.14,"t":1764824400000,"n":493791},{"v":1.03042015e+08,"vw":41.9354,"o":41.155,"c":41.41,"h":42.83,"l":41.15,"t":1764910800000,"n":429791},{"v":9.3953619e+07,"vw":40.4004,"o":41.935,"c":40.3,"h":42.115,"l":39.7,"t":1765170000000,"n":419012},{"v":6.1877155e+07,"vw":40.3974,"o":40.73,"c":40.5,"h":41.2622,"l":40.03,"t":1765256400000,"n":263621},{"v":7.597489e+07,"vw":40.1369,"o":40.11,"c":40.78,"h":40.99,"l":38.89,"t":1765342800000,"n":339331},{"v":5.9096759e+07,"vw":39.5213,"o":40.07,"c":39.51,"h":40.19,"l":39.075,"t":1765429200000,"n":301425},{"v":8.778447e+07,"vw":38.4766,"o":39.245,"c":37.81,"h":40.03,"l":37.62,"t":1765515600000,"n":352839},{"v":6.0898465e+07,"vw":37.6703,"o":38.325,"c":37.51,"h":38.48,"l":37.32,"t":1765774800000,"n":284228},{"v":5.0490257e+07,"vw":37.3489,"o":37.58,"c":37.31,"h":37.96,"l":36.92,"t":1765861200000,"n":244885},{"v":5.4791951e+07,"vw":36.4418,"o":37.585,"c":36.05,"h":37.84,"l":35.965,"t":1765947600000,"n":260256},{"v":6.9468393e+07,"vw":36.3639,"o":37.38,"c":36.28,"h":37.485,"l":35.67,"t":1766034000000,"n":290072},{"v":1.63221251e+08,"vw":36.9476,"o":36.48,"c":36.82,"h":37.58,"l":36.44,"t":1766120400000,"n":321312},{"v":5.1685394e+07,"vw":36.7093,"o":37.89,"c":36.37,"h":37.9,"l":36.29,"t":1766379600000,"n":264942},{"v":3.5957954e+07,"vw":36.3121,"o":36.24,"c":36.35,"h":36.8,"l":36.03,"t":1766466000000,"n":178900},{"v":3.7443756e+07,"vw":35.6957,"o":35.17,"c":36.16,"h":36.175,"l":34.95,"t":1766552400000,"n":193786},{"v":2.8779396e+07,"vw":36.1942,"o":36.17,"c":36.2,"h":36.49,"l":35.85,"t":1766725200000,"n":159550},{"v":3.8062295e+07,"vw":36.4699,"o":36.01,"c":36.68,"h":36.795,"l":35.82,"t":1766984400000,"n":199514},{"v":6.1935279e+07,"vw":37.5352,"o":36.91,"c":37.3,"h":38.26,"l":36.82,"t":1767070800000,"n":282409},{"v":5.1524682e+07,"vw":37.1714,"o":37.395,"c":36.9,"h":37.58,"l":36.87,"t":1767157200000,"n":245175},{"v":9.5396447e+07,"vw":39.2491,"o":37.77,"c":39.38,"h":39.86,"l":37.76,"t":1767330000000,"n":462103},{"v":9.6665355e+07,"vw":39.9719,"o":41.59,"c":39.37,"h":42.1,"l":39.27,"t":1767589200000,"n":460479},{"v":6.6395138e+07,"vw":39.707,"o":39.86,"c":40.04,"h":40.31,"l":38.95,"t":1767675600000,"n":347104},{"v":1.66028381e+08,"vw":43.0302,"o":40.18,"c":42.63,"h":44.57,"l":40.12,"t":1767762000000,"n":813171},{"v":8.8241955e+07,"vw":41.5418,"o":42.62,"c":41.11,"h":43.34,"l":40.68,"t":1767848400000,"n":451780},{"v":1.86691417e+08,"vw":44.5901,"o":41.825,"c":45.55,"h":45.7265,"l":41.57,"t":1767934800000,"n":855242},{"v":1.01989119e+08,"vw":44.6202,"o":44.24,"c":44.06,"h":45.45,"l":43.89,"t":1768194000000,"n":536109},{"v":1.6865641e+08,"vw":47.0269,"o":45.89,"c":47.29,"h":48.24,"l":45.215,"t":1768280400000,"n":844426},{"v":1.48225796e+08,"vw":48.2787,"o":48.95,"c":48.72,"h":49,"l":47.42,"t":1768366800000,"n":748364},{"v":1.32328902e+08,"vw":48.9124,"o":49.35,"c":48.32,"h":50.39,"l":47.825,"t":1768453200000,"n":692512},{"v":1.27314711e+08,"vw":47.651,"o":49.27,"c":46.96,"h":50.21,"l":46.71,"t":1768539600000,"n":603310},{"v":1.50153031e+08,"vw":48.7938,"o":47.3,"c":48.56,"h":50.23,"l":47,"t":1768885200000,"n":754391},{"v":2.20565312e+08,"vw":53.1343,"o":50.32,"c":54.25,"h":54.41,"l":50.15,"t":1768971600000,"n":1178127},{"v":1.90066397e+08,"vw":52.9077,"o":54.21,"c":54.32,"h":54.6,"l":53.08,"t":1769058000000,"n":1045750},{"v":2.94675401e+08,"vw":45.7521,"o":46.86,"c":45.07,"h":48.13,"l":44.45,"t":1769144400000,"n":1506431},{"v":1.49407768e+08,"vw":42.8705,"o":44.28,"c":42.49,"h":44.46,"l":42.275,"t":1769403600000,"n":794175},{"v":1.21832221e+08,"vw":43.9895,"o":43.97,"c":43.93,"h":44.53,"l":43.099,"t":1769490000000,"n":614357},{"v":2.01995055e+08,"vw":48.3352,"o":46.6,"c":48.78,"h":49.285,"l":46.32,"t":1769576400000,"n":986282},{"v":1.24256563e+08,"vw":48.0998,"o":47.56,"c":48.66,"h":48.77,"l":46.99,"t":1769662800000,"n":635920},{"v":1.14920097e+08,"vw":47.5397,"o":48.975,"c":46.47,"h":49.5777,"l":45.96,"t":1769749200000,"n":594832},{"v":1.01414583e+08,"vw":48.5279,"o":45.63,"c":48.81,"h":49.84,"l":45.5,"t":1770008400000,"n":547843},{"v":1.22205136e+08,"vw":49.5922,"o":50.055,"c":49.25,"h":51.49,"l":48.43,"t":1770094800000,"n":649477},{"v":1.28702304e+08,"vw":48.3332,"o":49.54,"c":48.6,"h":49.698,"l":47,"t":1770181200000,"n":777232},{"v":1.14307769e+08,"vw":48.3408,"o":47.59,"c":48.24,"h":50.86,"l":46.785,"t":1770267600000,"n":667536},{"v":1.15600223e+08,"vw":50.431,"o":49.1,"c":50.59,"h":51.3,"l":48.83,"t":1770354000000,"n":648906},{"v":9.4841413e+07,"vw":49.9407,"o":49.59,"c":50.24,"h":51.22,"l":47.59,"t":1770613200000,"n":531416},{"v":9.9832891e+07,"vw":47.9513,"o":50.41,"c":47.13,"h":50.5393,"l":46.765,"t":1770699600000,"n":557023},{"v":1.07681221e+08,"vw":48.1057,"o":48.11,"c":48.29,"h":49.55,"l":46.86,"t":1770786000000,"n":589892},{"v":8.8321152e+07,"vw":47.1498,"o":47.8,"c":46.48,"h":48.95,"l":46.19,"t":1770872400000,"n":506242},{"v":6.9740424e+07,"vw":46.777,"o":45.76,"c":46.79,"h":47.69,"l":44.97,"t":1770958800000,"n":444930},{"v":6.5802171e+07,"vw":46.1968,"o":45.93,"c":46.18,"h":46.8299,"l":45.455,"t":1771304400000,"n":415782},{"v":6.5306065e+07,"vw":45.8099,"o":45.915,"c":45.46,"h":46.77,"l":44.88,"t":1771390800000,"n":390801},{"v":7.2724938e+07,"vw":44.5607,"o":44.95,"c":44.62,"h":45.17,"l":43.92,"t":1771477200000,"n":408678},{"v":9.0743566e+07,"vw":43.7059,"o":43.89,"c":44.11,"h":44.39,"l":42.88,"t":1771563600000,"n":528323},{"v":5.71309096512e+07,"vw":43.7739,"o":44.09,"c":43.63,"h":44.55,"l":43.18,"t":1771822800000,"n":340652},{"v":9.8872271770935e+07,"vw":45.5148,"o":44.095,"c":46.12,"h":46.6,"l":43.54,"t":1771909200000,"n":532954},{"v":7.5645295387646e+07,"vw":46.3654,"o":46.09,"c":46.88,"h":46.97,"l":45.08,"t":1771995600000,"n":441041},{"v":7.1457507302942e+07,"vw":45.3984,"o":46.77,"c":45.46,"h":46.95,"l":44.39,"t":1772082000000,"n":434086},{"v":7.9327248963787e+07,"vw":45.5018,"o":44.46,"c":45.61,"h":46.56,"l":44.4,"t":1772168400000,"n":374043},{"v":6.0705104243373e+07,"vw":45.0254,"o":44.2,"c":45.5,"h":45.81,"l":43.95,"t":1772427600000,"n":375156},{"v":8.3971029971822e+07,"vw":43.0618,"o":43.44,"c":43.1,"h":43.685,"l":42.14,"t":1772514000000,"n":509389},{"v":9.6628102188456e+07,"vw":45.0847,"o":44.07,"c":45.58,"h":46.125,"l":43.27,"t":1772600400000,"n":495089},{"v":7.8229421249593e+07,"vw":45.6641,"o":44.87,"c":45.95,"h":46.48,"l":44.7,"t":1772686800000,"n":467948},{"v":7.4698310338129e+07,"vw":44.3099,"o":44.67,"c":43.42,"h":45.18,"l":43.28,"t":1772773200000,"n":447751},{"v":8.2937382048002e+07,"vw":44.2483,"o":42.74,"c":45.58,"h":45.76,"l":41.64,"t":1773028800000,"n":467172},{"v":8.523330601601e+07,"vw":46.9581,"o":45.41,"c":46.78,"h":47.875,"l":45.41,"t":1773115200000,"n":478748},{"v":7.2480566162874e+07,"vw":48.0388,"o":46.815,"c":47.98,"h":48.83,"l":46.66,"t":1773201600000,"n":441868},{"v":8.5110211073762e+07,"vw":45.8339,"o":47.4,"c":45.25,"h":47.435,"l":45.17,"t":1773288000000,"n":480712},{"v":6.8386151081935e+07,"vw":45.9064,"o":45.97,"c":45.77,"h":46.65,"l":45.39,"t":1773374400000,"n":409191},{"v":1.14199390445787e+08,"vw":47.5238,"o":47.91,"c":45.76,"h":49.17,"l":45.69,"t":1773633600000,"n":603673},{"v":8.9061571111418e+07,"vw":44.5833,"o":46.08,"c":44.06,"h":46.08,"l":43.91,"t":1773720000000,"n":488100},{"v":7.8056208607316e+07,"vw":44.8774,"o":44.2,"c":45.03,"h":45.705,"l":44.052,"t":1773806400000,"n":393740},{"v":7.4051501634745e+07,"vw":45.5083,"o":43.99,"c":46.18,"h":46.44,"l":43.65,"t":1773892800000,"n":383480},{"v":1.62814210799889e+08,"vw":44.5903,"o":46.95,"c":43.87,"h":47.55,"l":43.642,"t":1773979200000,"n":460895},{"v":8.0772210427519e+07,"vw":44.4217,"o":44.5,"c":44.01,"h":45.46,"l":43.74,"t":1774238400000,"n":442942},{"v":6.5323531928878e+07,"vw":43.8279,"o":43.535,"c":44.06,"h":44.31,"l":43.2,"t":1774324800000,"n":339108},{"v":9.7467909058928e+07,"vw":46.9254,"o":45.85,"c":47.18,"h":47.845,"l":45.45,"t":1774411200000,"n":534165},{"v":8.2841371632799e+07,"vw":44.8713,"o":46.295,"c":44.1,"h":46.6,"l":43.915,"t":1774497600000,"n":453284},{"v":7.0002236217574e+07,"vw":43.3573,"o":43.62,"c":43.13,"h":44.13,"l":42.86,"t":1774584000000,"n":409228}],"status":"DELAYED","request_id":"d9943e28a97743c868f821e9760724bd","count":128}'
+        headers:
+            Content-Type:
+                - application/json
+            Date:
+                - Sun, 29 Mar 2026 10:07:17 GMT
+            Strict-Transport-Security:
+                - max-age=15724800; includeSubDomains
+            Vary:
+                - Accept-Encoding
+            X-Polygon-Cluster-Name:
+                - polygon-ny5
+            X-Request-Id:
+                - d9943e28a97743c868f821e9760724bd
+        status: 200 OK
+        code: 200
+        duration: 184.834788ms
+    - id: 4
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 810
+        host: api.openai.com
+        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: 3b82f06b\ntype: STOCK\nDescription: INTC - Intel Corp.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
+        headers:
+            Authorization:
+                - Bearer REDACTED
+            Content-Type:
+                - application/json
+        url: https://api.openai.com/v1/chat/completions
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: |
+            {
+              "id": "chatcmpl-DOhL5KprfkYmKOkykhDxhLnlwBk5V",
+              "object": "chat.completion",
+              "created": 1774778839,
+              "model": "gpt-4o-mini-2024-07-18",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "{ \"3b82f06b\": { \"TICKER\": \"INTC\" } }",
+                    "refusal": null,
+                    "annotations": []
+                  },
+                  "logprobs": null,
+                  "finish_reason": "stop"
+                }
+              ],
+              "usage": {
+                "prompt_tokens": 193,
+                "completion_tokens": 21,
+                "total_tokens": 214,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0,
+                  "audio_tokens": 0
+                },
+                "completion_tokens_details": {
+                  "reasoning_tokens": 0,
+                  "audio_tokens": 0,
+                  "accepted_prediction_tokens": 0,
+                  "rejected_prediction_tokens": 0
+                }
+              },
+              "service_tier": "default",
+              "system_fingerprint": "fp_e738e3044b"
+            }
+        headers:
+            Access-Control-Expose-Headers:
+                - X-Request-ID
+            Alt-Svc:
+                - h3=":443"; ma=86400
+            Cf-Cache-Status:
+                - DYNAMIC
+            Content-Type:
+                - application/json
+            Date:
+                - Sun, 29 Mar 2026 10:07:20 GMT
+            Openai-Processing-Ms:
+                - "480"
+            Openai-Version:
+                - "2020-10-01"
+            Server:
+                - cloudflare
+            Strict-Transport-Security:
+                - max-age=31536000; includeSubDomains; preload
+            X-Content-Type-Options:
+                - nosniff
+            X-Openai-Proxy-Wasm:
+                - v0.1
+            X-Ratelimit-Limit-Requests:
+                - "10000"
+            X-Ratelimit-Limit-Tokens:
+                - "200000"
+            X-Ratelimit-Remaining-Requests:
+                - "9998"
+            X-Ratelimit-Remaining-Tokens:
+                - "199834"
+            X-Ratelimit-Reset-Requests:
+                - 8.873s
+            X-Ratelimit-Reset-Tokens:
+                - 49ms
+            X-Request-Id:
+                - req_5348bff5e76948e185db75bf4f2ca651
+        status: 200 OK
+        code: 200
+        duration: 649.88258ms

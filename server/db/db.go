@@ -350,6 +350,47 @@ var ValidAssetClasses = map[string]bool{
 	AssetClassOption: true, AssetClassFuture: true, AssetClassCash: true, AssetClassFX: true, AssetClassUnknown: true,
 }
 
+// TxTypeToAssetClass maps a TxType to its asset class. Used for filtering and ignore rules.
+func TxTypeToAssetClass(t apiv1.TxType) string {
+	switch t {
+	case apiv1.TxType_BUYDEBT, apiv1.TxType_SELLDEBT:
+		return AssetClassFixedIncome
+	case apiv1.TxType_BUYMF, apiv1.TxType_SELLMF:
+		return AssetClassMutualFund
+	case apiv1.TxType_BUYOPT, apiv1.TxType_SELLOPT, apiv1.TxType_CLOSUREOPT:
+		return AssetClassOption
+	case apiv1.TxType_BUYOTHER, apiv1.TxType_SELLOTHER:
+		return AssetClassUnknown
+	case apiv1.TxType_BUYSTOCK, apiv1.TxType_SELLSTOCK, apiv1.TxType_JRNLSEC:
+		return AssetClassStock
+	case apiv1.TxType_BUYFUTURE, apiv1.TxType_SELLFUTURE:
+		return AssetClassFuture
+	case apiv1.TxType_INCOME, apiv1.TxType_INVEXPENSE, apiv1.TxType_REINVEST,
+		apiv1.TxType_TRANSFER, apiv1.TxType_MARGININTEREST, apiv1.TxType_RETOFCAP, apiv1.TxType_JRNLFUND,
+		apiv1.TxType_CASHFLOW:
+		return AssetClassCash
+	case apiv1.TxType_SPLIT:
+		return AssetClassUnknown
+	default:
+		return AssetClassUnknown
+	}
+}
+
+// AssetClassToTxTypeStrings returns the tx_type DB strings that map to the given asset class.
+func AssetClassToTxTypeStrings(assetClass string) []string {
+	var strs []string
+	for i := range apiv1.TxType_name {
+		t := apiv1.TxType(i)
+		if t == apiv1.TxType_TX_TYPE_UNSPECIFIED {
+			continue
+		}
+		if TxTypeToAssetClass(t) == assetClass {
+			strs = append(strs, t.String())
+		}
+	}
+	return strs
+}
+
 // InstrumentRow is a single instrument with its identifiers (for API responses).
 // Nullable DB columns use pointer types; nil means NULL.
 type InstrumentRow struct {

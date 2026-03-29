@@ -116,8 +116,14 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
-	// Filter non-stored tx types (e.g. SPLIT).
-	txsToProcess, originalIndices := filterStoredTxs(txs)
+	// Load ignored asset classes for this user.
+	ignoredClasses, err := database.ListIgnoredAssetClasses(ctx, userID)
+	if err != nil {
+		log.Printf("ingestion job %s: load ignored asset classes: %v", j.JobID, err)
+		ignoredClasses = nil // non-fatal: proceed without filtering
+	}
+	// Filter non-stored tx types (e.g. SPLIT) and ignored asset classes.
+	txsToProcess, originalIndices := filterStoredTxs(txs, broker, ignoredClasses)
 	if len(txsToProcess) == 0 {
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
 		return true, userID
@@ -166,15 +172,19 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	return true, userID
 }
 
-// filterStoredTxs returns only txs with stored types and their original indices.
-func filterStoredTxs(txs []*apiv1.Tx) ([]*apiv1.Tx, []int) {
+// filterStoredTxs returns only txs with stored types that are not ignored, along with their original indices.
+func filterStoredTxs(txs []*apiv1.Tx, broker string, ignored []db.IgnoredAssetClass) ([]*apiv1.Tx, []int) {
 	var filtered []*apiv1.Tx
 	var indices []int
 	for i, tx := range txs {
-		if TxTypeStored(tx.Type) {
-			filtered = append(filtered, tx)
-			indices = append(indices, i)
+		if !TxTypeStored(tx.Type) {
+			continue
 		}
+		if TxIgnored(tx, broker, ignored) {
+			continue
+		}
+		filtered = append(filtered, tx)
+		indices = append(indices, i)
 	}
 	return filtered, indices
 }

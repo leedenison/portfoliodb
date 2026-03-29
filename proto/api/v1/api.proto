@@ -211,6 +211,10 @@ service ApiService {
   // Display currency preference.
   rpc GetDisplayCurrency(GetDisplayCurrencyRequest) returns (GetDisplayCurrencyResponse);
   rpc SetDisplayCurrency(SetDisplayCurrencyRequest) returns (SetDisplayCurrencyResponse);
+  // Ignored asset classes: skip tx types mapping to these classes during ingestion.
+  rpc GetIgnoredAssetClasses(GetIgnoredAssetClassesRequest) returns (GetIgnoredAssetClassesResponse);
+  rpc SetIgnoredAssetClasses(SetIgnoredAssetClassesRequest) returns (SetIgnoredAssetClassesResponse);
+  rpc CountIgnoredTxs(CountIgnoredTxsRequest) returns (CountIgnoredTxsResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -744,4 +748,32 @@ message ListWorkersRequest {}
 
 message ListWorkersResponse {
   repeated Worker workers = 1;
+}
+
+// Ignored asset classes: per-broker/account rules to skip tx types during ingestion.
+message IgnoredAssetClassRule {
+  string broker = 1;
+  string account = 2;      // empty = all accounts for broker
+  string asset_class = 3;
+}
+
+message GetIgnoredAssetClassesRequest {}
+
+message GetIgnoredAssetClassesResponse {
+  repeated IgnoredAssetClassRule rules = 1;
+}
+
+message SetIgnoredAssetClassesRequest {
+  repeated IgnoredAssetClassRule rules = 1;
+}
+
+message SetIgnoredAssetClassesResponse {}
+
+message CountIgnoredTxsRequest {
+  repeated IgnoredAssetClassRule rules = 1;
+}
+
+message CountIgnoredTxsResponse {
+  int32 tx_count = 1;
+  int32 declaration_count = 2;
 }

@@ -6,24 +6,14 @@ import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { uploadCSVAndWait } from "../helpers/upload";
 import { getCounter, closeCountersRedis } from "../helpers/counters";
-import { Client } from "pg";
-
-const DATABASE_URL =
-  process.env.E2E_DATABASE_URL ??
-  "postgres://portfoliodb:portfoliodb@localhost:5434/portfoliodb";
-
-let diagDB: Client;
 
 test.beforeAll(async ({ browser }) => {
   await loadCassette("tx-update-price-fetch");
   await waitForWorkersIdle(browser);
   await resetAndSeedBase();
-  diagDB = new Client(DATABASE_URL);
-  await diagDB.connect();
 });
 
 test.afterAll(async () => {
-  await diagDB.end();
   await closeRedis();
   await closeCountersRedis();
   await closeDB();
@@ -45,20 +35,6 @@ test.describe("no redundant price fetch after transaction update", () => {
     test.setTimeout(TIMEOUT_SLOW);
     await injectSession(context, sessionId);
 
-    // DIAG checkpoint 1: DB should be clean after reset.
-    const txsBefore = await diagDB.query(
-      `SELECT instrument_id, timestamp, instrument_description FROM txs`
-    );
-    const instsBefore = await diagDB.query(
-      `SELECT id, asset_class, name FROM instruments
-       WHERE asset_class IS NULL OR asset_class NOT IN ('CASH', 'FX')`
-    );
-    console.log("DIAG checkpoint 1 - txs:", JSON.stringify(txsBefore.rows));
-    console.log(
-      "DIAG checkpoint 1 - instruments:",
-      JSON.stringify(instsBefore.rows)
-    );
-
     // Upload initial transaction: buy 10 INTC ~6 months ago.
     // This triggers identification and price fetch for the held period.
     await uploadCSVAndWait(page, browser, "tx-update-initial.csv", {
@@ -70,21 +46,6 @@ test.describe("no redundant price fetch after transaction update", () => {
     const table = page.locator("[data-testid='holdings-table']");
     await expect(table).toBeVisible({ timeout: 10_000 });
     await expect(table).toContainText("INTC");
-
-    // DIAG checkpoint 2: after first upload + workers idle.
-    const txsAfter = await diagDB.query(
-      `SELECT instrument_id, timestamp, instrument_description
-       FROM txs ORDER BY timestamp`
-    );
-    const instsAfter = await diagDB.query(
-      `SELECT id, asset_class, name FROM instruments
-       WHERE asset_class IS NULL OR asset_class NOT IN ('CASH', 'FX')`
-    );
-    console.log("DIAG checkpoint 2 - txs:", JSON.stringify(txsAfter.rows));
-    console.log(
-      "DIAG checkpoint 2 - instruments:",
-      JSON.stringify(instsAfter.rows)
-    );
 
     // Record counters after the initial price fetch completes.
     const cyclesAfterFirst = await getCounter("price_fetcher.cycles");

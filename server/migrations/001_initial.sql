@@ -246,3 +246,15 @@ CREATE TABLE holding_declarations (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, broker, account, instrument_id)
 );
+
+-- Ignored asset classes: skip tx types mapping to these asset classes during ingestion.
+-- account = '' means all accounts for the broker; otherwise a specific broker+account pair.
+CREATE TABLE ignored_asset_classes (
+  user_id     UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  broker      TEXT NOT NULL,
+  account     TEXT NOT NULL DEFAULT '',
+  asset_class TEXT NOT NULL,
+  PRIMARY KEY (user_id, broker, account, asset_class)
+);
+
+CREATE INDEX idx_ignored_asset_classes_user ON ignored_asset_classes (user_id);

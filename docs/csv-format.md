@@ -26,8 +26,8 @@ Header names are case-insensitive. Supported column names:
 ## Transaction types (type column)
 
 Allowed values for `type` (OFX-style):
-`BUYDEBT`, `BUYMF`, `BUYOPT`, `BUYOTHER`, `BUYSTOCK`,
-`SELLDEBT`, `SELLMF`, `SELLOPT`, `SELLOTHER`, `SELLSTOCK`,
+`BUYDEBT`, `BUYFUTURE`, `BUYMF`, `BUYOPT`, `BUYOTHER`, `BUYSTOCK`,
+`SELLDEBT`, `SELLFUTURE`, `SELLMF`, `SELLOPT`, `SELLOTHER`, `SELLSTOCK`,
 `INCOME`, `INVEXPENSE`, `REINVEST`, `RETOFCAP`, `SPLIT`, `TRANSFER`,
 `JRNLFUND`, `JRNLSEC`, `MARGININTEREST`, `CLOSUREOPT`, `CASHFLOW`.
 

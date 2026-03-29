@@ -32,6 +32,7 @@ type DB interface {
 	PriceFetchBlockDB
 	EODPriceListDB
 	HoldingDeclarationDB
+	IgnoredAssetClassDB
 }
 
 // PriceFetchBlockDB manages permanently blocked (instrument, plugin) pairs.
@@ -422,4 +423,25 @@ type InstrumentDB interface {
 	ValidateMIC(ctx context.Context, mic string) (bool, error)
 	// ListInstruments returns instruments sorted alphabetically by display name (ticker, then name, then broker description). If search is non-empty, only instruments with at least one identifier value matching (case-insensitive substring) are returned. If assetClasses is non-empty, only instruments with matching asset_class are returned. Returns (rows, totalCount, nextPageToken, error).
 	ListInstruments(ctx context.Context, search string, assetClasses []string, pageSize int32, pageToken string) ([]*InstrumentRow, int32, string, error)
+}
+
+// IgnoredAssetClass is one ignore rule: skip tx types mapping to this asset class for
+// the given broker (and optionally account). Account="" means all accounts.
+type IgnoredAssetClass struct {
+	Broker     string
+	Account    string // empty = all accounts for broker
+	AssetClass string
+}
+
+// IgnoredAssetClassDB manages per-broker/account asset class ignore rules.
+type IgnoredAssetClassDB interface {
+	// ListIgnoredAssetClasses returns all ignore rules for the user.
+	ListIgnoredAssetClasses(ctx context.Context, userID string) ([]IgnoredAssetClass, error)
+	// SetIgnoredAssetClasses replaces all ignore rules for the user and deletes
+	// matching txs, synthetic INITIALIZE txs, and holding declarations atomically.
+	// assetClassToTxTypes maps each asset class to its tx_type DB strings.
+	SetIgnoredAssetClasses(ctx context.Context, userID string, rules []IgnoredAssetClass, assetClassToTxTypes map[string][]string) error
+	// CountIgnoredTxs returns the number of regular txs and holding declarations
+	// that would be deleted if the given rules were applied (net new vs current).
+	CountIgnoredTxs(ctx context.Context, userID string, rules []IgnoredAssetClass, assetClassToTxTypes map[string][]string) (txCount int32, declCount int32, err error)
 }

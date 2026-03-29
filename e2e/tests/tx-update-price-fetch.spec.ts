@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
-import { resetAndSeedBase, closeDB } from "../helpers/db";
+import { resetAndSeedBase, closeDB, seedFixture } from "../helpers/db";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { uploadCSVAndWait } from "../helpers/upload";
@@ -10,6 +10,7 @@ import { getCounter, closeCountersRedis } from "../helpers/counters";
 test.beforeAll(async () => {
   await loadCassette("tx-update-price-fetch");
   await resetAndSeedBase();
+  await seedFixture("tx-update-price-fetch.sql");
 });
 
 test.afterAll(async () => {
@@ -34,28 +35,31 @@ test.describe("no redundant price fetch after transaction update", () => {
     test.setTimeout(TIMEOUT_SLOW);
     await injectSession(context, sessionId);
 
-    // Upload initial transaction: buy 10 INTC on 2024-01-15.
-    // This triggers identification (OpenAI + OpenFIGI) and price fetch (Massive).
-    await uploadCSVAndWait(page, browser, "tx-update-initial.csv", {
-      expectedTxCount: 1,
-    });
+    // The SQL fixture pre-seeds INTC with identifiers, one transaction
+    // (buy 10 on 2024-01-15), and dense synthetic price coverage from
+    // 2024-01-10 through today. This guarantees PriceGaps returns empty
+    // without relying on a real API fetch (which may leave persistent
+    // gaps if the API lacks early historical data).
 
-    // Verify the holding appears.
+    // Wait for any startup activity to settle.
+    await waitForWorkersIdle(browser);
+
+    // Verify the pre-seeded holding appears.
     await page.goto("/holdings");
     const table = page.locator("[data-testid='holdings-table']");
     await expect(table).toBeVisible({ timeout: 10_000 });
     await expect(table).toContainText("INTC");
 
-    // Record counters after the initial price fetch completes.
-    const cyclesAfterFirst = await getCounter("price_fetcher.cycles");
-    const massiveAfterFirst = await getCounter(
+    // Record counters before the second upload.
+    const cyclesBefore = await getCounter("price_fetcher.cycles");
+    const massiveBefore = await getCounter(
       "prices.fetch.massive.request.succeeded"
     );
-    expect(massiveAfterFirst).toBeGreaterThan(0);
 
     // Upload additional transaction: buy 5 more INTC on 2024-02-15.
     // The holding period is unchanged (still 2024-01-15 to today), just
-    // with a larger position from 2024-02-15 onwards.
+    // with a larger position from 2024-02-15 onwards. Prices already
+    // cover the entire held range so no new fetch is needed.
     await uploadCSVAndWait(page, browser, "tx-update-additional.csv", {
       expectedTxCount: 1,
     });
@@ -66,14 +70,14 @@ test.describe("no redundant price fetch after transaction update", () => {
     // confirm the cycle actually executed.
     await expect(async () => {
       const cycles = await getCounter("price_fetcher.cycles");
-      expect(cycles).toBeGreaterThan(cyclesAfterFirst);
+      expect(cycles).toBeGreaterThan(cyclesBefore);
     }).toPass({ timeout: 30_000 });
 
     // Verify no new Massive price API calls were made.
-    const massiveAfterSecond = await getCounter(
+    const massiveAfter = await getCounter(
       "prices.fetch.massive.request.succeeded"
     );
-    expect(massiveAfterSecond).toBe(massiveAfterFirst);
+    expect(massiveAfter).toBe(massiveBefore);
   });
 
   // In record mode, ensure all workers finish so the VCR cassette captures

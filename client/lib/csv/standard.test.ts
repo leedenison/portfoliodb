@@ -184,37 +184,9 @@ not-a-date,FOO,BUYSTOCK,5
     expect(result.txs[0].settlementCurrency).toBe("GBP");
   });
 
-  it("parses exchange_code + ticker as OPENFIGI_TICKER hint", () => {
-    const csv = `date,instrument_description,type,quantity,ticker,exchange_code
-2024-01-01,AAPL,BUYSTOCK,10,AAPL,US`;
-
-    const result = parseStandardCSV(csv);
-
-    expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.OPENFIGI_TICKER, value: "AAPL", domain: "US", canonical: false })
-    );
-  });
-
-  it("parses mic + ticker as MIC_TICKER hint", () => {
-    const csv = `date,instrument_description,type,quantity,ticker,mic
-2024-01-01,AAPL,BUYSTOCK,10,AAPL,XNAS`;
-
-    const result = parseStandardCSV(csv);
-
-    expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS", canonical: false })
-    );
-  });
-
-  it("parses ticker only as MIC_TICKER hint with empty domain", () => {
-    const csv = `date,instrument_description,type,quantity,ticker
-2024-01-01,AAPL,BUYSTOCK,10,AAPL`;
+  it("parses symbol_type + symbol as identifier hint", () => {
+    const csv = `date,instrument_description,type,quantity,symbol_type,symbol
+2024-01-01,AAPL,BUYSTOCK,10,MIC_TICKER,AAPL`;
 
     const result = parseStandardCSV(csv);
 
@@ -226,48 +198,127 @@ not-a-date,FOO,BUYSTOCK,5
     );
   });
 
-  it("parses both exchange_code + mic + ticker as two hints", () => {
-    const csv = `date,instrument_description,type,quantity,ticker,exchange_code,mic
-2024-01-01,AAPL,BUYSTOCK,10,AAPL,US,XNAS`;
+  it("parses symbol_type + symbol + exchange_type + exchange with MIC domain", () => {
+    const csv = `date,instrument_description,type,quantity,symbol_type,symbol,exchange_type,exchange
+2024-01-01,AAPL,BUYSTOCK,10,MIC_TICKER,AAPL,MIC,XNAS`;
 
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
     expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toHaveLength(2);
-    expect(result.txs[0].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.OPENFIGI_TICKER, value: "AAPL", domain: "US", canonical: false })
-    );
+    expect(result.txs[0].identifierHints).toHaveLength(1);
     expect(result.txs[0].identifierHints).toContainEqual(
       expect.objectContaining({ type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS", canonical: false })
     );
   });
 
-  it("parses identifier hint columns isin, ticker, openfigi_share_class, occ", () => {
-    const csv = `date,instrument_description,type,quantity,isin,ticker,exchange_code,openfigi_share_class,occ
-2024-01-01,AAPL,BUYSTOCK,10,US0378331005,AAPL,US,BG0000000000,
-2024-01-02,MSFT Option,BUYOPT,1,,,,, OCC-123`;
+  it("parses OPENFIGI_TICKER with OPENFIGI exchange domain", () => {
+    const csv = `date,instrument_description,type,quantity,symbol_type,symbol,exchange_type,exchange
+2024-01-01,AAPL,BUYSTOCK,10,OPENFIGI_TICKER,AAPL,OPENFIGI,US`;
 
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(2);
-
-    // First row: isin, ticker (with exchange_code as OPENFIGI_TICKER), openfigi_share_class = 3 hints
-    expect(result.txs[0].identifierHints).toHaveLength(3);
-    expect(result.txs[0].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.ISIN, value: "US0378331005", canonical: false })
-    );
+    expect(result.txs).toHaveLength(1);
+    expect(result.txs[0].identifierHints).toHaveLength(1);
     expect(result.txs[0].identifierHints).toContainEqual(
       expect.objectContaining({ type: IdentifierType.OPENFIGI_TICKER, value: "AAPL", domain: "US", canonical: false })
     );
-    expect(result.txs[0].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.OPENFIGI_SHARE_CLASS, value: "BG0000000000", canonical: false })
-    );
+  });
 
-    expect(result.txs[1].identifierHints).toHaveLength(1);
-    expect(result.txs[1].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.OCC, value: "OCC-123", canonical: false })
+  it("parses ISIN symbol_type without exchange", () => {
+    const csv = `date,instrument_description,type,quantity,symbol_type,symbol
+2024-01-01,AAPL,BUYSTOCK,10,ISIN,US0378331005`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs).toHaveLength(1);
+    expect(result.txs[0].identifierHints).toHaveLength(1);
+    expect(result.txs[0].identifierHints).toContainEqual(
+      expect.objectContaining({ type: IdentifierType.ISIN, value: "US0378331005", canonical: false })
     );
+  });
+
+  it("parses OCC symbol_type", () => {
+    const csv = `date,instrument_description,type,quantity,symbol_type,symbol
+2024-01-01,AAPL Option,BUYOPT,1,OCC,AAPL  240119C00185000`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs).toHaveLength(1);
+    expect(result.txs[0].identifierHints).toHaveLength(1);
+    expect(result.txs[0].identifierHints).toContainEqual(
+      expect.objectContaining({ type: IdentifierType.OCC, value: "AAPL  240119C00185000", canonical: false })
+    );
+  });
+
+  it("returns error for unknown symbol_type", () => {
+    const csv = `date,instrument_description,type,quantity,symbol_type,symbol
+2024-01-01,AAPL,BUYSTOCK,10,BOGUS,AAPL`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.txs).toHaveLength(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].field).toBe("symbol_type");
+    expect(result.errors[0].message).toContain("Unknown");
+  });
+
+  it("returns error for unknown exchange_type", () => {
+    const csv = `date,instrument_description,type,quantity,symbol_type,symbol,exchange_type,exchange
+2024-01-01,AAPL,BUYSTOCK,10,MIC_TICKER,AAPL,BOGUS,XNAS`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.txs).toHaveLength(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].field).toBe("exchange_type");
+    expect(result.errors[0].message).toContain("Unknown");
+  });
+
+  it("returns error when symbol_type present but symbol empty", () => {
+    const csv = `date,instrument_description,type,quantity,symbol_type,symbol
+2024-01-01,AAPL,BUYSTOCK,10,MIC_TICKER,`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.txs).toHaveLength(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].field).toBe("symbol");
+  });
+
+  it("returns error when exchange_type present but exchange empty", () => {
+    const csv = `date,instrument_description,type,quantity,symbol_type,symbol,exchange_type,exchange
+2024-01-01,AAPL,BUYSTOCK,10,MIC_TICKER,AAPL,MIC,`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.txs).toHaveLength(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].field).toBe("exchange");
+  });
+
+  it("produces no hint when symbol columns are absent", () => {
+    const csv = `date,instrument_description,type,quantity
+2024-01-01,AAPL,BUYSTOCK,10`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs).toHaveLength(1);
+    expect(result.txs[0].identifierHints).toHaveLength(0);
+  });
+
+  it("produces no hint when symbol_type and symbol are both empty", () => {
+    const csv = `date,instrument_description,type,quantity,symbol_type,symbol
+2024-01-01,AAPL,BUYSTOCK,10,,`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs).toHaveLength(1);
+    expect(result.txs[0].identifierHints).toHaveLength(0);
   });
 });

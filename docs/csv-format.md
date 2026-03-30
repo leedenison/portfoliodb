@@ -16,12 +16,10 @@ Header names are case-insensitive. Supported column names:
 | `settlement_currency`    | No       | Settlement/payment currency (e.g. GBP). |
 | `unit_price`             | No       | Unit price as reported by broker (optional). |
 | `account`                | No       | Opaque account identifier. |
-| `exchange_code`          | No       | Bloomberg/OpenFIGI exchange code (e.g. "US"). Pairs with `ticker` to create an OPENFIGI_TICKER identifier hint. |
-| `mic`                    | No       | ISO 10383 MIC code (e.g. "XNAS"). Pairs with `ticker` to create a MIC_TICKER identifier hint. |
-| `ticker`                 | No       | Ticker symbol. Creates MIC_TICKER (with `mic` domain) and/or OPENFIGI_TICKER (with `exchange_code` domain). If neither `mic` nor `exchange_code` is present, creates MIC_TICKER with empty domain. |
-| `isin`                   | No       | ISIN identifier hint for resolution. |
-| `openfigi_share_class`   | No       | OpenFIGI share-class identifier hint. |
-| `occ`                    | No       | OCC identifier hint (options). |
+| `symbol_type`            | No       | Identifier type name matching the IdentifierType enum. See allowed values below. |
+| `symbol`                 | No       | Identifier value (e.g. "AAPL", "US0378331005", "AAPL  240119C00185000"). Required when `symbol_type` is present. |
+| `exchange_type`          | No       | Exchange code system: `MIC` (ISO 10383) or `OPENFIGI` (Bloomberg exchange code). Required when `exchange` is present. |
+| `exchange`               | No       | Exchange code value (e.g. "XNAS" for MIC, "US" for OPENFIGI). Populates the domain field on the identifier hint. Required when `exchange_type` is present. |
 
 ## Transaction types (type column)
 
@@ -33,20 +31,28 @@ Allowed values for `type` (OFX-style):
 
 ## Identifier hints
 
-When identifier hint columns (`exchange_code`, `mic`, `ticker`, `isin`, `openfigi_share_class`, `occ`) are present and non-empty, resolution can use them and may not store broker description on the instrument. Empty cells are ignored. For options, when no `occ` hint is supplied, the system may extract an OCC symbol from the instrument description so that option contracts can be resolved via OpenFIGI OCC_SYMBOL.
+Each row carries at most one identifier hint via `symbol_type` and `symbol`. Commonly used symbol types:
 
-The `ticker` column interacts with `exchange_code` and `mic`:
-- `exchange_code` + `ticker` creates an OPENFIGI_TICKER identifier hint (domain = exchange code)
-- `mic` + `ticker` creates a MIC_TICKER identifier hint (domain = MIC)
-- `ticker` alone creates a MIC_TICKER identifier hint with empty domain
-- If both `exchange_code` and `mic` are present, both identifier hints are created
+| symbol_type        | Description | Example symbol |
+| ------------------ | ----------- | -------------- |
+| `MIC_TICKER`       | Ticker symbol (use with `exchange_type=MIC`) | `AAPL` |
+| `OPENFIGI_TICKER`  | OpenFIGI ticker (use with `exchange_type=OPENFIGI`) | `AAPL` |
+| `ISIN`             | International Securities Identification Number | `US0378331005` |
+| `CUSIP`            | CUSIP identifier | `037833100` |
+| `SEDOL`            | SEDOL identifier | `2046251` |
+| `OCC`              | OCC option symbol | `AAPL  240119C00185000` |
+| `OPENFIGI_SHARE_CLASS` | OpenFIGI share-class FIGI | `BBG001S5N8V8` |
+
+All IdentifierType enum values are accepted: `ISIN`, `CUSIP`, `SEDOL`, `CINS`, `WERTPAPIER`, `OCC`, `OPRA`, `FUT_OPT`, `OPENFIGI_GLOBAL`, `OPENFIGI_SHARE_CLASS`, `OPENFIGI_COMPOSITE`, `BROKER_DESCRIPTION`, `CURRENCY`, `FX_PAIR`, `MIC_TICKER`, `OPENFIGI_TICKER`.
+
+The optional `exchange_type` and `exchange` columns provide a domain for resolution. They must both be present or both absent. For options, when no `symbol_type`/`symbol` hint is supplied, the system may extract an OCC symbol from the instrument description so that option contracts can be resolved via OpenFIGI OCC_SYMBOL.
 
 ## Example
 
 ```csv
-date,instrument_description,type,quantity,trading_currency,settlement_currency,unit_price,account,exchange_code,ticker,isin
-2024-01-15,AAPL - Apple Inc.,BUYSTOCK,10,USD,GBP,185.50,ACC-1,US,AAPL,US0378331005
-2024-01-16,MSFT - Microsoft Corp.,SELLSTOCK,-5,USD,GBP,398.20,,,,
+date,instrument_description,type,quantity,trading_currency,unit_price,account,symbol_type,symbol,exchange_type,exchange
+2024-01-15,AAPL - Apple Inc.,BUYSTOCK,10,USD,185.50,ACC-1,MIC_TICKER,AAPL,MIC,XNAS
+2024-01-16,MSFT Option,BUYOPT,1,USD,12.50,ACC-1,OCC,MSFT  250117P00385000,,
 ```
 
 Any extra columns are ignored. Empty optional fields can be omitted or left blank.

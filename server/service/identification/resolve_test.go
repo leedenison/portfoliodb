@@ -114,6 +114,27 @@ func TestResolveByHintsDBOnly_Deduplicates(t *testing.T) {
 	}
 }
 
+func TestResolveByHintsDBOnly_NormalizesOCCToCompact(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+
+	// Padded OCC "NVDA  240315P00420000" should be normalized to compact "NVDA240315P00420000" for lookup.
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "OCC", "", "NVDA240315P00420000").
+		Return("inst-1", nil)
+
+	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
+		{Type: "OCC", Value: "NVDA  240315P00420000"},
+	})
+	if err != nil {
+		t.Fatalf("ResolveByHintsDBOnly: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != "inst-1" {
+		t.Errorf("got %v, want [inst-1]", ids)
+	}
+}
+
 func TestFilterIdentifierHints_ValidAndInvalid(t *testing.T) {
 	hints := []identifier.Identifier{
 		{Type: "MIC_TICKER", Value: "AAPL"},

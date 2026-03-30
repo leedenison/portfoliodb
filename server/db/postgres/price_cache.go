@@ -42,12 +42,6 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 		if len(ranges) == 0 {
 			return
 		}
-		if opts.LookbackDays > 0 {
-			for i := range ranges {
-				ranges[i].From = ranges[i].From.AddDate(0, 0, -opts.LookbackDays)
-			}
-			ranges = db.MergeRanges(ranges)
-		}
 		result = append(result, db.InstrumentDateRanges{
 			InstrumentID: curInst.String(),
 			Ranges:       ranges,

@@ -59,7 +59,6 @@ type InstrumentDateRanges struct {
 // HeldRangesOpts controls holdings range calculation.
 type HeldRangesOpts struct {
 	ExtendToToday bool // extend open positions to today
-	LookbackDays  int  // extend held_from backwards by N calendar days
 }
 
 // EODPrice is a single end-of-day price row for UpsertPrices.

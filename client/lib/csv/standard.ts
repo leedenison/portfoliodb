@@ -30,10 +30,24 @@ const TX_TYPE_BY_NAME = new Map<string, TxType>(
   (Object.entries(TxType) as [string, number][]).filter(([, v]) => typeof v === "number").map(([k, v]) => [k, v as TxType])
 );
 
+const IDENTIFIER_TYPE_BY_NAME = new Map<string, IdentifierType>(
+  (Object.entries(IdentifierType) as [string, number][])
+    .filter(([k, v]) => typeof v === "number" && k !== "IDENTIFIER_TYPE_UNSPECIFIED")
+    .map(([k, v]) => [k, v as IdentifierType])
+);
+
+const EXCHANGE_TYPES = new Set(["MIC", "OPENFIGI"]);
+
 function parseTxType(value: string): TxType | null {
   const trimmed = value.trim().toUpperCase();
   if (trimmed === "" || trimmed === "TX_TYPE_UNSPECIFIED") return null;
   return TX_TYPE_BY_NAME.get(trimmed) ?? null;
+}
+
+function parseIdentifierType(value: string): IdentifierType | null {
+  const trimmed = value.trim().toUpperCase();
+  if (trimmed === "" || trimmed === "IDENTIFIER_TYPE_UNSPECIFIED") return null;
+  return IDENTIFIER_TYPE_BY_NAME.get(trimmed) ?? null;
 }
 
 /** Parse a date string (YYYY-MM-DD or ISO 8601). Returns null if invalid. */
@@ -78,7 +92,7 @@ export function parseCSVLine(line: string): string[] {
 /**
  * Parse standard-format CSV text into Tx array and period.
  * Header names are case-insensitive. Required: date (or timestamp), instrument_description, type, quantity.
- * Optional: trading_currency, settlement_currency, unit_price, account, exchange_code, mic, ticker, isin, openfigi_share_class, occ.
+ * Optional: trading_currency, settlement_currency, unit_price, account, symbol_type, symbol, exchange_type, exchange.
  */
 export function parseStandardCSV(csvText: string): StandardParseResult {
   const errors: ParseError[] = [];
@@ -105,12 +119,10 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
   const settlementCurrencyCol = col("settlement_currency");
   const priceCol = col("unit_price");
   const accountCol = col("account");
-  const exchangeCodeCol = col("exchange_code");
-  const micCol = col("mic");
-  const isinCol = col("isin");
-  const tickerCol = col("ticker");
-  const openfigiShareClassCol = col("openfigi_share_class");
-  const occCol = col("occ");
+  const symbolTypeCol = col("symbol_type");
+  const symbolCol = col("symbol");
+  const exchangeTypeCol = col("exchange_type");
+  const exchangeCol = col("exchange");
 
   if (dateCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: date or timestamp" });
   if (descCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: instrument_description" });
@@ -164,35 +176,39 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
     }
 
     const account = accountCol >= 0 ? get(accountCol) : "";
-    const exchangeCode = exchangeCodeCol >= 0 ? get(exchangeCodeCol) || undefined : undefined;
-    const mic = micCol >= 0 ? get(micCol) || undefined : undefined;
 
-    const identifierHints: Array<{ type: IdentifierType; value: string; domain?: string }> = [];
-    if (isinCol >= 0) {
-      const v = get(isinCol);
-      if (v) identifierHints.push({ type: IdentifierType.ISIN, value: v });
-    }
-    if (tickerCol >= 0) {
-      const v = get(tickerCol);
-      if (v) {
-        if (exchangeCode) {
-          identifierHints.push({ type: IdentifierType.OPENFIGI_TICKER, value: v, domain: exchangeCode });
-        }
-        if (mic) {
-          identifierHints.push({ type: IdentifierType.MIC_TICKER, value: v, domain: mic });
-        }
-        if (!exchangeCode && !mic) {
-          identifierHints.push({ type: IdentifierType.MIC_TICKER, value: v });
-        }
+    // Parse exchange_type + exchange into a domain for the identifier hint.
+    let domain: string | undefined;
+    const exchangeTypeStr = exchangeTypeCol >= 0 ? get(exchangeTypeCol) : "";
+    const exchangeStr = exchangeCol >= 0 ? get(exchangeCol) : "";
+    if (exchangeTypeStr && exchangeStr) {
+      if (!EXCHANGE_TYPES.has(exchangeTypeStr.toUpperCase())) {
+        errors.push({ rowIndex, field: "exchange_type", message: `Unknown exchange type: ${exchangeTypeStr}` });
+        continue;
       }
+      domain = exchangeStr;
+    } else if (exchangeTypeStr && !exchangeStr) {
+      errors.push({ rowIndex, field: "exchange", message: "exchange is required when exchange_type is present" });
+      continue;
+    } else if (!exchangeTypeStr && exchangeStr) {
+      errors.push({ rowIndex, field: "exchange_type", message: "exchange_type is required when exchange is present" });
+      continue;
     }
-    if (openfigiShareClassCol >= 0) {
-      const v = get(openfigiShareClassCol);
-      if (v) identifierHints.push({ type: IdentifierType.OPENFIGI_SHARE_CLASS, value: v });
-    }
-    if (occCol >= 0) {
-      const v = get(occCol);
-      if (v) identifierHints.push({ type: IdentifierType.OCC, value: v });
+
+    // Parse symbol_type + symbol into an identifier hint.
+    const identifierHints: Array<{ type: IdentifierType; value: string; domain?: string }> = [];
+    const symbolTypeStr = symbolTypeCol >= 0 ? get(symbolTypeCol) : "";
+    const symbolStr = symbolCol >= 0 ? get(symbolCol) : "";
+    if (symbolTypeStr && symbolStr) {
+      const idType = parseIdentifierType(symbolTypeStr);
+      if (idType === null) {
+        errors.push({ rowIndex, field: "symbol_type", message: `Unknown identifier type: ${symbolTypeStr}` });
+        continue;
+      }
+      identifierHints.push({ type: idType, value: symbolStr, ...(domain ? { domain } : {}) });
+    } else if (symbolTypeStr && !symbolStr) {
+      errors.push({ rowIndex, field: "symbol", message: "symbol is required when symbol_type is present" });
+      continue;
     }
 
     const ts = date.getTime();

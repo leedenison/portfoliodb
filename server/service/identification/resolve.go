@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 )
@@ -54,12 +55,19 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 		if h.Type == "" || h.Value == "" {
 			continue
 		}
-		id, err := database.FindInstrumentByIdentifier(ctx, h.Type, h.Domain, h.Value)
+		// Normalize OCC to compact form (DB stores compact).
+		value := h.Value
+		if h.Type == "OCC" {
+			if compact, ok := derivative.OCCCompact(value); ok {
+				value = compact
+			}
+		}
+		id, err := database.FindInstrumentByIdentifier(ctx, h.Type, h.Domain, value)
 		if err != nil {
 			return nil, err
 		}
 		if id == "" && h.Domain == "" {
-			id, err = database.FindInstrumentByTypeAndValue(ctx, h.Type, h.Value)
+			id, err = database.FindInstrumentByTypeAndValue(ctx, h.Type, value)
 			if err != nil {
 				return nil, err
 			}

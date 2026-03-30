@@ -175,20 +175,9 @@ func (s *Server) ListPriceFetchBlocks(ctx context.Context, req *apiv1.ListPriceF
 		instruments, err := s.db.ListInstrumentsByIDs(ctx, ids)
 		if err == nil {
 			for _, inst := range instruments {
-				var name string
-				if inst.Name != nil {
+				name := inst.ID
+				if inst.Name != nil && *inst.Name != "" {
 					name = *inst.Name
-				}
-				if name == "" {
-					for _, ident := range inst.Identifiers {
-						if (ident.Type == "MIC_TICKER" || ident.Type == "OPENFIGI_TICKER") && ident.Value != "" {
-							name = ident.Value
-							break
-						}
-					}
-				}
-				if name == "" {
-					name = inst.ID
 				}
 				instMap[inst.ID] = name
 			}

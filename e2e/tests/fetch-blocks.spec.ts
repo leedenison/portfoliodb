@@ -72,7 +72,7 @@ test.describe("fetch block full flow", () => {
     await page.locator("[data-testid='btn-upload-submit']").click();
     await expect(
       page.locator("[data-testid='upload-modal']")
-    ).not.toBeVisible({ timeout: 30_000 });
+    ).not.toBeVisible({ timeout: TIMEOUT_SLOW });
 
     // Wait for all workers (ingestion + identification + price fetcher).
     await waitForWorkersIdle(browser);
@@ -92,9 +92,10 @@ test.describe("fetch block full flow", () => {
     await expect(rows).toHaveCount(3, { timeout: 10_000 });
 
     // Verify all three instruments are blocked with "forbidden" reason.
-    await expect(table).toContainText("Amazon");
-    await expect(table).toContainText("NVIDIA");
-    await expect(table).toContainText("Tesla");
+    // Instrument names are ticker-style (denormalized from MIC_TICKER identifiers).
+    await expect(table).toContainText("AMZN");
+    await expect(table).toContainText("NVDA");
+    await expect(table).toContainText("TSLA");
     await expect(table).toContainText("forbidden");
 
     await adminContext.close();

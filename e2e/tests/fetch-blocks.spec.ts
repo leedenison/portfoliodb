@@ -72,7 +72,7 @@ test.describe("fetch block full flow", () => {
     await page.locator("[data-testid='btn-upload-submit']").click();
     await expect(
       page.locator("[data-testid='upload-modal']")
-    ).not.toBeVisible({ timeout: TIMEOUT_SLOW });
+    ).not.toBeVisible({ timeout: 30_000 });
 
     // Wait for all workers (ingestion + identification + price fetcher).
     await waitForWorkersIdle(browser);

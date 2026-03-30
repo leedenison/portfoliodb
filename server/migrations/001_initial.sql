@@ -106,12 +106,17 @@ CREATE TABLE exchanges (
 
 -- Canonical instruments (security master).
 -- asset_class: controlled vocabulary. OPTION and FUTURE require underlying_id.
+-- name: denormalized display name, computed by trigger from identifier priority:
+--   MIC_TICKER > OPENFIGI_TICKER > OCC > BROKER_DESCRIPTION > CURRENCY > FX_PAIR > (existing name) > id::text.
+-- exchange: denormalized short exchange label, computed by trigger:
+--   exchanges.acronym (via exchange_mic) > OPENFIGI_TICKER domain > ''.
 CREATE TABLE instruments (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   asset_class  TEXT CHECK (asset_class IS NULL OR asset_class IN ('STOCK','ETF','FIXED_INCOME','MUTUAL_FUND','OPTION','FUTURE','CASH','FX','UNKNOWN')),
   exchange_mic TEXT REFERENCES exchanges(mic),
   currency     TEXT,
   name         TEXT,
+  exchange     TEXT NOT NULL DEFAULT '',
   underlying_id UUID REFERENCES instruments (id),
   valid_from   DATE,
   valid_to     DATE,
@@ -147,6 +152,56 @@ CREATE UNIQUE INDEX idx_instrument_identifiers_inst_unique_non_null_domain ON in
 CREATE UNIQUE INDEX idx_instrument_identifiers_unique_null_domain ON instrument_identifiers (identifier_type, value) WHERE domain IS NULL;
 CREATE UNIQUE INDEX idx_instrument_identifiers_unique_non_null_domain ON instrument_identifiers (identifier_type, domain, value) WHERE domain IS NOT NULL;
 CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identifier_type, COALESCE(domain, ''), value);
+
+-- Trigger: recompute instruments.name and instruments.exchange whenever identifiers
+-- or the instrument itself change. Fires AFTER so that all rows are visible.
+CREATE OR REPLACE FUNCTION recompute_instrument_name() RETURNS TRIGGER AS $$
+DECLARE
+  instr_id UUID;
+BEGIN
+  IF TG_TABLE_NAME = 'instrument_identifiers' THEN
+    instr_id := COALESCE(NEW.instrument_id, OLD.instrument_id);
+  ELSE
+    instr_id := NEW.id;
+  END IF;
+
+  UPDATE instruments SET
+    name = COALESCE(
+      (SELECT ii.value FROM instrument_identifiers ii
+       WHERE ii.instrument_id = instr_id
+         AND ii.identifier_type IN ('MIC_TICKER','OPENFIGI_TICKER','OCC','BROKER_DESCRIPTION','CURRENCY','FX_PAIR')
+       ORDER BY CASE ii.identifier_type
+         WHEN 'MIC_TICKER' THEN 0 WHEN 'OPENFIGI_TICKER' THEN 1
+         WHEN 'OCC' THEN 2 WHEN 'BROKER_DESCRIPTION' THEN 3
+         WHEN 'CURRENCY' THEN 4 WHEN 'FX_PAIR' THEN 5
+       END, ii.domain, ii.value LIMIT 1),
+      NULLIF(instruments.name, ''),
+      instr_id::text
+    ),
+    exchange = COALESCE(
+      (SELECT e.acronym FROM exchanges e WHERE e.mic = instruments.exchange_mic),
+      (SELECT ii.domain FROM instrument_identifiers ii
+       WHERE ii.instrument_id = instr_id AND ii.identifier_type = 'OPENFIGI_TICKER'
+         AND ii.domain IS NOT NULL AND ii.domain <> ''
+       ORDER BY ii.domain LIMIT 1),
+      ''
+    )
+  WHERE id = instr_id;
+
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Recompute on identifier changes.
+CREATE TRIGGER trg_recompute_instrument_name_on_ident
+  AFTER INSERT OR UPDATE OR DELETE ON instrument_identifiers
+  FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
+
+-- Recompute on instrument creation or exchange_mic change.
+-- Column-specific UPDATE OF avoids infinite loop (trigger only writes name/exchange).
+CREATE TRIGGER trg_recompute_instrument_name_on_inst
+  AFTER INSERT OR UPDATE OF exchange_mic ON instruments
+  FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
 
 -- Plugin config: which plugins are enabled, precedence (unique per category), plugin-specific config.
 -- category: 'identifier', 'description', 'price'.

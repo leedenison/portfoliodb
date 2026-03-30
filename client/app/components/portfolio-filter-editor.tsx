@@ -13,7 +13,6 @@ import {
 } from "@/lib/portfolio-api";
 import type { BrokerAccounts, PortfolioFilter } from "@/lib/portfolio-api";
 import type { Instrument } from "@/gen/api/v1/api_pb";
-import { IdentifierType } from "@/gen/api/v1/api_pb";
 
 const ALL_ASSET_CLASSES = [
   "STOCK",
@@ -27,19 +26,6 @@ const ALL_ASSET_CLASSES = [
 ] as const;
 
 type Tab = "accounts" | "instruments";
-
-function displayName(inst: Instrument): string {
-  const ticker = inst.identifiers.find(
-    (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
-  );
-  if (ticker) return ticker.value;
-  if (inst.name) return inst.name;
-  const desc = inst.identifiers.find(
-    (id) => id.type === IdentifierType.BROKER_DESCRIPTION
-  );
-  if (desc) return desc.value;
-  return inst.id;
-}
 
 interface Props {
   portfolioId: string;
@@ -104,7 +90,7 @@ export function PortfolioFilterEditor({
         const instNames = new Map<string, string>();
         for (const h of holdingsResult.holdings) {
           if (h.instrumentId && h.instrument) {
-            instNames.set(h.instrumentId, displayName(h.instrument));
+            instNames.set(h.instrumentId, h.instrument.name || h.instrumentId);
           }
         }
 
@@ -177,7 +163,7 @@ export function PortfolioFilterEditor({
     setSelInstruments((prev) => {
       const next = new Map(prev);
       if (next.has(inst.id)) next.delete(inst.id);
-      else next.set(inst.id, displayName(inst));
+      else next.set(inst.id, (inst.name || inst.id));
       return next;
     });
   };
@@ -572,7 +558,7 @@ function InstrumentsTab({
                         className="rounded border-border text-primary focus:ring-primary/30"
                       />
                       <span className="flex-1 truncate text-text-primary">
-                        {displayName(inst)}
+                        {(inst.name || inst.id)}
                       </span>
                       <span className="shrink-0 text-xs text-text-muted">
                         {inst.assetClass || ""}

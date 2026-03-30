@@ -81,9 +81,7 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	if row.AssetClass != nil {
 		out.AssetClass = *row.AssetClass
 	}
-	if row.ExchangeMIC != nil {
-		out.Exchange = *row.ExchangeMIC
-	}
+	out.Exchange = row.Exchange
 	if row.ExchangeName != nil || row.ExchangeAcronym != nil || row.ExchangeCountryCode != nil {
 		out.ExchangeInfo = &apiv1.Exchange{
 			Mic:         derefStr(row.ExchangeMIC),

@@ -399,6 +399,7 @@ type InstrumentRow struct {
 	ExchangeMIC         *string
 	Currency            *string
 	Name                *string
+	Exchange            string  // denormalized; trigger-computed from acronym/identifier
 	UnderlyingID        *string
 	ValidFrom           *time.Time
 	ValidTo             *time.Time

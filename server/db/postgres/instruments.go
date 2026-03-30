@@ -17,18 +17,6 @@ import (
 // errIdentifierExists is returned when EnsureInstrument hits a unique violation (identifier already for another instrument).
 var errIdentifierExists = errors.New("identifier already exists for another instrument")
 
-// instrumentDisplayNameSQL returns a SQL expression that resolves the display
-// name for an instrument. Prefers TICKER, then instrument.name, then
-// BROKER_DESCRIPTION, then id::text. instAlias is the instruments table alias,
-// identAlias is the alias used for instrument_identifiers in the subqueries.
-func instrumentDisplayNameSQL(instAlias, identAlias string) string {
-	return fmt.Sprintf(`COALESCE(
-		(SELECT %[2]s.value FROM instrument_identifiers %[2]s WHERE %[2]s.instrument_id = %[1]s.id AND %[2]s.identifier_type IN ('MIC_TICKER', 'OPENFIGI_TICKER', 'OCC', 'BROKER_DESCRIPTION') ORDER BY CASE %[2]s.identifier_type WHEN 'MIC_TICKER' THEN 0 WHEN 'OPENFIGI_TICKER' THEN 1 WHEN 'OCC' THEN 2 WHEN 'BROKER_DESCRIPTION' THEN 3 END, %[2]s.domain, %[2]s.value LIMIT 1),
-		NULLIF(%[1]s.name, ''),
-		%[1]s.id::text
-	)`, instAlias, identAlias)
-}
-
 // mergeInstruments merges mergedAway into survivor inside the same transaction: updates all txs pointing at mergedAway to survivor, moves identifier rows to survivor (or keeps survivor's if duplicate), then deletes mergedAway. exec must be a transaction.
 func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway uuid.UUID) error {
 	if survivor == mergedAway {
@@ -207,7 +195,7 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 	}
 	var r instrumentRow
 	err = p.q.GetContext(ctx, &r, `
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_to,
 		       i.cik, i.sic_code,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 		FROM instruments i
@@ -233,7 +221,7 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 	var err error
 	if exchangeFilter != "" {
 		err = p.q.SelectContext(ctx, &irows, `
-			SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+			SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_to,
 			       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 			FROM instruments i
 			LEFT JOIN exchanges e ON e.mic = i.exchange_mic
@@ -243,7 +231,7 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 		`, exchangeFilter)
 	} else {
 		err = p.q.SelectContext(ctx, &irows, `
-			SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+			SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_to,
 			       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 			FROM instruments i
 			LEFT JOIN exchanges e ON e.mic = i.exchange_mic
@@ -290,7 +278,7 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	inClause, args := inClauseUUIDs(uuids)
 	var irows []instrumentRow
 	err := p.q.SelectContext(ctx, &irows, fmt.Sprintf(`
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_to,
 		       i.cik, i.sic_code,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 		FROM instruments i
@@ -418,14 +406,12 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	limit := pageSize
 	offset := decodePageToken(pageToken)
 
-	displayName := instrumentDisplayNameSQL("i", "ii")
-
 	// Build WHERE clauses for optional filters.
 	var conditions []string
 	var args []interface{}
 	argIdx := 1
 	if search != "" {
-		conditions = append(conditions, fmt.Sprintf(`(%s) ILIKE '%%' || $%d || '%%'`, displayName, argIdx))
+		conditions = append(conditions, fmt.Sprintf(`i.name ILIKE '%%' || $%d || '%%'`, argIdx))
 		args = append(args, search)
 		argIdx++
 	}
@@ -470,15 +456,15 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	}
 
 	q := fmt.Sprintf(`
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.underlying_id, i.valid_from, i.valid_to,
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_to,
 		       i.cik, i.sic_code,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 		FROM instruments i
 		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
 		%s
-		ORDER BY lower(%s)
+		ORDER BY lower(i.name)
 		LIMIT $%d OFFSET $%d
-	`, where, displayName, argIdx, argIdx+1)
+	`, where, argIdx, argIdx+1)
 	args = append(args, limit+1, offset)
 
 	var irows []instrumentRow

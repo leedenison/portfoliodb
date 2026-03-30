@@ -13,14 +13,13 @@ import (
 // ListPrices implements db.EODPriceListDB.
 func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, dateTo time.Time, dataProvider string, pageSize int32, pageToken string) ([]db.EODPriceRow, int32, string, error) {
 	offset := decodePageToken(pageToken)
-	displayName := instrumentDisplayNameSQL("i", "ii")
 
 	var conditions []string
 	var args []interface{}
 	argIdx := 1
 
 	if search != "" {
-		conditions = append(conditions, fmt.Sprintf(`(%s) ILIKE '%%' || $%d || '%%'`, displayName, argIdx))
+		conditions = append(conditions, fmt.Sprintf(`i.name ILIKE '%%' || $%d || '%%'`, argIdx))
 		args = append(args, search)
 		argIdx++
 	}
@@ -56,15 +55,15 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 	}
 
 	q := fmt.Sprintf(`
-		SELECT ep.instrument_id, (%s) AS display_name,
+		SELECT ep.instrument_id, i.name AS display_name,
 			ep.price_date, ep.open, ep.high, ep.low, ep.close, ep.adjusted_close,
 			ep.volume, ep.data_provider, ep.synthetic, ep.fetched_at
 		FROM eod_prices ep
 		JOIN instruments i ON i.id = ep.instrument_id
 		%s
-		ORDER BY ep.price_date DESC, lower((%s))
+		ORDER BY ep.price_date DESC, lower(i.name)
 		LIMIT $%d OFFSET $%d
-	`, displayName, where, displayName, argIdx, argIdx+1)
+	`, where, argIdx, argIdx+1)
 	args = append(args, pageSize+1, offset)
 
 	rows, err := p.q.QueryContext(ctx, q, args...)

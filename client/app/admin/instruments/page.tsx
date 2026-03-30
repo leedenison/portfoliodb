@@ -32,19 +32,6 @@ function idLabel(id: InstrumentIdentifier): string {
   return IDENTIFIER_LABELS[id.type] ?? String(id.type);
 }
 
-function displayName(inst: Instrument): string {
-  const ticker = inst.identifiers.find(
-    (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
-  );
-  if (ticker) return ticker.value;
-  if (inst.name) return inst.name;
-  const desc = inst.identifiers.find(
-    (id) => id.type === IdentifierType.BROKER_DESCRIPTION
-  );
-  if (desc) return desc.value;
-  return inst.id;
-}
-
 function isIdentified(inst: Instrument): boolean {
   return inst.identifiers.some((id) => id.canonical);
 }
@@ -273,7 +260,7 @@ export default function AdminInstrumentsPage() {
                           {expanded ? (
                             <ExpandedDetail inst={inst} />
                           ) : (
-                            displayName(inst)
+                            (inst.name || inst.id)
                           )}
                         </td>
                         {!expanded && (
@@ -344,7 +331,7 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
         <span className="font-display text-base font-bold tracking-tight text-text-primary">
-          {displayName(inst)}
+          {(inst.name || inst.id)}
         </span>
         <span
           className={

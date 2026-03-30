@@ -93,10 +93,10 @@ test.describe("session expiry", () => {
     await deleteSession(sessionId);
 
     // Reload the page. GetSession() will fail (session gone from Redis),
-    // so auth state becomes "unauthenticated" and the page shows sign-in prompt.
+    // triggering SessionLostHandler which redirects to the sign-in page.
     await page.reload();
     await expect(
-      page.getByText("Sign in to view")
+      page.locator("[data-testid='page-signin']")
     ).toBeVisible({ timeout: 10_000 });
   });
 });

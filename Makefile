@@ -75,6 +75,10 @@ run: $(STAMP_DIR)/tools $(STAMP_DIR)/generate
 init-db:
 	@scripts/init-db.sh "$(COMPOSE_DEV)" "$(DB_INITIALISE_SCRIPT)"
 
+# Tail logs for the dev stack started by 'make run'.
+logs:
+	$(COMPOSE_DEV) logs -f portfoliodb
+
 # Stop containers started by 'make run'.
 stop:
 	$(COMPOSE_DEV) down
@@ -163,6 +167,7 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  make run                Start dev stack (Postgres, Redis, gRPC, Envoy, Next.js)"
+	@echo "  make logs               Tail portfoliodb service logs"
 	@echo "  make stop               Stop dev stack"
 	@echo "  make build              Build server binary"
 	@echo ""
@@ -184,4 +189,4 @@ help:
 	@echo "After 'git pull', run 'make tools generate' if deps or protos changed."
 	@echo "Dependencies are tracked automatically -- stale steps re-run as needed."
 
-.PHONY: tools generate build server-test db-test client-test integration-test integration-test-record e2e-test e2e-record run init-db stop clean clean-generated clean-docker clean-next clean-stamps test help
+.PHONY: tools generate build server-test db-test client-test integration-test integration-test-record e2e-test e2e-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help

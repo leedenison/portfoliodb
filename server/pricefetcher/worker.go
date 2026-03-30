@@ -56,7 +56,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		}
 	}()
 
-	opts := db.HeldRangesOpts{ExtendToToday: true, LookbackDays: 5}
+	opts := db.HeldRangesOpts{ExtendToToday: true}
 
 	gaps, err := database.PriceGaps(ctx, opts)
 	if err != nil {

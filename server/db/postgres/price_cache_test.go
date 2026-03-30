@@ -200,62 +200,6 @@ func TestHeldRanges_CloseAndReopen(t *testing.T) {
 	})
 }
 
-func TestHeldRanges_Lookback(t *testing.T) {
-	p := testDBTx(t)
-	ctx := context.Background()
-	userID := setupUser(t, p)
-	instID := setupInstrument(t, p, "AMZN")
-
-	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 3, 1), InstrumentDescription: "AMZN", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "A"},
-		{Timestamp: ts(2024, 4, 1), InstrumentDescription: "AMZN", Type: apiv1.TxType_SELLSTOCK, Quantity: -100, Account: "A"},
-	})
-
-	got, err := p.HeldRanges(ctx, db.HeldRangesOpts{LookbackDays: 30})
-	if err != nil {
-		t.Fatalf("held ranges: %v", err)
-	}
-	// held_from should be 2024-03-01 minus 30 days = 2024-01-31
-	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 31), To: d(2024, 4, 1)},
-	})
-}
-
-func TestHeldRanges_LookbackMerge(t *testing.T) {
-	p := testDBTx(t)
-	ctx := context.Background()
-	userID := setupUser(t, p)
-	instID := setupInstrument(t, p, "META")
-
-	// Two ranges close enough that lookback causes overlap and merge.
-	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "META", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "A"},
-		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "META", Type: apiv1.TxType_SELLSTOCK, Quantity: -100, Account: "A"},
-		{Timestamp: ts(2024, 2, 1), InstrumentDescription: "META", Type: apiv1.TxType_BUYSTOCK, Quantity: 50, Account: "A"},
-		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "META", Type: apiv1.TxType_SELLSTOCK, Quantity: -50, Account: "A"},
-	})
-
-	// Without lookback: two separate ranges.
-	got, err := p.HeldRanges(ctx, db.HeldRangesOpts{})
-	if err != nil {
-		t.Fatalf("held ranges: %v", err)
-	}
-	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 10), To: d(2024, 1, 20)},
-		{From: d(2024, 2, 1), To: d(2024, 2, 10)},
-	})
-
-	// With 20-day lookback: second range's from (2024-02-01 - 20d = 2024-01-12) overlaps first,
-	// so they merge.
-	got, err = p.HeldRanges(ctx, db.HeldRangesOpts{LookbackDays: 20})
-	if err != nil {
-		t.Fatalf("held ranges: %v", err)
-	}
-	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2023, 12, 21), To: d(2024, 2, 10)},
-	})
-}
-
 func TestHeldRanges_UnidentifiedExcluded(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

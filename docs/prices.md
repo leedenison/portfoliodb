@@ -57,7 +57,6 @@ type InstrumentDateRanges struct {
 // HeldRangesOpts controls holdings range calculation.
 type HeldRangesOpts struct {
     ExtendToToday bool // extend open positions to today
-    LookbackDays  int  // extend held_from backwards by N calendar days
 }
 ```
 
@@ -86,9 +85,7 @@ Compute the date ranges during which any user held a non-zero position in each i
 3. In Go, iterate the daily positions and detect zero-crossings:
    - `held_from` = the date the position first becomes non-zero.
    - `held_to` = the date the position returns to zero, OR today + 1 day (exclusive) if `ExtendToToday` is true and the position is still open.
-4. If `LookbackDays > 0`, extend each `held_from` backwards by that many **calendar** days (to support moving average or other lookback calculations).
-5. Merge overlapping or adjacent ranges for the same instrument (this can happen if a position is closed and reopened quickly, and the lookback causes overlap).
-6. Return the result as a slice of `InstrumentDateRanges`.
+4. Return the result as a slice of `InstrumentDateRanges`.
 
 ---
 
@@ -157,7 +154,7 @@ These are independently unit-testable without a database.
 Each component should be independently testable:
 
 - **Range Utilities:** Table-driven unit tests for `MergeRanges` and `SubtractRanges`. No database required.
-- **Holdings Calculator:** Insert a known set of transactions (buy, sell, buy again), verify the output ranges match expectations. Test edge cases: position goes to zero and reopens the same day; position never closes; lookback extends before first transaction; transactions with NULL instrument_id are excluded.
+- **Holdings Calculator:** Insert a known set of transactions (buy, sell, buy again), verify the output ranges match expectations. Test edge cases: position goes to zero and reopens the same day; position never closes; transactions with NULL instrument_id are excluded.
 - **Coverage Inventory:** Insert a known set of `eod_prices` rows with deliberate gaps, verify the contiguous ranges are detected correctly. Test: single day of data, data with weekend gaps, data with a genuine multi-day gap; filter by instrument_id.
 - **Gap Analysis:** Combine known holdings and known cached data, verify the gaps are correct. Test: fully cached (no gaps), no cache at all (gaps = holdings), partial overlap.
 

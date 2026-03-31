@@ -598,6 +598,90 @@ func TestPlugin_Identify_Option_ClassicTickerConvertedToOCC(t *testing.T) {
 	}
 }
 
+func TestResolveResults_HintMatchesOneResult(t *testing.T) {
+	results := []OpenFIGIResult{
+		{FIGI: "BBG_STOCK", Ticker: "X", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
+		{FIGI: "BBG_ETF", Ticker: "X", SecurityType: "ETP", SecurityType2: "ETP", MarketSector: "Equity"},
+		{FIGI: "BBG_BOND", Ticker: "X", SecurityType: "Bond", SecurityType2: "Corp", MarketSector: "Corp"},
+	}
+	p := NewPlugin(nil, nil, nil)
+	inst, ids, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, true)
+	if !ok || inst == nil {
+		t.Fatal("expected result")
+	}
+	if inst.AssetClass != "ETF" {
+		t.Errorf("AssetClass = %q, want ETF", inst.AssetClass)
+	}
+	hasFIGI := false
+	for _, id := range ids {
+		if id.Type == "OPENFIGI_GLOBAL" && id.Value == "BBG_ETF" {
+			hasFIGI = true
+		}
+	}
+	if !hasFIGI {
+		t.Errorf("expected OPENFIGI_GLOBAL=BBG_ETF in ids: %+v", ids)
+	}
+}
+
+func TestResolveResults_HintMatchesNone_FallsBackToFirst(t *testing.T) {
+	results := []OpenFIGIResult{
+		{FIGI: "BBG_STOCK", Ticker: "X", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
+		{FIGI: "BBG_BOND", Ticker: "X", SecurityType: "Bond", SecurityType2: "Corp", MarketSector: "Corp"},
+	}
+	p := NewPlugin(nil, nil, nil)
+	inst, ids, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, true)
+	if !ok || inst == nil {
+		t.Fatal("expected result (fallback to first)")
+	}
+	if inst.AssetClass != "STOCK" {
+		t.Errorf("AssetClass = %q, want STOCK (first result)", inst.AssetClass)
+	}
+	hasFIGI := false
+	for _, id := range ids {
+		if id.Type == "OPENFIGI_GLOBAL" && id.Value == "BBG_STOCK" {
+			hasFIGI = true
+		}
+	}
+	if !hasFIGI {
+		t.Errorf("expected OPENFIGI_GLOBAL=BBG_STOCK in ids: %+v", ids)
+	}
+}
+
+func TestResolveResults_NoHint_FallsBackToFirst(t *testing.T) {
+	results := []OpenFIGIResult{
+		{FIGI: "BBG_BOND", Ticker: "X", SecurityType: "Bond", SecurityType2: "Corp", MarketSector: "Corp"},
+		{FIGI: "BBG_STOCK", Ticker: "X", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
+	}
+	p := NewPlugin(nil, nil, nil)
+	inst, _, ok := p.resolveResults(results, identifier.Hints{}, true)
+	if !ok || inst == nil {
+		t.Fatal("expected result")
+	}
+	if inst.AssetClass != "FIXED_INCOME" {
+		t.Errorf("AssetClass = %q, want FIXED_INCOME (first result)", inst.AssetClass)
+	}
+}
+
+func TestResolveResults_AssetClassFromSelectedResult(t *testing.T) {
+	// Hint is STOCK but the matching result has securityType="ADR" which
+	// classifies as STOCK. Verify the stored asset class comes from classify(),
+	// not from the hint string directly.
+	results := []OpenFIGIResult{
+		{FIGI: "BBG_ETF", Ticker: "X", SecurityType: "ETP", SecurityType2: "ETP", MarketSector: "Equity"},
+		{FIGI: "BBG_ADR", Ticker: "X", SecurityType: "ADR", SecurityType2: "Depositary Receipt", MarketSector: "Equity"},
+	}
+	p := NewPlugin(nil, nil, nil)
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, true)
+	if !ok || inst == nil {
+		t.Fatal("expected result")
+	}
+	// ADR classifies as STOCK via the rule table -- the hint matched, and the
+	// stored asset class is from classify(), which is also STOCK.
+	if inst.AssetClass != "STOCK" {
+		t.Errorf("AssetClass = %q, want STOCK", inst.AssetClass)
+	}
+}
+
 func mustJSON(v interface{}) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

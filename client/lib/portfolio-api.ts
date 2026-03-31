@@ -80,6 +80,7 @@ import {
   CountIgnoredTxsRequestSchema,
   CountIgnoredTxsResponseSchema,
   IgnoredAssetClassRuleSchema,
+  AssetClass,
   JobStatus,
   WorkerState,
 } from "@/gen/api/v1/api_pb";
@@ -478,7 +479,7 @@ export interface ListInstrumentsResult {
 
 export async function listInstruments(params?: {
   search?: string;
-  assetClasses?: string[];
+  assetClasses?: AssetClass[];
   pageToken?: string | null;
 }): Promise<ListInstrumentsResult> {
   const base = getBaseUrl();
@@ -761,7 +762,7 @@ export async function listWorkers(): Promise<WorkerRow[]> {
 export interface IgnoredAssetClassRule {
   broker: string;
   account: string; // empty = all accounts for broker
-  assetClass: string;
+  assetClass: AssetClass;
 }
 
 export async function getIgnoredAssetClasses(): Promise<IgnoredAssetClassRule[]> {

@@ -22,7 +22,11 @@ func (s *Server) ListInstruments(ctx context.Context, req *apiv1.ListInstruments
 	if pageSize > 100 {
 		pageSize = 100
 	}
-	rows, totalCount, nextToken, err := s.db.ListInstruments(ctx, req.GetSearch(), req.GetAssetClasses(), pageSize, req.GetPageToken())
+	var acStrs []string
+	for _, ac := range req.GetAssetClasses() {
+		acStrs = append(acStrs, db.AssetClassToStr(ac))
+	}
+	rows, totalCount, nextToken, err := s.db.ListInstruments(ctx, req.GetSearch(), acStrs, pageSize, req.GetPageToken())
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -91,7 +95,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 	// Pass 1: ensure all non-derivatives (and ensure nested underlyings from derivatives).
 	for i, inst := range instruments {
 		ac := inst.GetAssetClass()
-		isDerivative := ac == "OPTION" || ac == "FUTURE"
+		isDerivative := ac == apiv1.AssetClass_ASSET_CLASS_OPTION || ac == apiv1.AssetClass_ASSET_CLASS_FUTURE
 		if isDerivative {
 			continue
 		}
@@ -118,7 +122,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
 			idns = append(idns, db.IdentifierInput{Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
-		_, err := s.db.EnsureInstrument(ctx, inst.GetAssetClass(), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, "", protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()))
+		_, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, "", protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()))
 		if err != nil {
 			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: err.Error()})
 			continue
@@ -130,7 +134,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 	underlyingIDByIndex := make(map[int32]string) // index -> resolved underlying_id for derivatives
 	for i, inst := range instruments {
 		ac := inst.GetAssetClass()
-		if ac != "OPTION" && ac != "FUTURE" {
+		if ac != apiv1.AssetClass_ASSET_CLASS_OPTION && ac != apiv1.AssetClass_ASSET_CLASS_FUTURE {
 			continue
 		}
 		if inst.GetUnderlying() == nil || len(inst.GetUnderlying().GetIdentifiers()) == 0 {
@@ -143,7 +147,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
 			uIdns = append(uIdns, db.IdentifierInput{Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
-		underlyingID, err := s.db.EnsureInstrument(ctx, u.GetAssetClass(), u.GetExchange(), u.GetCurrency(), u.GetName(), u.GetCik(), u.GetSicCode(), uIdns, "", protoValidFrom(u.GetValidFrom()), protoValidTo(u.GetValidTo()))
+		underlyingID, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(u.GetAssetClass()), u.GetExchange(), u.GetCurrency(), u.GetName(), u.GetCik(), u.GetSicCode(), uIdns, "", protoValidFrom(u.GetValidFrom()), protoValidTo(u.GetValidTo()))
 		if err != nil {
 			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: "underlying: " + err.Error()})
 			continue
@@ -154,7 +158,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 	// Pass 2: ensure derivatives (underlyings already ensured).
 	for i, inst := range instruments {
 		ac := inst.GetAssetClass()
-		if ac != "OPTION" && ac != "FUTURE" {
+		if ac != apiv1.AssetClass_ASSET_CLASS_OPTION && ac != apiv1.AssetClass_ASSET_CLASS_FUTURE {
 			continue
 		}
 		underlyingID, ok := underlyingIDByIndex[int32(i)]
@@ -184,7 +188,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
 			idns = append(idns, db.IdentifierInput{Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
-		_, err := s.db.EnsureInstrument(ctx, inst.GetAssetClass(), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, underlyingID, protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()))
+		_, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, underlyingID, protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()))
 		if err != nil {
 			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: err.Error()})
 			continue

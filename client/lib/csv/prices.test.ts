@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { ExportPriceRowSchema } from "@/gen/api/v1/api_pb";
+import { AssetClass, ExportPriceRowSchema } from "@/gen/api/v1/api_pb";
 import type { ExportPriceRow } from "@/gen/api/v1/api_pb";
 import { pricesToCsv, csvToPrices } from "./prices";
 
@@ -31,7 +31,7 @@ describe("pricesToCsv", () => {
 
   it("includes optional fields when present", () => {
     const csv = pricesToCsv([
-      makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n, assetClass: "STOCK" }),
+      makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n, assetClass: AssetClass.STOCK }),
     ]);
     const lines = csv.trim().split("\n");
     const fields = lines[1].split(",");
@@ -155,14 +155,14 @@ describe("csvToPrices", () => {
     const csv = `${HEADER}\nMIC_TICKER,AAPL,XNAS,2024-01-15,,,,185.9,,,STOCK`;
     const result = csvToPrices(csv);
     expect(result.errors).toHaveLength(0);
-    expect(result.prices[0].assetClass).toBe("STOCK");
+    expect(result.prices[0].assetClass).toBe(AssetClass.STOCK);
   });
 
   it("handles empty asset_class", () => {
     const csv = `${HEADER}\nMIC_TICKER,AAPL,XNAS,2024-01-15,,,,185.9,,`;
     const result = csvToPrices(csv);
     expect(result.errors).toHaveLength(0);
-    expect(result.prices[0].assetClass).toBe("");
+    expect(result.prices[0].assetClass).toBe(AssetClass.UNSPECIFIED);
   });
 
   it("round-trips through pricesToCsv and csvToPrices", () => {

@@ -68,6 +68,20 @@ enum IdentifierType {
   OPENFIGI_TICKER = 16;
 }
 
+// AssetClass is the controlled vocabulary for instrument asset classes.
+enum AssetClass {
+  ASSET_CLASS_UNSPECIFIED = 0;
+  ASSET_CLASS_STOCK       = 1;
+  ASSET_CLASS_ETF         = 2;
+  ASSET_CLASS_FIXED_INCOME = 3;
+  ASSET_CLASS_MUTUAL_FUND = 4;
+  ASSET_CLASS_OPTION      = 5;
+  ASSET_CLASS_FUTURE      = 6;
+  ASSET_CLASS_CASH        = 7;
+  ASSET_CLASS_FX          = 8;
+  ASSET_CLASS_UNKNOWN     = 9;
+}
+
 // InstrumentIdentifier is one (type, domain, value) for an instrument.
 // For BROKER_DESCRIPTION, domain is the source (e.g. "Fidelity:web:fidelity-csv") and value is the instrument_description.
 // For MIC_TICKER, domain is an ISO 10383 MIC code (or empty when unknown). For OPENFIGI_TICKER, domain is a Bloomberg/OpenFIGI exchange code (e.g. "US").
@@ -80,11 +94,10 @@ message InstrumentIdentifier {
 }
 
 // Instrument is canonical security-master data for an instrument, with its identifiers.
-// asset_class must be one of: STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, FX, UNKNOWN.
 // When asset_class is OPTION or FUTURE, underlying_id must be set.
 message Instrument {
   string id = 1;
-  string asset_class = 2;
+  AssetClass asset_class = 2;
   string exchange = 3;
   string currency = 4;
   string name = 5;
@@ -405,7 +418,7 @@ message ListInstrumentsRequest {
   string search = 1;       // optional; matched against display name (ticker, name, or broker description)
   int32 page_size = 2;
   string page_token = 3;
-  repeated string asset_classes = 4;  // optional; filter by asset class (e.g. "STOCK", "ETF"). Empty = all.
+  repeated AssetClass asset_classes = 4;  // optional; filter by asset class. Empty = all.
 }
 
 message ListInstrumentsResponse {
@@ -613,11 +626,11 @@ message ExportPriceRow {
   double close = 8;
   optional double adjusted_close = 9;
   optional int64 volume = 10;
-  string asset_class = 11;       // denormalized from instrument (e.g. "STOCK", "OPTION")
+  AssetClass asset_class = 11;   // denormalized from instrument
 }
 
 // ImportPriceRow is one price row to import. When the instrument is unknown, asset_class
-// is used as the security type hint for identifier plugin routing. When empty, plugins
+// is used as the security type hint for identifier plugin routing. When UNSPECIFIED, plugins
 // are skipped and the instrument is created with just the supplied identifier.
 message ImportPriceRow {
   string identifier_type = 1;
@@ -630,7 +643,7 @@ message ImportPriceRow {
   double close = 8;
   optional double adjusted_close = 9;
   optional int64 volume = 10;
-  string asset_class = 11;       // optional; security type hint for plugin routing on unknown instruments
+  AssetClass asset_class = 11;   // optional; security type hint for plugin routing on unknown instruments
 }
 
 message ImportPricesRequest {
@@ -754,7 +767,7 @@ message ListWorkersResponse {
 message IgnoredAssetClassRule {
   string broker = 1;
   string account = 2;      // empty = all accounts for broker
-  string asset_class = 3;
+  AssetClass asset_class = 3;
 }
 
 message GetIgnoredAssetClassesRequest {}

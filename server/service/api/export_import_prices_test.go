@@ -50,8 +50,8 @@ func TestExportPrices_Success(t *testing.T) {
 	if row.GetIdentifierType() != "MIC_TICKER" || row.GetIdentifierValue() != "AAPL" {
 		t.Fatalf("got identifier %s %s", row.GetIdentifierType(), row.GetIdentifierValue())
 	}
-	if row.GetAssetClass() != "STOCK" {
-		t.Fatalf("expected asset_class=STOCK, got %s", row.GetAssetClass())
+	if row.GetAssetClass() != apiv1.AssetClass_ASSET_CLASS_STOCK {
+		t.Fatalf("expected asset_class=ASSET_CLASS_STOCK, got %s", row.GetAssetClass())
 	}
 	if row.GetPriceDate() != "2024-01-15" {
 		t.Fatalf("expected date 2024-01-15, got %s", row.GetPriceDate())

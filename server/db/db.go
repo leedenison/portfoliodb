@@ -4,6 +4,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
@@ -347,6 +348,24 @@ const (
 var ValidAssetClasses = map[string]bool{
 	AssetClassStock: true, AssetClassETF: true, AssetClassFixedIncome: true, AssetClassMutualFund: true,
 	AssetClassOption: true, AssetClassFuture: true, AssetClassCash: true, AssetClassFX: true, AssetClassUnknown: true,
+}
+
+// AssetClassToStr converts a proto AssetClass enum to its DB string (e.g. ASSET_CLASS_STOCK -> "STOCK").
+// ASSET_CLASS_UNSPECIFIED maps to "".
+func AssetClassToStr(ac apiv1.AssetClass) string {
+	if ac == apiv1.AssetClass_ASSET_CLASS_UNSPECIFIED {
+		return ""
+	}
+	return strings.TrimPrefix(ac.String(), "ASSET_CLASS_")
+}
+
+// StrToAssetClass converts a DB asset class string to its proto enum (e.g. "STOCK" -> ASSET_CLASS_STOCK).
+func StrToAssetClass(s string) apiv1.AssetClass {
+	v, ok := apiv1.AssetClass_value["ASSET_CLASS_"+s]
+	if !ok {
+		return apiv1.AssetClass_ASSET_CLASS_UNSPECIFIED
+	}
+	return apiv1.AssetClass(v)
 }
 
 // TxTypeToAssetClass maps a TxType to its asset class. Used for filtering and ignore rules.

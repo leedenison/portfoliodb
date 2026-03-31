@@ -6,6 +6,7 @@ import { createClient } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-node";
 import {
   ApiService,
+  AssetClass,
   JobStatus,
   type GetJobResponse,
 } from "../gen/api/v1/api_pb";
@@ -40,7 +41,7 @@ export async function importPricesAndWait(
     open?: number;
     high?: number;
     low?: number;
-    assetClass?: string;
+    assetClass?: AssetClass;
   }>,
   timeoutMs = 30_000,
 ): Promise<GetJobResponse> {

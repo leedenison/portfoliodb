@@ -7,6 +7,7 @@ import { ImportPriceRowSchema, IdentifierTypeSchema } from "@/gen/api/v1/api_pb"
 import type { ExportPriceRow, ImportPriceRow } from "@/gen/api/v1/api_pb";
 import type { ParseError } from "./standard";
 import { parseCSVLine } from "./standard";
+import { assetClassToStr, assetClassFromStr } from "@/lib/asset-class";
 
 /** Valid identifier type names from the proto IdentifierType enum (excluding UNSPECIFIED). */
 const VALID_IDENTIFIER_TYPES = new Set(
@@ -50,7 +51,7 @@ export function pricesToCsv(rows: ExportPriceRow[]): string {
       String(r.close),
       fmtOptNum(r.adjustedClose),
       fmtOptBigint(r.volume),
-      escapeField(r.assetClass),
+      escapeField(assetClassToStr(r.assetClass)),
     ].join(","));
   }
   return lines.join("\n") + "\n";
@@ -134,7 +135,7 @@ export function csvToPrices(text: string): PriceParseResult {
       identifierDomain: get("identifier_domain"),
       priceDate,
       close,
-      assetClass: get("asset_class"),
+      assetClass: assetClassFromStr(get("asset_class")),
     });
 
     const openStr = get("open");

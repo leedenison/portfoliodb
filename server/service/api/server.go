@@ -79,7 +79,7 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 		Identifiers: identifiers,
 	}
 	if row.AssetClass != nil {
-		out.AssetClass = *row.AssetClass
+		out.AssetClass = db.StrToAssetClass(*row.AssetClass)
 	}
 	out.Exchange = row.Exchange
 	if row.ExchangeName != nil || row.ExchangeAcronym != nil || row.ExchangeCountryCode != nil {

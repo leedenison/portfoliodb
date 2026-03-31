@@ -159,7 +159,7 @@ export default function UserHoldingsPage() {
                                   {h.instrument?.exchangeInfo?.acronym || h.instrument?.exchange || "\u2014"}
                                 </td>
                                 <td className="px-4 py-3 font-medium text-text-primary">
-                                  {ticker || h.instrumentDescription || "\u2014"}
+                                  {ticker || h.instrument?.name || h.instrumentDescription || "\u2014"}
                                 </td>
                                 <td className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
                                   {h.quantity}

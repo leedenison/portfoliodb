@@ -64,7 +64,7 @@ func rulesToProto(rules []db.IgnoredAssetClass) []*apiv1.IgnoredAssetClassRule {
 		out[i] = &apiv1.IgnoredAssetClassRule{
 			Broker:     r.Broker,
 			Account:    r.Account,
-			AssetClass: r.AssetClass,
+			AssetClass: db.StrToAssetClass(r.AssetClass),
 		}
 	}
 	return out
@@ -76,7 +76,7 @@ func rulesFromProto(protos []*apiv1.IgnoredAssetClassRule) ([]db.IgnoredAssetCla
 		if p.GetBroker() == "" {
 			return nil, status.Error(codes.InvalidArgument, "broker is required")
 		}
-		ac := p.GetAssetClass()
+		ac := db.AssetClassToStr(p.GetAssetClass())
 		if !db.ValidAssetClasses[ac] {
 			return nil, status.Errorf(codes.InvalidArgument, "invalid asset_class: %s", ac)
 		}

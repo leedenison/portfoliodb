@@ -100,7 +100,7 @@ func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiSe
 			IdentifierType:   r.IdentifierType,
 			IdentifierValue:  r.IdentifierValue,
 			IdentifierDomain: r.IdentifierDomain,
-			AssetClass:       r.AssetClass,
+			AssetClass:       db.StrToAssetClass(r.AssetClass),
 			PriceDate:        r.PriceDate.Format("2006-01-02"),
 			Close:            r.Close,
 		}

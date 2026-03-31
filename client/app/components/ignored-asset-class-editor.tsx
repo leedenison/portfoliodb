@@ -9,36 +9,17 @@ import {
   listBrokersAndAccounts,
 } from "@/lib/portfolio-api";
 import type { IgnoredAssetClassRule, BrokerAccounts } from "@/lib/portfolio-api";
+import { AssetClass } from "@/gen/api/v1/api_pb";
+import { IGNORABLE_ASSET_CLASSES, ASSET_CLASS_LABELS } from "@/lib/asset-class";
 
-// Asset classes that have tx type mappings (selectable for ignoring).
-const IGNORABLE_ASSET_CLASSES = [
-  "CASH",
-  "STOCK",
-  "OPTION",
-  "FUTURE",
-  "FIXED_INCOME",
-  "MUTUAL_FUND",
-  "UNKNOWN",
-] as const;
-
-const ASSET_CLASS_LABELS: Record<string, string> = {
-  CASH: "Cash",
-  STOCK: "Stock",
-  OPTION: "Option",
-  FUTURE: "Future",
-  FIXED_INCOME: "Fixed Income",
-  MUTUAL_FUND: "Mutual Fund",
-  UNKNOWN: "Other",
-};
-
-// Key for a rule: "broker" or "broker:account"
-function ruleKey(broker: string, account: string, assetClass: string): string {
+// Key for a rule: "broker::assetClass" or "broker:account:assetClass"
+function ruleKey(broker: string, account: string, assetClass: AssetClass): string {
   return `${broker}:${account}:${assetClass}`;
 }
 
-function parseRuleKey(key: string): { broker: string; account: string; assetClass: string } {
+function parseRuleKey(key: string): { broker: string; account: string; assetClass: AssetClass } {
   const parts = key.split(":");
-  return { broker: parts[0], account: parts[1], assetClass: parts[2] };
+  return { broker: parts[0], account: parts[1], assetClass: Number(parts[2]) as AssetClass };
 }
 
 function rulesToKeySet(rules: IgnoredAssetClassRule[]): Set<string> {
@@ -97,22 +78,22 @@ export function IgnoredAssetClassEditor({ authStatus }: Props) {
   }, [authStatus, loadData]);
 
   // Check if a broker-level ignore is active for the given asset class.
-  function isBrokerIgnored(broker: string, assetClass: string): boolean {
+  function isBrokerIgnored(broker: string, assetClass: AssetClass): boolean {
     return editKeys.has(ruleKey(broker, "", assetClass));
   }
 
   // Check if an account-level ignore is active.
-  function isAccountIgnored(broker: string, account: string, assetClass: string): boolean {
+  function isAccountIgnored(broker: string, account: string, assetClass: AssetClass): boolean {
     return editKeys.has(ruleKey(broker, account, assetClass));
   }
 
   // Effective state: account is ignored if broker-level OR account-level is set.
-  function isEffectivelyIgnored(broker: string, account: string, assetClass: string): boolean {
+  function isEffectivelyIgnored(broker: string, account: string, assetClass: AssetClass): boolean {
     return isBrokerIgnored(broker, assetClass) || isAccountIgnored(broker, account, assetClass);
   }
 
   // Toggle broker-level ignore for an asset class.
-  function toggleBrokerAssetClass(broker: string, assetClass: string) {
+  function toggleBrokerAssetClass(broker: string, assetClass: AssetClass) {
     setEditKeys((prev) => {
       const next = new Set(prev);
       const brokerKey = ruleKey(broker, "", assetClass);
@@ -141,7 +122,7 @@ export function IgnoredAssetClassEditor({ authStatus }: Props) {
   }
 
   // Toggle account-level ignore for an asset class.
-  function toggleAccountAssetClass(broker: string, account: string, assetClass: string) {
+  function toggleAccountAssetClass(broker: string, account: string, assetClass: AssetClass) {
     setEditKeys((prev) => {
       const next = new Set(prev);
       const brokerKey = ruleKey(broker, "", assetClass);
@@ -321,11 +302,11 @@ function BrokerSection({
 }: {
   broker: string;
   accounts: string[];
-  isBrokerIgnored: (broker: string, assetClass: string) => boolean;
-  isAccountIgnored: (broker: string, account: string, assetClass: string) => boolean;
-  isEffectivelyIgnored: (broker: string, account: string, assetClass: string) => boolean;
-  onToggleBroker: (broker: string, assetClass: string) => void;
-  onToggleAccount: (broker: string, account: string, assetClass: string) => void;
+  isBrokerIgnored: (broker: string, assetClass: AssetClass) => boolean;
+  isAccountIgnored: (broker: string, account: string, assetClass: AssetClass) => boolean;
+  isEffectivelyIgnored: (broker: string, account: string, assetClass: AssetClass) => boolean;
+  onToggleBroker: (broker: string, assetClass: AssetClass) => void;
+  onToggleAccount: (broker: string, account: string, assetClass: AssetClass) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 

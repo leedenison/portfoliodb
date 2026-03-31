@@ -13,6 +13,7 @@ import {
 } from "@/gen/api/v1/api_pb";
 import type { Instrument } from "@/gen/api/v1/api_pb";
 import type { ParseError } from "@/lib/csv/standard";
+import { assetClassToStr, assetClassFromStr } from "@/lib/asset-class";
 
 export interface InstrumentParseResult {
   instruments: Instrument[];
@@ -67,7 +68,7 @@ export function instrumentsToJson(instruments: Instrument[]): string {
     const underlying = inst.underlying ?? null;
     const underlyingIndex = underlying != null ? indexById.get(underlying.id) : undefined;
     const obj: SerializedInstrument = {
-      asset_class: inst.assetClass,
+      asset_class: assetClassToStr(inst.assetClass),
       exchange: inst.exchange,
       currency: inst.currency,
       name: inst.name,
@@ -147,7 +148,7 @@ export function jsonToInstruments(json: string): InstrumentParseResult {
 
     instruments.push(
       create(InstrumentSchema, {
-        assetClass: String(obj.asset_class ?? ""),
+        assetClass: assetClassFromStr(String(obj.asset_class ?? "")),
         exchange: String(obj.exchange ?? ""),
         currency: String(obj.currency ?? ""),
         name: String(obj.name ?? ""),

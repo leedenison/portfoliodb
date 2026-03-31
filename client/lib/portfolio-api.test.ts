@@ -5,6 +5,7 @@ import {
   ListInstrumentsResponseSchema,
   ListPortfoliosResponseSchema,
   UpdatePortfolioResponseSchema,
+  AssetClass,
   IdentifierType,
 } from "@/gen/api/v1/api_pb";
 import { JobStatus } from "@/gen/api/v1/api_pb";
@@ -170,7 +171,7 @@ describe("portfolio-api", () => {
               {
                 id: "inst-1",
                 name: "Apple Inc.",
-                assetClass: "STOCK",
+                assetClass: AssetClass.STOCK,
                 exchange: "XNAS",
                 currency: "USD",
                 identifiers: [

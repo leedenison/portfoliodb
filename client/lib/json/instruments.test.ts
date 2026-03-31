@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import {
+  AssetClass,
   IdentifierType,
   InstrumentIdentifierSchema,
   InstrumentSchema,
@@ -11,7 +12,7 @@ import { instrumentsToJson, jsonToInstruments } from "./instruments";
 function makeInstrument(
   id: string,
   fields: Partial<{
-    assetClass: string;
+    assetClass: AssetClass;
     exchange: string;
     currency: string;
     name: string;
@@ -20,7 +21,7 @@ function makeInstrument(
 ): Instrument {
   return create(InstrumentSchema, {
     id,
-    assetClass: fields.assetClass ?? "",
+    assetClass: fields.assetClass ?? AssetClass.UNSPECIFIED,
     exchange: fields.exchange ?? "",
     currency: fields.currency ?? "",
     name: fields.name ?? "",
@@ -42,7 +43,7 @@ describe("instrumentsToJson", () => {
   });
 
   it("does not include instrument id", () => {
-    const inst = makeInstrument("server-uuid", { assetClass: "STOCK" }, []);
+    const inst = makeInstrument("server-uuid", { assetClass: AssetClass.STOCK }, []);
     const out = JSON.parse(instrumentsToJson([inst]));
     expect(out[0]).not.toHaveProperty("id");
   });
@@ -50,7 +51,7 @@ describe("instrumentsToJson", () => {
   it("emits identifiers array with type name strings", () => {
     const inst = makeInstrument(
       "a1",
-      { assetClass: "STOCK", exchange: "XNAS", currency: "USD", name: "Apple" },
+      { assetClass: AssetClass.STOCK, exchange: "XNAS", currency: "USD", name: "Apple" },
       [
         { type: IdentifierType.ISIN, value: "US0378331005", canonical: true },
         { type: IdentifierType.MIC_TICKER, value: "AAPL", canonical: true, domain: "XNAS" },
@@ -64,12 +65,12 @@ describe("instrumentsToJson", () => {
   });
 
   it("emits underlying_index for derivatives, underlying appears before derivative", () => {
-    const stock = makeInstrument("u1", { assetClass: "STOCK" }, [
+    const stock = makeInstrument("u1", { assetClass: AssetClass.STOCK }, [
       { type: IdentifierType.MIC_TICKER, value: "AAPL", canonical: true },
     ]);
     const option = create(InstrumentSchema, {
       id: "o1",
-      assetClass: "OPTION",
+      assetClass: AssetClass.OPTION,
       identifiers: [
         create(InstrumentIdentifierSchema, { type: IdentifierType.OCC, value: "AAPL240119C00180000", canonical: true }),
       ],
@@ -83,9 +84,9 @@ describe("instrumentsToJson", () => {
   });
 
   it("deduplicates shared underlying", () => {
-    const stock = makeInstrument("u1", { assetClass: "STOCK" }, []);
-    const opt1 = create(InstrumentSchema, { id: "o1", assetClass: "OPTION", identifiers: [], underlying: stock });
-    const opt2 = create(InstrumentSchema, { id: "o2", assetClass: "OPTION", identifiers: [], underlying: stock });
+    const stock = makeInstrument("u1", { assetClass: AssetClass.STOCK }, []);
+    const opt1 = create(InstrumentSchema, { id: "o1", assetClass: AssetClass.OPTION, identifiers: [], underlying: stock });
+    const opt2 = create(InstrumentSchema, { id: "o2", assetClass: AssetClass.OPTION, identifiers: [], underlying: stock });
     const out = JSON.parse(instrumentsToJson([opt1, opt2]));
     // stock appears once
     expect(out.filter((x: { asset_class: string }) => x.asset_class === "STOCK")).toHaveLength(1);
@@ -137,7 +138,7 @@ describe("jsonToInstruments", () => {
       { asset_class: "OPTION", exchange: "XCBO", currency: "USD", name: "Call", underlying_index: 0, identifiers: [] },
     ]));
     expect(errors).toHaveLength(0);
-    expect(instruments[1].underlying?.assetClass).toBe("STOCK");
+    expect(instruments[1].underlying?.assetClass).toBe(AssetClass.STOCK);
   });
 
   it("reports error for out-of-range underlying_index", () => {
@@ -150,7 +151,7 @@ describe("jsonToInstruments", () => {
   it("round-trips instruments through JSON", () => {
     const inst = makeInstrument(
       "id1",
-      { assetClass: "ETF", exchange: "ARCX", currency: "USD", name: "SPDR S&P 500" },
+      { assetClass: AssetClass.ETF, exchange: "ARCX", currency: "USD", name: "SPDR S&P 500" },
       [
         { type: IdentifierType.ISIN, value: "US78462F1030", canonical: true },
         { type: IdentifierType.MIC_TICKER, value: "SPY", canonical: true, domain: "ARCX" },
@@ -159,7 +160,7 @@ describe("jsonToInstruments", () => {
     const { instruments, errors } = jsonToInstruments(instrumentsToJson([inst]));
     expect(errors).toHaveLength(0);
     const out = instruments[0];
-    expect(out.assetClass).toBe("ETF");
+    expect(out.assetClass).toBe(AssetClass.ETF);
     expect(out.name).toBe("SPDR S&P 500");
     expect(out.identifiers[0].type).toBe(IdentifierType.ISIN);
     expect(out.identifiers[1].domain).toBe("ARCX");

@@ -12,18 +12,9 @@ import {
   getHoldings,
 } from "@/lib/portfolio-api";
 import type { BrokerAccounts, PortfolioFilter } from "@/lib/portfolio-api";
+import { AssetClass } from "@/gen/api/v1/api_pb";
 import type { Instrument } from "@/gen/api/v1/api_pb";
-
-const ALL_ASSET_CLASSES = [
-  "STOCK",
-  "ETF",
-  "OPTION",
-  "FUTURE",
-  "CASH",
-  "MUTUAL_FUND",
-  "FIXED_INCOME",
-  "UNKNOWN",
-] as const;
+import { ALL_ASSET_CLASSES, ASSET_CLASS_LABELS } from "@/lib/asset-class";
 
 type Tab = "accounts" | "instruments";
 
@@ -55,7 +46,7 @@ export function PortfolioFilterEditor({
   // Instrument search state.
   const [instSearch, setInstSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [activeClasses, setActiveClasses] = useState<Set<string>>(
+  const [activeClasses, setActiveClasses] = useState<Set<AssetClass>>(
     () => new Set(ALL_ASSET_CLASSES)
   );
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -176,7 +167,7 @@ export function PortfolioFilterEditor({
     });
   };
 
-  const toggleClass = (cls: string) => {
+  const toggleClass = (cls: AssetClass) => {
     setActiveClasses((prev) => {
       const next = new Set(prev);
       if (next.has(cls)) next.delete(cls);
@@ -192,7 +183,7 @@ export function PortfolioFilterEditor({
 
   const fetchInstruments = useCallback(
     async (pageToken: string | null) => {
-      const classes = assetClassesKey ? assetClassesKey.split(",") : [];
+      const classes = assetClassesKey ? assetClassesKey.split(",").map(Number) as AssetClass[] : [];
       const result = await listInstruments({
         search: debouncedSearch,
         assetClasses:
@@ -443,8 +434,8 @@ function InstrumentsTab({
   selInstruments: Map<string, string>;
   instSearch: string;
   onSearchChange: (v: string) => void;
-  activeClasses: Set<string>;
-  onToggleClass: (cls: string) => void;
+  activeClasses: Set<AssetClass>;
+  onToggleClass: (cls: AssetClass) => void;
   instruments: Instrument[];
   instTotal: number;
   instLoading: boolean;
@@ -517,7 +508,7 @@ function InstrumentsTab({
                     : "border-border bg-surface text-text-muted hover:bg-primary-light/15")
                 }
               >
-                {cls}
+                {ASSET_CLASS_LABELS[cls] || String(cls)}
               </button>
             );
           })}
@@ -561,7 +552,7 @@ function InstrumentsTab({
                         {(inst.name || inst.id)}
                       </span>
                       <span className="shrink-0 text-xs text-text-muted">
-                        {inst.assetClass || ""}
+                        {ASSET_CLASS_LABELS[inst.assetClass] || ""}
                       </span>
                     </li>
                   );

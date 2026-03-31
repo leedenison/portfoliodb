@@ -69,7 +69,8 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		cacheKey := row.GetIdentifierType() + "\x00" + row.GetIdentifierDomain() + "\x00" + row.GetIdentifierValue()
 		entry, cached := resolveCache[cacheKey]
 		if !cached {
-			instID, resolveErr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), row.GetAssetClass())
+			acStr := db.AssetClassToStr(row.GetAssetClass())
+			instID, resolveErr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr)
 			entry = &resolveEntry{instID: instID, err: resolveErr}
 			resolveCache[cacheKey] = entry
 		}

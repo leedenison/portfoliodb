@@ -81,7 +81,7 @@ func TestListInstruments_AssetClassFilter(t *testing.T) {
 		ListInstruments(gomock.Any(), "", []string{"STOCK", "ETF"}, int32(30), "").
 		Return(nil, int32(0), "", nil)
 	ctx := authCtx("user-1", "sub|1")
-	_, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{AssetClasses: []string{"STOCK", "ETF"}})
+	_, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{AssetClasses: []apiv1.AssetClass{apiv1.AssetClass_ASSET_CLASS_STOCK, apiv1.AssetClass_ASSET_CLASS_ETF}})
 	if err != nil {
 		t.Fatalf("ListInstruments: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestListInstruments_UnknownAssetClassFilter(t *testing.T) {
 		ListInstruments(gomock.Any(), "", []string{"UNKNOWN"}, int32(30), "").
 		Return(nil, int32(0), "", nil)
 	ctx := authCtx("user-1", "sub|1")
-	_, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{AssetClasses: []string{"UNKNOWN"}})
+	_, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{AssetClasses: []apiv1.AssetClass{apiv1.AssetClass_ASSET_CLASS_UNKNOWN}})
 	if err != nil {
 		t.Fatalf("ListInstruments: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestImportInstruments_Success(t *testing.T) {
 	ctx := adminCtx("user-1", "sub|1")
 	req := &apiv1.ImportInstrumentsRequest{
 		Instruments: []*apiv1.Instrument{{
-			AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc.",
+			AssetClass: apiv1.AssetClass_ASSET_CLASS_STOCK, Exchange: "XNAS", Currency: "USD", Name: "Apple Inc.",
 			Identifiers: []*apiv1.InstrumentIdentifier{
 				{Type: apiv1.IdentifierType_ISIN, Value: "US0378331005", Canonical: true},
 				{Type: apiv1.IdentifierType_BROKER_DESCRIPTION, Domain: "IBKR", Value: "AAPL", Canonical: false},

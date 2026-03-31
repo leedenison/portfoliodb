@@ -7,8 +7,9 @@ import { usePagination } from "@/hooks/use-pagination";
 import { exportInstruments, listInstruments } from "@/lib/portfolio-api";
 import { instrumentsToJson } from "@/lib/json/instruments";
 import { ImportInstrumentsModal } from "./import-modal";
-import { IdentifierType } from "@/gen/api/v1/api_pb";
+import { AssetClass, IdentifierType } from "@/gen/api/v1/api_pb";
 import type { Instrument, InstrumentIdentifier } from "@/gen/api/v1/api_pb";
+import { ALL_ASSET_CLASSES, DEFAULT_ASSET_CLASSES, ASSET_CLASS_LABELS } from "@/lib/asset-class";
 
 const IDENTIFIER_LABELS: Record<number, string> = {
   [IdentifierType.ISIN]: "ISIN",
@@ -36,23 +37,10 @@ function isIdentified(inst: Instrument): boolean {
   return inst.identifiers.some((id) => id.canonical);
 }
 
-const ALL_ASSET_CLASSES = [
-  "STOCK",
-  "ETF",
-  "OPTION",
-  "FUTURE",
-  "CASH",
-  "MUTUAL_FUND",
-  "FIXED_INCOME",
-  "UNKNOWN",
-] as const;
-
-const DEFAULT_ASSET_CLASSES = new Set(["STOCK", "ETF", "OPTION", "FUTURE"]);
-
 export default function AdminInstrumentsPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [activeClasses, setActiveClasses] = useState<Set<string>>(
+  const [activeClasses, setActiveClasses] = useState<Set<AssetClass>>(
     () => new Set(DEFAULT_ASSET_CLASSES)
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -72,7 +60,7 @@ export default function AdminInstrumentsPage() {
     return () => clearTimeout(debounceRef.current);
   }, [search]);
 
-  const toggleClass = (cls: string) => {
+  const toggleClass = (cls: AssetClass) => {
     setActiveClasses((prev) => {
       const next = new Set(prev);
       if (next.has(cls)) next.delete(cls);
@@ -113,7 +101,7 @@ export default function AdminInstrumentsPage() {
 
   const fetchInstruments = useCallback(
     async (pageToken: string | null) => {
-      const classes = assetClassesKey ? assetClassesKey.split(",") : [];
+      const classes = assetClassesKey ? assetClassesKey.split(",").map(Number) as AssetClass[] : [];
       const result = await listInstruments({
         search: debouncedSearch,
         assetClasses: classes.length < ALL_ASSET_CLASSES.length ? classes : [],
@@ -195,7 +183,7 @@ export default function AdminInstrumentsPage() {
                     : "border-border bg-surface text-text-muted hover:bg-primary-light/15")
                 }
               >
-                {cls}
+                {ASSET_CLASS_LABELS[cls] || String(cls)}
               </button>
             );
           })}
@@ -266,7 +254,7 @@ export default function AdminInstrumentsPage() {
                         {!expanded && (
                           <>
                             <td className="px-4 py-3 text-text-muted">
-                              {inst.assetClass || "\u2014"}
+                              {ASSET_CLASS_LABELS[inst.assetClass] || "\u2014"}
                             </td>
                             <td
                               className="px-4 py-3 text-text-muted"
@@ -347,12 +335,12 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
 
       {/* Metadata row */}
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-text-muted">
-        {inst.assetClass && (
+        {inst.assetClass !== AssetClass.UNSPECIFIED && (
           <span>
             <span className="font-semibold uppercase tracking-wider">
               Class
             </span>{" "}
-            {inst.assetClass}
+            {ASSET_CLASS_LABELS[inst.assetClass]}
           </span>
         )}
         {inst.exchange && (

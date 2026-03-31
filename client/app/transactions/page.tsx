@@ -191,7 +191,7 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
   const ticker = ptx.instrument?.identifiers?.find(
     (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
   )?.value;
-  const label = ticker || tx.instrumentDescription || "\u2014";
+  const label = ticker || ptx.instrument?.name || tx.instrumentDescription || "\u2014";
   const currency = tx.tradingCurrency || tx.settlementCurrency || "";
 
   return (

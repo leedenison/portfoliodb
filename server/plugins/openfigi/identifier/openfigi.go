@@ -90,7 +90,7 @@ func (c *OpenFIGIClient) Mapping(ctx context.Context, job MappingJob) ([]OpenFIG
 		c.counter.Incr(ctx, "instruments.identification.openfigi.mapping.attempts")
 	}
 	if c.log != nil {
-		c.log.DebugContext(ctx, "OpenFIGI mapping", "idType", job.IDType, "idValue", job.IDValue, "exchCode", job.ExchCode)
+		c.log.DebugContext(ctx, "OpenFIGI mapping", "idType", job.IDType, "idValue", job.IDValue, "exchCode", job.ExchCode, "micCode", job.MICCode)
 	}
 	body, err := json.Marshal([]MappingJob{job})
 	if err != nil {

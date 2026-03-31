@@ -175,9 +175,13 @@ func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []ide
 			idValue = padded
 		}
 		job := MappingJob{IDType: idType, IDValue: idValue}
-		if ourType == "MIC_TICKER" && h.Domain != "" {
-			job.MICCode = h.Domain
-		} else if ourType == "OPENFIGI_TICKER" && h.Domain != "" {
+		// MIC_TICKER Domain carries an ISO 10383 MIC (e.g. "XNAS") set by
+		// other plugins (Massive, EODHD). We intentionally do NOT pass it as
+		// micCode to OpenFIGI because OpenFIGI matches MICs precisely: e.g.
+		// NASDAQ has several MICs (XNAS, XNGS, XNMS) and a ticker listed on
+		// XNGS will not match a query filtered to XNAS. Since callers may map
+		// an exchange to the wrong MIC, it is safer to omit the filter.
+		if ourType == "OPENFIGI_TICKER" && h.Domain != "" {
 			job.ExchCode = h.Domain
 		}
 		if hints.Currency != "" {

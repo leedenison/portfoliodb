@@ -1,68 +1,180 @@
 package identifier
 
 import (
-	"log/slog"
 	"strings"
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
-// openFIGIFutureSecurityTypes is the allowlist for FUTURE asset class (exact match, case-insensitive).
-// Values from OpenFIGI securityType/securityType2.
-var openFIGIFutureSecurityTypes = map[string]bool{
-	"future": true, "currency future": true, "financial commodity future": true,
-	"financial index future": true, "generic currency future": true, "generic index future": true,
-	"financial commodity generic": true, "dividend neutral stock future": true,
+// classificationRule maps OpenFIGI response fields to a PortfolioDB asset class.
+// Non-nil set fields are ANDed: all must match. Nil means "don't care".
+// Rules are evaluated in slice order; first match wins.
+type classificationRule struct {
+	assetClass     string
+	securityTypes  map[string]bool // lowercased securityType values; nil = any
+	securityType2s map[string]bool // lowercased securityType2 values; nil = any
+	marketSectors  map[string]bool // lowercased marketSector values; nil = any
 }
 
-// assetClassFromOpenFIGI maps OpenFIGI securityType/securityType2/marketSector to PortfolioDB asset class.
-// Order: Option → Future (allowlist) → ETP+Mutual Fund→ETF, Mutual Fund→MUTUAL_FUND, ETP→ETF → STOCK → FIXED_INCOME → CASH → fall-through.
-// When no rule matches, returns "" and if log != nil logs that asset class could not be determined.
-func assetClassFromOpenFIGI(securityType, securityType2, marketSector string, log *slog.Logger) string {
-	s := strings.TrimSpace(strings.ToLower(securityType))
-	s2 := strings.TrimSpace(strings.ToLower(securityType2))
-	m := strings.TrimSpace(strings.ToLower(marketSector))
+func toSet(vals ...string) map[string]bool {
+	m := make(map[string]bool, len(vals))
+	for _, v := range vals {
+		m[strings.ToLower(strings.TrimSpace(v))] = true
+	}
+	return m
+}
 
-	if strings.Contains(s2, "option") || strings.Contains(s, "option") {
-		return db.AssetClassOption
+// classificationRules is the ordered rule table for mapping OpenFIGI fields to
+// asset class. Priority order: OPTION -> FUTURE -> ETF -> FX -> FIXED_INCOME ->
+// MUTUAL_FUND -> STOCK -> CASH -> UNKNOWN.
+var classificationRules = []classificationRule{
+	// ── OPTION (100) ──
+	{
+		assetClass: db.AssetClassOption,
+		securityTypes: toSet(
+			"Equity Option", "Index Option", "Currency Option",
+			"Physical index option", "Option on Equity Future",
+			"OPTION", "OPTION VOLATILITY",
+		),
+	},
+	{
+		assetClass:     db.AssetClassOption,
+		securityType2s: toSet("Option"),
+	},
+
+	// ── FUTURE (200) ──
+	{
+		assetClass: db.AssetClassFuture,
+		securityTypes: toSet(
+			"SINGLE STOCK FUTURE", "SINGLE STOCK DIVIDEND FUTURE",
+			"SINGLE STOCK FUTURE SPREAD",
+			"DIVIDEND NEUTRAL STOCK FUTURE",
+			"Financial commodity future",
+			"Physical commodity future",
+			"Financial commodity forward",
+			"Physical commodity forward",
+			"NON-DELIVERABLE FORWARD", "ONSHORE FORWARD",
+		),
+	},
+	{
+		assetClass:     db.AssetClassFuture,
+		securityType2s: toSet("Future"),
+	},
+
+	// ── ETF (300) ──
+	{
+		assetClass:    db.AssetClassETF,
+		securityTypes: toSet("ETP"),
+	},
+
+	// ── FX (400) ──
+	{
+		assetClass: db.AssetClassFX,
+		securityTypes: toSet(
+			"Currency spot", "SPOT", "Currency WRT",
+			"NDF SWAP", "ONSHORE SWAP",
+		),
+	},
+	{
+		assetClass:    db.AssetClassFX,
+		marketSectors: toSet("Curncy"),
+	},
+
+	// ── FIXED_INCOME (500) ──
+	{
+		assetClass: db.AssetClassFixedIncome,
+		securityTypes: toSet(
+			"Bond", "MED TERM NOTE", "EURO MTN", "MEDIUM TERM CD",
+			"COMMERCIAL PAPER", "EURO CP",
+			"BANKERS ACCEPT", "BANKERS ACCEPTANCE",
+			"DISCOUNT NOTES", "DEPOSIT NOTE", "BEARER DEP NOTE",
+			"REPO", "FED FUNDS",
+			"T-BILL", "PROV T-BILL",
+			"MONETARY BILLS",
+		),
+	},
+	{
+		assetClass:     db.AssetClassFixedIncome,
+		securityType2s: toSet("Corp", "Pool"),
+	},
+	{
+		assetClass:    db.AssetClassFixedIncome,
+		marketSectors: toSet("Corp", "Govt", "Muni", "Mtge", "M-Mkt"),
+	},
+
+	// ── MUTUAL_FUND (600) ──
+	{
+		assetClass: db.AssetClassMutualFund,
+		securityTypes: toSet(
+			"Open-End Fund", "Mutual Fund", "Closed-End Fund",
+			"Unit Trust", "Savings Plan", "Savings Share",
+			"Managed Account", "Pvt Eqty Fund", "MLP", "Ltd Part",
+		),
+	},
+	{
+		assetClass:     db.AssetClassMutualFund,
+		securityType2s: toSet("Fund"),
+	},
+
+	// ── STOCK (700) ──
+	{
+		assetClass: db.AssetClassStock,
+		securityTypes: toSet(
+			"Common Stock", "Preference", "Preferred", "Pfd WRT",
+			"ADR", "GDR", "BDR", "EDR", "NVDR", "SDR",
+			"NY Reg Shrs", "Dutch Cert", "Austrian Crt",
+			"Belgian Cert", "Participate Cert",
+			"Depositary Receipt", "Receipt",
+			"Stapled Security", "Right", "REIT",
+			"Contract For Difference",
+		),
+	},
+	{
+		assetClass:     db.AssetClassStock,
+		securityType2s: toSet("Common Stock"),
+	},
+	{
+		assetClass:    db.AssetClassStock,
+		marketSectors: toSet("Equity"),
+	},
+
+	// ── CASH (900) ──
+	{
+		assetClass:    db.AssetClassCash,
+		securityTypes: toSet("CASH"),
+	},
+
+	// ── UNKNOWN (999) -- terminal fallback ──
+	{assetClass: db.AssetClassUnknown},
+}
+
+// classify maps OpenFIGI securityType/securityType2/marketSector to a
+// PortfolioDB asset class using the ordered rule table. Always returns a
+// non-empty value (UNKNOWN at minimum).
+func classify(securityType, securityType2, marketSector string) string {
+	st := strings.ToLower(strings.TrimSpace(securityType))
+	st2 := strings.ToLower(strings.TrimSpace(securityType2))
+	ms := strings.ToLower(strings.TrimSpace(marketSector))
+	for _, r := range classificationRules {
+		if r.securityTypes != nil && !r.securityTypes[st] {
+			continue
+		}
+		if r.securityType2s != nil && !r.securityType2s[st2] {
+			continue
+		}
+		if r.marketSectors != nil && !r.marketSectors[ms] {
+			continue
+		}
+		return r.assetClass
 	}
-	if openFIGIFutureSecurityTypes[s] || openFIGIFutureSecurityTypes[s2] {
-		return db.AssetClassFuture
-	}
-	if s == "etp" && s2 == "mutual fund" {
-		return db.AssetClassETF
-	}
-	if s == "mutual fund" {
-		return db.AssetClassMutualFund
-	}
-	if s == "etp" {
-		return db.AssetClassETF
-	}
-	if strings.Contains(s, "common stock") || strings.Contains(s2, "common stock") ||
-		strings.Contains(s, "preferred stock") || strings.Contains(s2, "preferred stock") ||
-		strings.Contains(s, "ordinary shares") || strings.Contains(s2, "ordinary shares") ||
-		m == "equity" {
-		return db.AssetClassStock
-	}
-	if strings.Contains(m, "govt") || strings.Contains(m, "corp") || strings.Contains(m, "municipal") || strings.Contains(m, "mtge") {
-		return db.AssetClassFixedIncome
-	}
-	if strings.Contains(m, "curncy") || strings.Contains(s, "currency") {
-		return db.AssetClassCash
-	}
-	if log != nil {
-		log.Debug("asset class could not be determined from OpenFIGI response",
-			"securityType", securityType, "securityType2", securityType2, "marketSector", marketSector)
-	}
-	return ""
+	return db.AssetClassUnknown
 }
 
 // openFIGIResultToInstrument converts one OpenFIGI result to identifier.Instrument and identifiers.
 // If the result is a derivative (option/future), underlying is resolved separately and set on inst.
-// log is optional; when non-nil and asset class cannot be determined, a debug message is logged.
-func openFIGIResultToInstrument(r *OpenFIGIResult, log *slog.Logger) (*identifier.Instrument, []identifier.Identifier) {
-	assetClass := assetClassFromOpenFIGI(r.SecurityType, r.SecurityType2, r.MarketSector, log)
+func openFIGIResultToInstrument(r *OpenFIGIResult) (*identifier.Instrument, []identifier.Identifier) {
+	assetClass := classify(r.SecurityType, r.SecurityType2, r.MarketSector)
 	name := r.Name
 	if name == "" {
 		name = r.SecurityDescription
@@ -89,13 +201,11 @@ func openFIGIResultToInstrument(r *OpenFIGIResult, log *slog.Logger) (*identifie
 	if r.Ticker != "" {
 		ids = append(ids, identifier.Identifier{Type: "OPENFIGI_TICKER", Domain: r.ExchCode, Value: identifier.NormalizeSplitTicker(r.Ticker, ".")})
 	}
-	// OpenFIGI mapping/search response does not include ISIN in the standard fields; skip unless we add a separate lookup
 	return inst, ids
 }
 
 // isDerivative returns true if the result is an option or future.
 func isDerivative(r *OpenFIGIResult) bool {
-	ac := assetClassFromOpenFIGI(r.SecurityType, r.SecurityType2, r.MarketSector, nil)
+	ac := classify(r.SecurityType, r.SecurityType2, r.MarketSector)
 	return ac == db.AssetClassOption || ac == db.AssetClassFuture
 }
-

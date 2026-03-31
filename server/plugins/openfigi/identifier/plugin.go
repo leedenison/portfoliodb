@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/telemetry"
@@ -51,14 +50,16 @@ func (p *Plugin) DefaultConfig() []byte {
 	return out
 }
 
-// AcceptableSecurityTypes returns the security type hints this plugin can attempt identification for (STOCK, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE; not CASH or UNKNOWN).
+// AcceptableSecurityTypes returns the security type hints this plugin can attempt identification for.
 func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 	return map[string]bool{
 		identifier.SecurityTypeHintStock:       true,
+		identifier.SecurityTypeHintETF:         true,
 		identifier.SecurityTypeHintFixedIncome: true,
 		identifier.SecurityTypeHintMutualFund:  true,
 		identifier.SecurityTypeHintOption:      true,
 		identifier.SecurityTypeHintFuture:      true,
+		identifier.SecurityTypeHintFX:          true,
 	}
 }
 
@@ -86,7 +87,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	if err != nil {
 		return nil, nil, err
 	}
-	if inst, ids, ok := p.resolveResults(results, true); ok {
+	if inst, ids, ok := p.resolveResults(results, hints, true); ok {
 		return inst, ids, nil
 	}
 	return nil, nil, identifier.ErrNotIdentified
@@ -95,21 +96,25 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 // resolveResults picks a result from the slice and converts it to an instrument.
 // For derivatives, UnderlyingIdentifiers are populated so the resolution layer can
 // resolve the underlying through the full plugin pipeline.
-// If fallbackFirst is true and there are multiple results with no STOCK+common match, the first result is used.
+// When multiple results exist, the SecurityTypeHint is used to prefer results
+// whose classified asset class matches the hint. The stored asset class is always
+// derived from the selected result's OpenFIGI fields via classify, never from the hint.
+// If fallbackFirst is true and no hint match is found, the first result is used.
 // It returns (inst, ids, true) when a result was chosen, (nil, nil, false) otherwise.
-func (p *Plugin) resolveResults(results []OpenFIGIResult, fallbackFirst bool) (*identifier.Instrument, []identifier.Identifier, bool) {
+func (p *Plugin) resolveResults(results []OpenFIGIResult, hints identifier.Hints, fallbackFirst bool) (*identifier.Instrument, []identifier.Identifier, bool) {
 	if len(results) == 0 {
 		return nil, nil, false
 	}
-	idx := -1
-	if len(results) == 1 {
-		idx = 0
-	} else {
-		for i := range results {
-			ac := assetClassFromOpenFIGI(results[i].SecurityType, results[i].SecurityType2, results[i].MarketSector, p.log)
-			if ac == db.AssetClassStock && strings.Contains(strings.ToLower(results[i].SecurityType2), "common") {
-				idx = i
-				break
+	idx := 0
+	if len(results) > 1 {
+		idx = -1
+		if hints.SecurityTypeHint != "" {
+			for i := range results {
+				ac := classify(results[i].SecurityType, results[i].SecurityType2, results[i].MarketSector)
+				if ac == hints.SecurityTypeHint {
+					idx = i
+					break
+				}
 			}
 		}
 		if idx < 0 && fallbackFirst {
@@ -118,7 +123,7 @@ func (p *Plugin) resolveResults(results []OpenFIGIResult, fallbackFirst bool) (*
 			return nil, nil, false
 		}
 	}
-	inst, ids := openFIGIResultToInstrument(&results[idx], p.log)
+	inst, ids := openFIGIResultToInstrument(&results[idx])
 	if isDerivative(&results[idx]) {
 		parsed, ok := derivative.ParseOptionTicker(results[idx].Ticker)
 		if !ok || parsed.Symbol == "" {

@@ -166,6 +166,57 @@ func TestPlugin_Identify_OpenFIGIMapping_FromTickerHint(t *testing.T) {
 	}
 }
 
+func TestPlugin_Identify_OpenFIGIMapping_MICTickerDomainNotSentAsMICCode(t *testing.T) {
+	// MIC_TICKER hints may carry a Domain (ISO 10383 MIC, e.g. "XNAS") set by
+	// other plugins. The OpenFIGI plugin must NOT forward it as micCode because
+	// OpenFIGI's MIC coverage is incomplete and the filter causes false negatives.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v3/mapping" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		var jobs []MappingJob
+		if err := json.NewDecoder(r.Body).Decode(&jobs); err != nil || len(jobs) != 1 {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if jobs[0].MICCode != "" {
+			t.Errorf("micCode = %q, want empty (should not be forwarded)", jobs[0].MICCode)
+			// Return zero results to simulate the bug this test guards against.
+			json.NewEncoder(w).Encode([]MappingResponseItem{{Data: nil}})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]MappingResponseItem{
+			{Data: []OpenFIGIResult{{
+				FIGI:          "BBG001Y2XS07",
+				Ticker:        "ABNB",
+				Name:          "AIRBNB INC-CLASS A",
+				ExchCode:      "US",
+				SecurityType:  "Common Stock",
+				SecurityType2: "Common Stock",
+				MarketSector:  "Equity",
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{
+		"openfigi_api_key":  "test-key",
+		"openfigi_base_url": server.URL,
+	})
+	ctx := context.Background()
+	p := NewPlugin(nil, nil, http.DefaultClient)
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "ABNB", Domain: "XNAS"}}
+	inst, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "ABNB", identifier.Hints{}, hints)
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if inst == nil || inst.Name != "AIRBNB INC-CLASS A" {
+		t.Errorf("instrument = %+v", inst)
+	}
+}
+
 func TestPlugin_Identify_OpenFIGIMapping_TickerDotConvertedToSlash(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v3/mapping" {

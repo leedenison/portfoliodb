@@ -789,3 +789,61 @@ func TestGetUserValuation_CashForeignMissingFXRate(t *testing.T) {
 		t.Errorf("expected GBP in unpriced (missing FX rate), got %v", points[0].UnpricedInstruments)
 	}
 }
+
+// TestGetUserValuation_CashForeignCurrency_NonUSDDisplay verifies the cross-rate
+// path: EUR cash displayed in GBP requires both EURUSD and GBPUSD rates.
+func TestGetUserValuation_CashForeignCurrency_NonUSDDisplay(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-cash-cross", "U", "u@cash-cross.com")
+
+	eurInstID, err := p.FindInstrumentByIdentifier(ctx, "CURRENCY", "", "EUR")
+	if err != nil || eurInstID == "" {
+		t.Fatalf("EUR cash instrument not found: %v", err)
+	}
+
+	// Create EURUSD and GBPUSD FX pair instruments and prices.
+	eurFxID, _ := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "FX_PAIR", Domain: "", Value: "EURUSD", Canonical: true},
+	}, "", nil, nil)
+	gbpFxID, _ := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "FX_PAIR", Domain: "", Value: "GBPUSD", Canonical: true},
+	}, "", nil, nil)
+	fxPrices := []db.EODPrice{
+		{InstrumentID: eurFxID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 1.08, DataProvider: "test"},
+		{InstrumentID: gbpFxID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 1.27, DataProvider: "test"},
+	}
+	if err := p.UpsertPrices(ctx, fxPrices); err != nil {
+		t.Fatalf("upsert fx prices: %v", err)
+	}
+
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "EUR CASH", Type: apiv1.TxType_INCOME, Quantity: 1000, TradingCurrency: "EUR", Account: "main"},
+	}
+	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
+	to := timestamppb.New(buyDate.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{eurInstID}); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	// Display in GBP: value = 1000 EUR * (EURUSD / GBPUSD) = 1000 * 1.08 / 1.27
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "GBP")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	// 1000 * 1.08 / 1.27 ≈ 850.39
+	want := 1000.0 * 1.08 / 1.27
+	if diff := points[0].TotalValue - want; diff > 0.01 || diff < -0.01 {
+		t.Errorf("total value: want ~%.2f, got %v", want, points[0].TotalValue)
+	}
+	if len(points[0].UnpricedInstruments) != 0 {
+		t.Errorf("expected no unpriced instruments, got %v", points[0].UnpricedInstruments)
+	}
+}

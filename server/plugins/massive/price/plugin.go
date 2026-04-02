@@ -102,8 +102,8 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 		toStr := chunkEnd.Format("2006-01-02")
 
 		bars, err := c.DailyBars(ctx, ticker, fromStr, toStr)
-		p.reportOutcome(ctx, err)
 		if err != nil {
+			p.reportOutcome(ctx, err)
 			var nf *client.ErrNotFound
 			var fb *client.ErrForbidden
 			if errors.As(err, &nf) {
@@ -117,6 +117,7 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 		allBars = append(allBars, bars...)
 		chunkStart = chunkEnd.AddDate(0, 0, 1)
 	}
+	p.reportOutcome(ctx, nil)
 
 	if len(allBars) == 0 {
 		// For stocks/ETFs, check whether the ticker exists at all. The aggs
@@ -130,6 +131,10 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 				if errors.As(err, &nf) {
 					return nil, &pricefetcher.ErrPermanent{Reason: "ticker not found: " + ticker}
 				}
+				// Transient errors (rate limit, network) — propagate so the
+				// price fetcher retries rather than silently returning ErrNoData.
+				p.reportOutcome(ctx, err)
+				return nil, err
 			}
 		}
 		return nil, pricefetcher.ErrNoData

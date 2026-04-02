@@ -45,12 +45,12 @@ WITH portfolio_txs AS (
 merged_txs AS (
     SELECT
         instrument_id,
-        CASE WHEN instrument_id IS NULL THEN instrument_description ELSE '' END AS instrument_description,
+        CASE WHEN instrument_id IS NULL THEN instrument_description END AS instrument_description,
         tx_date,
         SUM(daily_qty) AS daily_qty
     FROM portfolio_txs
     GROUP BY instrument_id,
-             CASE WHEN instrument_id IS NULL THEN instrument_description ELSE '' END,
+             CASE WHEN instrument_id IS NULL THEN instrument_description END,
              tx_date
 ),
 cumulative AS (
@@ -82,7 +82,7 @@ daily_holdings AS (
             SELECT c.position
             FROM cumulative c
             WHERE c.instrument_id IS NOT DISTINCT FROM i.instrument_id
-              AND c.instrument_description = i.instrument_description
+              AND c.instrument_description IS NOT DISTINCT FROM i.instrument_description
               AND c.tx_date <= ds.val_date
             ORDER BY c.tx_date DESC
             LIMIT 1

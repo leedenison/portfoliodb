@@ -5,8 +5,8 @@ import "github.com/leedenison/portfoliodb/server/db"
 // Instrument kind vocabulary. Coarser than asset class; used as first-pass
 // plugin filter so that cash plugins never see securities and vice versa.
 const (
-	InstrumentKindCash     = "CASH"
-	InstrumentKindSecurity = "SECURITY"
+	InstrumentKindCash     = db.InstrumentKindCash
+	InstrumentKindSecurity = db.InstrumentKindSecurity
 )
 
 // Security type hint vocabulary. Same as asset class (type alias). Plugins use these as keys in AcceptableSecurityTypes() and compare against Hints.SecurityTypeHint.

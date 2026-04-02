@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -268,6 +269,46 @@ func TestFetchPrices_FX_GBXUSD(t *testing.T) {
 	}
 	if result.Bars[0].Open == nil || *result.Bars[0].Open != 0.0125 {
 		t.Errorf("bar[0].Open = %v, want 0.0125", result.Bars[0].Open)
+	}
+}
+
+func TestFetchPrices_ChunksLargeRanges(t *testing.T) {
+	var requestCount int
+	var requestedPaths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		requestedPaths = append(requestedPaths, r.URL.Path)
+		resp := client.APIResponse[[]client.AggBar]{
+			Status:  "OK",
+			Results: []client.AggBar{{O: 1.25, H: 1.27, L: 1.24, C: 1.26, V: 0, T: 1704067200000}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, srv.Client())
+	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}}
+	// 400-day range should require at least 2 chunks (maxChunkDays=200).
+	from := time.Date(2023, 8, 8, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 9, 12, 0, 0, 0, 0, time.UTC) // exclusive
+
+	result, err := p.FetchPrices(context.Background(), configWithURL(srv.URL), ids, db.AssetClassFX, from, to)
+	if err != nil {
+		t.Fatalf("FetchPrices: %v", err)
+	}
+	if requestCount < 2 {
+		t.Errorf("expected at least 2 requests for 400-day range, got %d", requestCount)
+	}
+	if len(result.Bars) != requestCount {
+		t.Errorf("expected %d bars (one per chunk), got %d", requestCount, len(result.Bars))
+	}
+	// Verify first chunk starts at the from date.
+	if len(requestedPaths) > 0 && !strings.Contains(requestedPaths[0], "2023-08-08") {
+		t.Errorf("first chunk should start at 2023-08-08, got path %q", requestedPaths[0])
+	}
+	// Verify last chunk ends at the to-1 date.
+	if n := len(requestedPaths); n > 0 && !strings.Contains(requestedPaths[n-1], "2024-09-11") {
+		t.Errorf("last chunk should end at 2024-09-11, got path %q", requestedPaths[n-1])
 	}
 }
 

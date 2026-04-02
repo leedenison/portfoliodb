@@ -364,7 +364,7 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
             <span className="font-semibold uppercase tracking-wider">
               Underlying
             </span>{" "}
-            <span className="font-mono">{inst.underlyingId}</span>
+            <span>{inst.underlying?.name || inst.underlyingId}</span>
           </span>
         )}
       </div>

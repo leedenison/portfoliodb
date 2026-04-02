@@ -39,6 +39,20 @@ WITH portfolio_txs AS (
         SUM(t.quantity) AS daily_qty` + txSource + `
     GROUP BY t.instrument_id, t.instrument_description, t.timestamp::date
 ),
+-- Merge transactions by instrument_id for identified instruments so that
+-- different descriptions for the same instrument net correctly. Unidentified
+-- instruments (NULL instrument_id) are grouped by instrument_description.
+merged_txs AS (
+    SELECT
+        instrument_id,
+        CASE WHEN instrument_id IS NULL THEN instrument_description END AS instrument_description,
+        tx_date,
+        SUM(daily_qty) AS daily_qty
+    FROM portfolio_txs
+    GROUP BY instrument_id,
+             CASE WHEN instrument_id IS NULL THEN instrument_description END,
+             tx_date
+),
 cumulative AS (
     SELECT
         instrument_id,
@@ -49,7 +63,7 @@ cumulative AS (
             ORDER BY tx_date
             ROWS UNBOUNDED PRECEDING
         ) AS position
-    FROM portfolio_txs
+    FROM merged_txs
 ),
 date_series AS (
     SELECT d::date AS val_date
@@ -68,7 +82,7 @@ daily_holdings AS (
             SELECT c.position
             FROM cumulative c
             WHERE c.instrument_id IS NOT DISTINCT FROM i.instrument_id
-              AND c.instrument_description = i.instrument_description
+              AND c.instrument_description IS NOT DISTINCT FROM i.instrument_description
               AND c.tx_date <= ds.val_date
             ORDER BY c.tx_date DESC
             LIMIT 1
@@ -122,11 +136,30 @@ valued AS (
         dh.val_date,
         dh.instrument_id,
         dh.instrument_description,
+        inst.name AS instrument_name,
+        inst.asset_class,
         dh.qty,
         gp.close,
         CASE
-            -- No instrument_id or no price: will be unpriced.
-            WHEN dh.instrument_id IS NULL OR gp.close IS NULL THEN NULL
+            -- Unidentified instrument: always unpriced.
+            WHEN dh.instrument_id IS NULL THEN NULL
+            -- Cash in display currency: implicit price 1.0, no FX needed.
+            WHEN inst.asset_class = 'CASH' AND COALESCE(inst.currency, $4) = $4
+                THEN dh.qty
+            -- Cash in foreign currency: implicit price 1.0, convert via FX rate.
+            WHEN inst.asset_class = 'CASH' THEN
+                CASE
+                    WHEN $4 = 'USD' THEN
+                        CASE WHEN fr.rate IS NOT NULL THEN dh.qty * fr.rate ELSE NULL END
+                    ELSE
+                        CASE WHEN dfr.rate IS NOT NULL
+                                AND (COALESCE(inst.currency, 'USD') = 'USD' OR fr.rate IS NOT NULL)
+                            THEN dh.qty * COALESCE(fr.rate, 1.0) / dfr.rate
+                            ELSE NULL
+                        END
+                END
+            -- Non-cash with no price: unpriced.
+            WHEN gp.close IS NULL THEN NULL
             -- Instrument currency IS the display currency (or NULL): no conversion.
             WHEN COALESCE(inst.currency, $4) = $4 THEN dh.qty * gp.close
             -- Display = USD: fx_rate = BASEUSD_rate.
@@ -144,9 +177,10 @@ valued AS (
                     ELSE NULL  -- missing base or display FX rate -> unpriced
                 END
         END AS converted_value,
-        -- Flag: needs FX conversion but rate is missing.
+        -- Flag: needs FX conversion but rate is missing (applies to both cash and non-cash).
         CASE
-            WHEN dh.instrument_id IS NOT NULL AND gp.close IS NOT NULL
+            WHEN dh.instrument_id IS NOT NULL
+                AND (gp.close IS NOT NULL OR inst.asset_class = 'CASH')
                 AND COALESCE(inst.currency, $4) != $4
                 AND (
                     ($4 = 'USD' AND fr.rate IS NULL)
@@ -171,15 +205,16 @@ SELECT
     val_date,
     COALESCE(SUM(converted_value), 0) AS total_value,
     COALESCE(
-        array_agg(DISTINCT instrument_description)
-        FILTER (WHERE instrument_id IS NOT NULL AND close IS NULL),
+        array_agg(DISTINCT COALESCE(instrument_name, instrument_description))
+        FILTER (WHERE instrument_id IS NOT NULL AND close IS NULL
+                  AND COALESCE(asset_class, '') != 'CASH'),
         '{}'
     ) || COALESCE(
-        array_agg(DISTINCT instrument_description)
+        array_agg(DISTINCT COALESCE(instrument_name, instrument_description))
         FILTER (WHERE instrument_id IS NULL),
         '{}'
     ) || COALESCE(
-        array_agg(DISTINCT instrument_description)
+        array_agg(DISTINCT COALESCE(instrument_name, instrument_description))
         FILTER (WHERE fx_missing),
         '{}'
     ) AS unpriced_instruments

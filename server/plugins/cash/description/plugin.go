@@ -30,6 +30,11 @@ func (p *Plugin) DefaultConfig() []byte {
 	return []byte("{}")
 }
 
+// AcceptableInstrumentKinds returns only Cash.
+func (p *Plugin) AcceptableInstrumentKinds() map[string]bool {
+	return map[string]bool{identifier.InstrumentKindCash: true}
+}
+
 // AcceptableSecurityTypes returns only Cash; the plugin turns Hints.Currency into a CURRENCY identifier.
 func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 	return map[string]bool{identifier.SecurityTypeHintCash: true}

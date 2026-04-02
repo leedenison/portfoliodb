@@ -21,6 +21,10 @@ type Plugin interface {
 	// DisplayName returns a human-readable name for the plugin (e.g. "OpenAI"). Shown in the admin UI.
 	DisplayName() string
 
+	// AcceptableInstrumentKinds returns the set of instrument kinds this plugin handles (identifier.InstrumentKindCash, identifier.InstrumentKindSecurity).
+	// Nil or empty map means all kinds. Checked before AcceptableSecurityTypes as a coarse filter.
+	AcceptableInstrumentKinds() map[string]bool
+
 	// AcceptableSecurityTypes returns the set of security type hints this plugin can attempt extraction for (e.g. Stock, Bond).
 	// Keys must be from the identifier package constants (SecurityTypeHintStock, etc.). Nil or empty map means all types.
 	AcceptableSecurityTypes() map[string]bool

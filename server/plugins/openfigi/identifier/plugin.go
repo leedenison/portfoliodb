@@ -50,6 +50,11 @@ func (p *Plugin) DefaultConfig() []byte {
 	return out
 }
 
+// AcceptableInstrumentKinds returns only Security.
+func (p *Plugin) AcceptableInstrumentKinds() map[string]bool {
+	return map[string]bool{identifier.InstrumentKindSecurity: true}
+}
+
 // AcceptableSecurityTypes returns the security type hints this plugin can attempt identification for.
 func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 	return map[string]bool{

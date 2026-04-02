@@ -57,6 +57,10 @@ func (p *Plugin) DefaultConfig() []byte {
 	return out
 }
 
+func (p *Plugin) AcceptableInstrumentKinds() map[string]bool {
+	return map[string]bool{identifier.InstrumentKindSecurity: true}
+}
+
 func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 	return map[string]bool{
 		identifier.SecurityTypeHintStock:  true,

@@ -383,14 +383,35 @@ func TxTypeToAssetClass(t apiv1.TxType) string {
 		return AssetClassStock
 	case apiv1.TxType_BUYFUTURE, apiv1.TxType_SELLFUTURE:
 		return AssetClassFuture
-	case apiv1.TxType_INCOME, apiv1.TxType_INVEXPENSE, apiv1.TxType_REINVEST,
-		apiv1.TxType_TRANSFER, apiv1.TxType_MARGININTEREST, apiv1.TxType_RETOFCAP, apiv1.TxType_JRNLFUND,
+	case apiv1.TxType_INCOME, apiv1.TxType_INVEXPENSE,
+		apiv1.TxType_MARGININTEREST, apiv1.TxType_RETOFCAP, apiv1.TxType_JRNLFUND,
 		apiv1.TxType_CASHFLOW:
 		return AssetClassCash
-	case apiv1.TxType_SPLIT:
+	case apiv1.TxType_TRANSFER, apiv1.TxType_REINVEST, apiv1.TxType_SPLIT:
 		return AssetClassUnknown
 	default:
 		return AssetClassUnknown
+	}
+}
+
+// InstrumentKind constants. Coarser than asset class; used as a first-pass
+// filter to separate cash from securities during plugin routing.
+const (
+	InstrumentKindCash     = "CASH"
+	InstrumentKindSecurity = "SECURITY"
+)
+
+// TxTypeToInstrumentKind maps a TxType to its instrument kind. CASH kinds are
+// cash-flow transactions (dividends, fees, etc). SECURITY kinds represent
+// positions in instruments that need identification and pricing.
+func TxTypeToInstrumentKind(t apiv1.TxType) string {
+	switch t {
+	case apiv1.TxType_INCOME, apiv1.TxType_INVEXPENSE,
+		apiv1.TxType_MARGININTEREST, apiv1.TxType_RETOFCAP, apiv1.TxType_JRNLFUND,
+		apiv1.TxType_CASHFLOW:
+		return InstrumentKindCash
+	default:
+		return InstrumentKindSecurity
 	}
 }
 

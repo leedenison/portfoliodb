@@ -22,6 +22,12 @@ func TxTypeToSecurityTypeHint(t apiv1.TxType) string {
 	return db.TxTypeToAssetClass(t)
 }
 
+// TxTypeToInstrumentKind maps transaction type to instrument kind (CASH or SECURITY).
+// Delegates to db.TxTypeToInstrumentKind.
+func TxTypeToInstrumentKind(t apiv1.TxType) string {
+	return db.TxTypeToInstrumentKind(t)
+}
+
 // HintsFromTx builds resolution hints from a transaction. Only trading_currency is passed as the currency hint to plugins (never settlement_currency).
 func HintsFromTx(tx *apiv1.Tx) identifier.Hints {
 	if tx == nil {
@@ -29,6 +35,7 @@ func HintsFromTx(tx *apiv1.Tx) identifier.Hints {
 	}
 	return identifier.Hints{
 		Currency:         tx.GetTradingCurrency(),
+		InstrumentKind:   TxTypeToInstrumentKind(tx.GetType()),
 		SecurityTypeHint: TxTypeToSecurityTypeHint(tx.GetType()),
 	}
 }

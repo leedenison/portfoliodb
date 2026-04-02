@@ -70,6 +70,10 @@ func (p *Plugin) AcceptableCurrencies() map[string]bool {
 	return map[string]bool{"USD": true}
 }
 
+// maxChunkDays is the maximum number of calendar days per request. The Polygon
+// API caps daily bar responses at ~250 results; 200 keeps us safely under.
+const maxChunkDays = 200
+
 func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []pricefetcher.Identifier, assetClass string, from, to time.Time) (*pricefetcher.FetchResult, error) {
 	ticker, fxDivisor := tickerForAssetClass(identifiers, assetClass)
 	if ticker == "" {
@@ -81,32 +85,63 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 		return nil, err
 	}
 
-	fromStr := from.Format("2006-01-02")
 	// to is exclusive in our convention; Massive API is inclusive, so subtract one day.
-	toStr := to.AddDate(0, 0, -1).Format("2006-01-02")
-	if toStr < fromStr {
+	toInclusive := to.AddDate(0, 0, -1)
+	if toInclusive.Before(from) {
 		return nil, pricefetcher.ErrNoData
 	}
 
-	bars, err := c.DailyBars(ctx, ticker, fromStr, toStr)
-	p.reportOutcome(ctx, err)
-	if err != nil {
-		var nf *client.ErrNotFound
-		var fb *client.ErrForbidden
-		if errors.As(err, &nf) {
-			return nil, &pricefetcher.ErrPermanent{Reason: "ticker not found: " + nf.Path}
+	var allBars []client.AggBar
+	chunkStart := from
+	for chunkStart.Before(toInclusive) || chunkStart.Equal(toInclusive) {
+		chunkEnd := chunkStart.AddDate(0, 0, maxChunkDays-1)
+		if chunkEnd.After(toInclusive) {
+			chunkEnd = toInclusive
 		}
-		if errors.As(err, &fb) {
-			return nil, &pricefetcher.ErrPermanent{Reason: "forbidden: " + fb.Message}
+		fromStr := chunkStart.Format("2006-01-02")
+		toStr := chunkEnd.Format("2006-01-02")
+
+		bars, err := c.DailyBars(ctx, ticker, fromStr, toStr)
+		if err != nil {
+			p.reportOutcome(ctx, err)
+			var nf *client.ErrNotFound
+			var fb *client.ErrForbidden
+			if errors.As(err, &nf) {
+				return nil, &pricefetcher.ErrPermanent{Reason: "ticker not found: " + nf.Path}
+			}
+			if errors.As(err, &fb) {
+				return nil, &pricefetcher.ErrPermanent{Reason: "forbidden: " + fb.Message}
+			}
+			return nil, err
 		}
-		return nil, err
+		allBars = append(allBars, bars...)
+		chunkStart = chunkEnd.AddDate(0, 0, 1)
 	}
-	if len(bars) == 0 {
+	p.reportOutcome(ctx, nil)
+
+	if len(allBars) == 0 {
+		// For stocks/ETFs, check whether the ticker exists at all. The aggs
+		// endpoint returns 200 with 0 results for unknown tickers, so we
+		// probe the reference endpoint to distinguish "no data yet" from
+		// "ticker not carried". FX and options use prefixed tickers (C:, O:)
+		// that don't work with the reference endpoint.
+		if assetClass != db.AssetClassFX && assetClass != db.AssetClassOption {
+			if _, err := c.TickerOverview(ctx, ticker); err != nil {
+				var nf *client.ErrNotFound
+				if errors.As(err, &nf) {
+					return nil, &pricefetcher.ErrPermanent{Reason: "ticker not found: " + ticker}
+				}
+				// Transient errors (rate limit, network) — propagate so the
+				// price fetcher retries rather than silently returning ErrNoData.
+				p.reportOutcome(ctx, err)
+				return nil, err
+			}
+		}
 		return nil, pricefetcher.ErrNoData
 	}
 
-	result := make([]pricefetcher.DailyBar, len(bars))
-	for i, b := range bars {
+	result := make([]pricefetcher.DailyBar, len(allBars))
+	for i, b := range allBars {
 		o := b.O
 		h := b.H
 		l := b.L

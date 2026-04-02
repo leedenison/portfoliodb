@@ -2,6 +2,13 @@ package identifier
 
 import "github.com/leedenison/portfoliodb/server/db"
 
+// Instrument kind vocabulary. Coarser than asset class; used as first-pass
+// plugin filter so that cash plugins never see securities and vice versa.
+const (
+	InstrumentKindCash     = db.InstrumentKindCash
+	InstrumentKindSecurity = db.InstrumentKindSecurity
+)
+
 // Security type hint vocabulary. Same as asset class (type alias). Plugins use these as keys in AcceptableSecurityTypes() and compare against Hints.SecurityTypeHint.
 const (
 	SecurityTypeHintStock       = db.AssetClassStock
@@ -16,9 +23,11 @@ const (
 )
 
 // Hints are optional resolution hints passed to description and identifier plugins.
-// SecurityTypeHint is derived from the transaction type and used for plugin routing; vocabulary is the same as asset class.
+// InstrumentKind is a coarse filter (CASH vs SECURITY); SecurityTypeHint is the
+// fine-grained asset class derived from the transaction type.
 type Hints struct {
 	Currency         string
+	InstrumentKind   string
 	SecurityTypeHint string
 }
 
@@ -31,6 +40,21 @@ func UnderlyingSecTypeHint(derivativeAssetClass string) string {
 	default:
 		return ""
 	}
+}
+
+// ShouldAttemptPlugin returns whether a plugin should be tried given the
+// hint's instrument kind and security type. The kind gate is checked first:
+// if both the plugin and hint declare a kind, they must match. The type gate
+// is checked second but skipped when the hint type is UNKNOWN (meaning "we
+// know the kind but not the specific asset class").
+func ShouldAttemptPlugin(acceptableKinds, acceptableTypes map[string]bool, kind, secType string) bool {
+	if len(acceptableKinds) > 0 && kind != "" && !acceptableKinds[kind] {
+		return false
+	}
+	if len(acceptableTypes) > 0 && secType != "" && secType != SecurityTypeHintUnknown && !acceptableTypes[secType] {
+		return false
+	}
+	return true
 }
 
 // AllowedIdentifierTypes is the controlled vocabulary for identifier hint types (proto IdentifierType names).

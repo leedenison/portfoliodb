@@ -26,6 +26,8 @@ func TestTxTypeToSecurityTypeHint(t *testing.T) {
 		{apiv1.TxType_BUYMF, identifier.SecurityTypeHintMutualFund},
 		{apiv1.TxType_BUYFUTURE, identifier.SecurityTypeHintFuture},
 		{apiv1.TxType_SELLFUTURE, identifier.SecurityTypeHintFuture},
+		{apiv1.TxType_TRANSFER, identifier.SecurityTypeHintUnknown},
+		{apiv1.TxType_REINVEST, identifier.SecurityTypeHintUnknown},
 	}
 	for _, tt := range tests {
 		got := TxTypeToSecurityTypeHint(tt.txType)
@@ -45,17 +47,44 @@ func TestHintsFromTx_Currency(t *testing.T) {
 	})
 	t.Run("nil tx returns empty hints", func(t *testing.T) {
 		h := HintsFromTx(nil)
-		if h.Currency != "" || h.SecurityTypeHint != "" {
+		if h.Currency != "" || h.SecurityTypeHint != "" || h.InstrumentKind != "" {
 			t.Errorf("expected empty hints, got %+v", h)
 		}
 	})
+}
+
+func TestTxTypeToInstrumentKind(t *testing.T) {
+	tests := []struct {
+		txType apiv1.TxType
+		want   string
+	}{
+		{apiv1.TxType_BUYSTOCK, db.InstrumentKindSecurity},
+		{apiv1.TxType_SELLSTOCK, db.InstrumentKindSecurity},
+		{apiv1.TxType_BUYOPT, db.InstrumentKindSecurity},
+		{apiv1.TxType_TRANSFER, db.InstrumentKindSecurity},
+		{apiv1.TxType_REINVEST, db.InstrumentKindSecurity},
+		{apiv1.TxType_JRNLSEC, db.InstrumentKindSecurity},
+		{apiv1.TxType_BUYOTHER, db.InstrumentKindSecurity},
+		{apiv1.TxType_INCOME, db.InstrumentKindCash},
+		{apiv1.TxType_CASHFLOW, db.InstrumentKindCash},
+		{apiv1.TxType_JRNLFUND, db.InstrumentKindCash},
+		{apiv1.TxType_MARGININTEREST, db.InstrumentKindCash},
+		{apiv1.TxType_INVEXPENSE, db.InstrumentKindCash},
+		{apiv1.TxType_RETOFCAP, db.InstrumentKindCash},
+	}
+	for _, tt := range tests {
+		got := TxTypeToInstrumentKind(tt.txType)
+		if got != tt.want {
+			t.Errorf("TxTypeToInstrumentKind(%v) = %q, want %q", tt.txType, got, tt.want)
+		}
+	}
 }
 
 func TestAssetClassToTxTypeStrings(t *testing.T) {
 	t.Run("CASH maps to expected types", func(t *testing.T) {
 		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintCash)
 		sort.Strings(strs)
-		want := []string{"CASHFLOW", "INCOME", "INVEXPENSE", "JRNLFUND", "MARGININTEREST", "REINVEST", "RETOFCAP", "TRANSFER"}
+		want := []string{"CASHFLOW", "INCOME", "INVEXPENSE", "JRNLFUND", "MARGININTEREST", "RETOFCAP"}
 		sort.Strings(want)
 		if len(strs) != len(want) {
 			t.Fatalf("got %v, want %v", strs, want)

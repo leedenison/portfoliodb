@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -268,6 +269,104 @@ func TestFetchPrices_FX_GBXUSD(t *testing.T) {
 	}
 	if result.Bars[0].Open == nil || *result.Bars[0].Open != 0.0125 {
 		t.Errorf("bar[0].Open = %v, want 0.0125", result.Bars[0].Open)
+	}
+}
+
+func TestFetchPrices_EmptyBars_TickerNotFound_ReturnsPermanent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/v2/aggs/") {
+			// Aggs endpoint: 200 OK with 0 results (like Polygon does for unknown tickers).
+			resp := client.APIResponse[[]client.AggBar]{Status: "OK", Results: nil}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/v3/reference/tickers/") {
+			// Reference endpoint: 404 not found.
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, srv.Client())
+	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "RHM"}}
+	from := time.Date(2025, 7, 6, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	_, err := p.FetchPrices(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock, from, to)
+	var permErr *pricefetcher.ErrPermanent
+	if !errors.As(err, &permErr) {
+		t.Errorf("expected ErrPermanent when ticker not found, got %v", err)
+	}
+}
+
+func TestFetchPrices_EmptyBars_TickerExists_ReturnsNoData(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/v2/aggs/") {
+			resp := client.APIResponse[[]client.AggBar]{Status: "OK", Results: nil}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/v3/reference/tickers/") {
+			// Reference endpoint: ticker exists.
+			resp := client.APIResponse[*client.TickerOverviewResult]{
+				Status:  "OK",
+				Results: &client.TickerOverviewResult{Ticker: "AAPL", Name: "Apple Inc"},
+			}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, srv.Client())
+	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	from := time.Date(2025, 7, 6, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2025, 7, 8, 0, 0, 0, 0, time.UTC)
+
+	_, err := p.FetchPrices(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock, from, to)
+	if err != pricefetcher.ErrNoData {
+		t.Errorf("expected ErrNoData when ticker exists but no bars, got %v", err)
+	}
+}
+
+func TestFetchPrices_ChunksLargeRanges(t *testing.T) {
+	var requestCount int
+	var requestedPaths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		requestedPaths = append(requestedPaths, r.URL.Path)
+		resp := client.APIResponse[[]client.AggBar]{
+			Status:  "OK",
+			Results: []client.AggBar{{O: 1.25, H: 1.27, L: 1.24, C: 1.26, V: 0, T: 1704067200000}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, srv.Client())
+	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}}
+	// 400-day range should require at least 2 chunks (maxChunkDays=200).
+	from := time.Date(2023, 8, 8, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 9, 12, 0, 0, 0, 0, time.UTC) // exclusive
+
+	result, err := p.FetchPrices(context.Background(), configWithURL(srv.URL), ids, db.AssetClassFX, from, to)
+	if err != nil {
+		t.Fatalf("FetchPrices: %v", err)
+	}
+	if requestCount < 2 {
+		t.Errorf("expected at least 2 requests for 400-day range, got %d", requestCount)
+	}
+	if len(result.Bars) != requestCount {
+		t.Errorf("expected %d bars (one per chunk), got %d", requestCount, len(result.Bars))
+	}
+	// Verify first chunk starts at the from date.
+	if len(requestedPaths) > 0 && !strings.Contains(requestedPaths[0], "2023-08-08") {
+		t.Errorf("first chunk should start at 2023-08-08, got path %q", requestedPaths[0])
+	}
+	// Verify last chunk ends at the to-1 date.
+	if n := len(requestedPaths); n > 0 && !strings.Contains(requestedPaths[n-1], "2024-09-11") {
+		t.Errorf("last chunk should end at 2024-09-11, got path %q", requestedPaths[n-1])
 	}
 }
 

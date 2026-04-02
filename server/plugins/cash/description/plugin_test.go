@@ -60,6 +60,14 @@ func TestPlugin_ExtractBatch_EmptyCurrency_ReturnsNothing(t *testing.T) {
 	}
 }
 
+func TestPlugin_AcceptableInstrumentKinds_OnlyCash(t *testing.T) {
+	p := NewPlugin()
+	set := p.AcceptableInstrumentKinds()
+	if len(set) != 1 || !set[identifier.InstrumentKindCash] {
+		t.Errorf("AcceptableInstrumentKinds = %v, want {CASH}", set)
+	}
+}
+
 func TestPlugin_AcceptableSecurityTypes_OnlyCash(t *testing.T) {
 	p := NewPlugin()
 	set := p.AcceptableSecurityTypes()

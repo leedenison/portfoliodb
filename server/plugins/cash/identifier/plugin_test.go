@@ -84,6 +84,17 @@ func TestPlugin_Identify_NoCurrency_ReturnsErrNotIdentified(t *testing.T) {
 	}
 }
 
+func TestPlugin_AcceptableInstrumentKinds_OnlyCash(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	p := NewPlugin(database)
+	set := p.AcceptableInstrumentKinds()
+	if len(set) != 1 || !set[identifier.InstrumentKindCash] {
+		t.Errorf("AcceptableInstrumentKinds = %v, want {CASH}", set)
+	}
+}
+
 func TestPlugin_AcceptableSecurityTypes_IncludesCash(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

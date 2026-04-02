@@ -239,6 +239,14 @@ func TestPlugin_DefaultConfig(t *testing.T) {
 	}
 }
 
+func TestPlugin_AcceptableInstrumentKinds(t *testing.T) {
+	p := NewPlugin(nil, nil, nil, nil)
+	kinds := p.AcceptableInstrumentKinds()
+	if len(kinds) != 1 || !kinds[identifier.InstrumentKindSecurity] {
+		t.Errorf("AcceptableInstrumentKinds = %v, want {SECURITY}", kinds)
+	}
+}
+
 func TestPlugin_AcceptableSecurityTypes(t *testing.T) {
 	p := NewPlugin(nil, nil, nil, nil)
 	types := p.AcceptableSecurityTypes()

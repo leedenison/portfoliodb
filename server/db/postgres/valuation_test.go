@@ -114,6 +114,55 @@ func TestGetPortfolioValuation_UnpricedInstruments(t *testing.T) {
 	}
 }
 
+// TestGetPortfolioValuation_UnpricedDeduplication verifies that two transactions
+// with different instrument_descriptions but the same instrument_id produce a
+// single entry in unpriced_instruments (using the canonical instrument name).
+func TestGetPortfolioValuation_UnpricedDeduplication(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-dedup", "U", "u@val-dedup.com")
+	port, _ := p.CreatePortfolio(ctx, userID, "ValPortDedup")
+	_ = p.SetPortfolioFilters(ctx, port.Id, []db.PortfolioFilter{{FilterType: "broker", FilterValue: "IBKR"}})
+
+	// Create an instrument with a canonical name (from MIC_TICKER) but no prices.
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "ABNB", Canonical: true},
+	}, "", nil, nil)
+
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+
+	// Two txs for the same instrument but with different descriptions.
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "ABNB", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "ABNB AIRBNB INC-CLASS A", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "main"},
+	}
+	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
+	to := timestamppb.New(buyDate.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID, instID}); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo, "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+
+	// Should have exactly one unpriced entry using the canonical name "ABNB".
+	unpriced := points[0].UnpricedInstruments
+	if len(unpriced) != 1 {
+		t.Errorf("expected 1 unpriced instrument (deduplicated), got %d: %v", len(unpriced), unpriced)
+	}
+	if len(unpriced) > 0 && unpriced[0] != "ABNB" {
+		t.Errorf("expected unpriced instrument name 'ABNB', got %q", unpriced[0])
+	}
+}
+
 func TestGetPortfolioValuation_MultipleInstruments(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

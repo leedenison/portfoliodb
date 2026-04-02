@@ -108,13 +108,14 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 		if p == nil {
 			continue
 		}
-		acceptable := p.AcceptableSecurityTypes()
+		acceptableKinds := p.AcceptableInstrumentKinds()
+		acceptableTypes := p.AcceptableSecurityTypes()
 		var filtered []description.BatchItem
 		for _, item := range items {
 			if resolved[item.ID] {
 				continue
 			}
-			if len(acceptable) == 0 || acceptable[item.Hints.SecurityTypeHint] {
+			if identifier.ShouldAttemptPlugin(acceptableKinds, acceptableTypes, item.Hints.InstrumentKind, item.Hints.SecurityTypeHint) {
 				filtered = append(filtered, item)
 			}
 		}

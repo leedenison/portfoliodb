@@ -122,6 +122,7 @@ valued AS (
         dh.val_date,
         dh.instrument_id,
         dh.instrument_description,
+        inst.name AS instrument_name,
         dh.qty,
         gp.close,
         CASE
@@ -171,15 +172,15 @@ SELECT
     val_date,
     COALESCE(SUM(converted_value), 0) AS total_value,
     COALESCE(
-        array_agg(DISTINCT instrument_description)
+        array_agg(DISTINCT COALESCE(instrument_name, instrument_description))
         FILTER (WHERE instrument_id IS NOT NULL AND close IS NULL),
         '{}'
     ) || COALESCE(
-        array_agg(DISTINCT instrument_description)
+        array_agg(DISTINCT COALESCE(instrument_name, instrument_description))
         FILTER (WHERE instrument_id IS NULL),
         '{}'
     ) || COALESCE(
-        array_agg(DISTINCT instrument_description)
+        array_agg(DISTINCT COALESCE(instrument_name, instrument_description))
         FILTER (WHERE fx_missing),
         '{}'
     ) AS unpriced_instruments

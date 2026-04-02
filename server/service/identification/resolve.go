@@ -144,8 +144,7 @@ func ResolveWithPlugins(
 		if p == nil {
 			continue
 		}
-		acceptable := p.AcceptableSecurityTypes()
-		if len(acceptable) > 0 && !acceptable[hints.SecurityTypeHint] {
+		if !identifier.ShouldAttemptPlugin(p.AcceptableInstrumentKinds(), p.AcceptableSecurityTypes(), hints.InstrumentKind, hints.SecurityTypeHint) {
 			continue
 		}
 		inputs = append(inputs, pluginInput{config: c, plugin: p})

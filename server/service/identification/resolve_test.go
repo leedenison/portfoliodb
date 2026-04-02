@@ -22,9 +22,10 @@ type fakePlugin struct {
 func (p *fakePlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
 	return p.inst, p.ids, p.err
 }
-func (p *fakePlugin) AcceptableSecurityTypes() map[string]bool { return nil }
-func (p *fakePlugin) DefaultConfig() []byte                    { return nil }
-func (p *fakePlugin) DisplayName() string                      { return "Fake" }
+func (p *fakePlugin) AcceptableInstrumentKinds() map[string]bool { return nil }
+func (p *fakePlugin) AcceptableSecurityTypes() map[string]bool   { return nil }
+func (p *fakePlugin) DefaultConfig() []byte                      { return nil }
+func (p *fakePlugin) DisplayName() string                        { return "Fake" }
 
 func TestResolveByHintsDBOnly_ExactMatch(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -499,7 +500,8 @@ func (p *retryPlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ id
 	return p.inst, p.ids, nil
 }
 
-func (p *retryPlugin) AcceptableSecurityTypes() map[string]bool { return nil }
+func (p *retryPlugin) AcceptableInstrumentKinds() map[string]bool { return nil }
+func (p *retryPlugin) AcceptableSecurityTypes() map[string]bool   { return nil }
 func (p *retryPlugin) DefaultConfig() []byte                    { return nil }
 func (p *retryPlugin) DisplayName() string                      { return "Retry" }
 
@@ -551,6 +553,7 @@ func (p *cancelOnRetryPlugin) Identify(ctx context.Context, _ []byte, _, _, _ st
 	return p.inst, nil, nil
 }
 
-func (p *cancelOnRetryPlugin) AcceptableSecurityTypes() map[string]bool { return nil }
+func (p *cancelOnRetryPlugin) AcceptableInstrumentKinds() map[string]bool { return nil }
+func (p *cancelOnRetryPlugin) AcceptableSecurityTypes() map[string]bool   { return nil }
 func (p *cancelOnRetryPlugin) DefaultConfig() []byte                    { return nil }
 func (p *cancelOnRetryPlugin) DisplayName() string                      { return "CancelOnRetry" }

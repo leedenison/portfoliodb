@@ -119,6 +119,19 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 	}
 
 	if len(allBars) == 0 {
+		// For stocks/ETFs, check whether the ticker exists at all. The aggs
+		// endpoint returns 200 with 0 results for unknown tickers, so we
+		// probe the reference endpoint to distinguish "no data yet" from
+		// "ticker not carried". FX and options use prefixed tickers (C:, O:)
+		// that don't work with the reference endpoint.
+		if assetClass != db.AssetClassFX && assetClass != db.AssetClassOption {
+			if _, err := c.TickerOverview(ctx, ticker); err != nil {
+				var nf *client.ErrNotFound
+				if errors.As(err, &nf) {
+					return nil, &pricefetcher.ErrPermanent{Reason: "ticker not found: " + ticker}
+				}
+			}
+		}
 		return nil, pricefetcher.ErrNoData
 	}
 

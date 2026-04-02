@@ -272,6 +272,64 @@ func TestFetchPrices_FX_GBXUSD(t *testing.T) {
 	}
 }
 
+func TestFetchPrices_EmptyBars_TickerNotFound_ReturnsPermanent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/v2/aggs/") {
+			// Aggs endpoint: 200 OK with 0 results (like Polygon does for unknown tickers).
+			resp := client.APIResponse[[]client.AggBar]{Status: "OK", Results: nil}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/v3/reference/tickers/") {
+			// Reference endpoint: 404 not found.
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, srv.Client())
+	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "RHM"}}
+	from := time.Date(2025, 7, 6, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	_, err := p.FetchPrices(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock, from, to)
+	var permErr *pricefetcher.ErrPermanent
+	if !errors.As(err, &permErr) {
+		t.Errorf("expected ErrPermanent when ticker not found, got %v", err)
+	}
+}
+
+func TestFetchPrices_EmptyBars_TickerExists_ReturnsNoData(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/v2/aggs/") {
+			resp := client.APIResponse[[]client.AggBar]{Status: "OK", Results: nil}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/v3/reference/tickers/") {
+			// Reference endpoint: ticker exists.
+			resp := client.APIResponse[*client.TickerOverviewResult]{
+				Status:  "OK",
+				Results: &client.TickerOverviewResult{Ticker: "AAPL", Name: "Apple Inc"},
+			}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, srv.Client())
+	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	from := time.Date(2025, 7, 6, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2025, 7, 8, 0, 0, 0, 0, time.UTC)
+
+	_, err := p.FetchPrices(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock, from, to)
+	if err != pricefetcher.ErrNoData {
+		t.Errorf("expected ErrNoData when ticker exists but no bars, got %v", err)
+	}
+}
+
 func TestFetchPrices_ChunksLargeRanges(t *testing.T) {
 	var requestCount int
 	var requestedPaths []string

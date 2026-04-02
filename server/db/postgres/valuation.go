@@ -137,11 +137,29 @@ valued AS (
         dh.instrument_id,
         dh.instrument_description,
         inst.name AS instrument_name,
+        inst.asset_class,
         dh.qty,
         gp.close,
         CASE
-            -- No instrument_id or no price: will be unpriced.
-            WHEN dh.instrument_id IS NULL OR gp.close IS NULL THEN NULL
+            -- Unidentified instrument: always unpriced.
+            WHEN dh.instrument_id IS NULL THEN NULL
+            -- Cash in display currency: implicit price 1.0, no FX needed.
+            WHEN inst.asset_class = 'CASH' AND COALESCE(inst.currency, $4) = $4
+                THEN dh.qty
+            -- Cash in foreign currency: implicit price 1.0, convert via FX rate.
+            WHEN inst.asset_class = 'CASH' THEN
+                CASE
+                    WHEN $4 = 'USD' THEN
+                        CASE WHEN fr.rate IS NOT NULL THEN dh.qty * fr.rate ELSE NULL END
+                    ELSE
+                        CASE WHEN dfr.rate IS NOT NULL
+                                AND (COALESCE(inst.currency, 'USD') = 'USD' OR fr.rate IS NOT NULL)
+                            THEN dh.qty * COALESCE(fr.rate, 1.0) / dfr.rate
+                            ELSE NULL
+                        END
+                END
+            -- Non-cash with no price: unpriced.
+            WHEN gp.close IS NULL THEN NULL
             -- Instrument currency IS the display currency (or NULL): no conversion.
             WHEN COALESCE(inst.currency, $4) = $4 THEN dh.qty * gp.close
             -- Display = USD: fx_rate = BASEUSD_rate.
@@ -159,9 +177,10 @@ valued AS (
                     ELSE NULL  -- missing base or display FX rate -> unpriced
                 END
         END AS converted_value,
-        -- Flag: needs FX conversion but rate is missing.
+        -- Flag: needs FX conversion but rate is missing (applies to both cash and non-cash).
         CASE
-            WHEN dh.instrument_id IS NOT NULL AND gp.close IS NOT NULL
+            WHEN dh.instrument_id IS NOT NULL
+                AND (gp.close IS NOT NULL OR inst.asset_class = 'CASH')
                 AND COALESCE(inst.currency, $4) != $4
                 AND (
                     ($4 = 'USD' AND fr.rate IS NULL)
@@ -187,7 +206,8 @@ SELECT
     COALESCE(SUM(converted_value), 0) AS total_value,
     COALESCE(
         array_agg(DISTINCT COALESCE(instrument_name, instrument_description))
-        FILTER (WHERE instrument_id IS NOT NULL AND close IS NULL),
+        FILTER (WHERE instrument_id IS NOT NULL AND close IS NULL
+                  AND COALESCE(asset_class, '') != 'CASH'),
         '{}'
     ) || COALESCE(
         array_agg(DISTINCT COALESCE(instrument_name, instrument_description))

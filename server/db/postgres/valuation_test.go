@@ -648,3 +648,144 @@ func TestGetUserValuation_FXConversion_MissingBaseRate(t *testing.T) {
 		t.Errorf("expected HSBC MBR in unpriced, got %v", points[0].UnpricedInstruments)
 	}
 }
+
+// TestGetUserValuation_CashInDisplayCurrency verifies that a USD cash holding
+// with USD display currency is valued at qty (implicit price 1.0) and does
+// NOT appear in the unpriced instruments list.
+func TestGetUserValuation_CashInDisplayCurrency(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-cash-usd", "U", "u@cash-usd.com")
+
+	// Look up the seeded USD cash instrument.
+	usdInstID, err := p.FindInstrumentByIdentifier(ctx, "CURRENCY", "", "USD")
+	if err != nil || usdInstID == "" {
+		t.Fatalf("USD cash instrument not found: %v", err)
+	}
+
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "USD CASH", Type: apiv1.TxType_INCOME, Quantity: 500, Account: "main"},
+	}
+	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
+	to := timestamppb.New(buyDate.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{usdInstID}); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	if points[0].TotalValue != 500 {
+		t.Errorf("total value: want 500, got %v", points[0].TotalValue)
+	}
+	if len(points[0].UnpricedInstruments) != 0 {
+		t.Errorf("expected no unpriced instruments, got %v", points[0].UnpricedInstruments)
+	}
+}
+
+// TestGetUserValuation_CashInForeignCurrency verifies that a GBP cash holding
+// with USD display currency is valued at qty * GBPUSD rate and does NOT appear
+// in the unpriced instruments list when the FX rate is available.
+func TestGetUserValuation_CashInForeignCurrency(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-cash-gbp", "U", "u@cash-gbp.com")
+
+	gbpInstID, err := p.FindInstrumentByIdentifier(ctx, "CURRENCY", "", "GBP")
+	if err != nil || gbpInstID == "" {
+		t.Fatalf("GBP cash instrument not found: %v", err)
+	}
+
+	// Create GBPUSD FX pair instrument and price.
+	fxInstID, _ := p.EnsureInstrument(ctx, "FX", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "FX_PAIR", Domain: "", Value: "GBPUSD", Canonical: true},
+	}, "", nil, nil)
+	fxPrices := []db.EODPrice{
+		{InstrumentID: fxInstID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 1.27, DataProvider: "test"},
+	}
+	if err := p.UpsertPrices(ctx, fxPrices); err != nil {
+		t.Fatalf("upsert fx prices: %v", err)
+	}
+
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "GBP CASH", Type: apiv1.TxType_INCOME, Quantity: 1000, Account: "main"},
+	}
+	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
+	to := timestamppb.New(buyDate.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{gbpInstID}); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	// 1000 GBP * 1.27 GBPUSD = 1270 USD
+	if points[0].TotalValue != 1270 {
+		t.Errorf("total value: want 1270, got %v", points[0].TotalValue)
+	}
+	if len(points[0].UnpricedInstruments) != 0 {
+		t.Errorf("expected no unpriced instruments, got %v", points[0].UnpricedInstruments)
+	}
+}
+
+// TestGetUserValuation_CashForeignMissingFXRate verifies that a GBP cash
+// holding with USD display currency and no GBPUSD FX rate shows as unpriced.
+func TestGetUserValuation_CashForeignMissingFXRate(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-cash-nofx", "U", "u@cash-nofx.com")
+
+	gbpInstID, err := p.FindInstrumentByIdentifier(ctx, "CURRENCY", "", "GBP")
+	if err != nil || gbpInstID == "" {
+		t.Fatalf("GBP cash instrument not found: %v", err)
+	}
+
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "GBP CASH", Type: apiv1.TxType_INCOME, Quantity: 1000, Account: "main"},
+	}
+	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
+	to := timestamppb.New(buyDate.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{gbpInstID}); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	if points[0].TotalValue != 0 {
+		t.Errorf("total value: want 0 (missing FX rate), got %v", points[0].TotalValue)
+	}
+	found := false
+	for _, name := range points[0].UnpricedInstruments {
+		if name == "GBP" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected GBP in unpriced (missing FX rate), got %v", points[0].UnpricedInstruments)
+	}
+}

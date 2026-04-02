@@ -114,6 +114,75 @@ func TestGetPortfolioValuation_UnpricedInstruments(t *testing.T) {
 	}
 }
 
+// TestGetPortfolioValuation_DifferentDescriptionsNetToZero verifies that
+// transactions for the same instrument_id but different instrument_descriptions
+// (e.g. TRANSFER "ABNB" +213 and SELLSTOCK "ABNB AIRBNB INC-CLASS A" -213)
+// net to zero and do not appear in the valuation or unpriced list.
+func TestGetPortfolioValuation_DifferentDescriptionsNetToZero(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-net0", "U", "u@val-net0.com")
+	port, _ := p.CreatePortfolio(ctx, userID, "ValPortNet0")
+	_ = p.SetPortfolioFilters(ctx, port.Id, []db.PortfolioFilter{{FilterType: "broker", FilterValue: "IBKR"}})
+
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "ABNB", Canonical: true},
+	}, "", nil, nil)
+
+	transferDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	sellDate := time.Date(2025, 1, 5, 12, 0, 0, 0, time.UTC)
+
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(transferDate), InstrumentDescription: "ABNB", Type: apiv1.TxType_TRANSFER, Quantity: 213, Account: "main"},
+		{Timestamp: timestamppb.New(sellDate), InstrumentDescription: "ABNB AIRBNB INC-CLASS A", Type: apiv1.TxType_SELLSTOCK, Quantity: -213, Account: "main"},
+	}
+	from := timestamppb.New(transferDate.Add(-1 * time.Hour))
+	to := timestamppb.New(sellDate.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID, instID}); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	// Add a price so the holding period (Jan 2-4) is valued.
+	prices := []db.EODPrice{
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 100.0, DataProvider: "test"},
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: 101.0, DataProvider: "test"},
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC), Close: 102.0, DataProvider: "test"},
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 5, 0, 0, 0, 0, time.UTC), Close: 103.0, DataProvider: "test"},
+	}
+	if err := p.UpsertPrices(ctx, prices); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	// Query range spanning the sell date — after Jan 5, position is zero.
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2025, 1, 6, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo, "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+
+	// Jan 6 should either be absent (zero position produces no row) or have zero value.
+	for _, pt := range points {
+		if pt.Date.Equal(time.Date(2025, 1, 6, 0, 0, 0, 0, time.UTC)) {
+			if pt.TotalValue != 0 {
+				t.Errorf("Jan 6: expected 0 total value, got %v", pt.TotalValue)
+			}
+			if len(pt.UnpricedInstruments) != 0 {
+				t.Errorf("Jan 6: expected no unpriced instruments, got %v", pt.UnpricedInstruments)
+			}
+		}
+	}
+	// No day should show ABNB as unpriced (it has prices for the entire holding period).
+	for _, pt := range points {
+		for _, name := range pt.UnpricedInstruments {
+			if name == "ABNB" {
+				t.Errorf("%v: ABNB should not appear as unpriced", pt.Date)
+			}
+		}
+	}
+}
+
 // TestGetPortfolioValuation_UnpricedDeduplication verifies that two transactions
 // with different instrument_descriptions but the same instrument_id produce a
 // single entry in unpriced_instruments (using the canonical instrument name).

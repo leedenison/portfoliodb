@@ -39,6 +39,20 @@ WITH portfolio_txs AS (
         SUM(t.quantity) AS daily_qty` + txSource + `
     GROUP BY t.instrument_id, t.instrument_description, t.timestamp::date
 ),
+-- Merge transactions by instrument_id for identified instruments so that
+-- different descriptions for the same instrument net correctly. Unidentified
+-- instruments (NULL instrument_id) are grouped by instrument_description.
+merged_txs AS (
+    SELECT
+        instrument_id,
+        CASE WHEN instrument_id IS NULL THEN instrument_description ELSE '' END AS instrument_description,
+        tx_date,
+        SUM(daily_qty) AS daily_qty
+    FROM portfolio_txs
+    GROUP BY instrument_id,
+             CASE WHEN instrument_id IS NULL THEN instrument_description ELSE '' END,
+             tx_date
+),
 cumulative AS (
     SELECT
         instrument_id,
@@ -49,7 +63,7 @@ cumulative AS (
             ORDER BY tx_date
             ROWS UNBOUNDED PRECEDING
         ) AS position
-    FROM portfolio_txs
+    FROM merged_txs
 ),
 date_series AS (
     SELECT d::date AS val_date

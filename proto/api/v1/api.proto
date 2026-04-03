@@ -228,6 +228,9 @@ service ApiService {
   rpc GetIgnoredAssetClasses(GetIgnoredAssetClassesRequest) returns (GetIgnoredAssetClassesResponse);
   rpc SetIgnoredAssetClasses(SetIgnoredAssetClassesRequest) returns (SetIgnoredAssetClassesResponse);
   rpc CountIgnoredTxs(CountIgnoredTxsRequest) returns (CountIgnoredTxsResponse);
+
+  // Price gaps (admin-only). Returns date ranges where prices are needed but not cached.
+  rpc ListPriceGaps(ListPriceGapsRequest) returns (ListPriceGapsResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -789,4 +792,33 @@ message CountIgnoredTxsRequest {
 message CountIgnoredTxsResponse {
   int32 tx_count = 1;
   int32 declaration_count = 2;
+}
+
+// ListPriceGaps returns date ranges where prices are needed but not cached.
+// Filters by asset class; empty = all. Includes both instrument price gaps
+// and FX rate gaps.
+message ListPriceGapsRequest {
+  repeated AssetClass asset_classes = 1;
+}
+
+// PriceGap is one instrument with its missing price date ranges.
+message PriceGap {
+  string instrument_id = 1;
+  InstrumentIdentifier identifier = 2;
+  AssetClass asset_class = 3;
+  string exchange = 4;
+  string currency = 5;
+  string name = 6;
+  repeated DateRange gaps = 7;
+}
+
+// DateRange is a half-open [from, to) date range.
+message DateRange {
+  string from = 1; // YYYY-MM-DD, inclusive
+  string to = 2;   // YYYY-MM-DD, exclusive
+}
+
+message ListPriceGapsResponse {
+  repeated PriceGap price_gaps = 1;
+  repeated PriceGap fx_gaps = 2;
 }

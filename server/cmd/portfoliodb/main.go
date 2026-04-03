@@ -106,9 +106,11 @@ func main() {
 	serverLogger := slog.Default()
 	serverLogger.Info("LOG_LEVEL configured", "levels", logger.Summary(logLevelEnv))
 
-	// Google ID token verifier
-	googleClientID := os.Getenv("GOOGLE_OAUTH_CLIENT_ID")
-	if googleClientID == "" {
+	// Google ID token verifier. GOOGLE_OAUTH_CLIENT_ID accepts a comma-separated
+	// list so that tokens from multiple OAuth clients (e.g. web + desktop CLI)
+	// in the same GCP project are accepted.
+	googleClientIDs := strings.Split(os.Getenv("GOOGLE_OAUTH_CLIENT_ID"), ",")
+	if len(googleClientIDs) == 0 || googleClientIDs[0] == "" {
 		log.Fatal("GOOGLE_OAUTH_CLIENT_ID required")
 	}
 	jwksTTL := parseDuration(os.Getenv("GOOGLE_JWKS_CACHE_TTL"), google.DefaultJWKSCacheTTL)
@@ -117,10 +119,10 @@ func main() {
 		google.WithJWKSCacheTTL(jwksTTL),
 		google.WithClockSkew(clockSkew),
 	}
-	if extra := os.Getenv("GOOGLE_OAUTH_ADDITIONAL_CLIENT_IDS"); extra != "" {
-		verifierOpts = append(verifierOpts, google.WithAdditionalClientIDs(strings.Split(extra, ",")...))
+	if len(googleClientIDs) > 1 {
+		verifierOpts = append(verifierOpts, google.WithAdditionalClientIDs(googleClientIDs[1:]...))
 	}
-	verifier := google.NewVerifier(googleClientID, verifierOpts...)
+	verifier := google.NewVerifier(googleClientIDs[0], verifierOpts...)
 
 	// Allowlist for Auth
 	var allowlistMatcher *allowlist.Matcher

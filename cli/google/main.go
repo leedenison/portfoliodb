@@ -45,28 +45,27 @@ func main() {
 
 	ctx := context.Background()
 
-	// 1. Google OAuth.
-	tokenSource, idToken, err := googleAuth(ctx, configDirFlag)
-	if err != nil {
-		fatalf("Google authentication failed: %v", err)
-	}
-
-	// 2. Connect to PortfolioDB.
+	// 1. Connect to PortfolioDB.
 	conn, err := dialGRPC(serverFlag)
 	if err != nil {
 		fatalf("%v", err)
 	}
 	defer conn.Close()
 
-	// 3. PortfolioDB auth.
-	sessionID, err := portfolioDBAuth(ctx, conn, configDirFlag, idToken)
+	// 2. PortfolioDB auth (uses cached session from ~/.portfoliodb/session;
+	//    only fetches a Google ID token if the session has expired).
+	sessionID, err := portfolioDBAuth(ctx, conn, configDirFlag)
 	if err != nil {
 		fatalf("PortfolioDB authentication failed: %v", err)
 	}
 	rpcCtx := authContext(ctx, sessionID)
 	apiClient := apiv1.NewApiServiceClient(conn)
 
-	// Google Sheets client.
+	// 3. Google Sheets client (for creating/reading spreadsheets).
+	tokenSource, err := googleTokenSource(ctx, configDirFlag)
+	if err != nil {
+		fatalf("Google authentication failed: %v", err)
+	}
 	sheetsSrv, err := sheetsClient(ctx, tokenSource)
 	if err != nil {
 		fatalf("Sheets client: %v", err)

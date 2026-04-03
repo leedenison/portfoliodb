@@ -114,15 +114,22 @@ func googleAuth(ctx context.Context, configDir string) (oauth2.TokenSource, stri
 	cfg := oauthConfig(creds, "http://localhost")
 
 	if err == nil && tok.RefreshToken != "" {
-		// We have a cached token; let oauth2 handle refresh.
+		// Force the token to appear expired so the library always refreshes.
+		// This is necessary because the id_token (needed for PortfolioDB auth)
+		// is only present in the refresh response, not in the cached JSON.
+		tok.Expiry = time.Now().Add(-time.Minute)
 		ts := cfg.TokenSource(ctx, tok)
-		// Force a refresh to get a fresh ID token.
 		fresh, err := ts.Token()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cached token expired, re-authenticating...\n")
 			return browserAuth(ctx, cfg, tokenPath)
 		}
 		idToken, _ := fresh.Extra("id_token").(string)
+		if idToken == "" {
+			// Refresh didn't return an id_token; re-authenticate via browser.
+			fmt.Fprintf(os.Stderr, "No ID token in refresh response, re-authenticating...\n")
+			return browserAuth(ctx, cfg, tokenPath)
+		}
 		if err := saveCachedToken(tokenPath, fresh); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to save token: %v\n", err)
 		}

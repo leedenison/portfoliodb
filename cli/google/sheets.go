@@ -169,6 +169,14 @@ func readOutputTab(ctx context.Context, srv *sheets.Service, ssID string) ([]*ap
 	if err != nil {
 		return nil, nil, fmt.Errorf("read Output tab: %w", err)
 	}
+	debugf("Output tab: %d rows", len(resp.Values))
+	for i, row := range resp.Values {
+		if i >= 3 {
+			debugf("  ... (%d more rows)", len(resp.Values)-3)
+			break
+		}
+		debugf("  row %d (%d cells): %v", i, len(row), row)
+	}
 	return parseOutputValues(resp.Values)
 }
 
@@ -190,17 +198,21 @@ func parseOutputData(values [][]any) ([]*apiv1.ImportPriceRow, []string) {
 	var warnings []string
 
 	headers := values[0]
+	debugf("header row has %d cells", len(headers))
 	for col := 0; col < len(headers); col += 2 {
 		hdr, ok := cellString(headers, col)
 		if !ok || hdr == "" {
+			debugf("  col %d: empty header, skipping", col)
 			continue
 		}
+		debugf("  col %d: header=%q", col, hdr)
 		idType, domain, value, assetClass, err := parseHeader(hdr)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("column %d: %v", col, err))
 			continue
 		}
 
+		colParsed := 0
 		for row := 1; row < len(values); row++ {
 			rowData := values[row]
 			dateStr, ok := cellString(rowData, col)
@@ -223,6 +235,9 @@ func parseOutputData(values [][]any) ([]*apiv1.ImportPriceRow, []string) {
 			priceDate, err := parseDate(dateStr)
 			if err != nil {
 				warnings = append(warnings, fmt.Sprintf("row %d col %d: %v", row+1, col, err))
+				if colParsed == 0 {
+					debugf("    row %d: date parse failed: %q", row, dateStr)
+				}
 				continue
 			}
 			closeVal, err := strconv.ParseFloat(closeStr, 64)
@@ -230,6 +245,10 @@ func parseOutputData(values [][]any) ([]*apiv1.ImportPriceRow, []string) {
 				warnings = append(warnings, fmt.Sprintf("row %d col %d: invalid close price %q", row+1, col+1, closeStr))
 				continue
 			}
+			if colParsed == 0 {
+				debugf("    row %d: first parsed price: date=%s close=%v", row, priceDate, closeVal)
+			}
+			colParsed++
 
 			prices = append(prices, &apiv1.ImportPriceRow{
 				IdentifierType:   idType,
@@ -240,6 +259,7 @@ func parseOutputData(values [][]any) ([]*apiv1.ImportPriceRow, []string) {
 				AssetClass:       db.StrToAssetClass(assetClass),
 			})
 		}
+		debugf("    col %d: %d prices parsed", col, colParsed)
 	}
 
 	return prices, warnings

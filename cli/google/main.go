@@ -41,6 +41,8 @@ func main() {
 	flag.BoolVar(&importFlag, "i", false, "import prices from the Output tab of an existing sheet (shorthand)")
 	flag.BoolVar(&newSheetFlag, "new-sheet", false, "create a new spreadsheet instead of updating the existing one")
 	flag.BoolVar(&newSheetFlag, "n", false, "create a new spreadsheet instead of updating the existing one (shorthand)")
+	flag.BoolVar(&verbose, "verbose", false, "enable verbose/debug output")
+	flag.BoolVar(&verbose, "v", false, "enable verbose/debug output (shorthand)")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -158,6 +160,15 @@ func runImport(ctx, rpcCtx context.Context, sheetsSrv *sheets.Service, apiClient
 		fatalf("%v", err)
 	}
 	fmt.Fprintf(os.Stderr, "Done. %d prices submitted for import.\n", len(prices))
+}
+
+// verbose is set by --verbose / -v.
+var verbose bool
+
+func debugf(format string, args ...interface{}) {
+	if verbose {
+		fmt.Fprintf(os.Stderr, "debug: "+format+"\n", args...)
+	}
 }
 
 func fatalf(format string, args ...interface{}) {

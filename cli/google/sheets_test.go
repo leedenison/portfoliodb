@@ -117,7 +117,7 @@ func TestCellString(t *testing.T) {
 		{0, "hello", true},
 		{1, "42", true},      // integer-valued float
 		{2, "3.14", true},    // fractional float
-		{3, "<nil>", true},   // nil renders as "<nil>"
+		{3, "", false},       // nil cell
 		{4, "", false},       // out of bounds
 	}
 	for _, tc := range tests {

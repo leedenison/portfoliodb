@@ -172,12 +172,14 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 			uncovered = append(uncovered, instPrices...)
 			continue
 		}
+		covered := make(map[int]bool)
 		for _, r := range ranges {
 			// Filter prices within this range.
 			var inRange []db.EODPrice
-			for _, p := range instPrices {
+			for i, p := range instPrices {
 				if !p.PriceDate.Before(r.from) && p.PriceDate.Before(r.to) {
 					inRange = append(inRange, p)
+					covered[i] = true
 				}
 			}
 			provider := "import"
@@ -186,6 +188,12 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 			}
 			if err := database.UpsertPricesWithFill(ctx, instID, provider, inRange, r.from, r.to); err != nil {
 				return err
+			}
+		}
+		// Prices outside all coverage ranges get plain upsert.
+		for i, p := range instPrices {
+			if !covered[i] {
+				uncovered = append(uncovered, p)
 			}
 		}
 	}

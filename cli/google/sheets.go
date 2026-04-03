@@ -22,9 +22,10 @@ const (
 	outputTab = "Output"
 )
 
-// stateCache persists the spreadsheet ID between runs.
+// stateCache persists the spreadsheet ID and Input tab sheet ID between runs.
 type stateCache struct {
 	SpreadsheetID string `json:"spreadsheet_id"`
+	InputSheetID  int64  `json:"input_sheet_id,omitempty"`
 }
 
 func loadState(configDir string) (*stateCache, error) {
@@ -59,25 +60,27 @@ func sheetsClient(ctx context.Context, ts oauth2.TokenSource) (*sheets.Service, 
 // and writes the formula grid to the Input tab. Returns the spreadsheet URL.
 func createOrUpdateSheet(ctx context.Context, srv *sheets.Service, configDir string, grid [][]string, forceNew bool) (string, error) {
 	var ssID string
+	var inputSheetID int64
 
 	if !forceNew {
 		if st, err := loadState(configDir); err == nil && st.SpreadsheetID != "" {
 			ssID = st.SpreadsheetID
+			inputSheetID = st.InputSheetID
 		}
 	}
-
 	if ssID == "" {
-		id, err := createSpreadsheet(ctx, srv)
+		id, sheetID, err := createSpreadsheet(ctx, srv)
 		if err != nil {
 			return "", err
 		}
 		ssID = id
-		if err := saveState(configDir, &stateCache{SpreadsheetID: ssID}); err != nil {
+		inputSheetID = sheetID
+		if err := saveState(configDir, &stateCache{SpreadsheetID: ssID, InputSheetID: inputSheetID}); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to cache spreadsheet ID: %v\n", err)
 		}
 	}
 
-	if err := writeInputTab(ctx, srv, ssID, grid); err != nil {
+	if err := writeInputTab(ctx, srv, ssID, inputSheetID, grid); err != nil {
 		return "", fmt.Errorf("write Input tab: %w", err)
 	}
 	if err := clearOutputTab(ctx, srv, ssID); err != nil {
@@ -87,7 +90,7 @@ func createOrUpdateSheet(ctx context.Context, srv *sheets.Service, configDir str
 	return fmt.Sprintf("https://docs.google.com/spreadsheets/d/%s", ssID), nil
 }
 
-func createSpreadsheet(ctx context.Context, srv *sheets.Service) (string, error) {
+func createSpreadsheet(ctx context.Context, srv *sheets.Service) (string, int64, error) {
 	title := fmt.Sprintf("PortfolioDB Prices - %s", time.Now().Format("2006-01-02"))
 	ss := &sheets.Spreadsheet{
 		Properties: &sheets.SpreadsheetProperties{Title: title},
@@ -98,12 +101,19 @@ func createSpreadsheet(ctx context.Context, srv *sheets.Service) (string, error)
 	}
 	created, err := srv.Spreadsheets.Create(ss).Context(ctx).Do()
 	if err != nil {
-		return "", fmt.Errorf("create spreadsheet: %w", err)
+		return "", 0, fmt.Errorf("create spreadsheet: %w", err)
 	}
-	return created.SpreadsheetId, nil
+	var inputSheetID int64
+	for _, s := range created.Sheets {
+		if s.Properties.Title == inputTab {
+			inputSheetID = s.Properties.SheetId
+			break
+		}
+	}
+	return created.SpreadsheetId, inputSheetID, nil
 }
 
-func writeInputTab(ctx context.Context, srv *sheets.Service, ssID string, grid [][]string) error {
+func writeInputTab(ctx context.Context, srv *sheets.Service, ssID string, inputSheetID int64, grid [][]string) error {
 	// Clear existing data first.
 	_, err := srv.Spreadsheets.Values.Clear(ssID, inputTab, &sheets.ClearValuesRequest{}).Context(ctx).Do()
 	if err != nil {
@@ -129,16 +139,18 @@ func writeInputTab(ctx context.Context, srv *sheets.Service, ssID string, grid [
 		rows = append(rows, &sheets.RowData{Values: cells})
 	}
 
-	// Find the Input sheet ID.
-	ss, err := srv.Spreadsheets.Get(ssID).Context(ctx).Do()
-	if err != nil {
-		return fmt.Errorf("get spreadsheet: %w", err)
-	}
-	var sheetID int64
-	for _, s := range ss.Sheets {
-		if s.Properties.Title == inputTab {
-			sheetID = s.Properties.SheetId
-			break
+	// Use cached sheet ID; fall back to API lookup.
+	sheetID := inputSheetID
+	if sheetID == 0 {
+		ss, err := srv.Spreadsheets.Get(ssID).Context(ctx).Do()
+		if err != nil {
+			return fmt.Errorf("get spreadsheet: %w", err)
+		}
+		for _, s := range ss.Sheets {
+			if s.Properties.Title == inputTab {
+				sheetID = s.Properties.SheetId
+				break
+			}
 		}
 	}
 
@@ -276,24 +288,38 @@ func parseHeader(hdr string) (idType, domain, value, assetClass string, err erro
 
 // parseDate handles various date formats Google Sheets may produce,
 // including dates with time components from GOOGLEFINANCE.
+// For ambiguous slash-separated dates (where day and month are both <= 12),
+// the --date-format flag controls whether DD/MM or MM/DD is preferred.
 func parseDate(s string) (string, error) {
 	s = strings.TrimSpace(s)
-	// Try common formats (with and without time components).
-	for _, layout := range []string{
-		"2006-01-02",
-		"2006-01-02 15:04:05",
-		"1/2/2006",             // MM/DD/YYYY
-		"01/02/2006",           // MM/DD/YYYY padded
-		"1/2/2006 15:04:05",    // MM/DD/YYYY with time
-		"01/02/2006 15:04:05",  // MM/DD/YYYY padded with time
-		"2/1/2006",             // DD/MM/YYYY
-		"02/01/2006",           // DD/MM/YYYY padded
-		"2/1/2006 15:04:05",    // DD/MM/YYYY with time
-		"02/01/2006 15:04:05",  // DD/MM/YYYY padded with time
-		"2-Jan-2006",
-		"2-Jan-06",
-		"Jan 2, 2006",
-	} {
+
+	// Unambiguous formats first, then locale-dependent slash formats.
+	// DD/MM vs MM/DD order is controlled by the dateFormat flag.
+	dmyFormats := []string{
+		"2/1/2006",            // DD/MM/YYYY
+		"02/01/2006",          // DD/MM/YYYY padded
+		"2/1/2006 15:04:05",   // DD/MM/YYYY with time
+		"02/01/2006 15:04:05", // DD/MM/YYYY padded with time
+	}
+	mdyFormats := []string{
+		"1/2/2006",            // MM/DD/YYYY
+		"01/02/2006",          // MM/DD/YYYY padded
+		"1/2/2006 15:04:05",   // MM/DD/YYYY with time
+		"01/02/2006 15:04:05", // MM/DD/YYYY padded with time
+	}
+
+	var slashFormats []string
+	if dateFormat == "mdy" {
+		slashFormats = append(mdyFormats, dmyFormats...)
+	} else {
+		slashFormats = append(dmyFormats, mdyFormats...)
+	}
+
+	layouts := []string{"2006-01-02", "2006-01-02 15:04:05"}
+	layouts = append(layouts, slashFormats...)
+	layouts = append(layouts, "2-Jan-2006", "2-Jan-06", "Jan 2, 2006")
+
+	for _, layout := range layouts {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t.Format("2006-01-02"), nil
 		}
@@ -321,6 +347,8 @@ func cellString(row []any, col int) (string, bool) {
 			return strconv.FormatInt(int64(v), 10), true
 		}
 		return strconv.FormatFloat(v, 'f', -1, 64), true
+	case nil:
+		return "", false
 	default:
 		return fmt.Sprintf("%v", v), true
 	}

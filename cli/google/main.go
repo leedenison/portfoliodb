@@ -41,6 +41,7 @@ func main() {
 	flag.BoolVar(&importFlag, "i", false, "import prices from the Output tab of an existing sheet (shorthand)")
 	flag.BoolVar(&newSheetFlag, "new-sheet", false, "create a new spreadsheet instead of updating the existing one")
 	flag.BoolVar(&newSheetFlag, "n", false, "create a new spreadsheet instead of updating the existing one (shorthand)")
+	flag.StringVar(&dateFormat, "date-format", "dmy", "date format for ambiguous dates: dmy (DD/MM/YYYY) or mdy (MM/DD/YYYY)")
 	flag.BoolVar(&verbose, "verbose", false, "enable verbose/debug output")
 	flag.BoolVar(&verbose, "v", false, "enable verbose/debug output (shorthand)")
 	flag.Parse()
@@ -201,6 +202,9 @@ func buildCoverage(rpcCtx context.Context, apiClient apiv1.ApiServiceClient) []*
 
 // verbose is set by --verbose / -v.
 var verbose bool
+
+// dateFormat controls ambiguous date parsing: "dmy" (default) or "mdy".
+var dateFormat string
 
 func debugf(format string, args ...interface{}) {
 	if verbose {

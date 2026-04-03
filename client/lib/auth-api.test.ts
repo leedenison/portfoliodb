@@ -1,5 +1,5 @@
 import { create, toBinary } from "@bufbuild/protobuf";
-import { AuthResponseSchema } from "@/gen/auth/v1/auth_pb";
+import { AuthUserResponseSchema } from "@/gen/auth/v1/auth_pb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { auth, getSession, logout } from "./auth-api";
 import * as grpcWeb from "./grpc-web";
@@ -14,13 +14,13 @@ vi.mock("./grpc-web", async (importOriginal) => {
 
 const mockUnaryFetch = vi.mocked(grpcWeb.unaryFetch);
 
-function authResponseBytes(payload: {
+function authUserResponseBytes(payload: {
   user?: { id: string; email: string; name: string; role?: string };
   userExists: boolean;
-  sessionId: string;
+  session?: { sessionId: string };
 }): Uint8Array {
-  const msg = create(AuthResponseSchema, payload);
-  return toBinary(AuthResponseSchema, msg);
+  const msg = create(AuthUserResponseSchema, payload);
+  return toBinary(AuthUserResponseSchema, msg);
 }
 
 describe("auth-api", () => {
@@ -29,12 +29,12 @@ describe("auth-api", () => {
   });
 
   describe("auth", () => {
-    it("sends Auth request and returns user and session", async () => {
+    it("sends AuthUser request and returns user and session", async () => {
       mockUnaryFetch.mockResolvedValue(
-        authResponseBytes({
+        authUserResponseBytes({
           user: { id: "u1", email: "a@b.com", name: "Alice", role: "user" },
           userExists: true,
-          sessionId: "sess-123",
+          session: { sessionId: "sess-123" },
         })
       );
 
@@ -47,7 +47,7 @@ describe("auth-api", () => {
       });
       expect(mockUnaryFetch).toHaveBeenCalledWith(
         expect.stringContaining(""),
-        "portfoliodb.auth.v1.AuthService/Auth",
+        "portfoliodb.auth.v1.AuthService/AuthUser",
         expect.any(Uint8Array),
         { credentials: "include" }
       );
@@ -55,9 +55,9 @@ describe("auth-api", () => {
 
     it("returns null user when response has no user", async () => {
       mockUnaryFetch.mockResolvedValue(
-        authResponseBytes({
+        authUserResponseBytes({
           userExists: false,
-          sessionId: "sess-456",
+          session: { sessionId: "sess-456" },
         })
       );
 
@@ -72,10 +72,10 @@ describe("auth-api", () => {
   describe("getSession", () => {
     it("returns current user from session", async () => {
       mockUnaryFetch.mockResolvedValue(
-        authResponseBytes({
+        authUserResponseBytes({
           user: { id: "u2", email: "b@c.com", name: "Bob", role: "admin" },
           userExists: true,
-          sessionId: "sess-789",
+          session: { sessionId: "sess-789" },
         })
       );
 

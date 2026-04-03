@@ -79,8 +79,8 @@ func NewServer(
 	}
 }
 
-// Auth verifies the Google ID token, checks allowlist, provisions user, creates session, sets cookie.
-func (s *Server) Auth(ctx context.Context, req *authv1.AuthRequest) (*authv1.AuthResponse, error) {
+// AuthUser verifies the Google ID token, checks allowlist, provisions user, creates session, sets cookie.
+func (s *Server) AuthUser(ctx context.Context, req *authv1.AuthUserRequest) (*authv1.AuthUserResponse, error) {
 	token := req.GetGoogleIdToken()
 	if token == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing google_id_token")
@@ -107,7 +107,9 @@ func (s *Server) Auth(ctx context.Context, req *authv1.AuthRequest) (*authv1.Aut
 	if result.Sub == s.adminAuthSub {
 		role = "admin"
 	}
+	expiresAt := time.Now().Add(s.sessionTTL)
 	sessData := &session.Data{
+		Kind:      session.SessionKindUser,
 		UserID:    userID,
 		Email:     result.Email,
 		GoogleSub: result.Sub,
@@ -120,7 +122,7 @@ func (s *Server) Auth(ctx context.Context, req *authv1.AuthRequest) (*authv1.Aut
 	if err := sendSetCookieHeader(ctx, s.cookie, sessionID); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &authv1.AuthResponse{
+	return &authv1.AuthUserResponse{
 		User: &authv1.User{
 			Id:    userID,
 			Email: result.Email,
@@ -128,7 +130,10 @@ func (s *Server) Auth(ctx context.Context, req *authv1.AuthRequest) (*authv1.Aut
 			Role:  role,
 		},
 		UserExists: userExists,
-		SessionId:  sessionID, // for programmatic clients (e.g. scripts) that cannot use cookies
+		Session: &authv1.Session{
+			SessionId: sessionID,
+			ExpiresAt: timestamppb.New(expiresAt),
+		},
 	}, nil
 }
 
@@ -158,54 +163,8 @@ func (s *Server) provisionUser(ctx context.Context, googleSub, email, name strin
 	return userID, false, nil
 }
 
-// AuthCLI verifies the Google ID token and returns a session token for CLI use.
-func (s *Server) AuthCLI(ctx context.Context, req *authv1.AuthRequest) (*authv1.CLIAuthResponse, error) {
-	token := req.GetGoogleIdToken()
-	if token == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing google_id_token")
-	}
-	result, err := s.verifier.Verify(ctx, token)
-	if err != nil {
-		switch {
-		case err == google.ErrInvalidArgument:
-			return nil, status.Error(codes.InvalidArgument, err.Error())
-		case err == google.ErrPermissionDenied:
-			return nil, status.Error(codes.PermissionDenied, err.Error())
-		default:
-			return nil, status.Error(codes.Unauthenticated, err.Error())
-		}
-	}
-	if s.allowlist != nil && !s.allowlist.Match(result.Email) {
-		return nil, status.Error(codes.PermissionDenied, "email not allowlisted")
-	}
-	userID, _, err := s.provisionUser(ctx, result.Sub, result.Email, result.Name)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	role := "user"
-	if result.Sub == s.adminAuthSub {
-		role = "admin"
-	}
-	expiresAt := time.Now().Add(s.sessionTTL)
-	sessData := &session.Data{
-		Kind:      session.SessionKindUser,
-		UserID:    userID,
-		Email:     result.Email,
-		GoogleSub: result.Sub,
-		Role:      role,
-	}
-	sessionID, err := s.sessionStore.Create(ctx, sessData, s.sessionTTL)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	return &authv1.CLIAuthResponse{
-		SessionToken: sessionID,
-		ExpiresAt:    timestamppb.New(expiresAt),
-	}, nil
-}
-
 // AuthMachine authenticates a service account by client_id and client_secret.
-func (s *Server) AuthMachine(ctx context.Context, req *authv1.AuthMachineRequest) (*authv1.CLIAuthResponse, error) {
+func (s *Server) AuthMachine(ctx context.Context, req *authv1.AuthMachineRequest) (*authv1.AuthMachineResponse, error) {
 	if req.GetClientId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing client_id")
 	}
@@ -232,19 +191,21 @@ func (s *Server) AuthMachine(ctx context.Context, req *authv1.AuthMachineRequest
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &authv1.CLIAuthResponse{
-		SessionToken: sessionID,
-		ExpiresAt:    timestamppb.New(expiresAt),
+	return &authv1.AuthMachineResponse{
+		Session: &authv1.Session{
+			SessionId: sessionID,
+			ExpiresAt: timestamppb.New(expiresAt),
+		},
 	}, nil
 }
 
 // GetSession returns the current user when the request has a valid session cookie.
-func (s *Server) GetSession(ctx context.Context, _ *emptypb.Empty) (*authv1.AuthResponse, error) {
+func (s *Server) GetSession(ctx context.Context, _ *emptypb.Empty) (*authv1.AuthUserResponse, error) {
 	u := authpkg.FromContext(ctx)
 	if u == nil {
 		return nil, status.Error(codes.Unauthenticated, "missing or invalid session")
 	}
-	return &authv1.AuthResponse{
+	return &authv1.AuthUserResponse{
 		User: &authv1.User{
 			Id:    u.ID,
 			Email: u.Email,
@@ -252,7 +213,9 @@ func (s *Server) GetSession(ctx context.Context, _ *emptypb.Empty) (*authv1.Auth
 			Role:  u.Role,
 		},
 		UserExists: true, // session implies existing user
-		SessionId:  getSessionIDFromContext(ctx, s.cookie.Name),
+		Session: &authv1.Session{
+			SessionId: getSessionIDFromContext(ctx, s.cookie.Name),
+		},
 	}, nil
 }
 

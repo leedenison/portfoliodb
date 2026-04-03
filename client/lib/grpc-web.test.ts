@@ -3,7 +3,7 @@ import {
   unaryFetch,
   SessionLostError,
   GrpcError,
-  AuthServiceMethod,
+  AuthUserServiceMethod,
   GetSessionServiceMethod,
   LogoutServiceMethod,
 } from "./grpc-web";
@@ -188,7 +188,7 @@ describe("grpc-web", () => {
 
   describe("service method constants", () => {
     it("exports auth service method names", () => {
-      expect(AuthServiceMethod).toBe("portfoliodb.auth.v1.AuthService/Auth");
+      expect(AuthUserServiceMethod).toBe("portfoliodb.auth.v1.AuthService/AuthUser");
       expect(GetSessionServiceMethod).toBe(
         "portfoliodb.auth.v1.AuthService/GetSession"
       );

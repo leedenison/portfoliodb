@@ -160,6 +160,6 @@ export async function* streamingFetch(
   }
 }
 
-export const AuthServiceMethod = "portfoliodb.auth.v1.AuthService/Auth";
+export const AuthUserServiceMethod = "portfoliodb.auth.v1.AuthService/AuthUser";
 export const GetSessionServiceMethod = "portfoliodb.auth.v1.AuthService/GetSession";
 export const LogoutServiceMethod = "portfoliodb.auth.v1.AuthService/Logout";

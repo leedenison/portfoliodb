@@ -281,11 +281,15 @@ func parseDate(s string) (string, error) {
 	// Try common formats (with and without time components).
 	for _, layout := range []string{
 		"2006-01-02",
-		"1/2/2006",
-		"01/02/2006",
-		"1/2/2006 15:04:05",
-		"01/02/2006 15:04:05",
 		"2006-01-02 15:04:05",
+		"1/2/2006",             // MM/DD/YYYY
+		"01/02/2006",           // MM/DD/YYYY padded
+		"1/2/2006 15:04:05",    // MM/DD/YYYY with time
+		"01/02/2006 15:04:05",  // MM/DD/YYYY padded with time
+		"2/1/2006",             // DD/MM/YYYY
+		"02/01/2006",           // DD/MM/YYYY padded
+		"2/1/2006 15:04:05",    // DD/MM/YYYY with time
+		"02/01/2006 15:04:05",  // DD/MM/YYYY padded with time
 		"2-Jan-2006",
 		"2-Jan-06",
 		"Jan 2, 2006",

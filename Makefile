@@ -61,6 +61,9 @@ generate: $(STAMP_DIR)/generate
 build: $(STAMP_DIR)/generate
 	go build -o portfoliodb ./server/cmd/portfoliodb
 
+build-google-cli: $(STAMP_DIR)/generate
+	go build -o bin/google-finance ./cli/google
+
 # Full stack (Postgres 5432, Redis 6379, portfoliodb, Envoy, client SPA) for local dev. SPA at localhost:8080.
 # Uses dev override: source mounts, host UID/GID, Air + next dev for live-reload.
 run: $(STAMP_DIR)/tools $(STAMP_DIR)/generate
@@ -170,6 +173,7 @@ help:
 	@echo "  make logs               Tail portfoliodb service logs"
 	@echo "  make stop               Stop dev stack"
 	@echo "  make build              Build server binary"
+	@echo "  make build-google-cli   Build Google Finance CLI (bin/google-finance)"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test               Run all tests (server, client, db, integration)"
@@ -189,4 +193,4 @@ help:
 	@echo "After 'git pull', run 'make tools generate' if deps or protos changed."
 	@echo "Dependencies are tracked automatically -- stale steps re-run as needed."
 
-.PHONY: tools generate build server-test db-test client-test integration-test integration-test-record e2e-test e2e-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help
+.PHONY: tools generate build build-google-cli server-test db-test client-test integration-test integration-test-record e2e-test e2e-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help

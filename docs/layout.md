@@ -77,6 +77,8 @@ Go code for the PortfolioDB command line tools.
 
 - **cli/dbio**
   Go cli for importing and exporting instrument identities, price data and transaction data via the server gRPC interface.
+- **cli/google**
+  Go cli that imports prices from Google Finance via Google Sheets GOOGLEFINANCE formulas. Authenticates to Google (OAuth, Sheets API) and PortfolioDB (gRPC), queries price gaps, creates a spreadsheet with formulas, and imports evaluated results.
   
 ---
 

@@ -117,6 +117,7 @@ func TestAPI_Unauthenticated(t *testing.T) {
 			_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{PortfolioId: "p", DateFrom: "2025-01-01", DateTo: "2025-01-03"})
 			return err
 		}},
+		{"ListPriceGaps", func() error { _, err := srv.ListPriceGaps(ctx, &apiv1.ListPriceGapsRequest{}); return err }},
 		{"ListHoldingDeclarations", func() error { _, err := srv.ListHoldingDeclarations(ctx, &apiv1.ListHoldingDeclarationsRequest{}); return err }},
 		{"CreateHoldingDeclaration", func() error {
 			_, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{Broker: "IBKR", InstrumentId: "i", DeclaredQty: "1", AsOfDate: "2025-01-01"})

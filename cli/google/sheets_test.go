@@ -126,24 +126,23 @@ func TestCellString(t *testing.T) {
 }
 
 func TestParseOutputData(t *testing.T) {
-	// Simulate the data structure returned by Sheets API Values.Get.
-	// Two column pairs: stock and FX.
+	// Simulate evaluated GOOGLEFINANCE output pasted as values.
+	// Three column pairs: stock, FX, and an all-#N/A range.
 	data := [][]any{
-		// Row 0: headers
-		{"MIC_TICKER|XNAS|AAPL|STOCK", "", "FX_PAIR||GBPUSD|FX", ""},
-		// Row 1: valid data
-		{"2024-01-02", 185.5, "2024-01-02", 1.27},
-		// Row 2: normal data
-		{"2024-01-03", 186.0, "2024-01-03", 1.28},
-		// Row 3: error value in stock, valid FX
-		{"2024-01-04", "#N/A", "2024-01-04", 1.26},
+		// Row 0: identifier headers
+		{"MIC_TICKER|XNAS|AAPL|STOCK", "", "FX_PAIR||GBPUSD|FX", "", "MIC_TICKER|XLON|XXX|STOCK", ""},
+		// Row 1: GOOGLEFINANCE header row ("Date", "Close") — should be skipped
+		{"Date", "Close", "Date", "Close", "#N/A", ""},
+		// Row 2: valid data
+		{"2024-01-02", 185.5, "2024-01-02", 1.27, "", ""},
+		// Row 3: normal data
+		{"2024-01-03", 186.0, "2024-01-03", 1.28, "", ""},
 		// Row 4: missing FX data
-		{"2024-01-05", 187.0, "", ""},
+		{"2024-01-04", 187.0, "", "", "", ""},
 	}
 
-	prices, warnings := parseOutputData(data)
+	prices, _ := parseOutputData(data)
 
-	// Count by type.
 	stockCount, fxCount := 0, 0
 	for _, p := range prices {
 		switch p.GetIdentifierType() {
@@ -153,17 +152,14 @@ func TestParseOutputData(t *testing.T) {
 			fxCount++
 		}
 	}
-	if stockCount != 3 { // rows 1,2,4
+	if stockCount != 3 { // rows 2,3,4
 		t.Fatalf("expected 3 stock prices, got %d", stockCount)
 	}
-	if fxCount != 3 { // rows 1,2,3
-		t.Fatalf("expected 3 FX prices, got %d", fxCount)
-	}
-	if len(warnings) == 0 {
-		t.Fatal("expected at least one warning for #N/A")
+	if fxCount != 2 { // rows 2,3
+		t.Fatalf("expected 2 FX prices, got %d", fxCount)
 	}
 
-	// Verify first stock price.
+	// Verify first stock price (row 2, after skipping Date/Close header).
 	if prices[0].GetPriceDate() != "2024-01-02" {
 		t.Fatalf("expected date 2024-01-02, got %s", prices[0].GetPriceDate())
 	}
@@ -172,6 +168,18 @@ func TestParseOutputData(t *testing.T) {
 	}
 	if prices[0].GetAssetClass() != apiv1.AssetClass_ASSET_CLASS_STOCK {
 		t.Fatalf("expected STOCK, got %s", prices[0].GetAssetClass())
+	}
+}
+
+func TestParseOutputData_AllNA(t *testing.T) {
+	// All formulas returned #N/A (non-trading days only).
+	data := [][]any{
+		{"MIC_TICKER|XNAS|AAPL|STOCK", ""},
+		{"#N/A", ""},
+	}
+	prices, _ := parseOutputData(data)
+	if len(prices) != 0 {
+		t.Fatalf("expected 0 prices for all-#N/A range, got %d", len(prices))
 	}
 }
 

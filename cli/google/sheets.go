@@ -211,8 +211,13 @@ func parseOutputData(values [][]any) ([]*apiv1.ImportPriceRow, []string) {
 			if !ok || closeStr == "" {
 				continue
 			}
-			if strings.HasPrefix(closeStr, "#") {
-				warnings = append(warnings, fmt.Sprintf("row %d col %d: skipping error value %q", row+1, col+1, closeStr))
+			// Skip GOOGLEFINANCE header row ("Date", "Close").
+			if dateStr == "Date" {
+				continue
+			}
+			// Skip error values (#N/A, #ERROR!, etc.) — may occur when the
+			// entire range is non-trading days or the ticker is unrecognised.
+			if strings.HasPrefix(dateStr, "#") || strings.HasPrefix(closeStr, "#") {
 				continue
 			}
 			priceDate, err := parseDate(dateStr)

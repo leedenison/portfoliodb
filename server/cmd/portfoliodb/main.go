@@ -113,10 +113,14 @@ func main() {
 	}
 	jwksTTL := parseDuration(os.Getenv("GOOGLE_JWKS_CACHE_TTL"), google.DefaultJWKSCacheTTL)
 	clockSkew := parseDuration(os.Getenv("GOOGLE_TOKEN_CLOCK_SKEW"), google.DefaultClockSkew)
-	verifier := google.NewVerifier(googleClientID,
+	verifierOpts := []google.VerifierOption{
 		google.WithJWKSCacheTTL(jwksTTL),
 		google.WithClockSkew(clockSkew),
-	)
+	}
+	if extra := os.Getenv("GOOGLE_OAUTH_ADDITIONAL_CLIENT_IDS"); extra != "" {
+		verifierOpts = append(verifierOpts, google.WithAdditionalClientIDs(strings.Split(extra, ",")...))
+	}
+	verifier := google.NewVerifier(googleClientID, verifierOpts...)
 
 	// Allowlist for Auth
 	var allowlistMatcher *allowlist.Matcher

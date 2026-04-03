@@ -159,8 +159,7 @@ func main() {
 	interceptorConfig := auth.InterceptorConfig{
 		SkipAuthPrefixes: append([]string{"/grpc.reflection."}, e2eSkipPrefixes()...),
 		NoSessionMethods: []string{
-			"/portfoliodb.auth.v1.AuthService/Auth",
-			"/portfoliodb.auth.v1.AuthService/AuthCLI",
+			"/portfoliodb.auth.v1.AuthService/AuthUser",
 			"/portfoliodb.auth.v1.AuthService/AuthMachine",
 		},
 		OptionalSessionMethods: []string{"/portfoliodb.auth.v1.AuthService/Logout"},

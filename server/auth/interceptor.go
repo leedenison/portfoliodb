@@ -16,7 +16,7 @@ import (
 type InterceptorConfig struct {
 	// SkipAuthPrefixes: fullMethod with any of these prefixes is not authenticated (e.g. reflection).
 	SkipAuthPrefixes []string
-	// NoSessionMethods: fullMethod in this list does not require a session (e.g. AuthService.Auth).
+	// NoSessionMethods: fullMethod in this list does not require a session (e.g. AuthService.AuthUser).
 	NoSessionMethods []string
 	// OptionalSessionMethods: fullMethod in this list allows missing session (e.g. AuthService.Logout).
 	OptionalSessionMethods []string

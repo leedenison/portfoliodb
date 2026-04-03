@@ -33,8 +33,7 @@ func (t *testSessionStore) Delete(ctx context.Context, sessionID string) error {
 var testInterceptorConfig = InterceptorConfig{
 	SkipAuthPrefixes: []string{"/grpc.reflection."},
 	NoSessionMethods: []string{
-		"/portfoliodb.auth.v1.AuthService/Auth",
-		"/portfoliodb.auth.v1.AuthService/AuthCLI",
+		"/portfoliodb.auth.v1.AuthService/AuthUser",
 		"/portfoliodb.auth.v1.AuthService/AuthMachine",
 	},
 	OptionalSessionMethods: []string{"/portfoliodb.auth.v1.AuthService/Logout"},
@@ -88,9 +87,8 @@ func TestUnaryInterceptor(t *testing.T) {
 		{"BearerToken_Invalid", "", "bad-token", "/api/ListPortfolios", true, false, false},
 		{"XSessionId_Rejected", "", "", "/api/ListPortfolios", true, false, false},
 		{"SkipAuthPrefix_CallsHandlerWithoutUser", "", "", "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo", false, false, false},
-		{"NoSessionMethod_Auth", "", "", "/portfoliodb.auth.v1.AuthService/Auth", false, false, false},
-		{"AuthCLI_NoSessionRequired", "", "", "/portfoliodb.auth.v1.AuthService/AuthCLI", false, false, false},
-		{"AuthMachine_NoSessionRequired", "", "", "/portfoliodb.auth.v1.AuthService/AuthMachine", false, false, false},
+		{"NoSessionMethod_AuthUser", "", "", "/portfoliodb.auth.v1.AuthService/AuthUser", false, false, false},
+{"AuthMachine_NoSessionRequired", "", "", "/portfoliodb.auth.v1.AuthService/AuthMachine", false, false, false},
 		{"MissingSession_ReturnsUnauthenticated", "other=value", "", "/api/ListPortfolios", true, false, false},
 		{"InvalidSession_ReturnsUnauthenticated", "portfoliodb_session=invalid-id", "", "/api/ListPortfolios", true, false, false},
 		{"OptionalSession_AllowsMissingSession", "", "", "/portfoliodb.auth.v1.AuthService/Logout", false, false, false},

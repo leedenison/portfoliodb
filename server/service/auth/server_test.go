@@ -19,9 +19,26 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+// stubServerTransportStream implements grpc.ServerTransportStream for tests
+// that call methods which use grpc.SendHeader.
+type stubServerTransportStream struct {
+	headers metadata.MD
+}
+
+func (s *stubServerTransportStream) Method() string                  { return "" }
+func (s *stubServerTransportStream) SetHeader(md metadata.MD) error  { s.headers = metadata.Join(s.headers, md); return nil }
+func (s *stubServerTransportStream) SendHeader(md metadata.MD) error { s.headers = metadata.Join(s.headers, md); return nil }
+func (s *stubServerTransportStream) SetTrailer(md metadata.MD) error { return nil }
+
+func grpcContext() context.Context {
+	return grpc.NewContextWithServerTransportStream(context.Background(), &stubServerTransportStream{})
+}
 
 // testRSAKey is a test RSA key pair generated once for all tests in this package.
 var testRSAKey *rsa.PrivateKey
@@ -198,40 +215,40 @@ func (r *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return http.DefaultTransport.RoundTrip(req2)
 }
 
-func TestAuthCLI_MissingToken_InvalidArgument(t *testing.T) {
+func TestAuthUser_MissingToken_InvalidArgument(t *testing.T) {
 	s, _ := newTestServer(t, "test-client", &stubSvcAcctDB{}, nil)
-	_, err := s.AuthCLI(context.Background(), &authv1.AuthRequest{})
+	_, err := s.AuthUser(context.Background(), &authv1.AuthUserRequest{})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("expected InvalidArgument, got %v", err)
 	}
 }
 
-func TestAuthCLI_ValidToken_ReturnsSessionToken(t *testing.T) {
+func TestAuthUser_ValidToken_ReturnsSession(t *testing.T) {
 	s, _ := newTestServer(t, "test-client", &stubSvcAcctDB{}, nil)
 	tok := signToken(t, testRSAKey, "test-kid", "test-client", "sub|1", "user@test.com", true, time.Now().Add(time.Hour))
-	resp, err := s.AuthCLI(context.Background(), &authv1.AuthRequest{GoogleIdToken: tok})
+	resp, err := s.AuthUser(grpcContext(), &authv1.AuthUserRequest{GoogleIdToken: tok})
 	if err != nil {
-		t.Fatalf("AuthCLI: %v", err)
+		t.Fatalf("AuthUser: %v", err)
 	}
-	if resp.SessionToken == "" {
-		t.Fatal("expected non-empty session_token")
+	if resp.Session == nil || resp.Session.SessionId == "" {
+		t.Fatal("expected non-empty session_id")
 	}
-	if resp.ExpiresAt == nil {
+	if resp.Session.ExpiresAt == nil {
 		t.Fatal("expected non-nil expires_at")
 	}
-	if resp.ExpiresAt.AsTime().Before(time.Now()) {
+	if resp.Session.ExpiresAt.AsTime().Before(time.Now()) {
 		t.Fatal("expires_at should be in the future")
 	}
 }
 
-func TestAuthCLI_AllowlistBlocked_PermissionDenied(t *testing.T) {
+func TestAuthUser_AllowlistBlocked_PermissionDenied(t *testing.T) {
 	al, err := allowlist.NewMatcher([]string{"allowed@test.com"}, allowlist.ModeGlob, false)
 	if err != nil {
 		t.Fatalf("allowlist: %v", err)
 	}
 	s, _ := newTestServer(t, "test-client", &stubSvcAcctDB{}, al)
 	tok := signToken(t, testRSAKey, "test-kid", "test-client", "sub|1", "blocked@test.com", true, time.Now().Add(time.Hour))
-	_, err = s.AuthCLI(context.Background(), &authv1.AuthRequest{GoogleIdToken: tok})
+	_, err = s.AuthUser(context.Background(), &authv1.AuthUserRequest{GoogleIdToken: tok})
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("expected PermissionDenied, got %v", err)
 	}
@@ -304,14 +321,14 @@ func TestAuthMachine_ValidCredentials_ReturnsSessionToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AuthMachine: %v", err)
 	}
-	if resp.SessionToken == "" {
-		t.Fatal("expected non-empty session_token")
+	if resp.Session == nil || resp.Session.SessionId == "" {
+		t.Fatal("expected non-empty session_id")
 	}
-	if resp.ExpiresAt == nil {
+	if resp.Session.ExpiresAt == nil {
 		t.Fatal("expected non-nil expires_at")
 	}
 	// Verify the session TTL matches machineSessionTTL (1h)
-	data := sessStore.sessions[resp.SessionToken]
+	data := sessStore.sessions[resp.Session.SessionId]
 	if data == nil {
 		t.Fatal("session not found in store")
 	}

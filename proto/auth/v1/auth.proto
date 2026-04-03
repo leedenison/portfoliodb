@@ -7,7 +7,7 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/auth/v1;authv1";
 
-// User is minimal user info returned after Auth.
+// User is minimal user info returned after AuthUser.
 message User {
   string id = 1;
   string email = 2;
@@ -15,20 +15,20 @@ message User {
   string role = 4;  // "user" or "admin"
 }
 
-message AuthRequest {
+// Session contains the session identifier and expiry common to all auth responses.
+message Session {
+  string session_id = 1; // also returned in the session cookie for browser clients
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message AuthUserRequest {
   string google_id_token = 1;
 }
 
-message AuthResponse {
+message AuthUserResponse {
   User user = 1;
-  bool user_exists = 2;  // true if internal user already existed before this Auth call
-  string session_id = 3; // optional; set for programmatic clients so they can pass it as x-session-id (cookie not available in non-browser clients)
-}
-
-// CLIAuthResponse is returned by AuthCLI and AuthMachine.
-message CLIAuthResponse {
-  string session_token = 1;
-  google.protobuf.Timestamp expires_at = 2;
+  bool user_exists = 2;  // true if internal user already existed before this AuthUser call
+  Session session = 3;
 }
 
 message AuthMachineRequest {
@@ -36,15 +36,17 @@ message AuthMachineRequest {
   string client_secret = 2;
 }
 
+message AuthMachineResponse {
+  Session session = 1;
+}
+
 service AuthService {
-  // Auth verifies the Google ID token, provisions the user if allowlisted, creates a session, and sets the session cookie on the response.
-  rpc Auth(AuthRequest) returns (AuthResponse);
+  // AuthUser verifies the Google ID token, provisions the user if allowlisted, creates a session, and sets the session cookie on the response.
+  rpc AuthUser(AuthUserRequest) returns (AuthUserResponse);
   // GetSession returns the current user when the request has a valid session cookie. Used by the SPA to restore auth state on load.
-  rpc GetSession(google.protobuf.Empty) returns (AuthResponse);
+  rpc GetSession(google.protobuf.Empty) returns (AuthUserResponse);
   // Logout deletes the server-side session and clears the session cookie.
   rpc Logout(google.protobuf.Empty) returns (google.protobuf.Empty);
-  // AuthCLI verifies the Google ID token and returns a session token for CLI use.
-  rpc AuthCLI(AuthRequest) returns (CLIAuthResponse);
   // AuthMachine authenticates a service account by client_id and client_secret.
-  rpc AuthMachine(AuthMachineRequest) returns (CLIAuthResponse);
+  rpc AuthMachine(AuthMachineRequest) returns (AuthMachineResponse);
 }

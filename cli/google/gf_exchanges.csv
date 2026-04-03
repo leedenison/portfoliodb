@@ -1,0 +1,52 @@
+gf_code,exchange_name,country,mic
+BCBA,Buenos Aires Stock Exchange,Argentina,XBUE
+BMV,Mexican Stock Exchange,Mexico,XMEX
+BVMF,B3 - Brazil Stock Exchange,Brazil,BVMF
+CNSX,Canadian Securities Exchange,Canada,XCNQ
+NASDAQ,NASDAQ,USA,XNAS
+NYSE,New York Stock Exchange,USA,XNYS
+NYSEARCA,NYSE ARCA,USA,ARCX
+NYSEAMERICAN,NYSE American,USA,XASE
+OTCMKTS,OTC Markets,USA,OTCM
+TSX,Toronto Stock Exchange,Canada,XTSE
+TSE,Toronto Stock Exchange,Canada,XTSE
+TSXV,TSX Venture Exchange,Canada,XTSX
+AMS,Euronext Amsterdam,Netherlands,XAMS
+BIT,Borsa Italiana,Italy,XMIL
+BME,Bolsas y Mercados Espanoles,Spain,BMEX
+CPH,NASDAQ OMX Copenhagen,Denmark,XCSE
+EBR,Euronext Brussels,Belgium,XBRU
+ELI,Euronext Lisbon,Portugal,XLIS
+EPA,Euronext Paris,France,XPAR
+ETR,Deutsche Boerse XETRA,Germany,XETR
+FRA,Frankfurt Stock Exchange,Germany,XFRA
+HEL,NASDAQ OMX Helsinki,Finland,XHEL
+ICE,NASDAQ OMX Iceland,Iceland,XICE
+IST,Borsa Istanbul,Turkey,XIST
+LON,London Stock Exchange,UK,XLON
+RSE,NASDAQ OMX Riga,Latvia,XRIS
+STO,NASDAQ OMX Stockholm,Sweden,XSTO
+SWX,SIX Swiss Exchange,Switzerland,XSWX
+VTX,SIX Swiss Exchange,Switzerland,XSWX
+TAL,NASDAQ OMX Tallinn,Estonia,XTAL
+VIE,Vienna Stock Exchange,Austria,XWBO
+VSE,NASDAQ OMX Vilnius,Lithuania,XLIT
+WSE,Warsaw Stock Exchange,Poland,XWAR
+JSE,Johannesburg Stock Exchange,South Africa,XJSE
+TADAWUL,Saudi Stock Exchange,Saudi Arabia,XSAU
+TLV,Tel Aviv Stock Exchange,Israel,XTAE
+BKK,Thailand Stock Exchange,Thailand,XBKK
+BOM,Bombay Stock Exchange,India,XBOM
+KLSE,Bursa Malaysia,Malaysia,XKLS
+HKG,Hong Kong Stock Exchange,Hong Kong,XHKG
+IDX,Indonesia Stock Exchange,Indonesia,XIDX
+KOSDAQ,KOSDAQ,South Korea,XKOS
+KRX,Korea Stock Exchange,South Korea,XKRX
+NSE,National Stock Exchange of India,India,XNSE
+SGX,Singapore Exchange,Singapore,XSES
+SHA,Shanghai Stock Exchange,China,XSHG
+SHE,Shenzhen Stock Exchange,China,XSHE
+TPE,Taiwan Stock Exchange,Taiwan,XTAI
+TYO,Tokyo Stock Exchange,Japan,XTKS
+ASX,Australian Securities Exchange,Australia,XASX
+NZE,New Zealand Stock Exchange,New Zealand,XNZE

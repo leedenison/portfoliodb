@@ -95,7 +95,7 @@ func toPriceGapProtos(gaps []db.InstrumentDateRanges, instrMap map[string]*db.In
 			InstrumentId: g.InstrumentID,
 			Identifier:   ident,
 			AssetClass:   db.StrToAssetClass(ac),
-			Exchange:     inst.Exchange,
+			Exchange:     derefStr(inst.ExchangeMIC),
 			Name:         derefStr(inst.Name),
 			Currency:     derefStr(inst.Currency),
 			Gaps:         dateRanges,

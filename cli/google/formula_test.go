@@ -150,11 +150,8 @@ func TestGenerateFormulas_StockAndFX(t *testing.T) {
 	if !strings.Contains(stockCol.Header, "MIC_TICKER") || !strings.Contains(stockCol.Header, "AAPL") {
 		t.Fatalf("unexpected stock header: %s", stockCol.Header)
 	}
-	if len(stockCol.Formulas) != 1 {
-		t.Fatalf("expected 1 formula for stock, got %d", len(stockCol.Formulas))
-	}
-	if !strings.Contains(stockCol.Formulas[0], "NASDAQ:AAPL") {
-		t.Fatalf("formula missing ticker: %s", stockCol.Formulas[0])
+	if !strings.Contains(stockCol.Formula, "NASDAQ:AAPL") {
+		t.Fatalf("formula missing ticker: %s", stockCol.Formula)
 	}
 
 	// Check FX column.
@@ -162,11 +159,8 @@ func TestGenerateFormulas_StockAndFX(t *testing.T) {
 	if !strings.Contains(fxCol.Header, "FX_PAIR") || !strings.Contains(fxCol.Header, "GBPUSD") {
 		t.Fatalf("unexpected FX header: %s", fxCol.Header)
 	}
-	if len(fxCol.Formulas) != 1 {
-		t.Fatalf("expected 1 formula for FX, got %d", len(fxCol.Formulas))
-	}
-	if !strings.Contains(fxCol.Formulas[0], "CURRENCY:GBPUSD") {
-		t.Fatalf("formula missing ticker: %s", fxCol.Formulas[0])
+	if !strings.Contains(fxCol.Formula, "CURRENCY:GBPUSD") {
+		t.Fatalf("formula missing ticker: %s", fxCol.Formula)
 	}
 }
 
@@ -184,11 +178,12 @@ func TestGenerateFormulas_YearChunking(t *testing.T) {
 	}
 
 	res := generateFormulas(gaps, nil)
-	if len(res.Columns) != 1 {
-		t.Fatalf("expected 1 column, got %d", len(res.Columns))
+	if len(res.Columns) != 2 {
+		t.Fatalf("expected 2 columns (2 chunks), got %d", len(res.Columns))
 	}
-	if len(res.Columns[0].Formulas) != 2 {
-		t.Fatalf("expected 2 formulas (2 chunks), got %d", len(res.Columns[0].Formulas))
+	// Both columns should have the same header (same instrument).
+	if res.Columns[0].Header != res.Columns[1].Header {
+		t.Fatalf("expected same header for both chunks")
 	}
 }
 
@@ -228,23 +223,24 @@ func TestGenerateFormulas_MultipleGapRanges(t *testing.T) {
 	}
 
 	res := generateFormulas(gaps, nil)
-	if len(res.Columns) != 1 {
-		t.Fatalf("expected 1 column, got %d", len(res.Columns))
+	if len(res.Columns) != 2 {
+		t.Fatalf("expected 2 columns (2 gap ranges), got %d", len(res.Columns))
 	}
-	if len(res.Columns[0].Formulas) != 2 {
-		t.Fatalf("expected 2 formulas (2 gap ranges), got %d", len(res.Columns[0].Formulas))
+	// Same instrument, same header.
+	if res.Columns[0].Header != res.Columns[1].Header {
+		t.Fatalf("expected same header for both ranges")
 	}
 }
 
 func TestColumnsToGrid(t *testing.T) {
 	cols := []sheetColumn{
-		{Header: "H1", Formulas: []string{"=F1a", "=F1b"}},
-		{Header: "H2", Formulas: []string{"=F2a"}},
+		{Header: "H1", Formula: "=F1"},
+		{Header: "H2", Formula: "=F2"},
 	}
 
 	grid := columnsToGrid(cols)
-	if len(grid) != 3 { // header + 2 formula rows
-		t.Fatalf("expected 3 rows, got %d", len(grid))
+	if len(grid) != 2 { // header + formula
+		t.Fatalf("expected 2 rows, got %d", len(grid))
 	}
 	if len(grid[0]) != 4 { // 2 columns * 2
 		t.Fatalf("expected 4 grid columns, got %d", len(grid[0]))
@@ -252,11 +248,8 @@ func TestColumnsToGrid(t *testing.T) {
 	if grid[0][0] != "H1" || grid[0][2] != "H2" {
 		t.Fatalf("headers: got %q, %q", grid[0][0], grid[0][2])
 	}
-	if grid[1][0] != "=F1a" || grid[2][0] != "=F1b" {
-		t.Fatalf("formulas col 0: got %q, %q", grid[1][0], grid[2][0])
-	}
-	if grid[1][2] != "=F2a" || grid[2][2] != "" {
-		t.Fatalf("formulas col 2: got %q, %q", grid[1][2], grid[2][2])
+	if grid[1][0] != "=F1" || grid[1][2] != "=F2" {
+		t.Fatalf("formulas: got %q, %q", grid[1][0], grid[1][2])
 	}
 }
 
@@ -286,8 +279,8 @@ func TestGenerateFormulas_OpenfIGITickerWithExchange(t *testing.T) {
 	if len(res.Columns) != 1 {
 		t.Fatalf("expected 1 column, got %d", len(res.Columns))
 	}
-	if !strings.Contains(res.Columns[0].Formulas[0], "NASDAQ:MSFT") {
-		t.Fatalf("expected NASDAQ:MSFT in formula, got %s", res.Columns[0].Formulas[0])
+	if !strings.Contains(res.Columns[0].Formula, "NASDAQ:MSFT") {
+		t.Fatalf("expected NASDAQ:MSFT in formula, got %s", res.Columns[0].Formula)
 	}
 }
 

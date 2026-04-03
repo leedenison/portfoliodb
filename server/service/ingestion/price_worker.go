@@ -14,6 +14,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// resolveEntry caches the result of instrument resolution for a given identifier.
+type resolveEntry struct {
+	instID string
+	err    error
+}
+
 // processPriceImport loads a persisted ImportPricesRequest, resolves instruments,
 // and upserts prices. Progress is tracked via SetJobTotalCount / IncrJobProcessedCount.
 func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, j *JobRequest) {
@@ -37,10 +43,6 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 	var valErrs []*apiv1.ValidationError
 
 	// Dedup cache: avoid calling plugins N times for the same identifier.
-	type resolveEntry struct {
-		instID string
-		err    error
-	}
 	resolveCache := make(map[string]*resolveEntry)
 
 	for i, row := range rows {
@@ -111,7 +113,7 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 	}
 
 	if len(prices) > 0 {
-		if err := database.UpsertPrices(ctx, prices); err != nil {
+		if err := upsertWithCoverage(ctx, database, prices, req.GetCoverage(), resolveCache); err != nil {
 			log.Printf("price import job %s: upsert: %v", j.JobID, err)
 			_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
 				{RowIndex: -1, Field: "prices", Message: err.Error()},
@@ -122,6 +124,85 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 	}
 
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
+}
+
+// coverageKey builds a lookup key for ImportCoverage entries.
+func coverageKey(idType, domain, value string) string {
+	return idType + "\x00" + domain + "\x00" + value
+}
+
+// upsertWithCoverage upserts prices, using UpsertPricesWithFill for instruments
+// that have coverage ranges and plain UpsertPrices for the rest.
+func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPrice, coverage []*apiv1.ImportCoverage, resolveCache map[string]*resolveEntry) error {
+	if len(coverage) == 0 {
+		return database.UpsertPrices(ctx, prices)
+	}
+
+	// Build map: instrument ID -> []coverage ranges.
+	type dateRange struct{ from, to time.Time }
+	instCoverage := make(map[string][]dateRange)
+	for _, c := range coverage {
+		from, err := time.Parse("2006-01-02", c.GetFrom())
+		if err != nil {
+			continue
+		}
+		to, err := time.Parse("2006-01-02", c.GetTo())
+		if err != nil {
+			continue
+		}
+		key := coverageKey(c.GetIdentifierType(), c.GetIdentifierDomain(), c.GetIdentifierValue())
+		entry, ok := resolveCache[key]
+		if !ok || entry.err != nil || entry.instID == "" {
+			continue
+		}
+		instCoverage[entry.instID] = append(instCoverage[entry.instID], dateRange{from, to})
+	}
+
+	// Group prices by instrument ID.
+	byInst := make(map[string][]db.EODPrice)
+	for _, p := range prices {
+		byInst[p.InstrumentID] = append(byInst[p.InstrumentID], p)
+	}
+
+	// Upsert each instrument: with fill if coverage exists, plain otherwise.
+	var uncovered []db.EODPrice
+	for instID, instPrices := range byInst {
+		ranges, hasCoverage := instCoverage[instID]
+		if !hasCoverage {
+			uncovered = append(uncovered, instPrices...)
+			continue
+		}
+		covered := make(map[int]bool)
+		for _, r := range ranges {
+			// Filter prices within this range.
+			var inRange []db.EODPrice
+			for i, p := range instPrices {
+				if !p.PriceDate.Before(r.from) && p.PriceDate.Before(r.to) {
+					inRange = append(inRange, p)
+					covered[i] = true
+				}
+			}
+			provider := "import"
+			if len(inRange) > 0 {
+				provider = inRange[0].DataProvider
+			}
+			if err := database.UpsertPricesWithFill(ctx, instID, provider, inRange, r.from, r.to); err != nil {
+				return err
+			}
+		}
+		// Prices outside all coverage ranges get plain upsert.
+		for i, p := range instPrices {
+			if !covered[i] {
+				uncovered = append(uncovered, p)
+			}
+		}
+	}
+
+	// Upsert any prices without coverage.
+	if len(uncovered) > 0 {
+		return database.UpsertPrices(ctx, uncovered)
+	}
+	return nil
 }
 
 // resolveOrIdentifyInstrument finds an instrument by identifier, or creates one.

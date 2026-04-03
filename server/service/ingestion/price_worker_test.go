@@ -108,3 +108,107 @@ func TestProcessPriceImport_AcceptsValidIdentifierType(t *testing.T) {
 
 	processPriceImport(ctx, database, registry, j)
 }
+
+func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	req := &apiv1.ImportPricesRequest{
+		Prices: []*apiv1.ImportPriceRow{
+			{
+				IdentifierType:   "MIC_TICKER",
+				IdentifierValue:  "AAPL",
+				IdentifierDomain: "XNAS",
+				PriceDate:        "2024-01-15",
+				Close:            185.90,
+			},
+		},
+		Coverage: []*apiv1.ImportCoverage{
+			{
+				IdentifierType:   "MIC_TICKER",
+				IdentifierValue:  "AAPL",
+				IdentifierDomain: "XNAS",
+				From:             "2024-01-01",
+				To:               "2024-04-01",
+			},
+		},
+	}
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	j := &JobRequest{JobID: "job-price-cov", JobType: "price"}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-price-cov").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-price-cov").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-price-cov", int32(1)).Return(nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-aapl", nil)
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-cov").Return(nil)
+	// Expect UpsertPricesWithFill (not UpsertPrices) because coverage was provided.
+	database.EXPECT().
+		UpsertPricesWithFill(gomock.Any(), "inst-aapl", "import", gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil)
+	database.EXPECT().
+		SetJobStatus(gomock.Any(), "job-price-cov", apiv1.JobStatus_SUCCESS).
+		Return(nil)
+
+	processPriceImport(ctx, database, registry, j)
+}
+
+func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	req := &apiv1.ImportPricesRequest{
+		Prices: []*apiv1.ImportPriceRow{
+			{
+				IdentifierType:   "MIC_TICKER",
+				IdentifierValue:  "AAPL",
+				IdentifierDomain: "XNAS",
+				PriceDate:        "2024-01-15",
+				Close:            185.90,
+			},
+		},
+		Coverage: []*apiv1.ImportCoverage{
+			{
+				// Coverage for a different instrument.
+				IdentifierType:   "FX_PAIR",
+				IdentifierValue:  "GBPUSD",
+				From:             "2024-01-01",
+				To:               "2024-04-01",
+			},
+		},
+	}
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	j := &JobRequest{JobID: "job-price-nocov", JobType: "price"}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-price-nocov").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-price-nocov").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-price-nocov", int32(1)).Return(nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-aapl", nil)
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-nocov").Return(nil)
+	// No coverage match for AAPL, so expect plain UpsertPrices.
+	database.EXPECT().
+		UpsertPrices(gomock.Any(), gomock.Any()).
+		Return(nil)
+	database.EXPECT().
+		SetJobStatus(gomock.Any(), "job-price-nocov", apiv1.JobStatus_SUCCESS).
+		Return(nil)
+
+	processPriceImport(ctx, database, registry, j)
+}

@@ -32,7 +32,7 @@ type Claims struct {
 
 // Verifier verifies Google ID tokens using cached JWKS.
 type Verifier struct {
-	clientID     string
+	clientIDs    []string
 	clockSkew    time.Duration
 	jwksURL      string
 	cacheTTL     time.Duration
@@ -59,6 +59,14 @@ func WithClockSkew(d time.Duration) VerifierOption {
 	}
 }
 
+// WithAdditionalClientIDs adds extra accepted audience values (e.g. a desktop
+// OAuth client ID alongside the primary web client ID).
+func WithAdditionalClientIDs(ids ...string) VerifierOption {
+	return func(v *Verifier) {
+		v.clientIDs = append(v.clientIDs, ids...)
+	}
+}
+
 // WithHTTPClient sets the HTTP client for fetching JWKS.
 func WithHTTPClient(c *http.Client) VerifierOption {
 	return func(v *Verifier) {
@@ -66,10 +74,12 @@ func WithHTTPClient(c *http.Client) VerifierOption {
 	}
 }
 
-// NewVerifier returns a Verifier for the given Google OAuth client ID.
+// NewVerifier returns a Verifier for the given Google OAuth client ID(s).
+// Multiple client IDs can be provided to accept tokens from different OAuth
+// clients (e.g. web app and desktop CLI) within the same GCP project.
 func NewVerifier(clientID string, opts ...VerifierOption) *Verifier {
 	v := &Verifier{
-		clientID:   clientID,
+		clientIDs:  []string{clientID},
 		clockSkew:  DefaultClockSkew,
 		jwksURL:    googleJWKSURL,
 		cacheTTL:   DefaultJWKSCacheTTL,
@@ -119,11 +129,16 @@ func (v *Verifier) Verify(ctx context.Context, idToken string) (*VerifyResult, e
 	if claims.Issuer != "https://accounts.google.com" && claims.Issuer != "accounts.google.com" {
 		return nil, fmt.Errorf("%w: wrong issuer", ErrUnauthenticated)
 	}
-	// Audience must match client ID
+	// Audience must match one of the accepted client IDs.
 	audMatch := false
 	for _, a := range claims.Audience {
-		if a == v.clientID {
-			audMatch = true
+		for _, id := range v.clientIDs {
+			if a == id {
+				audMatch = true
+				break
+			}
+		}
+		if audMatch {
 			break
 		}
 	}

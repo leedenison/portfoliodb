@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
@@ -65,8 +66,11 @@ func (s *Server) ListPriceGaps(ctx context.Context, req *apiv1.ListPriceGapsRequ
 }
 
 // toPriceGapProtos converts DB gap ranges to proto, filtering by asset class and
-// picking the best identifier per instrument.
+// picking the best identifier per instrument. Gap end dates are clamped to today
+// (exclusive) so that the current day -- which typically has no close price yet --
+// is excluded.
 func toPriceGapProtos(gaps []db.InstrumentDateRanges, instrMap map[string]*db.InstrumentRow, acFilter map[string]bool) []*apiv1.PriceGap {
+	today := time.Now().UTC().Truncate(24 * time.Hour)
 	var out []*apiv1.PriceGap
 	for _, g := range gaps {
 		inst := instrMap[g.InstrumentID]
@@ -86,10 +90,20 @@ func toPriceGapProtos(gaps []db.InstrumentDateRanges, instrMap map[string]*db.In
 		}
 		dateRanges := make([]*apiv1.DateRange, 0, len(g.Ranges))
 		for _, r := range g.Ranges {
+			to := r.To
+			if to.After(today) {
+				to = today
+			}
+			if !r.From.Before(to) {
+				continue // empty range after clamping
+			}
 			dateRanges = append(dateRanges, &apiv1.DateRange{
 				From: r.From.Format("2006-01-02"),
-				To:   r.To.Format("2006-01-02"),
+				To:   to.Format("2006-01-02"),
 			})
+		}
+		if len(dateRanges) == 0 {
+			continue
 		}
 		pg := &apiv1.PriceGap{
 			InstrumentId: g.InstrumentID,

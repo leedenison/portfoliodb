@@ -11,10 +11,12 @@ import (
 const maxChunkDays = 365
 
 // sheetColumn is one column-pair (date + close) for the Input tab.
-// Row 0 is the identifier header; rows 1..N are GOOGLEFINANCE formulas.
+// Each column contains exactly one GOOGLEFINANCE formula because the formula
+// expands vertically to fill multiple rows when evaluated.
+// Row 0 is the identifier header; row 1 is the formula.
 type sheetColumn struct {
-	Header   string   // identifier key: "type|domain|value|asset_class"
-	Formulas []string // one GOOGLEFINANCE formula per year-chunk
+	Header  string // identifier key: "type|domain|value|asset_class"
+	Formula string // single GOOGLEFINANCE formula
 }
 
 // formulaResult holds the generated sheet data and any skipped instruments.
@@ -24,32 +26,23 @@ type formulaResult struct {
 }
 
 // generateFormulas converts price gaps into sheet columns with GOOGLEFINANCE formulas.
+// Each year-chunk of each gap gets its own column pair because GOOGLEFINANCE
+// expands vertically when evaluated.
 func generateFormulas(priceGaps, fxGaps []*apiv1.PriceGap) formulaResult {
 	var res formulaResult
-	for _, pg := range priceGaps {
-		col, err := gapToColumn(pg)
+	for _, pg := range append(priceGaps, fxGaps...) {
+		cols, err := gapToColumns(pg)
 		if err != nil {
 			res.Skipped = append(res.Skipped, err.Error())
 			continue
 		}
-		res.Columns = append(res.Columns, col)
-	}
-	for _, pg := range fxGaps {
-		col, err := gapToColumn(pg)
-		if err != nil {
-			res.Skipped = append(res.Skipped, err.Error())
-			continue
-		}
-		res.Columns = append(res.Columns, col)
+		res.Columns = append(res.Columns, cols...)
 	}
 	return res
 }
 
-func gapToColumn(pg *apiv1.PriceGap) (sheetColumn, error) {
+func gapToColumns(pg *apiv1.PriceGap) ([]sheetColumn, error) {
 	ident := pg.GetIdentifier()
-	// Resolve exchange MIC for gfTicker. For MIC_TICKER the domain is a MIC;
-	// for OPENFIGI_TICKER it's a Bloomberg code (not a MIC), so use the gap's
-	// exchange field instead.
 	exchangeMIC := pg.GetExchange()
 	if ident.GetType() == apiv1.IdentifierType_MIC_TICKER && ident.GetDomain() != "" {
 		exchangeMIC = ident.GetDomain()
@@ -60,7 +53,7 @@ func gapToColumn(pg *apiv1.PriceGap) (sheetColumn, error) {
 		if name == "" {
 			name = pg.GetInstrumentId()
 		}
-		return sheetColumn{}, fmt.Errorf("%s: %w", name, err)
+		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 
 	header := fmt.Sprintf("%s|%s|%s|%s",
@@ -70,7 +63,7 @@ func gapToColumn(pg *apiv1.PriceGap) (sheetColumn, error) {
 		db.AssetClassToStr(pg.GetAssetClass()),
 	)
 
-	var formulas []string
+	var cols []sheetColumn
 	for _, gap := range pg.GetGaps() {
 		from, err := time.Parse("2006-01-02", gap.GetFrom())
 		if err != nil {
@@ -80,13 +73,14 @@ func gapToColumn(pg *apiv1.PriceGap) (sheetColumn, error) {
 		if err != nil {
 			continue
 		}
-		chunks := chunkRange(from, to)
-		for _, c := range chunks {
-			formulas = append(formulas, googleFinanceFormula(ticker, c.from, c.to))
+		for _, c := range chunkRange(from, to) {
+			cols = append(cols, sheetColumn{
+				Header:  header,
+				Formula: googleFinanceFormula(ticker, c.from, c.to),
+			})
 		}
 	}
-
-	return sheetColumn{Header: header, Formulas: formulas}, nil
+	return cols, nil
 }
 
 type dateChunk struct {
@@ -121,23 +115,16 @@ func googleFinanceFormula(ticker string, from, to time.Time) string {
 
 // columnsToGrid converts sheet columns into a 2D string grid suitable for
 // writing to a Google Sheet. Each column-pair occupies two grid columns
-// (date + close once the formula expands). Row 0 is the header row.
+// (date + close once the formula expands). Row 0 is the identifier header;
+// row 1 is the single GOOGLEFINANCE formula.
 func columnsToGrid(cols []sheetColumn) [][]string {
 	if len(cols) == 0 {
 		return nil
 	}
 
-	// Find max number of rows needed.
-	maxRows := 1 // at least the header row
-	for _, c := range cols {
-		if n := 1 + len(c.Formulas); n > maxRows {
-			maxRows = n
-		}
-	}
-
-	// Build grid. Each instrument gets 2 columns (formula expands to date + close).
+	// 2 rows: header + formula. Each formula expands vertically when evaluated.
 	gridCols := len(cols) * 2
-	grid := make([][]string, maxRows)
+	grid := make([][]string, 2)
 	for i := range grid {
 		grid[i] = make([]string, gridCols)
 	}
@@ -145,9 +132,7 @@ func columnsToGrid(cols []sheetColumn) [][]string {
 	for i, col := range cols {
 		baseCol := i * 2
 		grid[0][baseCol] = col.Header
-		for j, f := range col.Formulas {
-			grid[1+j][baseCol] = f
-		}
+		grid[1][baseCol] = col.Formula
 	}
 
 	return grid

@@ -98,38 +98,63 @@ func oauthConfig(creds *credentials, redirectURL string) *oauth2.Config {
 	}
 }
 
-// googleAuth performs the full Google OAuth flow: loads or refreshes tokens,
-// and returns an oauth2.TokenSource (for Sheets API) and the ID token string
-// (for PortfolioDB AuthUser). If no cached token exists, it opens a browser.
-func googleAuth(ctx context.Context, configDir string) (oauth2.TokenSource, string, error) {
+// googleTokenSource returns an oauth2.TokenSource for the Google Sheets API.
+// If no cached token exists, it opens a browser for OAuth. This does NOT
+// force a refresh — the library handles refresh transparently for Sheets calls.
+func googleTokenSource(ctx context.Context, configDir string) (oauth2.TokenSource, error) {
 	creds, err := loadCredentials(configDir)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	tokenPath := filepath.Join(configDir, "token.json")
 	tok, err := loadCachedToken(tokenPath)
-
-	// Build config with a placeholder redirect; we'll update it if we need the browser flow.
 	cfg := oauthConfig(creds, "http://localhost")
 
 	if err == nil && tok.RefreshToken != "" {
-		// We have a cached token; let oauth2 handle refresh.
+		return cfg.TokenSource(ctx, tok), nil
+	}
+
+	ts, _, err := browserAuth(ctx, cfg, tokenPath)
+	return ts, err
+}
+
+// googleIDToken obtains a fresh Google ID token by forcing a token refresh.
+// Called only when the PortfolioDB session has expired and we need to re-auth.
+func googleIDToken(ctx context.Context, configDir string) (string, error) {
+	creds, err := loadCredentials(configDir)
+	if err != nil {
+		return "", err
+	}
+
+	tokenPath := filepath.Join(configDir, "token.json")
+	tok, err := loadCachedToken(tokenPath)
+	cfg := oauthConfig(creds, "http://localhost")
+
+	if err == nil && tok.RefreshToken != "" {
+		// Force expired so the library refreshes and returns id_token.
+		tok.Expiry = time.Now().Add(-time.Minute)
 		ts := cfg.TokenSource(ctx, tok)
-		// Force a refresh to get a fresh ID token.
 		fresh, err := ts.Token()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cached token expired, re-authenticating...\n")
-			return browserAuth(ctx, cfg, tokenPath)
+			_, idToken, err := browserAuth(ctx, cfg, tokenPath)
+			return idToken, err
 		}
 		idToken, _ := fresh.Extra("id_token").(string)
+		if idToken == "" {
+			fmt.Fprintf(os.Stderr, "No ID token in refresh response, re-authenticating...\n")
+			_, idToken, err := browserAuth(ctx, cfg, tokenPath)
+			return idToken, err
+		}
 		if err := saveCachedToken(tokenPath, fresh); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to save token: %v\n", err)
 		}
-		return oauth2.StaticTokenSource(fresh), idToken, nil
+		return idToken, nil
 	}
 
-	return browserAuth(ctx, cfg, tokenPath)
+	_, idToken, err := browserAuth(ctx, cfg, tokenPath)
+	return idToken, err
 }
 
 // browserAuth runs the installed-app OAuth flow via browser.
@@ -218,18 +243,36 @@ func saveCachedToken(path string, tok *oauth2.Token) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
-// portfolioDBAuth authenticates to PortfolioDB using a Google ID token.
-// Returns the session ID. Uses a cached session if still valid.
-func portfolioDBAuth(ctx context.Context, conn *grpc.ClientConn, configDir, idToken string) (string, error) {
-	sessionPath := filepath.Join(configDir, "session.json")
+// sessionPath returns ~/.portfoliodb/session (shared across CLI tools).
+func sessionPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".portfoliodb", "session"), nil
+}
+
+// portfolioDBAuth returns a valid PortfolioDB session ID. Uses a cached
+// session from ~/.portfoliodb/session if still valid; otherwise obtains a
+// fresh Google ID token and calls AuthUser.
+func portfolioDBAuth(ctx context.Context, conn *grpc.ClientConn, configDir string) (string, error) {
+	sessPath, err := sessionPath()
+	if err != nil {
+		return "", err
+	}
 
 	// Try cached session.
-	if sess, err := loadCachedSession(sessionPath); err == nil {
+	if sess, err := loadCachedSession(sessPath); err == nil {
 		if time.Now().Before(sess.ExpiresAt.Add(-time.Minute)) {
 			return sess.SessionID, nil
 		}
 	}
 
+	// Session expired or missing — get a fresh ID token.
+	idToken, err := googleIDToken(ctx, configDir)
+	if err != nil {
+		return "", fmt.Errorf("Google authentication: %w", err)
+	}
 	if idToken == "" {
 		return "", fmt.Errorf("no ID token available for PortfolioDB authentication")
 	}
@@ -244,7 +287,7 @@ func portfolioDBAuth(ctx context.Context, conn *grpc.ClientConn, configDir, idTo
 		SessionID: resp.GetSession().GetSessionId(),
 		ExpiresAt: resp.GetSession().GetExpiresAt().AsTime(),
 	}
-	if err := saveCachedSession(sessionPath, sess); err != nil {
+	if err := saveCachedSession(sessPath, sess); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to cache session: %v\n", err)
 	}
 	fmt.Fprintf(os.Stderr, "Authenticated as %s (%s)\n", resp.GetUser().GetEmail(), resp.GetUser().GetRole())

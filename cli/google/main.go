@@ -155,11 +155,48 @@ func runImport(ctx, rpcCtx context.Context, sheetsSrv *sheets.Service, apiClient
 	}
 	fmt.Fprintf(os.Stderr, "Parsed %d prices for %d instrument(s).\n", len(prices), len(instruments))
 
+	// Query current price gaps to build coverage ranges for fill.
+	coverage := buildCoverage(rpcCtx, apiClient)
+
 	fmt.Fprintf(os.Stderr, "Importing prices...\n")
-	if err := importPrices(rpcCtx, apiClient, prices); err != nil {
+	if err := importPrices(rpcCtx, apiClient, prices, coverage); err != nil {
 		fatalf("%v", err)
 	}
 	fmt.Fprintf(os.Stderr, "Done. %d prices submitted for import.\n", len(prices))
+}
+
+// buildCoverage queries ListPriceGaps and converts the gap ranges into
+// ImportCoverage entries so the server fills non-trading day gaps.
+func buildCoverage(rpcCtx context.Context, apiClient apiv1.ApiServiceClient) []*apiv1.ImportCoverage {
+	resp, err := apiClient.ListPriceGaps(rpcCtx, &apiv1.ListPriceGapsRequest{
+		AssetClasses: []apiv1.AssetClass{
+			apiv1.AssetClass_ASSET_CLASS_STOCK,
+			apiv1.AssetClass_ASSET_CLASS_ETF,
+			apiv1.AssetClass_ASSET_CLASS_FX,
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: could not query price gaps for coverage: %v\n", err)
+		return nil
+	}
+
+	var coverage []*apiv1.ImportCoverage
+	for _, gaps := range [][]*apiv1.PriceGap{resp.GetPriceGaps(), resp.GetFxGaps()} {
+		for _, pg := range gaps {
+			ident := pg.GetIdentifier()
+			for _, gap := range pg.GetGaps() {
+				coverage = append(coverage, &apiv1.ImportCoverage{
+					IdentifierType:   ident.GetType().String(),
+					IdentifierValue:  ident.GetValue(),
+					IdentifierDomain: ident.GetDomain(),
+					From:             gap.GetFrom(),
+					To:               gap.GetTo(),
+				})
+			}
+		}
+	}
+	debugf("built %d coverage ranges", len(coverage))
+	return coverage
 }
 
 // verbose is set by --verbose / -v.

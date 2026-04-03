@@ -326,8 +326,9 @@ func cellString(row []any, col int) (string, bool) {
 	}
 }
 
-// importPrices sends prices to PortfolioDB in batches.
-func importPrices(ctx context.Context, client apiv1.ApiServiceClient, prices []*apiv1.ImportPriceRow) error {
+// importPrices sends prices to PortfolioDB in batches. Coverage ranges are
+// included with every batch so the server can fill non-trading day gaps.
+func importPrices(ctx context.Context, client apiv1.ApiServiceClient, prices []*apiv1.ImportPriceRow, coverage []*apiv1.ImportCoverage) error {
 	const batchSize = 1000
 	for i := 0; i < len(prices); i += batchSize {
 		end := i + batchSize
@@ -335,7 +336,10 @@ func importPrices(ctx context.Context, client apiv1.ApiServiceClient, prices []*
 			end = len(prices)
 		}
 		batch := prices[i:end]
-		resp, err := client.ImportPrices(ctx, &apiv1.ImportPricesRequest{Prices: batch})
+		resp, err := client.ImportPrices(ctx, &apiv1.ImportPricesRequest{
+			Prices:   batch,
+			Coverage: coverage,
+		})
 		if err != nil {
 			return fmt.Errorf("ImportPrices batch %d-%d: %w", i, end-1, err)
 		}

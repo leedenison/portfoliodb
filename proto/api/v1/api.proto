@@ -651,6 +651,20 @@ message ImportPriceRow {
 
 message ImportPricesRequest {
   repeated ImportPriceRow prices = 1;
+  // Optional coverage ranges. When set for an instrument, the server uses
+  // UpsertPricesWithFill to generate synthetic LOCF prices for non-trading
+  // days within each range. When absent, prices are upserted as-is.
+  repeated ImportCoverage coverage = 2;
+}
+
+// ImportCoverage declares that the caller intends to cover a date range for
+// an instrument. The server fills gaps within this range with synthetic prices.
+message ImportCoverage {
+  string identifier_type = 1;
+  string identifier_value = 2;
+  string identifier_domain = 3;
+  string from = 4; // YYYY-MM-DD, inclusive
+  string to = 5;   // YYYY-MM-DD, exclusive
 }
 
 message ImportPricesResponse {

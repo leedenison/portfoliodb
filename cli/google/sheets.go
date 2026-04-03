@@ -254,14 +254,18 @@ func parseHeader(hdr string) (idType, domain, value, assetClass string, err erro
 	return parts[0], parts[1], parts[2], parts[3], nil
 }
 
-// parseDate handles various date formats Google Sheets may produce.
+// parseDate handles various date formats Google Sheets may produce,
+// including dates with time components from GOOGLEFINANCE.
 func parseDate(s string) (string, error) {
 	s = strings.TrimSpace(s)
-	// Try common formats.
+	// Try common formats (with and without time components).
 	for _, layout := range []string{
 		"2006-01-02",
 		"1/2/2006",
 		"01/02/2006",
+		"1/2/2006 15:04:05",
+		"01/02/2006 15:04:05",
+		"2006-01-02 15:04:05",
 		"2-Jan-2006",
 		"2-Jan-06",
 		"Jan 2, 2006",

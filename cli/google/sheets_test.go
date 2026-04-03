@@ -78,6 +78,9 @@ func TestParseDate(t *testing.T) {
 		{name: "US padded", input: "06/15/2024", want: "2024-06-15"},
 		{name: "serial number", input: "45458", want: "2024-06-15"},
 		{name: "serial number float", input: "45458.0", want: "2024-06-15"},
+		{name: "US with time", input: "08/08/2023 23:58:00", want: "2023-08-08"},
+		{name: "US padded with time", input: "01/15/2024 23:58:00", want: "2024-01-15"},
+		{name: "ISO with time", input: "2024-06-15 14:30:00", want: "2024-06-15"},
 		{name: "with whitespace", input: "  2024-06-15  ", want: "2024-06-15"},
 		{name: "invalid", input: "not-a-date", wantErr: true},
 	}

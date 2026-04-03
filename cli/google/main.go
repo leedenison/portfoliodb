@@ -26,38 +26,48 @@ func main() {
 	}
 	defaultConfigDir := filepath.Join(home, ".portfoliodb", "google-finance")
 
-	server := flag.String("server", "localhost:50051", "PortfolioDB gRPC server address")
-	configDir := flag.String("config-dir", defaultConfigDir, "directory for credentials, tokens, and state")
-	doImport := flag.Bool("import", false, "import prices from the Output tab of an existing sheet")
-	newSheet := flag.Bool("new-sheet", false, "create a new spreadsheet instead of updating the existing one")
+	var (
+		serverFlag    string
+		configDirFlag string
+		importFlag    bool
+		newSheetFlag  bool
+	)
+	flag.StringVar(&serverFlag, "server", "localhost:50051", "PortfolioDB gRPC server address")
+	flag.StringVar(&serverFlag, "s", "localhost:50051", "PortfolioDB gRPC server address (shorthand)")
+	flag.StringVar(&configDirFlag, "config-dir", defaultConfigDir, "directory for credentials, tokens, and state")
+	flag.StringVar(&configDirFlag, "c", defaultConfigDir, "directory for credentials, tokens, and state (shorthand)")
+	flag.BoolVar(&importFlag, "import", false, "import prices from the Output tab of an existing sheet")
+	flag.BoolVar(&importFlag, "i", false, "import prices from the Output tab of an existing sheet (shorthand)")
+	flag.BoolVar(&newSheetFlag, "new-sheet", false, "create a new spreadsheet instead of updating the existing one")
+	flag.BoolVar(&newSheetFlag, "n", false, "create a new spreadsheet instead of updating the existing one (shorthand)")
 	flag.Parse()
 
-	_ = newSheet // used in PR 4 (sheets integration)
+	_ = newSheetFlag // used in PR 4 (sheets integration)
 
 	ctx := context.Background()
 
 	// 1. Google OAuth.
-	tokenSource, idToken, err := googleAuth(ctx, *configDir)
+	tokenSource, idToken, err := googleAuth(ctx, configDirFlag)
 	if err != nil {
 		fatalf("Google authentication failed: %v", err)
 	}
 	_ = tokenSource // used in PR 4 (sheets integration)
 
 	// 2. Connect to PortfolioDB.
-	conn, err := dialGRPC(*server)
+	conn, err := dialGRPC(serverFlag)
 	if err != nil {
 		fatalf("%v", err)
 	}
 	defer conn.Close()
 
 	// 3. PortfolioDB auth.
-	sessionID, err := portfolioDBAuth(ctx, conn, *configDir, idToken)
+	sessionID, err := portfolioDBAuth(ctx, conn, configDirFlag, idToken)
 	if err != nil {
 		fatalf("PortfolioDB authentication failed: %v", err)
 	}
 	rpcCtx := authContext(ctx, sessionID)
 
-	if *doImport {
+	if importFlag {
 		// Phase 2: read output tab and import prices.
 		// TODO(PR4): implement import flow
 		fmt.Fprintf(os.Stderr, "Import mode not yet implemented.\n")

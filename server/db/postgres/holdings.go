@@ -44,7 +44,7 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *a
 	}
 	q += `
 		GROUP BY broker, account, instrument_id
-		HAVING SUM(quantity) != 0
+		HAVING NOT qty_is_zero(SUM(quantity))
 	`
 	var hrows []holdingRow
 	if err := p.q.SelectContext(ctx, &hrows, q, args...); err != nil {
@@ -75,7 +75,7 @@ func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID 
 		INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
 		WHERE t.timestamp <= $2
 		GROUP BY t.broker, t.account, t.instrument_id
-		HAVING SUM(t.quantity) != 0
+		HAVING NOT qty_is_zero(SUM(t.quantity))
 	`, portUUID, asOfT)
 	if err != nil {
 		return nil, nil, fmt.Errorf("compute holdings for portfolio: %w", err)

@@ -199,7 +199,7 @@ valued AS (
     LEFT JOIN fx_rates fr
         ON fr.base_currency = inst.currency AND fr.val_date = dh.val_date
     LEFT JOIN display_fx_rate dfr ON dfr.val_date = dh.val_date
-    WHERE dh.qty IS NOT NULL AND dh.qty != 0
+    WHERE NOT qty_is_zero(dh.qty)
 )
 SELECT
     val_date,

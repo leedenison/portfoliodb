@@ -72,10 +72,10 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 			ranges = nil
 		}
 
-		if eodPos != 0 && !inRange {
+		if !qtyIsZero(eodPos) && !inRange {
 			rangeStart = txDate
 			inRange = true
-		} else if eodPos == 0 && inRange {
+		} else if qtyIsZero(eodPos) && inRange {
 			ranges = append(ranges, db.DateRange{From: rangeStart, To: txDate})
 			inRange = false
 		}

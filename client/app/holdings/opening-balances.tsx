@@ -143,7 +143,7 @@ export function OpeningBalances() {
                           {ticker || d.instrument?.name || d.instrumentId}
                         </td>
                         <td className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
-                          {d.declaredQty}
+                          {parseFloat(Number(d.declaredQty).toFixed(4))}
                         </td>
                         <td className="px-4 py-3 text-text-muted">
                           {d.asOfDate}

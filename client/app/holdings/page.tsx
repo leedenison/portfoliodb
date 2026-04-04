@@ -162,7 +162,7 @@ export default function UserHoldingsPage() {
                                   {ticker || h.instrument?.name || h.instrumentDescription || "\u2014"}
                                 </td>
                                 <td className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
-                                  {h.quantity}
+                                  {parseFloat(h.quantity.toFixed(4))}
                                 </td>
                               </tr>
                             );

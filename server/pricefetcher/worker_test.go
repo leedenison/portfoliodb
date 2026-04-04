@@ -2,11 +2,13 @@ package pricefetcher
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/telemetry"
 	"go.uber.org/mock/gomock"
 )
 
@@ -378,6 +380,68 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 
 	if stub.calls != 0 {
 		t.Errorf("expected 0 FetchPrices calls for gap older than max history, got %d", stub.calls)
+	}
+}
+
+// counterSpy counts Incr calls per key.
+type counterSpy struct {
+	telemetry.NoopCounter
+	cycles atomic.Int64
+}
+
+func (c *counterSpy) Incr(_ context.Context, name string) {
+	if name == "price_fetcher.cycles" {
+		c.cycles.Add(1)
+	}
+}
+
+func TestRunWorker_DebounceCollapsesTriggers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+
+	// PriceGaps blocks until gate is closed, giving us control over cycle duration.
+	gate := make(chan struct{})
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, opts db.HeldRangesOpts) ([]db.InstrumentDateRanges, error) {
+			<-gate
+			return nil, nil
+		},
+	).Times(2) // expect exactly 2 cycles
+	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil).Times(2)
+
+	counter := &counterSpy{}
+	trigger := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		RunWorker(ctx, mockDB, NewRegistry(), counter, nil, trigger, nil)
+		close(done)
+	}()
+
+	// Send first trigger to start cycle 1.
+	trigger <- struct{}{}
+
+	// Wait briefly for the goroutine to enter PriceGaps (blocked on gate).
+	time.Sleep(20 * time.Millisecond)
+
+	// Send 2 more triggers while cycle 1 is in-flight.
+	// Buffer holds 1, so one is queued and one is dropped.
+	Trigger(trigger)
+	Trigger(trigger)
+
+	// Release both cycles.
+	close(gate)
+
+	// Wait for worker to go idle after processing both cycles.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+
+	cycles := counter.cycles.Load()
+	if cycles != 2 {
+		t.Errorf("expected exactly 2 cycles (1 running + 1 buffered), got %d", cycles)
 	}
 }
 

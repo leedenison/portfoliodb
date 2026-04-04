@@ -313,3 +313,10 @@ CREATE TABLE ignored_asset_classes (
 );
 
 CREATE INDEX idx_ignored_asset_classes_user ON ignored_asset_classes (user_id);
+
+-- qty_is_zero returns true when a double precision quantity is effectively zero,
+-- absorbing floating-point residuals from SUM aggregation over buys/sells.
+CREATE FUNCTION qty_is_zero(q double precision) RETURNS boolean
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+    SELECT q IS NULL OR ABS(q) < 1e-9
+$$;

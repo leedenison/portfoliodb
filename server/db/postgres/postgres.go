@@ -27,6 +27,12 @@ type queryable interface {
 	GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
 }
 
+// qtyIsZero mirrors the SQL qty_is_zero function: true when a quantity is
+// effectively zero, absorbing floating-point residuals from summed buys/sells.
+func qtyIsZero(q float64) bool {
+	return q > -1e-9 && q < 1e-9
+}
+
 // Postgres implements db.DB using PostgreSQL.
 type Postgres struct {
 	q queryable

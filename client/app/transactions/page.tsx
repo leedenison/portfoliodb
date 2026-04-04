@@ -221,7 +221,7 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
         )}
       </td>
       <td className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
-        {tx.quantity}
+        {parseFloat(tx.quantity.toFixed(4))}
       </td>
       <td className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
         {tx.unitPrice ? tx.unitPrice.toFixed(2) : "\u2014"}

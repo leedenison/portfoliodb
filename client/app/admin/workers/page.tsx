@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
-import { listWorkers, WorkerState, type WorkerRow } from "@/lib/portfolio-api";
+import { listWorkers, triggerPriceFetch, triggerInflationFetch, WorkerState, type WorkerRow } from "@/lib/portfolio-api";
 
 function stateLabel(state: WorkerState): string {
   switch (state) {
@@ -30,6 +30,7 @@ export default function AdminWorkersPage() {
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [triggering, setTriggering] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,6 +43,18 @@ export default function AdminWorkersPage() {
       setLoading(false);
     }
   }, []);
+
+  async function handleTrigger(name: string, fn: () => Promise<void>) {
+    setTriggering(name);
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Failed to trigger ${name}`);
+    } finally {
+      setTriggering(null);
+    }
+  }
 
   useEffect(() => {
     load();
@@ -62,14 +75,32 @@ export default function AdminWorkersPage() {
     <div data-testid="page-workers">
       <div className="flex items-center justify-between gap-4">
         <h1 className="font-display text-xl font-bold text-text-primary">Workers</h1>
-        <button
-          type="button"
-          onClick={load}
-          disabled={loading}
-          className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
-        >
-          {loading ? "Refreshing..." : "Refresh"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => handleTrigger("price", triggerPriceFetch)}
+            disabled={triggering !== null}
+            className="rounded border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:opacity-50"
+          >
+            {triggering === "price" ? "Triggering..." : "Trigger Price Fetch"}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleTrigger("inflation", triggerInflationFetch)}
+            disabled={triggering !== null}
+            className="rounded border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:opacity-50"
+          >
+            {triggering === "inflation" ? "Triggering..." : "Trigger Inflation Fetch"}
+          </button>
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+          >
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
       </div>
       {error && (
         <div className="mt-2">

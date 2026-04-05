@@ -6,6 +6,9 @@ import {
   listIdentifierPlugins,
   listDescriptionPlugins,
   listPricePlugins,
+  listWorkers,
+  WorkerState,
+  type WorkerRow,
 } from "@/lib/portfolio-api";
 
 const dashboardCards: {
@@ -81,17 +84,20 @@ export default function AdminOverviewPage() {
   const [pricePlugins, setPricePlugins] = useState<
     { displayName: string }[]
   >([]);
+  const [workers, setWorkers] = useState<WorkerRow[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const [idList, descList, priceList] = await Promise.all([
+      const [idList, descList, priceList, workerList] = await Promise.all([
         listIdentifierPlugins(),
         listDescriptionPlugins(),
         listPricePlugins(),
+        listWorkers(),
       ]);
       setIdentifierPlugins(idList.map((p) => ({ displayName: p.displayName || p.pluginId })));
       setDescriptionPlugins(descList.map((p) => ({ displayName: p.displayName || p.pluginId })));
       setPricePlugins(priceList.map((p) => ({ displayName: p.displayName || p.pluginId })));
+      setWorkers(workerList);
     } catch {
       // Non-blocking: cards still work without the summary
     }
@@ -122,6 +128,32 @@ export default function AdminOverviewPage() {
       <p className="text-sm text-text-muted">
         Quick links to admin tools. Use the sidebar for full navigation.
       </p>
+      {/* Workers status */}
+      {workers.length > 0 && (
+        <Link
+          href="/admin/workers"
+          className="group block rounded-md border border-border bg-surface p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+        >
+          <h2 className="font-display font-semibold text-text-primary group-hover:text-primary-dark">Workers</h2>
+          <div className="mt-3 flex flex-wrap gap-3">
+            {workers.map((w) => (
+              <div key={w.name} className="flex items-center gap-2">
+                <span className="font-mono text-xs text-text-muted">{w.name}</span>
+                <span
+                  className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                    w.state === WorkerState.RUNNING
+                      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
+                      : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                  }`}
+                >
+                  {w.state === WorkerState.RUNNING ? "Running" : "Idle"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Link>
+      )}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {dashboardCards.map((card) => {
           const summary = pluginSummary(card.id);

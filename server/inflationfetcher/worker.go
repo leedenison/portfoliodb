@@ -65,6 +65,9 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		return
 	}
 	if len(currencies) == 0 {
+		if log != nil {
+			log.InfoContext(ctx, "inflation fetch: no display currencies configured, skipping")
+		}
 		return
 	}
 
@@ -76,6 +79,9 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		return
 	}
 	if len(configs) == 0 {
+		if log != nil {
+			log.InfoContext(ctx, "inflation fetch: no enabled inflation plugins, skipping")
+		}
 		return
 	}
 
@@ -83,6 +89,9 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 	for _, cfg := range configs {
 		p := registry.Get(cfg.PluginID)
 		if p == nil {
+			if log != nil {
+				log.WarnContext(ctx, "inflation fetch: plugin not in registry", "plugin", cfg.PluginID)
+			}
 			continue
 		}
 		plugins = append(plugins, pluginEntry{
@@ -160,8 +169,16 @@ func processCurrency(ctx context.Context, database db.DB, plugins []pluginEntry,
 				log.ErrorContext(ctx, "inflation fetch: upsert",
 					"currency", currency, "err", err)
 			}
+			return
+		}
+		if log != nil {
+			log.InfoContext(ctx, "inflation fetch: stored indices",
+				"plugin", pe.id, "currency", currency, "count", len(indices))
 		}
 		return // success, stop trying plugins for this currency
+	}
+	if log != nil {
+		log.InfoContext(ctx, "inflation fetch: no plugin supports currency", "currency", currency)
 	}
 }
 

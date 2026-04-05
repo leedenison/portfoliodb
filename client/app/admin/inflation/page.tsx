@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
-import { listInflationIndices, triggerInflationFetch } from "@/lib/portfolio-api";
+import { listInflationIndices } from "@/lib/portfolio-api";
 import type { InflationIndexProto } from "@/gen/api/v1/api_pb";
 
 export default function AdminInflationPage() {
@@ -12,8 +12,6 @@ export default function AdminInflationPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [fetchLoading, setFetchLoading] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -22,20 +20,6 @@ export default function AdminInflationPage() {
     debounceRef.current = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(debounceRef.current);
   }, [search]);
-
-  async function handleTriggerFetch() {
-    setFetchLoading(true);
-    setFetchError(null);
-    try {
-      await triggerInflationFetch();
-      // Refresh after a short delay to allow the worker to start.
-      setTimeout(() => setRefreshKey((k) => k + 1), 2000);
-    } catch (err) {
-      setFetchError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setFetchLoading(false);
-    }
-  }
 
   const fetchIndices = useCallback(
     async (pageToken: string | null) => {
@@ -105,18 +89,7 @@ export default function AdminInflationPage() {
               {totalCount} total
             </span>
           )}
-          <div className="ml-auto flex gap-2">
-            <button
-              type="button"
-              onClick={handleTriggerFetch}
-              disabled={fetchLoading}
-              className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {fetchLoading ? "Triggering..." : "Trigger Fetch"}
-            </button>
-          </div>
         </div>
-        {fetchError && <ErrorAlert>{fetchError}</ErrorAlert>}
 
         {loading && <p className="text-text-muted">Loading inflation data...</p>}
         {!loading && error && <ErrorAlert>{error}</ErrorAlert>}

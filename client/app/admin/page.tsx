@@ -6,6 +6,9 @@ import {
   listIdentifierPlugins,
   listDescriptionPlugins,
   listPricePlugins,
+  listWorkers,
+  WorkerState,
+  type WorkerRow,
 } from "@/lib/portfolio-api";
 
 const dashboardCards: {
@@ -51,6 +54,12 @@ const dashboardCards: {
       "Enable/disable price plugins that fetch end-of-day prices for identified instruments.",
   },
   {
+    id: "workers",
+    title: "Workers",
+    href: "/admin/workers",
+    description: "Background worker status and manual fetch triggers.",
+  },
+  {
     id: "telemetry",
     title: "Telemetry",
     href: "/admin/telemetry",
@@ -81,17 +90,20 @@ export default function AdminOverviewPage() {
   const [pricePlugins, setPricePlugins] = useState<
     { displayName: string }[]
   >([]);
+  const [workers, setWorkers] = useState<WorkerRow[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const [idList, descList, priceList] = await Promise.all([
+      const [idList, descList, priceList, workerList] = await Promise.all([
         listIdentifierPlugins(),
         listDescriptionPlugins(),
         listPricePlugins(),
+        listWorkers(),
       ]);
       setIdentifierPlugins(idList.map((p) => ({ displayName: p.displayName || p.pluginId })));
       setDescriptionPlugins(descList.map((p) => ({ displayName: p.displayName || p.pluginId })));
       setPricePlugins(priceList.map((p) => ({ displayName: p.displayName || p.pluginId })));
+      setWorkers(workerList);
     } catch {
       // Non-blocking: cards still work without the summary
     }
@@ -112,6 +124,11 @@ export default function AdminOverviewPage() {
     }
     if (id === "price" && pricePlugins.length > 0) {
       return pricePlugins.map((p) => p.displayName).join(", ");
+    }
+    if (id === "workers" && workers.length > 0) {
+      return workers
+        .map((w) => `${w.name}: ${w.state === WorkerState.RUNNING ? "running" : "idle"}`)
+        .join(", ");
     }
     return null;
   }

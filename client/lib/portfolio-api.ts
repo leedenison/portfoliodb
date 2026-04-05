@@ -87,6 +87,7 @@ import {
   UpdateInflationPluginRequestSchema,
   UpdateInflationPluginResponseSchema,
   TriggerInflationFetchRequestSchema,
+  TriggerPriceFetchRequestSchema,
   AssetClass,
   JobStatus,
   WorkerState,
@@ -890,6 +891,14 @@ export async function updateInflationPlugin(
   });
   const res = fromBinary(UpdateInflationPluginResponseSchema, resBytes);
   return res.plugin!;
+}
+
+export async function triggerPriceFetch(): Promise<void> {
+  const base = getBaseUrl();
+  const req = create(TriggerPriceFetchRequestSchema, {});
+  await unaryFetch(base, ApiServicePrefix + "TriggerPriceFetch", toBinary(TriggerPriceFetchRequestSchema, req), {
+    credentials: "include",
+  });
 }
 
 export async function triggerInflationFetch(): Promise<void> {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
-import { listWorkers, WorkerState, type WorkerRow } from "@/lib/portfolio-api";
+import { listWorkers, triggerPriceFetch, triggerInflationFetch, WorkerState, type WorkerRow } from "@/lib/portfolio-api";
 
 function stateLabel(state: WorkerState): string {
   switch (state) {
@@ -30,6 +30,7 @@ export default function AdminWorkersPage() {
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [triggering, setTriggering] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,6 +43,23 @@ export default function AdminWorkersPage() {
       setLoading(false);
     }
   }, []);
+
+  const triggerFns: Record<string, () => Promise<void>> = {
+    price_fetcher: triggerPriceFetch,
+    inflation_fetcher: triggerInflationFetch,
+  };
+
+  async function handleTrigger(name: string, fn: () => Promise<void>) {
+    setTriggering(name);
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Failed to trigger ${name}`);
+    } finally {
+      setTriggering(null);
+    }
+  }
 
   useEffect(() => {
     load();
@@ -89,7 +107,8 @@ export default function AdminWorkersPage() {
               <th className="py-2 pr-4 font-medium">State</th>
               <th className="py-2 pr-4 font-medium">Summary</th>
               <th className="py-2 pr-4 font-medium">Queue</th>
-              <th className="py-2 font-medium">Updated</th>
+              <th className="py-2 pr-4 font-medium">Updated</th>
+              <th className="py-2 font-medium" />
             </tr>
           </thead>
           <tbody>
@@ -107,8 +126,20 @@ export default function AdminWorkersPage() {
                 </td>
                 <td className="py-2 pr-4 text-text-muted">{w.summary || "\u2014"}</td>
                 <td className="py-2 pr-4 tabular-nums text-text-secondary">{w.queueDepth}</td>
-                <td className="py-2 text-text-muted">
+                <td className="py-2 pr-4 text-text-muted">
                   {w.updatedAt ? w.updatedAt.toLocaleTimeString() : "\u2014"}
+                </td>
+                <td className="py-2 text-right">
+                  {triggerFns[w.name] && (
+                    <button
+                      type="button"
+                      onClick={() => handleTrigger(w.name, triggerFns[w.name])}
+                      disabled={triggering !== null}
+                      className="rounded border border-border px-3 py-1 text-xs hover:bg-background disabled:opacity-50"
+                    >
+                      {triggering === w.name ? "Triggering..." : "Trigger"}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

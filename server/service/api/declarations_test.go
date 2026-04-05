@@ -8,6 +8,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/testutil"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/genproto/googleapis/type/date"
 	"google.golang.org/grpc/codes"
 )
 
@@ -29,7 +30,7 @@ func TestListHoldingDeclarations_Success(t *testing.T) {
 		t.Fatalf("expected 1 declaration, got %d", len(resp.GetDeclarations()))
 	}
 	d := resp.GetDeclarations()[0]
-	if d.GetBroker() != "IBKR" || d.GetDeclaredQty() != "100" || d.GetAsOfDate() != "2025-06-01" {
+	if d.GetBroker() != "IBKR" || d.GetDeclaredQty() != "100" || d.GetAsOfDate().GetYear() != 2025 || d.GetAsOfDate().GetMonth() != 6 || d.GetAsOfDate().GetDay() != 1 {
 		t.Fatalf("unexpected declaration: %+v", d)
 	}
 }
@@ -55,7 +56,7 @@ func TestCreateHoldingDeclaration_Success(t *testing.T) {
 		}, nil)
 
 	resp, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{
-		Broker: "IBKR", Account: "acct1", InstrumentId: "inst-1", DeclaredQty: "100", AsOfDate: "2025-06-01",
+		Broker: "IBKR", Account: "acct1", InstrumentId: "inst-1", DeclaredQty: "100", AsOfDate: &date.Date{Year: 2025, Month: 6, Day: 1},
 	})
 	if err != nil {
 		t.Fatalf("CreateHoldingDeclaration: %v", err)
@@ -71,7 +72,7 @@ func TestCreateHoldingDeclaration_NoRealTxs(t *testing.T) {
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(nil, nil)
 
 	_, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{
-		Broker: "IBKR", Account: "acct1", InstrumentId: "inst-1", DeclaredQty: "100", AsOfDate: "2025-06-01",
+		Broker: "IBKR", Account: "acct1", InstrumentId: "inst-1", DeclaredQty: "100", AsOfDate: &date.Date{Year: 2025, Month: 6, Day: 1},
 	})
 	testutil.RequireGRPCCode(t, err, codes.FailedPrecondition)
 }
@@ -83,7 +84,7 @@ func TestCreateHoldingDeclaration_DateBeforeStart(t *testing.T) {
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
 
 	_, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{
-		Broker: "IBKR", Account: "acct1", InstrumentId: "inst-1", DeclaredQty: "100", AsOfDate: "2025-01-01",
+		Broker: "IBKR", Account: "acct1", InstrumentId: "inst-1", DeclaredQty: "100", AsOfDate: &date.Date{Year: 2025, Month: 1, Day: 1},
 	})
 	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
 }
@@ -115,7 +116,7 @@ func TestUpdateHoldingDeclaration_Success(t *testing.T) {
 		}, nil)
 
 	resp, err := srv.UpdateHoldingDeclaration(ctx, &apiv1.UpdateHoldingDeclarationRequest{
-		Id: "d1", DeclaredQty: "200", AsOfDate: "2025-07-01",
+		Id: "d1", DeclaredQty: "200", AsOfDate: &date.Date{Year: 2025, Month: 7, Day: 1},
 	})
 	if err != nil {
 		t.Fatalf("UpdateHoldingDeclaration: %v", err)
@@ -132,7 +133,7 @@ func TestUpdateHoldingDeclaration_NotOwner(t *testing.T) {
 	mockDB.EXPECT().GetHoldingDeclaration(gomock.Any(), "d1").Return(existing, nil)
 
 	_, err := srv.UpdateHoldingDeclaration(ctx, &apiv1.UpdateHoldingDeclarationRequest{
-		Id: "d1", DeclaredQty: "200", AsOfDate: "2025-07-01",
+		Id: "d1", DeclaredQty: "200", AsOfDate: &date.Date{Year: 2025, Month: 7, Day: 1},
 	})
 	testutil.RequireGRPCCode(t, err, codes.NotFound)
 }

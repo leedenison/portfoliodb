@@ -6,6 +6,7 @@ import {
   listHoldingDeclarations,
   deleteHoldingDeclaration,
   listBrokersAndAccounts,
+  protoDateToStr,
 } from "@/lib/portfolio-api";
 import { IdentifierType } from "@/gen/api/v1/api_pb";
 import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
@@ -146,7 +147,7 @@ export function OpeningBalances() {
                           {parseFloat(Number(d.declaredQty).toFixed(4))}
                         </td>
                         <td className="px-4 py-3 text-text-muted">
-                          {d.asOfDate}
+                          {protoDateToStr(d.asOfDate)}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button

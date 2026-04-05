@@ -4,6 +4,7 @@ package portfoliodb.api.v1;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
+import "google/type/date.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/api/v1;apiv1";
 
@@ -611,9 +612,9 @@ message EODPriceProto {
 }
 
 message ListPricesRequest {
-  string search = 1;          // instrument name/ticker substring
-  string date_from = 2;       // "YYYY-MM-DD", inclusive
-  string date_to = 3;         // "YYYY-MM-DD", inclusive
+  string search = 1;                     // instrument name/ticker substring
+  google.type.Date date_from = 2;        // inclusive
+  google.type.Date date_to = 3;          // inclusive
   string data_provider = 4;
   int32 page_size = 5;
   string page_token = 6;
@@ -692,8 +693,8 @@ message ImportPriceError {
 // When empty, the user's stored preference is used.
 message GetPortfolioValuationRequest {
   string portfolio_id = 1;
-  string date_from = 2 [(buf.validate.field).string.min_len = 1];     // "YYYY-MM-DD"
-  string date_to = 3 [(buf.validate.field).string.min_len = 1];       // "YYYY-MM-DD"
+  google.type.Date date_from = 2 [(buf.validate.field).required = true];
+  google.type.Date date_to = 3 [(buf.validate.field).required = true];
   string display_currency = 4;
 }
 
@@ -717,8 +718,8 @@ message HoldingDeclaration {
   string account = 3;
   string instrument_id = 4;
   Instrument instrument = 5;  // optional; populated when listing
-  string declared_qty = 6;    // numeric string to preserve precision
-  string as_of_date = 7;      // "YYYY-MM-DD"
+  string declared_qty = 6;           // numeric string to preserve precision
+  google.type.Date as_of_date = 7;
 }
 
 message ListHoldingDeclarationsRequest {}
@@ -732,7 +733,7 @@ message CreateHoldingDeclarationRequest {
   string account = 2;
   string instrument_id = 3 [(buf.validate.field).string.min_len = 1];
   string declared_qty = 4 [(buf.validate.field).string.min_len = 1];    // numeric string
-  string as_of_date = 5 [(buf.validate.field).string.min_len = 1];      // "YYYY-MM-DD"
+  google.type.Date as_of_date = 5 [(buf.validate.field).required = true];
 }
 
 message CreateHoldingDeclarationResponse {
@@ -742,7 +743,7 @@ message CreateHoldingDeclarationResponse {
 message UpdateHoldingDeclarationRequest {
   string id = 1 [(buf.validate.field).string.min_len = 1];
   string declared_qty = 2 [(buf.validate.field).string.min_len = 1];    // numeric string
-  string as_of_date = 3 [(buf.validate.field).string.min_len = 1];      // "YYYY-MM-DD"
+  google.type.Date as_of_date = 3 [(buf.validate.field).required = true];
 }
 
 message UpdateHoldingDeclarationResponse {
@@ -858,9 +859,9 @@ message InflationIndexProto {
 }
 
 message ListInflationIndicesRequest {
-  string currency = 1;        // optional filter
-  string date_from = 2;       // "YYYY-MM-DD"
-  string date_to = 3;         // "YYYY-MM-DD"
+  string currency = 1;                   // optional filter
+  google.type.Date date_from = 2;
+  google.type.Date date_to = 3;
   int32 page_size = 4;
   string page_token = 5;
 }

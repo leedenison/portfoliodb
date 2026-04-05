@@ -4,6 +4,8 @@
 
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { DateSchema } from "@/gen/google/type/date_pb";
+import type { Date as ProtoDate } from "@/gen/google/type/date_pb";
 import {
   ExportInstrumentsRequestSchema,
   ExportPriceRowSchema,
@@ -116,6 +118,19 @@ import { streamingFetch, unaryFetch } from "./grpc-web";
 
 const PAGE_SIZE = 30;
 const ApiServicePrefix = "portfoliodb.api.v1.ApiService/";
+
+/** Convert a "YYYY-MM-DD" string to a google.type.Date proto. Returns undefined if empty. */
+function strToProtoDate(s: string | undefined): ProtoDate | undefined {
+  if (!s) return undefined;
+  const [y, m, d] = s.split("-").map(Number);
+  return create(DateSchema, { year: y, month: m, day: d });
+}
+
+/** Convert a google.type.Date proto to a "YYYY-MM-DD" string. */
+export function protoDateToStr(d: ProtoDate | undefined): string {
+  if (!d || !d.year) return "";
+  return `${String(d.year).padStart(4, "0")}-${String(d.month).padStart(2, "0")}-${String(d.day).padStart(2, "0")}`;
+}
 
 function getBaseUrl(): string {
   if (typeof window === "undefined") return "http://localhost:8080";
@@ -460,8 +475,8 @@ export async function listPrices(params?: {
   const base = getBaseUrl();
   const req = create(ListPricesRequestSchema, {
     search: params?.search ?? "",
-    dateFrom: params?.dateFrom ?? "",
-    dateTo: params?.dateTo ?? "",
+    dateFrom: strToProtoDate(params?.dateFrom),
+    dateTo: strToProtoDate(params?.dateTo),
     dataProvider: params?.dataProvider ?? "",
     pageSize: PAGE_SIZE,
     pageToken: params?.pageToken ?? "",
@@ -638,8 +653,8 @@ export async function getPortfolioValuation(params: {
   const base = getBaseUrl();
   const req = create(GetPortfolioValuationRequestSchema, {
     portfolioId: params.portfolioId ?? "",
-    dateFrom: params.dateFrom,
-    dateTo: params.dateTo,
+    dateFrom: strToProtoDate(params.dateFrom),
+    dateTo: strToProtoDate(params.dateTo),
     displayCurrency: params.displayCurrency ?? "",
   });
   const resBytes = await unaryFetch(
@@ -683,7 +698,7 @@ export async function createHoldingDeclaration(params: {
     account: params.account,
     instrumentId: params.instrumentId,
     declaredQty: params.declaredQty,
-    asOfDate: params.asOfDate,
+    asOfDate: strToProtoDate(params.asOfDate),
   });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "CreateHoldingDeclaration", toBinary(CreateHoldingDeclarationRequestSchema, req), {
     credentials: "include",
@@ -701,7 +716,7 @@ export async function updateHoldingDeclaration(params: {
   const req = create(UpdateHoldingDeclarationRequestSchema, {
     id: params.id,
     declaredQty: params.declaredQty,
-    asOfDate: params.asOfDate,
+    asOfDate: strToProtoDate(params.asOfDate),
   });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "UpdateHoldingDeclaration", toBinary(UpdateHoldingDeclarationRequestSchema, req), {
     credentials: "include",
@@ -842,8 +857,8 @@ export async function listInflationIndices(params?: {
   const base = getBaseUrl();
   const req = create(ListInflationIndicesRequestSchema, {
     currency: params?.currency ?? "",
-    dateFrom: params?.dateFrom ?? "",
-    dateTo: params?.dateTo ?? "",
+    dateFrom: strToProtoDate(params?.dateFrom),
+    dateTo: strToProtoDate(params?.dateTo),
     pageSize: PAGE_SIZE,
     pageToken: params?.pageToken ?? "",
   });

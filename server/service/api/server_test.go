@@ -9,6 +9,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/testutil"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/genproto/googleapis/type/date"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 )
@@ -114,17 +115,17 @@ func TestAPI_Unauthenticated(t *testing.T) {
 		}},
 		{"ImportPrices", func() error { _, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{}); return err }},
 		{"GetPortfolioValuation", func() error {
-			_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{PortfolioId: "p", DateFrom: "2025-01-01", DateTo: "2025-01-03"})
+			_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{PortfolioId: "p", DateFrom: &date.Date{Year: 2025, Month: 1, Day: 1}, DateTo: &date.Date{Year: 2025, Month: 1, Day: 3}})
 			return err
 		}},
 		{"ListPriceGaps", func() error { _, err := srv.ListPriceGaps(ctx, &apiv1.ListPriceGapsRequest{}); return err }},
 		{"ListHoldingDeclarations", func() error { _, err := srv.ListHoldingDeclarations(ctx, &apiv1.ListHoldingDeclarationsRequest{}); return err }},
 		{"CreateHoldingDeclaration", func() error {
-			_, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{Broker: "IBKR", InstrumentId: "i", DeclaredQty: "1", AsOfDate: "2025-01-01"})
+			_, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{Broker: "IBKR", InstrumentId: "i", DeclaredQty: "1", AsOfDate: &date.Date{Year: 2025, Month: 1, Day: 1}})
 			return err
 		}},
 		{"UpdateHoldingDeclaration", func() error {
-			_, err := srv.UpdateHoldingDeclaration(ctx, &apiv1.UpdateHoldingDeclarationRequest{Id: "d", DeclaredQty: "1", AsOfDate: "2025-01-01"})
+			_, err := srv.UpdateHoldingDeclaration(ctx, &apiv1.UpdateHoldingDeclarationRequest{Id: "d", DeclaredQty: "1", AsOfDate: &date.Date{Year: 2025, Month: 1, Day: 1}})
 			return err
 		}},
 		{"DeleteHoldingDeclaration", func() error { _, err := srv.DeleteHoldingDeclaration(ctx, &apiv1.DeleteHoldingDeclarationRequest{Id: "d"}); return err }},

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"time"
 
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -11,8 +10,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const dateFmt = "2006-01-02"
-
 // GetPortfolioValuation returns daily portfolio values over a date range.
 func (s *Server) GetPortfolioValuation(ctx context.Context, req *apiv1.GetPortfolioValuationRequest) (*apiv1.GetPortfolioValuationResponse, error) {
 	u, authErr := auth.RequireUser(ctx)
@@ -20,14 +17,8 @@ func (s *Server) GetPortfolioValuation(ctx context.Context, req *apiv1.GetPortfo
 		return nil, authErr
 	}
 
-	dateFrom, err := time.Parse(dateFmt, req.GetDateFrom())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid date_from: %v", err)
-	}
-	dateTo, err := time.Parse(dateFmt, req.GetDateTo())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid date_to: %v", err)
-	}
+	dateFrom := dateToTime(req.GetDateFrom())
+	dateTo := dateToTime(req.GetDateTo())
 	if dateTo.Before(dateFrom) {
 		return nil, status.Error(codes.InvalidArgument, "date_to must not be before date_from")
 	}
@@ -55,6 +46,7 @@ func (s *Server) GetPortfolioValuation(ctx context.Context, req *apiv1.GetPortfo
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 	} else {
+		var err error
 		points, err = s.db.GetUserValuation(ctx, u.ID, dateFrom, dateTo, displayCurrency)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
@@ -66,7 +58,7 @@ func (s *Server) GetPortfolioValuation(ctx context.Context, req *apiv1.GetPortfo
 	}
 	for i, pt := range points {
 		resp.Points[i] = &apiv1.ValuationPoint{
-			Date:                  pt.Date.Format(dateFmt),
+			Date:                  pt.Date.Format("2006-01-02"),
 			TotalValue:            pt.TotalValue,
 			UnpricedInstruments:   pt.UnpricedInstruments,
 		}

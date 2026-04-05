@@ -6,7 +6,7 @@ RUN go install github.com/bufbuild/buf/cmd/buf@latest \
 COPY go.mod go.sum ./
 RUN go mod download
 COPY proto/ proto/
-COPY buf.yaml buf.gen.go.yaml ./
+COPY buf.yaml buf.lock buf.gen.go.yaml ./
 RUN buf generate --template buf.gen.go.yaml
 COPY server/ server/
 ARG BUILD_REV=unknown

@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
@@ -28,21 +27,8 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 		pageSize = 100
 	}
 
-	var dateFrom, dateTo time.Time
-	if req.GetDateFrom() != "" {
-		parsed, err := time.Parse("2006-01-02", req.GetDateFrom())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid date_from: %v", err)
-		}
-		dateFrom = parsed
-	}
-	if req.GetDateTo() != "" {
-		parsed, err := time.Parse("2006-01-02", req.GetDateTo())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid date_to: %v", err)
-		}
-		dateTo = parsed
-	}
+	dateFrom := dateToTime(req.GetDateFrom())
+	dateTo := dateToTime(req.GetDateTo())
 
 	rows, totalCount, nextToken, err := s.db.ListPrices(ctx, req.GetSearch(), dateFrom, dateTo, req.GetDataProvider(), pageSize, req.GetPageToken())
 	if err != nil {

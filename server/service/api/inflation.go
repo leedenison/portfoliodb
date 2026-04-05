@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
@@ -24,21 +23,8 @@ func (s *Server) ListInflationIndices(ctx context.Context, req *apiv1.ListInflat
 		pageSize = 100
 	}
 
-	var dateFrom, dateTo *time.Time
-	if req.GetDateFrom() != "" {
-		parsed, err := time.Parse("2006-01-02", req.GetDateFrom())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid date_from: %v", err)
-		}
-		dateFrom = &parsed
-	}
-	if req.GetDateTo() != "" {
-		parsed, err := time.Parse("2006-01-02", req.GetDateTo())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid date_to: %v", err)
-		}
-		dateTo = &parsed
-	}
+	dateFrom := dateToTimePtr(req.GetDateFrom())
+	dateTo := dateToTimePtr(req.GetDateTo())
 
 	rows, nextToken, totalCount, err := s.db.ListInflationIndices(ctx, req.GetCurrency(), dateFrom, dateTo, pageSize, req.GetPageToken())
 	if err != nil {

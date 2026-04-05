@@ -8,6 +8,7 @@ import {
   listInstruments,
   createHoldingDeclaration,
   updateHoldingDeclaration,
+  protoDateToStr,
 } from "@/lib/portfolio-api";
 import type { BrokerAccounts } from "@/lib/portfolio-api";
 import { IdentifierType } from "@/gen/api/v1/api_pb";
@@ -32,7 +33,7 @@ export function DeclarationForm({
   const [instrumentId, setInstrumentId] = useState(editing?.instrumentId ?? "");
   const [instrumentLabel, setInstrumentLabel] = useState("");
   const [declaredQty, setDeclaredQty] = useState(editing?.declaredQty ?? "");
-  const [asOfDate, setAsOfDate] = useState(editing?.asOfDate ?? todayStr());
+  const [asOfDate, setAsOfDate] = useState(editing?.asOfDate ? protoDateToStr(editing.asOfDate) : todayStr());
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 

@@ -12,8 +12,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const dateFormat = "2006-01-02"
-
 // ListHoldingDeclarations lists all declarations for the authenticated user.
 func (s *Server) ListHoldingDeclarations(ctx context.Context, req *apiv1.ListHoldingDeclarationsRequest) (*apiv1.ListHoldingDeclarationsResponse, error) {
 	u, authErr := auth.RequireUser(ctx)
@@ -46,7 +44,7 @@ func (s *Server) ListHoldingDeclarations(ctx context.Context, req *apiv1.ListHol
 			Account:      r.Account,
 			InstrumentId: r.InstrumentID,
 			DeclaredQty:  r.DeclaredQty,
-			AsOfDate:     r.AsOfDate.Format(dateFormat),
+			AsOfDate:     timeToDate(r.AsOfDate),
 		}
 		if inst := instByID[r.InstrumentID]; inst != nil {
 			decls[i].Instrument = inst
@@ -61,13 +59,7 @@ func (s *Server) CreateHoldingDeclaration(ctx context.Context, req *apiv1.Create
 	if authErr != nil {
 		return nil, authErr
 	}
-	if req.GetBroker() == "" || req.GetInstrumentId() == "" || req.GetDeclaredQty() == "" || req.GetAsOfDate() == "" {
-		return nil, status.Error(codes.InvalidArgument, "broker, instrument_id, declared_qty, and as_of_date are required")
-	}
-	asOfDate, err := time.Parse(dateFormat, req.GetAsOfDate())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid as_of_date: %v", err)
-	}
+	asOfDate := dateToTime(req.GetAsOfDate())
 	if _, err := strconv.ParseFloat(req.GetDeclaredQty(), 64); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid declared_qty: %v", err)
 	}
@@ -83,7 +75,7 @@ func (s *Server) CreateHoldingDeclaration(ctx context.Context, req *apiv1.Create
 	// Precondition: as_of_date >= portfolio start date
 	startDay := startDate.Truncate(24 * time.Hour)
 	if asOfDate.Before(startDay) {
-		return nil, status.Errorf(codes.InvalidArgument, "as_of_date must be on or after the portfolio start date (%s)", startDay.Format(dateFormat))
+		return nil, status.Errorf(codes.InvalidArgument, "as_of_date must be on or after the portfolio start date (%s)", startDay.Format("2006-01-02"))
 	}
 
 	init, err := s.computeInitializeValues(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, *startDate)
@@ -102,7 +94,7 @@ func (s *Server) CreateHoldingDeclaration(ctx context.Context, req *apiv1.Create
 		Account:      row.Account,
 		InstrumentId: row.InstrumentID,
 		DeclaredQty:  row.DeclaredQty,
-		AsOfDate:     row.AsOfDate.Format(dateFormat),
+		AsOfDate:     timeToDate(row.AsOfDate),
 	}
 	return &apiv1.CreateHoldingDeclarationResponse{Declaration: decl}, nil
 }
@@ -113,13 +105,7 @@ func (s *Server) UpdateHoldingDeclaration(ctx context.Context, req *apiv1.Update
 	if authErr != nil {
 		return nil, authErr
 	}
-	if req.GetId() == "" || req.GetDeclaredQty() == "" || req.GetAsOfDate() == "" {
-		return nil, status.Error(codes.InvalidArgument, "id, declared_qty, and as_of_date are required")
-	}
-	asOfDate, err := time.Parse(dateFormat, req.GetAsOfDate())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid as_of_date: %v", err)
-	}
+	asOfDate := dateToTime(req.GetAsOfDate())
 	if _, err := strconv.ParseFloat(req.GetDeclaredQty(), 64); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid declared_qty: %v", err)
 	}
@@ -142,7 +128,7 @@ func (s *Server) UpdateHoldingDeclaration(ctx context.Context, req *apiv1.Update
 	}
 	startDay := startDate.Truncate(24 * time.Hour)
 	if asOfDate.Before(startDay) {
-		return nil, status.Errorf(codes.InvalidArgument, "as_of_date must be on or after the portfolio start date (%s)", startDay.Format(dateFormat))
+		return nil, status.Errorf(codes.InvalidArgument, "as_of_date must be on or after the portfolio start date (%s)", startDay.Format("2006-01-02"))
 	}
 
 	init, err := s.computeInitializeValues(ctx, u.ID, existing.Broker, existing.Account, existing.InstrumentID, req.GetDeclaredQty(), asOfDate, *startDate)
@@ -161,7 +147,7 @@ func (s *Server) UpdateHoldingDeclaration(ctx context.Context, req *apiv1.Update
 		Account:      row.Account,
 		InstrumentId: row.InstrumentID,
 		DeclaredQty:  row.DeclaredQty,
-		AsOfDate:     row.AsOfDate.Format(dateFormat),
+		AsOfDate:     timeToDate(row.AsOfDate),
 	}
 	return &apiv1.UpdateHoldingDeclarationResponse{Declaration: decl}, nil
 }

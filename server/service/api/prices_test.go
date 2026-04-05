@@ -9,6 +9,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/testutil"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/genproto/googleapis/type/date"
 	"google.golang.org/grpc/codes"
 )
 
@@ -100,19 +101,25 @@ func TestListPrices_DateParsing(t *testing.T) {
 		Return(nil, int32(0), "", nil)
 	ctx := adminCtx("user-1", "sub|1")
 	_, err := srv.ListPrices(ctx, &apiv1.ListPricesRequest{
-		DateFrom: "2024-01-01",
-		DateTo:   "2024-01-31",
+		DateFrom: &date.Date{Year: 2024, Month: 1, Day: 1},
+		DateTo:   &date.Date{Year: 2024, Month: 1, Day: 31},
 	})
 	if err != nil {
 		t.Fatalf("ListPrices: %v", err)
 	}
 }
 
-func TestListPrices_InvalidDate(t *testing.T) {
-	srv, _ := newAPIServerWithMock(t)
+func TestListPrices_ZeroDate(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	// A zero Date (year=0) should be treated as unset, same as nil.
+	db.EXPECT().
+		ListPrices(gomock.Any(), "", time.Time{}, time.Time{}, "", int32(30), "").
+		Return(nil, int32(0), "", nil)
 	ctx := adminCtx("user-1", "sub|1")
-	_, err := srv.ListPrices(ctx, &apiv1.ListPricesRequest{DateFrom: "not-a-date"})
-	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
+	_, err := srv.ListPrices(ctx, &apiv1.ListPricesRequest{DateFrom: &date.Date{}})
+	if err != nil {
+		t.Fatalf("ListPrices with zero date: %v", err)
+	}
 }
 
 func TestListPrices_DBError(t *testing.T) {

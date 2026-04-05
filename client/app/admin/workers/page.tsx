@@ -44,6 +44,11 @@ export default function AdminWorkersPage() {
     }
   }, []);
 
+  const triggerFns: Record<string, () => Promise<void>> = {
+    price_fetcher: triggerPriceFetch,
+    inflation_fetcher: triggerInflationFetch,
+  };
+
   async function handleTrigger(name: string, fn: () => Promise<void>) {
     setTriggering(name);
     setError(null);
@@ -75,32 +80,14 @@ export default function AdminWorkersPage() {
     <div data-testid="page-workers">
       <div className="flex items-center justify-between gap-4">
         <h1 className="font-display text-xl font-bold text-text-primary">Workers</h1>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => handleTrigger("price", triggerPriceFetch)}
-            disabled={triggering !== null}
-            className="rounded border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:opacity-50"
-          >
-            {triggering === "price" ? "Triggering..." : "Trigger Price Fetch"}
-          </button>
-          <button
-            type="button"
-            onClick={() => handleTrigger("inflation", triggerInflationFetch)}
-            disabled={triggering !== null}
-            className="rounded border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:opacity-50"
-          >
-            {triggering === "inflation" ? "Triggering..." : "Trigger Inflation Fetch"}
-          </button>
-          <button
-            type="button"
-            onClick={load}
-            disabled={loading}
-            className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
-          >
-            {loading ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={load}
+          disabled={loading}
+          className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+        >
+          {loading ? "Refreshing..." : "Refresh"}
+        </button>
       </div>
       {error && (
         <div className="mt-2">
@@ -120,7 +107,8 @@ export default function AdminWorkersPage() {
               <th className="py-2 pr-4 font-medium">State</th>
               <th className="py-2 pr-4 font-medium">Summary</th>
               <th className="py-2 pr-4 font-medium">Queue</th>
-              <th className="py-2 font-medium">Updated</th>
+              <th className="py-2 pr-4 font-medium">Updated</th>
+              <th className="py-2 font-medium" />
             </tr>
           </thead>
           <tbody>
@@ -138,8 +126,20 @@ export default function AdminWorkersPage() {
                 </td>
                 <td className="py-2 pr-4 text-text-muted">{w.summary || "\u2014"}</td>
                 <td className="py-2 pr-4 tabular-nums text-text-secondary">{w.queueDepth}</td>
-                <td className="py-2 text-text-muted">
+                <td className="py-2 pr-4 text-text-muted">
                   {w.updatedAt ? w.updatedAt.toLocaleTimeString() : "\u2014"}
+                </td>
+                <td className="py-2 text-right">
+                  {triggerFns[w.name] && (
+                    <button
+                      type="button"
+                      onClick={() => handleTrigger(w.name, triggerFns[w.name])}
+                      disabled={triggering !== null}
+                      className="rounded border border-border px-3 py-1 text-xs hover:bg-background disabled:opacity-50"
+                    >
+                      {triggering === w.name ? "Triggering..." : "Trigger"}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"time"
 
@@ -50,10 +51,13 @@ func sessionIDFromMetadata(ctx context.Context, cookieName string) string {
 		return ""
 	}
 	for _, v := range md.Get("cookie") {
-		for _, part := range strings.Split(v, ";") {
-			part = strings.TrimSpace(part)
-			if eq := strings.IndexByte(part, '='); eq > 0 && strings.TrimSpace(part[:eq]) == cookieName {
-				return strings.TrimSpace(part[eq+1:])
+		cookies, err := http.ParseCookie(v)
+		if err != nil {
+			continue
+		}
+		for _, c := range cookies {
+			if c.Name == cookieName {
+				return c.Value
 			}
 		}
 	}

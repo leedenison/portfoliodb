@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	backoff "github.com/cenkalti/backoff/v4"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -330,25 +331,33 @@ func timeoutFromConfig(config []byte) time.Duration {
 	return time.Duration(*c.TimeoutSeconds) * time.Second
 }
 
-// callPluginWithRetry calls Identify once; on non-ErrNotIdentified error, sleeps backoff and tries once more.
-// The retry derives its timeout from the original parent context (not the timed-out first-attempt context)
-// so it gets a fresh deadline while still honouring parent cancellation (e.g. client disconnect).
-func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, timeout, backoff time.Duration) (*identifier.Instrument, []identifier.Identifier, error) {
-	attemptCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	inst, ids, err := p.Identify(attemptCtx, config, broker, source, instrumentDescription, hints, identifierHints)
-	if err == nil || errors.Is(err, identifier.ErrNotIdentified) {
-		return inst, ids, err
-	}
-	// Retry once with backoff; derive from parent ctx so cancellation still propagates.
-	time.Sleep(backoff)
-	retryCtx, retryCancel := context.WithTimeout(ctx, timeout)
-	defer retryCancel()
-	inst, ids, err2 := p.Identify(retryCtx, config, broker, source, instrumentDescription, hints, identifierHints)
-	if err2 != nil {
-		return nil, nil, err2
-	}
-	return inst, ids, nil
+// callPluginWithRetry calls Identify with exponential backoff retry.
+// ErrNotIdentified is treated as a permanent error (no retry). Each attempt gets its own
+// context timeout derived from the parent so cancellation still propagates.
+func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, timeout, initialBackoff time.Duration) (*identifier.Instrument, []identifier.Identifier, error) {
+	var inst *identifier.Instrument
+	var ids []identifier.Identifier
+
+	bo := backoff.NewExponentialBackOff()
+	bo.InitialInterval = initialBackoff
+	bo.MaxElapsedTime = 0 // controlled by MaxRetries, not elapsed time
+	bCtx := backoff.WithContext(backoff.WithMaxRetries(bo, 1), ctx)
+
+	err := backoff.Retry(func() error {
+		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		var attemptErr error
+		inst, ids, attemptErr = p.Identify(attemptCtx, config, broker, source, instrumentDescription, hints, identifierHints)
+		if attemptErr == nil {
+			return nil
+		}
+		if errors.Is(attemptErr, identifier.ErrNotIdentified) {
+			return backoff.Permanent(attemptErr)
+		}
+		return attemptErr
+	}, bCtx)
+
+	return inst, ids, err
 }
 
 // resolveLogger returns the provided logger or falls back to slog.Default().

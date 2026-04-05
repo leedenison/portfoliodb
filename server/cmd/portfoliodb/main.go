@@ -37,6 +37,7 @@ import (
 	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
 	openaidesc "github.com/leedenison/portfoliodb/server/plugins/openai/description"
 	"github.com/leedenison/portfoliodb/server/inflationfetcher"
+	onsinflation "github.com/leedenison/portfoliodb/server/plugins/ons/inflation"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/service/api"
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
@@ -212,7 +213,7 @@ func main() {
 		log.Fatalf("ensure price plugin configs: %v", err)
 	}
 	inflationRegistry := inflationfetcher.NewRegistry()
-	// Inflation plugins registered here (e.g. ONS in a future PR).
+	inflationRegistry.Register(onsinflation.PluginID, onsinflation.NewPlugin(logger.WithCategory(serverLogger, "server/plugins/ons/inflation"), pluginHTTPClient))
 	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryInflation, inflationRegistry.ListIDs(), func(id string) []byte {
 		if p := inflationRegistry.Get(id); p != nil {
 			return p.DefaultConfig()

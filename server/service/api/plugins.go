@@ -19,8 +19,8 @@ func (s *Server) ReorderPlugins(ctx context.Context, req *apiv1.ReorderPluginsRe
 		return nil, authErr
 	}
 	cat := req.GetCategory()
-	if cat != db.PluginCategoryIdentifier && cat != db.PluginCategoryDescription && cat != db.PluginCategoryPrice {
-		return nil, status.Error(codes.InvalidArgument, "category must be identifier, description, or price")
+	if cat != db.PluginCategoryIdentifier && cat != db.PluginCategoryDescription && cat != db.PluginCategoryPrice && cat != db.PluginCategoryInflation {
+		return nil, status.Error(codes.InvalidArgument, "category must be identifier, description, price, or inflation")
 	}
 	if len(req.GetPluginIds()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "plugin_ids required")
@@ -324,6 +324,97 @@ func (s *Server) ListDescriptionPlugins(ctx context.Context, req *apiv1.ListDesc
 		})
 	}
 	return &apiv1.ListDescriptionPluginsResponse{Plugins: plugins}, nil
+}
+
+// ListInflationPlugins returns all inflation plugin configs. Admin only.
+func (s *Server) ListInflationPlugins(ctx context.Context, req *apiv1.ListInflationPluginsRequest) (*apiv1.ListInflationPluginsResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	rows, err := s.db.ListPluginConfigs(ctx, db.PluginCategoryInflation)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	plugins := make([]*apiv1.InflationPluginConfig, 0, len(rows))
+	for _, r := range rows {
+		configJSON := ""
+		if len(r.Config) > 0 {
+			configJSON = string(r.Config)
+		}
+		displayName := r.PluginID
+		if s.inflationRegistry != nil {
+			displayName = s.inflationRegistry.GetDisplayName(r.PluginID)
+		}
+		plugins = append(plugins, &apiv1.InflationPluginConfig{
+			PluginId:    r.PluginID,
+			Enabled:     r.Enabled,
+			Precedence:  int32(r.Precedence),
+			ConfigJson:  configJSON,
+			DisplayName: displayName,
+		})
+	}
+	return &apiv1.ListInflationPluginsResponse{Plugins: plugins}, nil
+}
+
+// UpdateInflationPlugin updates enabled, precedence, and/or config for an inflation plugin. Admin only.
+func (s *Server) UpdateInflationPlugin(ctx context.Context, req *apiv1.UpdateInflationPluginRequest) (*apiv1.UpdateInflationPluginResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	if req.GetPluginId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "plugin_id required")
+	}
+	var enabled *bool
+	if req.Enabled != nil {
+		enabled = req.Enabled
+	}
+	var precedence *int
+	if req.Precedence != nil {
+		p := int(*req.Precedence)
+		precedence = &p
+	}
+	var config []byte
+	if req.ConfigJson != nil {
+		config = []byte(*req.ConfigJson)
+	}
+	row, err := s.db.UpdatePluginConfig(ctx, db.PluginCategoryInflation, req.GetPluginId(), enabled, precedence, config, nil)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, status.Error(codes.NotFound, "plugin not found")
+		}
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	configJSON := ""
+	if len(row.Config) > 0 {
+		configJSON = string(row.Config)
+	}
+	displayName := row.PluginID
+	if s.inflationRegistry != nil {
+		displayName = s.inflationRegistry.GetDisplayName(row.PluginID)
+	}
+	return &apiv1.UpdateInflationPluginResponse{
+		Plugin: &apiv1.InflationPluginConfig{
+			PluginId:    row.PluginID,
+			Enabled:     row.Enabled,
+			Precedence:  int32(row.Precedence),
+			ConfigJson:  configJSON,
+			DisplayName: displayName,
+		},
+	}, nil
+}
+
+// TriggerInflationFetch signals the inflation fetcher worker to run a cycle. Admin only.
+func (s *Server) TriggerInflationFetch(ctx context.Context, req *apiv1.TriggerInflationFetchRequest) (*apiv1.TriggerInflationFetchResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	if s.inflationTrigger != nil {
+		select {
+		case s.inflationTrigger <- struct{}{}:
+		default:
+		}
+	}
+	return &apiv1.TriggerInflationFetchResponse{}, nil
 }
 
 // UpdateDescriptionPlugin updates enabled, precedence, and/or config for a description plugin. Admin only.

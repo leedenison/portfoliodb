@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -20,32 +21,26 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *a
 	if asOf != nil && asOf.IsValid() {
 		asOfT = asOf.AsTime()
 	}
-	q := `
-		SELECT broker, account, MAX(instrument_description) AS instrument_description,
-			instrument_id, SUM(quantity) AS quantity
-		FROM txs
-		WHERE user_id = $1 AND timestamp <= $2
-	`
-	args := []interface{}{userUUID, asOfT}
-	argNum := 3
+	qb := psql.Select("broker", "account", "MAX(instrument_description) AS instrument_description", "instrument_id", "SUM(quantity) AS quantity").
+		From("txs").
+		Where(sq.Eq{"user_id": userUUID}).
+		Where(sq.LtOrEq{"timestamp": asOfT}).
+		GroupBy("broker", "account", "instrument_id").
+		Suffix("HAVING NOT qty_is_zero(SUM(quantity))")
 	if broker != nil {
 		brokerStr, err := brokerToStr(*broker)
 		if err != nil {
 			return nil, nil, err
 		}
-		q += fmt.Sprintf(" AND broker = $%d", argNum)
-		args = append(args, brokerStr)
-		argNum++
+		qb = qb.Where(sq.Eq{"broker": brokerStr})
 	}
 	if account != "" {
-		q += fmt.Sprintf(" AND account = $%d", argNum)
-		args = append(args, account)
-		argNum++
+		qb = qb.Where(sq.Eq{"account": account})
 	}
-	q += `
-		GROUP BY broker, account, instrument_id
-		HAVING NOT qty_is_zero(SUM(quantity))
-	`
+	q, args, err := qb.ToSql()
+	if err != nil {
+		return nil, nil, fmt.Errorf("build compute holdings query: %w", err)
+	}
 	var hrows []holdingRow
 	if err := p.q.SelectContext(ctx, &hrows, q, args...); err != nil {
 		return nil, nil, fmt.Errorf("compute holdings: %w", err)

@@ -6,6 +6,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
+	"github.com/leedenison/portfoliodb/server/inflationfetcher"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/worker"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
@@ -24,9 +25,11 @@ type Server struct {
 	counterPrefix  string
 	pluginRegistry *identifier.Registry
 	descRegistry   *description.Registry
-	priceRegistry  *pricefetcher.Registry
-	priceTrigger   chan<- struct{}
-	workerRegistry *worker.Registry
+	priceRegistry     *pricefetcher.Registry
+	priceTrigger      chan<- struct{}
+	inflationRegistry *inflationfetcher.Registry
+	inflationTrigger  chan<- struct{}
+	workerRegistry    *worker.Registry
 	enqueueJob     JobEnqueuer
 }
 
@@ -37,24 +40,28 @@ type ServerConfig struct {
 	CounterPrefix  string
 	PluginRegistry *identifier.Registry     // optional; enables display_name in identifier plugin list
 	DescRegistry   *description.Registry    // optional; enables display_name in description plugin list
-	PriceRegistry  *pricefetcher.Registry   // optional; enables display_name in price plugin list
-	PriceTrigger   chan<- struct{}           // optional; when set, TriggerPriceFetch sends on it
-	WorkerRegistry *worker.Registry         // optional; when set, ListWorkers returns worker status
+	PriceRegistry     *pricefetcher.Registry     // optional; enables display_name in price plugin list
+	PriceTrigger      chan<- struct{}             // optional; when set, TriggerPriceFetch sends on it
+	InflationRegistry *inflationfetcher.Registry  // optional; enables display_name in inflation plugin list
+	InflationTrigger  chan<- struct{}             // optional; when set, TriggerInflationFetch sends on it
+	WorkerRegistry    *worker.Registry           // optional; when set, ListWorkers returns worker status
 	EnqueueJob     JobEnqueuer              // optional; when set, ImportPrices enqueues async jobs
 }
 
 // NewServer returns a new API server.
 func NewServer(cfg ServerConfig) *Server {
 	return &Server{
-		db:             cfg.DB,
-		rdb:            cfg.Redis,
-		counterPrefix:  cfg.CounterPrefix,
-		pluginRegistry: cfg.PluginRegistry,
-		descRegistry:   cfg.DescRegistry,
-		priceRegistry:  cfg.PriceRegistry,
-		priceTrigger:   cfg.PriceTrigger,
-		workerRegistry: cfg.WorkerRegistry,
-		enqueueJob:     cfg.EnqueueJob,
+		db:                cfg.DB,
+		rdb:               cfg.Redis,
+		counterPrefix:     cfg.CounterPrefix,
+		pluginRegistry:    cfg.PluginRegistry,
+		descRegistry:      cfg.DescRegistry,
+		priceRegistry:     cfg.PriceRegistry,
+		priceTrigger:      cfg.PriceTrigger,
+		inflationRegistry: cfg.InflationRegistry,
+		inflationTrigger:  cfg.InflationTrigger,
+		workerRegistry:    cfg.WorkerRegistry,
+		enqueueJob:        cfg.EnqueueJob,
 	}
 }
 

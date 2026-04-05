@@ -231,6 +231,16 @@ service ApiService {
 
   // Price gaps (admin-only). Returns date ranges where prices are needed but not cached.
   rpc ListPriceGaps(ListPriceGapsRequest) returns (ListPriceGapsResponse);
+
+  // Inflation indices (admin-only). Browse stored monthly inflation data.
+  rpc ListInflationIndices(ListInflationIndicesRequest) returns (ListInflationIndicesResponse);
+
+  // Inflation plugin config (admin-only). List all plugins; update enabled, precedence, and config JSON.
+  rpc ListInflationPlugins(ListInflationPluginsRequest) returns (ListInflationPluginsResponse);
+  rpc UpdateInflationPlugin(UpdateInflationPluginRequest) returns (UpdateInflationPluginResponse);
+
+  // Trigger an inflation fetch cycle (admin-only). Returns immediately; fetch runs async.
+  rpc TriggerInflationFetch(TriggerInflationFetchRequest) returns (TriggerInflationFetchResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -539,7 +549,7 @@ message UpdatePricePluginResponse {
 // ReorderPluginsRequest sets precedence for all plugins in a category.
 // plugin_ids is ordered from highest precedence (index 0) to lowest.
 message ReorderPluginsRequest {
-  string category = 1;            // "identifier", "description", or "price"
+  string category = 1;            // "identifier", "description", "price", or "inflation"
   repeated string plugin_ids = 2; // all plugin IDs in the category, highest precedence first
 }
 
@@ -836,3 +846,56 @@ message ListPriceGapsResponse {
   repeated PriceGap price_gaps = 1;
   repeated PriceGap fx_gaps = 2;
 }
+
+// InflationIndexProto is a single monthly inflation index value for the admin UI.
+message InflationIndexProto {
+  string currency = 1;        // ISO 4217 (e.g. "GBP")
+  string month = 2;           // "YYYY-MM-DD" (1st of month)
+  double index_value = 3;
+  int32 base_year = 4;
+  string data_provider = 5;
+}
+
+message ListInflationIndicesRequest {
+  string currency = 1;        // optional filter
+  string date_from = 2;       // "YYYY-MM-DD"
+  string date_to = 3;         // "YYYY-MM-DD"
+  int32 page_size = 4;
+  string page_token = 5;
+}
+
+message ListInflationIndicesResponse {
+  repeated InflationIndexProto indices = 1;
+  string next_page_token = 2;
+  int32 total_count = 3;
+}
+
+// InflationPluginConfig describes an inflation plugin's admin-visible state.
+message InflationPluginConfig {
+  string plugin_id = 1;
+  bool enabled = 2;
+  int32 precedence = 3;
+  string config_json = 4;
+  string display_name = 5;
+}
+
+message ListInflationPluginsRequest {}
+
+message ListInflationPluginsResponse {
+  repeated InflationPluginConfig plugins = 1;
+}
+
+message UpdateInflationPluginRequest {
+  string plugin_id = 1;
+  optional bool enabled = 2;
+  optional int32 precedence = 3;
+  optional string config_json = 4;
+}
+
+message UpdateInflationPluginResponse {
+  InflationPluginConfig plugin = 1;
+}
+
+message TriggerInflationFetchRequest {}
+
+message TriggerInflationFetchResponse {}

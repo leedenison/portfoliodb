@@ -36,6 +36,7 @@ import (
 	massiveprice "github.com/leedenison/portfoliodb/server/plugins/massive/price"
 	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
 	openaidesc "github.com/leedenison/portfoliodb/server/plugins/openai/description"
+	"github.com/leedenison/portfoliodb/server/inflationfetcher"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/service/api"
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
@@ -210,6 +211,17 @@ func main() {
 	}); err != nil {
 		log.Fatalf("ensure price plugin configs: %v", err)
 	}
+	inflationRegistry := inflationfetcher.NewRegistry()
+	// Inflation plugins registered here (e.g. ONS in a future PR).
+	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryInflation, inflationRegistry.ListIDs(), func(id string) []byte {
+		if p := inflationRegistry.Get(id); p != nil {
+			return p.DefaultConfig()
+		}
+		return nil
+	}); err != nil {
+		log.Fatalf("ensure inflation plugin configs: %v", err)
+	}
+	inflationTrigger := make(chan struct{}, 1)
 	priceTrigger := make(chan struct{}, 1)
 	queue := make(chan *ingestion.JobRequest, 256)
 	workers := worker.NewRegistry()
@@ -218,6 +230,7 @@ func main() {
 	ingestionLogger := logger.WithCategory(serverLogger, "server/service/ingestion")
 	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter, ingestionLogger, priceTrigger, workers)
 	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
+	go inflationfetcher.RunWorker(ctx, database, inflationRegistry, counter, logger.WithCategory(serverLogger, "server/inflationfetcher"), inflationTrigger, workers)
 	// Re-enqueue incomplete jobs from a previous run.
 	if pending, err := database.ListPendingJobs(ctx); err == nil {
 		for _, p := range pending {
@@ -255,9 +268,11 @@ func main() {
 		CounterPrefix:  counterPrefix,
 		PluginRegistry: pluginRegistry,
 		DescRegistry:   descRegistry,
-		PriceRegistry:  priceRegistry,
-		PriceTrigger:   priceTrigger,
-		WorkerRegistry: workers,
+		PriceRegistry:     priceRegistry,
+		PriceTrigger:      priceTrigger,
+		InflationRegistry: inflationRegistry,
+		InflationTrigger:  inflationTrigger,
+		WorkerRegistry:    workers,
 		EnqueueJob:     api.JobEnqueuer(enqueueJob),
 	}))
 	ingestionv1.RegisterIngestionServiceServer(svc, ingestion.NewServer(database, queue))

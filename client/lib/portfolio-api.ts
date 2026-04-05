@@ -80,6 +80,13 @@ import {
   CountIgnoredTxsRequestSchema,
   CountIgnoredTxsResponseSchema,
   IgnoredAssetClassRuleSchema,
+  ListInflationIndicesRequestSchema,
+  ListInflationIndicesResponseSchema,
+  ListInflationPluginsRequestSchema,
+  ListInflationPluginsResponseSchema,
+  UpdateInflationPluginRequestSchema,
+  UpdateInflationPluginResponseSchema,
+  TriggerInflationFetchRequestSchema,
   AssetClass,
   JobStatus,
   WorkerState,
@@ -87,6 +94,8 @@ import {
 import type {
   DescriptionPluginConfig,
   EODPriceProto,
+  InflationIndexProto,
+  InflationPluginConfig,
   ExportPriceRow,
   Holding,
   HoldingDeclaration,
@@ -811,4 +820,82 @@ export async function countIgnoredTxs(rules: IgnoredAssetClassRule[]): Promise<{
   });
   const res = fromBinary(CountIgnoredTxsResponseSchema, resBytes);
   return { txCount: res.txCount, declarationCount: res.declarationCount };
+}
+
+// ---------------------------------------------------------------------------
+// Inflation indices
+// ---------------------------------------------------------------------------
+
+export interface ListInflationIndicesResult {
+  indices: InflationIndexProto[];
+  nextPageToken: string | null;
+  totalCount: number;
+}
+
+export async function listInflationIndices(params?: {
+  currency?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  pageToken?: string | null;
+}): Promise<ListInflationIndicesResult> {
+  const base = getBaseUrl();
+  const req = create(ListInflationIndicesRequestSchema, {
+    currency: params?.currency ?? "",
+    dateFrom: params?.dateFrom ?? "",
+    dateTo: params?.dateTo ?? "",
+    pageSize: PAGE_SIZE,
+    pageToken: params?.pageToken ?? "",
+  });
+  const resBytes = await unaryFetch(
+    base,
+    ApiServicePrefix + "ListInflationIndices",
+    toBinary(ListInflationIndicesRequestSchema, req),
+    { credentials: "include" }
+  );
+  const res = fromBinary(ListInflationIndicesResponseSchema, resBytes);
+  return {
+    indices: res.indices,
+    nextPageToken: res.nextPageToken || null,
+    totalCount: res.totalCount,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Inflation plugins
+// ---------------------------------------------------------------------------
+
+export async function listInflationPlugins(): Promise<InflationPluginConfig[]> {
+  const base = getBaseUrl();
+  const req = create(ListInflationPluginsRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListInflationPlugins", toBinary(ListInflationPluginsRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(ListInflationPluginsResponseSchema, resBytes);
+  return res.plugins;
+}
+
+export async function updateInflationPlugin(
+  pluginId: string,
+  opts: { enabled?: boolean; precedence?: number; configJson?: string }
+): Promise<InflationPluginConfig> {
+  const base = getBaseUrl();
+  const reqMsg = create(UpdateInflationPluginRequestSchema, {
+    pluginId,
+    ...(opts.enabled !== undefined && { enabled: opts.enabled }),
+    ...(opts.precedence !== undefined && { precedence: opts.precedence }),
+    ...(opts.configJson !== undefined && { configJson: opts.configJson }),
+  });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "UpdateInflationPlugin", toBinary(UpdateInflationPluginRequestSchema, reqMsg), {
+    credentials: "include",
+  });
+  const res = fromBinary(UpdateInflationPluginResponseSchema, resBytes);
+  return res.plugin!;
+}
+
+export async function triggerInflationFetch(): Promise<void> {
+  const base = getBaseUrl();
+  const req = create(TriggerInflationFetchRequestSchema, {});
+  await unaryFetch(base, ApiServicePrefix + "TriggerInflationFetch", toBinary(TriggerInflationFetchRequestSchema, req), {
+    credentials: "include",
+  });
 }

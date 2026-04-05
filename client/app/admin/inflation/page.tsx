@@ -1,25 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
+import { useDebounce } from "@/hooks/use-debounce";
 import { listInflationIndices } from "@/lib/portfolio-api";
 import type { InflationIndexProto } from "@/gen/api/v1/api_pb";
 
 export default function AdminInflationPage() {
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
-
-  useEffect(() => {
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(debounceRef.current);
-  }, [search]);
 
   const fetchIndices = useCallback(
     async (pageToken: string | null) => {

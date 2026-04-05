@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
@@ -11,6 +11,7 @@ import {
   exportPrices,
 } from "@/lib/portfolio-api";
 import { pricesToCsv } from "@/lib/csv/prices";
+import { useDebounce } from "@/hooks/use-debounce";
 import { ImportPricesModal } from "./import-modal";
 import type { EODPriceProto, ExportPriceRow, PriceFetchBlock } from "@/gen/api/v1/api_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
@@ -80,20 +81,13 @@ function fmtVolume(v: bigint | undefined): string {
 
 function PriceListTab() {
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [exportLoading, setExportLoading] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
-
-  useEffect(() => {
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(debounceRef.current);
-  }, [search]);
 
   async function handleExport() {
     setExportLoading(true);

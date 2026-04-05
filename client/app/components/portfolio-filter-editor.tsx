@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
+import { useDebounce } from "@/hooks/use-debounce";
 import {
   getPortfolioFilters,
   setPortfolioFilters,
@@ -45,22 +46,14 @@ export function PortfolioFilterEditor({
 
   // Instrument search state.
   const [instSearch, setInstSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debouncedSearch = useDebounce(instSearch);
   const [activeClasses, setActiveClasses] = useState<Set<AssetClass>>(
     () => new Set(ALL_ASSET_CLASSES)
   );
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Save state.
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  // Debounce instrument search.
-  useEffect(() => {
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedSearch(instSearch), 300);
-    return () => clearTimeout(debounceRef.current);
-  }, [instSearch]);
 
   // Load existing filters, broker/accounts, and resolve instrument names on mount.
   useEffect(() => {

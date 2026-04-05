@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
 import { exportInstruments, listInstruments } from "@/lib/portfolio-api";
 import { instrumentsToJson } from "@/lib/json/instruments";
+import { useDebounce } from "@/hooks/use-debounce";
 import { ImportInstrumentsModal } from "./import-modal";
 import { AssetClass, IdentifierType } from "@/gen/api/v1/api_pb";
 import type { Instrument, InstrumentIdentifier } from "@/gen/api/v1/api_pb";
@@ -39,26 +40,20 @@ function isIdentified(inst: Instrument): boolean {
 
 export default function AdminInstrumentsPage() {
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
   const [activeClasses, setActiveClasses] = useState<Set<AssetClass>>(
     () => new Set(DEFAULT_ASSET_CLASSES)
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const [exportLoading, setExportLoading] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Debounce search input.
+  // Collapse expanded row when search changes.
   useEffect(() => {
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setDebouncedSearch(search);
-      setExpandedId(null);
-    }, 300);
-    return () => clearTimeout(debounceRef.current);
-  }, [search]);
+    setExpandedId(null);
+  }, [debouncedSearch]);
 
   const toggleClass = (cls: AssetClass) => {
     setActiveClasses((prev) => {

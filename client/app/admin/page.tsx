@@ -54,6 +54,12 @@ const dashboardCards: {
       "Enable/disable price plugins that fetch end-of-day prices for identified instruments.",
   },
   {
+    id: "workers",
+    title: "Workers",
+    href: "/admin/workers",
+    description: "Background worker status and manual fetch triggers.",
+  },
+  {
     id: "telemetry",
     title: "Telemetry",
     href: "/admin/telemetry",
@@ -119,6 +125,11 @@ export default function AdminOverviewPage() {
     if (id === "price" && pricePlugins.length > 0) {
       return pricePlugins.map((p) => p.displayName).join(", ");
     }
+    if (id === "workers" && workers.length > 0) {
+      return workers
+        .map((w) => `${w.name}: ${w.state === WorkerState.RUNNING ? "running" : "idle"}`)
+        .join(", ");
+    }
     return null;
   }
 
@@ -128,32 +139,6 @@ export default function AdminOverviewPage() {
       <p className="text-sm text-text-muted">
         Quick links to admin tools. Use the sidebar for full navigation.
       </p>
-      {/* Workers status */}
-      {workers.length > 0 && (
-        <Link
-          href="/admin/workers"
-          className="group block rounded-md border border-border bg-surface p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
-        >
-          <h2 className="font-display font-semibold text-text-primary group-hover:text-primary-dark">Workers</h2>
-          <div className="mt-3 flex flex-wrap gap-3">
-            {workers.map((w) => (
-              <div key={w.name} className="flex items-center gap-2">
-                <span className="font-mono text-xs text-text-muted">{w.name}</span>
-                <span
-                  className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                    w.state === WorkerState.RUNNING
-                      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
-                      : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                  }`}
-                >
-                  {w.state === WorkerState.RUNNING ? "Running" : "Idle"}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Link>
-      )}
-
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {dashboardCards.map((card) => {
           const summary = pluginSummary(card.id);

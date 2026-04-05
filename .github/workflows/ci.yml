@@ -56,7 +56,7 @@ jobs:
         run: go install github.com/bufbuild/buf/cmd/buf@latest
 
       - name: Generate TypeScript protobuf
-        run: buf generate --template buf.gen.ts.yaml
+        run: buf generate --template buf.gen.ts.yaml --include-imports
 
       - name: Run client tests
         working-directory: client

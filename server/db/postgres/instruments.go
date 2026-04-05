@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -406,14 +406,10 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	limit := pageSize
 	offset := decodePageToken(pageToken)
 
-	// Build WHERE clauses for optional filters.
-	var conditions []string
-	var args []interface{}
-	argIdx := 1
+	// Build shared WHERE conditions.
+	where := sq.And{}
 	if search != "" {
-		conditions = append(conditions, fmt.Sprintf(`i.name ILIKE '%%' || $%d || '%%'`, argIdx))
-		args = append(args, search)
-		argIdx++
+		where = append(where, sq.ILike{"i.name": "%" + search + "%"})
 	}
 	if len(assetClasses) > 0 {
 		var filtered []string
@@ -425,47 +421,43 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 				filtered = append(filtered, ac)
 			}
 		}
-		var parts []string
+		var parts sq.Or
 		if len(filtered) > 0 {
-			placeholders := make([]string, len(filtered))
-			for i, ac := range filtered {
-				placeholders[i] = fmt.Sprintf("$%d", argIdx)
-				args = append(args, ac)
-				argIdx++
-			}
-			parts = append(parts, fmt.Sprintf("i.asset_class IN (%s)", strings.Join(placeholders, ",")))
+			parts = append(parts, sq.Eq{"i.asset_class": filtered})
 		}
 		if includeEmpty {
-			parts = append(parts, "(i.asset_class IS NULL OR i.asset_class = '')")
+			parts = append(parts, sq.Or{sq.Eq{"i.asset_class": nil}, sq.Eq{"i.asset_class": ""}})
 		}
-		conditions = append(conditions, "("+strings.Join(parts, " OR ")+")")
-	}
-	where := ""
-	if len(conditions) > 0 {
-		where = "WHERE " + strings.Join(conditions, " AND ")
+		where = append(where, parts)
 	}
 
 	// Count total matching instruments.
+	countQ, countArgs, err := psql.Select("COUNT(*)").From("instruments i").Where(where).ToSql()
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("build count instruments query: %w", err)
+	}
 	var total int32
-	countQ := fmt.Sprintf(`SELECT COUNT(*) FROM instruments i %s`, where)
-	if err := p.q.QueryRowContext(ctx, countQ, args...).Scan(&total); err != nil {
+	if err := p.q.QueryRowContext(ctx, countQ, countArgs...).Scan(&total); err != nil {
 		return nil, 0, "", fmt.Errorf("count instruments: %w", err)
 	}
 	if total == 0 {
 		return nil, 0, "", nil
 	}
 
-	q := fmt.Sprintf(`
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_to,
-		       i.cik, i.sic_code,
-		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
-		FROM instruments i
-		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
-		%s
-		ORDER BY lower(i.name)
-		LIMIT $%d OFFSET $%d
-	`, where, argIdx, argIdx+1)
-	args = append(args, limit+1, offset)
+	q, args, err := psql.Select(
+		"i.id", "i.asset_class", "i.exchange_mic", "i.currency", "i.name", "i.exchange", "i.underlying_id", "i.valid_from", "i.valid_to",
+		"i.cik", "i.sic_code",
+		"e.name AS exchange_name", "e.acronym AS exchange_acronym", "e.country_code AS exchange_country_code",
+	).
+		From("instruments i").
+		LeftJoin("exchanges e ON e.mic = i.exchange_mic").
+		Where(where).
+		OrderBy("lower(i.name)").
+		Limit(uint64(limit + 1)).Offset(uint64(offset)).
+		ToSql()
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("build list instruments query: %w", err)
+	}
 
 	var irows []instrumentRow
 	if err := p.q.SelectContext(ctx, &irows, q, args...); err != nil {

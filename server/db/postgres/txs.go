@@ -3,12 +3,14 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strconv"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
 
 // ReplaceTxsInPeriod implements db.TxDB.
@@ -99,47 +101,40 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	q := `
-		SELECT broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, settlement_currency, unit_price, instrument_id, synthetic_purpose
-		FROM txs WHERE user_id = $1
-	`
-	args := []interface{}{userUUID}
-	argNum := 2
+	qb := psql.Select("broker", "account", "timestamp", "instrument_description", "tx_type", "quantity", "trading_currency", "settlement_currency", "unit_price", "instrument_id", "synthetic_purpose").
+		From("txs").
+		Where(sq.Eq{"user_id": userUUID}).
+		OrderBy("timestamp")
 	if broker != nil {
 		brokerStr, err := brokerToStr(*broker)
 		if err != nil {
 			return nil, "", err
 		}
-		q += fmt.Sprintf(" AND broker = $%d", argNum)
-		args = append(args, brokerStr)
-		argNum++
+		qb = qb.Where(sq.Eq{"broker": brokerStr})
 	}
 	if account != "" {
-		q += fmt.Sprintf(" AND account = $%d", argNum)
-		args = append(args, account)
-		argNum++
+		qb = qb.Where(sq.Eq{"account": account})
 	}
 	if periodFrom != nil {
 		fromT, err := tsToTime(periodFrom)
 		if err != nil {
 			return nil, "", fmt.Errorf("period_from: %w", err)
 		}
-		q += fmt.Sprintf(" AND timestamp >= $%d", argNum)
-		args = append(args, fromT)
-		argNum++
+		qb = qb.Where(sq.GtOrEq{"timestamp": fromT})
 	}
 	if periodTo != nil {
 		toT, err := tsToTime(periodTo)
 		if err != nil {
 			return nil, "", fmt.Errorf("period_to: %w", err)
 		}
-		q += fmt.Sprintf(" AND timestamp <= $%d", argNum)
-		args = append(args, toT)
-		argNum++
+		qb = qb.Where(sq.LtOrEq{"timestamp": toT})
 	}
-	q += " ORDER BY timestamp LIMIT $" + strconv.Itoa(argNum) + " OFFSET $" + strconv.Itoa(argNum+1)
 	offset := decodePageToken(pageToken)
-	args = append(args, limit+1, offset)
+	qb = qb.Limit(uint64(limit + 1)).Offset(uint64(offset))
+	q, args, err := qb.ToSql()
+	if err != nil {
+		return nil, "", fmt.Errorf("build list txs query: %w", err)
+	}
 	var trows []txRow
 	if err := p.q.SelectContext(ctx, &trows, q, args...); err != nil {
 		return nil, "", fmt.Errorf("list txs: %w", err)
@@ -166,35 +161,30 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, p
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	q := `
-		SELECT t.broker, t.account, t.timestamp, t.instrument_description, t.tx_type, t.quantity, t.trading_currency, t.settlement_currency, t.unit_price, t.instrument_id, t.synthetic_purpose
-		FROM txs t
-		INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
-		WHERE 1=1
-	`
-	args := []interface{}{portUUID}
-	argNum := 2
+	qb := psql.Select("t.broker", "t.account", "t.timestamp", "t.instrument_description", "t.tx_type", "t.quantity", "t.trading_currency", "t.settlement_currency", "t.unit_price", "t.instrument_id", "t.synthetic_purpose").
+		From("txs t").
+		Join("portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = ?", portUUID).
+		OrderBy("t.timestamp")
 	if periodFrom != nil {
 		fromT, err := tsToTime(periodFrom)
 		if err != nil {
 			return nil, "", fmt.Errorf("period_from: %w", err)
 		}
-		q += fmt.Sprintf(" AND t.timestamp >= $%d", argNum)
-		args = append(args, fromT)
-		argNum++
+		qb = qb.Where(sq.GtOrEq{"t.timestamp": fromT})
 	}
 	if periodTo != nil {
 		toT, err := tsToTime(periodTo)
 		if err != nil {
 			return nil, "", fmt.Errorf("period_to: %w", err)
 		}
-		q += fmt.Sprintf(" AND t.timestamp <= $%d", argNum)
-		args = append(args, toT)
-		argNum++
+		qb = qb.Where(sq.LtOrEq{"t.timestamp": toT})
 	}
-	q += " ORDER BY t.timestamp LIMIT $" + strconv.Itoa(argNum) + " OFFSET $" + strconv.Itoa(argNum+1)
 	offset := decodePageToken(pageToken)
-	args = append(args, limit+1, offset)
+	qb = qb.Limit(uint64(limit + 1)).Offset(uint64(offset))
+	q, args, err := qb.ToSql()
+	if err != nil {
+		return nil, "", fmt.Errorf("build list txs by portfolio query: %w", err)
+	}
 	var trows []txRow
 	if err := p.q.SelectContext(ctx, &trows, q, args...); err != nil {
 		return nil, "", fmt.Errorf("list txs by portfolio: %w", err)

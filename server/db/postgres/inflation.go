@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/leedenison/portfoliodb/server/db"
 )
 
@@ -63,48 +64,38 @@ func (p *Postgres) UpsertInflationIndices(ctx context.Context, indices []db.Infl
 func (p *Postgres) ListInflationIndices(ctx context.Context, currency string, dateFrom, dateTo *time.Time, pageSize int, pageToken string) ([]db.InflationIndex, string, int, error) {
 	offset := decodePageToken(pageToken)
 
-	var conditions []string
-	var args []interface{}
-	argIdx := 1
-
+	where := sq.And{}
 	if currency != "" {
-		conditions = append(conditions, fmt.Sprintf(`currency = $%d`, argIdx))
-		args = append(args, currency)
-		argIdx++
+		where = append(where, sq.Eq{"currency": currency})
 	}
 	if dateFrom != nil {
-		conditions = append(conditions, fmt.Sprintf(`month >= $%d`, argIdx))
-		args = append(args, *dateFrom)
-		argIdx++
+		where = append(where, sq.GtOrEq{"month": *dateFrom})
 	}
 	if dateTo != nil {
-		conditions = append(conditions, fmt.Sprintf(`month <= $%d`, argIdx))
-		args = append(args, *dateTo)
-		argIdx++
+		where = append(where, sq.LtOrEq{"month": *dateTo})
 	}
 
-	where := ""
-	if len(conditions) > 0 {
-		where = "WHERE " + strings.Join(conditions, " AND ")
+	countQ, countArgs, err := psql.Select("COUNT(*)").From("inflation_indices").Where(where).ToSql()
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("build count inflation query: %w", err)
 	}
-
 	var total int
-	countQ := fmt.Sprintf(`SELECT COUNT(*) FROM inflation_indices %s`, where)
-	if err := p.q.QueryRowContext(ctx, countQ, args...).Scan(&total); err != nil {
+	if err := p.q.QueryRowContext(ctx, countQ, countArgs...).Scan(&total); err != nil {
 		return nil, "", 0, fmt.Errorf("count inflation indices: %w", err)
 	}
 	if total == 0 {
 		return nil, "", 0, nil
 	}
 
-	q := fmt.Sprintf(`
-		SELECT currency, month, index_value, base_year, data_provider
-		FROM inflation_indices
-		%s
-		ORDER BY month DESC, currency
-		LIMIT $%d OFFSET $%d
-	`, where, argIdx, argIdx+1)
-	args = append(args, pageSize+1, offset)
+	q, args, err := psql.Select("currency", "month", "index_value", "base_year", "data_provider").
+		From("inflation_indices").
+		Where(where).
+		OrderBy("month DESC", "currency").
+		Limit(uint64(pageSize + 1)).Offset(uint64(offset)).
+		ToSql()
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("build list inflation query: %w", err)
+	}
 
 	rows, err := p.q.QueryContext(ctx, q, args...)
 	if err != nil {

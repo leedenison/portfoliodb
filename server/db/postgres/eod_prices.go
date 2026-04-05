@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/leedenison/portfoliodb/server/db"
 )
 
@@ -14,57 +14,52 @@ import (
 func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, dateTo time.Time, dataProvider string, pageSize int32, pageToken string) ([]db.EODPriceRow, int32, string, error) {
 	offset := decodePageToken(pageToken)
 
-	var conditions []string
-	var args []interface{}
-	argIdx := 1
-
+	// Build shared WHERE conditions for count and data queries.
+	where := sq.And{}
 	if search != "" {
-		conditions = append(conditions, fmt.Sprintf(`i.name ILIKE '%%' || $%d || '%%'`, argIdx))
-		args = append(args, search)
-		argIdx++
+		where = append(where, sq.ILike{"i.name": "%" + search + "%"})
 	}
 	if !dateFrom.IsZero() {
-		conditions = append(conditions, fmt.Sprintf(`ep.price_date >= $%d`, argIdx))
-		args = append(args, dateFrom)
-		argIdx++
+		where = append(where, sq.GtOrEq{"ep.price_date": dateFrom})
 	}
 	if !dateTo.IsZero() {
-		conditions = append(conditions, fmt.Sprintf(`ep.price_date <= $%d`, argIdx))
-		args = append(args, dateTo)
-		argIdx++
+		where = append(where, sq.LtOrEq{"ep.price_date": dateTo})
 	}
 	if dataProvider != "" {
-		conditions = append(conditions, fmt.Sprintf(`ep.data_provider = $%d`, argIdx))
-		args = append(args, dataProvider)
-		argIdx++
-	}
-
-	where := ""
-	if len(conditions) > 0 {
-		where = "WHERE " + strings.Join(conditions, " AND ")
+		where = append(where, sq.Eq{"ep.data_provider": dataProvider})
 	}
 
 	// Count total matching rows.
+	countQ, countArgs, err := psql.Select("COUNT(*)").
+		From("eod_prices ep").
+		Join("instruments i ON i.id = ep.instrument_id").
+		Where(where).
+		ToSql()
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("build count prices query: %w", err)
+	}
 	var total int32
-	countQ := fmt.Sprintf(`SELECT COUNT(*) FROM eod_prices ep JOIN instruments i ON i.id = ep.instrument_id %s`, where)
-	if err := p.q.QueryRowContext(ctx, countQ, args...).Scan(&total); err != nil {
+	if err := p.q.QueryRowContext(ctx, countQ, countArgs...).Scan(&total); err != nil {
 		return nil, 0, "", fmt.Errorf("count prices: %w", err)
 	}
 	if total == 0 {
 		return nil, 0, "", nil
 	}
 
-	q := fmt.Sprintf(`
-		SELECT ep.instrument_id, i.name AS display_name,
-			ep.price_date, ep.open, ep.high, ep.low, ep.close, ep.adjusted_close,
-			ep.volume, ep.data_provider, ep.synthetic, ep.fetched_at
-		FROM eod_prices ep
-		JOIN instruments i ON i.id = ep.instrument_id
-		%s
-		ORDER BY ep.price_date DESC, lower(i.name)
-		LIMIT $%d OFFSET $%d
-	`, where, argIdx, argIdx+1)
-	args = append(args, pageSize+1, offset)
+	q, args, err := psql.Select(
+		"ep.instrument_id", "i.name AS display_name",
+		"ep.price_date", "ep.open", "ep.high", "ep.low", "ep.close", "ep.adjusted_close",
+		"ep.volume", "ep.data_provider", "ep.synthetic", "ep.fetched_at",
+	).
+		From("eod_prices ep").
+		Join("instruments i ON i.id = ep.instrument_id").
+		Where(where).
+		OrderBy("ep.price_date DESC", "lower(i.name)").
+		Limit(uint64(pageSize + 1)).Offset(uint64(offset)).
+		ToSql()
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("build list prices query: %w", err)
+	}
 
 	rows, err := p.q.QueryContext(ctx, q, args...)
 	if err != nil {

@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/leedenison/portfoliodb/server/db"
 )
 
@@ -120,49 +120,40 @@ func (p *Postgres) UpdatePluginConfig(ctx context.Context, category, pluginID st
 		return p.GetPluginConfig(ctx, category, pluginID)
 	}
 
-	var setClauses []string
-	var args []interface{}
-	argN := 1
+	qb := psql.Update("plugin_config").
+		Where(sq.Eq{"category": category, "plugin_id": pluginID}).
+		Suffix("RETURNING plugin_id, enabled, precedence, config, max_history_days")
 
 	if enabled != nil {
-		setClauses = append(setClauses, fmt.Sprintf("enabled = $%d", argN))
-		args = append(args, *enabled)
-		argN++
+		qb = qb.Set("enabled", *enabled)
 	}
 	if precedence != nil {
-		setClauses = append(setClauses, fmt.Sprintf("precedence = $%d", argN))
-		args = append(args, *precedence)
-		argN++
+		qb = qb.Set("precedence", *precedence)
 	}
 	if config != nil {
 		payload := config
 		if len(payload) == 0 {
 			payload = []byte("{}")
 		}
-		setClauses = append(setClauses, fmt.Sprintf("config = $%d", argN))
-		args = append(args, payload)
-		argN++
+		qb = qb.Set("config", payload)
 	}
 	if maxHistoryDays != nil {
 		if *maxHistoryDays == 0 {
-			setClauses = append(setClauses, fmt.Sprintf("max_history_days = $%d", argN))
-			args = append(args, sql.NullInt32{})
+			qb = qb.Set("max_history_days", sql.NullInt32{})
 		} else {
-			setClauses = append(setClauses, fmt.Sprintf("max_history_days = $%d", argN))
-			args = append(args, sql.NullInt32{Int32: int32(*maxHistoryDays), Valid: true})
+			qb = qb.Set("max_history_days", sql.NullInt32{Int32: int32(*maxHistoryDays), Valid: true})
 		}
-		argN++
 	}
 
-	args = append(args, category, pluginID)
-	query := fmt.Sprintf(`UPDATE plugin_config SET %s WHERE category = $%d AND plugin_id = $%d
-		RETURNING plugin_id, enabled, precedence, config, max_history_days`,
-		strings.Join(setClauses, ", "), argN, argN+1)
+	query, args, err := qb.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build update plugin config query: %w", err)
+	}
 
 	var r db.PluginConfigRowFull
 	var configVal sql.NullString
 	var maxHist sql.NullInt32
-	err := p.q.QueryRowContext(ctx, query, args...).
+	err = p.q.QueryRowContext(ctx, query, args...).
 		Scan(&r.PluginID, &r.Enabled, &r.Precedence, &configVal, &maxHist)
 	if err != nil {
 		return nil, err

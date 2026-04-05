@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package portfoliodb.ingestion.v1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 import "api/v1/api.proto";
 
@@ -24,13 +25,13 @@ service IngestionService {
 // given period with the supplied list. User from auth.
 message UpsertTxsRequest {
   // Broker. All transactions in this request are for this broker.
-  portfoliodb.api.v1.Broker broker = 1;
+  portfoliodb.api.v1.Broker broker = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution.
-  string source = 2;
+  string source = 2 [(buf.validate.field).string.min_len = 1];
   // Period of transactions covered. Only transactions in this range for this
   // broker are replaced; others are unchanged.
-  google.protobuf.Timestamp period_from = 3;
-  google.protobuf.Timestamp period_to   = 4;
+  google.protobuf.Timestamp period_from = 3 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp period_to   = 4 [(buf.validate.field).required = true];
   // Transactions to store. Replaces any existing tx in [period_from, period_to]
   // for this user and broker. Each tx carries its own account.
   repeated portfoliodb.api.v1.Tx txs = 5;
@@ -41,11 +42,11 @@ message UpsertTxsRequest {
 // CreateTxRequest appends one transaction.
 message CreateTxRequest {
   // Broker for this transaction.
-  portfoliodb.api.v1.Broker broker = 1;
+  portfoliodb.api.v1.Broker broker = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution.
-  string source = 2;
+  string source = 2 [(buf.validate.field).string.min_len = 1];
   // The transaction (must include account).
-  portfoliodb.api.v1.Tx tx = 3;
+  portfoliodb.api.v1.Tx tx = 3 [(buf.validate.field).required = true];
 }
 
 // IngestionResponse returned by UpsertTxs and CreateTx. Job status and

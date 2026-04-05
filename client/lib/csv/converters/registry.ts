@@ -15,6 +15,8 @@ export interface ConverterOptionsProps {
 export interface FormatEntry {
   id: string;
   label: string;
+  /** File input accept attribute (e.g. ".ofx,.qfx"). Defaults to ".csv". */
+  accept?: string;
   convert?: (csvText: string, options?: Record<string, unknown>) => StandardParseResult;
   OptionsComponent?: ComponentType<ConverterOptionsProps>;
 }

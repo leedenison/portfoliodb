@@ -1,10 +1,12 @@
 /**
  * Converter registry and all registered converters.
- * Brokers with no converter (IBKR, SCHB) are registered first for display; then Fidelity.
+ * Brokers with no converter (SCHB) are registered first for display;
+ * then broker-specific converters (Fidelity, IBKR OFX).
  */
 
 import "./brokers";
 import "./fidelity";
+import "./ibkr-ofx";
 
 export {
   getBrokerOptionsForUpload,

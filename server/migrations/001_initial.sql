@@ -210,7 +210,7 @@ CREATE TRIGGER trg_recompute_instrument_name_on_inst
 -- max_history_days is only used by price plugins; NULL = unlimited lookback.
 CREATE TABLE plugin_config (
   plugin_id        TEXT NOT NULL,
-  category         TEXT NOT NULL CHECK (category IN ('identifier', 'description', 'price')),
+  category         TEXT NOT NULL CHECK (category IN ('identifier', 'description', 'price', 'inflation')),
   enabled          BOOLEAN NOT NULL DEFAULT true,
   precedence       INT NOT NULL,
   config           JSONB,
@@ -226,6 +226,19 @@ CREATE TABLE price_fetch_blocks (
   reason        TEXT NOT NULL,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, plugin_id)
+);
+
+-- Monthly inflation index values per currency. Index values are relative to a
+-- base year where July 1st = 100. Different providers/currencies may use
+-- different base years (e.g. ONS CPIH uses 2015=100).
+CREATE TABLE inflation_indices (
+  currency      TEXT        NOT NULL,              -- ISO 4217 (e.g. 'GBP')
+  month         DATE        NOT NULL,              -- 1st of month UTC
+  index_value   NUMERIC     NOT NULL,              -- relative to base_year July=100
+  base_year     INT         NOT NULL,              -- year where July = 100
+  data_provider TEXT        NOT NULL,              -- plugin ID
+  fetched_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (currency, month)
 );
 
 -- Identification errors for a job (e.g. plugin timeout, broker description only).

@@ -16,6 +16,7 @@ const (
 	PluginCategoryIdentifier  = "identifier"
 	PluginCategoryDescription = "description"
 	PluginCategoryPrice       = "price"
+	PluginCategoryInflation   = "inflation"
 )
 
 // DB is the database abstraction used by the service layer.
@@ -34,6 +35,7 @@ type DB interface {
 	EODPriceListDB
 	HoldingDeclarationDB
 	IgnoredAssetClassDB
+	InflationIndexDB
 }
 
 // PriceFetchBlockDB manages permanently blocked (instrument, plugin) pairs.
@@ -512,6 +514,30 @@ type IgnoredAssetClass struct {
 	Broker     string
 	Account    string // empty = all accounts for broker
 	AssetClass string
+}
+
+// InflationIndex is a single monthly inflation index value.
+type InflationIndex struct {
+	Currency     string
+	Month        time.Time // 1st of month, UTC
+	IndexValue   float64
+	BaseYear     int
+	DataProvider string
+}
+
+// InflationIndexDB provides inflation index storage and querying.
+type InflationIndexDB interface {
+	// DistinctDisplayCurrencies returns the set of display currencies across all users.
+	DistinctDisplayCurrencies(ctx context.Context) ([]string, error)
+	// InflationCoverage returns months with inflation data for the given currency, ordered ascending.
+	InflationCoverage(ctx context.Context, currency string) ([]time.Time, error)
+	// UpsertInflationIndices inserts or updates monthly inflation index values.
+	// On conflict (currency, month), overwrites with new data.
+	UpsertInflationIndices(ctx context.Context, indices []InflationIndex) error
+	// ListInflationIndices returns inflation data for admin UI listing with pagination.
+	// currency is an optional filter (empty = all). dateFrom/dateTo are optional date range filters.
+	// Returns (rows, nextPageToken, totalCount, error).
+	ListInflationIndices(ctx context.Context, currency string, dateFrom, dateTo *time.Time, pageSize int, pageToken string) ([]InflationIndex, string, int, error)
 }
 
 // IgnoredAssetClassDB manages per-broker/account asset class ignore rules.

@@ -9,6 +9,7 @@ import { Broker } from "@/gen/api/v1/api_pb";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import { TxSchema, TxType } from "@/gen/api/v1/api_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/standard";
+import { parseCSVLine } from "@/lib/csv/standard";
 import { register } from "./registry";
 import type { ConverterOptionsProps } from "./registry";
 
@@ -17,27 +18,6 @@ const MONTHS: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
   Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
 };
-
-function parseCSVLine(line: string): string[] {
-  const result: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inQuotes) {
-      if (c === '"') inQuotes = false;
-      else current += c;
-    } else {
-      if (c === '"') inQuotes = true;
-      else if (c === ",") {
-        result.push(current);
-        current = "";
-      } else current += c;
-    }
-  }
-  result.push(current);
-  return result;
-}
 
 function parseFidelityDate(value: string): Date | null {
   const trimmed = value.trim();

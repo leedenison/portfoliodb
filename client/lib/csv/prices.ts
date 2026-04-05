@@ -2,11 +2,11 @@
  * CSV serializer/parser for EOD price export/import.
  */
 
+import Papa from "papaparse";
 import { create } from "@bufbuild/protobuf";
 import { ImportPriceRowSchema, IdentifierTypeSchema } from "@/gen/api/v1/api_pb";
 import type { ExportPriceRow, ImportPriceRow } from "@/gen/api/v1/api_pb";
 import type { ParseError } from "./standard";
-import { parseCSVLine } from "./standard";
 import { assetClassToStr, assetClassFromStr } from "@/lib/asset-class";
 
 /** Valid identifier type names from the proto IdentifierType enum (excluding UNSPECIFIED). */
@@ -20,14 +20,6 @@ const HEADER = "identifier_type,identifier_value,identifier_domain,price_date,op
 
 const REQUIRED_COLUMNS = new Set(["identifier_type", "identifier_value", "price_date", "close"]);
 
-/** Escape a CSV field: quote if it contains commas, quotes, or newlines. */
-function escapeField(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
-    return '"' + value.replace(/"/g, '""') + '"';
-  }
-  return value;
-}
-
 function fmtOptNum(v: number | undefined): string {
   return v === undefined ? "" : String(v);
 }
@@ -38,23 +30,20 @@ function fmtOptBigint(v: bigint | undefined): string {
 
 /** Serialize ExportPriceRow[] to CSV text. */
 export function pricesToCsv(rows: ExportPriceRow[]): string {
-  const lines = [HEADER];
-  for (const r of rows) {
-    lines.push([
-      escapeField(r.identifierType),
-      escapeField(r.identifierValue),
-      escapeField(r.identifierDomain),
-      r.priceDate,
-      fmtOptNum(r.open),
-      fmtOptNum(r.high),
-      fmtOptNum(r.low),
-      String(r.close),
-      fmtOptNum(r.adjustedClose),
-      fmtOptBigint(r.volume),
-      escapeField(assetClassToStr(r.assetClass)),
-    ].join(","));
-  }
-  return lines.join("\n") + "\n";
+  const data = rows.map((r) => [
+    r.identifierType,
+    r.identifierValue,
+    r.identifierDomain,
+    r.priceDate,
+    fmtOptNum(r.open),
+    fmtOptNum(r.high),
+    fmtOptNum(r.low),
+    String(r.close),
+    fmtOptNum(r.adjustedClose),
+    fmtOptBigint(r.volume),
+    assetClassToStr(r.assetClass),
+  ]);
+  return Papa.unparse({ fields: HEADER.split(","), data }, { newline: "\n" }) + "\n";
 }
 
 export interface PriceParseResult {
@@ -67,12 +56,13 @@ export function csvToPrices(text: string): PriceParseResult {
   const prices: ImportPriceRow[] = [];
   const errors: ParseError[] = [];
 
-  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
-  if (lines.length === 0) {
+  const parsed = Papa.parse<string[]>(text, { header: false, skipEmptyLines: true });
+  const rows = parsed.data;
+  if (rows.length === 0) {
     return { prices, errors };
   }
 
-  const headerFields = parseCSVLine(lines[0]).map((h) => h.trim().toLowerCase());
+  const headerFields = rows[0].map((h) => h.trim().toLowerCase());
   const colIdx = new Map<string, number>();
   for (let i = 0; i < headerFields.length; i++) {
     colIdx.set(headerFields[i], i);
@@ -88,8 +78,8 @@ export function csvToPrices(text: string): PriceParseResult {
     return { prices, errors };
   }
 
-  for (let i = 1; i < lines.length; i++) {
-    const fields = parseCSVLine(lines[i]);
+  for (let i = 1; i < rows.length; i++) {
+    const fields = rows[i];
     const rowIndex = i + 1; // 1-based, header is row 1
 
     const get = (col: string): string => {

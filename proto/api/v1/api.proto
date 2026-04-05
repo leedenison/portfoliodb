@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package portfoliodb.api.v1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/api/v1;apiv1";
@@ -122,11 +123,11 @@ message Exchange {
 // Tx represents one broker-reported transaction.
 message Tx {
   // Time of the transaction (date or time as provided by broker). Required.
-  google.protobuf.Timestamp timestamp = 1;
+  google.protobuf.Timestamp timestamp = 1 [(buf.validate.field).required = true];
   // Broker's instrument description string. Required.
-  string instrument_description = 2;
+  string instrument_description = 2 [(buf.validate.field).string.min_len = 1];
   // OFX transaction type. Required.
-  TxType type = 3;
+  TxType type = 3 [(buf.validate.field).enum.defined_only = true];
   // Signed quantity: positive for buys/adds, negative for sells/reductions.
   double quantity = 4;
   // Currency in which the instrument is denominated (trading currency, e.g. EUR for SAF). Optional. Passed to plugins as the currency hint. For cash transactions only, set this (same as settlement when user selects one currency).
@@ -691,8 +692,8 @@ message ImportPriceError {
 // When empty, the user's stored preference is used.
 message GetPortfolioValuationRequest {
   string portfolio_id = 1;
-  string date_from = 2;     // "YYYY-MM-DD"
-  string date_to = 3;       // "YYYY-MM-DD"
+  string date_from = 2 [(buf.validate.field).string.min_len = 1];     // "YYYY-MM-DD"
+  string date_to = 3 [(buf.validate.field).string.min_len = 1];       // "YYYY-MM-DD"
   string display_currency = 4;
 }
 
@@ -727,11 +728,11 @@ message ListHoldingDeclarationsResponse {
 }
 
 message CreateHoldingDeclarationRequest {
-  string broker = 1;
+  string broker = 1 [(buf.validate.field).string.min_len = 1];
   string account = 2;
-  string instrument_id = 3;
-  string declared_qty = 4;    // numeric string
-  string as_of_date = 5;      // "YYYY-MM-DD"
+  string instrument_id = 3 [(buf.validate.field).string.min_len = 1];
+  string declared_qty = 4 [(buf.validate.field).string.min_len = 1];    // numeric string
+  string as_of_date = 5 [(buf.validate.field).string.min_len = 1];      // "YYYY-MM-DD"
 }
 
 message CreateHoldingDeclarationResponse {
@@ -739,9 +740,9 @@ message CreateHoldingDeclarationResponse {
 }
 
 message UpdateHoldingDeclarationRequest {
-  string id = 1;
-  string declared_qty = 2;    // numeric string
-  string as_of_date = 3;      // "YYYY-MM-DD"
+  string id = 1 [(buf.validate.field).string.min_len = 1];
+  string declared_qty = 2 [(buf.validate.field).string.min_len = 1];    // numeric string
+  string as_of_date = 3 [(buf.validate.field).string.min_len = 1];      // "YYYY-MM-DD"
 }
 
 message UpdateHoldingDeclarationResponse {
@@ -749,7 +750,7 @@ message UpdateHoldingDeclarationResponse {
 }
 
 message DeleteHoldingDeclarationRequest {
-  string id = 1;
+  string id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message DeleteHoldingDeclarationResponse {}

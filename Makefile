@@ -50,7 +50,7 @@ PROTO_FILES := $(shell find proto -name '*.proto' 2>/dev/null)
 GENERATE_DEPS := $(PROTO_FILES) buf.gen.go.yaml buf.gen.ts.yaml buf.gen.e2e.yaml server/db/db.go
 
 $(STAMP_DIR)/generate: $(GENERATE_DEPS) | $(STAMP_DIR)
-	buf generate --template buf.gen.go.yaml && buf generate --template buf.gen.ts.yaml && buf generate --template buf.gen.e2e.yaml --path proto/e2e --path proto/api
+	buf generate --template buf.gen.go.yaml && buf generate --template buf.gen.ts.yaml --include-imports && buf generate --template buf.gen.e2e.yaml --include-imports --path proto/e2e --path proto/api
 	go generate ./server/db
 	@touch $@
 

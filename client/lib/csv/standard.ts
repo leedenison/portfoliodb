@@ -3,6 +3,7 @@
  * See docs/csv-format.md for the format specification.
  */
 
+import Papa from "papaparse";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import type { Tx } from "@/gen/api/v1/api_pb";
@@ -58,35 +59,10 @@ function parseDate(value: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/**
- * Parse a single CSV row into fields, handling quoted fields.
- * Assumes no newline inside a quoted value.
- */
+/** Parse a single CSV row into fields, handling quoted fields and escaped quotes. */
 export function parseCSVLine(line: string): string[] {
-  const result: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inQuotes) {
-      if (c === '"') {
-        inQuotes = false;
-      } else {
-        current += c;
-      }
-    } else {
-      if (c === '"') {
-        inQuotes = true;
-      } else if (c === ",") {
-        result.push(current);
-        current = "";
-      } else {
-        current += c;
-      }
-    }
-  }
-  result.push(current);
-  return result;
+  const result = Papa.parse(line, { header: false });
+  return (result.data[0] as string[]) ?? [];
 }
 
 /**

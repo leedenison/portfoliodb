@@ -11,30 +11,11 @@ import {
   YAxis,
 } from "recharts";
 import type { ValuationPointUI } from "@/lib/portfolio-api";
+import { formatCurrencyCompact, formatCurrency } from "@/lib/format";
 
 interface Props {
   points: ValuationPointUI[];
   displayCurrency?: string;
-}
-
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  USD: "$", EUR: "\u20AC", GBP: "\u00A3", JPY: "\u00A5", CHF: "CHF ",
-  CAD: "C$", AUD: "A$", NZD: "NZ$", CNY: "\u00A5", KRW: "\u20A9",
-  INR: "\u20B9", BRL: "R$", MXN: "MX$", ZAR: "R", TRY: "\u20BA",
-};
-
-function currencySymbol(code?: string): string {
-  if (!code) return "$";
-  return CURRENCY_SYMBOLS[code] ?? code + " ";
-}
-
-function makeFormatCurrency(code?: string) {
-  const sym = currencySymbol(code);
-  return (v: number): string => {
-    if (v >= 1_000_000) return `${sym}${(v / 1_000_000).toFixed(1)}M`;
-    if (v >= 1_000) return `${sym}${(v / 1_000).toFixed(1)}K`;
-    return `${sym}${v.toFixed(0)}`;
-  };
 }
 
 function formatDate(dateStr: string): string {
@@ -59,12 +40,11 @@ function CustomTooltip({
     month: "short",
     day: "numeric",
   });
-  const sym = currencySymbol(displayCurrency);
   return (
     <div className="rounded-md border border-border bg-surface px-3 py-2 text-sm shadow-md">
       <p className="font-medium text-text-primary">{dateLabel}</p>
       <p className="font-mono tabular-nums text-text-primary">
-        {sym}{pt.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        {formatCurrency(pt.totalValue, displayCurrency)}
       </p>
       {pt.unpricedInstruments.length > 0 && (
         <div className="mt-1.5 border-t border-border pt-1.5">
@@ -177,7 +157,7 @@ export function PerformanceChart({ points, displayCurrency }: Props) {
             tickLine={false}
           />
           <YAxis
-            tickFormatter={makeFormatCurrency(displayCurrency)}
+            tickFormatter={(v: number) => formatCurrencyCompact(v, displayCurrency)}
             tick={{ fontSize: 11, fill: "rgb(var(--color-text-muted))" }}
             axisLine={false}
             tickLine={false}

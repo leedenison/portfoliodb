@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useDebounce } from "@/hooks/use-debounce";
 import { ErrorAlert } from "@/app/components/error-alert";
 import {
   listBrokersAndAccounts,
@@ -37,6 +38,7 @@ export function DeclarationForm({
 
   // Instrument search
   const [instrumentSearch, setInstrumentSearch] = useState("");
+  const debouncedInstrumentSearch = useDebounce(instrumentSearch);
   const [searchResults, setSearchResults] = useState<Instrument[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
 
@@ -56,25 +58,20 @@ export function DeclarationForm({
     }
   }, [editing]);
 
-  // Instrument search with debounce
+  // Instrument search
   useEffect(() => {
-    if (instrumentSearch.length < 2) {
+    if (debouncedInstrumentSearch.length < 2) {
       setSearchResults([]);
       return;
     }
-    const timer = setTimeout(async () => {
-      setSearchLoading(true);
-      try {
-        const res = await listInstruments({ search: instrumentSearch });
-        setSearchResults(res.instruments);
-      } catch {
-        setSearchResults([]);
-      } finally {
-        setSearchLoading(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [instrumentSearch]);
+    let cancelled = false;
+    setSearchLoading(true);
+    listInstruments({ search: debouncedInstrumentSearch })
+      .then((res) => { if (!cancelled) setSearchResults(res.instruments); })
+      .catch(() => { if (!cancelled) setSearchResults([]); })
+      .finally(() => { if (!cancelled) setSearchLoading(false); });
+    return () => { cancelled = true; };
+  }, [debouncedInstrumentSearch]);
 
   const accounts = brokerAccounts.find((b) => b.broker === broker)?.accounts ?? [];
 

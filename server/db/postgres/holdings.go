@@ -21,21 +21,24 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *a
 	if asOf != nil && asOf.IsValid() {
 		asOfT = asOf.AsTime()
 	}
-	qb := psql.Select("broker", "account", "MAX(instrument_description) AS instrument_description", "instrument_id", "SUM(quantity) AS quantity").
-		From("txs").
-		Where(sq.Eq{"user_id": userUUID}).
-		Where(sq.LtOrEq{"timestamp": asOfT}).
-		GroupBy("broker", "account", "instrument_id").
-		Suffix("HAVING NOT qty_is_zero(SUM(quantity))")
+	qb := psql.Select("t.broker", "t.account",
+		"COALESCE(i.name, MAX(t.instrument_description)) AS instrument_description",
+		"t.instrument_id", "SUM(t.quantity) AS quantity").
+		From("txs t").
+		LeftJoin("instruments i ON i.id = t.instrument_id").
+		Where(sq.Eq{"t.user_id": userUUID}).
+		Where(sq.LtOrEq{"t.timestamp": asOfT}).
+		GroupBy("t.broker", "t.account", "t.instrument_id", "i.name").
+		Suffix("HAVING NOT qty_is_zero(SUM(t.quantity))")
 	if broker != nil {
 		brokerStr, err := brokerToStr(*broker)
 		if err != nil {
 			return nil, nil, err
 		}
-		qb = qb.Where(sq.Eq{"broker": brokerStr})
+		qb = qb.Where(sq.Eq{"t.broker": brokerStr})
 	}
 	if account != "" {
-		qb = qb.Where(sq.Eq{"account": account})
+		qb = qb.Where(sq.Eq{"t.account": account})
 	}
 	q, args, err := qb.ToSql()
 	if err != nil {
@@ -64,12 +67,14 @@ func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID 
 	}
 	var hrows []holdingRow
 	err = p.q.SelectContext(ctx, &hrows, `
-		SELECT t.broker, t.account, MAX(t.instrument_description) AS instrument_description,
+		SELECT t.broker, t.account,
+			COALESCE(i.name, MAX(t.instrument_description)) AS instrument_description,
 			t.instrument_id, SUM(t.quantity) AS quantity
 		FROM txs t
 		INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
+		LEFT JOIN instruments i ON i.id = t.instrument_id
 		WHERE t.timestamp <= $2
-		GROUP BY t.broker, t.account, t.instrument_id
+		GROUP BY t.broker, t.account, t.instrument_id, i.name
 		HAVING NOT qty_is_zero(SUM(t.quantity))
 	`, portUUID, asOfT)
 	if err != nil {

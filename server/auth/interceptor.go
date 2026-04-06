@@ -51,11 +51,11 @@ func sessionIDFromMetadata(ctx context.Context, cookieName string) string {
 		return ""
 	}
 	for _, v := range md.Get("cookie") {
-		cookies, err := http.ParseCookie(v)
-		if err != nil {
-			continue
-		}
-		for _, c := range cookies {
+		// Use http.Request.Cookies() rather than http.ParseCookie — the latter
+		// rejects the entire header if any single cookie is malformed (e.g.
+		// Google's g_state cookie), while Cookies() skips invalid entries.
+		r := &http.Request{Header: http.Header{"Cookie": {v}}}
+		for _, c := range r.Cookies() {
 			if c.Name == cookieName {
 				return c.Value
 			}

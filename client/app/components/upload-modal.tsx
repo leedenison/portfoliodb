@@ -273,7 +273,7 @@ export function UploadModal() {
               <span className="h-px w-4 bg-border" />
               <span className="text-primary-dark">2. File</span>
             </div>
-            <p className="text-sm text-text-muted">Choose format and select your CSV file.</p>
+            <p className="text-sm text-text-muted">Choose format and select your transaction file.</p>
             <div className="space-y-2">
               <label htmlFor="upload-format" className="block text-sm font-medium text-text-primary">
                 Format
@@ -304,16 +304,16 @@ export function UploadModal() {
             })()}
             <div className="space-y-2">
               <label htmlFor="upload-file" className="block text-sm font-medium text-text-primary">
-                CSV file
+                Transaction file
               </label>
               <input
                 ref={fileInputRef}
                 id="upload-file"
                 type="file"
-                accept=".csv"
+                accept={selectedFormat?.accept ?? ".csv"}
                 onChange={handleFileChange}
                 className="sr-only"
-                aria-label="Choose CSV file"
+                aria-label="Choose transaction file"
               />
               <button
                 type="button"

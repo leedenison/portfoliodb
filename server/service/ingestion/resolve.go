@@ -178,7 +178,8 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 // identifier_hints) pre-extracted description hints, then identifier plugins.
 // The caller is responsible for populating cache (DB hits by source+description) and extractedHintsCache
 // (hints from description plugins) before calling Resolve; see the pre-pass in process().
-// When client supplies identifier_hints, resolution is by identifiers only and (source, description) is not stored.
+// When client supplies identifier_hints, resolution is by identifiers only and (source, description) is not persisted
+// to the DB as a BROKER_DESCRIPTION identifier (though results are still cached in the in-memory batch cache).
 // hints are optional (exchange, currency, MIC, security type). counter is optional; when non-nil and plugins are invoked, instrument.identify.attempts is incremented.
 func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, rowIndex int32, counter telemetry.CounterIncrementer, extractedHintsCache map[string][]identifier.Identifier) (resolveResult, error) {
 	key := cacheKeyWithHints(source, instrumentDescription, identifierHints)
@@ -188,7 +189,11 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		}
 	}
 
-	// Path A: client supplied identifier_hints -- resolve by identifiers only; do not store (source, description).
+	// Path A: client supplied identifier_hints -- resolve by identifiers only.
+	// "Do not store" means no persistent BROKER_DESCRIPTION identifier is
+	// created in the DB (the `false` arg to resolveWithIdentifierPlugins).
+	// The in-memory batch cache above is still used to avoid repeated DB
+	// lookups within the same upload.
 	if len(identifierHints) > 0 {
 		ids, err := identification.ResolveByHintsDBOnly(ctx, database, identifierHints)
 		if err != nil {
@@ -204,7 +209,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			}
 			return r, nil
 		}
-		// No DB hit: call identifier plugins with hints; do not store (source, description).
+		// No DB hit: call identifier plugins with hints; do not persist (source, description) as BROKER_DESCRIPTION.
 		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, counter, false)
 	}
 

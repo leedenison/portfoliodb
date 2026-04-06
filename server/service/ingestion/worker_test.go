@@ -240,3 +240,224 @@ func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
 
 	processJob(ctx, database, registry, nil, nil, j, nil)
 }
+
+func TestExtractDescHints_SameDescDifferentKinds_Error(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+
+	ctx := context.Background()
+	source := "Fidelity:web:standard"
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.Now(), InstrumentDescription: "EQQQ ETF", Type: apiv1.TxType_BUYSTOCK, Quantity: 10},
+		{Timestamp: timestamppb.Now(), InstrumentDescription: "EQQQ ETF", Type: apiv1.TxType_INCOME, Quantity: 5, TradingCurrency: "GBP"},
+	}
+
+	// Only the first tx triggers a DB lookup; the second triggers the kind contradiction.
+	database.EXPECT().
+		FindInstrumentBySourceDescription(gomock.Any(), source, "EQQQ ETF").
+		Return("", nil)
+
+	_, _, _, valErrs, err := extractDescHints(ctx, database, nil, nil, source, "Fidelity", txs)
+	if err != nil {
+		t.Fatalf("extractDescHints: %v", err)
+	}
+	if len(valErrs) != 1 {
+		t.Fatalf("expected 1 validation error, got %d", len(valErrs))
+	}
+	if valErrs[0].RowIndex != 1 {
+		t.Errorf("RowIndex = %d, want 1", valErrs[0].RowIndex)
+	}
+}
+
+func TestExtractDescHints_DBKindContradiction_Error(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+
+	ctx := context.Background()
+	source := "Fidelity:web:standard"
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.Now(), InstrumentDescription: "EQQQ ETF", Type: apiv1.TxType_INCOME, Quantity: 5, TradingCurrency: "GBP"},
+	}
+	acETF := "ETF"
+	database.EXPECT().
+		FindInstrumentBySourceDescription(gomock.Any(), source, "EQQQ ETF").
+		Return("inst-1", nil)
+	database.EXPECT().
+		GetInstrument(gomock.Any(), "inst-1").
+		Return(&db.InstrumentRow{ID: "inst-1", AssetClass: &acETF}, nil)
+
+	_, _, _, valErrs, err := extractDescHints(ctx, database, nil, nil, source, "Fidelity", txs)
+	if err != nil {
+		t.Fatalf("extractDescHints: %v", err)
+	}
+	if len(valErrs) != 1 {
+		t.Fatalf("expected 1 validation error, got %d", len(valErrs))
+	}
+	if valErrs[0].RowIndex != 0 {
+		t.Errorf("RowIndex = %d, want 0", valErrs[0].RowIndex)
+	}
+}
+
+func TestExtractDescHints_DBUnidentified_NoError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+
+	ctx := context.Background()
+	source := "Fidelity:web:standard"
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.Now(), InstrumentDescription: "MYSTERY", Type: apiv1.TxType_INCOME, Quantity: 5, TradingCurrency: "GBP"},
+	}
+	// Instrument exists but has nil asset class (unidentified).
+	database.EXPECT().
+		FindInstrumentBySourceDescription(gomock.Any(), source, "MYSTERY").
+		Return("inst-1", nil)
+	database.EXPECT().
+		GetInstrument(gomock.Any(), "inst-1").
+		Return(&db.InstrumentRow{ID: "inst-1"}, nil)
+
+	_, _, _, valErrs, err := extractDescHints(ctx, database, nil, nil, source, "Fidelity", txs)
+	if err != nil {
+		t.Fatalf("extractDescHints: %v", err)
+	}
+	if len(valErrs) != 0 {
+		t.Errorf("expected no validation errors, got %d: %+v", len(valErrs), valErrs)
+	}
+}
+
+func TestResolveInstruments_IdentifierContradiction_Error(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	source := "Fidelity:web:standard"
+	desc := "APPLE INC"
+	txs := []*apiv1.Tx{
+		{
+			Timestamp:             timestamppb.Now(),
+			InstrumentDescription: desc,
+			Type:                  apiv1.TxType_BUYSTOCK,
+			Quantity:              10,
+			IdentifierHints: []*apiv1.InstrumentIdentifier{
+				{Type: apiv1.IdentifierType_ISIN, Value: "US9999999999"},
+			},
+		},
+	}
+	cache := map[string]resolveResult{
+		cacheKey(source, desc): {InstrumentID: "inst-1"},
+	}
+	descInstruments := map[string]*db.InstrumentRow{
+		cacheKey(source, desc): {
+			ID:          "inst-1",
+			Identifiers: []db.IdentifierInput{{Type: "ISIN", Value: "US0378331005"}},
+		},
+	}
+
+	_, _, valErrs, err := resolveInstruments(ctx, database, registry, "Fidelity", source, "job-1", nil, txs, []int{0}, cache, nil, descInstruments)
+	if err != nil {
+		t.Fatalf("resolveInstruments: %v", err)
+	}
+	if len(valErrs) != 1 {
+		t.Fatalf("expected 1 validation error, got %d", len(valErrs))
+	}
+	if valErrs[0].RowIndex != 0 {
+		t.Errorf("RowIndex = %d, want 0", valErrs[0].RowIndex)
+	}
+}
+
+func TestResolveInstruments_IdentifierMatch_NoError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	source := "Fidelity:web:standard"
+	desc := "APPLE INC"
+	txs := []*apiv1.Tx{
+		{
+			Timestamp:             timestamppb.Now(),
+			InstrumentDescription: desc,
+			Type:                  apiv1.TxType_BUYSTOCK,
+			Quantity:              10,
+			IdentifierHints: []*apiv1.InstrumentIdentifier{
+				{Type: apiv1.IdentifierType_ISIN, Value: "US0378331005"},
+			},
+		},
+	}
+	cache := map[string]resolveResult{
+		cacheKey(source, desc): {InstrumentID: "inst-1"},
+	}
+	descInstruments := map[string]*db.InstrumentRow{
+		cacheKey(source, desc): {
+			ID:          "inst-1",
+			Identifiers: []db.IdentifierInput{{Type: "ISIN", Value: "US0378331005"}},
+		},
+	}
+
+	// Path A: Resolve looks up by identifier hint.
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").Return("inst-1", nil)
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-1").Return(nil)
+
+	ids, _, valErrs, err := resolveInstruments(ctx, database, registry, "Fidelity", source, "job-1", nil, txs, []int{0}, cache, nil, descInstruments)
+	if err != nil {
+		t.Fatalf("resolveInstruments: %v", err)
+	}
+	if len(valErrs) != 0 {
+		t.Errorf("expected no validation errors, got %d: %+v", len(valErrs), valErrs)
+	}
+	if ids[0] != "inst-1" {
+		t.Errorf("instrumentID = %q, want inst-1", ids[0])
+	}
+}
+
+func TestResolveInstruments_NewIdentifierType_NoError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	source := "Fidelity:web:standard"
+	desc := "APPLE INC"
+	txs := []*apiv1.Tx{
+		{
+			Timestamp:             timestamppb.Now(),
+			InstrumentDescription: desc,
+			Type:                  apiv1.TxType_BUYSTOCK,
+			Quantity:              10,
+			IdentifierHints: []*apiv1.InstrumentIdentifier{
+				{Type: apiv1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+			},
+		},
+	}
+	cache := map[string]resolveResult{
+		cacheKey(source, desc): {InstrumentID: "inst-1"},
+	}
+	// Instrument has ISIN but tx supplies MIC_TICKER — different type, no contradiction.
+	descInstruments := map[string]*db.InstrumentRow{
+		cacheKey(source, desc): {
+			ID:          "inst-1",
+			Identifiers: []db.IdentifierInput{{Type: "ISIN", Value: "US0378331005"}},
+		},
+	}
+
+	// Path A: Resolve looks up by identifier hint.
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("inst-1", nil)
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-1").Return(nil)
+
+	ids, _, valErrs, err := resolveInstruments(ctx, database, registry, "Fidelity", source, "job-1", nil, txs, []int{0}, cache, nil, descInstruments)
+	if err != nil {
+		t.Fatalf("resolveInstruments: %v", err)
+	}
+	if len(valErrs) != 0 {
+		t.Errorf("expected no validation errors, got %d: %+v", len(valErrs), valErrs)
+	}
+	if ids[0] != "inst-1" {
+		t.Errorf("instrumentID = %q, want inst-1", ids[0])
+	}
+}

@@ -417,6 +417,21 @@ func TxTypeToInstrumentKind(t apiv1.TxType) string {
 	}
 }
 
+// AssetClassToInstrumentKind returns the instrument kind for an asset class.
+// Returns InstrumentKindCash for CASH, InstrumentKindSecurity for all other
+// non-empty values, and empty string for empty (unidentified instruments are
+// ambiguous — no contradiction can be detected).
+func AssetClassToInstrumentKind(assetClass string) string {
+	switch assetClass {
+	case "":
+		return ""
+	case AssetClassCash:
+		return InstrumentKindCash
+	default:
+		return InstrumentKindSecurity
+	}
+}
+
 // AssetClassToTxTypeStrings returns the tx_type DB strings that map to the given asset class.
 func AssetClassToTxTypeStrings(assetClass string) []string {
 	var strs []string

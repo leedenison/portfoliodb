@@ -130,7 +130,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	}
 	_ = database.SetJobTotalCount(ctx, j.JobID, int32(len(txsToProcess)))
 	// Extract description hints.
-	cache, extractedHintsCache, err := extractDescHints(ctx, database, descRegistry, counter, source, broker, txsToProcess)
+	cache, extractedHintsCache, descInstruments, descValErrs, err := extractDescHints(ctx, database, descRegistry, counter, source, broker, txsToProcess)
 	if err != nil {
 		log.Printf("ingestion job %s: extract description hints: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
@@ -139,13 +139,23 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
+	if len(descValErrs) > 0 {
+		_ = database.AppendValidationErrors(ctx, j.JobID, descValErrs)
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		return false, ""
+	}
 	// Resolve instruments.
-	instrumentIDs, idErrs, err := resolveInstruments(ctx, database, registry, broker, source, j.JobID, counter, txsToProcess, originalIndices, cache, extractedHintsCache)
+	instrumentIDs, idErrs, resolveValErrs, err := resolveInstruments(ctx, database, registry, broker, source, j.JobID, counter, txsToProcess, originalIndices, cache, extractedHintsCache, descInstruments)
 	if err != nil {
 		log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
 			{RowIndex: -1, Field: "instrument_description", Message: err.Error()},
 		})
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		return false, ""
+	}
+	if len(resolveValErrs) > 0 {
+		_ = database.AppendValidationErrors(ctx, j.JobID, resolveValErrs)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
@@ -191,25 +201,71 @@ func filterStoredTxs(txs []*apiv1.Tx, broker string, ignored []db.IgnoredAssetCl
 
 // extractDescHints looks up each distinct (source, description) in DB and runs
 // batch description extraction for misses. Returns a resolve cache pre-populated
-// with DB hits and an extracted hints cache keyed by cacheKey(source, desc).
-func extractDescHints(ctx context.Context, database db.DB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, source, broker string, txs []*apiv1.Tx) (map[string]resolveResult, map[string][]identifier.Identifier, error) {
+// with DB hits, an extracted hints cache keyed by cacheKey(source, desc), a map
+// of instrument rows found via broker description lookup (for later identifier
+// contradiction checks), and any validation errors from contradictions.
+//
+// Contradictions detected:
+//   - Within-batch: same (source, desc) with both CASH and SECURITY InstrumentKinds.
+//   - DB: broker description resolves to an instrument whose asset class contradicts the tx's InstrumentKind.
+func extractDescHints(ctx context.Context, database db.DB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, source, broker string, txs []*apiv1.Tx) (map[string]resolveResult, map[string][]identifier.Identifier, map[string]*db.InstrumentRow, []*apiv1.ValidationError, error) {
 	cache := make(map[string]resolveResult)
+	descInstruments := make(map[string]*db.InstrumentRow)
 	var extractedHintsCache map[string][]identifier.Identifier
 	seen := make(map[string]bool)
+	kindByDesc := make(map[string]string) // first InstrumentKind seen per (source, desc)
+	var valErrs []*apiv1.ValidationError
 	var batchItems []description.BatchItem
 	idByKey := make(map[string]string)
-	for _, tx := range txs {
+	for i, tx := range txs {
 		desc := tx.GetInstrumentDescription()
 		key := cacheKey(source, desc)
+		kind := db.TxTypeToInstrumentKind(tx.GetType())
+
+		// Within-batch kind contradiction check.
+		if prev, ok := kindByDesc[key]; ok {
+			if prev != kind {
+				valErrs = append(valErrs, &apiv1.ValidationError{
+					RowIndex: int32(i),
+					Field:    "instrument_description",
+					Message:  fmt.Sprintf("instrument_description %q appears with conflicting transaction types (both %s and %s); use different descriptions for the cash and security legs", desc, prev, kind),
+				})
+				continue
+			}
+		} else {
+			kindByDesc[key] = kind
+		}
+
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 		id, err := database.FindInstrumentBySourceDescription(ctx, source, desc)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		if id != "" {
+			// DB kind contradiction check.
+			inst, err := database.GetInstrument(ctx, id)
+			if err != nil {
+				return nil, nil, nil, nil, err
+			}
+			if inst != nil {
+				descInstruments[key] = inst
+				var instAC string
+				if inst.AssetClass != nil {
+					instAC = *inst.AssetClass
+				}
+				instKind := db.AssetClassToInstrumentKind(instAC)
+				if instKind != "" && instKind != kind {
+					valErrs = append(valErrs, &apiv1.ValidationError{
+						RowIndex: int32(i),
+						Field:    "instrument_description",
+						Message:  fmt.Sprintf("instrument_description %q was previously identified as a %s instrument but is used here as a %s transaction", desc, instKind, kind),
+					})
+					continue
+				}
+			}
 			cache[key] = resolveResult{InstrumentID: id}
 		} else {
 			batchID := shortHashForBatch(key)
@@ -221,6 +277,9 @@ func extractDescHints(ctx context.Context, database db.DB, descRegistry *descrip
 			})
 		}
 	}
+	if len(valErrs) > 0 {
+		return nil, nil, nil, valErrs, nil
+	}
 	if len(batchItems) > 0 {
 		hintsByID, err := runDescriptionPluginsBatch(ctx, database, descRegistry, counter, broker, source, batchItems)
 		if err == nil && hintsByID != nil {
@@ -230,23 +289,43 @@ func extractDescHints(ctx context.Context, database db.DB, descRegistry *descrip
 			}
 		}
 	}
-	return cache, extractedHintsCache, nil
+	return cache, extractedHintsCache, descInstruments, nil, nil
 }
 
 // resolveInstruments resolves each tx to an instrument ID using the pre-populated
 // cache and extracted hints. Returns the instrument IDs (parallel to txs) and any
-// identification errors collected from the cache.
-func resolveInstruments(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, jobID string, counter telemetry.CounterIncrementer, txs []*apiv1.Tx, originalIndices []int, cache map[string]resolveResult, extractedHintsCache map[string][]identifier.Identifier) ([]string, []db.IdentificationError, error) {
+// identification errors collected from the cache. descInstruments maps cacheKey(source, desc)
+// to instruments found via broker description lookup; used to detect identifier contradictions.
+func resolveInstruments(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, jobID string, counter telemetry.CounterIncrementer, txs []*apiv1.Tx, originalIndices []int, cache map[string]resolveResult, extractedHintsCache map[string][]identifier.Identifier, descInstruments map[string]*db.InstrumentRow) ([]string, []db.IdentificationError, []*apiv1.ValidationError, error) {
 	instrumentIDs := make([]string, len(txs))
+	var valErrs []*apiv1.ValidationError
 	for i, tx := range txs {
 		desc := tx.GetInstrumentDescription()
 		rowIndex := int32(originalIndices[i])
-		r, err := Resolve(ctx, database, registry, broker, source, desc, HintsFromTx(tx), identifierHintsFromTx(ctx, tx), cache, rowIndex, counter, extractedHintsCache)
+		txHints := identifierHintsFromTx(ctx, tx)
+
+		// Identifier contradiction check: if the description already maps to a
+		// known instrument, verify that the tx's identifier hints do not conflict
+		// with identifiers stored on that instrument.
+		if len(txHints) > 0 && descInstruments != nil {
+			key := cacheKey(source, desc)
+			if inst, ok := descInstruments[key]; ok {
+				if valErr := checkIdentifierContradiction(inst, txHints, desc, rowIndex); valErr != nil {
+					valErrs = append(valErrs, valErr)
+					continue
+				}
+			}
+		}
+
+		r, err := Resolve(ctx, database, registry, broker, source, desc, HintsFromTx(tx), txHints, cache, rowIndex, counter, extractedHintsCache)
 		if err != nil {
-			return nil, nil, fmt.Errorf("row %d: %w", rowIndex, err)
+			return nil, nil, nil, fmt.Errorf("row %d: %w", rowIndex, err)
 		}
 		instrumentIDs[i] = r.InstrumentID
 		_ = database.IncrJobProcessedCount(ctx, jobID)
+	}
+	if len(valErrs) > 0 {
+		return nil, nil, valErrs, nil
 	}
 	var idErrs []db.IdentificationError
 	for _, r := range cache {
@@ -254,7 +333,33 @@ func resolveInstruments(ctx context.Context, database db.DB, registry *identifie
 			idErrs = append(idErrs, *r.IdErr)
 		}
 	}
-	return instrumentIDs, idErrs, nil
+	return instrumentIDs, idErrs, nil, nil
+}
+
+// checkIdentifierContradiction checks whether any of the tx's identifier hints
+// contradict identifiers stored on the instrument previously resolved for this
+// description. Returns a validation error if a contradiction is found.
+func checkIdentifierContradiction(inst *db.InstrumentRow, txHints []identifier.Identifier, desc string, rowIndex int32) *apiv1.ValidationError {
+	for _, hint := range txHints {
+		if hint.Type == "BROKER_DESCRIPTION" || hint.Type == "" || hint.Value == "" {
+			continue
+		}
+		// Check if the instrument has identifiers of the same type.
+		for _, stored := range inst.Identifiers {
+			if stored.Type != hint.Type {
+				continue
+			}
+			// Same type exists — values must match.
+			if stored.Value != hint.Value {
+				return &apiv1.ValidationError{
+					RowIndex: rowIndex,
+					Field:    "identifier_hints",
+					Message:  fmt.Sprintf("identifier hint %s:%s contradicts the instrument previously identified for description %q (has %s:%s)", hint.Type, hint.Value, desc, stored.Type, stored.Value),
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // brokerToStr converts a proto Broker enum to its string representation.

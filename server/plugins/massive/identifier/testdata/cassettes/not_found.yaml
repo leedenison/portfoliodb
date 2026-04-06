@@ -19,12 +19,12 @@ interactions:
         proto_minor: 0
         content_length: -1
         uncompressed: true
-        body: '{"status":"NOT_FOUND","request_id":"bd981ce3d51b2201cb5bf86e454e9a45","message":"Ticker not found."}'
+        body: '{"status":"NOT_FOUND","request_id":"023f10ac57a1c3258acd4bf61ec510c2","message":"Ticker not found."}'
         headers:
             Content-Type:
                 - application/json
             Date:
-                - Mon, 16 Mar 2026 16:44:23 GMT
+                - Mon, 06 Apr 2026 14:28:55 GMT
             Strict-Transport-Security:
                 - max-age=15724800; includeSubDomains
             Vary:
@@ -32,7 +32,7 @@ interactions:
             X-Polygon-Cluster-Name:
                 - polygon-ny5
             X-Request-Id:
-                - bd981ce3d51b2201cb5bf86e454e9a45
+                - 023f10ac57a1c3258acd4bf61ec510c2
         status: 404 Not Found
         code: 404
-        duration: 83.100627ms
+        duration: 117.393149ms

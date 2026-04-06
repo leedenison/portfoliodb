@@ -23,12 +23,12 @@ interactions:
         proto_minor: 0
         content_length: -1
         uncompressed: true
-        body: '{"ticker":"C:EURUSD","queryCount":2,"resultsCount":2,"adjusted":false,"results":[{"v":164402,"vw":1.031,"o":1.0367,"c":1.02678,"h":1.0376,"l":1.02211,"t":1735776000000,"n":164402},{"v":148831,"vw":1.0288,"o":1.02675,"c":1.0307,"h":1.031,"l":1.0263,"t":1735862400000,"n":148831}],"status":"OK","request_id":"a790bc9343a77befbd5c5daa79d77b9c","count":2}'
+        body: '{"ticker":"C:EURUSD","queryCount":2,"resultsCount":2,"adjusted":false,"results":[{"v":164402,"vw":1.031,"o":1.0367,"c":1.02678,"h":1.0376,"l":1.02211,"t":1735776000000,"n":164402},{"v":148831,"vw":1.0288,"o":1.02675,"c":1.0307,"h":1.031,"l":1.0263,"t":1735862400000,"n":148831}],"status":"OK","request_id":"b12957aefd7a70c12f6c6fcea9f5d7ff","count":2}'
         headers:
             Content-Type:
                 - application/json
             Date:
-                - Sat, 21 Mar 2026 20:07:27 GMT
+                - Mon, 06 Apr 2026 14:28:55 GMT
             Strict-Transport-Security:
                 - max-age=15724800; includeSubDomains
             Vary:
@@ -36,7 +36,7 @@ interactions:
             X-Polygon-Cluster-Name:
                 - polygon-ny5
             X-Request-Id:
-                - a790bc9343a77befbd5c5daa79d77b9c
+                - b12957aefd7a70c12f6c6fcea9f5d7ff
         status: 200 OK
         code: 200
-        duration: 269.53516ms
+        duration: 283.241271ms

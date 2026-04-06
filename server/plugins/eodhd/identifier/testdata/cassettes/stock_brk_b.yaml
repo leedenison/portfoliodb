@@ -25,7 +25,7 @@ interactions:
         proto_minor: 0
         content_length: -1
         uncompressed: true
-        body: '[{"Code":"BRK-B","Exchange":"US","Name":"Berkshire Hathaway Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US0846707026","isPrimary":true,"previousClose":480.94,"previousCloseDate":"2026-03-20"},{"Code":"BRK-A","Exchange":"US","Name":"Berkshire Hathaway Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US0846701086","isPrimary":false,"previousClose":720702.08,"previousCloseDate":"2026-03-20"},{"Code":"BRK","Exchange":"LSE","Name":"Brooks Macdonald Group","Type":"Common Stock","Country":"UK","Currency":"GBX","ISIN":"GB00B067N833","isPrimary":true,"previousClose":1425,"previousCloseDate":"2026-03-20"},{"Code":"BRK","Exchange":"TO","Name":"Berkshire Hathaway CDR (CAD Hedged)","Type":"Common Stock","Country":"Canada","Currency":"CAD","ISIN":null,"isPrimary":false,"previousClose":35.12,"previousCloseDate":"2026-03-20"},{"Code":"BRK","Exchange":"NEO","Name":"Berkshire Hathaway Inc CDR","Type":"Common Stock","Country":"Canada","Currency":"CAD","ISIN":"CA08465W1005","isPrimary":true,"previousClose":35.12,"previousCloseDate":"2026-03-20"},{"Code":"BRK","Exchange":"RO","Name":"Ssif Broker Cl","Type":"Common Stock","Country":"Romania","Currency":"RON","ISIN":"ROBRKOACNOR0","isPrimary":true,"previousClose":0.102,"previousCloseDate":"2026-03-20"},{"Code":"BRK","Exchange":"AU","Name":"Brookside Energy Ltd","Type":"Common Stock","Country":"Australia","Currency":"AUD","ISIN":"AU000000BRK4","isPrimary":true,"previousClose":0.47,"previousCloseDate":"2026-03-20"}]'
+        body: '[{"Code":"BRK-B","Exchange":"US","Name":"Berkshire Hathaway Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US0846707026","isPrimary":true,"previousClose":477.35,"previousCloseDate":"2026-04-02"}]'
         headers:
             Access-Control-Allow-Credentials:
                 - "true"
@@ -38,7 +38,7 @@ interactions:
             Content-Type:
                 - application/json
             Date:
-                - Sun, 22 Mar 2026 13:37:23 GMT
+                - Mon, 06 Apr 2026 14:28:56 GMT
             Server:
                 - nginx/1.19.10
             Vary:
@@ -46,7 +46,7 @@ interactions:
             X-Ratelimit-Limit:
                 - "1400"
             X-Ratelimit-Remaining:
-                - "1398"
+                - "1397"
         status: 200 OK
         code: 200
-        duration: 276.54543ms
+        duration: 515.554502ms

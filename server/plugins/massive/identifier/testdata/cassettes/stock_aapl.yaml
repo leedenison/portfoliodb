@@ -19,12 +19,12 @@ interactions:
         proto_minor: 0
         content_length: -1
         uncompressed: true
-        body: '{"request_id":"13708098700acf8ea626d62374b90291","results":{"ticker":"AAPL","name":"Apple Inc.","market":"stocks","locale":"us","primary_exchange":"XNAS","type":"CS","active":true,"currency_name":"usd","cik":"0000320193","composite_figi":"BBG000B9XRY4","share_class_figi":"BBG001S5N8V8","market_cap":3.6720467368e+12,"phone_number":"(408) 996-1010","address":{"address1":"ONE APPLE PARK WAY","city":"CUPERTINO","state":"CA","postal_code":"95014"},"description":"Apple is among the largest companies in the world, with a broad portfolio of hardware and software products targeted at consumers and businesses. Apple''s iPhone makes up a majority of the firm sales, and Apple''s other products like Mac, iPad, and Watch are designed around the iPhone as the focal point of an expansive software ecosystem. Apple has progressively worked to add new applications, like streaming video, subscription bundles, and augmented reality. The firm designs its own software and semiconductors while working with subcontractors like Foxconn and TSMC to build its products and chips. Slightly less than half of Apple''s sales come directly through its flagship stores, with a majority of sales coming indirectly through partnerships and distribution.","sic_code":"3571","sic_description":"ELECTRONIC COMPUTERS","ticker_root":"AAPL","homepage_url":"https://www.apple.com","total_employees":166000,"list_date":"1980-12-12","branding":{"logo_url":"https://api.massive.com/v1/reference/company-branding/YXBwbGUuY29t/images/2025-04-04_logo.svg","icon_url":"https://api.massive.com/v1/reference/company-branding/YXBwbGUuY29t/images/2025-04-04_icon.png"},"share_class_shares_outstanding":14681140000,"weighted_shares_outstanding":14681140000,"round_lot":100},"status":"OK"}'
+        body: '{"request_id":"965b910e9613897819db9e53fcbe9926","results":{"ticker":"AAPL","name":"Apple Inc.","market":"stocks","locale":"us","primary_exchange":"XNAS","type":"CS","active":true,"currency_name":"usd","cik":"0000320193","composite_figi":"BBG000B9XRY4","share_class_figi":"BBG001S5N8V8","market_cap":3.7571973488e+12,"phone_number":"(408) 996-1010","address":{"address1":"ONE APPLE PARK WAY","city":"CUPERTINO","state":"CA","postal_code":"95014"},"description":"Apple is among the largest companies in the world, with a broad portfolio of hardware and software products targeted at consumers and businesses. Apple''s iPhone makes up a majority of the firm sales, and Apple''s other products like Mac, iPad, and Watch are designed around the iPhone as the focal point of an expansive software ecosystem. Apple has progressively worked to add new applications, like streaming video, subscription bundles, and augmented reality. The firm designs its own software and semiconductors while working with subcontractors like Foxconn and TSMC to build its products and chips. Slightly less than half of Apple''s sales come directly through its flagship stores, with a majority of sales coming indirectly through partnerships and distribution.","sic_code":"3571","sic_description":"ELECTRONIC COMPUTERS","ticker_root":"AAPL","homepage_url":"https://www.apple.com","total_employees":166000,"list_date":"1980-12-12","branding":{"logo_url":"https://api.massive.com/v1/reference/company-branding/YXBwbGUuY29t/images/2025-04-04_logo.svg","icon_url":"https://api.massive.com/v1/reference/company-branding/YXBwbGUuY29t/images/2025-04-04_icon.png"},"share_class_shares_outstanding":14681140000,"weighted_shares_outstanding":14681140000,"round_lot":100},"status":"OK"}'
         headers:
             Content-Type:
                 - application/json
             Date:
-                - Mon, 16 Mar 2026 16:44:22 GMT
+                - Mon, 06 Apr 2026 14:28:55 GMT
             Strict-Transport-Security:
                 - max-age=15724800; includeSubDomains
             Vary:
@@ -32,7 +32,7 @@ interactions:
             X-Polygon-Cluster-Name:
                 - polygon-ny5
             X-Request-Id:
-                - 13708098700acf8ea626d62374b90291
+                - 965b910e9613897819db9e53fcbe9926
         status: 200 OK
         code: 200
-        duration: 281.787923ms
+        duration: 284.450095ms

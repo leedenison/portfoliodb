@@ -310,7 +310,7 @@ export function parseOfxStatement(text: string): OfxParseResult {
   }
 
   txs.sort((a, b) =>
-    Number(a.timestamp?.seconds ?? 0n) - Number(b.timestamp?.seconds ?? 0n),
+    Number(a.timestamp?.seconds ?? 0) - Number(b.timestamp?.seconds ?? 0),
   );
 
   return { txs, periodFrom, periodTo, errors, secList };

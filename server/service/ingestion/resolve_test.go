@@ -708,6 +708,22 @@ func TestCacheKeyWithHints_NoHints(t *testing.T) {
 	}
 }
 
+func TestCacheKeyWithHints_OrderIndependent(t *testing.T) {
+	source := "IBKR:test:statement"
+	desc := "AAPL"
+	k1 := cacheKeyWithHints(source, desc, []identifier.Identifier{
+		{Type: "CUSIP", Value: "037833100"},
+		{Type: "ISIN", Value: "US0378331005"},
+	})
+	k2 := cacheKeyWithHints(source, desc, []identifier.Identifier{
+		{Type: "ISIN", Value: "US0378331005"},
+		{Type: "CUSIP", Value: "037833100"},
+	})
+	if k1 != k2 {
+		t.Errorf("cache keys should be equal regardless of hint order:\n  k1 = %q\n  k2 = %q", k1, k2)
+	}
+}
+
 func TestCacheKeyWithHints_DifferentHintsDifferentKeys(t *testing.T) {
 	source := "IBKR:test:statement"
 	desc := "MSFT MICROSOFT CORP"

@@ -1,11 +1,13 @@
 package ingestion
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -72,8 +74,16 @@ func cacheKeyWithHints(source, instrumentDescription string, hints []identifier.
 	if len(hints) == 0 {
 		return cacheKey(source, instrumentDescription)
 	}
+	// Sort so that the key is order-independent.
+	sorted := slices.Clone(hints)
+	slices.SortFunc(sorted, func(a, b identifier.Identifier) int {
+		if c := cmp.Compare(a.Type, b.Type); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Value, b.Value)
+	})
 	k := source + "\x00" + instrumentDescription
-	for _, h := range hints {
+	for _, h := range sorted {
 		k += "\x00" + h.Type + ":" + h.Value
 	}
 	return k

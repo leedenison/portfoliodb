@@ -264,6 +264,10 @@ export function parseOfxStatement(text: string): OfxParseResult {
       // Currency: per-transaction CURRENCY element, or account default.
       const currencyEl = one(inner.CURRENCY);
       const tradingCurrency = str(currencyEl, "CURSYM") || acctCurrency;
+      if (!tradingCurrency) {
+        errors.push({ rowIndex: txIndex, field: "CURRENCY", message: "No trading currency on transaction or account" });
+        continue;
+      }
 
       // Quantity and price depend on transaction category.
       let quantity: number;
@@ -281,31 +285,63 @@ export function parseOfxStatement(text: string): OfxParseResult {
         unitPrice = Number.isNaN(rawPrice) ? undefined : rawPrice;
       }
 
-      // Build identifier hints.
-      const identifierHints = buildIdentifierHints(uniqueId, uniqueIdType);
+      // Build identifier hints.  Cash transaction types use a CURRENCY hint
+      // so the ingestion layer resolves to the cash instrument rather than
+      // creating a holding from the security description.
+      const isCashTx = tag === "INCOME";
+      const identifierHints = isCashTx
+        ? [{ type: IdentifierType.CURRENCY, value: tradingCurrency }]
+        : buildIdentifierHints(uniqueId, uniqueIdType);
+
+      const ts = timestampFromDate(date);
+      const hintProtos = identifierHints.map((h) =>
+        create(InstrumentIdentifierSchema, {
+          type: h.type,
+          value: h.value,
+          canonical: false,
+        }),
+      );
 
       txs.push(
         create(TxSchema, {
-          timestamp: timestampFromDate(date),
+          timestamp: ts,
           instrumentDescription: description,
           type: def.txType,
           quantity,
           account: acctId,
           tradingCurrency,
           ...(unitPrice !== undefined ? { unitPrice } : {}),
-          ...(identifierHints.length > 0
-            ? {
-                identifierHints: identifierHints.map((h) =>
-                  create(InstrumentIdentifierSchema, {
-                    type: h.type,
-                    value: h.value,
-                    canonical: false,
-                  }),
-                ),
-              }
-            : {}),
+          ...(hintProtos.length > 0 ? { identifierHints: hintProtos } : {}),
         }),
       );
+
+      // Security buys/sells carry a TOTAL that represents the cash leg.
+      // Emit a paired CASHFLOW transaction so each holding is updated by
+      // its own transaction.
+      if (def.invTag !== null) {
+        const total = num(inner, "TOTAL");
+        if (!Number.isNaN(total) && total !== 0) {
+          const cashHints = [
+            create(InstrumentIdentifierSchema, {
+              type: IdentifierType.CURRENCY,
+              value: tradingCurrency,
+              canonical: false,
+            }),
+          ];
+          txs.push(
+            create(TxSchema, {
+              timestamp: ts,
+              instrumentDescription: description,
+              type: TxType.CASHFLOW,
+              quantity: total,
+              unitPrice: 1,
+              account: acctId,
+              tradingCurrency,
+              identifierHints: cashHints,
+            }),
+          );
+        }
+      }
     }
   }
 

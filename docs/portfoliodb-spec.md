@@ -47,6 +47,14 @@ Each transaction modifies holding data for a specific canonical instrument (and 
 
 Every valid transaction must end up with an **instrument_id**: either from plugin resolution or from a **broker-description-only** instrument (an instrument whose only identifier is that source’s description). Truly unidentified transactions must not exist and are considered a fatal validation error.  See docs/identifiers.md.
 
+### Transaction description vs instrument name
+
+The **transaction description** (`instrument_description` on the Tx proto) is the broker-supplied label stored verbatim on each transaction row.  It describes what happened: for example a dividend income transaction might carry the description "MSFT MICROSOFT CORP" because that is the security that generated the dividend.
+
+The **instrument name** (`name` on the instruments table) is the canonical display name of the instrument resolved from identifiers.  For a cash instrument resolved via a CURRENCY identifier, the name is the currency code (e.g. "USD").
+
+These two values serve different purposes and should not be conflated.  When displaying holdings the instrument name should be preferred over the transaction description, falling back to the transaction description only when the instrument has not yet been resolved or has no name.
+
 ## Identifying Instruments
 
 Identifying an instrument means associating the canonical **instrument** (security master) with zero or more **identifiers** (opaque type + domain + value, e.g. ISIN, CUSIP, EXCHANGE + TICKER, FIGI, broker description, etc).  The process of identifying instruments happens during transaction upload processing and periodically (see docs/identifiers.md).
@@ -114,7 +122,7 @@ The system should support the ability to fetch current and historical prices for
 
 ## Calculating Holdings
 
-PortfolioDB calculates holdings for a particular point in time from the transaction data.  It does not materialise the holdings in the database.
+PortfolioDB calculates holdings for a particular point in time from the transaction data.  It does not materialise the holdings in the database.  The `instrument_description` returned in a holding uses the instrument's canonical name when available, falling back to the transaction description (see "Transaction description vs instrument name" above).
 
 ## Exchanges
 

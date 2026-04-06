@@ -700,6 +700,76 @@ func TestCacheKey(t *testing.T) {
 	}
 }
 
+func TestCacheKeyWithHints_NoHints(t *testing.T) {
+	k := cacheKeyWithHints("IBKR:test:statement", "AAPL", nil)
+	want := cacheKey("IBKR:test:statement", "AAPL")
+	if k != want {
+		t.Errorf("cacheKeyWithHints(nil hints) = %q, want %q", k, want)
+	}
+}
+
+func TestCacheKeyWithHints_DifferentHintsDifferentKeys(t *testing.T) {
+	source := "IBKR:test:statement"
+	desc := "MSFT MICROSOFT CORP"
+	cusipKey := cacheKeyWithHints(source, desc, []identifier.Identifier{
+		{Type: "CUSIP", Value: "594918104"},
+	})
+	currencyKey := cacheKeyWithHints(source, desc, []identifier.Identifier{
+		{Type: "CURRENCY", Value: "USD"},
+	})
+	if cusipKey == currencyKey {
+		t.Errorf("cache keys should differ for different hints on the same description, both = %q", cusipKey)
+	}
+}
+
+// TestResolve_SameDescription_DifferentHints_NoCacheConflict verifies that a
+// security transaction and a cash transaction with the same instrument
+// description but different identifier hints resolve independently without
+// a cache conflict error.  This is the scenario where e.g. a BUYSTOCK for
+// "MSFT MICROSOFT CORP" (CUSIP hint) and a CASHFLOW for "MSFT MICROSOFT CORP"
+// (CURRENCY hint) appear in the same batch.
+func TestResolve_SameDescription_DifferentHints_NoCacheConflict(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	source := "IBKR:test:statement"
+	cache := make(map[string]resolveResult)
+	desc := "MSFT MICROSOFT CORP"
+
+	// First: resolve the security transaction (CUSIP hint).
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "CUSIP", "", "594918104").
+		Return("msft-inst-id", nil)
+
+	r1, err := Resolve(ctx, database, registry, "IBKR", source, desc,
+		identifier.Hints{}, []identifier.Identifier{{Type: "CUSIP", Value: "594918104"}},
+		cache, 0, nil, nil)
+	if err != nil {
+		t.Fatalf("Resolve (security): %v", err)
+	}
+	if r1.InstrumentID != "msft-inst-id" {
+		t.Errorf("security InstrumentID = %q, want msft-inst-id", r1.InstrumentID)
+	}
+
+	// Second: resolve the cash transaction (CURRENCY hint) with the same description.
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "CURRENCY", "", "USD").
+		Return("usd-inst-id", nil)
+
+	r2, err := Resolve(ctx, database, registry, "IBKR", source, desc,
+		identifier.Hints{}, []identifier.Identifier{{Type: "CURRENCY", Value: "USD"}},
+		cache, 1, nil, nil)
+	if err != nil {
+		t.Fatalf("Resolve (cash): %v", err)
+	}
+	if r2.InstrumentID != "usd-inst-id" {
+		t.Errorf("cash InstrumentID = %q, want usd-inst-id", r2.InstrumentID)
+	}
+}
+
 func TestHintsByType(t *testing.T) {
 	hints := []identifier.Identifier{
 		{Type: "MIC_TICKER", Value: "EQQQ"},

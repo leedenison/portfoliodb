@@ -142,7 +142,7 @@ describe("parseOfxStatement", () => {
     });
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
-    expect(result.txs.length).toBe(1);
+    expect(result.txs.length).toBe(2); // security tx + cashflow
 
     const tx = result.txs[0]!;
     expect(tx.type).toBe(TxType.BUYSTOCK);
@@ -154,6 +154,15 @@ describe("parseOfxStatement", () => {
     expect(tx.identifierHints.length).toBe(1);
     expect(tx.identifierHints[0]!.type).toBe(IdentifierType.CUSIP);
     expect(tx.identifierHints[0]!.value).toBe("023135106");
+
+    const cf = result.txs[1]!;
+    expect(cf.type).toBe(TxType.CASHFLOW);
+    expect(cf.quantity).toBe(-3131);
+    expect(cf.unitPrice).toBe(1);
+    expect(cf.tradingCurrency).toBe("USD");
+    expect(cf.identifierHints.length).toBe(1);
+    expect(cf.identifierHints[0]!.type).toBe(IdentifierType.CURRENCY);
+    expect(cf.identifierHints[0]!.value).toBe("USD");
   });
 
   it("parses a SELLSTOCK with ISIN identifier", () => {
@@ -163,7 +172,7 @@ describe("parseOfxStatement", () => {
     });
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
-    expect(result.txs.length).toBe(1);
+    expect(result.txs.length).toBe(2); // security tx + cashflow
 
     const tx = result.txs[0]!;
     expect(tx.type).toBe(TxType.SELLSTOCK);
@@ -171,6 +180,11 @@ describe("parseOfxStatement", () => {
     expect(tx.instrumentDescription).toBe("SGLN ISHARES PHYSICAL GOLD ETC");
     expect(tx.identifierHints[0]!.type).toBe(IdentifierType.ISIN);
     expect(tx.identifierHints[0]!.value).toBe("IE00B4ND3602");
+
+    const cf = result.txs[1]!;
+    expect(cf.type).toBe(TxType.CASHFLOW);
+    expect(cf.quantity).toBe(85939);
+    expect(cf.unitPrice).toBe(1);
   });
 
   it("parses multiple transactions of the same type", () => {
@@ -178,9 +192,11 @@ describe("parseOfxStatement", () => {
     const ofx = buildOfx({ transactions: txs });
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
-    expect(result.txs.length).toBe(2);
-    expect(result.txs[0]!.quantity).toBe(10);
-    expect(result.txs[1]!.quantity).toBe(20);
+    // 2 security txs + 2 cashflow txs = 4
+    const buys = result.txs.filter((t) => t.type === TxType.BUYSTOCK);
+    expect(buys.length).toBe(2);
+    expect(buys[0]!.quantity).toBe(10);
+    expect(buys[1]!.quantity).toBe(20);
   });
 
   it("parses mixed buy and sell transactions", () => {
@@ -188,9 +204,10 @@ describe("parseOfxStatement", () => {
     const ofx = buildOfx({ transactions: txs });
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
-    expect(result.txs.length).toBe(2);
+    // 2 security txs + 2 cashflow txs = 4
     expect(result.txs.some((t) => t.type === TxType.BUYSTOCK)).toBe(true);
     expect(result.txs.some((t) => t.type === TxType.SELLSTOCK)).toBe(true);
+    expect(result.txs.filter((t) => t.type === TxType.CASHFLOW).length).toBe(2);
   });
 
   it("parses INCOME with TOTAL as quantity and price=1", () => {
@@ -215,6 +232,9 @@ describe("parseOfxStatement", () => {
     expect(tx.quantity).toBe(137.08);
     expect(tx.unitPrice).toBe(1);
     expect(tx.instrumentDescription).toBe("MSFT MICROSOFT CORP");
+    expect(tx.identifierHints.length).toBe(1);
+    expect(tx.identifierHints[0]!.type).toBe(IdentifierType.CURRENCY);
+    expect(tx.identifierHints[0]!.value).toBe("USD");
   });
 
   it("parses BUYOPT with CONID (no identifier hint -- broker-specific post-processing needed)", () => {
@@ -236,7 +256,7 @@ describe("parseOfxStatement", () => {
     });
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
-    expect(result.txs.length).toBe(1);
+    expect(result.txs.length).toBe(2); // security tx + cashflow
 
     const tx = result.txs[0]!;
     expect(tx.type).toBe(TxType.BUYOPT);
@@ -245,6 +265,10 @@ describe("parseOfxStatement", () => {
     // CONID is not a standard identifier -- no hints from generic parser.
     // Broker-specific converters (e.g. IBKR) add OCC hints via post-processing.
     expect(tx.identifierHints.length).toBe(0);
+
+    const cf = result.txs[1]!;
+    expect(cf.type).toBe(TxType.CASHFLOW);
+    expect(cf.quantity).toBe(-4239);
   });
 
   it("returns secList for broker-specific post-processing", () => {
@@ -272,7 +296,8 @@ describe("parseOfxStatement", () => {
     const ofx = buildOfx({ curdef: "EUR", transactions: tx });
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
-    expect(result.txs[0]!.tradingCurrency).toBe("EUR");
+    const buy = result.txs.find((t) => t.type === TxType.BUYSTOCK)!;
+    expect(buy.tradingCurrency).toBe("EUR");
   });
 
   it("falls back to UNIQUEID for description when SECLIST missing", () => {
@@ -280,6 +305,42 @@ describe("parseOfxStatement", () => {
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
     expect(result.txs[0]!.instrumentDescription).toBe("023135106");
+  });
+
+  it("returns error when no currency is available", () => {
+    // Build OFX without CURDEF and without per-transaction CURRENCY.
+    const ofx = `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+
+<OFX>
+  <SIGNONMSGSRSV1><SONRS><STATUS><CODE>0</CODE></STATUS></SONRS></SIGNONMSGSRSV1>
+  <INVSTMTMSGSRSV1>
+    <INVSTMTTRNRS>
+      <INVSTMTRS>
+        <INVACCTFROM><BROKERID>4705</BROKERID><ACCTID>U123</ACCTID></INVACCTFROM>
+        <INVTRANLIST>
+          <DTSTART>20260101
+          <DTEND>20260401
+          <BUYSTOCK>
+            <INVBUY>
+              <INVTRAN><FITID>1</FITID><DTTRADE>20260303</DTTRADE></INVTRAN>
+              <SECID><UNIQUEID>023135106</UNIQUEID><UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE></SECID>
+              <UNITS>10
+              <UNITPRICE>50
+              <TOTAL>-500
+            </INVBUY>
+            <BUYTYPE>BUY
+          </BUYSTOCK>
+        </INVTRANLIST>
+      </INVSTMTRS>
+    </INVSTMTTRNRS>
+  </INVSTMTMSGSRSV1>
+</OFX>`;
+    const result = parseOfxStatement(ofx);
+    expect(result.txs.length).toBe(0);
+    expect(result.errors.length).toBe(1);
+    expect(result.errors[0]!.field).toBe("CURRENCY");
   });
 
   it("extracts period from DTSTART/DTEND", () => {

@@ -59,9 +59,24 @@ type resolveResult struct {
 	FirstRowIndex int32
 }
 
-// cacheKey returns a key for the batch cache. Same (source, description) in a batch resolves once.
+// cacheKey returns a key for the batch cache.  When no identifier hints are
+// supplied, same (source, description) resolves once.  When identifier hints
+// are present they are appended so that two transactions with the same
+// description but different hints (e.g. a security buy and the corresponding
+// cash leg) cache independently.
 func cacheKey(source, instrumentDescription string) string {
 	return source + "\x00" + instrumentDescription
+}
+
+func cacheKeyWithHints(source, instrumentDescription string, hints []identifier.Identifier) string {
+	if len(hints) == 0 {
+		return cacheKey(source, instrumentDescription)
+	}
+	k := source + "\x00" + instrumentDescription
+	for _, h := range hints {
+		k += "\x00" + h.Type + ":" + h.Value
+	}
+	return k
 }
 
 // shortHashForBatch returns a short stable id (first 8 hex chars of SHA256) for batch description extraction response matching.
@@ -166,22 +181,9 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 // When client supplies identifier_hints, resolution is by identifiers only and (source, description) is not stored.
 // hints are optional (exchange, currency, MIC, security type). counter is optional; when non-nil and plugins are invoked, instrument.identify.attempts is incremented.
 func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, rowIndex int32, counter telemetry.CounterIncrementer, extractedHintsCache map[string][]identifier.Identifier) (resolveResult, error) {
-	key := cacheKey(source, instrumentDescription)
+	key := cacheKeyWithHints(source, instrumentDescription, identifierHints)
 	if cache != nil {
 		if r, ok := cache[key]; ok {
-			// If this tx has client identifier_hints, verify they resolve to the cached instrument (batch conflict check).
-			if len(identifierHints) > 0 {
-				ids, err := identification.ResolveByHintsDBOnly(ctx, database, identifierHints)
-				if err != nil {
-					return resolveResult{}, err
-				}
-				if len(ids) > 1 {
-					return resolveResult{}, fmt.Errorf("conflicting identifier hints resolve to different instruments")
-				}
-				if len(ids) == 1 && ids[0] != r.InstrumentID {
-					return resolveResult{}, fmt.Errorf("conflicting identifier hints resolve to different instruments")
-				}
-			}
 			return r, nil
 		}
 	}

@@ -463,6 +463,20 @@ func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provi
 		return fmt.Errorf("upsert prices with fill: invalid id %q: %w", instrumentID, err)
 	}
 
+	// Deduplicate bars by date, keeping the last occurrence.
+	seen := make(map[time.Time]int, len(bars))
+	deduped := make([]db.EODPrice, 0, len(bars))
+	for _, b := range bars {
+		d := b.PriceDate.Truncate(24 * time.Hour)
+		if idx, ok := seen[d]; ok {
+			deduped[idx] = b
+		} else {
+			seen[d] = len(deduped)
+			deduped = append(deduped, b)
+		}
+	}
+	bars = deduped
+
 	dates := make([]time.Time, len(bars))
 	opens := make([]*float64, len(bars))
 	highs := make([]*float64, len(bars))

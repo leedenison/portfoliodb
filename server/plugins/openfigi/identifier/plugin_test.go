@@ -55,17 +55,20 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 	if inst.AssetClass != "STOCK" || inst.Name != "INTL BUSINESS MACHINES CORP" || inst.Exchange != "" {
 		t.Errorf("instrument = %+v", inst)
 	}
-	hasFIGI, hasTicker := false, false
+	hasFIGI, hasOpenFIGITicker, hasMICTicker := false, false, false
 	for _, id := range ids {
 		if id.Type == "OPENFIGI_GLOBAL" && id.Value == "BBG000BLNNH6" {
 			hasFIGI = true
 		}
 		if id.Type == "OPENFIGI_TICKER" && id.Value == "IBM" && id.Domain == "US" {
-			hasTicker = true
+			hasOpenFIGITicker = true
+		}
+		if id.Type == "MIC_TICKER" && id.Value == "IBM" {
+			hasMICTicker = true
 		}
 	}
-	if !hasFIGI || !hasTicker {
-		t.Errorf("identifiers = %+v", ids)
+	if !hasFIGI || !hasOpenFIGITicker || !hasMICTicker {
+		t.Errorf("identifiers = %+v; want OPENFIGI_GLOBAL, OPENFIGI_TICKER, and MIC_TICKER", ids)
 	}
 }
 
@@ -161,8 +164,17 @@ func TestPlugin_Identify_OpenFIGIMapping_FromTickerHint(t *testing.T) {
 	if inst.Name != "APPLE INC" {
 		t.Errorf("inst.Name = %q", inst.Name)
 	}
-	if len(ids) < 2 {
-		t.Errorf("expected OPENFIGI_GLOBAL and OPENFIGI_TICKER, got %+v", ids)
+	if len(ids) < 3 {
+		t.Errorf("expected OPENFIGI_GLOBAL, OPENFIGI_TICKER, and MIC_TICKER, got %+v", ids)
+	}
+	hasMICTicker := false
+	for _, id := range ids {
+		if id.Type == "MIC_TICKER" && id.Value == "AAPL" {
+			hasMICTicker = true
+		}
+	}
+	if !hasMICTicker {
+		t.Errorf("expected MIC_TICKER:AAPL in identifiers, got %+v", ids)
 	}
 }
 
@@ -679,6 +691,88 @@ func TestResolveResults_AssetClassFromSelectedResult(t *testing.T) {
 	// stored asset class is from classify(), which is also STOCK.
 	if inst.AssetClass != "STOCK" {
 		t.Errorf("AssetClass = %q, want STOCK", inst.AssetClass)
+	}
+}
+
+func TestPlugin_Identify_MICTickerWithDomainPreserved(t *testing.T) {
+	// When a MIC_TICKER hint has a Domain (e.g. "XLON"), the returned identifier
+	// should preserve that Domain so it can be stored with the correct exchange.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]MappingResponseItem{
+			{Data: []OpenFIGIResult{{
+				FIGI:          "BBG00X2RM0W5",
+				Ticker:        "EQQQ",
+				Name:          "INVESCO NASDAQ-100 DIST",
+				ExchCode:      "GR",
+				SecurityType:  "ETP",
+				SecurityType2: "ETP",
+				MarketSector:  "Equity",
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{
+		"openfigi_api_key":  "test-key",
+		"openfigi_base_url": server.URL,
+	})
+	ctx := context.Background()
+	p := NewPlugin(nil, nil, http.DefaultClient)
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "EQQQ"}}
+	_, ids, err := p.Identify(ctx, config, "Fidelity", "Fidelity:web:standard", "EQQQ", identifier.Hints{}, hints)
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	var found *identifier.Identifier
+	for i, id := range ids {
+		if id.Type == "MIC_TICKER" && id.Value == "EQQQ" {
+			found = &ids[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected MIC_TICKER:EQQQ in identifiers, got %+v", ids)
+	}
+	if found.Domain != "XLON" {
+		t.Errorf("MIC_TICKER domain = %q, want %q", found.Domain, "XLON")
+	}
+}
+
+func TestPlugin_Identify_NonTickerHintNotAppended(t *testing.T) {
+	// When the matched hint is not a MIC_TICKER (e.g. OPENFIGI_SHARE_CLASS),
+	// the plugin should NOT append it to the returned identifiers.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]MappingResponseItem{
+			{Data: []OpenFIGIResult{{
+				FIGI:          "BBG000BLNNH6",
+				Ticker:        "IBM",
+				Name:          "INTL BUSINESS MACHINES CORP",
+				ExchCode:      "US",
+				SecurityType:  "Common Stock",
+				SecurityType2: "Common Stock",
+				MarketSector:  "Equity",
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{
+		"openfigi_api_key":  "test-key",
+		"openfigi_base_url": server.URL,
+	})
+	ctx := context.Background()
+	p := NewPlugin(nil, nil, http.DefaultClient)
+	hints := []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5S399"}}
+	_, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Hints{}, hints)
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	for _, id := range ids {
+		if id.Type == "MIC_TICKER" {
+			t.Errorf("unexpected MIC_TICKER in identifiers when hint was OPENFIGI_SHARE_CLASS: %+v", ids)
+		}
 	}
 }
 

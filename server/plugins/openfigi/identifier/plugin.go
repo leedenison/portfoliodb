@@ -88,11 +88,27 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		return nil, nil, identifier.ErrNotIdentified
 	}
 	// Use OpenFIGI Mapping only (no Search API); try first hint that we can map
-	results, err := p.tryOpenFIGIFromHints(ctx, identifierHints, hints)
+	results, matchedHint, err := p.tryOpenFIGIFromHints(ctx, identifierHints, hints)
 	if err != nil {
 		return nil, nil, err
 	}
 	if inst, ids, ok := p.resolveResults(results, hints, true); ok {
+		// When the matched hint was a MIC_TICKER, include it in the returned
+		// identifiers. A successful Mapping API response for that ticker proves
+		// the association. Other hint types (ISIN, CUSIP, etc.) are not appended
+		// because OpenFIGI may return corrected values for those.
+		if matchedHint != nil && matchedHint.Type == "MIC_TICKER" {
+			hasMICTicker := false
+			for _, id := range ids {
+				if id.Type == "MIC_TICKER" && id.Value == matchedHint.Value {
+					hasMICTicker = true
+					break
+				}
+			}
+			if !hasMICTicker {
+				ids = append(ids, *matchedHint)
+			}
+		}
 		return inst, ids, nil
 	}
 	return nil, nil, identifier.ErrNotIdentified
@@ -159,10 +175,11 @@ var openFIGIIDTypeFromHint = map[string]string{
 	"OPENFIGI_GLOBAL": "ID_BB_GLOBAL", "OPENFIGI_SHARE_CLASS": "ID_BB_GLOBAL_SHARE_CLASS_LEVEL", "OPENFIGI_COMPOSITE": "COMPOSITE_ID_BB_GLOBAL",
 }
 
-// tryOpenFIGIFromHints tries OpenFIGI Mapping for each hint (in order); returns first non-empty result set.
-// Uses only Mapping API (no Search). For MIC_TICKER hints, Domain is sent as micCode; for OPENFIGI_TICKER, as exchCode.
+// tryOpenFIGIFromHints tries OpenFIGI Mapping for each hint (in order); returns the first non-empty result set
+// and the hint that produced it. Uses only Mapping API (no Search). For MIC_TICKER hints, Domain is sent as
+// micCode; for OPENFIGI_TICKER, as exchCode.
 // We do not use the security type hint as securityType2 (our vocabulary does not match OpenFIGI's). The plugin already prefers EQUITY+common when multiple results exist.
-func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []identifier.Identifier, hints identifier.Hints) ([]OpenFIGIResult, error) {
+func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []identifier.Identifier, hints identifier.Hints) ([]OpenFIGIResult, *identifier.Identifier, error) {
 	for _, h := range identifierHints {
 		ourType := strings.TrimSpace(h.Type)
 		idType := openFIGIIDTypeFromHint[ourType]
@@ -199,12 +216,12 @@ func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []ide
 		}
 		results, err := p.openfigi.Mapping(ctx, job)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if len(results) > 0 {
-			return results, nil
+			return results, &h, nil
 		}
 	}
-	return nil, nil
+	return nil, nil, nil
 }
 

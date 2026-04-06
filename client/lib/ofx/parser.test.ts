@@ -217,7 +217,7 @@ describe("parseOfxStatement", () => {
     expect(tx.instrumentDescription).toBe("MSFT MICROSOFT CORP");
   });
 
-  it("parses BUYOPT with CONID and resolves OCC from SECLIST", () => {
+  it("parses BUYOPT with CONID (no identifier hint -- broker-specific post-processing needed)", () => {
     const buyOpt = `<BUYOPT>
       <INVBUY>
         <INVTRAN><FITID>opt1</FITID><DTTRADE>20260303151000.000[-5:EST]</DTTRADE></INVTRAN>
@@ -242,9 +242,20 @@ describe("parseOfxStatement", () => {
     expect(tx.type).toBe(TxType.BUYOPT);
     expect(tx.quantity).toBe(3);
     expect(tx.instrumentDescription).toContain("BRKB");
-    expect(tx.identifierHints.length).toBe(1);
-    expect(tx.identifierHints[0]!.type).toBe(IdentifierType.OCC);
-    expect(tx.identifierHints[0]!.value).toBe("BRKB  260918P00470000");
+    // CONID is not a standard identifier -- no hints from generic parser.
+    // Broker-specific converters (e.g. IBKR) add OCC hints via post-processing.
+    expect(tx.identifierHints.length).toBe(0);
+  });
+
+  it("returns secList for broker-specific post-processing", () => {
+    const ofx = buildOfx({
+      transactions: buyStockTx(),
+      secList: `<SECLISTMSGSRSV1><SECLIST>${stockSecList("023135106", "CUSIP", "AMZN AMAZON.COM INC", "AMZN")}${optSecList("786977282", "BRKB  260918P00470000 BRK B 18SEP26 470 P", "BRKB  260918P00470000")}</SECLIST></SECLISTMSGSRSV1>`,
+    });
+    const result = parseOfxStatement(ofx);
+    expect(result.secList.size).toBe(2);
+    expect(result.secList.get("023135106")?.ticker).toBe("AMZN");
+    expect(result.secList.get("786977282")?.uniqueIdType).toBe("CONID");
   });
 
   it("uses account currency when transaction has no CURRENCY element", () => {

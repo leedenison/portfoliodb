@@ -313,7 +313,7 @@ export function UploadModal() {
                 accept={selectedFormat?.accept ?? ".csv"}
                 onChange={handleFileChange}
                 className="sr-only"
-                aria-label="Choose CSV file"
+                aria-label="Choose transaction file"
               />
               <button
                 type="button"

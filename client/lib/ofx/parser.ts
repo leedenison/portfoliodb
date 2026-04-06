@@ -18,6 +18,10 @@ import {
 import type { StandardParseResult, ParseError } from "@/lib/csv/standard";
 import { parseOfxSgml } from "./sgml";
 
+export interface OfxParseResult extends StandardParseResult {
+  secList: Map<string, SecInfo>;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /** Safely navigate a nested object by dot-separated path. */
@@ -105,7 +109,7 @@ function pad2(n: number): string {
 
 // ── SECLIST lookup ───────────────────────────────────────────────────
 
-interface SecInfo {
+export interface SecInfo {
   secName: string;
   ticker: string;
   uniqueId: string;
@@ -121,7 +125,7 @@ function buildSecList(body: Record<string, unknown>): Map<string, SecInfo> {
   for (const tag of ["STOCKINFO", "OPTINFO", "MFINFO", "DEBTINFO", "OTHERINFO"]) {
     for (const entry of many(secList[tag])) {
       const info = one(entry.SECINFO) ?? entry;
-      const secId = one(info.SECID ?? (entry.SECINFO && one(entry.SECINFO))?.SECID);
+      const secId = one(info.SECID);
       if (!secId) continue;
       const uid = str(secId, "UNIQUEID");
       if (!uid) continue;
@@ -147,19 +151,12 @@ const ID_TYPE_MAP: Record<string, IdentifierType> = {
 function buildIdentifierHints(
   uniqueId: string,
   uniqueIdType: string,
-  secInfo: SecInfo | undefined,
 ): { type: IdentifierType; value: string }[] {
   const hints: { type: IdentifierType; value: string }[] = [];
 
-  // Standard identifier types.
   const mapped = ID_TYPE_MAP[uniqueIdType.toUpperCase()];
   if (mapped !== undefined) {
     hints.push({ type: mapped, value: uniqueId });
-  }
-
-  // CONID (IBKR internal) -- use TICKER from SECLIST as OCC symbol.
-  if (uniqueIdType.toUpperCase() === "CONID" && secInfo?.ticker) {
-    hints.push({ type: IdentifierType.OCC, value: secInfo.ticker });
   }
 
   return hints;
@@ -191,8 +188,9 @@ const TX_TYPES: Record<string, TxTypeDef> = {
 
 // ── Main parser ──────────────────────────────────────────────────────
 
-export function parseOfxStatement(text: string): StandardParseResult {
+export function parseOfxStatement(text: string): OfxParseResult {
   const errors: ParseError[] = [];
+  const emptySecList = new Map<string, SecInfo>();
   const { body } = parseOfxSgml(text);
 
   const stmtRs = one(
@@ -204,6 +202,7 @@ export function parseOfxStatement(text: string): StandardParseResult {
       periodFrom: new Date(0),
       periodTo: new Date(0),
       errors: [{ rowIndex: 0, field: "file", message: "No investment statement found in OFX file" }],
+      secList: emptySecList,
     };
   }
 
@@ -218,6 +217,7 @@ export function parseOfxStatement(text: string): StandardParseResult {
       periodFrom: new Date(0),
       periodTo: new Date(0),
       errors: [{ rowIndex: 0, field: "file", message: "No transaction list found in OFX file" }],
+      secList: emptySecList,
     };
   }
 
@@ -282,7 +282,7 @@ export function parseOfxStatement(text: string): StandardParseResult {
       }
 
       // Build identifier hints.
-      const identifierHints = buildIdentifierHints(uniqueId, uniqueIdType, secInfo);
+      const identifierHints = buildIdentifierHints(uniqueId, uniqueIdType);
 
       txs.push(
         create(TxSchema, {
@@ -309,5 +309,9 @@ export function parseOfxStatement(text: string): StandardParseResult {
     }
   }
 
-  return { txs, periodFrom, periodTo, errors };
+  txs.sort((a, b) =>
+    Number(a.timestamp?.seconds ?? 0n) - Number(b.timestamp?.seconds ?? 0n),
+  );
+
+  return { txs, periodFrom, periodTo, errors, secList };
 }

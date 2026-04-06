@@ -89,6 +89,7 @@ func TestUnaryInterceptor(t *testing.T) {
 		{"SkipAuthPrefix_CallsHandlerWithoutUser", "", "", "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo", false, false, false},
 		{"NoSessionMethod_AuthUser", "", "", "/portfoliodb.auth.v1.AuthService/AuthUser", false, false, false},
 {"AuthMachine_NoSessionRequired", "", "", "/portfoliodb.auth.v1.AuthService/AuthMachine", false, false, false},
+		{"CookieWithMalformedPeer", "g_state={\"i_l\":0}; portfoliodb_session=valid-user-session", "", "/api/ListPortfolios", false, true, false},
 		{"MissingSession_ReturnsUnauthenticated", "other=value", "", "/api/ListPortfolios", true, false, false},
 		{"InvalidSession_ReturnsUnauthenticated", "portfoliodb_session=invalid-id", "", "/api/ListPortfolios", true, false, false},
 		{"OptionalSession_AllowsMissingSession", "", "", "/portfoliodb.auth.v1.AuthService/Logout", false, false, false},

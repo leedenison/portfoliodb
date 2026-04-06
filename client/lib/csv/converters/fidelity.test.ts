@@ -22,7 +22,7 @@ describe("convertFidelityToStandard", () => {
     expect(result.txs.length).toBe(0);
   });
 
-  it("parses a single Sell row and uses Order date", () => {
+  it("parses a single Sell row and uses Completion date", () => {
     const csv = [
       "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status",
       '21 Jan 2026,23 Jan 2026,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10041188,,-31826.24,70,454.66,1229145354,Completed,',
@@ -36,6 +36,19 @@ describe("convertFidelityToStandard", () => {
     expect(result.txs[0]!.settlementCurrency).toBe("GBP");
     expect(result.txs[0]!.tradingCurrency).toBe(""); // Sell is not Cash type
     expect(result.txs[0]!.account).toBe("AG10041188");
+    expect(result.periodFrom.getFullYear()).toBe(2026);
+    expect(result.periodFrom.getMonth()).toBe(0); // Jan
+    expect(result.periodFrom.getDate()).toBe(23);
+  });
+
+  it("falls back to Order date when Completion date is Pending", () => {
+    const csv = [
+      "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit",
+      "21 Jan 2026,Pending,Buy,ISHARES II PLC INRG,SIPP,100,7.16",
+    ].join("\n");
+    const result = convertFidelityToStandard(csv, { currency: "GBP" });
+    expect(result.errors).toEqual([]);
+    expect(result.txs.length).toBe(1);
     expect(result.periodFrom.getFullYear()).toBe(2026);
     expect(result.periodFrom.getMonth()).toBe(0); // Jan
     expect(result.periodFrom.getDate()).toBe(21);

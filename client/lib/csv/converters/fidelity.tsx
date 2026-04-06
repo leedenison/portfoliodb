@@ -116,6 +116,7 @@ export function convertFidelityToStandard(
     return headerLower.indexOf(n);
   };
   const orderDateCol = col("order_date");
+  const completionDateCol = col("completion_date");
   const txTypeCol = col("transaction_type");
   const investmentsCol = col("investments");
   const accountCol = col("account_number");
@@ -140,10 +141,12 @@ export function convertFidelityToStandard(
     const values = parseCSVLine(lines[i]);
     const get = (idx: number) => (idx >= 0 && idx < values.length ? values[idx].trim() : "");
 
+    const completionDateStr = completionDateCol >= 0 ? get(completionDateCol) : "";
     const orderDateStr = get(orderDateCol);
-    const date = parseFidelityDate(orderDateStr);
+    const dateStr = completionDateStr && completionDateStr !== "Pending" ? completionDateStr : orderDateStr;
+    const date = parseFidelityDate(dateStr);
     if (!date) {
-      errors.push({ rowIndex, field: "date", message: "Invalid or missing order date" });
+      errors.push({ rowIndex, field: "date", message: "Invalid or missing date" });
       continue;
     }
 

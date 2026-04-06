@@ -852,6 +852,33 @@ func TestUpsertPricesWithFill_NoSeedAtStart(t *testing.T) {
 	}
 }
 
+func TestUpsertPricesWithFill_DuplicateDates(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "FILLDUP")
+
+	// Bars with duplicate dates — last occurrence should win.
+	mon := d(2024, 1, 1)
+	bars := []db.EODPrice{
+		{InstrumentID: instID, PriceDate: mon, Close: 100.0},
+		{InstrumentID: instID, PriceDate: mon, Close: 101.0}, // duplicate
+		{InstrumentID: instID, PriceDate: mon.AddDate(0, 0, 1), Close: 102.0},
+	}
+	to := mon.AddDate(0, 0, 2)
+	err := p.UpsertPricesWithFill(ctx, instID, "test", bars, mon, to)
+	if err != nil {
+		t.Fatalf("upsert with fill: %v", err)
+	}
+
+	var close float64
+	p.q.QueryRowContext(ctx,
+		`SELECT close FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
+		instID, mon).Scan(&close)
+	if close != 101.0 {
+		t.Errorf("duplicate date: close = %v, want 101.0 (last occurrence)", close)
+	}
+}
+
 // --- FXGaps tests ---
 
 // setupInstrumentWithCurrency creates an instrument with a specific asset class and currency.

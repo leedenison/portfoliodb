@@ -13,11 +13,13 @@ interactions:
                 - REDACTED
             fmt:
                 - json
-            limit:
-                - "10"
-            type:
-                - stock
-        url: https://eodhd.com/api/search/BRK-B?api_token=REDACTED&fmt=json&limit=10&type=stock
+            from:
+                - "2025-01-01"
+            period:
+                - d
+            to:
+                - "2025-04-06"
+        url: https://eodhd.com/api/eod/GBPUSD.FOREX?api_token=REDACTED&fmt=json&from=2025-01-01&period=d&to=2025-04-06
         method: GET
       response:
         proto: HTTP/2.0
@@ -25,7 +27,7 @@ interactions:
         proto_minor: 0
         content_length: -1
         uncompressed: true
-        body: '[{"Code":"BRK-B","Exchange":"US","Name":"Berkshire Hathaway Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US0846707026","isPrimary":true,"previousClose":477.35,"previousCloseDate":"2026-04-02"}]'
+        body: '[{"date":"2025-04-06","open":1.2889,"high":1.2932,"low":1.2825,"close":1.2909,"adjusted_close":1.2909,"volume":2952866,"warning":"Data is limited by one year as you have free subscription"}]'
         headers:
             Access-Control-Allow-Credentials:
                 - "true"
@@ -49,4 +51,4 @@ interactions:
                 - "1397"
         status: 200 OK
         code: 200
-        duration: 515.554502ms
+        duration: 1.594606576s

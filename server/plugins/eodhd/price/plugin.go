@@ -103,6 +103,10 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 			if errors.As(err, &nf) {
 				return nil, &pricefetcher.ErrPermanent{Reason: "symbol not found: " + symbol}
 			}
+			var sl *client.ErrSubscriptionLimit
+			if errors.As(err, &sl) {
+				return nil, &pricefetcher.ErrPermanent{Reason: sl.Error()}
+			}
 			return nil, err
 		}
 		allBars = append(allBars, bars...)

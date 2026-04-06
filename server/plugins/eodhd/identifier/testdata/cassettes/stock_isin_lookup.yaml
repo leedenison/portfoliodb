@@ -25,7 +25,7 @@ interactions:
         proto_minor: 0
         content_length: -1
         uncompressed: true
-        body: '[{"Code":"AAPL","Exchange":"US","Name":"Apple Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US0378331005","isPrimary":true,"previousClose":250.12,"previousCloseDate":"2026-03-13"},{"Code":"AAPL","Exchange":"BA","Name":"Apple Inc DRC","Type":"Common Stock","Country":"Argentina","Currency":"ARS","ISIN":"US0378331005","isPrimary":false,"previousClose":18620,"previousCloseDate":"2026-03-12"},{"Code":"0R2V","Exchange":"LSE","Name":"Apple Inc.","Type":"Common Stock","Country":"UK","Currency":"USD","ISIN":"US0378331005","isPrimary":false,"previousClose":255,"previousCloseDate":"2026-03-13"},{"Code":"0R2V","Exchange":"IL","Name":"Apple Inc.","Type":"Common Stock","Country":"UK","Currency":"USD","ISIN":"US0378331005","isPrimary":false,"previousClose":255,"previousCloseDate":"2026-03-13"},{"Code":"APC","Exchange":"XETRA","Name":"Apple Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0378331005","isPrimary":false,"previousClose":219.8,"previousCloseDate":"2026-03-16"},{"Code":"AAPL","Exchange":"NEO","Name":"Apple Inc CDR","Type":"Common Stock","Country":"Canada","Currency":"CAD","ISIN":"US0378331005","isPrimary":false,"previousClose":36.51,"previousCloseDate":"2026-03-12"},{"Code":"AAPL","Exchange":"MX","Name":"Apple Inc","Type":"Common Stock","Country":"Mexico","Currency":"MXN","ISIN":"US0378331005","isPrimary":false,"previousClose":4498.13,"previousCloseDate":"2026-03-13"},{"Code":"APC","Exchange":"F","Name":"Apple Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0378331005","isPrimary":false,"previousClose":218.6,"previousCloseDate":"2026-03-13"},{"Code":"APC","Exchange":"STU","Name":"Apple Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0378331005","isPrimary":false,"previousClose":222.35,"previousCloseDate":"2026-03-12"},{"Code":"APC","Exchange":"MU","Name":"Apple Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0378331005","isPrimary":false,"previousClose":221.6,"previousCloseDate":"2026-03-12"}]'
+        body: '[{"Code":"AAPL","Exchange":"US","Name":"Apple Inc","Type":"Common Stock","Country":"USA","Currency":"USD","ISIN":"US0378331005","isPrimary":true,"previousClose":255.92,"previousCloseDate":"2026-04-02"},{"Code":"AAPL","Exchange":"BA","Name":"Apple Inc DRC","Type":"Common Stock","Country":"Argentina","Currency":"ARS","ISIN":"US0378331005","isPrimary":false,"previousClose":19030,"previousCloseDate":"2026-04-01"},{"Code":"0R2V","Exchange":"LSE","Name":"Apple Inc.","Type":"Common Stock","Country":"UK","Currency":"USD","ISIN":"US0378331005","isPrimary":false,"previousClose":254.96,"previousCloseDate":"2026-04-02"},{"Code":"0R2V","Exchange":"IL","Name":"Apple Inc.","Type":"Common Stock","Country":"UK","Currency":"USD","ISIN":"US0378331005","isPrimary":false,"previousClose":254.96,"previousCloseDate":"2026-04-02"},{"Code":"APC","Exchange":"F","Name":"Apple Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0378331005","isPrimary":false,"previousClose":222,"previousCloseDate":"2026-04-02"},{"Code":"APC","Exchange":"XETRA","Name":"Apple Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0378331005","isPrimary":false,"previousClose":220.7,"previousCloseDate":"2026-04-02"},{"Code":"AAPL","Exchange":"NEO","Name":"Apple Inc CDR","Type":"Common Stock","Country":"Canada","Currency":"CAD","ISIN":"US0378331005","isPrimary":false,"previousClose":36.35,"previousCloseDate":"2026-04-02"},{"Code":"AAPL","Exchange":"MX","Name":"Apple Inc","Type":"Common Stock","Country":"Mexico","Currency":"MXN","ISIN":"US0378331005","isPrimary":false,"previousClose":4555.9302,"previousCloseDate":"2026-04-01"},{"Code":"APC","Exchange":"STU","Name":"Apple Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0378331005","isPrimary":false,"previousClose":221.95,"previousCloseDate":"2026-04-02"},{"Code":"APC","Exchange":"BE","Name":"Apple Inc","Type":"Common Stock","Country":"Germany","Currency":"EUR","ISIN":"US0378331005","isPrimary":false,"previousClose":217.8,"previousCloseDate":"2026-03-18"}]'
         headers:
             Access-Control-Allow-Credentials:
                 - "true"
@@ -38,7 +38,7 @@ interactions:
             Content-Type:
                 - application/json
             Date:
-                - Mon, 16 Mar 2026 18:25:05 GMT
+                - Mon, 06 Apr 2026 14:28:56 GMT
             Server:
                 - nginx/1.19.10
             Vary:
@@ -46,54 +46,7 @@ interactions:
             X-Ratelimit-Limit:
                 - "1400"
             X-Ratelimit-Remaining:
-                - "1395"
+                - "1396"
         status: 200 OK
         code: 200
-        duration: 254.875373ms
-    - id: 1
-      request:
-        proto: HTTP/1.1
-        proto_major: 1
-        proto_minor: 1
-        content_length: 0
-        host: eodhd.com
-        form:
-            api_token:
-                - REDACTED
-            filter:
-                - General
-            fmt:
-                - json
-        url: https://eodhd.com/api/fundamentals/AAPL.US?api_token=REDACTED&filter=General&fmt=json
-        method: GET
-      response:
-        proto: HTTP/2.0
-        proto_major: 2
-        proto_minor: 0
-        content_length: -1
-        uncompressed: true
-        body: 'Only EOD data allowed for free users. Please, contact our support team: support@eodhistoricaldata.com'
-        headers:
-            Access-Control-Allow-Credentials:
-                - "true"
-            Access-Control-Allow-Headers:
-                - Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With
-            Access-Control-Allow-Methods:
-                - GET, POST, PUT, DELETE, OPTIONS
-            Cache-Control:
-                - no-cache, private
-            Content-Type:
-                - text/html; charset=utf-8
-            Date:
-                - Mon, 16 Mar 2026 18:25:05 GMT
-            Server:
-                - nginx/1.19.10
-            Vary:
-                - Accept-Encoding
-            X-Ratelimit-Limit:
-                - "1400"
-            X-Ratelimit-Remaining:
-                - "1394"
-        status: 403 Forbidden
-        code: 403
-        duration: 175.15413ms
+        duration: 260.407903ms

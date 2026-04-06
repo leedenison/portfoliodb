@@ -19,12 +19,12 @@ interactions:
         proto_minor: 0
         content_length: -1
         uncompressed: true
-        body: '{"request_id":"f399bb7bc7ac557f34a0f89a6a4bf341","results":{"ticker":"BRK.B","name":"BERKSHIRE HATHAWAY Class B","market":"stocks","locale":"us","primary_exchange":"XNYS","type":"CS","active":true,"currency_name":"usd","cik":"0001067983","composite_figi":"BBG000DWG505","share_class_figi":"BBG001S90346","market_cap":1.0571587499926499e+12,"phone_number":"(402) 346-1400","address":{"address1":"3555 FARNAM STREET","city":"OMAHA","state":"NE","postal_code":"68131"},"description":"Berkshire Hathaway is a holding company with a wide array of subsidiaries engaged in diverse activities. The firm''s core business segment is insurance, run primarily through Geico, Berkshire Hathaway Reinsurance Group, and Berkshire Hathaway Primary Group. Berkshire has used the excess cash thrown off from its operations to acquire Burlington Northern Santa Fe (railroad), Berkshire Hathaway Energy (utilities and energy distributors), and the companies that make up its manufacturing, service, and retailing operations (which include Precision Castparts, Lubrizol, Clayton Homes, Marmon, and IMC/ISCAR). The conglomerate is unique in that it is run on a completely decentralized basis. Berkshire is expected to generate close to $375 billion in revenue in 2025.","sic_code":"6331","sic_description":"FIRE, MARINE & CASUALTY INSURANCE","ticker_root":"BRK","ticker_suffix":"B","homepage_url":"https://www.berkshirehathaway.com","total_employees":387800,"list_date":"1996-05-09","branding":{"logo_url":"https://api.massive.com/v1/reference/company-branding/YmVya3NoaXJlaGF0aGF3YXkuY29t/images/2025-04-04_logo.svg","icon_url":"https://api.massive.com/v1/reference/company-branding/YmVya3NoaXJlaGF0aGF3YXkuY29t/images/2025-04-04_icon.png"},"share_class_shares_outstanding":1390722404,"weighted_shares_outstanding":2157334755,"round_lot":40},"status":"OK"}'
+        body: '{"request_id":"b600bc5e6ec9723d79d44d6dffb766d8","results":{"ticker":"BRK.B","name":"BERKSHIRE HATHAWAY Class B","market":"stocks","locale":"us","primary_exchange":"XNYS","type":"CS","active":true,"currency_name":"usd","cik":"0001067983","composite_figi":"BBG000DWG505","share_class_figi":"BBG001S90346","market_cap":1.029582381397e+12,"phone_number":"(402) 346-1400","address":{"address1":"3555 FARNAM STREET","city":"OMAHA","state":"NE","postal_code":"68131"},"description":"Berkshire Hathaway is a holding company with a wide array of subsidiaries engaged in diverse activities. The firm''s core business segment is insurance, run primarily through Geico, Berkshire Hathaway Reinsurance Group, and Berkshire Hathaway Primary Group. Berkshire has used the excess cash thrown off from its operations to acquire Burlington Northern Santa Fe (railroad), Berkshire Hathaway Energy (utilities and energy distributors), and the companies that make up its manufacturing, service, and retailing operations (which include Precision Castparts, Lubrizol, Clayton Homes, Marmon, and IMC/ISCAR). The conglomerate is unique in that it is run on a completely decentralized basis. Berkshire is expected to generate close to $375 billion in revenue in 2025.","sic_code":"6331","sic_description":"FIRE, MARINE & CASUALTY INSURANCE","ticker_root":"BRK","ticker_suffix":"B","homepage_url":"https://www.berkshirehathaway.com","total_employees":387800,"list_date":"1996-05-09","branding":{"logo_url":"https://api.massive.com/v1/reference/company-branding/YmVya3NoaXJlaGF0aGF3YXkuY29t/images/2025-04-04_logo.svg","icon_url":"https://api.massive.com/v1/reference/company-branding/YmVya3NoaXJlaGF0aGF3YXkuY29t/images/2025-04-04_icon.png"},"share_class_shares_outstanding":1390722404,"weighted_shares_outstanding":2156871020,"round_lot":40},"status":"OK"}'
         headers:
             Content-Type:
                 - application/json
             Date:
-                - Mon, 16 Mar 2026 16:44:22 GMT
+                - Mon, 06 Apr 2026 14:28:55 GMT
             Strict-Transport-Security:
                 - max-age=15724800; includeSubDomains
             Vary:
@@ -32,7 +32,7 @@ interactions:
             X-Polygon-Cluster-Name:
                 - polygon-ny5
             X-Request-Id:
-                - f399bb7bc7ac557f34a0f89a6a4bf341
+                - b600bc5e6ec9723d79d44d6dffb766d8
         status: 200 OK
         code: 200
-        duration: 94.647837ms
+        duration: 90.936828ms

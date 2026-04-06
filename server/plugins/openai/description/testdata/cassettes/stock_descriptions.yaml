@@ -24,9 +24,9 @@ interactions:
         uncompressed: true
         body: |
             {
-              "id": "chatcmpl-DK5N1gUxCzFuX6eexDlsk3ji2l3Q8",
+              "id": "chatcmpl-DRfEd7Rvary9dvVcecg6gX84HZSjG",
               "object": "chat.completion",
-              "created": 1773679575,
+              "created": 1775485735,
               "model": "gpt-4o-mini-2024-07-18",
               "choices": [
                 {
@@ -57,7 +57,7 @@ interactions:
                 }
               },
               "service_tier": "default",
-              "system_fingerprint": "fp_0ec505b064"
+              "system_fingerprint": "fp_f85b8886b6"
             }
         headers:
             Access-Control-Expose-Headers:
@@ -66,24 +66,16 @@ interactions:
                 - h3=":443"; ma=86400
             Cf-Cache-Status:
                 - DYNAMIC
-            Cf-Ray:
-                - REDACTED
             Content-Type:
                 - application/json
             Date:
-                - Mon, 16 Mar 2026 16:46:16 GMT
-            Openai-Organization:
-                - REDACTED
+                - Mon, 06 Apr 2026 14:28:56 GMT
             Openai-Processing-Ms:
-                - "1024"
-            Openai-Project:
-                - REDACTED
+                - "1183"
             Openai-Version:
                 - "2020-10-01"
             Server:
                 - cloudflare
-            Set-Cookie:
-                - REDACTED
             Strict-Transport-Security:
                 - max-age=31536000; includeSubDomains; preload
             X-Content-Type-Options:
@@ -103,7 +95,7 @@ interactions:
             X-Ratelimit-Reset-Tokens:
                 - 57ms
             X-Request-Id:
-                - req_407f779b1c9d4d09a4aa04abae1279e8
+                - req_3589944b8d3e47b2922a70372e31a783
         status: 200 OK
         code: 200
-        duration: 2.199187008s
+        duration: 1.57351642s

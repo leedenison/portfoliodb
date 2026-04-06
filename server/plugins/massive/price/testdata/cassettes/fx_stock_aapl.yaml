@@ -23,12 +23,12 @@ interactions:
         proto_minor: 0
         content_length: -1
         uncompressed: true
-        body: '{"ticker":"AAPL","queryCount":2,"resultsCount":2,"adjusted":false,"results":[{"v":5.5740731e+07,"vw":244.3303,"o":248.93,"c":243.85,"h":249.1,"l":241.8201,"t":1735794000000,"n":685448},{"v":4.0244114e+07,"vw":243.0805,"o":243.36,"c":243.36,"h":244.18,"l":241.89,"t":1735880400000,"n":493786}],"status":"OK","request_id":"8aa1c8db35bc1ec6dceeb7d95fed8349","count":2}'
+        body: '{"ticker":"AAPL","queryCount":2,"resultsCount":2,"adjusted":false,"results":[{"v":5.5740731e+07,"vw":244.3303,"o":248.93,"c":243.85,"h":249.1,"l":241.8201,"t":1735794000000,"n":685448},{"v":4.0244114e+07,"vw":243.0805,"o":243.36,"c":243.36,"h":244.18,"l":241.89,"t":1735880400000,"n":493786}],"status":"OK","request_id":"fd4631050f228ff083b1923797328843","count":2}'
         headers:
             Content-Type:
                 - application/json
             Date:
-                - Sat, 21 Mar 2026 20:07:27 GMT
+                - Mon, 06 Apr 2026 14:28:55 GMT
             Strict-Transport-Security:
                 - max-age=15724800; includeSubDomains
             Vary:
@@ -36,7 +36,7 @@ interactions:
             X-Polygon-Cluster-Name:
                 - polygon-ny5
             X-Request-Id:
-                - 8aa1c8db35bc1ec6dceeb7d95fed8349
+                - fd4631050f228ff083b1923797328843
         status: 200 OK
         code: 200
-        duration: 105.71897ms
+        duration: 157.350458ms

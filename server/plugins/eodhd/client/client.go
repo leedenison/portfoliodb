@@ -28,6 +28,16 @@ func (e *ErrNotFound) Error() string {
 	return fmt.Sprintf("eodhd %s: not found (404)", e.Path)
 }
 
+// ErrSubscriptionLimit is returned when the EODHD API response contains a
+// warning indicating that data is limited by the subscription tier.
+type ErrSubscriptionLimit struct {
+	Warning string
+}
+
+func (e *ErrSubscriptionLimit) Error() string {
+	return fmt.Sprintf("eodhd subscription limit: %s", e.Warning)
+}
+
 // Client calls the EODHD REST API with shared rate limiting.
 type Client struct {
 	baseURL    string
@@ -101,6 +111,11 @@ func (c *Client) EODPrices(ctx context.Context, symbol, from, to string) ([]EODB
 	var bars []EODBar
 	if err := c.get(ctx, path, q, &bars); err != nil {
 		return nil, err
+	}
+	for _, b := range bars {
+		if b.Warning != "" {
+			return nil, &ErrSubscriptionLimit{Warning: b.Warning}
+		}
 	}
 	return bars, nil
 }

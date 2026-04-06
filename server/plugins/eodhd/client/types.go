@@ -21,4 +21,5 @@ type EODBar struct {
 	Close    float64 `json:"close"`
 	AdjClose float64 `json:"adjusted_close"`
 	Volume   int64   `json:"volume"`
+	Warning  string  `json:"warning,omitempty"`
 }

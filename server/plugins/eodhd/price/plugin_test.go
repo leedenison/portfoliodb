@@ -172,6 +172,32 @@ func TestFetchPrices_NotFound(t *testing.T) {
 	}
 }
 
+func TestFetchPrices_SubscriptionLimit(t *testing.T) {
+	bars := []client.EODBar{
+		{Date: "2025-04-06", Open: 1.29, High: 1.29, Low: 1.28, Close: 1.29, Volume: 0,
+			Warning: "Data is limited by one year as you have free subscription"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(bars)
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, srv.Client(), nil)
+	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}}
+	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2025, 4, 7, 0, 0, 0, 0, time.UTC)
+
+	_, err := p.FetchPrices(context.Background(), configWithURL(srv.URL), ids, db.AssetClassFX, from, to)
+	var permErr *pricefetcher.ErrPermanent
+	if !errors.As(err, &permErr) {
+		t.Fatalf("expected ErrPermanent, got %v", err)
+	}
+	if permErr.Reason == "" {
+		t.Error("ErrPermanent.Reason should not be empty")
+	}
+}
+
 func TestFetchPrices_RateLimit(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)

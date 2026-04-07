@@ -1,0 +1,435 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/lib/pq"
+
+	"github.com/leedenison/portfoliodb/server/db"
+)
+
+// UpsertStockSplits implements db.CorporateEventDB.
+func (p *Postgres) UpsertStockSplits(ctx context.Context, splits []db.StockSplit) error {
+	if len(splits) == 0 {
+		return nil
+	}
+	instIDs := make([]string, len(splits))
+	exDates := make([]time.Time, len(splits))
+	froms := make([]string, len(splits))
+	tos := make([]string, len(splits))
+	providers := make([]string, len(splits))
+	for i, s := range splits {
+		instIDs[i] = s.InstrumentID
+		exDates[i] = s.ExDate
+		froms[i] = s.SplitFrom
+		tos[i] = s.SplitTo
+		providers[i] = s.DataProvider
+	}
+	_, err := p.q.ExecContext(ctx, `
+		INSERT INTO stock_splits (instrument_id, ex_date, split_from, split_to, data_provider, fetched_at)
+		SELECT unnest($1::uuid[]), unnest($2::date[]),
+			unnest($3::numeric[]), unnest($4::numeric[]),
+			unnest($5::text[]), now()
+		ON CONFLICT (instrument_id, ex_date) DO UPDATE SET
+			split_from    = EXCLUDED.split_from,
+			split_to      = EXCLUDED.split_to,
+			data_provider = EXCLUDED.data_provider,
+			fetched_at    = EXCLUDED.fetched_at
+	`, pq.Array(instIDs), pq.Array(exDates), pq.Array(froms), pq.Array(tos), pq.Array(providers))
+	if err != nil {
+		return fmt.Errorf("upsert stock splits: %w", err)
+	}
+	return nil
+}
+
+// ListStockSplits implements db.CorporateEventDB.
+func (p *Postgres) ListStockSplits(ctx context.Context, instrumentID string) ([]db.StockSplit, error) {
+	id, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return nil, fmt.Errorf("list stock splits: invalid instrument id %q: %w", instrumentID, err)
+	}
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT instrument_id, ex_date, split_from::text, split_to::text, data_provider, fetched_at
+		FROM stock_splits
+		WHERE instrument_id = $1
+		ORDER BY ex_date
+	`, id)
+	if err != nil {
+		return nil, fmt.Errorf("list stock splits: %w", err)
+	}
+	defer rows.Close()
+	var out []db.StockSplit
+	for rows.Next() {
+		var s db.StockSplit
+		var instUUID uuid.UUID
+		if err := rows.Scan(&instUUID, &s.ExDate, &s.SplitFrom, &s.SplitTo, &s.DataProvider, &s.FetchedAt); err != nil {
+			return nil, fmt.Errorf("list stock splits scan: %w", err)
+		}
+		s.InstrumentID = instUUID.String()
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// DeleteStockSplit implements db.CorporateEventDB.
+func (p *Postgres) DeleteStockSplit(ctx context.Context, instrumentID string, exDate time.Time) error {
+	_, err := p.q.ExecContext(ctx, `
+		DELETE FROM stock_splits WHERE instrument_id = $1 AND ex_date = $2
+	`, instrumentID, exDate)
+	if err != nil {
+		return fmt.Errorf("delete stock split: %w", err)
+	}
+	return nil
+}
+
+// UpsertCashDividends implements db.CorporateEventDB.
+func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashDividend) error {
+	if len(dividends) == 0 {
+		return nil
+	}
+	instIDs := make([]string, len(dividends))
+	exDates := make([]time.Time, len(dividends))
+	payDates := make([]*time.Time, len(dividends))
+	recordDates := make([]*time.Time, len(dividends))
+	declDates := make([]*time.Time, len(dividends))
+	amounts := make([]string, len(dividends))
+	currencies := make([]string, len(dividends))
+	frequencies := make([]sql.NullString, len(dividends))
+	providers := make([]string, len(dividends))
+	for i, d := range dividends {
+		instIDs[i] = d.InstrumentID
+		exDates[i] = d.ExDate
+		payDates[i] = d.PayDate
+		recordDates[i] = d.RecordDate
+		declDates[i] = d.DeclarationDate
+		amounts[i] = d.Amount
+		currencies[i] = d.Currency
+		if d.Frequency != "" {
+			frequencies[i] = sql.NullString{String: d.Frequency, Valid: true}
+		}
+		providers[i] = d.DataProvider
+	}
+	_, err := p.q.ExecContext(ctx, `
+		INSERT INTO cash_dividends (
+			instrument_id, ex_date, pay_date, record_date, declaration_date,
+			amount, currency, frequency, data_provider, fetched_at
+		)
+		SELECT unnest($1::uuid[]), unnest($2::date[]),
+			unnest($3::date[]), unnest($4::date[]), unnest($5::date[]),
+			unnest($6::numeric[]), unnest($7::text[]), unnest($8::text[]),
+			unnest($9::text[]), now()
+		ON CONFLICT (instrument_id, ex_date) DO UPDATE SET
+			pay_date         = EXCLUDED.pay_date,
+			record_date      = EXCLUDED.record_date,
+			declaration_date = EXCLUDED.declaration_date,
+			amount           = EXCLUDED.amount,
+			currency         = EXCLUDED.currency,
+			frequency        = EXCLUDED.frequency,
+			data_provider    = EXCLUDED.data_provider,
+			fetched_at       = EXCLUDED.fetched_at
+	`, pq.Array(instIDs), pq.Array(exDates),
+		pq.Array(payDates), pq.Array(recordDates), pq.Array(declDates),
+		pq.Array(amounts), pq.Array(currencies), pq.Array(frequencies),
+		pq.Array(providers))
+	if err != nil {
+		return fmt.Errorf("upsert cash dividends: %w", err)
+	}
+	return nil
+}
+
+// ListCashDividends implements db.CorporateEventDB.
+func (p *Postgres) ListCashDividends(ctx context.Context, instrumentID string) ([]db.CashDividend, error) {
+	id, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return nil, fmt.Errorf("list cash dividends: invalid instrument id %q: %w", instrumentID, err)
+	}
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT instrument_id, ex_date, pay_date, record_date, declaration_date,
+			amount::text, currency, frequency, data_provider, fetched_at
+		FROM cash_dividends
+		WHERE instrument_id = $1
+		ORDER BY ex_date
+	`, id)
+	if err != nil {
+		return nil, fmt.Errorf("list cash dividends: %w", err)
+	}
+	defer rows.Close()
+	var out []db.CashDividend
+	for rows.Next() {
+		var d db.CashDividend
+		var instUUID uuid.UUID
+		var pay, record, decl sql.NullTime
+		var freq sql.NullString
+		if err := rows.Scan(&instUUID, &d.ExDate, &pay, &record, &decl,
+			&d.Amount, &d.Currency, &freq, &d.DataProvider, &d.FetchedAt); err != nil {
+			return nil, fmt.Errorf("list cash dividends scan: %w", err)
+		}
+		d.InstrumentID = instUUID.String()
+		if pay.Valid {
+			t := pay.Time
+			d.PayDate = &t
+		}
+		if record.Valid {
+			t := record.Time
+			d.RecordDate = &t
+		}
+		if decl.Valid {
+			t := decl.Time
+			d.DeclarationDate = &t
+		}
+		if freq.Valid {
+			d.Frequency = freq.String
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// DeleteCashDividend implements db.CorporateEventDB.
+func (p *Postgres) DeleteCashDividend(ctx context.Context, instrumentID string, exDate time.Time) error {
+	_, err := p.q.ExecContext(ctx, `
+		DELETE FROM cash_dividends WHERE instrument_id = $1 AND ex_date = $2
+	`, instrumentID, exDate)
+	if err != nil {
+		return fmt.Errorf("delete cash dividend: %w", err)
+	}
+	return nil
+}
+
+// UpsertCorporateEventCoverage implements db.CorporateEventDB. The merge step
+// finds every existing row for (instrument, plugin) whose interval is adjacent
+// to or overlaps with [from, to], deletes them, and inserts a single row
+// spanning the union. Two intervals are adjacent when one ends the day before
+// the other begins. The whole operation runs in a single transaction so
+// concurrent inserts cannot leave partial state.
+func (p *Postgres) UpsertCorporateEventCoverage(ctx context.Context, instrumentID, pluginID string, from, to time.Time) error {
+	if to.Before(from) {
+		return fmt.Errorf("upsert corporate event coverage: covered_to %s before covered_from %s", to, from)
+	}
+	id, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("upsert corporate event coverage: invalid instrument id %q: %w", instrumentID, err)
+	}
+	return p.runInTx(ctx, func(exec queryable) error {
+		// Two intervals [a,b] and [c,d] are adjacent or overlap iff
+		// a <= d+1 AND c <= b+1. Find every existing row that touches
+		// [from, to] under that rule, compute the union, delete them, and
+		// insert one merged row. CTE data-modifying statements share a
+		// snapshot in PostgreSQL so DELETE and INSERT cannot see one
+		// another -- run them as separate statements inside the transaction.
+		var newFrom, newTo time.Time
+		err := exec.QueryRowContext(ctx, `
+			SELECT
+				LEAST($3::date,  COALESCE(MIN(covered_from), $3::date)),
+				GREATEST($4::date, COALESCE(MAX(covered_to),   $4::date))
+			FROM corporate_event_coverage
+			WHERE instrument_id = $1
+			  AND plugin_id     = $2
+			  AND covered_from <= ($4::date + 1)
+			  AND covered_to   >= ($3::date - 1)
+		`, id, pluginID, from, to).Scan(&newFrom, &newTo)
+		if err != nil {
+			return fmt.Errorf("upsert corporate event coverage: compute merge: %w", err)
+		}
+		if _, err := exec.ExecContext(ctx, `
+			DELETE FROM corporate_event_coverage
+			WHERE instrument_id = $1
+			  AND plugin_id     = $2
+			  AND covered_from <= ($4::date + 1)
+			  AND covered_to   >= ($3::date - 1)
+		`, id, pluginID, from, to); err != nil {
+			return fmt.Errorf("upsert corporate event coverage: delete overlapping: %w", err)
+		}
+		if _, err := exec.ExecContext(ctx, `
+			INSERT INTO corporate_event_coverage (instrument_id, plugin_id, covered_from, covered_to, fetched_at)
+			VALUES ($1, $2, $3, $4, now())
+		`, id, pluginID, newFrom, newTo); err != nil {
+			return fmt.Errorf("upsert corporate event coverage: insert merged: %w", err)
+		}
+		return nil
+	})
+}
+
+// ListCorporateEventCoverage implements db.CorporateEventDB.
+func (p *Postgres) ListCorporateEventCoverage(ctx context.Context, instrumentIDs []string) ([]db.CorporateEventCoverage, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if len(instrumentIDs) == 0 {
+		rows, err = p.q.QueryContext(ctx, `
+			SELECT instrument_id, plugin_id, covered_from, covered_to, fetched_at
+			FROM corporate_event_coverage
+			ORDER BY instrument_id, plugin_id, covered_from
+		`)
+	} else {
+		uuids := make([]uuid.UUID, 0, len(instrumentIDs))
+		for _, s := range instrumentIDs {
+			u, err := uuid.Parse(s)
+			if err != nil {
+				return nil, fmt.Errorf("list corporate event coverage: invalid instrument id %q: %w", s, err)
+			}
+			uuids = append(uuids, u)
+		}
+		rows, err = p.q.QueryContext(ctx, `
+			SELECT instrument_id, plugin_id, covered_from, covered_to, fetched_at
+			FROM corporate_event_coverage
+			WHERE instrument_id = ANY($1::uuid[])
+			ORDER BY instrument_id, plugin_id, covered_from
+		`, pq.Array(uuids))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list corporate event coverage: %w", err)
+	}
+	defer rows.Close()
+	var out []db.CorporateEventCoverage
+	for rows.Next() {
+		var c db.CorporateEventCoverage
+		var instUUID uuid.UUID
+		if err := rows.Scan(&instUUID, &c.PluginID, &c.CoveredFrom, &c.CoveredTo, &c.FetchedAt); err != nil {
+			return nil, fmt.Errorf("list corporate event coverage scan: %w", err)
+		}
+		c.InstrumentID = instUUID.String()
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// CreateCorporateEventFetchBlock implements db.CorporateEventDB.
+func (p *Postgres) CreateCorporateEventFetchBlock(ctx context.Context, instrumentID, pluginID, reason string) error {
+	_, err := p.q.ExecContext(ctx, `
+		INSERT INTO corporate_event_fetch_blocks (instrument_id, plugin_id, reason)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (instrument_id, plugin_id)
+		DO UPDATE SET reason = EXCLUDED.reason, created_at = now()
+	`, instrumentID, pluginID, reason)
+	if err != nil {
+		return fmt.Errorf("create corporate event fetch block: %w", err)
+	}
+	return nil
+}
+
+// DeleteCorporateEventFetchBlock implements db.CorporateEventDB.
+func (p *Postgres) DeleteCorporateEventFetchBlock(ctx context.Context, instrumentID, pluginID string) error {
+	_, err := p.q.ExecContext(ctx, `
+		DELETE FROM corporate_event_fetch_blocks WHERE instrument_id = $1 AND plugin_id = $2
+	`, instrumentID, pluginID)
+	if err != nil {
+		return fmt.Errorf("delete corporate event fetch block: %w", err)
+	}
+	return nil
+}
+
+// ListCorporateEventFetchBlocks implements db.CorporateEventDB.
+func (p *Postgres) ListCorporateEventFetchBlocks(ctx context.Context) ([]db.CorporateEventFetchBlock, error) {
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT instrument_id, plugin_id, reason, created_at
+		FROM corporate_event_fetch_blocks ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list corporate event fetch blocks: %w", err)
+	}
+	defer rows.Close()
+	var out []db.CorporateEventFetchBlock
+	for rows.Next() {
+		var b db.CorporateEventFetchBlock
+		if err := rows.Scan(&b.InstrumentID, &b.PluginID, &b.Reason, &b.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// BlockedCorporateEventPluginsForInstruments implements db.CorporateEventDB.
+func (p *Postgres) BlockedCorporateEventPluginsForInstruments(ctx context.Context, instrumentIDs []string) (map[string]map[string]bool, error) {
+	if len(instrumentIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT instrument_id, plugin_id FROM corporate_event_fetch_blocks
+		WHERE instrument_id = ANY($1)
+	`, pq.Array(instrumentIDs))
+	if err != nil {
+		return nil, fmt.Errorf("blocked corporate event plugins for instruments: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[string]map[string]bool)
+	for rows.Next() {
+		var instID, pluginID string
+		if err := rows.Scan(&instID, &pluginID); err != nil {
+			return nil, err
+		}
+		if out[instID] == nil {
+			out[instID] = make(map[string]bool)
+		}
+		out[instID][pluginID] = true
+	}
+	return out, rows.Err()
+}
+
+// RecomputeSplitAdjustments implements db.CorporateEventDB. Two UPDATEs (one
+// for eod_prices, one for txs) recompute the split_adjusted_* columns from raw
+// values multiplied by the cumulative split factor for splits with ex_date
+// strictly after the row's reference date (fetched_at::date for prices,
+// timestamp::date for txs). Idempotent: factor is recomputed from scratch
+// each call. When instrumentID is empty, every instrument with at least one
+// stock_splits row is recomputed in the same transaction.
+func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID string) error {
+	var (
+		instFilter string
+		args       []any
+	)
+	if instrumentID != "" {
+		id, err := uuid.Parse(instrumentID)
+		if err != nil {
+			return fmt.Errorf("recompute split adjustments: invalid instrument id %q: %w", instrumentID, err)
+		}
+		instFilter = "= $1::uuid"
+		args = append(args, id)
+	} else {
+		instFilter = "IN (SELECT DISTINCT instrument_id FROM stock_splits)"
+	}
+
+	return p.runInTx(ctx, func(exec queryable) error {
+		// Prices: open/high/low/close are NUMERIC; cast factor to numeric for
+		// the divide. Volume is BIGINT and is multiplied (more shares trade
+		// in adjusted-share terms after a forward split).
+		priceSQL := fmt.Sprintf(`
+			UPDATE eod_prices ep SET
+				split_adjusted_open    = CASE WHEN ep.open   IS NULL THEN NULL
+					ELSE (ep.open   / split_factor_at(ep.instrument_id, ep.fetched_at::date)::numeric) END,
+				split_adjusted_high    = CASE WHEN ep.high   IS NULL THEN NULL
+					ELSE (ep.high   / split_factor_at(ep.instrument_id, ep.fetched_at::date)::numeric) END,
+				split_adjusted_low     = CASE WHEN ep.low    IS NULL THEN NULL
+					ELSE (ep.low    / split_factor_at(ep.instrument_id, ep.fetched_at::date)::numeric) END,
+				split_adjusted_close   =       (ep.close  / split_factor_at(ep.instrument_id, ep.fetched_at::date)::numeric),
+				split_adjusted_volume  = CASE WHEN ep.volume IS NULL THEN NULL
+					ELSE round(ep.volume::numeric * split_factor_at(ep.instrument_id, ep.fetched_at::date)::numeric)::bigint END
+			WHERE ep.instrument_id %s
+		`, instFilter)
+		if _, err := exec.ExecContext(ctx, priceSQL, args...); err != nil {
+			return fmt.Errorf("recompute split adjustments (prices): %w", err)
+		}
+
+		// Txs: quantity and unit_price are DOUBLE PRECISION; the factor is
+		// already double precision so no cast is needed.
+		txSQL := fmt.Sprintf(`
+			UPDATE txs t SET
+				split_adjusted_quantity   = t.quantity * split_factor_at(t.instrument_id, t.timestamp::date),
+				split_adjusted_unit_price = CASE WHEN t.unit_price IS NULL THEN NULL
+					ELSE t.unit_price / split_factor_at(t.instrument_id, t.timestamp::date) END
+			WHERE t.instrument_id IS NOT NULL
+			  AND t.instrument_id %s
+		`, instFilter)
+		if _, err := exec.ExecContext(ctx, txSQL, args...); err != nil {
+			return fmt.Errorf("recompute split adjustments (txs): %w", err)
+		}
+		return nil
+	})
+}
+

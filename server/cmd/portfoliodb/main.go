@@ -30,9 +30,11 @@ import (
 	"github.com/leedenison/portfoliodb/server/migrations"
 	cashdesc "github.com/leedenison/portfoliodb/server/plugins/cash/description"
 	cashid "github.com/leedenison/portfoliodb/server/plugins/cash/identifier"
+	eodhdce "github.com/leedenison/portfoliodb/server/plugins/eodhd/corporateevents"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
 	eodhdplugin "github.com/leedenison/portfoliodb/server/plugins/eodhd/identifier"
 	eodhdprice "github.com/leedenison/portfoliodb/server/plugins/eodhd/price"
+	massivece "github.com/leedenison/portfoliodb/server/plugins/massive/corporateevents"
 	massiveplugin "github.com/leedenison/portfoliodb/server/plugins/massive/identifier"
 	massiveprice "github.com/leedenison/portfoliodb/server/plugins/massive/price"
 	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
@@ -228,10 +230,8 @@ func main() {
 		log.Fatalf("ensure inflation plugin configs: %v", err)
 	}
 	corporateEventRegistry := corporateevents.NewRegistry()
-	// Provider plugins land in subsequent PRs (massive, eodhd). The registry
-	// is created here so the worker, trigger channel, and admin endpoints are
-	// wired end to end; ensurePluginConfigs is a no-op while the registry is
-	// empty.
+	corporateEventRegistry.Register(massivece.PluginID, massivece.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive/corporateevents"), pluginHTTPClient))
+	corporateEventRegistry.Register(eodhdce.PluginID, eodhdce.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/eodhd/corporateevents"), pluginHTTPClient, exchMap))
 	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryCorporateEvent, corporateEventRegistry.ListIDs(), func(id string) []byte {
 		if p := corporateEventRegistry.Get(id); p != nil {
 			return p.DefaultConfig()

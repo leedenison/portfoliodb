@@ -8,6 +8,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
+	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
@@ -25,7 +26,8 @@ var ingestionLog *slog.Logger
 // Resolution uses DB, then in-batch cache, then description plugins (extract hints) and identifier plugins (timeout from config, retry once with backoff).
 // ingestionLogger is the logger for ingestion/resolution (typically with category server/service/ingestion); may be nil.
 // priceTrigger is optional; when non-nil, a non-blocking signal is sent after each successful job to trigger price fetching.
-func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, ingestionLogger *slog.Logger, priceTrigger chan<- struct{}, workers *worker.Registry) {
+// corporateEventTrigger is optional; when non-nil, a non-blocking signal is sent after each successful corporate event import to trigger an event fetch cycle.
+func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, ingestionLogger *slog.Logger, priceTrigger chan<- struct{}, corporateEventTrigger chan<- struct{}, workers *worker.Registry) {
 	ingestionLog = ingestionLogger
 	const name = "ingestion"
 	if workers != nil {
@@ -46,7 +48,7 @@ func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, re
 				workers.SetRunning(name, fmt.Sprintf("Processing job %s", j.JobID))
 				workers.SetQueueDepth(name, len(queue))
 			}
-			processJob(ctx, database, registry, descRegistry, counter, j, priceTrigger)
+			processJob(ctx, database, registry, descRegistry, counter, j, priceTrigger, corporateEventTrigger)
 			if workers != nil {
 				workers.SetIdle(name)
 			}
@@ -54,20 +56,23 @@ func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, re
 	}
 }
 
-func processJob(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest, priceTrigger chan<- struct{}) {
+func processJob(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest, priceTrigger chan<- struct{}, corporateEventTrigger chan<- struct{}) {
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_RUNNING)
 
 	switch j.JobType {
-	case "tx":
+	case db.JobTypeTx:
 		if ok, userID := processTx(ctx, database, registry, descRegistry, counter, j); ok {
 			if err := recalcAfterIngestion(ctx, database, userID); err != nil {
 				log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
 			}
 			pricefetcher.Trigger(priceTrigger)
 		}
-	case "price":
+	case db.JobTypePrice:
 		processPriceImport(ctx, database, registry, j)
 		pricefetcher.Trigger(priceTrigger)
+	case db.JobTypeCorporateEvent:
+		processCorporateEventImport(ctx, database, registry, j)
+		corporateevents.Trigger(corporateEventTrigger)
 	default:
 		log.Printf("ingestion job %s: unknown job type %q", j.JobID, j.JobType)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)

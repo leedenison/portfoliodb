@@ -345,6 +345,108 @@ func (p *Postgres) ListCorporateEventFetchBlocks(ctx context.Context) ([]db.Corp
 	return out, rows.Err()
 }
 
+// bestIdentifierJoin is the LATERAL JOIN clause that selects the best
+// identifier per instrument using the same priority order as
+// ListPricesForExport in eod_prices.go. Kept here as a const so the splits
+// and dividends export queries cannot drift apart.
+const bestIdentifierJoin = `
+	JOIN LATERAL (
+		SELECT ii.identifier_type, ii.value, ii.domain
+		FROM instrument_identifiers ii
+		WHERE ii.instrument_id = i.id
+		ORDER BY CASE ii.identifier_type
+			WHEN 'MIC_TICKER' THEN 1
+			WHEN 'OPENFIGI_TICKER' THEN 2
+			WHEN 'OCC' THEN 3
+			WHEN 'ISIN' THEN 4
+			WHEN 'OPENFIGI_GLOBAL' THEN 5
+			WHEN 'OPENFIGI_SHARE_CLASS' THEN 6
+			WHEN 'OPENFIGI_COMPOSITE' THEN 7
+			WHEN 'CUSIP' THEN 8
+			WHEN 'SEDOL' THEN 9
+			WHEN 'OPRA' THEN 10
+			WHEN 'BROKER_DESCRIPTION' THEN 11
+			ELSE 99
+		END
+		LIMIT 1
+	) best_id ON true
+`
+
+// ListStockSplitsForExport implements db.CorporateEventDB.
+func (p *Postgres) ListStockSplitsForExport(ctx context.Context) ([]db.ExportStockSplit, error) {
+	q := `
+		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
+			COALESCE(i.asset_class, '') AS asset_class,
+			s.data_provider, s.ex_date, s.split_from::text, s.split_to::text
+		FROM stock_splits s
+		JOIN instruments i ON i.id = s.instrument_id
+		` + bestIdentifierJoin + `
+		ORDER BY best_id.identifier_type, best_id.value, s.ex_date
+	`
+	rows, err := p.q.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list stock splits for export: %w", err)
+	}
+	defer rows.Close()
+	var out []db.ExportStockSplit
+	for rows.Next() {
+		var r db.ExportStockSplit
+		if err := rows.Scan(&r.IdentifierType, &r.IdentifierValue, &r.IdentifierDomain,
+			&r.AssetClass, &r.DataProvider, &r.ExDate, &r.SplitFrom, &r.SplitTo); err != nil {
+			return nil, fmt.Errorf("list stock splits for export scan: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ListCashDividendsForExport implements db.CorporateEventDB.
+func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportCashDividend, error) {
+	q := `
+		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
+			COALESCE(i.asset_class, '') AS asset_class,
+			d.data_provider, d.ex_date, d.pay_date, d.record_date, d.declaration_date,
+			d.amount::text, d.currency, d.frequency
+		FROM cash_dividends d
+		JOIN instruments i ON i.id = d.instrument_id
+		` + bestIdentifierJoin + `
+		ORDER BY best_id.identifier_type, best_id.value, d.ex_date
+	`
+	rows, err := p.q.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list cash dividends for export: %w", err)
+	}
+	defer rows.Close()
+	var out []db.ExportCashDividend
+	for rows.Next() {
+		var r db.ExportCashDividend
+		var pay, rec, decl sql.NullTime
+		var freq sql.NullString
+		if err := rows.Scan(&r.IdentifierType, &r.IdentifierValue, &r.IdentifierDomain,
+			&r.AssetClass, &r.DataProvider, &r.ExDate, &pay, &rec, &decl,
+			&r.Amount, &r.Currency, &freq); err != nil {
+			return nil, fmt.Errorf("list cash dividends for export scan: %w", err)
+		}
+		if pay.Valid {
+			t := pay.Time
+			r.PayDate = &t
+		}
+		if rec.Valid {
+			t := rec.Time
+			r.RecordDate = &t
+		}
+		if decl.Valid {
+			t := decl.Time
+			r.DeclarationDate = &t
+		}
+		if freq.Valid {
+			r.Frequency = freq.String
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // HeldStockEtfInstruments implements db.CorporateEventDB.
 func (p *Postgres) HeldStockEtfInstruments(ctx context.Context) ([]db.HeldInstrument, error) {
 	rows, err := p.q.QueryContext(ctx, `

@@ -70,7 +70,7 @@ CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, timestamp);
 CREATE TABLE ingestion_jobs (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  job_type     TEXT NOT NULL DEFAULT 'tx' CHECK (job_type IN ('tx', 'price')),
+  job_type     TEXT NOT NULL DEFAULT 'tx' CHECK (job_type IN ('tx', 'price', 'corporate_event')),
   broker       TEXT,
   source       TEXT,
   filename     TEXT,

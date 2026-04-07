@@ -28,6 +28,13 @@ const (
 	CorporateEventProviderBroker = "broker"
 )
 
+// Job type constants for the ingestion_jobs table.
+const (
+	JobTypeTx             = "tx"
+	JobTypePrice          = "price"
+	JobTypeCorporateEvent = "corporate_event"
+)
+
 // DB is the database abstraction used by the service layer.
 type DB interface {
 	UserDB
@@ -708,10 +715,51 @@ type CorporateEventDB interface {
 	// fetch range. Instruments held only via INITIALIZE synthetic txs are
 	// included.
 	HeldStockEtfInstruments(ctx context.Context) ([]HeldInstrument, error)
+
+	// ListStockSplitsForExport returns every stock_splits row joined with the
+	// best identifier per instrument (MIC_TICKER > OPENFIGI_TICKER > ISIN > ...),
+	// using the same priority logic as ListPricesForExport. Instruments with
+	// no identifiers are excluded.
+	ListStockSplitsForExport(ctx context.Context) ([]ExportStockSplit, error)
+
+	// ListCashDividendsForExport returns every cash_dividends row joined with
+	// the best identifier per instrument. See ListStockSplitsForExport for the
+	// identifier priority order.
+	ListCashDividendsForExport(ctx context.Context) ([]ExportCashDividend, error)
 }
 
 // HeldInstrument is one held instrument with the date of its earliest tx.
 type HeldInstrument struct {
 	InstrumentID   string
 	EarliestTxDate time.Time
+}
+
+// ExportStockSplit is one stock split row with the best identifier for the
+// instrument, used by ExportCorporateEvents.
+type ExportStockSplit struct {
+	IdentifierType   string
+	IdentifierValue  string
+	IdentifierDomain string
+	AssetClass       string
+	DataProvider     string
+	ExDate           time.Time
+	SplitFrom        string // numeric as decimal string
+	SplitTo          string
+}
+
+// ExportCashDividend is one cash dividend row with the best identifier for
+// the instrument, used by ExportCorporateEvents.
+type ExportCashDividend struct {
+	IdentifierType   string
+	IdentifierValue  string
+	IdentifierDomain string
+	AssetClass       string
+	DataProvider     string
+	ExDate           time.Time
+	PayDate          *time.Time
+	RecordDate       *time.Time
+	DeclarationDate  *time.Time
+	Amount           string
+	Currency         string
+	Frequency        string
 }

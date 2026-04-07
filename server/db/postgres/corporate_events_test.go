@@ -399,6 +399,133 @@ func TestRecomputeSplitAdjustments_NoSplits(t *testing.T) {
 	}
 }
 
+// TestListStockSplitsForExport_BestIdentifier verifies that the export query
+// joins each split with the highest-priority identifier for the instrument.
+// MIC_TICKER beats ISIN beats BROKER_DESCRIPTION.
+func TestListStockSplitsForExport_BestIdentifier(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	// Create an instrument with three identifiers, MIC_TICKER should win.
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "TEST", Value: "Apple Inc.", Canonical: false},
+		{Type: "ISIN", Value: "US0378331005", Canonical: true},
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
+	}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+		{InstrumentID: instID, ExDate: d(2020, 8, 31), SplitFrom: "1", SplitTo: "4", DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	rows, err := p.ListStockSplitsForExport(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0].IdentifierType != "MIC_TICKER" || rows[0].IdentifierValue != "AAPL" {
+		t.Errorf("expected MIC_TICKER/AAPL, got %s/%s", rows[0].IdentifierType, rows[0].IdentifierValue)
+	}
+	if rows[0].IdentifierDomain != "XNAS" {
+		t.Errorf("expected domain XNAS, got %q", rows[0].IdentifierDomain)
+	}
+	if rows[0].AssetClass != "STOCK" {
+		t.Errorf("expected STOCK, got %q", rows[0].AssetClass)
+	}
+	if rows[0].SplitFrom != "1" || rows[0].SplitTo != "4" {
+		t.Errorf("split: %+v", rows[0])
+	}
+}
+
+// TestListCashDividendsForExport_RoundTrip verifies that all optional fields
+// flow through the export query.
+func TestListCashDividendsForExport_RoundTrip(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
+	}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+
+	pay := d(2024, 2, 15)
+	rec := d(2024, 2, 12)
+	decl := d(2024, 2, 1)
+	if err := p.UpsertCashDividends(ctx, []db.CashDividend{
+		{
+			InstrumentID:    instID,
+			ExDate:          d(2024, 2, 9),
+			PayDate:         &pay,
+			RecordDate:      &rec,
+			DeclarationDate: &decl,
+			Amount:          "0.24",
+			Currency:        "USD",
+			Frequency:       "quarterly",
+			DataProvider:    "test",
+		},
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	rows, err := p.ListCashDividendsForExport(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	r := rows[0]
+	if r.IdentifierType != "MIC_TICKER" || r.IdentifierValue != "AAPL" {
+		t.Errorf("identifier: %+v", r)
+	}
+	if r.Amount != "0.24" || r.Currency != "USD" || r.Frequency != "quarterly" {
+		t.Errorf("payload: %+v", r)
+	}
+	if r.PayDate == nil || !r.PayDate.Equal(pay) {
+		t.Errorf("pay date: %+v", r.PayDate)
+	}
+	if r.DeclarationDate == nil || !r.DeclarationDate.Equal(decl) {
+		t.Errorf("declaration date: %+v", r.DeclarationDate)
+	}
+}
+
+// TestListStockSplitsForExport_ExcludesInstrumentsWithoutIdentifiers verifies
+// that an instrument with no identifiers does not appear in export output.
+func TestListStockSplitsForExport_ExcludesInstrumentsWithoutIdentifiers(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	// Insert a bare instrument (no identifiers) directly. EnsureInstrument
+	// requires at least one identifier, so we side-step it.
+	var instID string
+	if err := p.q.QueryRowContext(ctx, `
+		INSERT INTO instruments (asset_class) VALUES ('STOCK') RETURNING id::text
+	`).Scan(&instID); err != nil {
+		t.Fatalf("insert instrument: %v", err)
+	}
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+		{InstrumentID: instID, ExDate: d(2020, 1, 1), SplitFrom: "1", SplitTo: "2", DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	rows, err := p.ListStockSplitsForExport(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("expected 0 rows (no identifiers), got %d", len(rows))
+	}
+}
+
 // TestSplitAdjustment_TriggerSeeds verifies that the BEFORE INSERT trigger
 // seeds split_adjusted_* to the raw counterparts on a fresh insert via the
 // existing UpsertPrices path, with no explicit recompute call.

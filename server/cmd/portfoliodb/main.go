@@ -19,6 +19,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/auth/allowlist"
 	"github.com/leedenison/portfoliodb/server/auth/google"
 	"github.com/leedenison/portfoliodb/server/auth/session"
+	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/jmoiron/sqlx"
 	"github.com/leedenison/portfoliodb/server/db/migrate"
@@ -226,8 +227,22 @@ func main() {
 	}); err != nil {
 		log.Fatalf("ensure inflation plugin configs: %v", err)
 	}
+	corporateEventRegistry := corporateevents.NewRegistry()
+	// Provider plugins land in subsequent PRs (massive, eodhd). The registry
+	// is created here so the worker, trigger channel, and admin endpoints are
+	// wired end to end; ensurePluginConfigs is a no-op while the registry is
+	// empty.
+	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryCorporateEvent, corporateEventRegistry.ListIDs(), func(id string) []byte {
+		if p := corporateEventRegistry.Get(id); p != nil {
+			return p.DefaultConfig()
+		}
+		return nil
+	}); err != nil {
+		log.Fatalf("ensure corporate event plugin configs: %v", err)
+	}
 	inflationTrigger := make(chan struct{}, 1)
 	priceTrigger := make(chan struct{}, 1)
+	corporateEventTrigger := make(chan struct{}, 1)
 	queue := make(chan *ingestion.JobRequest, 256)
 	workers := worker.NewRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -236,6 +251,7 @@ func main() {
 	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter, ingestionLogger, priceTrigger, workers)
 	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
 	go inflationfetcher.RunWorker(ctx, database, inflationRegistry, counter, logger.WithCategory(serverLogger, "server/inflationfetcher"), inflationTrigger, workers)
+	go corporateevents.RunWorker(ctx, database, corporateEventRegistry, counter, logger.WithCategory(serverLogger, "server/corporateevents"), corporateEventTrigger, workers)
 	// Re-enqueue incomplete jobs from a previous run.
 	if pending, err := database.ListPendingJobs(ctx); err == nil {
 		for _, p := range pending {
@@ -286,10 +302,12 @@ func main() {
 		CounterPrefix:  counterPrefix,
 		PluginRegistry: pluginRegistry,
 		DescRegistry:   descRegistry,
-		PriceRegistry:     priceRegistry,
-		PriceTrigger:      priceTrigger,
-		InflationRegistry: inflationRegistry,
-		InflationTrigger:  inflationTrigger,
+		PriceRegistry:          priceRegistry,
+		PriceTrigger:           priceTrigger,
+		InflationRegistry:      inflationRegistry,
+		InflationTrigger:       inflationTrigger,
+		CorporateEventRegistry: corporateEventRegistry,
+		CorporateEventTrigger:  corporateEventTrigger,
 		WorkerRegistry:    workers,
 		EnqueueJob:     api.JobEnqueuer(enqueueJob),
 	}))

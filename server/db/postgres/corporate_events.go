@@ -345,6 +345,35 @@ func (p *Postgres) ListCorporateEventFetchBlocks(ctx context.Context) ([]db.Corp
 	return out, rows.Err()
 }
 
+// HeldStockEtfInstruments implements db.CorporateEventDB.
+func (p *Postgres) HeldStockEtfInstruments(ctx context.Context) ([]db.HeldInstrument, error) {
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT t.instrument_id, MIN(t.timestamp)::date AS earliest
+		FROM txs t
+		JOIN instruments i ON i.id = t.instrument_id
+		WHERE i.asset_class IN ('STOCK', 'ETF')
+		GROUP BY t.instrument_id
+		ORDER BY t.instrument_id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("held stock/etf instruments: %w", err)
+	}
+	defer rows.Close()
+	var out []db.HeldInstrument
+	for rows.Next() {
+		var instUUID uuid.UUID
+		var earliest time.Time
+		if err := rows.Scan(&instUUID, &earliest); err != nil {
+			return nil, fmt.Errorf("held stock/etf instruments scan: %w", err)
+		}
+		out = append(out, db.HeldInstrument{
+			InstrumentID:   instUUID.String(),
+			EarliestTxDate: earliest,
+		})
+	}
+	return out, rows.Err()
+}
+
 // BlockedCorporateEventPluginsForInstruments implements db.CorporateEventDB.
 func (p *Postgres) BlockedCorporateEventPluginsForInstruments(ctx context.Context, instrumentIDs []string) (map[string]map[string]bool, error) {
 	if len(instrumentIDs) == 0 {

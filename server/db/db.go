@@ -700,4 +700,18 @@ type CorporateEventDB interface {
 	// When instrumentID is empty, every instrument with at least one
 	// stock_splits row is recomputed.
 	RecomputeSplitAdjustments(ctx context.Context, instrumentID string) error
+
+	// HeldStockEtfInstruments returns one row per instrument with at least one
+	// non-synthetic tx where instruments.asset_class is 'STOCK' or 'ETF'.
+	// EarliestTxDate is the date of the oldest tx for the instrument and is
+	// used by the corporate event worker as the lower bound of the required
+	// fetch range. Instruments held only via INITIALIZE synthetic txs are
+	// included.
+	HeldStockEtfInstruments(ctx context.Context) ([]HeldInstrument, error)
+}
+
+// HeldInstrument is one held instrument with the date of its earliest tx.
+type HeldInstrument struct {
+	InstrumentID   string
+	EarliestTxDate time.Time
 }

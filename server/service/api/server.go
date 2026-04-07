@@ -3,6 +3,7 @@ package api
 import (
 	"time"
 
+	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
@@ -29,6 +30,8 @@ type Server struct {
 	priceTrigger      chan<- struct{}
 	inflationRegistry *inflationfetcher.Registry
 	inflationTrigger  chan<- struct{}
+	corporateEventRegistry *corporateevents.Registry
+	corporateEventTrigger  chan<- struct{}
 	workerRegistry    *worker.Registry
 	enqueueJob     JobEnqueuer
 }
@@ -44,6 +47,8 @@ type ServerConfig struct {
 	PriceTrigger      chan<- struct{}             // optional; when set, TriggerPriceFetch sends on it
 	InflationRegistry *inflationfetcher.Registry  // optional; enables display_name in inflation plugin list
 	InflationTrigger  chan<- struct{}             // optional; when set, TriggerInflationFetch sends on it
+	CorporateEventRegistry *corporateevents.Registry // optional; enables display_name in corporate event plugin list
+	CorporateEventTrigger  chan<- struct{}            // optional; when set, TriggerCorporateEventFetch sends on it
 	WorkerRegistry    *worker.Registry           // optional; when set, ListWorkers returns worker status
 	EnqueueJob     JobEnqueuer              // optional; when set, ImportPrices enqueues async jobs
 }
@@ -56,12 +61,14 @@ func NewServer(cfg ServerConfig) *Server {
 		counterPrefix:     cfg.CounterPrefix,
 		pluginRegistry:    cfg.PluginRegistry,
 		descRegistry:      cfg.DescRegistry,
-		priceRegistry:     cfg.PriceRegistry,
-		priceTrigger:      cfg.PriceTrigger,
-		inflationRegistry: cfg.InflationRegistry,
-		inflationTrigger:  cfg.InflationTrigger,
-		workerRegistry:    cfg.WorkerRegistry,
-		enqueueJob:        cfg.EnqueueJob,
+		priceRegistry:          cfg.PriceRegistry,
+		priceTrigger:           cfg.PriceTrigger,
+		inflationRegistry:      cfg.InflationRegistry,
+		inflationTrigger:       cfg.InflationTrigger,
+		corporateEventRegistry: cfg.CorporateEventRegistry,
+		corporateEventTrigger:  cfg.CorporateEventTrigger,
+		workerRegistry:         cfg.WorkerRegistry,
+		enqueueJob:             cfg.EnqueueJob,
 	}
 }
 

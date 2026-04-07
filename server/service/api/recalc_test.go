@@ -62,8 +62,27 @@ func TestRecalcInitializeTx_StartDatePastDeclaration_DeletesBoth(t *testing.T) {
 	}
 
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
-	mockDB.EXPECT().DeleteInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1").Return(nil)
-	mockDB.EXPECT().DeleteHoldingDeclaration(gomock.Any(), "d1").Return(nil)
+	mockDB.EXPECT().DeleteDeclarationWithInitializeTx(gomock.Any(), "d1", "user-1", "IBKR", "acct1", "inst-1").Return(nil)
+
+	if err := RecalcInitializeTx(context.Background(), mockDB, decl); err != nil {
+		t.Fatalf("RecalcInitializeTx: %v", err)
+	}
+}
+
+func TestRecalcInitializeTx_ZeroQty_DeletesDeclaration(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDB(ctrl)
+
+	startDate := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
+	decl := &db.HoldingDeclarationRow{
+		ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1",
+		DeclaredQty: "100", AsOfDate: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(100), nil)
+	mockDB.EXPECT().DeleteDeclarationWithInitializeTx(gomock.Any(), "d1", "user-1", "IBKR", "acct1", "inst-1").Return(nil)
 
 	if err := RecalcInitializeTx(context.Background(), mockDB, decl); err != nil {
 		t.Fatalf("RecalcInitializeTx: %v", err)

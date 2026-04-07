@@ -222,7 +222,7 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 	processJob(ctx, database, registry, nil, nil, j, nil)
 }
 
-// stockClass returns *string for use in InstrumentRow.AssetClass.
+// strPtr returns a pointer to s, for use in InstrumentRow.AssetClass.
 func strPtr(s string) *string { return &s }
 
 // TestProcessBulk_BuystockIncomeSameDescriptionFails verifies that when a

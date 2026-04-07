@@ -108,6 +108,9 @@ func validateAssetClasses(ctx context.Context, database db.InstrumentDB, txs []*
 		if instID == "" {
 			continue
 		}
+		// Missing IDs (e.g. instrument deleted between resolution and
+		// validation) default to "" here, which IsAssetClassCompatible
+		// treats as compatible -- no signal to contradict.
 		resolved := classByID[instID]
 		implied := db.TxTypeToAssetClass(tx.GetType())
 		if db.IsAssetClassCompatible(implied, resolved) {

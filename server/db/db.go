@@ -411,8 +411,9 @@ var assetClassEquivalents = map[[2]string]bool{
 // asset class `resolved`.
 //
 // Rules:
-//   - An empty `resolved` (instrument has no asset class yet) is always
-//     compatible: there is no signal to contradict.
+//   - When `resolved` is empty or UNKNOWN (the instrument's class is unset
+//     or the identifier plugin could not classify it) there is no signal to
+//     contradict, so the tx is accepted.
 //   - When `implied` is UNKNOWN (TRANSFER, REINVEST, JRNLSEC, BUYOTHER,
 //     SELLOTHER) the tx represents a security position; any concrete class is
 //     accepted but CASH is rejected.
@@ -420,7 +421,7 @@ var assetClassEquivalents = map[[2]string]bool{
 //     (non-transitive: STOCK and MUTUAL_FUND remain incompatible).
 //   - Otherwise, compatible iff the two strings are equal.
 func IsAssetClassCompatible(implied, resolved string) bool {
-	if resolved == "" {
+	if resolved == "" || resolved == AssetClassUnknown {
 		return true
 	}
 	if implied == AssetClassUnknown {

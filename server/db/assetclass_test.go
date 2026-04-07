@@ -14,6 +14,14 @@ func TestIsAssetClassCompatible(t *testing.T) {
 		{"empty resolved with cash implied", AssetClassCash, "", true},
 		{"empty resolved with unknown implied", AssetClassUnknown, "", true},
 
+		// "UNKNOWN" stored as the resolved class (e.g. OpenFIGI returns
+		// AssetClassUnknown for instruments it cannot classify) is treated
+		// the same as empty: no signal to contradict.
+		{"unknown resolved with stock implied", AssetClassStock, AssetClassUnknown, true},
+		{"unknown resolved with option implied", AssetClassOption, AssetClassUnknown, true},
+		{"unknown resolved with cash implied", AssetClassCash, AssetClassUnknown, true},
+		{"unknown resolved with unknown implied", AssetClassUnknown, AssetClassUnknown, true},
+
 		// Exact matches.
 		{"stock=stock", AssetClassStock, AssetClassStock, true},
 		{"option=option", AssetClassOption, AssetClassOption, true},

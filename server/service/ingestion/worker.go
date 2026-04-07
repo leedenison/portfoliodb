@@ -152,6 +152,25 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	if len(idErrs) > 0 {
 		_ = database.AppendIdentificationErrors(ctx, j.JobID, idErrs)
 	}
+	// Validate that each resolved instrument's asset class is compatible with
+	// the asset class implied by the tx type. Catches contradictions that
+	// arise when two txs share (source, description) but their tx types imply
+	// different asset classes (e.g. BUYSTOCK + INCOME), as well as any other
+	// path where resolution lands on an instrument of the wrong class.
+	classErrs, err := validateAssetClasses(ctx, database, txsToProcess, originalIndices, instrumentIDs)
+	if err != nil {
+		log.Printf("ingestion job %s: validate asset classes: %v", j.JobID, err)
+		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
+			{RowIndex: -1, Field: "txs", Message: err.Error()},
+		})
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		return false, ""
+	}
+	if len(classErrs) > 0 {
+		_ = database.AppendValidationErrors(ctx, j.JobID, classErrs)
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		return false, ""
+	}
 	// Store transactions.
 	var storeErr error
 	if bulk {

@@ -396,6 +396,42 @@ func TxTypeToAssetClass(t apiv1.TxType) string {
 	}
 }
 
+// assetClassEquivalents lists unordered pairs of asset classes that brokers
+// commonly conflate. The relation is intentionally non-transitive: STOCK and
+// MUTUAL_FUND are not equivalent even though both are paired with ETF.
+var assetClassEquivalents = map[[2]string]bool{
+	{AssetClassStock, AssetClassETF}:      true,
+	{AssetClassETF, AssetClassStock}:      true,
+	{AssetClassMutualFund, AssetClassETF}: true,
+	{AssetClassETF, AssetClassMutualFund}: true,
+}
+
+// IsAssetClassCompatible reports whether a transaction whose TxType implies
+// asset class `implied` may legitimately be linked to an instrument with
+// asset class `resolved`.
+//
+// Rules:
+//   - An empty `resolved` (instrument has no asset class yet) is always
+//     compatible: there is no signal to contradict.
+//   - When `implied` is UNKNOWN (TRANSFER, REINVEST, JRNLSEC, BUYOTHER,
+//     SELLOTHER) the tx represents a security position; any concrete class is
+//     accepted but CASH is rejected.
+//   - STOCK <-> ETF and MUTUAL_FUND <-> ETF are treated as equivalent
+//     (non-transitive: STOCK and MUTUAL_FUND remain incompatible).
+//   - Otherwise, compatible iff the two strings are equal.
+func IsAssetClassCompatible(implied, resolved string) bool {
+	if resolved == "" {
+		return true
+	}
+	if implied == AssetClassUnknown {
+		return resolved != AssetClassCash
+	}
+	if implied == resolved {
+		return true
+	}
+	return assetClassEquivalents[[2]string{implied, resolved}]
+}
+
 // InstrumentKind constants. Coarser than asset class; used as a first-pass
 // filter to separate cash from securities during plugin routing.
 const (

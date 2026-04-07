@@ -381,7 +381,7 @@ func TxTypeToAssetClass(t apiv1.TxType) string {
 		return AssetClassOption
 	case apiv1.TxType_BUYOTHER, apiv1.TxType_SELLOTHER:
 		return AssetClassUnknown
-	case apiv1.TxType_BUYSTOCK, apiv1.TxType_SELLSTOCK, apiv1.TxType_JRNLSEC:
+	case apiv1.TxType_BUYSTOCK, apiv1.TxType_SELLSTOCK:
 		return AssetClassStock
 	case apiv1.TxType_BUYFUTURE, apiv1.TxType_SELLFUTURE:
 		return AssetClassFuture
@@ -389,7 +389,7 @@ func TxTypeToAssetClass(t apiv1.TxType) string {
 		apiv1.TxType_MARGININTEREST, apiv1.TxType_RETOFCAP, apiv1.TxType_JRNLFUND,
 		apiv1.TxType_CASHFLOW:
 		return AssetClassCash
-	case apiv1.TxType_TRANSFER, apiv1.TxType_REINVEST, apiv1.TxType_SPLIT:
+	case apiv1.TxType_TRANSFER, apiv1.TxType_REINVEST, apiv1.TxType_JRNLSEC, apiv1.TxType_SPLIT:
 		return AssetClassUnknown
 	default:
 		return AssetClassUnknown

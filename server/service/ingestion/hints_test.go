@@ -15,7 +15,7 @@ func TestTxTypeToSecurityTypeHint(t *testing.T) {
 		want   string
 	}{
 		{apiv1.TxType_JRNLFUND, identifier.SecurityTypeHintCash},
-		{apiv1.TxType_JRNLSEC, identifier.SecurityTypeHintStock},
+		{apiv1.TxType_JRNLSEC, identifier.SecurityTypeHintUnknown},
 		{apiv1.TxType_SPLIT, identifier.SecurityTypeHintUnknown},
 		{apiv1.TxType_BUYOTHER, identifier.SecurityTypeHintUnknown},
 		{apiv1.TxType_SELLOTHER, identifier.SecurityTypeHintUnknown},

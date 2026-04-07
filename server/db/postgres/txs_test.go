@@ -52,6 +52,76 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 	}
 }
 
+func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|synth", "U", "u@u.com")
+	_, _ = p.CreatePortfolio(ctx, userID, "P")
+
+	now := time.Now()
+	from := timestamppb.New(now.Add(-2 * time.Hour))
+	to := timestamppb.New(now)
+	// Synthetic INITIALIZE tx timestamp falls inside [from, to]
+	initTs := now.Add(-90 * time.Minute)
+
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "MSFT", Canonical: false}}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+
+	// Seed an INITIALIZE synthetic tx and an unrelated real tx, both inside the period.
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "", instID, "BUYOTHER", initTs, 42); err != nil {
+		t.Fatalf("upsert initialize: %v", err)
+	}
+	oldTx := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(now.Add(-80 * time.Minute)), InstrumentDescription: "MSFT", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: ""},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, oldTx, []string{instID}); err != nil {
+		t.Fatalf("seed real tx: %v", err)
+	}
+
+	// Replace real txs in the same period with a fresh set; synthetic must survive.
+	newTxs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(now.Add(-60 * time.Minute)), InstrumentDescription: "MSFT", Type: apiv1.TxType_BUYSTOCK, Quantity: 7, Account: ""},
+		{Timestamp: timestamppb.New(now.Add(-20 * time.Minute)), InstrumentDescription: "MSFT", Type: apiv1.TxType_SELLSTOCK, Quantity: -2, Account: ""},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, newTxs, []string{instID, instID}); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	// Verify both new real txs and the synthetic INITIALIZE row are present.
+	rows, _, err := p.ListTxs(ctx, userID, nil, "", from, to, 100, "")
+	if err != nil {
+		t.Fatalf("list txs: %v", err)
+	}
+	var sawInit, sawBuy, sawSell bool
+	var sawOldBuy bool
+	for _, r := range rows {
+		switch {
+		case r.GetTx().GetSyntheticPurpose() == "INITIALIZE":
+			sawInit = true
+			if r.GetTx().GetQuantity() != 42 {
+				t.Errorf("synthetic qty: want 42, got %v", r.GetTx().GetQuantity())
+			}
+		case r.GetTx().GetQuantity() == 7:
+			sawBuy = true
+		case r.GetTx().GetQuantity() == -2:
+			sawSell = true
+		case r.GetTx().GetQuantity() == 5:
+			sawOldBuy = true
+		}
+	}
+	if !sawInit {
+		t.Error("synthetic INITIALIZE tx was deleted by ReplaceTxsInPeriod")
+	}
+	if !sawBuy || !sawSell {
+		t.Errorf("new real txs missing: buy=%v sell=%v", sawBuy, sawSell)
+	}
+	if sawOldBuy {
+		t.Error("old real tx survived ReplaceTxsInPeriod")
+	}
+}
+
 func TestCreateTx_AppendOnly(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

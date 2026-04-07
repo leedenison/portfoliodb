@@ -31,8 +31,14 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string
 		if err != nil {
 			return fmt.Errorf("period_to: %w", err)
 		}
+		// Synthetic txs (e.g. INITIALIZE rows backing holding declarations) are
+		// managed by the declaration / recalc machinery, not by ingestion. Skip
+		// them here so a bulk replace cannot collaterally delete them.
 		_, err = exec.ExecContext(ctx, `
-			DELETE FROM txs WHERE user_id = $1 AND broker = $2 AND timestamp >= $3 AND timestamp <= $4
+			DELETE FROM txs
+			WHERE user_id = $1 AND broker = $2
+			  AND timestamp >= $3 AND timestamp <= $4
+			  AND synthetic_purpose IS NULL
 		`, userUUID, broker, fromT, toT)
 		if err != nil {
 			return fmt.Errorf("delete txs in period: %w", err)

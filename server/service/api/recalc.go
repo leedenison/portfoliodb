@@ -32,10 +32,7 @@ func recalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDec
 			"user_id", decl.UserID, "declaration_id", decl.ID,
 			"as_of_date", decl.AsOfDate.Format("2006-01-02"),
 			"start_date", startDay.Format("2006-01-02"))
-		if err := database.DeleteInitializeTx(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID); err != nil {
-			return fmt.Errorf("delete initialize tx: %w", err)
-		}
-		return database.DeleteHoldingDeclaration(ctx, decl.ID)
+		return database.DeleteDeclarationWithInitializeTx(ctx, decl.ID, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID)
 	}
 	declaredQty, err := strconv.ParseFloat(decl.DeclaredQty, 64)
 	if err != nil {
@@ -47,6 +44,13 @@ func recalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDec
 		return fmt.Errorf("compute running balance: %w", err)
 	}
 	initQty := declaredQty - runningBalance
+	if initQty == 0 {
+		// Real txs already fully account for the declared balance at as_of_date;
+		// the declaration is superseded by real data. Drop both atomically.
+		slog.Info("real txs fully account for declared balance; deleting declaration",
+			"user_id", decl.UserID, "declaration_id", decl.ID)
+		return database.DeleteDeclarationWithInitializeTx(ctx, decl.ID, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID)
+	}
 	var assetClass string
 	if inst := instByID[decl.InstrumentID]; inst != nil && inst.AssetClass != nil {
 		assetClass = *inst.AssetClass

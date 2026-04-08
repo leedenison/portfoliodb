@@ -16,6 +16,7 @@ const adminNav: NavItem[] = [
     children: [
       { href: "/admin/instruments", label: "Instruments" },
       { href: "/admin/prices", label: "Prices" },
+      { href: "/admin/corporate-events", label: "Corporate Events" },
       { href: "/admin/inflation", label: "Inflation" },
     ],
   },

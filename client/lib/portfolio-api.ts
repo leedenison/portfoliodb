@@ -12,10 +12,14 @@ import {
   ExportPricesRequestSchema,
   GetPortfolioValuationRequestSchema,
   GetPortfolioValuationResponseSchema,
+  ImportCorporateEventsRequestSchema,
+  ImportCorporateEventsResponseSchema,
+  ImportCorporateEventRowSchema,
   ImportInstrumentsRequestSchema,
   ImportInstrumentsResponseSchema,
   ImportPricesRequestSchema,
   ImportPricesResponseSchema,
+  SplitRowSchema,
   InstrumentSchema,
   CreatePortfolioRequestSchema,
   CreatePortfolioResponseSchema,
@@ -630,6 +634,51 @@ export async function importPrices(prices: ImportPriceRow[]): Promise<string> {
   const req = create(ImportPricesRequestSchema, { prices });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "ImportPrices", toBinary(ImportPricesRequestSchema, req), { credentials: "include" });
   const res = fromBinary(ImportPricesResponseSchema, resBytes);
+  return res.jobId;
+}
+
+/** A single split event to import via ImportCorporateEvents. */
+export interface CorporateSplitImportRow {
+  identifierType: string;       // "ISIN" | "MIC_TICKER" | etc.
+  identifierValue: string;
+  identifierDomain?: string;
+  assetClass?: AssetClass;
+  exDate: string;               // YYYY-MM-DD
+  splitFrom: string;            // decimal numeric string
+  splitTo: string;              // decimal numeric string
+}
+
+/**
+ * Import corporate events (admin only). Currently submits stock splits;
+ * the server is idempotent on (instrument_id, ex_date) so re-importing
+ * the same split is safe. Returns a job ID for async processing.
+ */
+export async function importCorporateEventSplits(rows: CorporateSplitImportRow[]): Promise<string> {
+  const base = getBaseUrl();
+  const events = rows.map((r) =>
+    create(ImportCorporateEventRowSchema, {
+      identifierType: r.identifierType,
+      identifierValue: r.identifierValue,
+      identifierDomain: r.identifierDomain ?? "",
+      assetClass: r.assetClass ?? AssetClass.UNSPECIFIED,
+      event: {
+        case: "split",
+        value: create(SplitRowSchema, {
+          exDate: r.exDate,
+          splitFrom: r.splitFrom,
+          splitTo: r.splitTo,
+        }),
+      },
+    }),
+  );
+  const req = create(ImportCorporateEventsRequestSchema, { events });
+  const resBytes = await unaryFetch(
+    base,
+    ApiServicePrefix + "ImportCorporateEvents",
+    toBinary(ImportCorporateEventsRequestSchema, req),
+    { credentials: "include" },
+  );
+  const res = fromBinary(ImportCorporateEventsResponseSchema, resBytes);
   return res.jobId;
 }
 

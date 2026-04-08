@@ -13,10 +13,19 @@ import (
 
 // Plugin category constants.
 const (
-	PluginCategoryIdentifier  = "identifier"
-	PluginCategoryDescription = "description"
-	PluginCategoryPrice       = "price"
-	PluginCategoryInflation   = "inflation"
+	PluginCategoryIdentifier     = "identifier"
+	PluginCategoryDescription    = "description"
+	PluginCategoryPrice          = "price"
+	PluginCategoryInflation      = "inflation"
+	PluginCategoryCorporateEvent = "corporate_event"
+)
+
+// Data provider sentinels for corporate events. Plugin-sourced events use the
+// plugin id directly (e.g. "massive", "eodhd"). These sentinels distinguish
+// non-plugin sources.
+const (
+	CorporateEventProviderImport = "import"
+	CorporateEventProviderBroker = "broker"
 )
 
 // DB is the database abstraction used by the service layer.
@@ -36,6 +45,7 @@ type DB interface {
 	HoldingDeclarationDB
 	IgnoredAssetClassDB
 	InflationIndexDB
+	CorporateEventDB
 }
 
 // PriceFetchBlockDB manages permanently blocked (instrument, plugin) pairs.
@@ -588,4 +598,106 @@ type IgnoredAssetClassDB interface {
 	// CountIgnoredTxs returns the number of regular txs and holding declarations
 	// that would be deleted if the given rules were applied (net new vs current).
 	CountIgnoredTxs(ctx context.Context, userID string, rules []IgnoredAssetClass, assetClassToTxTypes map[string][]string) (txCount int32, declCount int32, err error)
+}
+
+// StockSplit is a single stock split row. SplitFrom and SplitTo are the raw
+// halves of the split ratio (factor = SplitTo / SplitFrom). They are stored as
+// strings so that NUMERIC values from the database round-trip without loss of
+// precision; conversion to float happens at the math boundary.
+type StockSplit struct {
+	InstrumentID string
+	ExDate       time.Time
+	SplitFrom    string // numeric, e.g. "1"
+	SplitTo      string // numeric, e.g. "2"
+	DataProvider string
+	FetchedAt    time.Time
+}
+
+// CashDividend is a single cash dividend row. Amount is per share in Currency.
+// PayDate, RecordDate, DeclarationDate, and Frequency are optional and may be
+// nil/empty when the provider does not supply them.
+type CashDividend struct {
+	InstrumentID    string
+	ExDate          time.Time
+	PayDate         *time.Time
+	RecordDate      *time.Time
+	DeclarationDate *time.Time
+	Amount          string // numeric, e.g. "0.24"
+	Currency        string
+	Frequency       string // empty when unknown
+	DataProvider    string
+	FetchedAt       time.Time
+}
+
+// CorporateEventCoverage is one coverage interval for a (instrument, plugin).
+// Adjacent or overlapping intervals for the same (InstrumentID, PluginID) are
+// merged on insert by UpsertCorporateEventCoverage.
+type CorporateEventCoverage struct {
+	InstrumentID string
+	PluginID     string
+	CoveredFrom  time.Time
+	CoveredTo    time.Time
+	FetchedAt    time.Time
+}
+
+// CorporateEventFetchBlock records a permanently blocked (instrument, plugin)
+// pair for corporate-event fetches. Mirrors PriceFetchBlock.
+type CorporateEventFetchBlock struct {
+	InstrumentID string
+	PluginID     string
+	Reason       string
+	CreatedAt    time.Time
+}
+
+// CorporateEventDB provides storage for stock splits, cash dividends, fetch
+// coverage, fetch blocks, and the recompute primitive that derives the
+// split_adjusted_* columns on eod_prices and txs from the raw values.
+type CorporateEventDB interface {
+	// UpsertStockSplits inserts or updates the supplied stock_splits rows.
+	// On conflict (instrument_id, ex_date), all non-key columns are overwritten.
+	UpsertStockSplits(ctx context.Context, splits []StockSplit) error
+	// ListStockSplits returns every stock split for the given instrument
+	// ordered ascending by ex_date.
+	ListStockSplits(ctx context.Context, instrumentID string) ([]StockSplit, error)
+	// DeleteStockSplit removes a single (instrument, ex_date) row. Returns
+	// nil even when no row exists; callers that need an "exists" signal should
+	// check ListStockSplits first.
+	DeleteStockSplit(ctx context.Context, instrumentID string, exDate time.Time) error
+
+	// UpsertCashDividends inserts or updates the supplied cash_dividends rows.
+	// On conflict (instrument_id, ex_date), all non-key columns are overwritten.
+	UpsertCashDividends(ctx context.Context, dividends []CashDividend) error
+	// ListCashDividends returns every cash dividend for the given instrument
+	// ordered ascending by ex_date.
+	ListCashDividends(ctx context.Context, instrumentID string) ([]CashDividend, error)
+	// DeleteCashDividend removes a single (instrument, ex_date) row.
+	DeleteCashDividend(ctx context.Context, instrumentID string, exDate time.Time) error
+
+	// UpsertCorporateEventCoverage records that (instrumentID, pluginID) has
+	// been queried for the closed interval [from, to]. Existing rows for the
+	// same (instrument, plugin) that are adjacent or overlap with [from, to]
+	// are merged into a single row.
+	UpsertCorporateEventCoverage(ctx context.Context, instrumentID, pluginID string, from, to time.Time) error
+	// ListCorporateEventCoverage returns coverage rows for the given
+	// instruments. When instrumentIDs is empty all coverage rows are returned.
+	// Rows are sorted by (instrument_id, plugin_id, covered_from).
+	ListCorporateEventCoverage(ctx context.Context, instrumentIDs []string) ([]CorporateEventCoverage, error)
+
+	// CreateCorporateEventFetchBlock blocks (instrument, plugin) for future
+	// corporate-event fetch attempts. Idempotent on (instrument_id, plugin_id).
+	CreateCorporateEventFetchBlock(ctx context.Context, instrumentID, pluginID, reason string) error
+	// DeleteCorporateEventFetchBlock removes a block; nil when no row exists.
+	DeleteCorporateEventFetchBlock(ctx context.Context, instrumentID, pluginID string) error
+	// ListCorporateEventFetchBlocks returns every block row.
+	ListCorporateEventFetchBlocks(ctx context.Context) ([]CorporateEventFetchBlock, error)
+	// BlockedCorporateEventPluginsForInstruments returns blocked plugin IDs
+	// keyed by instrument id, mirroring PriceFetchBlockDB.
+	BlockedCorporateEventPluginsForInstruments(ctx context.Context, instrumentIDs []string) (map[string]map[string]bool, error)
+
+	// RecomputeSplitAdjustments recomputes split_adjusted_* on eod_prices and
+	// txs for the given instrument from the raw columns and the current set of
+	// stock_splits rows. Idempotent: running it twice produces identical state.
+	// When instrumentID is empty, every instrument with at least one
+	// stock_splits row is recomputed.
+	RecomputeSplitAdjustments(ctx context.Context, instrumentID string) error
 }

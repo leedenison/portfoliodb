@@ -39,20 +39,27 @@ CREATE INDEX idx_portfolio_filters_portfolio ON portfolio_filters (portfolio_id)
 
 -- Transactions. No natural key (broker statements often supply date only). Bulk idempotency
 -- by replace-by-period (user_id, broker, period). Single-tx ingestion is append-only.
+-- split_adjusted_quantity / split_adjusted_unit_price hold the values that result
+-- from applying every stock split with ex_date > timestamp::date for the tx's
+-- instrument. They equal the raw quantity/unit_price when no later split exists.
+-- They are recomputed idempotently from the raw columns whenever splits change
+-- (see RecomputeTxSplitAdjustments).
 CREATE TABLE txs (
-  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id               UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  broker                TEXT NOT NULL,
-  account               TEXT NOT NULL,
-  timestamp             TIMESTAMPTZ NOT NULL,
-  instrument_description TEXT NOT NULL,
-  tx_type               TEXT NOT NULL,
-  quantity              DOUBLE PRECISION NOT NULL,
-  trading_currency      TEXT,
-  settlement_currency   TEXT,
-  unit_price            DOUBLE PRECISION,
-  synthetic_purpose     TEXT CHECK (synthetic_purpose IS NULL OR synthetic_purpose = 'INITIALIZE'),
-  created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                   UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  broker                    TEXT NOT NULL,
+  account                   TEXT NOT NULL,
+  timestamp                 TIMESTAMPTZ NOT NULL,
+  instrument_description    TEXT NOT NULL,
+  tx_type                   TEXT NOT NULL,
+  quantity                  DOUBLE PRECISION NOT NULL,
+  split_adjusted_quantity   DOUBLE PRECISION NOT NULL,
+  trading_currency          TEXT,
+  settlement_currency       TEXT,
+  unit_price                DOUBLE PRECISION,
+  split_adjusted_unit_price DOUBLE PRECISION,
+  synthetic_purpose         TEXT CHECK (synthetic_purpose IS NULL OR synthetic_purpose = 'INITIALIZE'),
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, timestamp);
@@ -210,7 +217,7 @@ CREATE TRIGGER trg_recompute_instrument_name_on_inst
 -- max_history_days is only used by price plugins; NULL = unlimited lookback.
 CREATE TABLE plugin_config (
   plugin_id        TEXT NOT NULL,
-  category         TEXT NOT NULL CHECK (category IN ('identifier', 'description', 'price', 'inflation')),
+  category         TEXT NOT NULL CHECK (category IN ('identifier', 'description', 'price', 'inflation', 'corporate_event')),
   enabled          BOOLEAN NOT NULL DEFAULT true,
   precedence       INT NOT NULL,
   config           JSONB,
@@ -283,22 +290,206 @@ WHERE
 -- Rows with synthetic = true are forward-filled (LOCF) prices for non-trading
 -- days (weekends, holidays). They are generated at write time by the price
 -- fetcher worker so that the valuation query can use a simple join.
+-- The split_adjusted_* columns hold OHLCV after applying every stock split with
+-- ex_date > fetched_at::date for this instrument. They equal the raw values when
+-- no later split exists. close (NOT NULL) implies split_adjusted_close (NOT NULL);
+-- the others are NULL iff their raw counterpart is NULL. Volume is adjusted in
+-- the opposite direction (more shares trade in adjusted-share terms).
+-- adjusted_close is preserved as-supplied by the data provider (typically
+-- includes both split and dividend adjustments) and is not used in performance
+-- math; split_adjusted_close is the value PortfolioDB derives itself.
 CREATE TABLE eod_prices (
-  instrument_id   UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
-  price_date      DATE        NOT NULL,
-  open            NUMERIC,
-  high            NUMERIC,
-  low             NUMERIC,
-  close           NUMERIC     NOT NULL,
-  adjusted_close  NUMERIC,
-  volume          BIGINT,
-  data_provider   TEXT        NOT NULL,
-  synthetic       BOOLEAN     NOT NULL DEFAULT false,
-  fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  instrument_id          UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  price_date             DATE        NOT NULL,
+  open                   NUMERIC,
+  split_adjusted_open    NUMERIC,
+  high                   NUMERIC,
+  split_adjusted_high    NUMERIC,
+  low                    NUMERIC,
+  split_adjusted_low     NUMERIC,
+  close                  NUMERIC     NOT NULL,
+  split_adjusted_close   NUMERIC     NOT NULL,
+  adjusted_close         NUMERIC,
+  volume                 BIGINT,
+  split_adjusted_volume  BIGINT,
+  data_provider          TEXT        NOT NULL,
+  synthetic              BOOLEAN     NOT NULL DEFAULT false,
+  fetched_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, price_date)
 );
 
 SELECT create_hypertable('eod_prices', 'price_date');
+
+-- Stock splits per instrument. ex_date is the effective/execution date. The
+-- split factor is split_to / split_from (e.g. 2:1 split = split_from=1,
+-- split_to=2, factor=2; 1:2 reverse split = split_from=2, split_to=1, factor=0.5).
+-- data_provider is the plugin id ("massive", "eodhd", ...), "import" for CSV/JSON
+-- imports, or "broker:<broker>" for events sourced from a broker SPLIT tx.
+CREATE TABLE stock_splits (
+  instrument_id  UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  ex_date        DATE        NOT NULL,
+  split_from     NUMERIC     NOT NULL CHECK (split_from > 0),
+  split_to       NUMERIC     NOT NULL CHECK (split_to   > 0),
+  data_provider  TEXT        NOT NULL,
+  fetched_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (instrument_id, ex_date)
+);
+
+CREATE INDEX idx_stock_splits_instrument ON stock_splits (instrument_id);
+
+-- Cash dividends per instrument. ex_date is the ex-dividend date. amount is per
+-- share, denominated in currency (which may differ from the instrument currency
+-- for cross-listed securities). frequency is provider-supplied and may be NULL.
+CREATE TABLE cash_dividends (
+  instrument_id    UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  ex_date          DATE        NOT NULL,
+  pay_date         DATE,
+  record_date      DATE,
+  declaration_date DATE,
+  amount           NUMERIC     NOT NULL CHECK (amount >= 0),
+  currency         TEXT        NOT NULL,
+  frequency        TEXT,
+  data_provider    TEXT        NOT NULL,
+  fetched_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (instrument_id, ex_date)
+);
+
+CREATE INDEX idx_cash_dividends_instrument ON cash_dividends (instrument_id);
+
+-- Coverage tracking for corporate events. Events are sparse, so absence of an
+-- event for a (instrument, date) does not tell us whether the data was fetched.
+-- This table records, per (instrument, plugin), the date intervals for which
+-- the plugin has been queried successfully (including queries that returned
+-- empty results -- those are still authoritative coverage).
+-- Adjacent or overlapping intervals for the same (instrument, plugin) are
+-- merged on insert.
+CREATE TABLE corporate_event_coverage (
+  instrument_id  UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  plugin_id      TEXT        NOT NULL,
+  covered_from   DATE        NOT NULL,
+  covered_to     DATE        NOT NULL CHECK (covered_to >= covered_from),
+  fetched_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (instrument_id, plugin_id, covered_from)
+);
+
+CREATE INDEX idx_corporate_event_coverage_instrument ON corporate_event_coverage (instrument_id);
+
+-- Blocked (instrument, plugin) pairs for corporate-event fetches. Mirrors
+-- price_fetch_blocks: an entry here means the plugin returned a permanent
+-- error (404, 403, ...) for this instrument and should not be retried.
+CREATE TABLE corporate_event_fetch_blocks (
+  instrument_id UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  plugin_id     TEXT        NOT NULL,
+  reason        TEXT        NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (instrument_id, plugin_id)
+);
+
+-- Default the split_adjusted_* columns on txs to the raw counterparts whenever
+-- they are not explicitly set. This keeps every existing INSERT/UPSERT path
+-- working without modification: callers continue to set quantity / unit_price
+-- and the trigger seeds split_adjusted_quantity / split_adjusted_unit_price to
+-- the same value. The recompute pass (RecomputeTxSplitAdjustments) later
+-- overwrites the adjusted columns when stock_splits exist for the instrument.
+-- On UPDATE, the trigger only resets adjusted columns when the raw column
+-- actually changes AND the adjusted column was not part of the same UPDATE,
+-- so explicit recompute updates are preserved.
+CREATE OR REPLACE FUNCTION default_split_adjusted_tx() RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.split_adjusted_quantity IS NULL THEN
+      NEW.split_adjusted_quantity := NEW.quantity;
+    END IF;
+    IF NEW.split_adjusted_unit_price IS NULL THEN
+      NEW.split_adjusted_unit_price := NEW.unit_price;
+    END IF;
+  ELSIF TG_OP = 'UPDATE' THEN
+    IF NEW.quantity IS DISTINCT FROM OLD.quantity
+       AND NEW.split_adjusted_quantity IS NOT DISTINCT FROM OLD.split_adjusted_quantity THEN
+      NEW.split_adjusted_quantity := NEW.quantity;
+    END IF;
+    IF NEW.unit_price IS DISTINCT FROM OLD.unit_price
+       AND NEW.split_adjusted_unit_price IS NOT DISTINCT FROM OLD.split_adjusted_unit_price THEN
+      NEW.split_adjusted_unit_price := NEW.unit_price;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_default_split_adjusted_tx
+  BEFORE INSERT OR UPDATE ON txs
+  FOR EACH ROW EXECUTE FUNCTION default_split_adjusted_tx();
+
+-- Same defaulting trigger for eod_prices. close (NOT NULL) implies
+-- split_adjusted_close (NOT NULL); the OHLV columns are nullable on both
+-- sides so the adjusted column is left NULL when the raw side is NULL.
+CREATE OR REPLACE FUNCTION default_split_adjusted_eod_price() RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.split_adjusted_open IS NULL THEN
+      NEW.split_adjusted_open := NEW.open;
+    END IF;
+    IF NEW.split_adjusted_high IS NULL THEN
+      NEW.split_adjusted_high := NEW.high;
+    END IF;
+    IF NEW.split_adjusted_low IS NULL THEN
+      NEW.split_adjusted_low := NEW.low;
+    END IF;
+    IF NEW.split_adjusted_close IS NULL THEN
+      NEW.split_adjusted_close := NEW.close;
+    END IF;
+    IF NEW.split_adjusted_volume IS NULL THEN
+      NEW.split_adjusted_volume := NEW.volume;
+    END IF;
+  ELSIF TG_OP = 'UPDATE' THEN
+    IF NEW.open IS DISTINCT FROM OLD.open
+       AND NEW.split_adjusted_open IS NOT DISTINCT FROM OLD.split_adjusted_open THEN
+      NEW.split_adjusted_open := NEW.open;
+    END IF;
+    IF NEW.high IS DISTINCT FROM OLD.high
+       AND NEW.split_adjusted_high IS NOT DISTINCT FROM OLD.split_adjusted_high THEN
+      NEW.split_adjusted_high := NEW.high;
+    END IF;
+    IF NEW.low IS DISTINCT FROM OLD.low
+       AND NEW.split_adjusted_low IS NOT DISTINCT FROM OLD.split_adjusted_low THEN
+      NEW.split_adjusted_low := NEW.low;
+    END IF;
+    IF NEW.close IS DISTINCT FROM OLD.close
+       AND NEW.split_adjusted_close IS NOT DISTINCT FROM OLD.split_adjusted_close THEN
+      NEW.split_adjusted_close := NEW.close;
+    END IF;
+    IF NEW.volume IS DISTINCT FROM OLD.volume
+       AND NEW.split_adjusted_volume IS NOT DISTINCT FROM OLD.split_adjusted_volume THEN
+      NEW.split_adjusted_volume := NEW.volume;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_default_split_adjusted_eod_price
+  BEFORE INSERT OR UPDATE ON eod_prices
+  FOR EACH ROW EXECUTE FUNCTION default_split_adjusted_eod_price();
+
+-- split_factor_at returns the cumulative split adjustment factor for the
+-- given instrument as of the given reference date. The factor is the product
+-- of (split_to / split_from) over every stock split with ex_date strictly
+-- greater than reference_date. Returns 1 when no future splits are known,
+-- so a row with no later splits is unchanged by adjustment. Implemented via
+-- exp(sum(ln(...))) on double precision: split factors are small rationals
+-- (typically 2, 3, 4, 0.5) and the round-trip is accurate to many decimal
+-- places for any realistic chain of splits.
+CREATE OR REPLACE FUNCTION split_factor_at(p_instrument_id UUID, p_reference DATE)
+RETURNS DOUBLE PRECISION LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(
+    exp(sum(ln(s.split_to::double precision / s.split_from::double precision))),
+    1::double precision
+  )
+  FROM stock_splits s
+  WHERE s.instrument_id = p_instrument_id
+    AND s.ex_date > p_reference;
+$$;
 
 -- Holding declarations: user-provided statement of known holding quantity at a date.
 -- Holdings are computed aggregates identified by (broker, account, instrument_id).

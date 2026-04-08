@@ -20,20 +20,26 @@ type resolveEntry struct {
 	err    error
 }
 
-// processPriceImport loads a persisted ImportPricesRequest, resolves instruments,
-// and upserts prices. Progress is tracked via SetJobTotalCount / IncrJobProcessedCount.
-func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, j *JobRequest) {
+// processPriceImport loads a persisted ImportPricesRequest, resolves
+// instruments, and upserts prices. Progress is tracked via
+// SetJobTotalCount / IncrJobProcessedCount.
+//
+// Returns true when at least one price row was successfully persisted. The
+// caller uses this to decide whether to nudge the price fetcher worker --
+// mirrors the processTx and processCorporateEventImport success signal so a
+// job that rejected every row does not produce churn.
+func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, j *JobRequest) bool {
 	payload, err := loadAndClearPayload(ctx, database, j.JobID)
 	if err != nil {
 		log.Printf("price import job %s: load payload: %v", j.JobID, err)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-		return
+		return false
 	}
 	var req apiv1.ImportPricesRequest
 	if err := proto.Unmarshal(payload, &req); err != nil {
 		log.Printf("price import job %s: unmarshal payload: %v", j.JobID, err)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-		return
+		return false
 	}
 
 	rows := req.GetPrices()
@@ -112,6 +118,7 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		_ = database.AppendValidationErrors(ctx, j.JobID, valErrs)
 	}
 
+	persisted := false
 	if len(prices) > 0 {
 		if err := upsertWithCoverage(ctx, database, prices, req.GetCoverage(), resolveCache); err != nil {
 			log.Printf("price import job %s: upsert: %v", j.JobID, err)
@@ -119,11 +126,13 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 				{RowIndex: -1, Field: "prices", Message: err.Error()},
 			})
 			_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-			return
+			return false
 		}
+		persisted = true
 	}
 
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
+	return persisted
 }
 
 // coverageKey builds a lookup key for ImportCoverage entries.

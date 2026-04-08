@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 )
 
 const defaultBaseURL = "https://api.massive.com"
@@ -62,13 +64,35 @@ func New(apiKey, baseURL string, limiter *RateLimiter, log *slog.Logger, httpCli
 	}
 }
 
+// nextPath strips the configured base URL from a Massive next_url so it can
+// be passed back to get. The Massive API returns next_url as a fully-qualified
+// URL on the production host; in tests the host is httptest's. Either way,
+// we want only the "/path?query" portion. If pathOrURL does not look like
+// a URL it is returned unchanged.
+func (c *Client) nextPath(pathOrURL string) string {
+	if pathOrURL == "" {
+		return ""
+	}
+	if strings.HasPrefix(pathOrURL, "/") {
+		return pathOrURL
+	}
+	u, err := url.Parse(pathOrURL)
+	if err != nil || u.Path == "" {
+		return ""
+	}
+	if u.RawQuery != "" {
+		return u.Path + "?" + u.RawQuery
+	}
+	return u.Path
+}
+
 // get issues a rate-limited GET request and decodes the JSON response into out.
 func (c *Client) get(ctx context.Context, path string, out any) error {
 	if err := c.limiter.Wait(ctx); err != nil {
 		return fmt.Errorf("massive rate limiter: %w", err)
 	}
-	url := c.baseURL + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	fullURL := c.baseURL + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 	if err != nil {
 		return err
 	}

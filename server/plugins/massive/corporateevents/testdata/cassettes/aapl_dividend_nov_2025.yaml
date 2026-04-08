@@ -1,0 +1,93 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            apiKey:
+                - REDACTED
+            execution_date.gte:
+                - "2025-11-01"
+            execution_date.lte:
+                - "2025-11-30"
+            limit:
+                - "1000"
+            ticker:
+                - AAPL
+        url: https://api.massive.com/v3/reference/splits?apiKey=REDACTED&execution_date.gte=2025-11-01&execution_date.lte=2025-11-30&limit=1000&ticker=AAPL
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"results":[],"status":"OK","request_id":"85aafb23420c476598ed1a69643b98fa"}'
+        headers:
+            Content-Type:
+                - application/json
+            Date:
+                - Wed, 08 Apr 2026 14:50:17 GMT
+            Strict-Transport-Security:
+                - max-age=15724800; includeSubDomains
+            Vary:
+                - Accept-Encoding
+            X-Item-Count:
+                - "0"
+            X-Polygon-Cluster-Name:
+                - polygon-ny5
+            X-Request-Id:
+                - 85aafb23420c476598ed1a69643b98fa
+        status: 200 OK
+        code: 200
+        duration: 274.315136ms
+    - id: 1
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            apiKey:
+                - REDACTED
+            ex_dividend_date.gte:
+                - "2025-11-01"
+            ex_dividend_date.lte:
+                - "2025-11-30"
+            limit:
+                - "1000"
+            ticker:
+                - AAPL
+        url: https://api.massive.com/v3/reference/dividends?apiKey=REDACTED&ex_dividend_date.gte=2025-11-01&ex_dividend_date.lte=2025-11-30&limit=1000&ticker=AAPL
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"results":[{"cash_amount":0.26,"currency":"USD","declaration_date":"2025-10-30","dividend_type":"CD","ex_dividend_date":"2025-11-10","frequency":4,"id":"E46d7ebeffba0ae65cff4eb03497ce2a27de1fba5a67b5cda1ca0a8b6eedf5c8c","pay_date":"2025-11-13","record_date":"2025-11-10","ticker":"AAPL"}],"status":"OK","request_id":"2334934d8bf208ae11d38bbeac4f9087"}'
+        headers:
+            Content-Type:
+                - application/json
+            Date:
+                - Wed, 08 Apr 2026 14:50:32 GMT
+            Strict-Transport-Security:
+                - max-age=15724800; includeSubDomains
+            Vary:
+                - Accept-Encoding
+            X-Item-Count:
+                - "1"
+            X-Polygon-Cluster-Name:
+                - polygon-ny5
+            X-Request-Id:
+                - 2334934d8bf208ae11d38bbeac4f9087
+        status: 200 OK
+        code: 200
+        duration: 95.166448ms

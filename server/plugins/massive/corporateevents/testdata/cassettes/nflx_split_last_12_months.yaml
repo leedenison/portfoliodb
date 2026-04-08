@@ -1,0 +1,93 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            apiKey:
+                - REDACTED
+            execution_date.gte:
+                - "2025-04-01"
+            execution_date.lte:
+                - "2026-04-01"
+            limit:
+                - "1000"
+            ticker:
+                - NFLX
+        url: https://api.massive.com/v3/reference/splits?apiKey=REDACTED&execution_date.gte=2025-04-01&execution_date.lte=2026-04-01&limit=1000&ticker=NFLX
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"results":[{"execution_date":"2025-11-17","id":"Ea5faf86b4104338a450f706dda364e6831195acf142c679391a5c1c289a25f95","split_from":1,"split_to":10,"ticker":"NFLX"}],"status":"OK","request_id":"370a3236de611f3f5989674619d16020"}'
+        headers:
+            Content-Type:
+                - application/json
+            Date:
+                - Wed, 08 Apr 2026 14:50:47 GMT
+            Strict-Transport-Security:
+                - max-age=15724800; includeSubDomains
+            Vary:
+                - Accept-Encoding
+            X-Item-Count:
+                - "1"
+            X-Polygon-Cluster-Name:
+                - polygon-ny5
+            X-Request-Id:
+                - 370a3236de611f3f5989674619d16020
+        status: 200 OK
+        code: 200
+        duration: 102.728277ms
+    - id: 1
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            apiKey:
+                - REDACTED
+            ex_dividend_date.gte:
+                - "2025-04-01"
+            ex_dividend_date.lte:
+                - "2026-04-01"
+            limit:
+                - "1000"
+            ticker:
+                - NFLX
+        url: https://api.massive.com/v3/reference/dividends?apiKey=REDACTED&ex_dividend_date.gte=2025-04-01&ex_dividend_date.lte=2026-04-01&limit=1000&ticker=NFLX
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"results":[],"status":"OK","request_id":"877c8af975a7cca72aef8b5d1704c7dd"}'
+        headers:
+            Content-Type:
+                - application/json
+            Date:
+                - Wed, 08 Apr 2026 14:51:03 GMT
+            Strict-Transport-Security:
+                - max-age=15724800; includeSubDomains
+            Vary:
+                - Accept-Encoding
+            X-Item-Count:
+                - "0"
+            X-Polygon-Cluster-Name:
+                - polygon-ny5
+            X-Request-Id:
+                - 877c8af975a7cca72aef8b5d1704c7dd
+        status: 200 OK
+        code: 200
+        duration: 392.940202ms

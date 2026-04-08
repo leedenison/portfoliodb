@@ -1,11 +1,41 @@
 package client
 
 // APIResponse is the common envelope for Massive REST API responses.
+// NextURL is set on paginated endpoints; an empty string means there are no
+// more pages. NextURL may be a fully-qualified URL or a path.
 type APIResponse[T any] struct {
 	Status    string `json:"status"`
 	RequestID string `json:"request_id"`
 	Count     int    `json:"count,omitempty"`
+	NextURL   string `json:"next_url,omitempty"`
 	Results   T      `json:"results"`
+}
+
+// SplitResult is one stock split row from
+// GET /v3/reference/splits.
+type SplitResult struct {
+	Ticker         string  `json:"ticker"`
+	ExecutionDate  string  `json:"execution_date"` // YYYY-MM-DD
+	SplitFrom      float64 `json:"split_from"`
+	SplitTo        float64 `json:"split_to"`
+	ID             string  `json:"id,omitempty"`
+}
+
+// DividendResult is one cash dividend row from
+// GET /v3/reference/dividends. The Frequency field is the
+// number of dividend payments per year (1 = annual, 2 = semi-annual,
+// 4 = quarterly, 12 = monthly, 0 = one-off / unknown).
+type DividendResult struct {
+	Ticker          string  `json:"ticker"`
+	ExDividendDate  string  `json:"ex_dividend_date"`
+	DeclarationDate string  `json:"declaration_date,omitempty"`
+	RecordDate      string  `json:"record_date,omitempty"`
+	PayDate         string  `json:"pay_date,omitempty"`
+	CashAmount      float64 `json:"cash_amount"`
+	Currency        string  `json:"currency"`
+	Frequency       int     `json:"frequency"`
+	DividendType    string  `json:"dividend_type,omitempty"` // CD, SC, LT, ST
+	ID              string  `json:"id,omitempty"`
 }
 
 // TickerOverviewResult holds reference data for a single ticker from GET /v3/reference/tickers/{ticker}.

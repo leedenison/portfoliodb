@@ -1,0 +1,93 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            apiKey:
+                - REDACTED
+            execution_date.gte:
+                - "2025-04-01"
+            execution_date.lte:
+                - "2026-04-01"
+            limit:
+                - "1000"
+            ticker:
+                - AAPL
+        url: https://api.massive.com/v3/reference/splits?apiKey=REDACTED&execution_date.gte=2025-04-01&execution_date.lte=2026-04-01&limit=1000&ticker=AAPL
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"results":[],"status":"OK","request_id":"7507300f017a5814ba6f9af9e738dd81"}'
+        headers:
+            Content-Type:
+                - application/json
+            Date:
+                - Wed, 08 Apr 2026 14:50:32 GMT
+            Strict-Transport-Security:
+                - max-age=15724800; includeSubDomains
+            Vary:
+                - Accept-Encoding
+            X-Item-Count:
+                - "0"
+            X-Polygon-Cluster-Name:
+                - polygon-ny5
+            X-Request-Id:
+                - 7507300f017a5814ba6f9af9e738dd81
+        status: 200 OK
+        code: 200
+        duration: 89.185337ms
+    - id: 1
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            apiKey:
+                - REDACTED
+            ex_dividend_date.gte:
+                - "2025-04-01"
+            ex_dividend_date.lte:
+                - "2026-04-01"
+            limit:
+                - "1000"
+            ticker:
+                - AAPL
+        url: https://api.massive.com/v3/reference/dividends?apiKey=REDACTED&ex_dividend_date.gte=2025-04-01&ex_dividend_date.lte=2026-04-01&limit=1000&ticker=AAPL
+        method: GET
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"results":[{"cash_amount":0.26,"currency":"USD","declaration_date":"2026-01-29","dividend_type":"CD","ex_dividend_date":"2026-02-09","frequency":4,"id":"Ea9c1921173ef4be798ca05a1f7015b4ae452bfcf7d641a3a63c1fd852f1eaf05","pay_date":"2026-02-12","record_date":"2026-02-09","ticker":"AAPL"},{"cash_amount":0.26,"currency":"USD","declaration_date":"2025-10-30","dividend_type":"CD","ex_dividend_date":"2025-11-10","frequency":4,"id":"E46d7ebeffba0ae65cff4eb03497ce2a27de1fba5a67b5cda1ca0a8b6eedf5c8c","pay_date":"2025-11-13","record_date":"2025-11-10","ticker":"AAPL"},{"cash_amount":0.26,"currency":"USD","declaration_date":"2025-07-31","dividend_type":"CD","ex_dividend_date":"2025-08-11","frequency":4,"id":"Ed2c9da60abda1e3f0e99a43f6465863c137b671e1f5cd3f833d1fcb4f4eb27fe","pay_date":"2025-08-14","record_date":"2025-08-11","ticker":"AAPL"},{"cash_amount":0.26,"currency":"USD","declaration_date":"2025-05-01","dividend_type":"CD","ex_dividend_date":"2025-05-12","frequency":4,"id":"E508c0a63699951e57b51c4cf746a7f3b4101c39232372228d68585046c0b4a67","pay_date":"2025-05-15","record_date":"2025-05-12","ticker":"AAPL"}],"status":"OK","request_id":"1b3ed08c994a7c036d549c5110bc2afa"}'
+        headers:
+            Content-Type:
+                - application/json
+            Date:
+                - Wed, 08 Apr 2026 14:50:47 GMT
+            Strict-Transport-Security:
+                - max-age=15724800; includeSubDomains
+            Vary:
+                - Accept-Encoding
+            X-Item-Count:
+                - "4"
+            X-Polygon-Cluster-Name:
+                - polygon-ny5
+            X-Request-Id:
+                - 1b3ed08c994a7c036d549c5110bc2afa
+        status: 200 OK
+        code: 200
+        duration: 97.878382ms

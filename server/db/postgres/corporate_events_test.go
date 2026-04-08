@@ -373,6 +373,78 @@ func TestRecomputeSplitAdjustments_Txs(t *testing.T) {
 	}
 }
 
+// TestRecomputeSplitAdjustments_FutureSplitNotApplied verifies that a split
+// stored in stock_splits with ex_date in the future does NOT affect the
+// recompute. Corporate event plugins return announced splits weeks before
+// they are effective, and the lookahead window pulls them into the database
+// early; without the future-date guard in split_factor_at, every prior
+// price/tx for the instrument would be scaled immediately on fetch, even
+// though the user still owns pre-split shares trading at pre-split prices.
+func TestRecomputeSplitAdjustments_FutureSplitNotApplied(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	insertPriceFull(t, p, instID, d(2024, 1, 15), 180, 182, 178, 181, 1000, "test")
+	// Backdate fetched_at to 2024-01-15 so the recompute considers the
+	// past split (whose ex_date is later in 2024) as "after fetch" and
+	// applies it. Without backdating, the price's fetched_at would be
+	// today and the 2024 past split would be excluded as "before fetch".
+	if _, err := p.q.ExecContext(ctx, `
+		UPDATE eod_prices SET fetched_at = $1 WHERE instrument_id = $2::uuid
+	`, d(2024, 1, 15), instID); err != nil {
+		t.Fatalf("backdate fetched_at: %v", err)
+	}
+
+	// Insert a split with ex_date in the future. The key assertion is
+	// that this row sits in stock_splits but does NOT scale the price,
+	// because split_factor_at filters splits with ex_date > current_date.
+	future := time.Now().UTC().Truncate(24 * time.Hour).AddDate(1, 0, 0)
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+		{InstrumentID: instID, ExDate: future, SplitFrom: "1", SplitTo: "2", DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert split: %v", err)
+	}
+	if err := p.RecomputeSplitAdjustments(ctx, instID); err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+
+	var saClose, rawClose float64
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT close, split_adjusted_close FROM eod_prices WHERE instrument_id = $1::uuid
+	`, instID).Scan(&rawClose, &saClose); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if rawClose != 181 {
+		t.Errorf("raw close: got %v want 181", rawClose)
+	}
+	if saClose != 181 {
+		t.Errorf("split_adjusted_close should equal raw (future split is inert), got %v", saClose)
+	}
+
+	// Sanity check: a second split with ex_date in the past (and after
+	// fetched_at) IS applied. This proves the recompute is functional and
+	// the previous result is specifically because of the future guard,
+	// not because the recompute is silently broken.
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+		{InstrumentID: instID, ExDate: d(2024, 6, 1), SplitFrom: "1", SplitTo: "4", DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert past split: %v", err)
+	}
+	if err := p.RecomputeSplitAdjustments(ctx, instID); err != nil {
+		t.Fatalf("recompute (2): %v", err)
+	}
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT split_adjusted_close FROM eod_prices WHERE instrument_id = $1::uuid
+	`, instID).Scan(&saClose); err != nil {
+		t.Fatalf("read (2): %v", err)
+	}
+	// Past split with factor=4 applies; future split is still inert.
+	if !approxEq(saClose, 181.0/4.0) {
+		t.Errorf("split_adjusted_close after past split: got %v want %v", saClose, 181.0/4.0)
+	}
+}
+
 // TestRecomputeSplitAdjustments_NoSplits verifies that with no splits the
 // adjusted columns equal the raw values (factor = 1).
 func TestRecomputeSplitAdjustments_NoSplits(t *testing.T) {

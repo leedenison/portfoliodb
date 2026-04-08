@@ -70,7 +70,7 @@ CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, timestamp);
 CREATE TABLE ingestion_jobs (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  job_type     TEXT NOT NULL DEFAULT 'tx' CHECK (job_type IN ('tx', 'price')),
+  job_type     TEXT NOT NULL DEFAULT 'tx' CHECK (job_type IN ('tx', 'price', 'corporate_event')),
   broker       TEXT,
   source       TEXT,
   filename     TEXT,
@@ -475,11 +475,25 @@ CREATE TRIGGER trg_default_split_adjusted_eod_price
 -- split_factor_at returns the cumulative split adjustment factor for the
 -- given instrument as of the given reference date. The factor is the product
 -- of (split_to / split_from) over every stock split with ex_date strictly
--- greater than reference_date. Returns 1 when no future splits are known,
--- so a row with no later splits is unchanged by adjustment. Implemented via
--- exp(sum(ln(...))) on double precision: split factors are small rationals
--- (typically 2, 3, 4, 0.5) and the round-trip is accurate to many decimal
--- places for any realistic chain of splits.
+-- greater than reference_date AND less than or equal to the current date.
+--
+-- The CURRENT_DATE clause matters: corporate event plugins return splits
+-- the moment they are announced, often weeks before the ex_date arrives,
+-- and the corporate event fetcher's lookahead window pulls them into
+-- stock_splits early. Without this clause, an announced-but-not-yet-effective
+-- split would immediately scale every prior price/tx for the instrument as
+-- if the split had already happened, even though the user still owns
+-- pre-split shares trading at pre-split prices. With this clause, future-
+-- dated splits sit inert in stock_splits until their ex_date passes, at
+-- which point the next recompute pass picks them up. The corporate event
+-- daily scheduler (see docs/corporate-events.md) is responsible for
+-- triggering that recompute when ex_dates cross.
+--
+-- Returns 1 when no effective future splits are known, so a row with no
+-- later splits is unchanged by adjustment. Implemented via exp(sum(ln(...)))
+-- on double precision: split factors are small rationals (typically 2, 3,
+-- 4, 0.5) and the round-trip is accurate to many decimal places for any
+-- realistic chain of splits.
 CREATE OR REPLACE FUNCTION split_factor_at(p_instrument_id UUID, p_reference DATE)
 RETURNS DOUBLE PRECISION LANGUAGE sql STABLE AS $$
   SELECT COALESCE(
@@ -488,7 +502,8 @@ RETURNS DOUBLE PRECISION LANGUAGE sql STABLE AS $$
   )
   FROM stock_splits s
   WHERE s.instrument_id = p_instrument_id
-    AND s.ex_date > p_reference;
+    AND s.ex_date > p_reference
+    AND s.ex_date <= CURRENT_DATE;
 $$;
 
 -- Holding declarations: user-provided statement of known holding quantity at a date.

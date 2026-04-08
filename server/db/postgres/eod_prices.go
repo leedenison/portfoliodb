@@ -126,33 +126,14 @@ type exportPriceRow struct {
 
 // ListPricesForExport implements db.EODPriceListDB.
 func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow, error) {
-	const q = `
+	q := `
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
 			COALESCE(i.asset_class, '') AS asset_class,
 			ep.price_date, ep.open, ep.high, ep.low, ep.close,
 			ep.adjusted_close, ep.volume
 		FROM eod_prices ep
 		JOIN instruments i ON i.id = ep.instrument_id
-		JOIN LATERAL (
-			SELECT ii.identifier_type, ii.value, ii.domain
-			FROM instrument_identifiers ii
-			WHERE ii.instrument_id = ep.instrument_id
-			ORDER BY CASE ii.identifier_type
-				WHEN 'MIC_TICKER' THEN 1
-				WHEN 'OPENFIGI_TICKER' THEN 2
-				WHEN 'OCC' THEN 3
-				WHEN 'ISIN' THEN 4
-				WHEN 'OPENFIGI_GLOBAL' THEN 5
-				WHEN 'OPENFIGI_SHARE_CLASS' THEN 6
-				WHEN 'OPENFIGI_COMPOSITE' THEN 7
-				WHEN 'CUSIP' THEN 8
-				WHEN 'SEDOL' THEN 9
-				WHEN 'OPRA' THEN 10
-				WHEN 'BROKER_DESCRIPTION' THEN 11
-				ELSE 99
-			END
-			LIMIT 1
-		) best_id ON true
+		` + bestIdentifierJoin + `
 		WHERE NOT ep.synthetic
 		ORDER BY best_id.identifier_type, best_id.value, ep.price_date
 	`

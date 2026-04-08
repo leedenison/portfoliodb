@@ -248,7 +248,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ingestionLogger := logger.WithCategory(serverLogger, "server/service/ingestion")
-	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter, ingestionLogger, priceTrigger, workers)
+	go ingestion.RunWorker(ctx, database, queue, pluginRegistry, descRegistry, counter, ingestionLogger, priceTrigger, corporateEventTrigger, workers)
 	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
 	go inflationfetcher.RunWorker(ctx, database, inflationRegistry, counter, logger.WithCategory(serverLogger, "server/inflationfetcher"), inflationTrigger, workers)
 	go corporateevents.RunWorker(ctx, database, corporateEventRegistry, counter, logger.WithCategory(serverLogger, "server/corporateevents"), corporateEventTrigger, workers)

@@ -56,3 +56,49 @@ date,instrument_description,type,quantity,trading_currency,unit_price,account,sy
 ```
 
 Any extra columns are ignored. Empty optional fields can be omitted or left blank.
+
+# Corporate event CSV format
+
+A separate CSV is used to import stock splits and cash dividends via the `ImportCorporateEvents` API. Splits and dividends share one file; the `event` column distinguishes them.
+
+## Columns
+
+| Column | Required | Description |
+| ------ | -------- | ----------- |
+| `event` | Yes | `split` or `dividend`. Determines which event-specific columns are read. |
+| `identifier_type` | Yes | Identifier type used to resolve the instrument (`MIC_TICKER`, `OPENFIGI_TICKER`, `ISIN`, etc.). |
+| `identifier_value` | Yes | Identifier value (e.g. `AAPL`, `US0378331005`). |
+| `identifier_domain` | No | Domain for the identifier (MIC for `MIC_TICKER`, exchange code for `OPENFIGI_TICKER`). |
+| `asset_class` | No | `STOCK` or `ETF`. Used as the security type hint when the instrument is unknown and identifier plugins must resolve it. |
+| `ex_date` | Yes | `YYYY-MM-DD`. Effective/execution date for splits, ex-dividend date for dividends. |
+| `split_from` | Splits only | Decimal numerator of the pre-split ratio (e.g. `1` for a 2:1 split). |
+| `split_to` | Splits only | Decimal numerator of the post-split ratio (e.g. `2` for a 2:1 split). The factor is `split_to / split_from`. |
+| `amount` | Dividends only | Cash amount per share, denominated in `currency`. |
+| `currency` | Dividends only | ISO 4217 currency of the cash dividend. |
+| `pay_date` | No | `YYYY-MM-DD` payment date (dividends). |
+| `record_date` | No | `YYYY-MM-DD` record date (dividends). |
+| `declaration_date` | No | `YYYY-MM-DD` declaration date (dividends). |
+| `frequency` | No | `annual`, `semi-annual`, `quarterly`, `monthly`, or empty (dividends). |
+
+## Coverage rows
+
+The importer also accepts coverage declarations in a separate CSV (or section). Each row records that the caller has authoritative coverage for the closed `[from, to]` interval; the server stores a `corporate_event_coverage` row tagged `data_provider = "import"` so the background fetcher does not refetch the same range from a plugin.
+
+| Column | Required | Description |
+| ------ | -------- | ----------- |
+| `identifier_type` | Yes | As above. |
+| `identifier_value` | Yes | As above. |
+| `identifier_domain` | No | As above. |
+| `from` | Yes | `YYYY-MM-DD` inclusive. |
+| `to` | Yes | `YYYY-MM-DD` inclusive. |
+
+## Example
+
+```csv
+event,identifier_type,identifier_domain,identifier_value,asset_class,ex_date,split_from,split_to,amount,currency,pay_date,record_date,declaration_date,frequency
+split,MIC_TICKER,XNAS,AAPL,STOCK,2020-08-31,1,4,,,,,,
+split,MIC_TICKER,XNAS,AAPL,STOCK,2014-06-09,1,7,,,,,,
+dividend,MIC_TICKER,XNAS,AAPL,STOCK,2024-02-09,,,0.24,USD,2024-02-15,2024-02-12,2024-02-01,quarterly
+```
+
+When the importer sees an unknown `(identifier_type, identifier_domain, identifier_value)` triple, it routes through the same identifier plugin flow used by price imports: the supplied `asset_class` becomes the security-type hint and the resolved instrument is created with the supplied identifier as canonical.

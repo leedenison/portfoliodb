@@ -250,6 +250,12 @@ service ApiService {
   rpc ListCorporateEventPlugins(ListCorporateEventPluginsRequest) returns (ListCorporateEventPluginsResponse);
   rpc UpdateCorporateEventPlugin(UpdateCorporateEventPluginRequest) returns (UpdateCorporateEventPluginResponse);
   rpc TriggerCorporateEventFetch(TriggerCorporateEventFetchRequest) returns (TriggerCorporateEventFetchResponse);
+
+  // Corporate event import / export. Mirrors the price import/export RPCs:
+  // import is async via the job queue, export streams every event with the
+  // best identifier per instrument.
+  rpc ExportCorporateEvents(ExportCorporateEventsRequest) returns (stream ExportCorporateEventRow);
+  rpc ImportCorporateEvents(ImportCorporateEventsRequest) returns (ImportCorporateEventsResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -938,3 +944,78 @@ message UpdateCorporateEventPluginResponse {
 message TriggerCorporateEventFetchRequest {}
 
 message TriggerCorporateEventFetchResponse {}
+
+// SplitRow is one stock split row used by both export and import. SplitFrom
+// and SplitTo are decimal strings (e.g. "1" and "2" for a 2:1 split). The
+// factor is split_to / split_from.
+message SplitRow {
+  string ex_date = 1;     // YYYY-MM-DD effective/execution date
+  string split_from = 2;  // decimal numeric string
+  string split_to = 3;    // decimal numeric string
+}
+
+// CashDividendRow is one cash dividend row used by both export and import.
+// Optional date fields are empty when the source did not supply them. Amount
+// is per share, denominated in currency.
+message CashDividendRow {
+  string ex_date = 1;            // YYYY-MM-DD ex-dividend date
+  string pay_date = 2;           // optional
+  string record_date = 3;        // optional
+  string declaration_date = 4;   // optional
+  string amount = 5;             // decimal numeric string per share
+  string currency = 6;
+  string frequency = 7;          // optional: "annual", "semi-annual", "quarterly", "monthly"
+}
+
+// ExportCorporateEventRow is one corporate event with its instrument
+// identifier context. Each row is either a stock split or a cash dividend
+// (oneof event). The best identifier per instrument is selected on the
+// server using the same priority as ExportPriceRow.
+message ExportCorporateEventRow {
+  string identifier_type = 1;
+  string identifier_value = 2;
+  string identifier_domain = 3;
+  AssetClass asset_class = 4;
+  string data_provider = 5;
+  oneof event {
+    SplitRow split = 10;
+    CashDividendRow dividend = 11;
+  }
+}
+
+message ExportCorporateEventsRequest {}
+
+// ImportCorporateEventRow is one corporate event row to import. When the
+// instrument is unknown, asset_class is used as the security type hint for
+// identifier plugin routing. Exactly one of split / dividend must be set.
+message ImportCorporateEventRow {
+  string identifier_type = 1;
+  string identifier_value = 2;
+  string identifier_domain = 3;
+  AssetClass asset_class = 4;
+  oneof event {
+    SplitRow split = 10;
+    CashDividendRow dividend = 11;
+  }
+}
+
+// ImportCorporateEventCoverage declares that the caller intends to cover a
+// closed [from, to] date interval for an instrument. The server records a
+// corporate_event_coverage row tagged data_provider = "import" so the
+// background worker does not refetch the same range from a plugin.
+message ImportCorporateEventCoverage {
+  string identifier_type = 1;
+  string identifier_value = 2;
+  string identifier_domain = 3;
+  string from = 4; // YYYY-MM-DD inclusive
+  string to = 5;   // YYYY-MM-DD inclusive
+}
+
+message ImportCorporateEventsRequest {
+  repeated ImportCorporateEventRow events = 1;
+  repeated ImportCorporateEventCoverage coverage = 2;
+}
+
+message ImportCorporateEventsResponse {
+  string job_id = 1;
+}

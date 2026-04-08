@@ -100,7 +100,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 		SetJobStatus(gomock.Any(), "job-1", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processJob(ctx, database, registry, nil, nil, j, nil)
+	processJob(ctx, database, registry, nil, nil, j, nil, nil)
 }
 
 func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
@@ -157,7 +157,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-2", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processJob(ctx, database, registry, nil, nil, j, nil)
+	processJob(ctx, database, registry, nil, nil, j, nil, nil)
 }
 
 func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
@@ -219,7 +219,7 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-split", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processJob(ctx, database, registry, nil, nil, j, nil)
+	processJob(ctx, database, registry, nil, nil, j, nil, nil)
 }
 
 // strPtr returns a pointer to s, for use in InstrumentRow.AssetClass.
@@ -292,7 +292,7 @@ func TestProcessBulk_BuystockIncomeSameDescriptionFails(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-contradict", apiv1.JobStatus_FAILED).
 		Return(nil)
 
-	processJob(ctx, database, registry, nil, nil, j, nil)
+	processJob(ctx, database, registry, nil, nil, j, nil, nil)
 }
 
 // TestProcessBulk_StockEtfEquivalence verifies that BUYSTOCK resolved to an
@@ -347,7 +347,7 @@ func TestProcessBulk_StockEtfEquivalence(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-etf", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processJob(ctx, database, registry, nil, nil, j, nil)
+	processJob(ctx, database, registry, nil, nil, j, nil, nil)
 }
 
 // TestProcessBulk_StockMutualFundNotEquivalent verifies that BUYSTOCK
@@ -405,7 +405,7 @@ func TestProcessBulk_StockMutualFundNotEquivalent(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-mf", apiv1.JobStatus_FAILED).
 		Return(nil)
 
-	processJob(ctx, database, registry, nil, nil, j, nil)
+	processJob(ctx, database, registry, nil, nil, j, nil, nil)
 }
 
 // TestProcessBulk_TransferToCashRejected verifies that an UNKNOWN-implied tx
@@ -457,7 +457,7 @@ func TestProcessBulk_TransferToCashRejected(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-transfer-cash", apiv1.JobStatus_FAILED).
 		Return(nil)
 
-	processJob(ctx, database, registry, nil, nil, j, nil)
+	processJob(ctx, database, registry, nil, nil, j, nil, nil)
 }
 
 // TestProcessBulk_TransferToStockAllowed verifies that an UNKNOWN-implied tx
@@ -512,7 +512,7 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-transfer-stock", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processJob(ctx, database, registry, nil, nil, j, nil)
+	processJob(ctx, database, registry, nil, nil, j, nil, nil)
 }
 
 func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
@@ -540,5 +540,5 @@ func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-single-split", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processJob(ctx, database, registry, nil, nil, j, nil)
+	processJob(ctx, database, registry, nil, nil, j, nil, nil)
 }

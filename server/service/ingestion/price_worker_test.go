@@ -51,7 +51,9 @@ func TestProcessPriceImport_RejectsUnknownIdentifierType(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-price-1", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processPriceImport(ctx, database, registry, j)
+	if processPriceImport(ctx, database, registry, j) {
+		t.Error("expected persisted=false when every row was rejected")
+	}
 
 	if len(capturedErrs) != 1 {
 		t.Fatalf("expected 1 validation error, got %d", len(capturedErrs))
@@ -106,7 +108,9 @@ func TestProcessPriceImport_AcceptsValidIdentifierType(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-price-2", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processPriceImport(ctx, database, registry, j)
+	if !processPriceImport(ctx, database, registry, j) {
+		t.Error("expected persisted=true after a successful upsert")
+	}
 }
 
 func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
@@ -158,7 +162,9 @@ func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
 		SetJobStatus(gomock.Any(), "job-price-cov", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processPriceImport(ctx, database, registry, j)
+	if !processPriceImport(ctx, database, registry, j) {
+		t.Error("expected persisted=true after a successful upsert")
+	}
 }
 
 func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(t *testing.T) {
@@ -210,5 +216,7 @@ func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(
 		SetJobStatus(gomock.Any(), "job-price-nocov", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
-	processPriceImport(ctx, database, registry, j)
+	if !processPriceImport(ctx, database, registry, j) {
+		t.Error("expected persisted=true after a successful upsert")
+	}
 }

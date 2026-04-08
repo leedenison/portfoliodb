@@ -68,8 +68,9 @@ func processJob(ctx context.Context, database db.DB, registry *identifier.Regist
 			pricefetcher.Trigger(priceTrigger)
 		}
 	case db.JobTypePrice:
-		processPriceImport(ctx, database, registry, j)
-		pricefetcher.Trigger(priceTrigger)
+		if processPriceImport(ctx, database, registry, j) {
+			pricefetcher.Trigger(priceTrigger)
+		}
 	case db.JobTypeCorporateEvent:
 		if processCorporateEventImport(ctx, database, registry, j) {
 			corporateevents.Trigger(corporateEventTrigger)

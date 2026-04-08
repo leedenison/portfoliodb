@@ -243,6 +243,13 @@ service ApiService {
 
   // Trigger an inflation fetch cycle (admin-only). Returns immediately; fetch runs async.
   rpc TriggerInflationFetch(TriggerInflationFetchRequest) returns (TriggerInflationFetchResponse);
+
+  // Corporate event plugin admin endpoints. Mirror the price/inflation
+  // plugin endpoints. Stock splits and cash dividends are stored as
+  // separate entities and refreshed by the corporate event fetcher worker.
+  rpc ListCorporateEventPlugins(ListCorporateEventPluginsRequest) returns (ListCorporateEventPluginsResponse);
+  rpc UpdateCorporateEventPlugin(UpdateCorporateEventPluginRequest) returns (UpdateCorporateEventPluginResponse);
+  rpc TriggerCorporateEventFetch(TriggerCorporateEventFetchRequest) returns (TriggerCorporateEventFetchResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -901,3 +908,33 @@ message UpdateInflationPluginResponse {
 message TriggerInflationFetchRequest {}
 
 message TriggerInflationFetchResponse {}
+
+// CorporateEventPluginConfig describes a corporate event plugin's admin-visible state.
+message CorporateEventPluginConfig {
+  string plugin_id = 1;
+  bool enabled = 2;
+  int32 precedence = 3;
+  string config_json = 4;
+  string display_name = 5;
+}
+
+message ListCorporateEventPluginsRequest {}
+
+message ListCorporateEventPluginsResponse {
+  repeated CorporateEventPluginConfig plugins = 1;
+}
+
+message UpdateCorporateEventPluginRequest {
+  string plugin_id = 1;
+  optional bool enabled = 2;
+  optional int32 precedence = 3;
+  optional string config_json = 4;
+}
+
+message UpdateCorporateEventPluginResponse {
+  CorporateEventPluginConfig plugin = 1;
+}
+
+message TriggerCorporateEventFetchRequest {}
+
+message TriggerCorporateEventFetchResponse {}

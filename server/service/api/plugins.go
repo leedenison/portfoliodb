@@ -19,8 +19,8 @@ func (s *Server) ReorderPlugins(ctx context.Context, req *apiv1.ReorderPluginsRe
 		return nil, authErr
 	}
 	cat := req.GetCategory()
-	if cat != db.PluginCategoryIdentifier && cat != db.PluginCategoryDescription && cat != db.PluginCategoryPrice && cat != db.PluginCategoryInflation {
-		return nil, status.Error(codes.InvalidArgument, "category must be identifier, description, price, or inflation")
+	if cat != db.PluginCategoryIdentifier && cat != db.PluginCategoryDescription && cat != db.PluginCategoryPrice && cat != db.PluginCategoryInflation && cat != db.PluginCategoryCorporateEvent {
+		return nil, status.Error(codes.InvalidArgument, "category must be identifier, description, price, inflation, or corporate_event")
 	}
 	if len(req.GetPluginIds()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "plugin_ids required")
@@ -415,6 +415,97 @@ func (s *Server) TriggerInflationFetch(ctx context.Context, req *apiv1.TriggerIn
 		}
 	}
 	return &apiv1.TriggerInflationFetchResponse{}, nil
+}
+
+// ListCorporateEventPlugins returns all corporate event plugin configs. Admin only.
+func (s *Server) ListCorporateEventPlugins(ctx context.Context, req *apiv1.ListCorporateEventPluginsRequest) (*apiv1.ListCorporateEventPluginsResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	rows, err := s.db.ListPluginConfigs(ctx, db.PluginCategoryCorporateEvent)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	plugins := make([]*apiv1.CorporateEventPluginConfig, 0, len(rows))
+	for _, r := range rows {
+		configJSON := ""
+		if len(r.Config) > 0 {
+			configJSON = string(r.Config)
+		}
+		displayName := r.PluginID
+		if s.corporateEventRegistry != nil {
+			displayName = s.corporateEventRegistry.GetDisplayName(r.PluginID)
+		}
+		plugins = append(plugins, &apiv1.CorporateEventPluginConfig{
+			PluginId:    r.PluginID,
+			Enabled:     r.Enabled,
+			Precedence:  int32(r.Precedence),
+			ConfigJson:  configJSON,
+			DisplayName: displayName,
+		})
+	}
+	return &apiv1.ListCorporateEventPluginsResponse{Plugins: plugins}, nil
+}
+
+// UpdateCorporateEventPlugin updates enabled, precedence, and/or config for a corporate event plugin. Admin only.
+func (s *Server) UpdateCorporateEventPlugin(ctx context.Context, req *apiv1.UpdateCorporateEventPluginRequest) (*apiv1.UpdateCorporateEventPluginResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	if req.GetPluginId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "plugin_id required")
+	}
+	var enabled *bool
+	if req.Enabled != nil {
+		enabled = req.Enabled
+	}
+	var precedence *int
+	if req.Precedence != nil {
+		p := int(*req.Precedence)
+		precedence = &p
+	}
+	var config []byte
+	if req.ConfigJson != nil {
+		config = []byte(*req.ConfigJson)
+	}
+	row, err := s.db.UpdatePluginConfig(ctx, db.PluginCategoryCorporateEvent, req.GetPluginId(), enabled, precedence, config, nil)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, status.Error(codes.NotFound, "plugin not found")
+		}
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	configJSON := ""
+	if len(row.Config) > 0 {
+		configJSON = string(row.Config)
+	}
+	displayName := row.PluginID
+	if s.corporateEventRegistry != nil {
+		displayName = s.corporateEventRegistry.GetDisplayName(row.PluginID)
+	}
+	return &apiv1.UpdateCorporateEventPluginResponse{
+		Plugin: &apiv1.CorporateEventPluginConfig{
+			PluginId:    row.PluginID,
+			Enabled:     row.Enabled,
+			Precedence:  int32(row.Precedence),
+			ConfigJson:  configJSON,
+			DisplayName: displayName,
+		},
+	}, nil
+}
+
+// TriggerCorporateEventFetch signals the corporate event fetcher worker to run a cycle. Admin only.
+func (s *Server) TriggerCorporateEventFetch(ctx context.Context, req *apiv1.TriggerCorporateEventFetchRequest) (*apiv1.TriggerCorporateEventFetchResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	if s.corporateEventTrigger != nil {
+		select {
+		case s.corporateEventTrigger <- struct{}{}:
+		default:
+		}
+	}
+	return &apiv1.TriggerCorporateEventFetchResponse{}, nil
 }
 
 // UpdateDescriptionPlugin updates enabled, precedence, and/or config for a description plugin. Admin only.

@@ -492,6 +492,9 @@ func TestListCashDividendsForExport_RoundTrip(t *testing.T) {
 	if r.PayDate == nil || !r.PayDate.Equal(pay) {
 		t.Errorf("pay date: %+v", r.PayDate)
 	}
+	if r.RecordDate == nil || !r.RecordDate.Equal(rec) {
+		t.Errorf("record date: %+v", r.RecordDate)
+	}
 	if r.DeclarationDate == nil || !r.DeclarationDate.Equal(decl) {
 		t.Errorf("declaration date: %+v", r.DeclarationDate)
 	}

@@ -345,33 +345,6 @@ func (p *Postgres) ListCorporateEventFetchBlocks(ctx context.Context) ([]db.Corp
 	return out, rows.Err()
 }
 
-// bestIdentifierJoin is the LATERAL JOIN clause that selects the best
-// identifier per instrument using the same priority order as
-// ListPricesForExport in eod_prices.go. Kept here as a const so the splits
-// and dividends export queries cannot drift apart.
-const bestIdentifierJoin = `
-	JOIN LATERAL (
-		SELECT ii.identifier_type, ii.value, ii.domain
-		FROM instrument_identifiers ii
-		WHERE ii.instrument_id = i.id
-		ORDER BY CASE ii.identifier_type
-			WHEN 'MIC_TICKER' THEN 1
-			WHEN 'OPENFIGI_TICKER' THEN 2
-			WHEN 'OCC' THEN 3
-			WHEN 'ISIN' THEN 4
-			WHEN 'OPENFIGI_GLOBAL' THEN 5
-			WHEN 'OPENFIGI_SHARE_CLASS' THEN 6
-			WHEN 'OPENFIGI_COMPOSITE' THEN 7
-			WHEN 'CUSIP' THEN 8
-			WHEN 'SEDOL' THEN 9
-			WHEN 'OPRA' THEN 10
-			WHEN 'BROKER_DESCRIPTION' THEN 11
-			ELSE 99
-		END
-		LIMIT 1
-	) best_id ON true
-`
-
 // ListStockSplitsForExport implements db.CorporateEventDB.
 func (p *Postgres) ListStockSplitsForExport(ctx context.Context) ([]db.ExportStockSplit, error) {
 	q := `

@@ -116,7 +116,9 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 	database.EXPECT().RecomputeSplitAdjustments(gomock.Any(), "inst-aapl").Return(nil)
 	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-1", apiv1.JobStatus_SUCCESS).Return(nil)
 
-	processCorporateEventImport(context.Background(), database, registry, j)
+	if !processCorporateEventImport(context.Background(), database, registry, j) {
+		t.Error("expected persisted=true after a successful upsert")
+	}
 }
 
 // TestProcessCorporateEventImport_RejectsBadSplitRatio verifies that a row
@@ -160,12 +162,14 @@ func TestProcessCorporateEventImport_RejectsBadSplitRatio(t *testing.T) {
 	// still attempted but the request has none.
 	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-2", apiv1.JobStatus_SUCCESS).Return(nil)
 
-	processCorporateEventImport(context.Background(), database, registry, j)
+	if processCorporateEventImport(context.Background(), database, registry, j) {
+		t.Error("expected persisted=false when every row was rejected")
+	}
 
 	if len(capturedErrs) != 1 {
 		t.Fatalf("expected 1 validation error, got %d", len(capturedErrs))
 	}
-	if capturedErrs[0].Field != "split_from/split_to" {
+	if capturedErrs[0].Field != "split_to" {
 		t.Errorf("field: %s", capturedErrs[0].Field)
 	}
 }
@@ -203,5 +207,150 @@ func TestProcessCorporateEventImport_DividendOnlyDoesNotRecompute(t *testing.T) 
 	// Critically: NO RecomputeSplitAdjustments call.
 	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-3", apiv1.JobStatus_SUCCESS).Return(nil)
 
-	processCorporateEventImport(context.Background(), database, registry, j)
+	if !processCorporateEventImport(context.Background(), database, registry, j) {
+		t.Error("expected persisted=true after a successful dividend upsert")
+	}
+}
+
+// TestProcessCorporateEventImport_RejectsBadCoverageDate verifies that a
+// coverage row with an invalid from-date is recorded as a validation error
+// and does not silently disappear. The job still SUCCEEDs (the events that
+// did parse are upserted) but the validation error surfaces the partial
+// failure.
+func TestProcessCorporateEventImport_RejectsBadCoverageDate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	req := &apiv1.ImportCorporateEventsRequest{
+		Coverage: []*apiv1.ImportCorporateEventCoverage{
+			{
+				IdentifierType:   "MIC_TICKER",
+				IdentifierDomain: "XNAS",
+				IdentifierValue:  "AAPL",
+				From:             "2024-13-01", // invalid month
+				To:               "2024-12-31",
+			},
+		},
+	}
+	payload, _ := proto.Marshal(req)
+	j := &JobRequest{JobID: "job-ce-cov", JobType: db.JobTypeCorporateEvent}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-cov").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-cov").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-cov", int32(0)).Return(nil)
+
+	var capturedErrs []*apiv1.ValidationError
+	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-cov", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+			capturedErrs = errs
+			return nil
+		})
+	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-cov", apiv1.JobStatus_SUCCESS).Return(nil)
+
+	if processCorporateEventImport(context.Background(), database, registry, j) {
+		t.Error("expected persisted=false when no events or coverage rows succeeded")
+	}
+
+	if len(capturedErrs) != 1 {
+		t.Fatalf("expected 1 validation error, got %d", len(capturedErrs))
+	}
+	if capturedErrs[0].Field != "coverage.from" {
+		t.Errorf("field: got %q, want coverage.from", capturedErrs[0].Field)
+	}
+	if capturedErrs[0].RowIndex != -1 {
+		t.Errorf("row index: got %d, want -1", capturedErrs[0].RowIndex)
+	}
+}
+
+// TestProcessCorporateEventImport_AcceptsHighPrecisionDecimal verifies that
+// the parseDecimal helper accepts values that have no exact float64
+// representation (e.g. "0.1") -- the previous strconv.ParseFloat-based
+// validator would silently round-trip these.
+func TestProcessCorporateEventImport_AcceptsHighPrecisionDecimal(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	req := &apiv1.ImportCorporateEventsRequest{
+		Events: []*apiv1.ImportCorporateEventRow{
+			{
+				IdentifierType:   "MIC_TICKER",
+				IdentifierDomain: "XNAS",
+				IdentifierValue:  "MSFT",
+				AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
+				Event: &apiv1.ImportCorporateEventRow_Dividend{Dividend: &apiv1.CashDividendRow{
+					ExDate: "2024-02-15", Amount: "0.1", Currency: "USD",
+				}},
+			},
+		},
+	}
+	payload, _ := proto.Marshal(req)
+	j := &JobRequest{JobID: "job-ce-prec", JobType: db.JobTypeCorporateEvent}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-prec").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-prec").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-prec", int32(1)).Return(nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", nil)
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-prec").Return(nil)
+	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, divs []db.CashDividend) error {
+			if divs[0].Amount != "0.1" {
+				t.Errorf("expected raw string 0.1 stored, got %q", divs[0].Amount)
+			}
+			return nil
+		})
+	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-prec", apiv1.JobStatus_SUCCESS).Return(nil)
+
+	if !processCorporateEventImport(context.Background(), database, registry, j) {
+		t.Error("expected persisted=true")
+	}
+}
+
+// TestProcessCorporateEventImport_RejectsInvalidDecimal verifies that a
+// non-numeric amount is reported as a validation error.
+func TestProcessCorporateEventImport_RejectsInvalidDecimal(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	req := &apiv1.ImportCorporateEventsRequest{
+		Events: []*apiv1.ImportCorporateEventRow{
+			{
+				IdentifierType:   "MIC_TICKER",
+				IdentifierDomain: "XNAS",
+				IdentifierValue:  "MSFT",
+				AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
+				Event: &apiv1.ImportCorporateEventRow_Dividend{Dividend: &apiv1.CashDividendRow{
+					ExDate: "2024-02-15", Amount: "abc", Currency: "USD",
+				}},
+			},
+		},
+	}
+	payload, _ := proto.Marshal(req)
+	j := &JobRequest{JobID: "job-ce-bad", JobType: db.JobTypeCorporateEvent}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-bad").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-bad").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-bad", int32(1)).Return(nil)
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", nil)
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-bad").Return(nil)
+
+	var capturedErrs []*apiv1.ValidationError
+	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-bad", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+			capturedErrs = errs
+			return nil
+		})
+	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-bad", apiv1.JobStatus_SUCCESS).Return(nil)
+
+	if processCorporateEventImport(context.Background(), database, registry, j) {
+		t.Error("expected persisted=false")
+	}
+	if len(capturedErrs) != 1 || capturedErrs[0].Field != "amount" {
+		t.Fatalf("expected one validation error on field=amount, got %+v", capturedErrs)
+	}
 }

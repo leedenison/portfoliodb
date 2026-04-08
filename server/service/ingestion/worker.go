@@ -71,8 +71,9 @@ func processJob(ctx context.Context, database db.DB, registry *identifier.Regist
 		processPriceImport(ctx, database, registry, j)
 		pricefetcher.Trigger(priceTrigger)
 	case db.JobTypeCorporateEvent:
-		processCorporateEventImport(ctx, database, registry, j)
-		corporateevents.Trigger(corporateEventTrigger)
+		if processCorporateEventImport(ctx, database, registry, j) {
+			corporateevents.Trigger(corporateEventTrigger)
+		}
 	default:
 		log.Printf("ingestion job %s: unknown job type %q", j.JobID, j.JobType)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)

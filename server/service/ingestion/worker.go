@@ -18,66 +18,99 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// ingestionLog is the logger for resolution and plugin orchestration (category server/service/ingestion).
-// Set by RunWorker; when nil, resolve.go falls back to slog.Default().
+// ingestionLog is the logger for resolution and plugin orchestration
+// (category server/service/ingestion). Set by RunWorker; when nil,
+// resolve.go falls back to slog.Default().
 var ingestionLog *slog.Logger
 
-// RunWorker processes job requests from the channel until it is closed.
-// Resolution uses DB, then in-batch cache, then description plugins (extract hints) and identifier plugins (timeout from config, retry once with backoff).
-// ingestionLogger is the logger for ingestion/resolution (typically with category server/service/ingestion); may be nil.
-// priceTrigger is optional; when non-nil, a non-blocking signal is sent after each successful job to trigger price fetching.
-// corporateEventTrigger is optional; when non-nil, a non-blocking signal is sent after each successful corporate event import to trigger an event fetch cycle.
-func RunWorker(ctx context.Context, database db.DB, queue <-chan *JobRequest, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, ingestionLogger *slog.Logger, priceTrigger chan<- struct{}, corporateEventTrigger chan<- struct{}, workers *worker.Registry) {
-	ingestionLog = ingestionLogger
+// WorkerOptions configures RunWorker. All fields except DB and Queue are
+// optional: a nil Counter, Logger, Trigger, or Registry is treated as "not
+// set" and the worker degrades gracefully (no telemetry, default logger,
+// no downstream nudge).
+type WorkerOptions struct {
+	// DB is the database abstraction the worker reads jobs from and writes
+	// results to. Required.
+	DB db.DB
+	// Queue is the channel of job requests to process. The worker exits
+	// when the channel is closed. Required.
+	Queue <-chan *JobRequest
+	// IdentifierRegistry is the identifier plugin registry used during
+	// instrument resolution.
+	IdentifierRegistry *identifier.Registry
+	// DescriptionRegistry is the description plugin registry used to
+	// extract identifier hints from broker descriptions.
+	DescriptionRegistry *description.Registry
+	// Counter is an optional metrics counter; nil disables telemetry.
+	Counter telemetry.CounterIncrementer
+	// Logger is the slog logger for ingestion-side logging; nil falls back
+	// to slog.Default().
+	Logger *slog.Logger
+	// PriceTrigger is fired after a tx import that produced new state, and
+	// after a successful price import; nil disables price-fetcher nudging.
+	PriceTrigger chan<- struct{}
+	// CorporateEventTrigger is fired after a successful corporate event
+	// import; nil disables corporate-event-fetcher nudging.
+	CorporateEventTrigger chan<- struct{}
+	// Workers is the per-process worker status registry shown in the admin
+	// UI; nil disables status reporting.
+	Workers *worker.Registry
+}
+
+// RunWorker processes job requests from opts.Queue until the channel is
+// closed or ctx is cancelled. Resolution uses DB, then in-batch cache, then
+// description plugins (extract hints) and identifier plugins (timeout from
+// config, retry once with backoff).
+func RunWorker(ctx context.Context, opts WorkerOptions) {
+	ingestionLog = opts.Logger
 	const name = "ingestion"
-	if workers != nil {
-		workers.SetIdle(name)
+	if opts.Workers != nil {
+		opts.Workers.SetIdle(name)
 	}
 	for {
-		if workers != nil {
-			workers.SetQueueDepth(name, len(queue))
+		if opts.Workers != nil {
+			opts.Workers.SetQueueDepth(name, len(opts.Queue))
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case j, ok := <-queue:
+		case j, ok := <-opts.Queue:
 			if !ok {
 				return
 			}
-			if workers != nil {
-				workers.SetRunning(name, fmt.Sprintf("Processing job %s", j.JobID))
-				workers.SetQueueDepth(name, len(queue))
+			if opts.Workers != nil {
+				opts.Workers.SetRunning(name, fmt.Sprintf("Processing job %s", j.JobID))
+				opts.Workers.SetQueueDepth(name, len(opts.Queue))
 			}
-			processJob(ctx, database, registry, descRegistry, counter, j, priceTrigger, corporateEventTrigger)
-			if workers != nil {
-				workers.SetIdle(name)
+			processJob(ctx, opts, j)
+			if opts.Workers != nil {
+				opts.Workers.SetIdle(name)
 			}
 		}
 	}
 }
 
-func processJob(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest, priceTrigger chan<- struct{}, corporateEventTrigger chan<- struct{}) {
-	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_RUNNING)
+func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
+	_ = opts.DB.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_RUNNING)
 
 	switch j.JobType {
 	case db.JobTypeTx:
-		if ok, userID := processTx(ctx, database, registry, descRegistry, counter, j); ok {
-			if err := recalcAfterIngestion(ctx, database, userID); err != nil {
+		if ok, userID := processTx(ctx, opts.DB, opts.IdentifierRegistry, opts.DescriptionRegistry, opts.Counter, j); ok {
+			if err := recalcAfterIngestion(ctx, opts.DB, userID); err != nil {
 				log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
 			}
-			pricefetcher.Trigger(priceTrigger)
+			pricefetcher.Trigger(opts.PriceTrigger)
 		}
 	case db.JobTypePrice:
-		if processPriceImport(ctx, database, registry, j) {
-			pricefetcher.Trigger(priceTrigger)
+		if processPriceImport(ctx, opts.DB, opts.IdentifierRegistry, j) {
+			pricefetcher.Trigger(opts.PriceTrigger)
 		}
 	case db.JobTypeCorporateEvent:
-		if processCorporateEventImport(ctx, database, registry, j) {
-			corporateevents.Trigger(corporateEventTrigger)
+		if processCorporateEventImport(ctx, opts.DB, opts.IdentifierRegistry, j) {
+			corporateevents.Trigger(opts.CorporateEventTrigger)
 		}
 	default:
 		log.Printf("ingestion job %s: unknown job type %q", j.JobID, j.JobType)
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		_ = opts.DB.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 	}
 }
 

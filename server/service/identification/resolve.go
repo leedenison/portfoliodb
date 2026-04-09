@@ -119,8 +119,12 @@ func ResolveWithPlugins(
 	counter telemetry.CounterIncrementer,
 	logger *slog.Logger,
 	depth int,
+	hintsValidAt *time.Time,
 ) (ResolveResult, error) {
 	l := resolveLogger(logger)
+
+	// Adjust OCC hints for known stock splits before any lookups.
+	identifierHints = AdjustOCCForKnownSplits(ctx, database, identifierHints, hintsValidAt)
 
 	// If all hints already resolve to one instrument in DB, use it (avoids plugin call).
 	ids, err := ResolveByHintsDBOnly(ctx, database, identifierHints)
@@ -256,7 +260,7 @@ func ResolveWithPlugins(
 			uIdnHints := make([]identifier.Identifier, len(inst.UnderlyingIdentifiers))
 			copy(uIdnHints, inst.UnderlyingIdentifiers)
 			// Underlying resolution: no source description, no fallback needed (use nil).
-			uResult, uErr := ResolveWithPlugins(ctx, database, registry, broker, source, "", uHints, uIdnHints, false, nil, counter, logger, depth+1)
+			uResult, uErr := ResolveWithPlugins(ctx, database, registry, broker, source, "", uHints, uIdnHints, false, nil, counter, logger, depth+1, nil)
 			if uErr != nil {
 				l.WarnContext(ctx, "underlying resolution failed", "instrument_description", instrumentDescription, "err", uErr)
 			} else if uResult.InstrumentID != "" {
@@ -372,7 +376,12 @@ func optionFieldsFromIdentifiers(ids []identifier.Identifier) *db.OptionFields {
 		if idn.Type != "OCC" {
 			continue
 		}
-		parsed, ok := derivative.ParseOptionTicker(idn.Value)
+		// DB stores compact form; pad to 21-char for ParseOptionTicker.
+		padded, ok := derivative.OCCPadded(idn.Value)
+		if !ok {
+			continue
+		}
+		parsed, ok := derivative.ParseOptionTicker(padded)
 		if !ok {
 			continue
 		}

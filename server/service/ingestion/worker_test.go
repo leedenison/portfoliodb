@@ -94,6 +94,9 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"broker-only-id"}).
 		Return(nil)
 	database.EXPECT().
+		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
+		Return(nil, nil)
+	database.EXPECT().
 		ListHoldingDeclarations(gomock.Any(), "user-1").
 		Return(nil, nil)
 	database.EXPECT().
@@ -150,6 +153,9 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	database.EXPECT().
 		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"cached-inst-id", "cached-inst-id"}).
 		Return(nil)
+	database.EXPECT().
+		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
+		Return(nil, nil)
 	database.EXPECT().
 		ListHoldingDeclarations(gomock.Any(), "user-1").
 		Return(nil, nil)
@@ -212,6 +218,9 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 			}
 			return nil
 		})
+	database.EXPECT().
+		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
+		Return(nil, nil)
 	database.EXPECT().
 		ListHoldingDeclarations(gomock.Any(), "user-1").
 		Return(nil, nil)
@@ -340,6 +349,9 @@ func TestProcessBulk_StockEtfEquivalence(t *testing.T) {
 	database.EXPECT().
 		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"spy-etf-id"}).
 		Return(nil)
+	database.EXPECT().
+		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
+		Return(nil, nil)
 	database.EXPECT().
 		ListHoldingDeclarations(gomock.Any(), "user-1").
 		Return(nil, nil)
@@ -505,6 +517,9 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 	database.EXPECT().
 		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"msft-id"}).
 		Return(nil)
+	database.EXPECT().
+		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
+		Return(nil, nil)
 	database.EXPECT().
 		ListHoldingDeclarations(gomock.Any(), "user-1").
 		Return(nil, nil)

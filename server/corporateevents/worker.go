@@ -249,6 +249,17 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 					"instrument", inst.ID, "err", err)
 			}
 		}
+
+		// Process option contracts on this underlying.
+		allSplits, err := database.ListStockSplits(ctx, inst.ID)
+		if err != nil {
+			if log != nil {
+				log.ErrorContext(ctx, "corporate event fetch: list splits for options",
+					"instrument", inst.ID, "err", err)
+			}
+		} else {
+			processOptionSplits(ctx, database, inst.ID, allSplits, log)
+		}
 	}
 }
 

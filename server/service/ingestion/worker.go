@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
@@ -227,8 +228,38 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		return false, ""
 	}
 
+	// Recompute split-adjusted values for instruments that have split rows.
+	// The INSERT trigger on txs copies raw values; this pass corrects them.
+	recomputeSplitAdjustedTxs(ctx, database, instrumentIDs)
+
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
 	return true, userID
+}
+
+// recomputeSplitAdjustedTxs checks which of the given instrument IDs have
+// stock_splits rows and recomputes their split_adjusted_* tx columns.
+func recomputeSplitAdjustedTxs(ctx context.Context, database db.DB, instrumentIDs []string) {
+	unique := make(map[string]bool, len(instrumentIDs))
+	var deduped []string
+	for _, id := range instrumentIDs {
+		if id != "" && !unique[id] {
+			unique[id] = true
+			deduped = append(deduped, id)
+		}
+	}
+	if len(deduped) == 0 {
+		return
+	}
+	withSplits, err := database.InstrumentsWithSplits(ctx, deduped)
+	if err != nil {
+		log.Printf("recompute split-adjusted txs: %v", err)
+		return
+	}
+	for _, id := range withSplits {
+		if err := database.RecomputeSplitAdjustments(ctx, id); err != nil {
+			log.Printf("recompute split-adjusted txs for %s: %v", id, err)
+		}
+	}
 }
 
 // filterStoredTxs returns only txs with stored types that are not ignored, along with their original indices.
@@ -300,7 +331,12 @@ func resolveInstruments(ctx context.Context, database db.DB, registry *identifie
 	for i, tx := range txs {
 		desc := tx.GetInstrumentDescription()
 		rowIndex := int32(originalIndices[i])
-		r, err := Resolve(ctx, database, registry, broker, source, desc, HintsFromTx(tx), identifierHintsFromTx(ctx, tx), cache, rowIndex, counter, extractedHintsCache)
+		var hintsValidAt *time.Time
+		if tx.GetTimestamp() != nil {
+			t := tx.GetTimestamp().AsTime()
+			hintsValidAt = &t
+		}
+		r, err := Resolve(ctx, database, registry, broker, source, desc, HintsFromTx(tx), identifierHintsFromTx(ctx, tx), cache, rowIndex, counter, extractedHintsCache, hintsValidAt)
 		if err != nil {
 			return nil, nil, fmt.Errorf("row %d: %w", rowIndex, err)
 		}

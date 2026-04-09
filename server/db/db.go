@@ -796,8 +796,8 @@ type CorporateEventDB interface {
 	// ex_date) rows are silently ignored via ON CONFLICT DO NOTHING.
 	InsertUnhandledCorporateEvent(ctx context.Context, event UnhandledCorporateEvent) error
 	// ListUnhandledCorporateEvents returns unhandled events, newest first.
-	// When resolvedOnly is false, only unresolved events are returned.
-	ListUnhandledCorporateEvents(ctx context.Context, resolvedOnly bool, pageSize int32, pageToken string) ([]UnhandledCorporateEvent, int32, string, error)
+	// When includeResolved is false, only unresolved events are returned.
+	ListUnhandledCorporateEvents(ctx context.Context, includeResolved bool, pageSize int32, pageToken string) ([]UnhandledCorporateEvent, int32, string, error)
 	// CountUnhandledCorporateEvents returns the number of unresolved events.
 	CountUnhandledCorporateEvents(ctx context.Context) (int32, error)
 	// ResolveUnhandledCorporateEvent marks an event as resolved.

@@ -606,35 +606,46 @@ func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID s
 	}
 
 	return p.runInTx(ctx, func(exec queryable) error {
-		// Prices: open/high/low/close are NUMERIC; cast factor to numeric for
-		// the divide. Volume is BIGINT and is multiplied (more shares trade
-		// in adjusted-share terms after a forward split).
+		// Prices: compute the factor once per (instrument, date) in a
+		// FROM-subquery, then reference f.factor in all SET clauses.
+		// open/high/low/close are NUMERIC; volume is BIGINT (multiplied).
 		priceSQL := fmt.Sprintf(`
 			UPDATE eod_prices ep SET
 				split_adjusted_open    = CASE WHEN ep.open   IS NULL THEN NULL
-					ELSE (ep.open   / split_factor_at(ep.instrument_id, ep.fetched_at::date)::numeric) END,
+					ELSE ep.open   / f.factor::numeric END,
 				split_adjusted_high    = CASE WHEN ep.high   IS NULL THEN NULL
-					ELSE (ep.high   / split_factor_at(ep.instrument_id, ep.fetched_at::date)::numeric) END,
+					ELSE ep.high   / f.factor::numeric END,
 				split_adjusted_low     = CASE WHEN ep.low    IS NULL THEN NULL
-					ELSE (ep.low    / split_factor_at(ep.instrument_id, ep.fetched_at::date)::numeric) END,
-				split_adjusted_close   =       (ep.close  / split_factor_at(ep.instrument_id, ep.fetched_at::date)::numeric),
+					ELSE ep.low    / f.factor::numeric END,
+				split_adjusted_close   = ep.close / f.factor::numeric,
 				split_adjusted_volume  = CASE WHEN ep.volume IS NULL THEN NULL
-					ELSE round(ep.volume::numeric * split_factor_at(ep.instrument_id, ep.fetched_at::date)::numeric)::bigint END
-			WHERE ep.instrument_id %s
+					ELSE round(ep.volume::numeric * f.factor::numeric)::bigint END
+			FROM (
+				SELECT instrument_id, fetched_at,
+					split_factor_at(instrument_id, fetched_at::date) AS factor
+				FROM eod_prices
+				WHERE instrument_id %s
+			) f
+			WHERE ep.instrument_id = f.instrument_id
+			  AND ep.fetched_at = f.fetched_at
 		`, instFilter)
 		if _, err := exec.ExecContext(ctx, priceSQL, args...); err != nil {
 			return fmt.Errorf("recompute split adjustments (prices): %w", err)
 		}
 
-		// Txs: quantity and unit_price are DOUBLE PRECISION; the factor is
-		// already double precision so no cast is needed.
+		// Txs: factor is already double precision so no cast is needed.
 		txSQL := fmt.Sprintf(`
 			UPDATE txs t SET
-				split_adjusted_quantity   = t.quantity * split_factor_at(t.instrument_id, t.timestamp::date),
+				split_adjusted_quantity   = t.quantity * f.factor,
 				split_adjusted_unit_price = CASE WHEN t.unit_price IS NULL THEN NULL
-					ELSE t.unit_price / split_factor_at(t.instrument_id, t.timestamp::date) END
-			WHERE t.instrument_id IS NOT NULL
-			  AND t.instrument_id %s
+					ELSE t.unit_price / f.factor END
+			FROM (
+				SELECT id, split_factor_at(instrument_id, timestamp::date) AS factor
+				FROM txs
+				WHERE instrument_id IS NOT NULL
+				  AND instrument_id %s
+			) f
+			WHERE t.id = f.id
 		`, instFilter)
 		if _, err := exec.ExecContext(ctx, txSQL, args...); err != nil {
 			return fmt.Errorf("recompute split adjustments (txs): %w", err)
@@ -668,11 +679,11 @@ func (p *Postgres) InsertUnhandledCorporateEvent(ctx context.Context, event db.U
 }
 
 // ListUnhandledCorporateEvents implements db.CorporateEventDB.
-func (p *Postgres) ListUnhandledCorporateEvents(ctx context.Context, resolvedOnly bool, pageSize int32, pageToken string) ([]db.UnhandledCorporateEvent, int32, string, error) {
+func (p *Postgres) ListUnhandledCorporateEvents(ctx context.Context, includeResolved bool, pageSize int32, pageToken string) ([]db.UnhandledCorporateEvent, int32, string, error) {
 	offset := decodePageToken(pageToken)
 
 	filter := "WHERE NOT resolved"
-	if resolvedOnly {
+	if includeResolved {
 		filter = ""
 	}
 

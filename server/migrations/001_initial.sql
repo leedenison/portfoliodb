@@ -129,10 +129,24 @@ CREATE TABLE instruments (
   valid_to     DATE,
   cik          TEXT,
   sic_code     TEXT,
+  -- Denormalized from the OCC identifier for options. NULL for non-options.
+  strike       NUMERIC,
+  expiry       DATE,
+  put_call     TEXT CHECK (put_call IS NULL OR put_call IN ('C', 'P')),
+  -- Deliverable multiplier: 1 = standard (100 shares/contract). Non-standard
+  -- splits (e.g. 3:2) may set this to 1.5 meaning 150 shares/contract.
+  contract_multiplier NUMERIC NOT NULL DEFAULT 1,
+  -- Updated on every EnsureInstrument call. Compared to stock_splits.fetched_at
+  -- to determine if retroactive option split adjustment is needed.
+  identified_at TIMESTAMPTZ,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT chk_underlying_required CHECK (
     (asset_class IN ('OPTION','FUTURE') AND underlying_id IS NOT NULL)
     OR (asset_class IS NULL OR asset_class NOT IN ('OPTION','FUTURE'))
+  ),
+  CONSTRAINT chk_option_fields CHECK (
+    (asset_class = 'OPTION' AND strike IS NOT NULL AND expiry IS NOT NULL AND put_call IS NOT NULL)
+    OR asset_class IS DISTINCT FROM 'OPTION'
   )
 );
 
@@ -384,6 +398,23 @@ CREATE TABLE corporate_event_fetch_blocks (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, plugin_id)
 );
+
+-- Corporate events that cannot be automatically processed (reverse splits,
+-- non-whole splits, mergers, extraordinary dividends on options, futures
+-- adjustments). Surfaced to admin users for manual review.
+CREATE TABLE unhandled_corporate_events (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  instrument_id UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  event_type    TEXT        NOT NULL,
+  ex_date       DATE,
+  detail        TEXT        NOT NULL,
+  data          JSONB,
+  resolved      BOOLEAN     NOT NULL DEFAULT false,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_unhandled_ce_unresolved
+  ON unhandled_corporate_events (resolved) WHERE NOT resolved;
 
 -- Default the split_adjusted_* columns on txs to the raw counterparts whenever
 -- they are not explicitly set. This keeps every existing INSERT/UPSERT path

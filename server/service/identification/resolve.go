@@ -263,7 +263,7 @@ func ResolveWithPlugins(
 				underlyingID = uResult.InstrumentID
 			}
 		}
-		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validTo)
+		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validTo, nil)
 		if err != nil {
 			return ResolveResult{}, err
 		}

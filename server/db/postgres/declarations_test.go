@@ -15,7 +15,7 @@ func TestCreateHoldingDeclaration(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl1", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil)
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "150.5", asOf)
@@ -34,7 +34,7 @@ func TestCreateHoldingDeclaration_DuplicateRejected(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl2", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil)
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	_, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf)
@@ -51,7 +51,7 @@ func TestUpdateHoldingDeclaration(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl3", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "MSFT", Canonical: false}}, "", nil, nil)
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "MSFT", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	row, _ := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf)
@@ -73,7 +73,7 @@ func TestDeleteHoldingDeclaration(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl4", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "TSLA", Canonical: false}}, "", nil, nil)
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "TSLA", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	row, _ := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "50", asOf)
@@ -101,8 +101,8 @@ func TestListHoldingDeclarations(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl5", "U", "u@u.com")
-	inst1, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "A1", Canonical: false}}, "", nil, nil)
-	inst2, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "A2", Canonical: false}}, "", nil, nil)
+	inst1, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "A1", Canonical: false}}, "", nil, nil, nil)
+	inst2, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "A2", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst1, "100", asOf)
@@ -132,7 +132,7 @@ func TestGetPortfolioStartDate(t *testing.T) {
 	}
 
 	// Add a tx
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SD1", Canonical: false}}, "", nil, nil)
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SD1", Canonical: false}}, "", nil, nil, nil)
 	ts := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
 	tx := &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "SD1", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "acct1"}
 	p.CreateTx(ctx, userID, "IBKR", "acct1", tx, instID)
@@ -153,7 +153,7 @@ func TestComputeRunningBalance(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl7", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "RB1", Canonical: false}}, "", nil, nil)
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "RB1", Canonical: false}}, "", nil, nil, nil)
 
 	ts1 := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
 	ts2 := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
@@ -175,7 +175,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl8", "U", "u@u.com")
-	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "UI1", Canonical: false}}, "", nil, nil)
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "UI1", Canonical: false}}, "", nil, nil, nil)
 
 	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", ts, 50)

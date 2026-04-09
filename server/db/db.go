@@ -281,6 +281,14 @@ type IdentifierInput struct {
 	Canonical bool   // default true when not set for backward compat
 }
 
+// OptionFields carries denormalized OCC components for option instruments.
+// Nil when the instrument is not an option.
+type OptionFields struct {
+	Strike  float64
+	Expiry  time.Time
+	PutCall string // "C" or "P"
+}
+
 // PluginConfigRow is one row from identifier_plugin_config for enabled plugins.
 // MaxHistoryDays is only populated for price plugins; nil for identifier/description plugins.
 type PluginConfigRow struct {
@@ -500,6 +508,11 @@ type InstrumentRow struct {
 	ValidTo             *time.Time
 	CIK                 *string
 	SICCode             *string
+	Strike              *float64   // denormalized from OCC; NULL for non-options
+	Expiry              *time.Time // denormalized from OCC; NULL for non-options
+	PutCall             *string    // "C" or "P"; NULL for non-options
+	ContractMultiplier  float64    // deliverable multiplier; 1 = standard
+	IdentifiedAt        *time.Time // last identification timestamp
 	Identifiers         []IdentifierInput
 	ExchangeName        *string // read-only; from exchanges JOIN
 	ExchangeAcronym     *string // read-only; from exchanges JOIN
@@ -542,8 +555,8 @@ type HoldingDeclarationDB interface {
 
 // InstrumentDB provides instrument resolution and plugin config.
 type InstrumentDB interface {
-	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. Returns instrument ID. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument ID. When assetClass is OPTION or FUTURE, underlyingID must be non-empty. exchangeMIC is the ISO 10383 MIC code (nullable).
-	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, underlyingID string, validFrom, validTo *time.Time) (string, error)
+	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. Returns instrument ID. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument ID. When assetClass is OPTION or FUTURE, underlyingID must be non-empty. exchangeMIC is the ISO 10383 MIC code (nullable). optionFields is non-nil only for OPTION instruments and supplies denormalized OCC components.
+	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, underlyingID string, validFrom, validTo *time.Time, optionFields *OptionFields) (string, error)
 	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
 	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
 	// FindInstrumentByTypeAndValue looks up instrument_id by (identifier_type, value) with any domain. Returns "" if not found or if multiple instruments match (ambiguous).
@@ -656,6 +669,20 @@ type CorporateEventFetchBlock struct {
 	CreatedAt    time.Time
 }
 
+// UnhandledCorporateEvent is a corporate event that cannot be automatically
+// processed (reverse splits, non-whole splits, mergers, extraordinary
+// dividends on options, futures adjustments). Surfaced to admins.
+type UnhandledCorporateEvent struct {
+	ID           string
+	InstrumentID string
+	EventType    string
+	ExDate       *time.Time
+	Detail       string
+	Data         []byte // JSONB
+	Resolved     bool
+	CreatedAt    time.Time
+}
+
 // CorporateEventDB provides storage for stock splits, cash dividends, fetch
 // coverage, fetch blocks, and the recompute primitive that derives the
 // split_adjusted_* columns on eod_prices and txs from the raw values.
@@ -726,6 +753,18 @@ type CorporateEventDB interface {
 	// the best identifier per instrument. See ListStockSplitsForExport for the
 	// identifier priority order.
 	ListCashDividendsForExport(ctx context.Context) ([]ExportCashDividend, error)
+
+	// InsertUnhandledCorporateEvent stores a corporate event that requires
+	// manual admin review. Duplicate (instrument_id, event_type, ex_date) rows
+	// are allowed since details may differ.
+	InsertUnhandledCorporateEvent(ctx context.Context, event UnhandledCorporateEvent) error
+	// ListUnhandledCorporateEvents returns unhandled events, newest first.
+	// When resolvedOnly is false, only unresolved events are returned.
+	ListUnhandledCorporateEvents(ctx context.Context, resolvedOnly bool, pageSize int32, pageToken string) ([]UnhandledCorporateEvent, int32, string, error)
+	// CountUnhandledCorporateEvents returns the number of unresolved events.
+	CountUnhandledCorporateEvents(ctx context.Context) (int32, error)
+	// ResolveUnhandledCorporateEvent marks an event as resolved.
+	ResolveUnhandledCorporateEvent(ctx context.Context, id string) error
 }
 
 // HeldInstrument is one held instrument with the date of its earliest tx.

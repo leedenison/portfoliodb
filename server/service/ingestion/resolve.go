@@ -237,7 +237,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			counter.Incr(ctx, "instruments.resolution.totals.description.extraction_failed")
 		}
 		ingestionLogger().InfoContext(ctx, "instrument resolution: description extraction failed, using broker description only", "source", source, "instrument_description", instrumentDescription)
-		instID, ensureErr := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil)
+		instID, ensureErr := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil, nil)
 		if ensureErr != nil {
 			return resolveResult{}, ensureErr
 		}
@@ -297,7 +297,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 	fallback := func(ctx context.Context, database db.DB) (string, error) {
 		return database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "",
 			[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}},
-			"", nil, nil)
+			"", nil, nil, nil)
 	}
 
 	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, storeSourceDescription, fallback, counter, ingestionLogger(), 0)

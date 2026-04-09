@@ -483,7 +483,7 @@ func TestListStockSplitsForExport_BestIdentifier(t *testing.T) {
 		{Type: "BROKER_DESCRIPTION", Domain: "TEST", Value: "Apple Inc.", Canonical: false},
 		{Type: "ISIN", Value: "US0378331005", Canonical: true},
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
-	}, "", nil, nil)
+	}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
@@ -523,7 +523,7 @@ func TestListCashDividendsForExport_RoundTrip(t *testing.T) {
 
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "", "", "", []db.IdentifierInput{
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
-	}, "", nil, nil)
+	}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

@@ -122,7 +122,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
 			idns = append(idns, db.IdentifierInput{Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
-		_, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, "", protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()))
+		_, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, "", protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()), nil)
 		if err != nil {
 			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: err.Error()})
 			continue
@@ -147,7 +147,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
 			uIdns = append(uIdns, db.IdentifierInput{Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
-		underlyingID, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(u.GetAssetClass()), u.GetExchange(), u.GetCurrency(), u.GetName(), u.GetCik(), u.GetSicCode(), uIdns, "", protoValidFrom(u.GetValidFrom()), protoValidTo(u.GetValidTo()))
+		underlyingID, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(u.GetAssetClass()), u.GetExchange(), u.GetCurrency(), u.GetName(), u.GetCik(), u.GetSicCode(), uIdns, "", protoValidFrom(u.GetValidFrom()), protoValidTo(u.GetValidTo()), nil)
 		if err != nil {
 			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: "underlying: " + err.Error()})
 			continue
@@ -188,7 +188,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
 			idns = append(idns, db.IdentifierInput{Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
-		_, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, underlyingID, protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()))
+		_, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, underlyingID, protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()), nil)
 		if err != nil {
 			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: err.Error()})
 			continue

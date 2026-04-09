@@ -256,6 +256,12 @@ service ApiService {
   // best identifier per instrument.
   rpc ExportCorporateEvents(ExportCorporateEventsRequest) returns (stream ExportCorporateEventRow);
   rpc ImportCorporateEvents(ImportCorporateEventsRequest) returns (ImportCorporateEventsResponse);
+
+  // Unhandled corporate events (reverse splits, non-whole splits, mergers, etc.)
+  // that require admin review.
+  rpc ListUnhandledCorporateEvents(ListUnhandledCorporateEventsRequest) returns (ListUnhandledCorporateEventsResponse);
+  rpc CountUnhandledCorporateEvents(CountUnhandledCorporateEventsRequest) returns (CountUnhandledCorporateEventsResponse);
+  rpc ResolveUnhandledCorporateEvent(ResolveUnhandledCorporateEventRequest) returns (ResolveUnhandledCorporateEventResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -1019,3 +1025,41 @@ message ImportCorporateEventsRequest {
 message ImportCorporateEventsResponse {
   string job_id = 1;
 }
+
+// Unhandled corporate events.
+
+message UnhandledCorporateEvent {
+  string id = 1;
+  string instrument_id = 2;
+  string instrument_name = 3;
+  string event_type = 4;   // REVERSE_SPLIT, NON_WHOLE_SPLIT, MERGER, EXTRAORDINARY_DIVIDEND, FUTURES_SPLIT
+  string ex_date = 5;      // YYYY-MM-DD, may be empty
+  string detail = 6;
+  string data = 7;         // JSON
+  bool resolved = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message ListUnhandledCorporateEventsRequest {
+  bool include_resolved = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListUnhandledCorporateEventsResponse {
+  repeated UnhandledCorporateEvent events = 1;
+  int32 total_count = 2;
+  string next_page_token = 3;
+}
+
+message CountUnhandledCorporateEventsRequest {}
+
+message CountUnhandledCorporateEventsResponse {
+  int32 count = 1;
+}
+
+message ResolveUnhandledCorporateEventRequest {
+  string id = 1;
+}
+
+message ResolveUnhandledCorporateEventResponse {}

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -535,5 +536,111 @@ func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID s
 		}
 		return nil
 	})
+}
+
+// InsertUnhandledCorporateEvent implements db.CorporateEventDB.
+func (p *Postgres) InsertUnhandledCorporateEvent(ctx context.Context, event db.UnhandledCorporateEvent) error {
+	var dataJSON []byte
+	if event.Data != nil {
+		if !json.Valid(event.Data) {
+			return fmt.Errorf("insert unhandled corporate event: data is not valid JSON")
+		}
+		dataJSON = event.Data
+	}
+	instUUID, err := uuid.Parse(event.InstrumentID)
+	if err != nil {
+		return fmt.Errorf("insert unhandled corporate event: invalid instrument id: %w", err)
+	}
+	_, err = p.q.ExecContext(ctx, `
+		INSERT INTO unhandled_corporate_events (instrument_id, event_type, ex_date, detail, data)
+		VALUES ($1, $2, $3, $4, $5)
+	`, instUUID, event.EventType, nullTime(event.ExDate), event.Detail, dataJSON)
+	if err != nil {
+		return fmt.Errorf("insert unhandled corporate event: %w", err)
+	}
+	return nil
+}
+
+// ListUnhandledCorporateEvents implements db.CorporateEventDB.
+func (p *Postgres) ListUnhandledCorporateEvents(ctx context.Context, resolvedOnly bool, pageSize int32, pageToken string) ([]db.UnhandledCorporateEvent, int32, string, error) {
+	offset := decodePageToken(pageToken)
+
+	filter := "WHERE NOT resolved"
+	if resolvedOnly {
+		filter = ""
+	}
+
+	var total int32
+	if err := p.q.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM unhandled_corporate_events %s`, filter)).Scan(&total); err != nil {
+		return nil, 0, "", fmt.Errorf("count unhandled corporate events: %w", err)
+	}
+	if total == 0 {
+		return nil, 0, "", nil
+	}
+
+	rows, err := p.q.QueryContext(ctx, fmt.Sprintf(`
+		SELECT id, instrument_id, event_type, ex_date, detail, data, resolved, created_at
+		FROM unhandled_corporate_events %s
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`, filter), pageSize+1, offset)
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("list unhandled corporate events: %w", err)
+	}
+	defer rows.Close()
+
+	var out []db.UnhandledCorporateEvent
+	for rows.Next() {
+		var e db.UnhandledCorporateEvent
+		var id, instID uuid.UUID
+		var exDate sql.NullTime
+		var data []byte
+		if err := rows.Scan(&id, &instID, &e.EventType, &exDate, &e.Detail, &data, &e.Resolved, &e.CreatedAt); err != nil {
+			return nil, 0, "", fmt.Errorf("scan unhandled corporate event: %w", err)
+		}
+		e.ID = id.String()
+		e.InstrumentID = instID.String()
+		if exDate.Valid {
+			e.ExDate = &exDate.Time
+		}
+		e.Data = data
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, "", err
+	}
+
+	var nextToken string
+	if int32(len(out)) > pageSize {
+		out = out[:pageSize]
+		nextToken = encodePageToken(offset + int64(pageSize))
+	}
+	return out, total, nextToken, nil
+}
+
+// CountUnhandledCorporateEvents implements db.CorporateEventDB.
+func (p *Postgres) CountUnhandledCorporateEvents(ctx context.Context) (int32, error) {
+	var count int32
+	if err := p.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM unhandled_corporate_events WHERE NOT resolved`).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count unhandled corporate events: %w", err)
+	}
+	return count, nil
+}
+
+// ResolveUnhandledCorporateEvent implements db.CorporateEventDB.
+func (p *Postgres) ResolveUnhandledCorporateEvent(ctx context.Context, id string) error {
+	eventUUID, err := uuid.Parse(id)
+	if err != nil {
+		return fmt.Errorf("resolve unhandled corporate event: invalid id: %w", err)
+	}
+	result, err := p.q.ExecContext(ctx, `UPDATE unhandled_corporate_events SET resolved = true WHERE id = $1`, eventUUID)
+	if err != nil {
+		return fmt.Errorf("resolve unhandled corporate event: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("resolve unhandled corporate event: not found")
+	}
+	return nil
 }
 

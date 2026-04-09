@@ -696,6 +696,16 @@ type UnhandledCorporateEvent struct {
 	CreatedAt    time.Time
 }
 
+// OptionSplitParams bundles the mutations needed to adjust a single option
+// contract after a stock split on its underlying.
+type OptionSplitParams struct {
+	InstrumentID string
+	OldOCCValue  string
+	NewOCC       IdentifierInput
+	NewStrike    float64
+	DerivedSplit StockSplit
+}
+
 // CorporateEventDB provides storage for stock splits, cash dividends, fetch
 // coverage, fetch blocks, and the recompute primitive that derives the
 // split_adjusted_* columns on eod_prices and txs from the raw values.
@@ -773,6 +783,13 @@ type CorporateEventDB interface {
 	// InstrumentsWithSplits returns the subset of instrumentIDs that have at
 	// least one stock_splits row.
 	InstrumentsWithSplits(ctx context.Context, instrumentIDs []string) ([]string, error)
+
+	// ApplyOptionSplit atomically adjusts an option contract for a stock
+	// split on its underlying: replaces the OCC identifier, updates the
+	// strike, inserts a derived split row, recomputes split-adjusted tx
+	// values, and updates identified_at. All mutations run in a single
+	// transaction so partial failure cannot leave the option inconsistent.
+	ApplyOptionSplit(ctx context.Context, params OptionSplitParams) error
 
 	// InsertUnhandledCorporateEvent stores a corporate event that requires
 	// manual admin review. Duplicate (instrument_id, event_type, ex_date) rows

@@ -103,7 +103,7 @@ integration-test: $(STAMP_DIR)/generate
 	go test -tags integration -v ./server/plugins/...
 
 integration-test-list:
-	@find server/plugins -name 'integration_test.go' -printf '%h\n' | sed 's|^server/plugins/||' | sort
+	@find server/plugins -name 'integration_test.go' | xargs -I{} dirname {} | sed 's|^server/plugins/||' | sort
 
 integration-test-record: $(STAMP_DIR)/generate
 	@if [ -z "$(VCR_SUITES)" ]; then echo "usage: make integration-test-record VCR_SUITES=eodhd/identifier,massive/price"; exit 1; fi
@@ -123,14 +123,14 @@ e2e-test: $(STAMP_DIR)/generate
 		HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test; \
 		rc=$$?; $(COMPOSE_E2E) --profile test down; exit $$rc
 
+e2e-test-list:
+	@ls e2e/cassettes/*.yaml 2>/dev/null | xargs -n1 basename | sed 's/\.yaml$$//' | sort
+
 # E2E tests: record mode (real API calls, real keys from env, real rate limits).
 # Requires: VCR_SUITES (comma-separated cassette names to re-record) and API keys
 # for the suites being recorded.
 # VCR_MODE is passed to both the server (for go-vcr) and Playwright (for seed logic).
 # Tears down any existing E2E stack first to avoid stale containers/env vars.
-e2e-test-list:
-	@ls e2e/cassettes/*.yaml 2>/dev/null | xargs -n1 basename | sed 's/\.yaml$$//' | sort
-
 e2e-test-record: $(STAMP_DIR)/generate
 	@if [ -z "$(VCR_SUITES)" ]; then echo "usage: make e2e-test-record VCR_SUITES=ingestion-flow,fetch-blocks"; exit 1; fi
 	@$(COMPOSE_E2E) --profile test down --remove-orphans 2>/dev/null; \
@@ -189,9 +189,12 @@ help:
 	@echo "  make server-test        Go unit tests"
 	@echo "  make client-test        Next.js tests (in container)"
 	@echo "  make db-test            Postgres integration tests (isolated container)"
-	@echo "  make integration-test   Plugin integration tests (VCR replay)"
-	@echo "  make e2e-test           Full E2E with Playwright (VCR replay)"
-	@echo "  make e2e-record         Full E2E with Playwright (VCR record, needs API keys)"
+	@echo "  make integration-test        Plugin integration tests (VCR replay)"
+	@echo "  make integration-test-list   List available integration test suite names"
+	@echo "  make integration-test-record Re-record integration cassettes (VCR_SUITES=...)"
+	@echo "  make e2e-test                Full E2E with Playwright (VCR replay)"
+	@echo "  make e2e-test-list           List available E2E test suite names"
+	@echo "  make e2e-test-record         Re-record E2E cassettes (VCR_SUITES=..., needs API keys)"
 	@echo ""
 	@echo "Cleanup:"
 	@echo "  make clean              Remove binary and stamps"
@@ -202,4 +205,4 @@ help:
 	@echo "After 'git pull', run 'make tools generate' if deps or protos changed."
 	@echo "Dependencies are tracked automatically -- stale steps re-run as needed."
 
-.PHONY: tools generate build google-finance-cli server-test db-test client-test integration-test integration-test-record e2e-test e2e-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help
+.PHONY: tools generate build google-finance-cli server-test db-test client-test integration-test integration-test-list integration-test-record e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help

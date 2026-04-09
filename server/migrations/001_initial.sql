@@ -416,6 +416,13 @@ CREATE TABLE unhandled_corporate_events (
 CREATE INDEX idx_unhandled_ce_unresolved
   ON unhandled_corporate_events (resolved) WHERE NOT resolved;
 
+-- Prevent duplicate unresolved events for the same (instrument, type, date).
+-- NULL ex_dates are treated as distinct by PostgreSQL unique indexes, which is
+-- acceptable since events without an ex_date are rare edge cases.
+CREATE UNIQUE INDEX idx_unhandled_ce_dedup
+  ON unhandled_corporate_events (instrument_id, event_type, ex_date)
+  WHERE NOT resolved;
+
 -- Default the split_adjusted_* columns on txs to the raw counterparts whenever
 -- they are not explicitly set. This keeps every existing INSERT/UPSERT path
 -- working without modification: callers continue to set quantity / unit_price

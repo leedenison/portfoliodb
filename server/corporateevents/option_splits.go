@@ -46,10 +46,9 @@ func processOptionSplits(ctx context.Context, database db.DB, underlyingID strin
 		}
 
 		if !identification.IsWholeForwardSplit(split.SplitFrom, split.SplitTo) {
-			// Route non-standard splits to unhandled events for each option.
-			for _, opt := range options {
-				insertUnhandledOptionSplit(ctx, database, opt, split, "non-standard split ratio", log)
-			}
+			// Route non-standard splits to a single unhandled event on the
+			// underlying, listing all affected option IDs in the data field.
+			insertUnhandledUnderlyingSplit(ctx, database, underlyingID, options, split, "non-standard split ratio", log)
 			continue
 		}
 
@@ -137,6 +136,40 @@ func processOneOptionSplit(ctx context.Context, database db.DB, opt *db.Instrume
 	}
 }
 
+// insertUnhandledUnderlyingSplit inserts a single unhandled event on the
+// underlying instrument, listing all affected option IDs in the JSONB data.
+func insertUnhandledUnderlyingSplit(ctx context.Context, database db.DB, underlyingID string, options []*db.InstrumentRow, split db.StockSplit, reason string, log *slog.Logger) {
+	optionIDs := make([]string, len(options))
+	for i, opt := range options {
+		optionIDs[i] = opt.ID
+	}
+	data, _ := json.Marshal(map[string]any{
+		"split_from": split.SplitFrom,
+		"split_to":   split.SplitTo,
+		"option_ids": optionIDs,
+	})
+	eventType := "NON_WHOLE_SPLIT"
+	from, _ := new(big.Rat).SetString(split.SplitFrom)
+	to, _ := new(big.Rat).SetString(split.SplitTo)
+	if from != nil && to != nil && to.Cmp(from) < 0 {
+		eventType = "REVERSE_SPLIT"
+	}
+	event := db.UnhandledCorporateEvent{
+		InstrumentID: underlyingID,
+		EventType:    eventType,
+		ExDate:       &split.ExDate,
+		Detail:       fmt.Sprintf("Underlying %s: %s (split %s:%s) affects %d options", underlyingID, reason, split.SplitFrom, split.SplitTo, len(options)),
+		Data:         data,
+	}
+	if err := database.InsertUnhandledCorporateEvent(ctx, event); err != nil {
+		if log != nil {
+			log.ErrorContext(ctx, "option splits: insert unhandled event", "underlying", underlyingID, "err", err)
+		}
+	}
+}
+
+// insertUnhandledOptionSplit inserts an unhandled event for a single option
+// (used when per-option context matters, e.g. OCC build failure).
 func insertUnhandledOptionSplit(ctx context.Context, database db.DB, opt *db.InstrumentRow, split db.StockSplit, reason string, log *slog.Logger) {
 	data, _ := json.Marshal(map[string]string{
 		"split_from":    split.SplitFrom,

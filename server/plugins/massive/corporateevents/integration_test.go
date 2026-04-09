@@ -20,7 +20,7 @@ import (
 //
 // or directly:
 //
-//	VCR_MODE=record MASSIVE_API_KEY=... go test -tags integration -count=1 \
+//	VCR_MODE=massive/corporateevents MASSIVE_API_KEY=... go test -tags integration -count=1 \
 //	    ./server/plugins/massive/corporateevents/...
 //
 // All test windows are within the last 12 months so the Massive free tier
@@ -31,7 +31,7 @@ import (
 // the worker. To exercise the multi-split parse path against a real
 // recent split, add a subtest with the relevant ticker and ex_date.
 func TestIntegration_Massive_FetchEvents(t *testing.T) {
-	apiKey := vcr.EnvOrSkip(t, "MASSIVE_API_KEY")
+	apiKey := vcr.EnvOrSkip(t, "MASSIVE_API_KEY", "massive/corporateevents")
 
 	tests := []struct {
 		name         string
@@ -90,14 +90,14 @@ func TestIntegration_Massive_FetchEvents(t *testing.T) {
 	// replay mode the cassette responses are instant and we do not want
 	// to pay the spacing cost on every CI run.
 	var massiveCallsPerMin *int
-	if vcr.IsRecording() {
+	if vcr.IsRecordingSuite("massive/corporateevents") {
 		n := 4 // headroom under the 5/min free-tier cap
 		massiveCallsPerMin = &n
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll)
+			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "massive/corporateevents")
 
 			p := NewPlugin(nil, nil, httpClient)
 			cfg, err := json.Marshal(configJSON{

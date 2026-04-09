@@ -1,6 +1,7 @@
 // Package vcr provides helpers for go-vcr based integration tests.
-// It configures a recorder that records HTTP interactions in record mode
-// (VCR_MODE=record) and replays them from cassettes otherwise.
+// VCR_MODE is a comma-separated list of suite identifiers to record.
+// Listed suites make real HTTP requests and save to cassettes; all
+// others replay from existing cassettes.
 package vcr
 
 import (
@@ -74,21 +75,37 @@ func sanitizeResponseHeaders(i *cassette.Interaction) {
 	}
 }
 
-// IsRecording returns true when VCR_MODE is set to "record".
+// IsRecording returns true when VCR_MODE is non-empty, meaning at least one
+// suite is being recorded. Use this for "do we need real API keys?" checks.
 func IsRecording() bool {
-	return os.Getenv("VCR_MODE") == "record"
+	return os.Getenv("VCR_MODE") != ""
+}
+
+// IsRecordingSuite returns true when the given suite identifier appears in
+// the comma-separated VCR_MODE list.
+func IsRecordingSuite(suite string) bool {
+	mode := os.Getenv("VCR_MODE")
+	if mode == "" {
+		return false
+	}
+	for _, s := range strings.Split(mode, ",") {
+		if strings.TrimSpace(s) == suite {
+			return true
+		}
+	}
+	return false
 }
 
 // New creates a go-vcr recorder and an *http.Client that uses its transport.
-// In record mode (VCR_MODE=record) real HTTP requests are made and saved to
-// cassettePath. In replay mode (default) responses are played back from the
-// cassette file. The sanitizer, if non-nil, strips secrets before saving.
+// When the given suite is listed in VCR_MODE, real HTTP requests are made and
+// saved to cassettePath. Otherwise responses are played back from the cassette
+// file. The sanitizer, if non-nil, strips secrets before saving.
 // The recorder is stopped automatically when the test completes.
-func New(t *testing.T, cassettePath string, sanitize Sanitizer) (*recorder.Recorder, *http.Client) {
+func New(t *testing.T, cassettePath string, sanitize Sanitizer, suite string) (*recorder.Recorder, *http.Client) {
 	t.Helper()
 
 	mode := recorder.ModeReplayOnly
-	if IsRecording() {
+	if IsRecordingSuite(suite) {
 		mode = recorder.ModeRecordOnly
 	}
 
@@ -116,15 +133,16 @@ func New(t *testing.T, cassettePath string, sanitize Sanitizer) (*recorder.Recor
 	return rec, rec.GetDefaultClient()
 }
 
-// EnvOrSkip returns the value of the named environment variable. In record
-// mode it fails the test if the variable is empty. In replay mode it returns
-// "REDACTED" as a placeholder since cassettes contain no real credentials.
-func EnvOrSkip(t *testing.T, name string) string {
+// EnvOrSkip returns the value of the named environment variable. When the
+// given suite is being recorded it fails the test if the variable is empty.
+// In replay mode it returns "REDACTED" so that URLs match cassettes which
+// were sanitized during recording.
+func EnvOrSkip(t *testing.T, name string, suite string) string {
 	t.Helper()
-	v := os.Getenv(name)
-	if IsRecording() {
+	if IsRecordingSuite(suite) {
+		v := os.Getenv(name)
 		if v == "" {
-			t.Fatalf("env var %s required in record mode", name)
+			t.Fatalf("env var %s required when recording suite %s", name, suite)
 		}
 		return v
 	}

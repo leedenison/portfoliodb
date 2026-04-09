@@ -13,7 +13,7 @@ import (
 )
 
 func TestIntegration_OpenFIGI_Identify(t *testing.T) {
-	apiKey := vcr.EnvOrSkip(t, "OPENFIGI_API_KEY")
+	apiKey := vcr.EnvOrSkip(t, "OPENFIGI_API_KEY", "openfigi/identifier")
 
 	tests := []struct {
 		name      string
@@ -63,7 +63,7 @@ func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll)
+			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "openfigi/identifier")
 
 			p := NewPlugin(nil, nil, httpClient)
 			cfg, err := json.Marshal(configJSON{

@@ -3,6 +3,7 @@ import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
+import { isRecordingSuite } from "../helpers/vcr";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { uploadCSVAndWait } from "../helpers/upload";
 import { getCounter, closeCountersRedis } from "../helpers/counters";
@@ -79,7 +80,7 @@ test.describe("no redundant price fetch after transaction update", () => {
 
   // In record mode, ensure all workers finish so the VCR cassette captures
   // every HTTP interaction before the server shuts down.
-  if (process.env.VCR_MODE === "record") {
+  if (isRecordingSuite("tx-update-price-fetch")) {
     test("wait for all workers to finish (record mode)", async ({
       browser,
     }) => {

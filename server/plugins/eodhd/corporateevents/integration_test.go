@@ -21,7 +21,7 @@ import (
 //
 // or directly:
 //
-//	VCR_MODE=record EODHD_API_KEY=... go test -tags integration -count=1 \
+//	VCR_MODE=eodhd/corporateevents EODHD_API_KEY=... go test -tags integration -count=1 \
 //	    ./server/plugins/eodhd/corporateevents/...
 //
 // All test windows are within the last 12 months so the EODHD free tier
@@ -32,7 +32,7 @@ import (
 // the worker. To exercise the multi-split parse path against a real
 // recent split, add a subtest with the relevant ticker and ex_date.
 func TestIntegration_EODHD_FetchEvents(t *testing.T) {
-	apiKey := vcr.EnvOrSkip(t, "EODHD_API_KEY")
+	apiKey := vcr.EnvOrSkip(t, "EODHD_API_KEY", "eodhd/corporateevents")
 
 	tests := []struct {
 		name         string
@@ -86,7 +86,7 @@ func TestIntegration_EODHD_FetchEvents(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll)
+			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "eodhd/corporateevents")
 
 			p := NewPlugin(nil, nil, httpClient, exchangemap.New())
 			cfg, err := json.Marshal(configJSON{EODHDAPIKey: apiKey})

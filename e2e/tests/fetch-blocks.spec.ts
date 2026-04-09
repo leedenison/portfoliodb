@@ -9,11 +9,12 @@ import {
 } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
+import { isRecordingSuite } from "../helpers/vcr";
 
 test.beforeAll(async () => {
   await loadCassette("fetch-blocks");
   await resetAndSeedBase();
-  if (process.env.VCR_MODE === "record") {
+  if (isRecordingSuite("fetch-blocks")) {
     await corruptMassivePriceKey();
   }
 });
@@ -153,7 +154,7 @@ test.describe("fetch block full flow", () => {
 
   // In record mode, ensure all workers finish so the VCR cassette captures
   // every HTTP interaction before the cassette is unloaded.
-  if (process.env.VCR_MODE === "record") {
+  if (isRecordingSuite("fetch-blocks")) {
     test("wait for all workers to finish (record mode)", async ({
       browser,
     }) => {

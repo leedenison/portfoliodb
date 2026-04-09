@@ -19,6 +19,7 @@ import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
+import { isRecordingSuite } from "../helpers/vcr";
 import { uploadCSVAndWait } from "../helpers/upload";
 import { importPricesAndWait } from "../helpers/api";
 import { JobStatus } from "../gen/api/v1/api_pb";
@@ -146,7 +147,7 @@ test.describe("price-first instrument merge", () => {
 
   // In record mode, ensure all workers complete so the cassette captures
   // every HTTP interaction.
-  if (process.env.VCR_MODE === "record") {
+  if (isRecordingSuite("price-import-merge")) {
     test("wait for all workers to finish (record mode)", async ({
       browser,
     }) => {

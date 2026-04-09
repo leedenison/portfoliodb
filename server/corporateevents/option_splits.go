@@ -97,9 +97,7 @@ func processOneOptionSplit(ctx context.Context, database db.DB, opt *db.Instrume
 	// Build new OCC.
 	parsed, ok := derivative.ParseOptionTicker(currentOCC)
 	if !ok {
-		if log != nil {
-			log.WarnContext(ctx, "option splits: unparseable OCC", "option", opt.ID, "occ", currentOCC)
-		}
+		insertUnhandledOptionSplit(ctx, database, opt, split, fmt.Sprintf("unparseable OCC identifier %q", currentOCC), log)
 		return
 	}
 
@@ -109,53 +107,26 @@ func processOneOptionSplit(ctx context.Context, database db.DB, opt *db.Instrume
 		return
 	}
 
-	// Delete old OCC, insert new OCC, update strike, insert derived split row.
-	if err := database.DeleteInstrumentIdentifier(ctx, opt.ID, "OCC", currentOCC); err != nil {
-		if log != nil {
-			log.ErrorContext(ctx, "option splits: delete OCC", "option", opt.ID, "err", err)
-		}
-		return
-	}
-	if err := database.InsertInstrumentIdentifier(ctx, opt.ID, db.IdentifierInput{Type: "OCC", Value: newOCC, Canonical: true}); err != nil {
-		if log != nil {
-			log.ErrorContext(ctx, "option splits: insert OCC", "option", opt.ID, "err", err)
-		}
-		return
-	}
-	if err := database.UpdateInstrumentStrike(ctx, opt.ID, newStrike); err != nil {
-		if log != nil {
-			log.ErrorContext(ctx, "option splits: update strike", "option", opt.ID, "err", err)
-		}
-		return
-	}
-
-	// Insert derived split row so split_factor_at() adjusts option txs.
-	derivedSplit := db.StockSplit{
+	// All mutations run in a single transaction via ApplyOptionSplit so
+	// partial failure cannot leave the option in an inconsistent state.
+	params := db.OptionSplitParams{
 		InstrumentID: opt.ID,
-		ExDate:       split.ExDate,
-		SplitFrom:    split.SplitFrom,
-		SplitTo:      split.SplitTo,
-		DataProvider: "derived",
+		OldOCCValue:  currentOCC,
+		NewOCC:       db.IdentifierInput{Type: "OCC", Value: newOCC, Canonical: true},
+		NewStrike:    newStrike,
+		DerivedSplit: db.StockSplit{
+			InstrumentID: opt.ID,
+			ExDate:       split.ExDate,
+			SplitFrom:    split.SplitFrom,
+			SplitTo:      split.SplitTo,
+			DataProvider: "derived",
+		},
 	}
-	if err := database.UpsertStockSplits(ctx, []db.StockSplit{derivedSplit}); err != nil {
+	if err := database.ApplyOptionSplit(ctx, params); err != nil {
 		if log != nil {
-			log.ErrorContext(ctx, "option splits: upsert derived split", "option", opt.ID, "err", err)
+			log.ErrorContext(ctx, "option splits: apply", "option", opt.ID, "err", err)
 		}
 		return
-	}
-
-	// Recompute split-adjusted tx values for this option.
-	if err := database.RecomputeSplitAdjustments(ctx, opt.ID); err != nil {
-		if log != nil {
-			log.ErrorContext(ctx, "option splits: recompute adjustments", "option", opt.ID, "err", err)
-		}
-	}
-
-	// Mark as recently identified so the guard fires on subsequent cycles.
-	if err := database.UpdateIdentifiedAt(ctx, opt.ID); err != nil {
-		if log != nil {
-			log.ErrorContext(ctx, "option splits: update identified_at", "option", opt.ID, "err", err)
-		}
 	}
 
 	if log != nil {

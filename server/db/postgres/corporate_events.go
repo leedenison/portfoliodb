@@ -554,6 +554,34 @@ func (p *Postgres) BlockedCorporateEventPluginsForInstruments(ctx context.Contex
 	return out, rows.Err()
 }
 
+// ApplyOptionSplit implements db.CorporateEventDB. All mutations run in a
+// single transaction: delete old OCC, insert new OCC, update strike, upsert
+// derived split row, recompute split-adjusted tx values, update identified_at.
+func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitParams) error {
+	return p.runInTx(ctx, func(tx queryable) error {
+		txp := &Postgres{q: tx}
+		if err := txp.DeleteInstrumentIdentifier(ctx, params.InstrumentID, "OCC", params.OldOCCValue); err != nil {
+			return fmt.Errorf("apply option split: delete old OCC: %w", err)
+		}
+		if err := txp.InsertInstrumentIdentifier(ctx, params.InstrumentID, params.NewOCC); err != nil {
+			return fmt.Errorf("apply option split: insert new OCC: %w", err)
+		}
+		if err := txp.UpdateInstrumentStrike(ctx, params.InstrumentID, params.NewStrike); err != nil {
+			return fmt.Errorf("apply option split: update strike: %w", err)
+		}
+		if err := txp.UpsertStockSplits(ctx, []db.StockSplit{params.DerivedSplit}); err != nil {
+			return fmt.Errorf("apply option split: upsert derived split: %w", err)
+		}
+		if err := txp.RecomputeSplitAdjustments(ctx, params.InstrumentID); err != nil {
+			return fmt.Errorf("apply option split: recompute adjustments: %w", err)
+		}
+		if err := txp.UpdateIdentifiedAt(ctx, params.InstrumentID); err != nil {
+			return fmt.Errorf("apply option split: update identified_at: %w", err)
+		}
+		return nil
+	})
+}
+
 // RecomputeSplitAdjustments implements db.CorporateEventDB. Two UPDATEs (one
 // for eod_prices, one for txs) recompute the split_adjusted_* columns from raw
 // values multiplied by the cumulative split factor for splits with ex_date

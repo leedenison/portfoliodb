@@ -639,3 +639,112 @@ func TestSplitAdjustment_TriggerSeeds(t *testing.T) {
 	}
 }
 
+func TestApplyOptionSplit(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	// Create underlying stock instrument.
+	underlyingID := setupInstrument(t, p, "AAPL-UNDERLYING")
+
+	// Create option instrument with OCC identifier and option fields.
+	strike := 150.0
+	expiry := d(2025, 1, 17)
+	optFields := &db.OptionFields{Strike: strike, Expiry: expiry, PutCall: "C"}
+	optID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL 250117C00150000", "", "", []db.IdentifierInput{
+		{Type: "OCC", Value: "AAPL  250117C00150000", Canonical: true},
+	}, underlyingID, nil, nil, optFields)
+	if err != nil {
+		t.Fatalf("ensure option: %v", err)
+	}
+
+	// Insert a transaction for the option so RecomputeSplitAdjustments has
+	// something to adjust.
+	userID := setupUser(t, p)
+	insertTxs(t, p, userID, optID, []*apiv1.Tx{{
+		Type:                  apiv1.TxType_BUYSTOCK,
+		Timestamp:             ts(2024, 6, 1),
+		Quantity:              1,
+		UnitPrice:             150,
+		InstrumentDescription: "AAPL 250117C00150000",
+	}})
+
+	// Apply a 4:1 split.
+	params := db.OptionSplitParams{
+		InstrumentID: optID,
+		OldOCCValue:  "AAPL  250117C00150000",
+		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL  250117C00037500", Canonical: true},
+		NewStrike:    37.5,
+		DerivedSplit: db.StockSplit{
+			InstrumentID: optID,
+			ExDate:       d(2024, 7, 1),
+			SplitFrom:    "1",
+			SplitTo:      "4",
+			DataProvider: "derived",
+		},
+	}
+	if err := p.ApplyOptionSplit(ctx, params); err != nil {
+		t.Fatalf("apply option split: %v", err)
+	}
+
+	// Verify OCC identifier was replaced.
+	inst, err := p.GetInstrument(ctx, optID)
+	if err != nil {
+		t.Fatalf("get instrument: %v", err)
+	}
+	var foundOld, foundNew bool
+	for _, idn := range inst.Identifiers {
+		if idn.Type == "OCC" {
+			if idn.Value == "AAPL  250117C00150000" {
+				foundOld = true
+			}
+			if idn.Value == "AAPL  250117C00037500" {
+				foundNew = true
+			}
+		}
+	}
+	if foundOld {
+		t.Error("old OCC identifier still present")
+	}
+	if !foundNew {
+		t.Error("new OCC identifier not found")
+	}
+
+	// Verify strike updated.
+	if inst.Strike == nil || *inst.Strike != 37.5 {
+		t.Errorf("strike: got %v, want 37.5", inst.Strike)
+	}
+
+	// Verify derived split row exists.
+	splits, err := p.ListStockSplits(ctx, optID)
+	if err != nil {
+		t.Fatalf("list splits: %v", err)
+	}
+	if len(splits) != 1 {
+		t.Fatalf("expected 1 derived split, got %d", len(splits))
+	}
+	if splits[0].SplitTo != "4" || splits[0].DataProvider != "derived" {
+		t.Errorf("derived split: %+v", splits[0])
+	}
+
+	// Verify split-adjusted tx values. The tx is before the split ex_date,
+	// so factor = 4: adjusted_quantity = 1*4 = 4, adjusted_price = 150/4 = 37.5.
+	var saQty, saPrice float64
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT split_adjusted_quantity, split_adjusted_unit_price
+		FROM txs WHERE instrument_id = $1::uuid
+	`, optID).Scan(&saQty, &saPrice); err != nil {
+		t.Fatalf("read adjusted txs: %v", err)
+	}
+	if !approxEq(saQty, 4.0) {
+		t.Errorf("split_adjusted_quantity: got %v, want 4", saQty)
+	}
+	if !approxEq(saPrice, 37.5) {
+		t.Errorf("split_adjusted_unit_price: got %v, want 37.5", saPrice)
+	}
+
+	// Verify identified_at was updated.
+	if inst.IdentifiedAt == nil {
+		t.Error("identified_at not set")
+	}
+}
+

@@ -7,6 +7,7 @@ import {
   listDescriptionPlugins,
   listPricePlugins,
   listWorkers,
+  countUnhandledCorporateEvents,
   WorkerState,
   type WorkerRow,
 } from "@/lib/portfolio-api";
@@ -72,6 +73,13 @@ const dashboardCards: {
     description: "View session token and fetch a Google ID token for scripts.",
   },
   {
+    id: "corporate-events",
+    title: "Corporate Events",
+    href: "/admin/corporate-events",
+    description:
+      "Review and resolve unhandled corporate events (splits, dividends).",
+  },
+  {
     id: "logs",
     title: "Logs",
     href: "/admin/logs",
@@ -91,19 +99,22 @@ export default function AdminOverviewPage() {
     { displayName: string }[]
   >([]);
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
+  const [unhandledEventCount, setUnhandledEventCount] = useState<number>(0);
 
   const load = useCallback(async () => {
     try {
-      const [idList, descList, priceList, workerList] = await Promise.all([
+      const [idList, descList, priceList, workerList, eventCount] = await Promise.all([
         listIdentifierPlugins(),
         listDescriptionPlugins(),
         listPricePlugins(),
         listWorkers(),
+        countUnhandledCorporateEvents(),
       ]);
       setIdentifierPlugins(idList.map((p) => ({ displayName: p.displayName || p.pluginId })));
       setDescriptionPlugins(descList.map((p) => ({ displayName: p.displayName || p.pluginId })));
       setPricePlugins(priceList.map((p) => ({ displayName: p.displayName || p.pluginId })));
       setWorkers(workerList);
+      setUnhandledEventCount(eventCount);
     } catch {
       // Non-blocking: cards still work without the summary
     }
@@ -129,6 +140,11 @@ export default function AdminOverviewPage() {
       return workers
         .map((w) => `${w.name}: ${w.state === WorkerState.RUNNING ? "running" : "idle"}`)
         .join(", ");
+    }
+    if (id === "corporate-events") {
+      return unhandledEventCount > 0
+        ? `${unhandledEventCount} unhandled`
+        : "No unhandled events";
     }
     return null;
   }
@@ -162,7 +178,11 @@ export default function AdminOverviewPage() {
               <h2 className="font-display font-semibold text-text-primary group-hover:text-primary-dark">{card.title}</h2>
               <p className="mt-1.5 text-sm text-text-muted">{card.description}</p>
               {summary && (
-                <p className="mt-3 font-mono text-xs text-text-muted">
+                <p className={`mt-3 font-mono text-xs ${
+                  card.id === "corporate-events" && unhandledEventCount > 0
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-text-muted"
+                }`}>
                   {summary}
                 </p>
               )}

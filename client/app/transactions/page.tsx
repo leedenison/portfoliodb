@@ -144,6 +144,12 @@ export default function TxsPage() {
                       <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-muted">
                         Unit Price
                       </th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-muted">
+                        Adj Qty
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-muted">
+                        Adj Price
+                      </th>
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                         Currency
                       </th>
@@ -153,7 +159,7 @@ export default function TxsPage() {
                     {txs.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={8}
+                          colSpan={10}
                           className="px-4 py-8 text-center text-text-muted"
                         >
                           No transactions found.
@@ -225,6 +231,16 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
       </td>
       <td className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
         {tx.unitPrice ? tx.unitPrice.toFixed(2) : "\u2014"}
+      </td>
+      <td className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
+        {tx.splitAdjustedQuantity !== undefined && tx.splitAdjustedQuantity !== tx.quantity
+          ? parseFloat(tx.splitAdjustedQuantity.toFixed(4))
+          : "\u2014"}
+      </td>
+      <td className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
+        {tx.splitAdjustedUnitPrice !== undefined && tx.splitAdjustedUnitPrice !== tx.unitPrice
+          ? tx.splitAdjustedUnitPrice.toFixed(2)
+          : "\u2014"}
       </td>
       <td className="px-4 py-3 text-text-muted">
         {currency || "\u2014"}

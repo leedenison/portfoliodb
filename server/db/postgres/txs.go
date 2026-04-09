@@ -167,7 +167,7 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, p
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	qb := psql.Select("t.broker", "t.account", "t.timestamp", "t.instrument_description", "t.tx_type", "t.quantity", "t.trading_currency", "t.settlement_currency", "t.unit_price", "t.instrument_id", "t.synthetic_purpose").
+	qb := psql.Select("t.broker", "t.account", "t.timestamp", "t.instrument_description", "t.tx_type", "t.quantity", "t.split_adjusted_quantity", "t.trading_currency", "t.settlement_currency", "t.unit_price", "t.split_adjusted_unit_price", "t.instrument_id", "t.synthetic_purpose").
 		From("txs t").
 		Join("portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = ?", portUUID).
 		OrderBy("t.timestamp")

@@ -421,18 +421,37 @@ func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportC
 	return out, rows.Err()
 }
 
-// HeldStockEtfInstruments implements db.CorporateEventDB.
-func (p *Postgres) HeldStockEtfInstruments(ctx context.Context) ([]db.HeldInstrument, error) {
+// HeldEventBearingInstruments implements db.CorporateEventDB.
+// Returns one row per instrument that needs corporate event coverage:
+//   - Directly held STOCK/ETF instruments (existing behavior)
+//   - Underlyings of held OPTION/FUTURE instruments (new)
+//
+// For underlyings discovered via derivatives, the earliest tx date is the
+// minimum across all derivatives on that underlying. This ensures the
+// corporate event worker fetches events from the earliest derivative trade.
+func (p *Postgres) HeldEventBearingInstruments(ctx context.Context) ([]db.HeldInstrument, error) {
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT t.instrument_id, MIN(t.timestamp)::date AS earliest
-		FROM txs t
-		JOIN instruments i ON i.id = t.instrument_id
-		WHERE i.asset_class IN ('STOCK', 'ETF')
-		GROUP BY t.instrument_id
-		ORDER BY t.instrument_id
+		WITH direct AS (
+			SELECT t.instrument_id, MIN(t.timestamp)::date AS earliest
+			FROM txs t
+			JOIN instruments i ON i.id = t.instrument_id
+			WHERE i.asset_class IN ('STOCK', 'ETF')
+			GROUP BY t.instrument_id
+		),
+		via_derivative AS (
+			SELECT i.underlying_id AS instrument_id, MIN(t.timestamp)::date AS earliest
+			FROM txs t
+			JOIN instruments i ON i.id = t.instrument_id
+			WHERE i.asset_class IN ('OPTION', 'FUTURE') AND i.underlying_id IS NOT NULL
+			GROUP BY i.underlying_id
+		)
+		SELECT instrument_id, MIN(earliest) AS earliest
+		FROM (SELECT * FROM direct UNION ALL SELECT * FROM via_derivative) combined
+		GROUP BY instrument_id
+		ORDER BY instrument_id
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("held stock/etf instruments: %w", err)
+		return nil, fmt.Errorf("held event-bearing instruments: %w", err)
 	}
 	defer rows.Close()
 	var out []db.HeldInstrument
@@ -440,7 +459,7 @@ func (p *Postgres) HeldStockEtfInstruments(ctx context.Context) ([]db.HeldInstru
 		var instUUID uuid.UUID
 		var earliest time.Time
 		if err := rows.Scan(&instUUID, &earliest); err != nil {
-			return nil, fmt.Errorf("held stock/etf instruments scan: %w", err)
+			return nil, fmt.Errorf("held event-bearing instruments scan: %w", err)
 		}
 		out = append(out, db.HeldInstrument{
 			InstrumentID:   instUUID.String(),

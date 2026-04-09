@@ -735,13 +735,12 @@ type CorporateEventDB interface {
 	// stock_splits row is recomputed.
 	RecomputeSplitAdjustments(ctx context.Context, instrumentID string) error
 
-	// HeldStockEtfInstruments returns one row per instrument with at least one
-	// non-synthetic tx where instruments.asset_class is 'STOCK' or 'ETF'.
-	// EarliestTxDate is the date of the oldest tx for the instrument and is
-	// used by the corporate event worker as the lower bound of the required
-	// fetch range. Instruments held only via INITIALIZE synthetic txs are
-	// included.
-	HeldStockEtfInstruments(ctx context.Context) ([]HeldInstrument, error)
+	// HeldEventBearingInstruments returns one row per instrument that needs
+	// corporate event coverage: directly held STOCK/ETF instruments, plus
+	// underlyings of held OPTION/FUTURE instruments. For underlyings
+	// discovered via derivatives, the earliest tx date is the minimum across
+	// all derivatives on that underlying.
+	HeldEventBearingInstruments(ctx context.Context) ([]HeldInstrument, error)
 
 	// ListStockSplitsForExport returns every stock_splits row joined with the
 	// best identifier per instrument (MIC_TICKER > OPENFIGI_TICKER > ISIN > ...),

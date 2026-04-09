@@ -263,7 +263,11 @@ func ResolveWithPlugins(
 				underlyingID = uResult.InstrumentID
 			}
 		}
-		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validTo, nil)
+		var optFields *db.OptionFields
+		if inst.AssetClass == db.AssetClassOption {
+			optFields = optionFieldsFromIdentifiers(mergedIds)
+		}
+		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validTo, optFields)
 		if err != nil {
 			return ResolveResult{}, err
 		}
@@ -358,6 +362,30 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte
 	}, bCtx)
 
 	return inst, ids, err
+}
+
+// optionFieldsFromIdentifiers extracts strike, expiry, and put/call from the
+// OCC identifier in the merged identifier set. Returns nil when no valid OCC
+// is found.
+func optionFieldsFromIdentifiers(ids []identifier.Identifier) *db.OptionFields {
+	for _, idn := range ids {
+		if idn.Type != "OCC" {
+			continue
+		}
+		parsed, ok := derivative.ParseOptionTicker(idn.Value)
+		if !ok {
+			continue
+		}
+		if parsed.Strike <= 0 || parsed.Expiry.IsZero() || parsed.PutCall == "" {
+			continue
+		}
+		return &db.OptionFields{
+			Strike:  parsed.Strike,
+			Expiry:  parsed.Expiry,
+			PutCall: parsed.PutCall,
+		}
+	}
+	return nil
 }
 
 // resolveLogger returns the provided logger or falls back to slog.Default().

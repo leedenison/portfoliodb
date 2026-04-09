@@ -64,7 +64,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		}
 	}()
 
-	held, err := database.HeldStockEtfInstruments(ctx)
+	held, err := database.HeldEventBearingInstruments(ctx)
 	if err != nil {
 		if log != nil {
 			log.ErrorContext(ctx, "corporate event fetch: held instruments", "err", err)

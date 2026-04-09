@@ -213,7 +213,7 @@ func TestRunCycle_EmptyResultRecordsCoverage(t *testing.T) {
 	reg.Register("high", highPrec)
 	reg.Register("low", lowPrec)
 
-	mockDB.EXPECT().HeldStockEtfInstruments(gomock.Any()).Return([]db.HeldInstrument{
+	mockDB.EXPECT().HeldEventBearingInstruments(gomock.Any()).Return([]db.HeldInstrument{
 		{InstrumentID: instID, EarliestTxDate: earliest},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCorporateEvent).Return([]db.PluginConfigRow{
@@ -268,7 +268,7 @@ func TestRunCycle_SplitsLandTriggerRecompute(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register("massive", plugin)
 
-	mockDB.EXPECT().HeldStockEtfInstruments(gomock.Any()).Return([]db.HeldInstrument{
+	mockDB.EXPECT().HeldEventBearingInstruments(gomock.Any()).Return([]db.HeldInstrument{
 		{InstrumentID: instID, EarliestTxDate: d(2014, 1, 1)},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCorporateEvent).Return([]db.PluginConfigRow{
@@ -320,7 +320,7 @@ func TestRunCycle_PermanentErrorCreatesBlock(t *testing.T) {
 	reg.Register("broken", failing)
 	reg.Register("good", good)
 
-	mockDB.EXPECT().HeldStockEtfInstruments(gomock.Any()).Return([]db.HeldInstrument{
+	mockDB.EXPECT().HeldEventBearingInstruments(gomock.Any()).Return([]db.HeldInstrument{
 		{InstrumentID: instID, EarliestTxDate: d(2024, 1, 1)},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCorporateEvent).Return([]db.PluginConfigRow{
@@ -364,7 +364,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register("blocked", plugin)
 
-	mockDB.EXPECT().HeldStockEtfInstruments(gomock.Any()).Return([]db.HeldInstrument{
+	mockDB.EXPECT().HeldEventBearingInstruments(gomock.Any()).Return([]db.HeldInstrument{
 		{InstrumentID: instID, EarliestTxDate: d(2024, 1, 1)},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCorporateEvent).Return([]db.PluginConfigRow{

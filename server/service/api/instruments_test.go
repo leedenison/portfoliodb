@@ -165,8 +165,8 @@ func TestImportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
 func TestImportInstruments_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
-		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []dbpkg.IdentifierInput, _ string, _, _ interface{}) (string, error) {
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []dbpkg.IdentifierInput, _ string, _, _ interface{}, _ *dbpkg.OptionFields) (string, error) {
 			if len(idns) < 2 {
 				t.Errorf("expected at least 2 identifiers, got %d", len(idns))
 			}
@@ -213,7 +213,7 @@ func TestImportInstruments_DuplicateTypeValueInPayload(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	// First instrument (ISIN 1) is ensured; second is rejected as duplicate (type, value) in payload.
 	db.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "", "", "", gomock.Any(), "", nil, nil).
+		EnsureInstrument(gomock.Any(), "", "", "", "", "", "", gomock.Any(), "", nil, nil, nil).
 		Return("inst-1", nil)
 	ctx := adminCtx("user-1", "sub|1")
 	req := &apiv1.ImportInstrumentsRequest{

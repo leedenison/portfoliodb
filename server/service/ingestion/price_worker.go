@@ -251,5 +251,5 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, idType, d
 		"identifier_type", idType, "identifier_domain", domain, "identifier_value", value)
 	return database.EnsureInstrument(ctx, "", "", "", "", "", "",
 		[]db.IdentifierInput{{Type: idType, Domain: domain, Value: value, Canonical: true}},
-		"", nil, nil)
+		"", nil, nil, nil)
 }

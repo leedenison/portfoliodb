@@ -207,7 +207,7 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", "", "", gomock.Any(), "", nil, nil).
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", "", "", gomock.Any(), "", nil, nil, nil).
 		Return("new-id", nil)
 
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -357,8 +357,8 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
 	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "STOCK", "", "", "Apple", "", "", gomock.Any(), "", nil, nil).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time) (string, error) {
+		EnsureInstrument(gomock.Any(), "STOCK", "", "", "Apple", "", "", gomock.Any(), "", nil, nil, nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			hasSource := false
 			for _, idn := range idns {
 				if idn.Type == "BROKER_DESCRIPTION" && idn.Domain == source && idn.Value == desc && !idn.Canonical {

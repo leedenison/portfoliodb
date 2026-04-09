@@ -19,11 +19,11 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// Create instrument A with (ISIN, 1) and B with (CUSIP, 1).
-	idA, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "ISIN", Value: "1", Canonical: true}}, "", nil, nil)
+	idA, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "ISIN", Value: "1", Canonical: true}}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure A: %v", err)
 	}
-	idB, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "CUSIP", Value: "1", Canonical: true}}, "", nil, nil)
+	idB, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "CUSIP", Value: "1", Canonical: true}}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure B: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 		{Type: "IBKR", Value: brokerDesc, Canonical: false},
 		{Type: "ISIN", Value: "1", Canonical: true},
 		{Type: "CUSIP", Value: "1", Canonical: true},
-	}, "", nil, nil)
+	}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure merge: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	// Instrument with only broker description (canonical=false) - should be excluded.
-	brokerOnlyID, err := p.EnsureInstrument(ctx, "", "", "", "BrokerOnly", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "BRK", Canonical: false}}, "", nil, nil)
+	brokerOnlyID, err := p.EnsureInstrument(ctx, "", "", "", "BrokerOnly", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "BRK", Canonical: false}}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure broker-only: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 	withCanonID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", "", "", []db.IdentifierInput{
 		{Type: "ISIN", Value: "US0378331005", Canonical: true},
 		{Type: "IBKR", Value: "AAPL", Canonical: false},
-	}, "", nil, nil)
+	}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure with canonical: %v", err)
 	}
@@ -152,11 +152,11 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	_, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Nasdaq", "", "", []db.IdentifierInput{{Type: "ISIN", Value: "N1", Canonical: true}}, "", nil, nil)
+	_, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Nasdaq", "", "", []db.IdentifierInput{{Type: "ISIN", Value: "N1", Canonical: true}}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure XNAS: %v", err)
 	}
-	_, err = p.EnsureInstrument(ctx, "STOCK", "XNYS", "USD", "NYSE", "", "", []db.IdentifierInput{{Type: "ISIN", Value: "Y1", Canonical: true}}, "", nil, nil)
+	_, err = p.EnsureInstrument(ctx, "STOCK", "XNYS", "USD", "NYSE", "", "", []db.IdentifierInput{{Type: "ISIN", Value: "Y1", Canonical: true}}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure XNYS: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 	// Create underlying first (STOCK).
 	underlyingID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple Inc.", "0000320193", "3571", []db.IdentifierInput{
 		{Type: "ISIN", Value: "US0378331005", Canonical: true},
-	}, "", nil, nil)
+	}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure underlying: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 	// Create option with underlying_id and valid dates (empty exchange -- SMART is not a MIC).
 	optionID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL Call", "", "", []db.IdentifierInput{
 		{Type: "IBKR", Value: "AAPL 20250117C200", Canonical: false},
-	}, underlyingID, &validFrom, &validTo)
+	}, underlyingID, &validFrom, &validTo, &db.OptionFields{Strike: 230, Expiry: time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), PutCall: "C"})
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestEnsureInstrument_OptionWithoutUnderlying_Rejected(t *testing.T) {
 	ctx := context.Background()
 	_, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "Option", "", "", []db.IdentifierInput{
 		{Type: "IBKR", Value: "OPT1", Canonical: false},
-	}, "", nil, nil)
+	}, "", nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error when OPTION has no underlying_id")
 	}
@@ -266,7 +266,7 @@ func TestEnsureInstrument_InvalidAssetClass_Rejected(t *testing.T) {
 	ctx := context.Background()
 	_, err := p.EnsureInstrument(ctx, "unknown", "XNAS", "USD", "X", "", "", []db.IdentifierInput{
 		{Type: "IBKR", Value: "X", Canonical: false},
-	}, "", nil, nil)
+	}, "", nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid asset_class")
 	}
@@ -314,14 +314,14 @@ func TestListInstruments_NullAssetClassMatchesUnknown(t *testing.T) {
 	// Create an instrument with no asset class (empty string stored as NULL).
 	nullID, err := p.EnsureInstrument(ctx, "", "", "", "NoClass", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "test", Value: "NOCLASS", Canonical: false},
-	}, "", nil, nil)
+	}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure null-class: %v", err)
 	}
 	// Create a STOCK instrument for comparison.
 	stockID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "StockCo", "", "", []db.IdentifierInput{
 		{Type: "ISIN", Value: "US1234567890", Canonical: true},
-	}, "", nil, nil)
+	}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure stock: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestListInstruments_PaginationPastEnd(t *testing.T) {
 	for i, name := range []string{"Alpha", "Beta", "Gamma"} {
 		_, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", name, "", "", []db.IdentifierInput{
 			{Type: "ISIN", Value: "TEST" + string(rune('A'+i)), Canonical: true},
-		}, "", nil, nil)
+		}, "", nil, nil, nil)
 		if err != nil {
 			t.Fatalf("ensure %s: %v", name, err)
 		}

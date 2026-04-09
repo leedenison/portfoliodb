@@ -159,7 +159,7 @@ func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
 	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "Apple", "", "", []db.IdentifierInput{
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
 		{Type: "ISIN", Value: "US0378331005", Canonical: true},
-	}, "", nil, nil)
+	}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

@@ -36,7 +36,7 @@ func setupInstrument(t *testing.T, p *Postgres, desc string) string {
 	ctx := context.Background()
 	id, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "TEST", Value: desc, Canonical: false},
-	}, "", nil, nil)
+	}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument %s: %v", desc, err)
 	}
@@ -887,7 +887,7 @@ func setupInstrumentWithCurrency(t *testing.T, p *Postgres, desc, assetClass, cu
 	ctx := context.Background()
 	id, err := p.EnsureInstrument(ctx, assetClass, "", currency, desc, "", "", []db.IdentifierInput{
 		{Type: "BROKER_DESCRIPTION", Domain: "TEST", Value: desc, Canonical: false},
-	}, "", nil, nil)
+	}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument %s: %v", desc, err)
 	}

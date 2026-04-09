@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // ExportCorporateEvents streams every stored stock split and cash dividend
@@ -108,4 +109,75 @@ func (s *Server) ImportCorporateEvents(ctx context.Context, req *apiv1.ImportCor
 		return nil, status.Error(codes.Unavailable, err.Error())
 	}
 	return &apiv1.ImportCorporateEventsResponse{JobId: jobID}, nil
+}
+
+// ListUnhandledCorporateEvents returns corporate events that could not be
+// automatically processed and require admin review. Admin only.
+func (s *Server) ListUnhandledCorporateEvents(ctx context.Context, req *apiv1.ListUnhandledCorporateEventsRequest) (*apiv1.ListUnhandledCorporateEventsResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	pageSize := req.GetPageSize()
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	events, total, nextToken, err := s.db.ListUnhandledCorporateEvents(ctx, req.GetIncludeResolved(), pageSize, req.GetPageToken())
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	resp := &apiv1.ListUnhandledCorporateEventsResponse{
+		TotalCount:    total,
+		NextPageToken: nextToken,
+	}
+	for _, e := range events {
+		pe := &apiv1.UnhandledCorporateEvent{
+			Id:           e.ID,
+			InstrumentId: e.InstrumentID,
+			EventType:    e.EventType,
+			Detail:       e.Detail,
+			Resolved:     e.Resolved,
+			CreatedAt:    timestamppb.New(e.CreatedAt),
+		}
+		if e.ExDate != nil {
+			pe.ExDate = e.ExDate.Format("2006-01-02")
+		}
+		if e.Data != nil {
+			pe.Data = string(e.Data)
+		}
+		// Resolve instrument name for display.
+		inst, _ := s.db.GetInstrument(ctx, e.InstrumentID)
+		if inst != nil && inst.Name != nil {
+			pe.InstrumentName = *inst.Name
+		}
+		resp.Events = append(resp.Events, pe)
+	}
+	return resp, nil
+}
+
+// CountUnhandledCorporateEvents returns the number of unresolved corporate
+// events. Admin only.
+func (s *Server) CountUnhandledCorporateEvents(ctx context.Context, _ *apiv1.CountUnhandledCorporateEventsRequest) (*apiv1.CountUnhandledCorporateEventsResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	count, err := s.db.CountUnhandledCorporateEvents(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &apiv1.CountUnhandledCorporateEventsResponse{Count: count}, nil
+}
+
+// ResolveUnhandledCorporateEvent marks an unhandled corporate event as
+// resolved. Admin only.
+func (s *Server) ResolveUnhandledCorporateEvent(ctx context.Context, req *apiv1.ResolveUnhandledCorporateEventRequest) (*apiv1.ResolveUnhandledCorporateEventResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	if req.GetId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "id required")
+	}
+	if err := s.db.ResolveUnhandledCorporateEvent(ctx, req.GetId()); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &apiv1.ResolveUnhandledCorporateEventResponse{}, nil
 }

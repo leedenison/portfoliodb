@@ -29,7 +29,7 @@ func TestComputeHoldings_instrumentNameOverTxDescription(t *testing.T) {
 
 	// Create a cash instrument with a canonical name "USD".
 	cashID, err := p.EnsureInstrument(ctx, "CASH", "", "USD", "USD", "", "",
-		[]db.IdentifierInput{{Type: "CURRENCY", Value: "USD", Canonical: true}}, "", nil, nil)
+		[]db.IdentifierInput{{Type: "CURRENCY", Value: "USD", Canonical: true}}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure cash instrument: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	txs := []*apiv1.Tx{
 		{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: ""},
 	}
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}

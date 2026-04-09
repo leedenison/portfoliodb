@@ -659,6 +659,7 @@ func (p *Postgres) InsertUnhandledCorporateEvent(ctx context.Context, event db.U
 	_, err = p.q.ExecContext(ctx, `
 		INSERT INTO unhandled_corporate_events (instrument_id, event_type, ex_date, detail, data)
 		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (instrument_id, event_type, ex_date) WHERE NOT resolved DO NOTHING
 	`, instUUID, event.EventType, nullTime(event.ExDate), event.Detail, dataJSON)
 	if err != nil {
 		return fmt.Errorf("insert unhandled corporate event: %w", err)

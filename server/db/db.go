@@ -792,8 +792,8 @@ type CorporateEventDB interface {
 	ApplyOptionSplit(ctx context.Context, params OptionSplitParams) error
 
 	// InsertUnhandledCorporateEvent stores a corporate event that requires
-	// manual admin review. Duplicate (instrument_id, event_type, ex_date) rows
-	// are allowed since details may differ.
+	// manual admin review. Duplicate unresolved (instrument_id, event_type,
+	// ex_date) rows are silently ignored via ON CONFLICT DO NOTHING.
 	InsertUnhandledCorporateEvent(ctx context.Context, event UnhandledCorporateEvent) error
 	// ListUnhandledCorporateEvents returns unhandled events, newest first.
 	// When resolvedOnly is false, only unresolved events are returned.

@@ -748,3 +748,60 @@ func TestApplyOptionSplit(t *testing.T) {
 	}
 }
 
+func TestInsertUnhandledCorporateEvent_Dedup(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "DEDUP")
+
+	exDate := d(2024, 7, 1)
+	event := db.UnhandledCorporateEvent{
+		InstrumentID: instID,
+		EventType:    "REVERSE_SPLIT",
+		ExDate:       &exDate,
+		Detail:       "first insert",
+		Data:         []byte(`{"split_from":"2","split_to":"1"}`),
+	}
+
+	// First insert should succeed.
+	if err := p.InsertUnhandledCorporateEvent(ctx, event); err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+
+	// Second insert with same (instrument, type, date) should be silently ignored.
+	event.Detail = "duplicate insert"
+	if err := p.InsertUnhandledCorporateEvent(ctx, event); err != nil {
+		t.Fatalf("duplicate insert should not error: %v", err)
+	}
+
+	// Verify only one row exists.
+	events, total, _, err := p.ListUnhandledCorporateEvents(ctx, false, 50, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected 1 event, got %d", total)
+	}
+	if events[0].Detail != "first insert" {
+		t.Errorf("expected first insert detail, got %q", events[0].Detail)
+	}
+
+	// Resolve the event, then re-insert should succeed (new unresolved row).
+	if err := p.ResolveUnhandledCorporateEvent(ctx, events[0].ID); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	event.Detail = "after resolve"
+	if err := p.InsertUnhandledCorporateEvent(ctx, event); err != nil {
+		t.Fatalf("insert after resolve: %v", err)
+	}
+	events2, total2, _, err := p.ListUnhandledCorporateEvents(ctx, false, 50, "")
+	if err != nil {
+		t.Fatalf("list after resolve: %v", err)
+	}
+	if total2 != 1 {
+		t.Fatalf("expected 1 unresolved event after resolve+reinsert, got %d", total2)
+	}
+	if events2[0].Detail != "after resolve" {
+		t.Errorf("expected 'after resolve' detail, got %q", events2[0].Detail)
+	}
+}
+

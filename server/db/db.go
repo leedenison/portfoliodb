@@ -796,8 +796,8 @@ type CorporateEventDB interface {
 	// are allowed since details may differ.
 	InsertUnhandledCorporateEvent(ctx context.Context, event UnhandledCorporateEvent) error
 	// ListUnhandledCorporateEvents returns unhandled events, newest first.
-	// When resolvedOnly is false, only unresolved events are returned.
-	ListUnhandledCorporateEvents(ctx context.Context, resolvedOnly bool, pageSize int32, pageToken string) ([]UnhandledCorporateEvent, int32, string, error)
+	// When includeResolved is false, only unresolved events are returned.
+	ListUnhandledCorporateEvents(ctx context.Context, includeResolved bool, pageSize int32, pageToken string) ([]UnhandledCorporateEvent, int32, string, error)
 	// CountUnhandledCorporateEvents returns the number of unresolved events.
 	CountUnhandledCorporateEvents(ctx context.Context) (int32, error)
 	// ResolveUnhandledCorporateEvent marks an event as resolved.

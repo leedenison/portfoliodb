@@ -111,6 +111,11 @@ message Instrument {
   Exchange exchange_info = 11; // Rich exchange data from exchanges table JOIN; populated when exchange_mic is set.
   string cik = 12;            // SEC Central Index Key (optional).
   string sic_code = 13;       // SIC industry classification code (optional).
+  // Option fields (denormalized from OCC identifier).
+  double strike = 14;             // Strike price; 0 for non-options.
+  string expiry = 15;             // YYYY-MM-DD expiry date; empty for non-options.
+  string put_call = 16;           // "C" or "P"; empty for non-options.
+  double contract_multiplier = 17; // Deliverable multiplier; 1 = standard.
 }
 
 // Exchange is ISO 10383 MIC reference data for an instrument's exchange.
@@ -145,6 +150,11 @@ message Tx {
   repeated InstrumentIdentifier identifier_hints = 10;
   // NULL for real transactions, 'INITIALIZE' for synthetic opening-balance transactions.
   string synthetic_purpose = 11;
+  // Split-adjusted quantity (quantity * cumulative split factor). Equal to
+  // quantity when no splits exist for the instrument.
+  double split_adjusted_quantity = 12;
+  // Split-adjusted unit price (unit_price / cumulative split factor).
+  double split_adjusted_unit_price = 13;
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,
@@ -377,6 +387,8 @@ message Holding {
   string instrument_id = 4;
   Instrument instrument = 5;  // optional; set when instrument_id was resolved
   string account = 6;  // account string from txs; holdings are grouped by (broker, account, instrument)
+  // Split-adjusted quantity (sum of split_adjusted_quantity across txs).
+  double split_adjusted_quantity = 7;
 }
 
 message GetHoldingsRequest {

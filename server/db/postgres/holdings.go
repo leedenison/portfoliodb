@@ -23,7 +23,8 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *a
 	}
 	qb := psql.Select("t.broker", "t.account",
 		"COALESCE(i.name, MAX(t.instrument_description)) AS instrument_description",
-		"t.instrument_id", "SUM(t.quantity) AS quantity").
+		"t.instrument_id", "SUM(t.quantity) AS quantity",
+		"SUM(t.split_adjusted_quantity) AS split_adjusted_quantity").
 		From("txs t").
 		LeftJoin("instruments i ON i.id = t.instrument_id").
 		Where(sq.Eq{"t.user_id": userUUID}).
@@ -69,7 +70,8 @@ func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID 
 	err = p.q.SelectContext(ctx, &hrows, `
 		SELECT t.broker, t.account,
 			COALESCE(i.name, MAX(t.instrument_description)) AS instrument_description,
-			t.instrument_id, SUM(t.quantity) AS quantity
+			t.instrument_id, SUM(t.quantity) AS quantity,
+			SUM(t.split_adjusted_quantity) AS split_adjusted_quantity
 		FROM txs t
 		INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
 		LEFT JOIN instruments i ON i.id = t.instrument_id

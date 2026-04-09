@@ -94,6 +94,12 @@ import {
   UpdateInflationPluginResponseSchema,
   TriggerInflationFetchRequestSchema,
   TriggerPriceFetchRequestSchema,
+  CountUnhandledCorporateEventsRequestSchema,
+  CountUnhandledCorporateEventsResponseSchema,
+  ListUnhandledCorporateEventsRequestSchema,
+  ListUnhandledCorporateEventsResponseSchema,
+  ResolveUnhandledCorporateEventRequestSchema,
+  ResolveUnhandledCorporateEventResponseSchema,
   AssetClass,
   JobStatus,
   WorkerState,
@@ -969,6 +975,76 @@ export async function triggerInflationFetch(): Promise<void> {
   const base = getBaseUrl();
   const req = create(TriggerInflationFetchRequestSchema, {});
   await unaryFetch(base, ApiServicePrefix + "TriggerInflationFetch", toBinary(TriggerInflationFetchRequestSchema, req), {
+    credentials: "include",
+  });
+}
+
+// --- Corporate Events ---
+
+export interface UnhandledCorporateEvent {
+  id: string;
+  instrumentId: string;
+  instrumentName: string;
+  eventType: string;
+  exDate: string;
+  detail: string;
+  data: string;
+  resolved: boolean;
+  createdAt: Date | null;
+}
+
+export interface ListUnhandledCorporateEventsResult {
+  events: UnhandledCorporateEvent[];
+  totalCount: number;
+  nextPageToken: string | null;
+}
+
+export async function listUnhandledCorporateEvents(params?: {
+  includeResolved?: boolean;
+  pageSize?: number;
+  pageToken?: string | null;
+}): Promise<ListUnhandledCorporateEventsResult> {
+  const base = getBaseUrl();
+  const req = create(ListUnhandledCorporateEventsRequestSchema, {
+    includeResolved: params?.includeResolved ?? false,
+    pageSize: params?.pageSize ?? 50,
+    pageToken: params?.pageToken ?? "",
+  });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListUnhandledCorporateEvents", toBinary(ListUnhandledCorporateEventsRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(ListUnhandledCorporateEventsResponseSchema, resBytes);
+  return {
+    events: res.events.map((e) => ({
+      id: e.id,
+      instrumentId: e.instrumentId,
+      instrumentName: e.instrumentName,
+      eventType: e.eventType,
+      exDate: e.exDate,
+      detail: e.detail,
+      data: e.data,
+      resolved: e.resolved,
+      createdAt: e.createdAt ? timestampDate(e.createdAt) : null,
+    })),
+    totalCount: res.totalCount,
+    nextPageToken: res.nextPageToken || null,
+  };
+}
+
+export async function countUnhandledCorporateEvents(): Promise<number> {
+  const base = getBaseUrl();
+  const req = create(CountUnhandledCorporateEventsRequestSchema, {});
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "CountUnhandledCorporateEvents", toBinary(CountUnhandledCorporateEventsRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(CountUnhandledCorporateEventsResponseSchema, resBytes);
+  return res.count;
+}
+
+export async function resolveUnhandledCorporateEvent(id: string): Promise<void> {
+  const base = getBaseUrl();
+  const req = create(ResolveUnhandledCorporateEventRequestSchema, { id });
+  await unaryFetch(base, ApiServicePrefix + "ResolveUnhandledCorporateEvent", toBinary(ResolveUnhandledCorporateEventRequestSchema, req), {
     credentials: "include",
   });
 }

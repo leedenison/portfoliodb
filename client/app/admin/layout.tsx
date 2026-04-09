@@ -30,6 +30,12 @@ const adminNav: NavItem[] = [
     ],
   },
   {
+    section: "Events",
+    children: [
+      { href: "/admin/corporate-events", label: "Corporate Events" },
+    ],
+  },
+  {
     section: "Diagnostics",
     children: [
       { href: "/admin/logs", label: "Logs", disabled: true },

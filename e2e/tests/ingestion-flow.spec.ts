@@ -5,6 +5,7 @@ import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
+import { isRecordingSuite } from "../helpers/vcr";
 
 test.beforeAll(async () => {
   await loadCassette("ingestion-flow");
@@ -92,7 +93,7 @@ test.describe("CSV ingestion flow", () => {
 
   // In record mode, ensure all price fetches complete so the VCR cassette
   // captures every HTTP interaction before the server shuts down.
-  if (process.env.VCR_MODE === "record") {
+  if (isRecordingSuite("ingestion-flow")) {
     test("wait for all workers to finish (record mode)", async ({ browser }) => {
       test.setTimeout(TIMEOUT_SLOW);
       await waitForWorkersIdle(browser, { timeoutMs: TIMEOUT_SLOW });

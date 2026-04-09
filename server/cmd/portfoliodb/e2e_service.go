@@ -102,7 +102,7 @@ func loadCassette(name string) error {
 
 	path := e2eCassetteDir + "/" + name
 	mode := recorder.ModeReplayOnly
-	if vcr.IsRecording() {
+	if vcr.IsRecordingSuite(name) {
 		mode = recorder.ModeRecordOnly
 	}
 

@@ -3,6 +3,7 @@ import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
+import { isRecordingSuite } from "../helpers/vcr";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { uploadCSVAndWait } from "../helpers/upload";
 
@@ -99,7 +100,7 @@ test.describe("idempotent bulk re-upload", () => {
     await expect(table).not.toContainText("GOOGL");
   });
 
-  if (process.env.VCR_MODE === "record") {
+  if (isRecordingSuite("idempotent-reupload")) {
     test("wait for all workers to finish (record mode)", async ({
       browser,
     }) => {

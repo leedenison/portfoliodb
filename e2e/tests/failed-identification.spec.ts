@@ -3,6 +3,7 @@ import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
+import { isRecordingSuite } from "../helpers/vcr";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { uploadCSVAndWait } from "../helpers/upload";
 
@@ -85,7 +86,7 @@ test.describe("failed instrument identification", () => {
     await expect(page.getByText("XYZFAKE")).toBeVisible();
   });
 
-  if (process.env.VCR_MODE === "record") {
+  if (isRecordingSuite("failed-identification")) {
     test("wait for all workers to finish (record mode)", async ({
       browser,
     }) => {

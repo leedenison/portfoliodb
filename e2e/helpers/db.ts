@@ -4,6 +4,7 @@
 import { Client } from "pg";
 import * as fs from "fs";
 import * as path from "path";
+import { isRecording } from "./vcr";
 
 const DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
@@ -61,11 +62,11 @@ export async function seedFixture(filename: string): Promise<void> {
   await c.query(sql);
 }
 
-// Seed plugin config. In record mode (VCR_MODE=record) uses real API keys
-// from env vars; in replay mode uses "REDACTED" placeholders.
+// Seed plugin config. When any suite is being recorded (VCR_MODE is non-empty)
+// uses real API keys from env vars; in replay mode uses "REDACTED" placeholders.
 export async function seedPluginConfig(): Promise<void> {
   const c = await getClient();
-  const recording = process.env.VCR_MODE === "record";
+  const recording = isRecording();
 
   const openaiKey = recording ? process.env.OPENAI_API_KEY ?? "" : "REDACTED";
   const openfigiKey = recording

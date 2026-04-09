@@ -14,7 +14,7 @@ import (
 )
 
 func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
-	apiKey := vcr.EnvOrSkip(t, "MASSIVE_API_KEY")
+	apiKey := vcr.EnvOrSkip(t, "MASSIVE_API_KEY", "massive/price")
 
 	tests := []struct {
 		name       string
@@ -66,7 +66,7 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll)
+			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "massive/price")
 
 			p := NewPlugin(nil, nil, httpClient)
 			cfg, err := json.Marshal(configJSON{

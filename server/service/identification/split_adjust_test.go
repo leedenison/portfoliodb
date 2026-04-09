@@ -8,54 +8,54 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
-func TestCumulativeSplitFactor(t *testing.T) {
+func TestSplitFactorSince(t *testing.T) {
+	splits := []db.StockSplit{
+		{ExDate: time.Date(2023, 6, 1, 0, 0, 0, 0, time.UTC), SplitFrom: "1", SplitTo: "2"},
+		{ExDate: time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC), SplitFrom: "1", SplitTo: "10"},
+	}
 	tests := []struct {
-		name   string
-		splits []db.StockSplit
-		want   float64
+		name  string
+		since time.Time
+		want  float64
 	}{
 		{
-			name:   "no splits",
-			splits: nil,
-			want:   1.0,
+			name:  "before all splits",
+			since: time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC),
+			want:  20.0, // 2 * 10
 		},
 		{
-			name: "single 2:1",
-			splits: []db.StockSplit{
-				{ExDate: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), SplitFrom: "1", SplitTo: "2"},
-			},
-			want: 2.0,
+			name:  "between splits",
+			since: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			want:  10.0, // only the 10:1
 		},
 		{
-			name: "10:1",
-			splits: []db.StockSplit{
-				{ExDate: time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC), SplitFrom: "1", SplitTo: "10"},
-			},
-			want: 10.0,
+			name:  "after all splits",
+			since: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			want:  1.0, // no applicable splits
 		},
 		{
-			name: "future split ignored",
-			splits: []db.StockSplit{
-				{ExDate: time.Now().AddDate(1, 0, 0), SplitFrom: "1", SplitTo: "4"},
-			},
-			want: 1.0,
-		},
-		{
-			name: "two splits multiply",
-			splits: []db.StockSplit{
-				{ExDate: time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC), SplitFrom: "1", SplitTo: "2"},
-				{ExDate: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), SplitFrom: "1", SplitTo: "5"},
-			},
-			want: 10.0,
+			name:  "on split date (not after)",
+			since: time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC),
+			want:  1.0, // ex_date must be strictly after since
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := cumulativeSplitFactor(tt.splits, time.Now())
+			got := splitFactorSince(splits, tt.since)
 			if got != tt.want {
 				t.Errorf("got %f, want %f", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSplitFactorSince_FutureSplitIgnored(t *testing.T) {
+	splits := []db.StockSplit{
+		{ExDate: time.Now().AddDate(1, 0, 0), SplitFrom: "1", SplitTo: "4"},
+	}
+	got := splitFactorSince(splits, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC))
+	if got != 1.0 {
+		t.Errorf("got %f, want 1.0 (future split should be ignored)", got)
 	}
 }
 

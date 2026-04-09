@@ -175,7 +175,7 @@ func TestResolveWithPlugins_DBHit(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, nil, 0)
+		false, nil, nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, nil, 0)
+		false, nil, nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "XYZ"}},
-		false, fallback, nil, nil, 0)
+		false, fallback, nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "SLOW"}},
-		false, fallback, nil, nil, 0)
+		false, fallback, nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestResolveWithPlugins_NilFallback_ReturnsEmpty(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "XYZ"}},
-		false, nil, nil, nil, 0)
+		false, nil, nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"IBKR", source, desc, identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: desc}},
-		true, nil, nil, nil, 0)
+		true, nil, nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -408,7 +408,7 @@ func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "BAD"}},
-		false, fallback, nil, nil, 0)
+		false, fallback, nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}

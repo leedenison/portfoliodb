@@ -12,11 +12,15 @@ import (
 )
 
 // AdjustOCCForKnownSplits checks whether the underlying ticker parsed from an
-// OCC identifier has any known stock splits with ex_date <= today. If so, the
-// OCC strike is adjusted by the cumulative split factor and a new compact OCC
-// is returned. Returns the original hints unmodified when no adjustment is
-// needed (no splits found, underlying not in DB, or not an OCC hint).
-func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, hints []identifier.Identifier) []identifier.Identifier {
+// OCC identifier has any known stock splits that occurred after hintsValidAt.
+// If so, the OCC strike is adjusted by the cumulative split factor and a new
+// compact OCC is returned. Returns the original hints unmodified when
+// hintsValidAt is nil, no splits found, underlying not in DB, or not an OCC
+// hint.
+func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, hints []identifier.Identifier, hintsValidAt *time.Time) []identifier.Identifier {
+	if hintsValidAt == nil {
+		return hints
+	}
 	adjusted := make([]identifier.Identifier, len(hints))
 	copy(adjusted, hints)
 
@@ -38,7 +42,7 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 			continue
 		}
 
-		factor := cumulativeSplitFactor(splits, time.Now())
+		factor := splitFactorSince(splits, *hintsValidAt)
 		if factor == 1.0 {
 			continue
 		}
@@ -54,13 +58,15 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 	return adjusted
 }
 
-// cumulativeSplitFactor computes the product of (split_to / split_from) for
-// all splits with ex_date <= asOf. Returns 1.0 when no applicable splits.
-func cumulativeSplitFactor(splits []db.StockSplit, asOf time.Time) float64 {
+// splitFactorSince computes the cumulative split factor for splits that
+// occurred after since and on or before today: ex_date > since AND
+// ex_date <= now. Returns 1.0 when no applicable splits.
+func splitFactorSince(splits []db.StockSplit, since time.Time) float64 {
 	factor := 1.0
-	today := asOf.Truncate(24 * time.Hour)
+	now := time.Now().Truncate(24 * time.Hour)
+	sinceDate := since.Truncate(24 * time.Hour)
 	for _, s := range splits {
-		if s.ExDate.After(today) {
+		if s.ExDate.After(now) || !s.ExDate.After(sinceDate) {
 			continue
 		}
 		from, okF := new(big.Rat).SetString(s.SplitFrom)

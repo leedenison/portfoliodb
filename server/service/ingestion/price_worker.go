@@ -226,7 +226,7 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		result, err := identification.ResolveWithPlugins(ctx, database, pluginRegistry,
 			"", "", "", hints,
 			[]identifier.Identifier{hint},
-			false, fallback, nil, nil, 0)
+			false, fallback, nil, nil, 0, nil)
 		if err != nil {
 			return "", fmt.Errorf("identification error for %s %q: %v", idType, value, err)
 		}

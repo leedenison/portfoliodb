@@ -584,6 +584,8 @@ type InstrumentDB interface {
 	InsertInstrumentIdentifier(ctx context.Context, instrumentID string, input IdentifierInput) error
 	// UpdateInstrumentStrike updates the strike on an existing option instrument.
 	UpdateInstrumentStrike(ctx context.Context, instrumentID string, strike float64) error
+	// UpdateIdentifiedAt sets identified_at = now() on an existing instrument.
+	UpdateIdentifiedAt(ctx context.Context, instrumentID string) error
 }
 
 // IgnoredAssetClass is one ignore rule: skip tx types mapping to this asset class for

@@ -500,21 +500,29 @@ func (p *Postgres) InstrumentsWithSplits(ctx context.Context, instrumentIDs []st
 	if len(instrumentIDs) == 0 {
 		return nil, nil
 	}
+	uuids := make([]uuid.UUID, 0, len(instrumentIDs))
+	for _, id := range instrumentIDs {
+		u, err := uuid.Parse(id)
+		if err != nil {
+			return nil, fmt.Errorf("instruments with splits: invalid id %q: %w", id, err)
+		}
+		uuids = append(uuids, u)
+	}
 	rows, err := p.q.QueryContext(ctx, `
 		SELECT DISTINCT instrument_id FROM stock_splits
-		WHERE instrument_id = ANY($1)
-	`, pq.Array(instrumentIDs))
+		WHERE instrument_id = ANY($1::uuid[])
+	`, pq.Array(uuids))
 	if err != nil {
 		return nil, fmt.Errorf("instruments with splits: %w", err)
 	}
 	defer rows.Close()
 	var out []string
 	for rows.Next() {
-		var id string
+		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
 			return nil, fmt.Errorf("instruments with splits scan: %w", err)
 		}
-		out = append(out, id)
+		out = append(out, id.String())
 	}
 	return out, rows.Err()
 }

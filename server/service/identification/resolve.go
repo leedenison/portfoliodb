@@ -119,11 +119,12 @@ func ResolveWithPlugins(
 	counter telemetry.CounterIncrementer,
 	logger *slog.Logger,
 	depth int,
+	hintsValidAt *time.Time,
 ) (ResolveResult, error) {
 	l := resolveLogger(logger)
 
 	// Adjust OCC hints for known stock splits before any lookups.
-	identifierHints = AdjustOCCForKnownSplits(ctx, database, identifierHints)
+	identifierHints = AdjustOCCForKnownSplits(ctx, database, identifierHints, hintsValidAt)
 
 	// If all hints already resolve to one instrument in DB, use it (avoids plugin call).
 	ids, err := ResolveByHintsDBOnly(ctx, database, identifierHints)
@@ -259,7 +260,7 @@ func ResolveWithPlugins(
 			uIdnHints := make([]identifier.Identifier, len(inst.UnderlyingIdentifiers))
 			copy(uIdnHints, inst.UnderlyingIdentifiers)
 			// Underlying resolution: no source description, no fallback needed (use nil).
-			uResult, uErr := ResolveWithPlugins(ctx, database, registry, broker, source, "", uHints, uIdnHints, false, nil, counter, logger, depth+1)
+			uResult, uErr := ResolveWithPlugins(ctx, database, registry, broker, source, "", uHints, uIdnHints, false, nil, counter, logger, depth+1, nil)
 			if uErr != nil {
 				l.WarnContext(ctx, "underlying resolution failed", "instrument_description", instrumentDescription, "err", uErr)
 			} else if uResult.InstrumentID != "" {

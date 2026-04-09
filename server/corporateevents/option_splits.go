@@ -151,6 +151,13 @@ func processOneOptionSplit(ctx context.Context, database db.DB, opt *db.Instrume
 		}
 	}
 
+	// Mark as recently identified so the guard fires on subsequent cycles.
+	if err := database.UpdateIdentifiedAt(ctx, opt.ID); err != nil {
+		if log != nil {
+			log.ErrorContext(ctx, "option splits: update identified_at", "option", opt.ID, "err", err)
+		}
+	}
+
 	if log != nil {
 		log.InfoContext(ctx, "option splits: adjusted",
 			"option", opt.ID, "old_occ", currentOCC, "new_occ", newOCC,

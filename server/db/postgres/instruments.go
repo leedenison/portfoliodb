@@ -600,3 +600,16 @@ func (p *Postgres) UpdateInstrumentStrike(ctx context.Context, instrumentID stri
 	}
 	return nil
 }
+
+// UpdateIdentifiedAt implements db.InstrumentDB.
+func (p *Postgres) UpdateIdentifiedAt(ctx context.Context, instrumentID string) error {
+	uid, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("update identified_at: invalid id: %w", err)
+	}
+	_, err = p.q.ExecContext(ctx, `UPDATE instruments SET identified_at = now() WHERE id = $1`, uid)
+	if err != nil {
+		return fmt.Errorf("update identified_at: %w", err)
+	}
+	return nil
+}

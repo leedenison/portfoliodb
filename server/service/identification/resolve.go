@@ -122,6 +122,9 @@ func ResolveWithPlugins(
 ) (ResolveResult, error) {
 	l := resolveLogger(logger)
 
+	// Adjust OCC hints for known stock splits before any lookups.
+	identifierHints = AdjustOCCForKnownSplits(ctx, database, identifierHints)
+
 	// If all hints already resolve to one instrument in DB, use it (avoids plugin call).
 	ids, err := ResolveByHintsDBOnly(ctx, database, identifierHints)
 	if err != nil {
@@ -372,7 +375,12 @@ func optionFieldsFromIdentifiers(ids []identifier.Identifier) *db.OptionFields {
 		if idn.Type != "OCC" {
 			continue
 		}
-		parsed, ok := derivative.ParseOptionTicker(idn.Value)
+		// DB stores compact form; pad to 21-char for ParseOptionTicker.
+		padded, ok := derivative.OCCPadded(idn.Value)
+		if !ok {
+			continue
+		}
+		parsed, ok := derivative.ParseOptionTicker(padded)
 		if !ok {
 			continue
 		}

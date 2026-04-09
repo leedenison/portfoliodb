@@ -523,3 +523,80 @@ func (p *Postgres) ValidateMIC(ctx context.Context, mic string) (bool, error) {
 	}
 	return true, nil
 }
+
+// ListOptionsByUnderlying implements db.InstrumentDB.
+func (p *Postgres) ListOptionsByUnderlying(ctx context.Context, underlyingID string) ([]*db.InstrumentRow, error) {
+	uid, err := uuid.Parse(underlyingID)
+	if err != nil {
+		return nil, fmt.Errorf("list options by underlying: invalid id: %w", err)
+	}
+	var irows []instrumentRow
+	err = p.q.SelectContext(ctx, &irows, `
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_to,
+		       i.cik, i.sic_code,
+		       i.strike, i.expiry, i.put_call, i.contract_multiplier, i.identified_at,
+		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
+		FROM instruments i
+		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
+		WHERE i.underlying_id = $1 AND i.asset_class = 'OPTION'
+		ORDER BY i.id
+	`, uid)
+	if err != nil {
+		return nil, fmt.Errorf("list options by underlying: %w", err)
+	}
+	results := make([]*db.InstrumentRow, len(irows))
+	ids := make([]uuid.UUID, len(irows))
+	for i := range irows {
+		results[i] = irows[i].toDBRow()
+		ids[i] = irows[i].ID
+	}
+	if err := loadIdentifiers(ctx, p.q, ids, results); err != nil {
+		return nil, fmt.Errorf("list options by underlying identifiers: %w", err)
+	}
+	return results, nil
+}
+
+// DeleteInstrumentIdentifier implements db.InstrumentDB.
+func (p *Postgres) DeleteInstrumentIdentifier(ctx context.Context, instrumentID, identifierType, value string) error {
+	uid, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("delete instrument identifier: invalid id: %w", err)
+	}
+	_, err = p.q.ExecContext(ctx, `
+		DELETE FROM instrument_identifiers
+		WHERE instrument_id = $1 AND identifier_type = $2 AND value = $3
+	`, uid, identifierType, value)
+	if err != nil {
+		return fmt.Errorf("delete instrument identifier: %w", err)
+	}
+	return nil
+}
+
+// InsertInstrumentIdentifier implements db.InstrumentDB.
+func (p *Postgres) InsertInstrumentIdentifier(ctx context.Context, instrumentID string, input db.IdentifierInput) error {
+	uid, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("insert instrument identifier: invalid id: %w", err)
+	}
+	_, err = p.q.ExecContext(ctx, `
+		INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical)
+		VALUES ($1, $2, $3, $4, $5)
+	`, uid, input.Type, nullStr(input.Domain), input.Value, input.Canonical)
+	if err != nil {
+		return fmt.Errorf("insert instrument identifier: %w", err)
+	}
+	return nil
+}
+
+// UpdateInstrumentStrike implements db.InstrumentDB.
+func (p *Postgres) UpdateInstrumentStrike(ctx context.Context, instrumentID string, strike float64) error {
+	uid, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("update instrument strike: invalid id: %w", err)
+	}
+	_, err = p.q.ExecContext(ctx, `UPDATE instruments SET strike = $2 WHERE id = $1`, uid, strike)
+	if err != nil {
+		return fmt.Errorf("update instrument strike: %w", err)
+	}
+	return nil
+}

@@ -573,6 +573,17 @@ type InstrumentDB interface {
 	ValidateMIC(ctx context.Context, mic string) (bool, error)
 	// ListInstruments returns instruments sorted alphabetically by display name (ticker, then name, then broker description). If search is non-empty, only instruments with at least one identifier value matching (case-insensitive substring) are returned. If assetClasses is non-empty, only instruments with matching asset_class are returned. Returns (rows, totalCount, nextPageToken, error).
 	ListInstruments(ctx context.Context, search string, assetClasses []string, pageSize int32, pageToken string) ([]*InstrumentRow, int32, string, error)
+
+	// ListOptionsByUnderlying returns all OPTION instruments with the given
+	// underlying_id, including their identifiers.
+	ListOptionsByUnderlying(ctx context.Context, underlyingID string) ([]*InstrumentRow, error)
+	// DeleteInstrumentIdentifier removes a single identifier row by
+	// (instrument_id, identifier_type, value). Returns nil when no row exists.
+	DeleteInstrumentIdentifier(ctx context.Context, instrumentID, identifierType, value string) error
+	// InsertInstrumentIdentifier inserts a single identifier row.
+	InsertInstrumentIdentifier(ctx context.Context, instrumentID string, input IdentifierInput) error
+	// UpdateInstrumentStrike updates the strike on an existing option instrument.
+	UpdateInstrumentStrike(ctx context.Context, instrumentID string, strike float64) error
 }
 
 // IgnoredAssetClass is one ignore rule: skip tx types mapping to this asset class for
@@ -752,6 +763,14 @@ type CorporateEventDB interface {
 	// the best identifier per instrument. See ListStockSplitsForExport for the
 	// identifier priority order.
 	ListCashDividendsForExport(ctx context.Context) ([]ExportCashDividend, error)
+
+	// SplitsByUnderlyingTicker returns stock splits for the instrument matching
+	// the given MIC_TICKER, ordered ascending by ex_date. Used by split-aware
+	// identification to adjust pre-split OCC identifiers.
+	SplitsByUnderlyingTicker(ctx context.Context, ticker string) ([]StockSplit, error)
+	// InstrumentsWithSplits returns the subset of instrumentIDs that have at
+	// least one stock_splits row.
+	InstrumentsWithSplits(ctx context.Context, instrumentIDs []string) ([]string, error)
 
 	// InsertUnhandledCorporateEvent stores a corporate event that requires
 	// manual admin review. Duplicate (instrument_id, event_type, ex_date) rows

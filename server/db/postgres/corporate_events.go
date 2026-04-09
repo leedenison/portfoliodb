@@ -469,6 +469,56 @@ func (p *Postgres) HeldEventBearingInstruments(ctx context.Context) ([]db.HeldIn
 	return out, rows.Err()
 }
 
+// SplitsByUnderlyingTicker implements db.CorporateEventDB.
+func (p *Postgres) SplitsByUnderlyingTicker(ctx context.Context, ticker string) ([]db.StockSplit, error) {
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT ss.instrument_id, ss.ex_date, ss.split_from, ss.split_to, ss.data_provider, ss.fetched_at
+		FROM stock_splits ss
+		JOIN instrument_identifiers ii ON ii.instrument_id = ss.instrument_id
+		WHERE ii.identifier_type = 'MIC_TICKER' AND ii.value = $1
+		ORDER BY ss.ex_date
+	`, ticker)
+	if err != nil {
+		return nil, fmt.Errorf("splits by underlying ticker: %w", err)
+	}
+	defer rows.Close()
+	var out []db.StockSplit
+	for rows.Next() {
+		var s db.StockSplit
+		var instUUID uuid.UUID
+		if err := rows.Scan(&instUUID, &s.ExDate, &s.SplitFrom, &s.SplitTo, &s.DataProvider, &s.FetchedAt); err != nil {
+			return nil, fmt.Errorf("splits by underlying ticker scan: %w", err)
+		}
+		s.InstrumentID = instUUID.String()
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// InstrumentsWithSplits implements db.CorporateEventDB.
+func (p *Postgres) InstrumentsWithSplits(ctx context.Context, instrumentIDs []string) ([]string, error) {
+	if len(instrumentIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT DISTINCT instrument_id FROM stock_splits
+		WHERE instrument_id = ANY($1)
+	`, pq.Array(instrumentIDs))
+	if err != nil {
+		return nil, fmt.Errorf("instruments with splits: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("instruments with splits scan: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // BlockedCorporateEventPluginsForInstruments implements db.CorporateEventDB.
 func (p *Postgres) BlockedCorporateEventPluginsForInstruments(ctx context.Context, instrumentIDs []string) (map[string]map[string]bool, error) {
 	if len(instrumentIDs) == 0 {

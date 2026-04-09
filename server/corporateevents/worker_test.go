@@ -287,6 +287,11 @@ func TestRunCycle_SplitsLandTriggerRecompute(t *testing.T) {
 	mockDB.EXPECT().UpsertStockSplits(gomock.Any(), gomock.Any()).Return(nil)
 	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "massive", gomock.Any(), gomock.Any()).Return(nil)
 	mockDB.EXPECT().RecomputeSplitAdjustments(gomock.Any(), instID).Return(nil)
+	// After splits land, the worker lists splits and options for the underlying.
+	mockDB.EXPECT().ListStockSplits(gomock.Any(), instID).Return([]db.StockSplit{
+		{InstrumentID: instID, ExDate: d(2024, 6, 9), SplitFrom: "1", SplitTo: "7"},
+	}, nil)
+	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), instID).Return(nil, nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 

@@ -686,6 +686,7 @@ func TestApplyOptionSplit(t *testing.T) {
 		OldOCCValue:  "AAPL  250117C00150000",
 		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL  250117C00037500", Canonical: true},
 		NewStrike:    37.5,
+		NewName:      "AAPL250117C00037500",
 	}
 	if err := p.ApplyOptionSplit(ctx, params); err != nil {
 		t.Fatalf("apply option split: %v", err)
@@ -717,6 +718,11 @@ func TestApplyOptionSplit(t *testing.T) {
 	// Verify strike updated.
 	if inst.Strike == nil || *inst.Strike != 37.5 {
 		t.Errorf("strike: got %v, want 37.5", inst.Strike)
+	}
+
+	// Verify name updated to new OCC.
+	if inst.Name == nil || *inst.Name != "AAPL250117C00037500" {
+		t.Errorf("name: got %v, want AAPL250117C00037500", inst.Name)
 	}
 
 	// No derived split row — split_factor_at looks up the underlying's splits

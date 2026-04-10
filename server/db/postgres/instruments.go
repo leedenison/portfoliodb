@@ -601,6 +601,19 @@ func (p *Postgres) UpdateInstrumentStrike(ctx context.Context, instrumentID stri
 	return nil
 }
 
+// UpdateInstrumentName implements db.InstrumentDB.
+func (p *Postgres) UpdateInstrumentName(ctx context.Context, instrumentID, name string) error {
+	uid, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("update instrument name: invalid id: %w", err)
+	}
+	_, err = p.q.ExecContext(ctx, `UPDATE instruments SET name = $2 WHERE id = $1`, uid, name)
+	if err != nil {
+		return fmt.Errorf("update instrument name: %w", err)
+	}
+	return nil
+}
+
 // UpdateIdentifiedAt implements db.InstrumentDB.
 func (p *Postgres) UpdateIdentifiedAt(ctx context.Context, instrumentID string) error {
 	uid, err := uuid.Parse(instrumentID)

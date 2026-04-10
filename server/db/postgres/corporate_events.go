@@ -570,6 +570,11 @@ func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitPa
 		if err := txp.UpdateInstrumentStrike(ctx, params.InstrumentID, params.NewStrike); err != nil {
 			return fmt.Errorf("apply option split: update strike: %w", err)
 		}
+		if params.NewName != "" {
+			if err := txp.UpdateInstrumentName(ctx, params.InstrumentID, params.NewName); err != nil {
+				return fmt.Errorf("apply option split: update name: %w", err)
+			}
+		}
 		if err := txp.RecomputeSplitAdjustments(ctx, params.InstrumentID); err != nil {
 			return fmt.Errorf("apply option split: recompute adjustments: %w", err)
 		}

@@ -668,7 +668,19 @@ func TestApplyOptionSplit(t *testing.T) {
 		InstrumentDescription: "AAPL 250117C00150000",
 	}})
 
-	// Apply a 4:1 split.
+	// Insert the 4:1 split on the underlying (split_factor_at looks up
+	// splits via underlying_id, not on the option instrument itself).
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{{
+		InstrumentID: underlyingID,
+		ExDate:       d(2024, 7, 1),
+		SplitFrom:    "1",
+		SplitTo:      "4",
+		DataProvider: "test",
+	}}); err != nil {
+		t.Fatalf("upsert underlying split: %v", err)
+	}
+
+	// Apply the option split (updates OCC, strike, recomputes adjustments).
 	params := db.OptionSplitParams{
 		InstrumentID: optID,
 		OldOCCValue:  "AAPL  250117C00150000",

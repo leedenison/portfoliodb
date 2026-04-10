@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/leedenison/portfoliodb/server/clock"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -17,12 +18,19 @@ import (
 // compact OCC is returned. Returns the original hints unmodified when
 // hintsValidAt is nil, no splits found, underlying not in DB, or not an OCC
 // hint.
-func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, hints []identifier.Identifier, hintsValidAt *time.Time) []identifier.Identifier {
+//
+// The second return value contains the underlying splits that were applied to
+// any OCC adjustment. Callers use this to create derived split records on
+// the option instrument after identification. timer may be nil (uses
+// time.Now).
+func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, hints []identifier.Identifier, hintsValidAt *time.Time, timer *clock.Timer) ([]identifier.Identifier, []db.StockSplit) {
 	if hintsValidAt == nil {
-		return hints
+		return hints, nil
 	}
 	adjusted := make([]identifier.Identifier, len(hints))
 	copy(adjusted, hints)
+
+	var appliedSplits []db.StockSplit
 
 	for i, h := range adjusted {
 		if h.Type != "OCC" {
@@ -32,7 +40,12 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 		if !ok {
 			continue
 		}
-		parsed, ok := derivative.ParseOptionTicker(compact)
+		// ParseOptionTicker needs 21-char padded OCC, not compact.
+		padded, ok := derivative.OCCPadded(compact)
+		if !ok {
+			continue
+		}
+		parsed, ok := derivative.ParseOptionTicker(padded)
 		if !ok || parsed.Symbol == "" || parsed.Strike <= 0 {
 			continue
 		}
@@ -42,7 +55,7 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 			continue
 		}
 
-		factor := splitFactorSince(splits, *hintsValidAt)
+		factor := splitFactorSince(splits, *hintsValidAt, timer)
 		if factor == 1.0 {
 			continue
 		}
@@ -54,16 +67,18 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 		}
 
 		adjusted[i] = identifier.Identifier{Type: h.Type, Domain: h.Domain, Value: newOCC}
+		appliedSplits = append(appliedSplits, applicableSplits(splits, *hintsValidAt, timer)...)
 	}
-	return adjusted
+	return adjusted, appliedSplits
 }
 
 // splitFactorSince computes the cumulative split factor for splits that
 // occurred after since and on or before today: ex_date > since AND
-// ex_date <= now. Returns 1.0 when no applicable splits.
-func splitFactorSince(splits []db.StockSplit, since time.Time) float64 {
+// ex_date <= now. Returns 1.0 when no applicable splits. timer may be
+// nil (uses time.Now).
+func splitFactorSince(splits []db.StockSplit, since time.Time, timer *clock.Timer) float64 {
 	factor := 1.0
-	now := time.Now().Truncate(24 * time.Hour)
+	now := timer.Now().Truncate(24 * time.Hour)
 	sinceDate := since.Truncate(24 * time.Hour)
 	for _, s := range splits {
 		if s.ExDate.After(now) || !s.ExDate.After(sinceDate) {
@@ -81,6 +96,22 @@ func splitFactorSince(splits []db.StockSplit, since time.Time) float64 {
 		}
 	}
 	return factor
+}
+
+// applicableSplits returns the subset of splits with ex_date > since AND
+// ex_date <= now. Used by callers that need the actual split rows (e.g.
+// to create derived splits on option instruments).
+func applicableSplits(splits []db.StockSplit, since time.Time, timer *clock.Timer) []db.StockSplit {
+	now := timer.Now().Truncate(24 * time.Hour)
+	sinceDate := since.Truncate(24 * time.Hour)
+	var out []db.StockSplit
+	for _, s := range splits {
+		if s.ExDate.After(now) || !s.ExDate.After(sinceDate) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // IsWholeForwardSplit returns true if the split factor (split_to/split_from)

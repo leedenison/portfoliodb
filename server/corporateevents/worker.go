@@ -258,7 +258,7 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 					"instrument", inst.ID, "err", err)
 			}
 		} else {
-			processOptionSplits(ctx, database, inst.ID, allSplits, log)
+			ProcessOptionSplits(ctx, database, inst.ID, allSplits, log, nil)
 		}
 	}
 }

@@ -9,19 +9,21 @@ import (
 	"sort"
 	"time"
 
+	"github.com/leedenison/portfoliodb/server/clock"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/service/identification"
 )
 
-// processOptionSplits adjusts options on the given underlying after new stock
+// ProcessOptionSplits adjusts options on the given underlying after new stock
 // splits land. For each option and each applicable split:
 //   - If identified_at >= split.fetched_at: skip (case 3 -- already correct)
 //   - If factor is not a whole forward split: insert unhandled event, skip
 //   - Otherwise: update OCC identifier, update strike, insert derived split row
 //
-// Splits are processed in chronological order.
-func processOptionSplits(ctx context.Context, database db.DB, underlyingID string, splits []db.StockSplit, log *slog.Logger) {
+// Splits are processed in chronological order. timer may be nil (uses
+// time.Now).
+func ProcessOptionSplits(ctx context.Context, database db.DB, underlyingID string, splits []db.StockSplit, log *slog.Logger, timer *clock.Timer) {
 	options, err := database.ListOptionsByUnderlying(ctx, underlyingID)
 	if err != nil {
 		if log != nil {
@@ -38,7 +40,7 @@ func processOptionSplits(ctx context.Context, database db.DB, underlyingID strin
 	copy(sorted, splits)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ExDate.Before(sorted[j].ExDate) })
 
-	today := time.Now().UTC().Truncate(24 * time.Hour)
+	today := timer.Now().UTC().Truncate(24 * time.Hour)
 
 	for _, split := range sorted {
 		if split.ExDate.After(today) {

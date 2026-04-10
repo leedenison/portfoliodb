@@ -114,6 +114,10 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 		time.Date(2014, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC)).Return(nil)
 	database.EXPECT().RecomputeSplitAdjustments(gomock.Any(), "inst-aapl").Return(nil)
+	database.EXPECT().ListStockSplits(gomock.Any(), "inst-aapl").Return([]db.StockSplit{
+		{InstrumentID: "inst-aapl", ExDate: time.Date(2020, 8, 31, 0, 0, 0, 0, time.UTC), SplitFrom: "1", SplitTo: "4", DataProvider: "import"},
+	}, nil)
+	database.EXPECT().ListOptionsByUnderlying(gomock.Any(), "inst-aapl").Return(nil, nil)
 	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-1", apiv1.JobStatus_SUCCESS).Return(nil)
 
 	if !processCorporateEventImport(context.Background(), database, registry, j) {

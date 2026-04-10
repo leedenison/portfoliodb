@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"google.golang.org/protobuf/proto"
@@ -147,6 +148,12 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 	for instID := range splitInstruments {
 		if err := database.RecomputeSplitAdjustments(ctx, instID); err != nil {
 			log.Printf("corporate event import job %s: recompute %s: %v", j.JobID, instID, err)
+		}
+		allSplits, err := database.ListStockSplits(ctx, instID)
+		if err != nil {
+			log.Printf("corporate event import job %s: list splits %s: %v", j.JobID, instID, err)
+		} else {
+			corporateevents.ProcessOptionSplits(ctx, database, instID, allSplits, nil, nil)
 		}
 	}
 

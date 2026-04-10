@@ -9,6 +9,7 @@ import {
   AssetClass,
   JobStatus,
   type GetJobResponse,
+  type ImportCorporateEventRow,
 } from "../gen/api/v1/api_pb";
 
 const COOKIE_NAME = "portfoliodb_session";
@@ -57,4 +58,34 @@ export async function importPricesAndWait(
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(`price import job ${jobId} did not complete within ${timeoutMs}ms`);
+}
+
+/** Import corporate events (splits/dividends) and wait for the async job. */
+export async function importCorporateEventsAndWait(
+  sessionId: string,
+  events: ImportCorporateEventRow[],
+  timeoutMs = 30_000,
+): Promise<GetJobResponse> {
+  const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
+  const resp = await client.importCorporateEvents({ events }, { headers });
+  const jobId = resp.jobId;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const job = await client.getJob({ jobId }, { headers });
+    if (job.status === JobStatus.SUCCESS || job.status === JobStatus.FAILED) {
+      return job;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(
+    `corporate event import job ${jobId} did not complete within ${timeoutMs}ms`,
+  );
+}
+
+/** Trigger the corporate event fetcher worker to run one cycle. */
+export async function triggerCorporateEventFetch(
+  sessionId: string,
+): Promise<void> {
+  const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
+  await client.triggerCorporateEventFetch({}, { headers });
 }

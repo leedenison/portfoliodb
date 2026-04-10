@@ -42,3 +42,4 @@ client/.next/
 client/gen/
 e2e/gen/
 *.tsbuildinfo
+test-results/

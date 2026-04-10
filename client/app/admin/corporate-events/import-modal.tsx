@@ -14,9 +14,7 @@ import {
   getHoldings,
   getJob,
   importCorporateEventSplits,
-  listPortfolios,
   type GetJobResult,
-  type Portfolio,
 } from "@/lib/portfolio-api";
 import { prefillFromPosition, validateRatio } from "@/lib/splits";
 import type { Holding } from "@/gen/api/v1/api_pb";
@@ -48,8 +46,6 @@ export function ImportCorporateEventsModal({
   const [extractorId, setExtractorId] = useState<string>("");
   const [parseResult, setParseResult] = useState<SplitParseResult | null>(null);
   const [rows, setRows] = useState<PreviewRow[]>([]);
-  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
-  const [prefillPortfolioId, setPrefillPortfolioId] = useState<string>("");
   const [prefilling, setPrefilling] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [fileInputActive, setFileInputActive] = useState(false);
@@ -66,12 +62,6 @@ export function ImportCorporateEventsModal({
     () => extractors.find((e) => e.id === extractorId) ?? extractors[0],
     [extractors, extractorId],
   );
-  // Schwab-style flow: when no row carries an embedded ratio, the prefill
-  // portfolio selector is meaningful. IBKR-style files already carry ratios.
-  const prefillUseful = useMemo(
-    () => rows.some((r) => !r.splitFromInput || !r.splitToInput),
-    [rows],
-  );
 
   const reset = useCallback(() => {
     setPhase("idle");
@@ -79,7 +69,6 @@ export function ImportCorporateEventsModal({
     setExtractorId("");
     setParseResult(null);
     setRows([]);
-    setPrefillPortfolioId("");
     setPrefilling(false);
     setFile(null);
     setFileInputActive(false);
@@ -89,78 +78,32 @@ export function ImportCorporateEventsModal({
     if (fileRef.current) fileRef.current.value = "";
   }, []);
 
-  // Load portfolios on first open so prefill is available immediately.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    listPortfolios()
-      .then((res) => {
-        if (!cancelled) setPortfolios(res.portfolios);
-      })
-      .catch(() => {
-        // Non-fatal: prefill stays disabled.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
-
   // Reset on close.
   useEffect(() => {
     if (!open) reset();
   }, [open, reset]);
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f || !selectedExtractor) return;
-    setFile(f);
-    const file = f;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = (ev.target?.result as string) ?? "";
-      const result = selectedExtractor.extract(text);
-      setParseResult(result);
-      setRows(
-        result.splits.map((s) => ({
-          ...s,
-          splitFromInput: s.splitFrom ?? "",
-          splitToInput: s.splitTo ?? "",
-          prefilled: false,
-        })),
-      );
-      setPhase("preview");
-    };
-    reader.readAsText(file);
-  }
+  // Auto-prefill ratios from admin holdings after file parse.
+  const autoPrefill = useCallback(async (parsed: PreviewRow[], selectedBroker: Broker | undefined) => {
+    const needsPrefill = parsed.some((r) => !r.splitFromInput || !r.splitToInput);
+    if (!needsPrefill) return parsed;
 
-  function updateRow(index: number, patch: Partial<PreviewRow>) {
-    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
-  }
-
-  // Prefill ratios from a holder portfolio. Only fills empty rows.
-  const handlePrefill = useCallback(async () => {
-    if (!prefillPortfolioId || rows.length === 0) return;
     setPrefilling(true);
-    setSubmitError(null);
     try {
-      // Cache holdings per ex date.
       const cache = new Map<string, Holding[]>();
       const next: PreviewRow[] = [];
-      for (const row of rows) {
+      for (const row of parsed) {
         if (row.splitFromInput && row.splitToInput) {
           next.push(row);
           continue;
         }
         let holdings = cache.get(row.exDate);
         if (!holdings) {
-          const res = await getHoldings({
-            portfolioId: prefillPortfolioId,
-            asOf: dayBefore(row.exDate),
-          });
+          const res = await getHoldings({ asOf: dayBefore(row.exDate) });
           holdings = res.holdings;
           cache.set(row.exDate, holdings);
         }
-        const pre = sumMatchingHoldingQty(holdings, row);
+        const pre = sumMatchingHoldingQty(holdings, row, selectedBroker);
         const delta = parseFloat(row.deltaShares ?? "");
         if (!Number.isFinite(pre) || !Number.isFinite(delta)) {
           next.push(row);
@@ -178,13 +121,43 @@ export function ImportCorporateEventsModal({
           prefilled: true,
         });
       }
-      setRows(next);
-    } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : String(e));
+      return next;
+    } catch {
+      // Non-fatal: prefill just doesn't happen.
+      return parsed;
     } finally {
       setPrefilling(false);
     }
-  }, [prefillPortfolioId, rows]);
+  }, []);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f || !selectedExtractor) return;
+    setFile(f);
+    const file = f;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const text = (ev.target?.result as string) ?? "";
+      const result = selectedExtractor.extract(text);
+      setParseResult(result);
+      const preview = result.splits.map((s) => ({
+        ...s,
+        splitFromInput: s.splitFrom ?? "",
+        splitToInput: s.splitTo ?? "",
+        prefilled: false,
+      }));
+      setRows(preview);
+      setPhase("preview");
+      // Auto-prefill rows missing ratios.
+      const prefilled = await autoPrefill(preview, broker);
+      setRows(prefilled);
+    };
+    reader.readAsText(file);
+  }
+
+  function updateRow(index: number, patch: Partial<PreviewRow>) {
+    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  }
 
   // Validate every row before allowing submit.
   const rowValidation = useMemo(
@@ -195,7 +168,8 @@ export function ImportCorporateEventsModal({
     rows.length > 0 &&
     rowValidation.every((v) => v.ok) &&
     phase === "preview" &&
-    !jobId;
+    !jobId &&
+    !prefilling;
 
   async function handleSubmit() {
     if (!canSubmit) return;
@@ -363,35 +337,8 @@ export function ImportCorporateEventsModal({
               </p>
             ) : (
               <>
-                {prefillUseful && portfolios.length > 0 && (
-                  <div className="flex items-end gap-2 rounded-md border border-border bg-background p-3">
-                    <div className="flex-1 space-y-1">
-                      <label htmlFor="ce-prefill" className="block text-xs font-medium text-text-muted">
-                        Prefill ratios from holder portfolio
-                      </label>
-                      <select
-                        id="ce-prefill"
-                        value={prefillPortfolioId}
-                        onChange={(e) => setPrefillPortfolioId(e.target.value)}
-                        className="block w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text-primary focus:border-primary focus:outline-none"
-                      >
-                        <option value="">(none)</option>
-                        {portfolios.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handlePrefill}
-                      disabled={!prefillPortfolioId || prefilling}
-                      className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {prefilling ? "Prefilling\u2026" : "Prefill"}
-                    </button>
-                  </div>
+                {prefilling && (
+                  <p className="text-sm text-text-muted">Prefilling ratios from your holdings...</p>
                 )}
 
                 <div className="overflow-x-auto rounded-md border border-border">
@@ -538,14 +485,19 @@ function dayBefore(ymd: string): Date {
  * instrument. We match on identifier value (case-insensitive), falling
  * back to instrument description equality. When the row has an account,
  * holdings outside that account are ignored; otherwise all matching
- * holdings are summed.
+ * holdings are summed. Holdings are also filtered by broker when provided.
  */
-function sumMatchingHoldingQty(holdings: Holding[], row: ExtractedSplit): number {
+function sumMatchingHoldingQty(
+  holdings: Holding[],
+  row: ExtractedSplit,
+  selectedBroker?: Broker,
+): number {
   const idValue = row.identifier.value.toUpperCase();
   const desc = row.instrumentDescription.toUpperCase();
   let total = 0;
   let any = false;
   for (const h of holdings) {
+    if (selectedBroker != null && h.broker !== selectedBroker) continue;
     if (row.account && h.account !== row.account) continue;
     const matchesId = h.instrument?.identifiers.some(
       (id) => id.value.toUpperCase() === idValue,

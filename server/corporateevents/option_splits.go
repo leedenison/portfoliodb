@@ -23,16 +23,16 @@ import (
 //
 // Splits are processed in chronological order. timer may be nil (uses
 // time.Now).
-func ProcessOptionSplits(ctx context.Context, database db.DB, underlyingID string, splits []db.StockSplit, log *slog.Logger, timer *clock.Timer) {
+func ProcessOptionSplits(ctx context.Context, database db.DB, underlyingID string, splits []db.StockSplit, log *slog.Logger, timer *clock.Timer) []*db.InstrumentRow {
 	options, err := database.ListOptionsByUnderlying(ctx, underlyingID)
 	if err != nil {
 		if log != nil {
 			log.ErrorContext(ctx, "option splits: list options", "underlying", underlyingID, "err", err)
 		}
-		return
+		return nil
 	}
 	if len(options) == 0 {
-		return
+		return nil
 	}
 
 	// Sort splits chronologically.
@@ -63,6 +63,7 @@ func ProcessOptionSplits(ctx context.Context, database db.DB, underlyingID strin
 			processOneOptionSplit(ctx, database, opt, split, factor, log)
 		}
 	}
+	return options
 }
 
 func processOneOptionSplit(ctx context.Context, database db.DB, opt *db.InstrumentRow, split db.StockSplit, factor float64, log *slog.Logger) {

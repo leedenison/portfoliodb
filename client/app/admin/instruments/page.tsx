@@ -232,6 +232,8 @@ export default function AdminInstrumentsPage() {
                     return (
                       <tr
                         key={inst.id}
+                        data-testid="instrument-row"
+                        data-instrument-name={inst.name}
                         className="group cursor-pointer border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10"
                         onClick={() =>
                           setExpandedId(expanded ? null : inst.id)
@@ -375,6 +377,8 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
             {canonicalIds.map((id) => (
               <span
                 key={`${id.type}-${id.value}`}
+                data-testid="instrument-identifier"
+                data-identifier-type={idLabel(id)}
                 className="inline-flex items-center gap-1 rounded bg-primary-dark/10 px-1.5 py-0.5 font-mono text-xs"
               >
                 <span className="font-semibold text-primary-dark">

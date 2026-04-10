@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { create } from "@bufbuild/protobuf";
 import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
-import { resetAndSeedBase, closeDB, queryTxSplitAdjustments, queryInstrumentByIdentifier } from "../helpers/db";
+import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { uploadCSVAndWait } from "../helpers/upload";
@@ -54,15 +54,23 @@ test.describe("stock split: tx uploaded before split", () => {
       expectedTxCount: 3,
     });
 
-    // Before the split: split_adjusted_quantity == raw quantity.
-    const preSplitTxs = await queryTxSplitAdjustments("MIC_TICKER", "AAPL");
-    expect(preSplitTxs).toHaveLength(2);
-    expect(preSplitTxs[0].split_adjusted_quantity).toBe(25); // no split yet
-    expect(preSplitTxs[1].split_adjusted_quantity).toBe(50);
+    // Before the split: Adj Qty should show em-dash for all AAPL stock txs.
+    await page.goto("/transactions");
+    await expect(
+      page.locator("[data-testid='transactions-table']"),
+    ).toBeVisible();
+    const preSplitRows = page.locator(
+      "[data-testid='tx-row'][data-tx-instrument='AAPL']",
+    );
+    await expect(preSplitRows).toHaveCount(2);
+    await expect(
+      preSplitRows.nth(0).locator("[data-testid='tx-adj-qty']"),
+    ).toHaveText("\u2014");
+    await expect(
+      preSplitRows.nth(1).locator("[data-testid='tx-adj-qty']"),
+    ).toHaveText("\u2014");
 
     // Trigger the corporate event fetcher — EODHD returns a 4:1 split.
-    // Poll the cycle counter to confirm the fetch actually executed before
-    // checking worker idle state.
     const cyclesBefore = await getCounter("corporate_event_fetcher.cycles");
     await triggerCorporateEventFetch(adminSession);
     await expect(async () => {
@@ -71,28 +79,49 @@ test.describe("stock split: tx uploaded before split", () => {
     }).toPass({ timeout: 30_000 });
     await waitForWorkersIdle(browser);
 
-    // After the split: tx1 (pre-split) adjusted by factor 4.
-    const postSplitTxs = await queryTxSplitAdjustments("MIC_TICKER", "AAPL");
-    expect(postSplitTxs).toHaveLength(2);
-    expect(postSplitTxs[0].split_adjusted_quantity).toBe(100); // 25 * 4
-    expect(postSplitTxs[1].split_adjusted_quantity).toBe(50); // post-split, factor 1
+    // After the split: verify via transactions page.
+    await page.goto("/transactions");
+    await expect(
+      page.locator("[data-testid='transactions-table']"),
+    ).toBeVisible();
 
-    // Option: OCC should be updated from pre-split to post-split.
-    const option = await queryInstrumentByIdentifier(
-      "OCC",
-      "AAPL250117C00190000",
+    // Stock tx1 (pre-split, qty=25): Adj Qty = 100.
+    // Stock tx2 (post-split, qty=50): Adj Qty = em-dash (no adjustment).
+    const stockRows = page.locator(
+      "[data-testid='tx-row'][data-tx-instrument='AAPL']",
     );
-    expect(option).not.toBeNull();
-    expect(option!.strike).toBe(190); // 760 / 4
-    expect(option!.asset_class).toBe("OPTION");
+    await expect(stockRows).toHaveCount(2);
+    await expect(
+      stockRows.nth(0).locator("[data-testid='tx-adj-qty']"),
+    ).toHaveText("100");
+    await expect(
+      stockRows.nth(1).locator("[data-testid='tx-adj-qty']"),
+    ).toHaveText("\u2014");
 
-    // The option tx split_adjusted_quantity should reflect the split.
-    const optTxs = await queryTxSplitAdjustments(
-      "OCC",
-      "AAPL250117C00190000",
+    // Option tx (pre-split, qty=1): Adj Qty = 4.
+    const optRows = page
+      .locator("[data-testid='tx-row']")
+      .filter({ has: page.locator("[data-testid='tx-qty']", { hasText: "1" }) })
+      .filter({
+        has: page.locator("[data-testid='tx-adj-qty']", { hasText: "4" }),
+      });
+    await expect(optRows).toHaveCount(1);
+
+    // Option OCC: verify via admin instruments page (requires admin session).
+    const adminCtx = await browser.newContext();
+    await injectSession(adminCtx, adminSession);
+    const adminPage = await adminCtx.newPage();
+    await adminPage.goto("/admin/instruments");
+    const optionRow = adminPage
+      .locator("[data-testid='instrument-row']")
+      .filter({ hasText: /Option/i });
+    await expect(optionRow).toBeVisible();
+    await optionRow.click();
+    const occId = adminPage.locator(
+      "[data-testid='instrument-identifier'][data-identifier-type='OCC']",
     );
-    expect(optTxs).toHaveLength(1);
-    expect(optTxs[0].split_adjusted_quantity).toBe(4); // 1 * 4
+    await expect(occId).toContainText("AAPL250117C00190000");
+    await adminCtx.close();
   });
 });
 
@@ -164,27 +193,46 @@ test.describe("stock split: split uploaded before tx", () => {
     }).toPass({ timeout: 30_000 });
     await waitForWorkersIdle(browser);
 
-    // Stock: same final state as case 1.
-    const stockTxs = await queryTxSplitAdjustments("MIC_TICKER", "AAPL");
-    expect(stockTxs).toHaveLength(2);
-    expect(stockTxs[0].split_adjusted_quantity).toBe(100); // 25 * 4
-    expect(stockTxs[1].split_adjusted_quantity).toBe(50);
+    // Verify via transactions page — same final state as case 1.
+    await page.goto("/transactions");
+    await expect(
+      page.locator("[data-testid='transactions-table']"),
+    ).toBeVisible();
 
-    // Option: should be identified directly with post-split OCC.
-    const option = await queryInstrumentByIdentifier(
-      "OCC",
-      "AAPL250117C00190000",
+    const stockRows = page.locator(
+      "[data-testid='tx-row'][data-tx-instrument='AAPL']",
     );
-    expect(option).not.toBeNull();
-    expect(option!.strike).toBe(190);
-    expect(option!.asset_class).toBe("OPTION");
+    await expect(stockRows).toHaveCount(2);
+    await expect(
+      stockRows.nth(0).locator("[data-testid='tx-adj-qty']"),
+    ).toHaveText("100");
+    await expect(
+      stockRows.nth(1).locator("[data-testid='tx-adj-qty']"),
+    ).toHaveText("\u2014");
 
-    // Option tx split_adjusted_quantity should reflect the split.
-    const optTxs = await queryTxSplitAdjustments(
-      "OCC",
-      "AAPL250117C00190000",
+    // Option Adj Qty = 4.
+    const optRows = page
+      .locator("[data-testid='tx-row']")
+      .filter({ has: page.locator("[data-testid='tx-qty']", { hasText: "1" }) })
+      .filter({
+        has: page.locator("[data-testid='tx-adj-qty']", { hasText: "4" }),
+      });
+    await expect(optRows).toHaveCount(1);
+
+    // Option OCC: verify via admin instruments page (requires admin session).
+    const adminCtx = await browser.newContext();
+    await injectSession(adminCtx, adminSession);
+    const adminPage = await adminCtx.newPage();
+    await adminPage.goto("/admin/instruments");
+    const optionRow = adminPage
+      .locator("[data-testid='instrument-row']")
+      .filter({ hasText: /Option/i });
+    await expect(optionRow).toBeVisible();
+    await optionRow.click();
+    const occId = adminPage.locator(
+      "[data-testid='instrument-identifier'][data-identifier-type='OCC']",
     );
-    expect(optTxs).toHaveLength(1);
-    expect(optTxs[0].split_adjusted_quantity).toBe(4); // 1 * 4
+    await expect(occId).toContainText("AAPL250117C00190000");
+    await adminCtx.close();
   });
 });

@@ -260,6 +260,21 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 		} else {
 			ProcessOptionSplits(ctx, database, inst.ID, allSplits, log, nil)
 		}
+
+		// Recompute split-adjusted values for options on this underlying.
+		// split_factor_at looks up splits via underlying_id, so option txs
+		// need recomputing whenever the underlying's splits change.
+		options, err := database.ListOptionsByUnderlying(ctx, inst.ID)
+		if err == nil {
+			for _, opt := range options {
+				if rerr := database.RecomputeSplitAdjustments(ctx, opt.ID); rerr != nil {
+					if log != nil {
+						log.ErrorContext(ctx, "corporate event fetch: recompute option adjustments",
+							"option", opt.ID, "err", rerr)
+					}
+				}
+			}
+		}
 	}
 }
 

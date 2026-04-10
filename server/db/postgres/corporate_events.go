@@ -38,8 +38,7 @@ func (p *Postgres) UpsertStockSplits(ctx context.Context, splits []db.StockSplit
 		ON CONFLICT (instrument_id, ex_date) DO UPDATE SET
 			split_from    = EXCLUDED.split_from,
 			split_to      = EXCLUDED.split_to,
-			data_provider = EXCLUDED.data_provider,
-			fetched_at    = EXCLUDED.fetched_at
+			data_provider = EXCLUDED.data_provider
 	`, pq.Array(instIDs), pq.Array(exDates), pq.Array(froms), pq.Array(tos), pq.Array(providers))
 	if err != nil {
 		return fmt.Errorf("upsert stock splits: %w", err)

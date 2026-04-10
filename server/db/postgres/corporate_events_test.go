@@ -668,19 +668,25 @@ func TestApplyOptionSplit(t *testing.T) {
 		InstrumentDescription: "AAPL 250117C00150000",
 	}})
 
-	// Apply a 4:1 split.
+	// Insert the 4:1 split on the underlying (split_factor_at looks up
+	// splits via underlying_id, not on the option instrument itself).
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{{
+		InstrumentID: underlyingID,
+		ExDate:       d(2024, 7, 1),
+		SplitFrom:    "1",
+		SplitTo:      "4",
+		DataProvider: "test",
+	}}); err != nil {
+		t.Fatalf("upsert underlying split: %v", err)
+	}
+
+	// Apply the option split (updates OCC, strike, recomputes adjustments).
 	params := db.OptionSplitParams{
 		InstrumentID: optID,
 		OldOCCValue:  "AAPL  250117C00150000",
 		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL  250117C00037500", Canonical: true},
 		NewStrike:    37.5,
-		DerivedSplit: db.StockSplit{
-			InstrumentID: optID,
-			ExDate:       d(2024, 7, 1),
-			SplitFrom:    "1",
-			SplitTo:      "4",
-			DataProvider: "derived",
-		},
+		NewName:      "AAPL250117C00037500",
 	}
 	if err := p.ApplyOptionSplit(ctx, params); err != nil {
 		t.Fatalf("apply option split: %v", err)
@@ -714,16 +720,19 @@ func TestApplyOptionSplit(t *testing.T) {
 		t.Errorf("strike: got %v, want 37.5", inst.Strike)
 	}
 
-	// Verify derived split row exists.
+	// Verify name updated to new OCC.
+	if inst.Name == nil || *inst.Name != "AAPL250117C00037500" {
+		t.Errorf("name: got %v, want AAPL250117C00037500", inst.Name)
+	}
+
+	// No derived split row — split_factor_at looks up the underlying's splits
+	// via the underlying_id FK. Verify the option has no splits of its own.
 	splits, err := p.ListStockSplits(ctx, optID)
 	if err != nil {
 		t.Fatalf("list splits: %v", err)
 	}
-	if len(splits) != 1 {
-		t.Fatalf("expected 1 derived split, got %d", len(splits))
-	}
-	if splits[0].SplitTo != "4" || splits[0].DataProvider != "derived" {
-		t.Errorf("derived split: %+v", splits[0])
+	if len(splits) != 0 {
+		t.Fatalf("expected 0 splits on option (underlying lookup used), got %d", len(splits))
 	}
 
 	// Verify split-adjusted tx values. The tx is before the split ex_date,

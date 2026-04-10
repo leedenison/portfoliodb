@@ -38,8 +38,7 @@ func (p *Postgres) UpsertStockSplits(ctx context.Context, splits []db.StockSplit
 		ON CONFLICT (instrument_id, ex_date) DO UPDATE SET
 			split_from    = EXCLUDED.split_from,
 			split_to      = EXCLUDED.split_to,
-			data_provider = EXCLUDED.data_provider,
-			fetched_at    = EXCLUDED.fetched_at
+			data_provider = EXCLUDED.data_provider
 	`, pq.Array(instIDs), pq.Array(exDates), pq.Array(froms), pq.Array(tos), pq.Array(providers))
 	if err != nil {
 		return fmt.Errorf("upsert stock splits: %w", err)
@@ -555,8 +554,10 @@ func (p *Postgres) BlockedCorporateEventPluginsForInstruments(ctx context.Contex
 }
 
 // ApplyOptionSplit implements db.CorporateEventDB. All mutations run in a
-// single transaction: delete old OCC, insert new OCC, update strike, upsert
-// derived split row, recompute split-adjusted tx values, update identified_at.
+// single transaction: delete old OCC, insert new OCC, update strike,
+// recompute split-adjusted tx values, update identified_at. The split_factor_at
+// SQL function looks up splits via the underlying_id FK, so no derived split
+// row is needed on the option instrument.
 func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitParams) error {
 	return p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}
@@ -569,8 +570,10 @@ func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitPa
 		if err := txp.UpdateInstrumentStrike(ctx, params.InstrumentID, params.NewStrike); err != nil {
 			return fmt.Errorf("apply option split: update strike: %w", err)
 		}
-		if err := txp.UpsertStockSplits(ctx, []db.StockSplit{params.DerivedSplit}); err != nil {
-			return fmt.Errorf("apply option split: upsert derived split: %w", err)
+		if params.NewName != "" {
+			if err := txp.UpdateInstrumentName(ctx, params.InstrumentID, params.NewName); err != nil {
+				return fmt.Errorf("apply option split: update name: %w", err)
+			}
 		}
 		if err := txp.RecomputeSplitAdjustments(ctx, params.InstrumentID); err != nil {
 			return fmt.Errorf("apply option split: recompute adjustments: %w", err)

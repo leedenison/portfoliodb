@@ -584,6 +584,8 @@ type InstrumentDB interface {
 	InsertInstrumentIdentifier(ctx context.Context, instrumentID string, input IdentifierInput) error
 	// UpdateInstrumentStrike updates the strike on an existing option instrument.
 	UpdateInstrumentStrike(ctx context.Context, instrumentID string, strike float64) error
+	// UpdateInstrumentName updates the name on an existing instrument.
+	UpdateInstrumentName(ctx context.Context, instrumentID, name string) error
 	// UpdateIdentifiedAt sets identified_at = now() on an existing instrument.
 	UpdateIdentifiedAt(ctx context.Context, instrumentID string) error
 }
@@ -703,7 +705,7 @@ type OptionSplitParams struct {
 	OldOCCValue  string
 	NewOCC       IdentifierInput
 	NewStrike    float64
-	DerivedSplit StockSplit
+	NewName      string
 }
 
 // CorporateEventDB provides storage for stock splits, cash dividends, fetch

@@ -124,7 +124,7 @@ func ResolveWithPlugins(
 	l := resolveLogger(logger)
 
 	// Adjust OCC hints for known stock splits before any lookups.
-	identifierHints = AdjustOCCForKnownSplits(ctx, database, identifierHints, hintsValidAt)
+	identifierHints = AdjustOCCForKnownSplits(ctx, database, identifierHints, hintsValidAt, nil)
 
 	// If all hints already resolve to one instrument in DB, use it (avoids plugin call).
 	ids, err := ResolveByHintsDBOnly(ctx, database, identifierHints)

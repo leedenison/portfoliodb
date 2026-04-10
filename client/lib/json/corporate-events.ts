@@ -4,7 +4,7 @@
  */
 
 import { AssetClass } from "@/gen/api/v1/api_pb";
-import type { ExportCorporateEventRow } from "@/gen/api/v1/api_pb";
+import type { ExportCorporateEventRow, SplitRow } from "@/gen/api/v1/api_pb";
 import type { CorporateSplitImportRow } from "@/lib/portfolio-api";
 import { assetClassToStr, assetClassFromStr } from "@/lib/asset-class";
 import type { ParseError } from "@/lib/csv/standard";
@@ -24,7 +24,7 @@ export function splitsToJson(rows: ExportCorporateEventRow[]): string {
   const serialized: SerializedSplit[] = rows
     .filter((r) => r.event.case === "split")
     .map((r) => {
-      const split = r.event.value!;
+      const split = r.event.value as SplitRow;
       const obj: SerializedSplit = {
         identifier_type: r.identifierType,
         identifier_value: r.identifierValue,

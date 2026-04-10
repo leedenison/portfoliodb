@@ -707,16 +707,14 @@ func TestApplyOptionSplit(t *testing.T) {
 		t.Errorf("strike: got %v, want 37.5", inst.Strike)
 	}
 
-	// Verify derived split row exists.
+	// No derived split row — split_factor_at looks up the underlying's splits
+	// via the underlying_id FK. Verify the option has no splits of its own.
 	splits, err := p.ListStockSplits(ctx, optID)
 	if err != nil {
 		t.Fatalf("list splits: %v", err)
 	}
-	if len(splits) != 1 {
-		t.Fatalf("expected 1 derived split, got %d", len(splits))
-	}
-	if splits[0].SplitTo != "4" || splits[0].DataProvider != "derived" {
-		t.Errorf("derived split: %+v", splits[0])
+	if len(splits) != 0 {
+		t.Fatalf("expected 0 splits on option (underlying lookup used), got %d", len(splits))
 	}
 
 	// Verify split-adjusted tx values. The tx is before the split ex_date,

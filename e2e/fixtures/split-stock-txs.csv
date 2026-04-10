@@ -1,0 +1,3 @@
+date,instrument_description,type,quantity,trading_currency,unit_price,symbol_type,symbol
+2024-06-15,AAPL - Apple Inc.,BUYSTOCK,25,USD,190.00,MIC_TICKER,AAPL
+2024-09-15,AAPL - Apple Inc.,BUYSTOCK,50,USD,55.00,MIC_TICKER,AAPL

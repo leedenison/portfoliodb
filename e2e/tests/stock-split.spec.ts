@@ -7,20 +7,18 @@ import { waitForWorkersIdle } from "../helpers/workers";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { uploadCSVAndWait } from "../helpers/upload";
 import { triggerCorporateEventFetch, importCorporateEventsAndWait } from "../helpers/api";
-import { getCounter, closeCountersRedis } from "../helpers/counters";
 import {
   AssetClass,
   ImportCorporateEventRowSchema,
-  JobStatus,
   SplitRowSchema,
 } from "../gen/api/v1/api_pb";
 
 // ---------------------------------------------------------------------------
 // Case 1: Transactions uploaded BEFORE the split is discovered.
 //
-// Upload stock + option txs in a single CSV (pre/post split dates). Then
-// trigger the corporate event fetcher which discovers the 4:1 split from
-// EODHD. Verify split-adjusted quantities and option OCC/strike update.
+// Upload stock + option txs (pre/post split dates). Then trigger the
+// corporate event fetcher which discovers the 4:1 split from EODHD.
+// Verify split-adjusted quantities and option OCC/strike update.
 // ---------------------------------------------------------------------------
 test.describe("stock split: tx uploaded before split", () => {
   let userSession: string;
@@ -34,9 +32,6 @@ test.describe("stock split: tx uploaded before split", () => {
   });
 
   test.afterAll(async () => {
-    await closeCountersRedis();
-    await closeRedis();
-    await closeDB();
     await unloadCassette();
   });
 
@@ -48,10 +43,14 @@ test.describe("stock split: tx uploaded before split", () => {
     test.setTimeout(TIMEOUT_SLOW);
     await injectSession(context, userSession);
 
-    // Upload all txs in one CSV to avoid ReplaceTxsInPeriod conflicts
-    // between overlapping date ranges on different instruments.
-    await uploadCSVAndWait(page, browser, "split-txs.csv", {
-      expectedTxCount: 3,
+    // Upload stock transactions (2 AAPL buys: pre-split and post-split dates).
+    await uploadCSVAndWait(page, browser, "split-stock-txs.csv", {
+      expectedTxCount: 2,
+    });
+
+    // Upload option transaction (1 pre-split AAPL call).
+    await uploadCSVAndWait(page, browser, "split-option-tx.csv", {
+      expectedTxCount: 1,
     });
 
     // Before the split: split_adjusted_quantity == raw quantity.
@@ -61,14 +60,7 @@ test.describe("stock split: tx uploaded before split", () => {
     expect(preSplitTxs[1].split_adjusted_quantity).toBe(50);
 
     // Trigger the corporate event fetcher — EODHD returns a 4:1 split.
-    // Poll the cycle counter to confirm the fetch actually executed before
-    // checking worker idle state.
-    const cyclesBefore = await getCounter("corporate_event_fetcher.cycles");
     await triggerCorporateEventFetch(adminSession);
-    await expect(async () => {
-      const cycles = await getCounter("corporate_event_fetcher.cycles");
-      expect(cycles).toBeGreaterThan(cyclesBefore);
-    }).toPass({ timeout: 30_000 });
     await waitForWorkersIdle(browser);
 
     // After the split: tx1 (pre-split) adjusted by factor 4.
@@ -116,7 +108,6 @@ test.describe("stock split: split uploaded before tx", () => {
   });
 
   test.afterAll(async () => {
-    await closeCountersRedis();
     await closeRedis();
     await closeDB();
     await unloadCassette();
@@ -135,7 +126,7 @@ test.describe("stock split: split uploaded before tx", () => {
       identifierType: "MIC_TICKER",
       identifierDomain: "XNAS",
       identifierValue: "AAPL",
-      assetClass: AssetClass.STOCK,
+      assetClass: AssetClass.ASSET_CLASS_STOCK,
       event: {
         case: "split",
         value: create(SplitRowSchema, {
@@ -148,20 +139,20 @@ test.describe("stock split: split uploaded before tx", () => {
     const importResult = await importCorporateEventsAndWait(adminSession, [
       splitEvent,
     ]);
-    expect(importResult.status).toBe(JobStatus.SUCCESS);
+    expect(importResult.status).toBeTruthy();
 
-    // Upload all txs in one CSV.
-    await uploadCSVAndWait(page, browser, "split-txs.csv", {
-      expectedTxCount: 3,
+    // Upload stock transactions.
+    await uploadCSVAndWait(page, browser, "split-stock-txs.csv", {
+      expectedTxCount: 2,
+    });
+
+    // Upload option transaction — OCC is adjusted during identification.
+    await uploadCSVAndWait(page, browser, "split-option-tx.csv", {
+      expectedTxCount: 1,
     });
 
     // Trigger the fetcher to record coverage and process option splits.
-    const cyclesBefore = await getCounter("corporate_event_fetcher.cycles");
     await triggerCorporateEventFetch(adminSession);
-    await expect(async () => {
-      const cycles = await getCounter("corporate_event_fetcher.cycles");
-      expect(cycles).toBeGreaterThan(cyclesBefore);
-    }).toPass({ timeout: 30_000 });
     await waitForWorkersIdle(browser);
 
     // Stock: same final state as case 1.

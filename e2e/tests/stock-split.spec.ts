@@ -135,7 +135,7 @@ test.describe("stock split: split uploaded before tx", () => {
       identifierType: "MIC_TICKER",
       identifierDomain: "XNAS",
       identifierValue: "AAPL",
-      assetClass: AssetClass.ASSET_CLASS_STOCK,
+      assetClass: AssetClass.STOCK,
       event: {
         case: "split",
         value: create(SplitRowSchema, {

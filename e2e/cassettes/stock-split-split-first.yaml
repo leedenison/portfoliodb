@@ -1,0 +1,179 @@
+---
+version: 2
+interactions:
+    # --- Phase 1: ImportCorporateEvents resolves AAPL stock ---
+    # The import provides (MIC_TICKER, XNAS, AAPL) with asset_class=STOCK.
+    # ResolveWithPlugins calls OpenFIGI to identify the instrument.
+
+    # 1. OpenFIGI: resolve AAPL stock by TICKER (during import resolution)
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 38
+        host: api.openfigi.com
+        body: '[{"idType":"TICKER","idValue":"AAPL"}]'
+        headers:
+            Content-Type:
+                - application/json
+            X-Openfigi-Apikey:
+                - REDACTED
+        url: https://api.openfigi.com/v3/mapping
+        method: POST
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        uncompressed: true
+        body: '[{"data":[{"figi":"BBG000B9XRY4","name":"APPLE INC","ticker":"AAPL","exchCode":"US","compositeFIGI":"BBG000B9XRY4","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5N8V8","securityType2":"Common Stock","securityDescription":"AAPL"}]}]'
+        headers:
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 200 OK
+        code: 200
+        duration: 150ms
+
+    # --- Phase 2: Upload stock + option CSVs ---
+    # Stock: AAPL already in DB from import → ResolveByHintsDBOnly finds it.
+    # Option: AdjustOCCForKnownSplits adjusts OCC from 760→190 strike.
+    #   Then OpenFIGI resolves the post-split OCC.
+
+    # 2. OpenFIGI: resolve post-split option by adjusted OCC
+    - id: 1
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 59
+        host: api.openfigi.com
+        body: '[{"idType":"OCC_SYMBOL","idValue":"AAPL  250117C00190000"}]'
+        headers:
+            Content-Type:
+                - application/json
+            X-Openfigi-Apikey:
+                - REDACTED
+        url: https://api.openfigi.com/v3/mapping
+        method: POST
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        uncompressed: true
+        body: '[{"data":[{"figi":"BBG01SPLIT02","name":"January 25 Calls on AAPL US","ticker":"AAPL 01/17/25 C190","exchCode":"US","compositeFIGI":"BBG01SPLIT02","securityType":"Equity Option","marketSector":"Equity","shareClassFIGI":null,"securityType2":"Option","securityDescription":"AAPL US 01/17/25 C190"}]}]'
+        headers:
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 200 OK
+        code: 200
+        duration: 150ms
+
+    # --- Phase 2b: Massive price fetch for AAPL ---
+
+    # 3. Massive: AAPL daily prices
+    - id: 2
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            adjusted:
+                - "false"
+            apiKey:
+                - REDACTED
+            sort:
+                - asc
+        url: https://api.massive.com/v2/aggs/ticker/AAPL/range/1/day/2024-06-15/2024-09-15?adjusted=false&apiKey=REDACTED&sort=asc
+        method: GET
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: -1
+        uncompressed: true
+        body: '{"ticker":"AAPL","queryCount":2,"resultsCount":2,"adjusted":false,"results":[{"v":50000000,"vw":190.50,"o":189.00,"c":191.00,"h":192.00,"l":188.00,"t":1718409600000,"n":500000},{"v":40000000,"vw":55.50,"o":55.00,"c":56.00,"h":57.00,"l":54.00,"t":1726358400000,"n":400000}],"status":"OK","request_id":"test002","count":2}'
+        headers:
+            Content-Type:
+                - application/json
+        status: 200 OK
+        code: 200
+        duration: 200ms
+
+    # --- Phase 3: Corporate event fetch ---
+    # Import did not record coverage, so the fetcher finds gaps and queries EODHD.
+    # EODHD returns the same split (upserted as no-op, but splitsLanded=true
+    # triggers processOptionSplits).
+
+    # 4. EODHD: splits for AAPL.US
+    - id: 3
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: eodhd.com
+        form:
+            api_token:
+                - REDACTED
+            fmt:
+                - json
+            from:
+                - "2024-06-15"
+            to:
+                - "2026-05-10"
+        url: https://eodhd.com/api/splits/AAPL.US?api_token=REDACTED&fmt=json&from=2024-06-15&to=2026-05-10
+        method: GET
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: -1
+        uncompressed: true
+        body: '[{"date":"2024-08-01","split":"4.000000/1.000000"}]'
+        headers:
+            Content-Type:
+                - application/json
+        status: 200 OK
+        code: 200
+        duration: 150ms
+
+    # 5. EODHD: dividends for AAPL.US — empty
+    - id: 4
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: eodhd.com
+        form:
+            api_token:
+                - REDACTED
+            fmt:
+                - json
+            from:
+                - "2024-06-15"
+            to:
+                - "2026-05-10"
+        url: https://eodhd.com/api/div/AAPL.US?api_token=REDACTED&fmt=json&from=2024-06-15&to=2026-05-10
+        method: GET
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: -1
+        uncompressed: true
+        body: '[]'
+        headers:
+            Content-Type:
+                - application/json
+        status: 200 OK
+        code: 200
+        duration: 150ms

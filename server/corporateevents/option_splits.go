@@ -116,7 +116,6 @@ func processOneOptionSplit(ctx context.Context, database db.DB, opt *db.Instrume
 		OldOCCValue:  currentOCC,
 		NewOCC:       db.IdentifierInput{Type: "OCC", Value: newOCC, Canonical: true},
 		NewStrike:    newStrike,
-		NewName:      newOCC,
 	}
 	if err := database.ApplyOptionSplit(ctx, params); err != nil {
 		if log != nil {

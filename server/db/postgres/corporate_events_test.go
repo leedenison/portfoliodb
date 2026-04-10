@@ -686,7 +686,6 @@ func TestApplyOptionSplit(t *testing.T) {
 		OldOCCValue:  "AAPL  250117C00150000",
 		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL  250117C00037500", Canonical: true},
 		NewStrike:    37.5,
-		NewName:      "AAPL250117C00037500",
 	}
 	if err := p.ApplyOptionSplit(ctx, params); err != nil {
 		t.Fatalf("apply option split: %v", err)

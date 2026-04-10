@@ -144,16 +144,10 @@ func TestAdjustOCCForKnownSplits_SplitAfterHintsValidAt(t *testing.T) {
 	validAt := d(2025, 1, 1) // before split
 	timer := fixedTimer(d(2025, 7, 1)) // after split
 
-	adjusted, appliedSplits := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
 	if adjusted[0].Value != "AAPL250117C00100000" {
 		t.Errorf("adjusted OCC = %q, want AAPL250117C00100000", adjusted[0].Value)
-	}
-	if len(appliedSplits) != 1 {
-		t.Fatalf("applied splits = %d, want 1", len(appliedSplits))
-	}
-	if appliedSplits[0].SplitTo != "2" {
-		t.Errorf("applied split_to = %q, want 2", appliedSplits[0].SplitTo)
 	}
 }
 
@@ -175,13 +169,10 @@ func TestAdjustOCCForKnownSplits_SplitBeforeHintsValidAt(t *testing.T) {
 	validAt := d(2025, 1, 1) // after split ex_date
 	timer := fixedTimer(d(2025, 7, 1))
 
-	adjusted, appliedSplits := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
 	if adjusted[0].Value != "AAPL250117C00200000" {
 		t.Errorf("OCC should not change, got %q", adjusted[0].Value)
-	}
-	if len(appliedSplits) != 0 {
-		t.Errorf("applied splits = %d, want 0", len(appliedSplits))
 	}
 }
 
@@ -203,13 +194,10 @@ func TestAdjustOCCForKnownSplits_FutureSplit(t *testing.T) {
 	validAt := d(2025, 1, 1)
 	timer := fixedTimer(d(2025, 6, 1)) // before split ex_date
 
-	adjusted, appliedSplits := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
 	if adjusted[0].Value != "AAPL250117C00400000" {
 		t.Errorf("OCC should not change for future split, got %q", adjusted[0].Value)
-	}
-	if len(appliedSplits) != 0 {
-		t.Errorf("applied splits = %d, want 0", len(appliedSplits))
 	}
 }
 
@@ -226,13 +214,10 @@ func TestAdjustOCCForKnownSplits_NilHintsValidAt(t *testing.T) {
 		{Type: "OCC", Value: "AAPL250117C00200000"},
 	}
 
-	adjusted, appliedSplits := AdjustOCCForKnownSplits(ctx, mockDB, hints, nil, nil)
+	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, nil, nil)
 
 	if adjusted[0].Value != "AAPL250117C00200000" {
 		t.Errorf("OCC should not change when hintsValidAt nil, got %q", adjusted[0].Value)
-	}
-	if len(appliedSplits) != 0 {
-		t.Errorf("applied splits = %d, want 0", len(appliedSplits))
 	}
 }
 
@@ -249,13 +234,10 @@ func TestAdjustOCCForKnownSplits_NonOCCHintUnchanged(t *testing.T) {
 	}
 	validAt := d(2025, 1, 1)
 
-	adjusted, appliedSplits := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, nil)
+	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, nil)
 
 	if adjusted[0].Value != "AAPL" {
 		t.Errorf("non-OCC hint should not change, got %q", adjusted[0].Value)
-	}
-	if len(appliedSplits) != 0 {
-		t.Errorf("applied splits = %d, want 0", len(appliedSplits))
 	}
 }
 

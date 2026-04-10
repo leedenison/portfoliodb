@@ -515,6 +515,10 @@ CREATE TRIGGER trg_default_split_adjusted_eod_price
 -- of (split_to / split_from) over every stock split with ex_date strictly
 -- greater than reference_date AND less than or equal to the current date.
 --
+-- For derivative instruments (options, futures) that have an underlying_id,
+-- the function also includes splits on the underlying instrument. This
+-- avoids the need to duplicate split rows onto each derivative.
+--
 -- The CURRENT_DATE clause matters: corporate event plugins return splits
 -- the moment they are announced, often weeks before the ex_date arrives,
 -- and the corporate event fetcher's lookahead window pulls them into
@@ -539,7 +543,10 @@ RETURNS DOUBLE PRECISION LANGUAGE sql STABLE AS $$
     1::double precision
   )
   FROM stock_splits s
-  WHERE s.instrument_id = p_instrument_id
+  WHERE s.instrument_id IN (
+      p_instrument_id,
+      (SELECT underlying_id FROM instruments WHERE id = p_instrument_id AND underlying_id IS NOT NULL)
+    )
     AND s.ex_date > p_reference
     AND s.ex_date <= CURRENT_DATE;
 $$;

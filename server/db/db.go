@@ -703,7 +703,6 @@ type OptionSplitParams struct {
 	OldOCCValue  string
 	NewOCC       IdentifierInput
 	NewStrike    float64
-	DerivedSplit StockSplit
 }
 
 // CorporateEventDB provides storage for stock splits, cash dividends, fetch

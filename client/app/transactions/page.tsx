@@ -120,7 +120,7 @@ export default function TxsPage() {
           {!loading && !error && (
             <>
               <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
-                <table className="w-full min-w-[720px] border-collapse text-sm">
+                <table data-testid="transactions-table" className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/[0.03]">
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
@@ -201,7 +201,7 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
   const currency = tx.tradingCurrency || tx.settlementCurrency || "";
 
   return (
-    <tr className={
+    <tr data-testid="tx-row" data-tx-instrument={label} className={
       "border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10" +
       (isSynthetic ? " opacity-60" : "")
     }>
@@ -214,7 +214,7 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
       <td className="px-4 py-3 text-text-muted">
         {ptx.account || "\u2014"}
       </td>
-      <td className="px-4 py-3 font-medium text-text-primary">
+      <td data-testid="tx-instrument" className="px-4 py-3 font-medium text-text-primary">
         {label}
       </td>
       <td className="px-4 py-3 text-text-muted">
@@ -226,18 +226,18 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
           TX_TYPE_LABEL[tx.type] ?? "Unknown"
         )}
       </td>
-      <td className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
+      <td data-testid="tx-qty" className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
         {parseFloat(tx.quantity.toFixed(4))}
       </td>
       <td className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
         {tx.unitPrice ? tx.unitPrice.toFixed(2) : "\u2014"}
       </td>
-      <td className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
+      <td data-testid="tx-adj-qty" className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
         {tx.splitAdjustedQuantity !== undefined && tx.splitAdjustedQuantity !== tx.quantity
           ? parseFloat(tx.splitAdjustedQuantity.toFixed(4))
           : "\u2014"}
       </td>
-      <td className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
+      <td data-testid="tx-adj-price" className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
         {tx.splitAdjustedUnitPrice !== undefined && tx.splitAdjustedUnitPrice !== tx.unitPrice
           ? tx.splitAdjustedUnitPrice.toFixed(2)
           : "\u2014"}

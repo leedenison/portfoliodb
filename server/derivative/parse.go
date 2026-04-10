@@ -76,6 +76,27 @@ func ParseOptionTicker(optionTicker string) (*ParsedOption, bool) {
 		}, true
 	}
 
+	// OCC compact: same encoding as padded OCC (YYMMDD + strike*1000) but
+	// without space-padded root. Validated via OCCCompact, then suffix
+	// parsed identically to the padded path above.
+	if compact, ok := OCCCompact(upper); ok {
+		root := compact[:len(compact)-occSuffixLen]
+		suffix := compact[len(compact)-occSuffixLen:]
+		expiry, ok := parseYYMMDD(suffix[:6])
+		if ok {
+			strikeCents, err := strconv.Atoi(suffix[7:])
+			if err == nil {
+				return &ParsedOption{
+					Format:  FormatOCC,
+					Symbol:  root,
+					Expiry:  expiry,
+					PutCall: string(suffix[6]),
+					Strike:  float64(strikeCents) / 1000,
+				}, true
+			}
+		}
+	}
+
 	// Classic: "SYMBOL MM/DD/YY C/P STRIKE"
 	if m := classicRe.FindStringSubmatch(upper); len(m) == 7 {
 		month, _ := strconv.Atoi(m[2])

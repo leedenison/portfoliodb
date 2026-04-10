@@ -67,6 +67,26 @@ func TestParseOptionTicker(t *testing.T) {
 			ok:         true,
 		},
 		{
+			name:       "OCC compact (no spaces)",
+			ticker:     "AAPL250117C00150000",
+			wantFormat: FormatOCC,
+			wantSymbol: "AAPL",
+			wantExpiry: time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC),
+			wantPutCall: "C",
+			wantStrike:  150,
+			ok:         true,
+		},
+		{
+			name:       "OCC compact 1-char root",
+			ticker:     "A250117C00150000",
+			wantFormat: FormatOCC,
+			wantSymbol: "A",
+			wantExpiry: time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC),
+			wantPutCall: "C",
+			wantStrike:  150,
+			ok:         true,
+		},
+		{
 			name:       "lowercase OCC",
 			ticker:     "aapl  250117c00150000",
 			wantFormat: FormatOCC,
@@ -145,19 +165,16 @@ func TestBuildOCCCompact(t *testing.T) {
 }
 
 func TestBuildOCCCompact_RoundTrip(t *testing.T) {
-	// Build a compact OCC, pad it to 21-char form, then parse it back — fields should match.
+	// Build a compact OCC, then parse it back directly — fields should match.
 	sym, expiry, pc, strike := "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", 200.0
 	occ, ok := BuildOCCCompact(sym, expiry, pc, strike)
 	if !ok {
 		t.Fatal("BuildOCCCompact failed")
 	}
-	padded, ok := OCCPadded(occ)
+	// Parse compact form directly (no padding needed).
+	parsed, ok := ParseOptionTicker(occ)
 	if !ok {
-		t.Fatalf("OCCPadded(%q) failed", occ)
-	}
-	parsed, ok := ParseOptionTicker(padded)
-	if !ok {
-		t.Fatal("ParseOptionTicker failed on padded OCC")
+		t.Fatalf("ParseOptionTicker failed on compact OCC %q", occ)
 	}
 	if parsed.Symbol != sym {
 		t.Errorf("Symbol = %q, want %q", parsed.Symbol, sym)

@@ -40,12 +40,7 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 		if !ok {
 			continue
 		}
-		// ParseOptionTicker needs 21-char padded OCC, not compact.
-		padded, ok := derivative.OCCPadded(compact)
-		if !ok {
-			continue
-		}
-		parsed, ok := derivative.ParseOptionTicker(padded)
+		parsed, ok := derivative.ParseOptionTicker(compact)
 		if !ok || parsed.Symbol == "" || parsed.Strike <= 0 {
 			continue
 		}

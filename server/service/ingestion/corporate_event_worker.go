@@ -155,6 +155,13 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 		} else {
 			corporateevents.ProcessOptionSplits(ctx, database, instID, allSplits, nil, nil)
 		}
+		// Recompute split-adjusted values for options on this underlying.
+		options, oerr := database.ListOptionsByUnderlying(ctx, instID)
+		if oerr == nil {
+			for _, opt := range options {
+				_ = database.RecomputeSplitAdjustments(ctx, opt.ID)
+			}
+		}
 	}
 
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)

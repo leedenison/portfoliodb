@@ -291,7 +291,7 @@ func TestRunCycle_SplitsLandTriggerRecompute(t *testing.T) {
 	mockDB.EXPECT().ListStockSplits(gomock.Any(), instID).Return([]db.StockSplit{
 		{InstrumentID: instID, ExDate: d(2024, 6, 9), SplitFrom: "1", SplitTo: "7"},
 	}, nil)
-	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), instID).Return(nil, nil)
+	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), instID).Return(nil, nil).Times(2)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 

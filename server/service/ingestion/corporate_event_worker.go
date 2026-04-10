@@ -153,10 +153,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 		if err != nil {
 			log.Printf("corporate event import job %s: list splits %s: %v", j.JobID, instID, err)
 		} else {
-			options := corporateevents.ProcessOptionSplits(ctx, database, instID, allSplits, nil, nil)
-			for _, opt := range options {
-				_ = database.RecomputeSplitAdjustments(ctx, opt.ID)
-			}
+			corporateevents.ProcessOptionSplits(ctx, database, instID, allSplits, nil, nil)
 		}
 	}
 

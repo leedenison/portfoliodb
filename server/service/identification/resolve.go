@@ -124,7 +124,7 @@ func ResolveWithPlugins(
 	l := resolveLogger(logger)
 
 	// Adjust OCC hints for known stock splits before any lookups.
-	identifierHints, appliedSplits := AdjustOCCForKnownSplits(ctx, database, identifierHints, hintsValidAt, nil)
+	identifierHints = AdjustOCCForKnownSplits(ctx, database, identifierHints, hintsValidAt, nil)
 
 	// If all hints already resolve to one instrument in DB, use it (avoids plugin call).
 	ids, err := ResolveByHintsDBOnly(ctx, database, identifierHints)
@@ -274,26 +274,6 @@ func ResolveWithPlugins(
 		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validTo, optFields)
 		if err != nil {
 			return ResolveResult{}, err
-		}
-		// When OCC hints were adjusted for known splits, create derived
-		// split records on the new option instrument so split_factor_at
-		// returns the correct factor for pre-split transactions.
-		if len(appliedSplits) > 0 && inst.AssetClass == db.AssetClassOption {
-			derived := make([]db.StockSplit, len(appliedSplits))
-			for i, s := range appliedSplits {
-				derived[i] = db.StockSplit{
-					InstrumentID: id,
-					ExDate:       s.ExDate,
-					SplitFrom:    s.SplitFrom,
-					SplitTo:      s.SplitTo,
-					DataProvider: "derived",
-				}
-			}
-			if uerr := database.UpsertStockSplits(ctx, derived); uerr != nil {
-				l.WarnContext(ctx, "derived option splits: upsert", "instrument", id, "err", uerr)
-			} else if rerr := database.RecomputeSplitAdjustments(ctx, id); rerr != nil {
-				l.WarnContext(ctx, "derived option splits: recompute", "instrument", id, "err", rerr)
-			}
 		}
 		return ResolveResult{InstrumentID: id, Identified: true}, nil
 	}

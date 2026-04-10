@@ -23,7 +23,7 @@ import (
 //
 // Splits are processed in chronological order. timer may be nil (uses
 // time.Now).
-func ProcessOptionSplits(ctx context.Context, database db.DB, underlyingID string, splits []db.StockSplit, log *slog.Logger, timer *clock.Timer) {
+func ProcessOptionSplits(ctx context.Context, database db.DB, underlyingID string, splits []db.StockSplit, log *slog.Logger, timer *clock.Timer) []*db.InstrumentRow {
 	options, err := database.ListOptionsByUnderlying(ctx, underlyingID)
 	if err != nil {
 		if log != nil {

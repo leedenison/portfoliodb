@@ -79,6 +79,15 @@ func TestProcessOptionSplits_TxBeforeSplit(t *testing.T) {
 			if p.NewStrike != 100.0 {
 				t.Errorf("new strike = %f, want 100", p.NewStrike)
 			}
+			if p.DerivedSplit.InstrumentID != optID {
+				t.Errorf("derived split instrument = %q, want %q", p.DerivedSplit.InstrumentID, optID)
+			}
+			if p.DerivedSplit.SplitFrom != "1" || p.DerivedSplit.SplitTo != "2" {
+				t.Errorf("derived split = %s:%s, want 1:2", p.DerivedSplit.SplitFrom, p.DerivedSplit.SplitTo)
+			}
+			if p.DerivedSplit.DataProvider != "derived" {
+				t.Errorf("derived split provider = %q, want derived", p.DerivedSplit.DataProvider)
+			}
 			return nil
 		})
 

@@ -7,9 +7,11 @@ import { waitForWorkersIdle } from "../helpers/workers";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { uploadCSVAndWait } from "../helpers/upload";
 import { triggerCorporateEventFetch, importCorporateEventsAndWait } from "../helpers/api";
+import { getCounter, closeCountersRedis } from "../helpers/counters";
 import {
   AssetClass,
   ImportCorporateEventRowSchema,
+  JobStatus,
   SplitRowSchema,
 } from "../gen/api/v1/api_pb";
 
@@ -32,6 +34,9 @@ test.describe("stock split: tx uploaded before split", () => {
   });
 
   test.afterAll(async () => {
+    await closeCountersRedis();
+    await closeRedis();
+    await closeDB();
     await unloadCassette();
   });
 
@@ -56,10 +61,14 @@ test.describe("stock split: tx uploaded before split", () => {
     expect(preSplitTxs[1].split_adjusted_quantity).toBe(50);
 
     // Trigger the corporate event fetcher — EODHD returns a 4:1 split.
-    // Brief pause after trigger so the worker goroutine picks up the
-    // signal before waitForWorkersIdle sees "idle".
+    // Poll the cycle counter to confirm the fetch actually executed before
+    // checking worker idle state.
+    const cyclesBefore = await getCounter("corporate_event_fetcher.cycles");
     await triggerCorporateEventFetch(adminSession);
-    await new Promise((r) => setTimeout(r, 1000));
+    await expect(async () => {
+      const cycles = await getCounter("corporate_event_fetcher.cycles");
+      expect(cycles).toBeGreaterThan(cyclesBefore);
+    }).toPass({ timeout: 30_000 });
     await waitForWorkersIdle(browser);
 
     // After the split: tx1 (pre-split) adjusted by factor 4.
@@ -107,6 +116,7 @@ test.describe("stock split: split uploaded before tx", () => {
   });
 
   test.afterAll(async () => {
+    await closeCountersRedis();
     await closeRedis();
     await closeDB();
     await unloadCassette();
@@ -138,7 +148,7 @@ test.describe("stock split: split uploaded before tx", () => {
     const importResult = await importCorporateEventsAndWait(adminSession, [
       splitEvent,
     ]);
-    expect(importResult.status).toBeTruthy();
+    expect(importResult.status).toBe(JobStatus.SUCCESS);
 
     // Upload all txs in one CSV.
     await uploadCSVAndWait(page, browser, "split-txs.csv", {
@@ -146,8 +156,12 @@ test.describe("stock split: split uploaded before tx", () => {
     });
 
     // Trigger the fetcher to record coverage and process option splits.
+    const cyclesBefore = await getCounter("corporate_event_fetcher.cycles");
     await triggerCorporateEventFetch(adminSession);
-    await new Promise((r) => setTimeout(r, 1000));
+    await expect(async () => {
+      const cycles = await getCounter("corporate_event_fetcher.cycles");
+      expect(cycles).toBeGreaterThan(cyclesBefore);
+    }).toPass({ timeout: 30_000 });
     await waitForWorkersIdle(browser);
 
     // Stock: same final state as case 1.

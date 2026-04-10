@@ -125,10 +125,19 @@ export default function AdminInstrumentsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-baseline gap-3">
-        <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">
-          Instruments
-        </h2>
+      <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">
+        Instruments
+      </h2>
+
+      {/* Filters and action buttons */}
+      <div className="flex flex-wrap items-end gap-3">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name or ticker..."
+          className="w-full max-w-sm rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+        />
         {!loading && (
           <span className="font-mono text-xs text-text-muted">
             {totalCount} total
@@ -154,15 +163,7 @@ export default function AdminInstrumentsPage() {
       </div>
       {exportError && <ErrorAlert>{exportError}</ErrorAlert>}
 
-      {/* Search and filters */}
       <div className="space-y-3">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name or ticker..."
-          className="w-full max-w-sm rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
-        />
         <div className="flex flex-wrap gap-1.5">
           {ALL_ASSET_CLASSES.map((cls) => {
             const active = activeClasses.has(cls);

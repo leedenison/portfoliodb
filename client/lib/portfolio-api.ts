@@ -7,6 +7,8 @@ import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { DateSchema } from "@/gen/google/type/date_pb";
 import type { Date as ProtoDate } from "@/gen/google/type/date_pb";
 import {
+  ExportCorporateEventRowSchema,
+  ExportCorporateEventsRequestSchema,
   ExportInstrumentsRequestSchema,
   ExportPriceRowSchema,
   ExportPricesRequestSchema,
@@ -107,6 +109,7 @@ import {
 import type {
   DescriptionPluginConfig,
   EODPriceProto,
+  ExportCorporateEventRow,
   InflationIndexProto,
   InflationPluginConfig,
   ExportPriceRow,
@@ -686,6 +689,15 @@ export async function importCorporateEventSplits(rows: CorporateSplitImportRow[]
   );
   const res = fromBinary(ImportCorporateEventsResponseSchema, resBytes);
   return res.jobId;
+}
+
+/** Stream all exported corporate events (admin only). */
+export async function* exportCorporateEvents(): AsyncGenerator<ExportCorporateEventRow> {
+  const base = getBaseUrl();
+  const req = create(ExportCorporateEventsRequestSchema, {});
+  for await (const bytes of streamingFetch(base, ApiServicePrefix + "ExportCorporateEvents", toBinary(ExportCorporateEventsRequestSchema, req), { credentials: "include" })) {
+    yield fromBinary(ExportCorporateEventRowSchema, bytes);
+  }
 }
 
 /** A single day's portfolio value point. */

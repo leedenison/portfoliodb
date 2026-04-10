@@ -180,6 +180,13 @@ export async function corruptMassivePriceKey(): Promise<void> {
   `);
 }
 
+// Run a raw SQL query. Used for debugging in tests.
+export async function rawQuery(sql: string, params?: unknown[]): Promise<unknown[]> {
+  const c = await getClient();
+  const res = await c.query(sql, params);
+  return res.rows;
+}
+
 // Convenience: reset and seed the base data (users, portfolio, plugin config)
 // that all tests need.
 export async function resetAndSeedBase(): Promise<void> {

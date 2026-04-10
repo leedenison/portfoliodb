@@ -16,9 +16,9 @@ import {
 // ---------------------------------------------------------------------------
 // Case 1: Transactions uploaded BEFORE the split is discovered.
 //
-// Upload stock + option txs (pre/post split dates). Then trigger the
-// corporate event fetcher which discovers the 4:1 split from EODHD.
-// Verify split-adjusted quantities and option OCC/strike update.
+// Upload stock + option txs in a single CSV (pre/post split dates). Then
+// trigger the corporate event fetcher which discovers the 4:1 split from
+// EODHD. Verify split-adjusted quantities and option OCC/strike update.
 // ---------------------------------------------------------------------------
 test.describe("stock split: tx uploaded before split", () => {
   let userSession: string;
@@ -43,14 +43,10 @@ test.describe("stock split: tx uploaded before split", () => {
     test.setTimeout(TIMEOUT_SLOW);
     await injectSession(context, userSession);
 
-    // Upload stock transactions (2 AAPL buys: pre-split and post-split dates).
-    await uploadCSVAndWait(page, browser, "split-stock-txs.csv", {
-      expectedTxCount: 2,
-    });
-
-    // Upload option transaction (1 pre-split AAPL call).
-    await uploadCSVAndWait(page, browser, "split-option-tx.csv", {
-      expectedTxCount: 1,
+    // Upload all txs in one CSV to avoid ReplaceTxsInPeriod conflicts
+    // between overlapping date ranges on different instruments.
+    await uploadCSVAndWait(page, browser, "split-txs.csv", {
+      expectedTxCount: 3,
     });
 
     // Before the split: split_adjusted_quantity == raw quantity.
@@ -60,7 +56,10 @@ test.describe("stock split: tx uploaded before split", () => {
     expect(preSplitTxs[1].split_adjusted_quantity).toBe(50);
 
     // Trigger the corporate event fetcher — EODHD returns a 4:1 split.
+    // Brief pause after trigger so the worker goroutine picks up the
+    // signal before waitForWorkersIdle sees "idle".
     await triggerCorporateEventFetch(adminSession);
+    await new Promise((r) => setTimeout(r, 1000));
     await waitForWorkersIdle(browser);
 
     // After the split: tx1 (pre-split) adjusted by factor 4.
@@ -141,18 +140,14 @@ test.describe("stock split: split uploaded before tx", () => {
     ]);
     expect(importResult.status).toBeTruthy();
 
-    // Upload stock transactions.
-    await uploadCSVAndWait(page, browser, "split-stock-txs.csv", {
-      expectedTxCount: 2,
-    });
-
-    // Upload option transaction — OCC is adjusted during identification.
-    await uploadCSVAndWait(page, browser, "split-option-tx.csv", {
-      expectedTxCount: 1,
+    // Upload all txs in one CSV.
+    await uploadCSVAndWait(page, browser, "split-txs.csv", {
+      expectedTxCount: 3,
     });
 
     // Trigger the fetcher to record coverage and process option splits.
     await triggerCorporateEventFetch(adminSession);
+    await new Promise((r) => setTimeout(r, 1000));
     await waitForWorkersIdle(browser);
 
     // Stock: same final state as case 1.

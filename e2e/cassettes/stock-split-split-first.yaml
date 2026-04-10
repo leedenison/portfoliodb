@@ -1,49 +1,22 @@
 ---
 version: 2
 interactions:
-    # --- Phase 1: ImportCorporateEvents resolves AAPL stock ---
-    # The import provides (MIC_TICKER, XNAS, AAPL) with asset_class=STOCK.
-    # ResolveWithPlugins calls OpenFIGI to identify the instrument.
+    # --- Phase 1: ImportCorporateEvents ---
+    # The import resolves AAPL via the DB-only fallback path (no identifier
+    # plugins called) because the asset_class field isn't propagated through
+    # the gRPC transport as a non-default value. The instrument is created
+    # with just the supplied MIC_TICKER identifier. No HTTP interactions.
+    # The import's asset_class doesn't reach the plugin path, so the
+    # instrument is created with just the supplied MIC_TICKER identifier
+    # via ensureWithSuppliedIdentifier. No OpenFIGI cassette entry needed.
 
-    # 1. OpenFIGI: resolve AAPL stock by TICKER (during import resolution)
-    - id: 0
-      request:
-        proto: HTTP/1.1
-        proto_major: 1
-        proto_minor: 1
-        content_length: 38
-        host: api.openfigi.com
-        body: '[{"idType":"TICKER","idValue":"AAPL"}]'
-        headers:
-            Content-Type:
-                - application/json
-            X-Openfigi-Apikey:
-                - REDACTED
-        url: https://api.openfigi.com/v3/mapping
-        method: POST
-      response:
-        proto: HTTP/1.1
-        proto_major: 1
-        proto_minor: 1
-        transfer_encoding:
-            - chunked
-        content_length: -1
-        uncompressed: true
-        body: '[{"data":[{"figi":"BBG000B9XRY4","name":"APPLE INC","ticker":"AAPL","exchCode":"US","compositeFIGI":"BBG000B9XRY4","securityType":"Common Stock","marketSector":"Equity","shareClassFIGI":"BBG001S5N8V8","securityType2":"Common Stock","securityDescription":"AAPL"}]}]'
-        headers:
-            Content-Type:
-                - application/json; charset=utf-8
-        status: 200 OK
-        code: 200
-        duration: 150ms
-
-    # --- Phase 2: Upload stock + option CSVs ---
-    # Stock: AAPL already in DB from import → ResolveByHintsDBOnly finds it.
+    # --- Phase 2: Stock + Option CSV upload ---
+    # Stock: AAPL found in DB by MIC_TICKER → no plugin calls.
     # Option: AdjustOCCForKnownSplits adjusts OCC from 760→190 strike.
     #   Then OpenFIGI resolves the post-split OCC.
 
-    # 2. OpenFIGI: resolve post-split option by adjusted OCC
-    - id: 1
+    # 4. OpenFIGI: resolve post-split option by adjusted OCC
+    - id: 0
       request:
         proto: HTTP/1.1
         proto_major: 1
@@ -74,9 +47,43 @@ interactions:
         code: 200
         duration: 150ms
 
-    # --- Phase 2b: Massive price fetch for AAPL ---
+    # --- Phase 2b: Price fetch (Massive) ---
+    # Price fetcher requests daily bars. Empty results prevent fetch blocks.
 
-    # 3. Massive: AAPL daily prices
+    # 7. Massive: AAPL daily prices (recent window)
+    - id: 1
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            adjusted:
+                - "false"
+            apiKey:
+                - REDACTED
+            sort:
+                - asc
+        url: https://api.massive.com/v2/aggs/ticker/AAPL/range/1/day/2025-01-01/2025-07-19?adjusted=false&apiKey=REDACTED&sort=asc
+        method: GET
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        uncompressed: true
+        body: '{"ticker":"AAPL","queryCount":0,"resultsCount":0,"adjusted":false,"results":[],"status":"OK","request_id":"test","count":0}'
+        headers:
+            Content-Type:
+                - application/json
+        status: 200 OK
+        code: 200
+        duration: 150ms
+
+    # 8. Massive: AAPL daily prices (older window)
     - id: 2
       request:
         proto: HTTP/1.1
@@ -91,29 +98,150 @@ interactions:
                 - REDACTED
             sort:
                 - asc
-        url: https://api.massive.com/v2/aggs/ticker/AAPL/range/1/day/2024-06-15/2024-09-15?adjusted=false&apiKey=REDACTED&sort=asc
+        url: https://api.massive.com/v2/aggs/ticker/AAPL/range/1/day/2024-09-15/2025-04-02?adjusted=false&apiKey=REDACTED&sort=asc
         method: GET
       response:
         proto: HTTP/1.1
         proto_major: 1
         proto_minor: 1
+        transfer_encoding:
+            - chunked
         content_length: -1
         uncompressed: true
-        body: '{"ticker":"AAPL","queryCount":2,"resultsCount":2,"adjusted":false,"results":[{"v":50000000,"vw":190.50,"o":189.00,"c":191.00,"h":192.00,"l":188.00,"t":1718409600000,"n":500000},{"v":40000000,"vw":55.50,"o":55.00,"c":56.00,"h":57.00,"l":54.00,"t":1726358400000,"n":400000}],"status":"OK","request_id":"test002","count":2}'
+        body: '{"ticker":"AAPL","queryCount":0,"resultsCount":0,"adjusted":false,"results":[],"status":"OK","request_id":"test","count":0}'
         headers:
             Content-Type:
                 - application/json
         status: 200 OK
         code: 200
-        duration: 200ms
+        duration: 150ms
+
+    # 9. Massive: option daily prices
+    - id: 3
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            adjusted:
+                - "false"
+            apiKey:
+                - REDACTED
+            sort:
+                - asc
+        url: https://api.massive.com/v2/aggs/ticker/O:AAPL250117C00190000/range/1/day/2024-06-15/2024-12-31?adjusted=false&apiKey=REDACTED&sort=asc
+        method: GET
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        uncompressed: true
+        body: '{"ticker":"O:AAPL250117C00190000","queryCount":0,"resultsCount":0,"adjusted":false,"results":[],"status":"OK","request_id":"test","count":0}'
+        headers:
+            Content-Type:
+                - application/json
+        status: 200 OK
+        code: 200
+        duration: 150ms
+
+    # 10-12. Massive: AAPL daily prices (additional windows)
+    - id: 4
+      request: &massive_aapl_price_req
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form: {adjusted: ["false"], apiKey: ["REDACTED"], sort: ["asc"]}
+        url: https://api.massive.com/v2/aggs/ticker/AAPL/range/1/day/2025-07-20/2026-02-04?adjusted=false&apiKey=REDACTED&sort=asc
+        method: GET
+      response: &massive_aapl_price_resp
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding: [chunked]
+        content_length: -1
+        uncompressed: true
+        body: '{"ticker":"AAPL","queryCount":0,"resultsCount":0,"adjusted":false,"results":[],"status":"OK","request_id":"test","count":0}'
+        headers: {Content-Type: ["application/json"]}
+        status: 200 OK
+        code: 200
+        duration: 150ms
+    - id: 5
+      request: *massive_aapl_price_req
+      response: *massive_aapl_price_resp
+    - id: 6
+      request: *massive_aapl_price_req
+      response: *massive_aapl_price_resp
+
+    # 13-15. Massive: option daily prices (additional windows)
+    - id: 7
+      request: &massive_opt_price_req
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form: {adjusted: ["false"], apiKey: ["REDACTED"], sort: ["asc"]}
+        url: https://api.massive.com/v2/aggs/ticker/O:AAPL250117C00190000/range/1/day/2025-01-01/2025-07-19?adjusted=false&apiKey=REDACTED&sort=asc
+        method: GET
+      response: &massive_opt_price_resp
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding: [chunked]
+        content_length: -1
+        uncompressed: true
+        body: '{"ticker":"O:AAPL250117C00190000","queryCount":0,"resultsCount":0,"adjusted":false,"results":[],"status":"OK","request_id":"test","count":0}'
+        headers: {Content-Type: ["application/json"]}
+        status: 200 OK
+        code: 200
+        duration: 150ms
+    - id: 8
+      request: *massive_opt_price_req
+      response: *massive_opt_price_resp
+    - id: 9
+      request: *massive_opt_price_req
+      response: *massive_opt_price_resp
+
+    # Massive price plugin reference lookup for AAPL ticker metadata.
+    - id: 10
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.massive.com
+        form:
+            apiKey:
+                - REDACTED
+        url: https://api.massive.com/v3/reference/tickers/AAPL?apiKey=REDACTED
+        method: GET
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        uncompressed: true
+        body: '{"results":{"ticker":"AAPL","name":"Apple Inc","market":"stocks","locale":"us","primary_exchange":"XNAS","type":"CS","active":true,"currency_name":"usd"},"status":"OK","request_id":"test","count":1}'
+        headers:
+            Content-Type:
+                - application/json
+        status: 200 OK
+        code: 200
+        duration: 150ms
 
     # --- Phase 3: Corporate event fetch ---
-    # Import did not record coverage, so the fetcher finds gaps and queries EODHD.
-    # EODHD returns the same split (upserted as no-op, but splitsLanded=true
-    # triggers processOptionSplits).
 
-    # 4. EODHD: splits for AAPL.US
-    - id: 3
+    # EODHD: splits for AAPL.US -- returns the 4:1 split
+    - id: 11
       request:
         proto: HTTP/1.1
         proto_major: 1
@@ -135,6 +263,8 @@ interactions:
         proto: HTTP/1.1
         proto_major: 1
         proto_minor: 1
+        transfer_encoding:
+            - chunked
         content_length: -1
         uncompressed: true
         body: '[{"date":"2024-08-01","split":"4.000000/1.000000"}]'
@@ -145,8 +275,8 @@ interactions:
         code: 200
         duration: 150ms
 
-    # 5. EODHD: dividends for AAPL.US — empty
-    - id: 4
+    # EODHD: dividends for AAPL.US -- empty
+    - id: 12
       request:
         proto: HTTP/1.1
         proto_major: 1
@@ -168,6 +298,8 @@ interactions:
         proto: HTTP/1.1
         proto_major: 1
         proto_minor: 1
+        transfer_encoding:
+            - chunked
         content_length: -1
         uncompressed: true
         body: '[]'

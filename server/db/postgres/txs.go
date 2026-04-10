@@ -107,7 +107,7 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	qb := psql.Select("broker", "account", "timestamp", "instrument_description", "tx_type", "quantity", "trading_currency", "settlement_currency", "unit_price", "instrument_id", "synthetic_purpose").
+	qb := psql.Select("broker", "account", "timestamp", "instrument_description", "tx_type", "quantity", "split_adjusted_quantity", "trading_currency", "settlement_currency", "unit_price", "split_adjusted_unit_price", "instrument_id", "synthetic_purpose").
 		From("txs").
 		Where(sq.Eq{"user_id": userUUID}).
 		OrderBy("timestamp")

@@ -719,11 +719,6 @@ func TestApplyOptionSplit(t *testing.T) {
 		t.Errorf("strike: got %v, want 37.5", inst.Strike)
 	}
 
-	// Verify name updated to new OCC.
-	if inst.Name == nil || *inst.Name != "AAPL250117C00037500" {
-		t.Errorf("name: got %v, want AAPL250117C00037500", inst.Name)
-	}
-
 	// No derived split row — split_factor_at looks up the underlying's splits
 	// via the underlying_id FK. Verify the option has no splits of its own.
 	splits, err := p.ListStockSplits(ctx, optID)

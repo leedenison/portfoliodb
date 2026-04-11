@@ -131,7 +131,7 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport: %v", err)
 	}
-	// List includes seeded CASH instruments (migration 002) plus any we create; broker-only must be excluded.
+	// List excludes seeded CASH/FX instruments (reference data); broker-only must also be excluded.
 	var foundApple bool
 	for _, row := range list {
 		if row.ID == brokerOnlyID {
@@ -164,7 +164,7 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport: %v", err)
 	}
-	// XNAS filter: seeded CASH instruments have exchange NULL so only our Nasdaq instrument matches.
+	// XNAS filter: only our Nasdaq STOCK instrument matches (CASH/FX excluded).
 	if len(list) != 1 || list[0].ExchangeMIC == nil || *list[0].ExchangeMIC != "XNAS" {
 		var ex string
 		if len(list) > 0 && list[0].ExchangeMIC != nil {
@@ -176,9 +176,9 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport all: %v", err)
 	}
-	// No filter: seeded CASH instruments (canonical CURRENCY) plus our 2 STOCK instruments.
-	if len(listAll) < 2 {
-		t.Fatalf("expected at least 2 instruments with no filter, got %d", len(listAll))
+	// No filter: CASH/FX excluded, so only our 2 STOCK instruments.
+	if len(listAll) != 2 {
+		t.Fatalf("expected 2 instruments with no filter, got %d", len(listAll))
 	}
 	var foundNasdaq, foundNYSE bool
 	for _, row := range listAll {

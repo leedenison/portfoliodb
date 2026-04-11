@@ -195,5 +195,8 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 		}
 		ensuredCount++
 	}
+	// No fetcher triggers here. Imported instruments have no holdings yet, so
+	// there are no price gaps to fill. Corporate events (splits, dividends)
+	// are picked up by the daily corporate event fetch cycle.
 	return &apiv1.ImportInstrumentsResponse{EnsuredCount: ensuredCount, Errors: errs}, nil
 }

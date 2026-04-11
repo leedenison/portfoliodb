@@ -2,14 +2,13 @@ package pricefetcher
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/worker"
 )
@@ -155,13 +154,13 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 
 		fetchedByPlugin := false
 		for _, pe := range plugins {
-			if !pluginAccepts(pe.plugin, inst) {
+			if !pluginutil.PluginAccepts(pe.plugin.AcceptableAssetClasses(), pe.plugin.AcceptableExchanges(), pe.plugin.AcceptableCurrencies(), inst) {
 				continue
 			}
 			if blocked[ig.InstrumentID][pe.id] {
 				continue
 			}
-			ids := filterIdentifiers(pe.plugin.SupportedIdentifierTypes(), inst.Identifiers)
+			ids := pluginutil.FilterIdentifiers(pe.plugin.SupportedIdentifierTypes(), inst.Identifiers)
 			if len(ids) == 0 {
 				continue
 			}
@@ -183,7 +182,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 				if inst.AssetClass != nil {
 					assetClass = *inst.AssetClass
 				}
-					callCtx, callCancel := context.WithTimeout(ctx, timeoutFromConfig(pe.config))
+					callCtx, callCancel := context.WithTimeout(ctx, pluginutil.TimeoutFromConfig(pe.config, DefaultPricePluginTimeout))
 				result, err := pe.plugin.FetchPrices(callCtx, pe.config, pfIDs, assetClass, gap.From, gap.To)
 				callCancel()
 				if err != nil {
@@ -236,41 +235,6 @@ func extractInstrumentIDs(gaps []db.InstrumentDateRanges) []string {
 	return out
 }
 
-// pluginAccepts checks whether a plugin can handle the given instrument
-// based on asset class, exchange, and currency filters.
-func pluginAccepts(p Plugin, inst *db.InstrumentRow) bool {
-	if ac := p.AcceptableAssetClasses(); len(ac) > 0 && inst.AssetClass != nil && *inst.AssetClass != "" {
-		if !ac[*inst.AssetClass] {
-			return false
-		}
-	}
-	if ex := p.AcceptableExchanges(); len(ex) > 0 && inst.ExchangeMIC != nil && *inst.ExchangeMIC != "" {
-		if !ex[*inst.ExchangeMIC] {
-			return false
-		}
-	}
-	if cu := p.AcceptableCurrencies(); len(cu) > 0 && inst.Currency != nil && *inst.Currency != "" {
-		if !cu[strings.ToUpper(*inst.Currency)] {
-			return false
-		}
-	}
-	return true
-}
-
-// filterIdentifiers returns identifiers whose type is in the supported set.
-func filterIdentifiers(supported []string, ids []db.IdentifierInput) []db.IdentifierInput {
-	set := make(map[string]bool, len(supported))
-	for _, t := range supported {
-		set[t] = true
-	}
-	var out []db.IdentifierInput
-	for _, id := range ids {
-		if set[id.Type] {
-			out = append(out, id)
-		}
-	}
-	return out
-}
 
 func toPricefetcherIDs(ids []db.IdentifierInput) []Identifier {
 	out := make([]Identifier, len(ids))
@@ -297,33 +261,3 @@ func barsToEODPrices(instrumentID, provider string, bars []DailyBar) []db.EODPri
 	return out
 }
 
-type pluginConfigJSON struct {
-	TimeoutSeconds *int `json:"timeout_seconds"`
-}
-
-// timeoutFromConfig parses timeout_seconds from plugin config JSON; defaults to DefaultPricePluginTimeout.
-func timeoutFromConfig(config []byte) time.Duration {
-	if len(config) == 0 {
-		return DefaultPricePluginTimeout
-	}
-	var c pluginConfigJSON
-	if err := json.Unmarshal(config, &c); err != nil {
-		return DefaultPricePluginTimeout
-	}
-	if c.TimeoutSeconds == nil || *c.TimeoutSeconds <= 0 {
-		return DefaultPricePluginTimeout
-	}
-	return time.Duration(*c.TimeoutSeconds) * time.Second
-}
-
-// Trigger sends a non-blocking signal on a price trigger channel.
-// Safe to call with a nil channel.
-func Trigger(ch chan<- struct{}) {
-	if ch == nil {
-		return
-	}
-	select {
-	case ch <- struct{}{}:
-	default:
-	}
-}

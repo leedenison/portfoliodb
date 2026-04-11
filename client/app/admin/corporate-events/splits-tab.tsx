@@ -1,16 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
+import { exportCorporateEvents } from "@/lib/portfolio-api";
+import { splitsToJson } from "@/lib/json/corporate-events";
 import type { ExportCorporateEventRow } from "@/gen/api/v1/api_pb";
-import {
-  exportCorporateEvents,
-  importCorporateEventSplits,
-  getJob,
-  type GetJobResult,
-} from "@/lib/portfolio-api";
-import { JobStatus } from "@/gen/api/v1/api_pb";
-import { splitsToJson, parseSplitsJson } from "@/lib/json/corporate-events";
+import { ImportSplitsModal } from "./import-splits-modal";
 
 interface SplitDisplay {
   identifierType: string;
@@ -27,10 +22,7 @@ export function SplitsTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
-  const [importJsonError, setImportJsonError] = useState<string | null>(null);
-  const [importJobId, setImportJobId] = useState<string | null>(null);
-  const [importJobStatus, setImportJobStatus] = useState<GetJobResult | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const loadSplits = useCallback(async () => {
     setLoading(true);
@@ -86,64 +78,6 @@ export function SplitsTab() {
     }
   }
 
-  function handleJsonFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setImportJsonError(null);
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const text = (ev.target?.result as string) ?? "";
-      const result = parseSplitsJson(text);
-      if (result.errors.length > 0) {
-        setImportJsonError(result.errors.map((e) => `Row ${e.rowIndex}: ${e.field} - ${e.message}`).join("\n"));
-        if (fileRef.current) fileRef.current.value = "";
-        return;
-      }
-      if (result.splits.length === 0) {
-        setImportJsonError("No splits found in file.");
-        if (fileRef.current) fileRef.current.value = "";
-        return;
-      }
-      try {
-        const jobId = await importCorporateEventSplits(result.splits);
-        setImportJobId(jobId);
-      } catch (err) {
-        setImportJsonError(err instanceof Error ? err.message : String(err));
-      }
-      if (fileRef.current) fileRef.current.value = "";
-    };
-    reader.readAsText(f);
-  }
-
-  // Poll JSON import job.
-  useEffect(() => {
-    if (!importJobId) return;
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const result = await getJob(importJobId);
-        if (cancelled) return;
-        setImportJobStatus(result);
-        if (result.status === JobStatus.SUCCESS || result.status === JobStatus.FAILED) {
-          if (result.status === JobStatus.SUCCESS) loadSplits();
-          setImportJobId(null);
-        }
-      } catch {
-        // Ignore transient poll errors.
-      }
-    };
-    poll();
-    const t = setInterval(poll, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, [importJobId, loadSplits]);
-
-  function dismissJobStatus() {
-    setImportJobStatus(null);
-  }
-
   return (
     <div className="mt-4 space-y-4">
       <div className="flex flex-wrap items-end gap-3">
@@ -156,16 +90,13 @@ export function SplitsTab() {
           >
             {exportLoading ? "Exporting..." : "Export JSON"}
           </button>
-          <label className="cursor-pointer rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15">
+          <button
+            type="button"
+            onClick={() => setImportOpen(true)}
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15"
+          >
             Import JSON
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".json"
-              onChange={handleJsonFileChange}
-              className="sr-only"
-            />
-          </label>
+          </button>
         </div>
       </div>
 
@@ -175,38 +106,11 @@ export function SplitsTab() {
         </div>
       )}
 
-      {importJsonError && (
-        <div className="mt-2">
-          <ErrorAlert>{importJsonError}</ErrorAlert>
-        </div>
-      )}
-
-      {importJobId && (
-        <p className="mt-2 text-sm text-text-muted">
-          Importing...{importJobStatus && importJobStatus.totalCount > 0
-            ? ` ${importJobStatus.processedCount} of ${importJobStatus.totalCount}`
-            : ""}
-        </p>
-      )}
-
-      {importJobStatus && !importJobId && (
-        <div className="mt-2 flex items-center gap-2 text-sm">
-          {importJobStatus.status === JobStatus.SUCCESS ? (
-            <span className="text-text-primary">
-              Import complete: {importJobStatus.processedCount} event{importJobStatus.processedCount !== 1 ? "s" : ""} processed.
-            </span>
-          ) : (
-            <span className="text-accent-dark">Import failed.</span>
-          )}
-          <button
-            type="button"
-            onClick={dismissJobStatus}
-            className="text-xs text-text-muted underline hover:text-text-primary"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
+      <ImportSplitsModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onComplete={loadSplits}
+      />
 
       {loading ? (
         <p className="mt-4 text-text-muted">Loading splits...</p>
@@ -239,7 +143,6 @@ export function SplitsTab() {
           </tbody>
         </table>
       )}
-
     </div>
   );
 }

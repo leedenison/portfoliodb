@@ -29,6 +29,21 @@ describe("pricesToCsv", () => {
     expect(lines[1]).toContain("185.9");
   });
 
+  it("prepends exported_at comment line when date provided", () => {
+    const exportedAt = new Date("2025-07-15T10:30:00.000Z");
+    const csv = pricesToCsv([makeRow()], exportedAt);
+    const lines = csv.split("\n");
+    expect(lines[0]).toBe("# exported_at=2025-07-15T10:30:00.000Z");
+    expect(lines[1]).toBe(
+      "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class"
+    );
+  });
+
+  it("omits comment line when no exportedAt provided", () => {
+    const csv = pricesToCsv([makeRow()]);
+    expect(csv.startsWith("#")).toBe(false);
+  });
+
   it("includes optional fields when present", () => {
     const csv = pricesToCsv([
       makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n, assetClass: AssetClass.STOCK }),
@@ -170,10 +185,12 @@ describe("csvToPrices", () => {
       makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n }),
       makeRow({ identifierType: "MIC_TICKER", identifierValue: "AAPL", identifierDomain: "XNAS", priceDate: "2024-01-16", close: 186.5 }),
     ];
-    const csv = pricesToCsv(original);
+    const exportedAt = new Date("2025-07-15T10:30:00.000Z");
+    const csv = pricesToCsv(original, exportedAt);
     const result = csvToPrices(csv);
     expect(result.errors).toHaveLength(0);
     expect(result.prices).toHaveLength(2);
+    expect(result.exportedAt).toEqual(exportedAt);
     expect(result.prices[0].identifierType).toBe("ISIN");
     expect(result.prices[0].close).toBe(185.9);
     expect(result.prices[0].open).toBe(185.5);
@@ -182,6 +199,28 @@ describe("csvToPrices", () => {
     expect(result.prices[1].identifierDomain).toBe("XNAS");
     expect(result.prices[1].close).toBe(186.5);
     expect(result.prices[1].open).toBeUndefined();
+  });
+
+  it("extracts exported_at from comment line", () => {
+    const csv = `# exported_at=2025-07-15T10:30:00.000Z\n${HEADER}\nISIN,US0378331005,,2024-01-15,,,,185.9,,`;
+    const result = csvToPrices(csv);
+    expect(result.errors).toHaveLength(0);
+    expect(result.prices).toHaveLength(1);
+    expect(result.exportedAt).toEqual(new Date("2025-07-15T10:30:00.000Z"));
+  });
+
+  it("returns undefined exportedAt when no comment line", () => {
+    const csv = `${HEADER}\nISIN,US0378331005,,2024-01-15,,,,185.9,,`;
+    const result = csvToPrices(csv);
+    expect(result.exportedAt).toBeUndefined();
+  });
+
+  it("ignores unknown comment lines", () => {
+    const csv = `# some other comment\n${HEADER}\nISIN,US0378331005,,2024-01-15,,,,185.9,,`;
+    const result = csvToPrices(csv);
+    expect(result.errors).toHaveLength(0);
+    expect(result.prices).toHaveLength(1);
+    expect(result.exportedAt).toBeUndefined();
   });
 
   it("handles empty input", () => {

@@ -68,7 +68,7 @@ export function ImportPricesModal({
     setPhase("processing");
     setImportError(null);
     try {
-      const id = await importPrices(parseResult.prices);
+      const id = await importPrices(parseResult.prices, parseResult.exportedAt);
       setJobId(id);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));

@@ -638,9 +638,12 @@ export async function* exportPrices(): AsyncGenerator<ExportPriceRow> {
 }
 
 /** Import (upsert) prices (admin only). Returns a job ID for async processing. */
-export async function importPrices(prices: ImportPriceRow[]): Promise<string> {
+export async function importPrices(prices: ImportPriceRow[], exportedAt?: Date): Promise<string> {
   const base = getBaseUrl();
-  const req = create(ImportPricesRequestSchema, { prices });
+  const req = create(ImportPricesRequestSchema, {
+    prices,
+    exportedAt: exportedAt ? timestampFromDate(exportedAt) : undefined,
+  });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "ImportPrices", toBinary(ImportPricesRequestSchema, req), { credentials: "include" });
   const res = fromBinary(ImportPricesResponseSchema, resBytes);
   return res.jobId;

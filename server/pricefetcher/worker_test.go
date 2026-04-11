@@ -8,6 +8,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 	"go.uber.org/mock/gomock"
 )
@@ -78,7 +79,7 @@ func TestPluginAccepts(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := pluginAccepts(tc.plugin, tc.inst)
+			got := pluginutil.PluginAccepts(tc.plugin.AcceptableAssetClasses(), tc.plugin.AcceptableExchanges(), tc.plugin.AcceptableCurrencies(), tc.inst)
 			if got != tc.want {
 				t.Errorf("pluginAccepts = %v, want %v", got, tc.want)
 			}
@@ -92,7 +93,7 @@ func TestFilterIdentifiers(t *testing.T) {
 		{Type: "ISIN", Value: "US0378331005"},
 		{Type: "OCC", Value: "AAPL250321C00150000"},
 	}
-	got := filterIdentifiers([]string{"MIC_TICKER", "OCC"}, ids)
+	got := pluginutil.FilterIdentifiers([]string{"MIC_TICKER", "OCC"}, ids)
 	if len(got) != 2 {
 		t.Fatalf("expected 2, got %d", len(got))
 	}
@@ -103,11 +104,11 @@ func TestFilterIdentifiers(t *testing.T) {
 
 func TestTrigger(t *testing.T) {
 	t.Run("nil channel", func(t *testing.T) {
-		Trigger(nil) // should not panic
+		pluginutil.Trigger(nil) // should not panic
 	})
 	t.Run("sends signal", func(t *testing.T) {
 		ch := make(chan struct{}, 1)
-		Trigger(ch)
+		pluginutil.Trigger(ch)
 		select {
 		case <-ch:
 		default:
@@ -117,7 +118,7 @@ func TestTrigger(t *testing.T) {
 	t.Run("non-blocking when full", func(t *testing.T) {
 		ch := make(chan struct{}, 1)
 		ch <- struct{}{}
-		Trigger(ch) // should not block
+		pluginutil.Trigger(ch) // should not block
 	})
 }
 
@@ -428,8 +429,8 @@ func TestRunWorker_DebounceCollapsesTriggers(t *testing.T) {
 
 	// Send 2 more triggers while cycle 1 is in-flight.
 	// Buffer holds 1, so one is queued and one is dropped.
-	Trigger(trigger)
-	Trigger(trigger)
+	pluginutil.Trigger(trigger)
+	pluginutil.Trigger(trigger)
 
 	// Release both cycles.
 	close(gate)

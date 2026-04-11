@@ -5,7 +5,7 @@ import (
 	"regexp"
 
 	"github.com/leedenison/portfoliodb/server/auth"
-	"github.com/leedenison/portfoliodb/server/pricefetcher"
+	"github.com/leedenison/portfoliodb/server/pluginutil"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -40,6 +40,6 @@ func (s *Server) SetDisplayCurrency(ctx context.Context, req *apiv1.SetDisplayCu
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	// Trigger a price fetch cycle so FX rates for the new display currency are fetched.
-	pricefetcher.Trigger(s.priceTrigger)
+	pluginutil.Trigger(s.priceTrigger)
 	return &apiv1.SetDisplayCurrencyResponse{DisplayCurrency: cc}, nil
 }

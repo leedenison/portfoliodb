@@ -9,11 +9,10 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
-	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
-	"github.com/leedenison/portfoliodb/server/pricefetcher"
+	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/worker"
 	"google.golang.org/protobuf/proto"
@@ -99,15 +98,23 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			if err := recalcAfterIngestion(ctx, opts.DB, userID); err != nil {
 				log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
 			}
-			pricefetcher.Trigger(opts.PriceTrigger)
+			// Only the price fetcher is triggered here. The corporate event
+			// fetcher is not nudged because splits are not time-critical --
+			// the daily corporate event fetch cycle is sufficient for any
+			// newly resolved instruments.
+			pluginutil.Trigger(opts.PriceTrigger)
 		}
 	case db.JobTypePrice:
 		if processPriceImport(ctx, opts.DB, opts.IdentifierRegistry, j) {
-			pricefetcher.Trigger(opts.PriceTrigger)
+			pluginutil.Trigger(opts.PriceTrigger)
 		}
 	case db.JobTypeCorporateEvent:
 		if processCorporateEventImport(ctx, opts.DB, opts.IdentifierRegistry, j) {
-			corporateevents.Trigger(opts.CorporateEventTrigger)
+			// Only the corporate event fetcher is triggered here. The price
+			// fetcher is not nudged because instruments resolved during
+			// corporate event import cannot by definition create new holding
+			// gaps that would require price data.
+			pluginutil.Trigger(opts.CorporateEventTrigger)
 		}
 	default:
 		log.Printf("ingestion job %s: unknown job type %q", j.JobID, j.JobType)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"go.uber.org/mock/gomock"
 )
 
@@ -94,7 +95,7 @@ func TestPluginAccepts(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := pluginAccepts(tc.p, tc.inst); got != tc.want {
+			if got := pluginutil.PluginAccepts(tc.p.AcceptableAssetClasses(), tc.p.AcceptableExchanges(), tc.p.AcceptableCurrencies(), tc.inst); got != tc.want {
 				t.Errorf("got %v want %v", got, tc.want)
 			}
 		})
@@ -107,32 +108,32 @@ func TestFilterIdentifiers(t *testing.T) {
 		{Type: "ISIN", Value: "US0378331005"},
 		{Type: "OPENFIGI_TICKER", Value: "BBG000B9XRY4"},
 	}
-	got := filterIdentifiers([]string{"MIC_TICKER", "OPENFIGI_TICKER"}, ids)
+	got := pluginutil.FilterIdentifiers([]string{"MIC_TICKER", "OPENFIGI_TICKER"}, ids)
 	if len(got) != 2 {
 		t.Fatalf("expected 2, got %d", len(got))
 	}
 }
 
 func TestTimeoutFromConfig(t *testing.T) {
-	if timeoutFromConfig(nil) != DefaultPluginTimeout {
+	if pluginutil.TimeoutFromConfig(nil, DefaultPluginTimeout) != DefaultPluginTimeout {
 		t.Error("nil config")
 	}
-	if timeoutFromConfig([]byte(`{"timeout_seconds": 30}`)) != 30*time.Second {
+	if pluginutil.TimeoutFromConfig([]byte(`{"timeout_seconds": 30}`), DefaultPluginTimeout) != 30*time.Second {
 		t.Error("explicit 30s")
 	}
-	if timeoutFromConfig([]byte(`{"timeout_seconds": -5}`)) != DefaultPluginTimeout {
+	if pluginutil.TimeoutFromConfig([]byte(`{"timeout_seconds": -5}`), DefaultPluginTimeout) != DefaultPluginTimeout {
 		t.Error("negative")
 	}
-	if timeoutFromConfig([]byte(`not json`)) != DefaultPluginTimeout {
+	if pluginutil.TimeoutFromConfig([]byte(`not json`), DefaultPluginTimeout) != DefaultPluginTimeout {
 		t.Error("invalid json")
 	}
 }
 
 func TestTrigger(t *testing.T) {
-	t.Run("nil channel", func(t *testing.T) { Trigger(nil) })
+	t.Run("nil channel", func(t *testing.T) { pluginutil.Trigger(nil) })
 	t.Run("sends signal", func(t *testing.T) {
 		ch := make(chan struct{}, 1)
-		Trigger(ch)
+		pluginutil.Trigger(ch)
 		select {
 		case <-ch:
 		default:
@@ -142,7 +143,7 @@ func TestTrigger(t *testing.T) {
 	t.Run("non-blocking when full", func(t *testing.T) {
 		ch := make(chan struct{}, 1)
 		ch <- struct{}{}
-		Trigger(ch)
+		pluginutil.Trigger(ch)
 	})
 }
 

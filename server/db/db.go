@@ -567,7 +567,7 @@ type InstrumentDB interface {
 	GetInstrument(ctx context.Context, instrumentID string) (*InstrumentRow, error)
 	// ListInstrumentsByIDs returns instruments by ID slice (for batch underlying lookup). Missing IDs are omitted; order not guaranteed.
 	ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*InstrumentRow, error)
-	// ListInstrumentsForExport returns all instruments that have at least one identifier with canonical = true. If exchangeFilter != "", filter by instruments.exchange_mic. Order by instruments.id.
+	// ListInstrumentsForExport returns all instruments that have at least one identifier with canonical = true. Excludes CASH and FX asset classes (reference data). If exchangeFilter != "", filter by instruments.exchange_mic. Order by instruments.id.
 	ListInstrumentsForExport(ctx context.Context, exchangeFilter string) ([]*InstrumentRow, error)
 	// ValidateMIC checks whether the given MIC code exists in the exchanges reference table.
 	ValidateMIC(ctx context.Context, mic string) (bool, error)

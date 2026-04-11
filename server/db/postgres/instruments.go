@@ -227,6 +227,7 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 			FROM instruments i
 			LEFT JOIN exchanges e ON e.mic = i.exchange_mic
 			WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)
+			AND i.asset_class NOT IN ('CASH', 'FX')
 			AND i.exchange_mic = $1
 			ORDER BY i.id
 		`, exchangeFilter)
@@ -237,6 +238,7 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 			FROM instruments i
 			LEFT JOIN exchanges e ON e.mic = i.exchange_mic
 			WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)
+			AND i.asset_class NOT IN ('CASH', 'FX')
 			ORDER BY i.id
 		`)
 	}

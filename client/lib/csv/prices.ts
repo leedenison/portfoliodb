@@ -29,7 +29,7 @@ function fmtOptBigint(v: bigint | undefined): string {
 }
 
 /** Serialize ExportPriceRow[] to CSV text. */
-export function pricesToCsv(rows: ExportPriceRow[]): string {
+export function pricesToCsv(rows: ExportPriceRow[], exportedAt?: Date): string {
   const data = rows.map((r) => [
     r.identifierType,
     r.identifierValue,
@@ -43,12 +43,17 @@ export function pricesToCsv(rows: ExportPriceRow[]): string {
     fmtOptBigint(r.volume),
     assetClassToStr(r.assetClass),
   ]);
-  return Papa.unparse({ fields: HEADER.split(","), data }, { newline: "\n" }) + "\n";
+  const csv = Papa.unparse({ fields: HEADER.split(","), data }, { newline: "\n" }) + "\n";
+  if (exportedAt) {
+    return `# exported_at=${exportedAt.toISOString()}\n${csv}`;
+  }
+  return csv;
 }
 
 export interface PriceParseResult {
   prices: ImportPriceRow[];
   errors: ParseError[];
+  exportedAt?: Date;
 }
 
 /** Parse CSV text into ImportPriceRow[] with validation. */
@@ -56,10 +61,26 @@ export function csvToPrices(text: string): PriceParseResult {
   const prices: ImportPriceRow[] = [];
   const errors: ParseError[] = [];
 
-  const parsed = Papa.parse<string[]>(text, { header: false, skipEmptyLines: true });
+  // Extract metadata from comment lines and strip them before parsing.
+  let exportedAt: Date | undefined;
+  const dataLines: string[] = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("# exported_at=")) {
+      const d = new Date(trimmed.slice("# exported_at=".length));
+      if (!isNaN(d.getTime())) exportedAt = d;
+    } else if (trimmed.startsWith("#")) {
+      continue;
+    } else {
+      dataLines.push(line);
+    }
+  }
+  const csvText = dataLines.join("\n");
+
+  const parsed = Papa.parse<string[]>(csvText, { header: false, skipEmptyLines: true });
   const rows = parsed.data;
   if (rows.length === 0) {
-    return { prices, errors };
+    return { prices, errors, exportedAt };
   }
 
   const headerFields = rows[0].map((h) => h.trim().toLowerCase());
@@ -75,7 +96,7 @@ export function csvToPrices(text: string): PriceParseResult {
     }
   }
   if (errors.length > 0) {
-    return { prices, errors };
+    return { prices, errors, exportedAt };
   }
 
   for (let i = 1; i < rows.length; i++) {
@@ -181,5 +202,5 @@ export function csvToPrices(text: string): PriceParseResult {
     prices.push(row);
   }
 
-  return { prices, errors };
+  return { prices, errors, exportedAt };
 }

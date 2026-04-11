@@ -94,10 +94,14 @@ function PriceListTab() {
     setExportError(null);
     try {
       const rows: ExportPriceRow[] = [];
+      let exportedAt: Date | undefined;
       for await (const row of exportPrices()) {
+        if (!exportedAt && row.exportedAt) {
+          exportedAt = timestampDate(row.exportedAt);
+        }
         rows.push(row);
       }
-      const csv = pricesToCsv(rows);
+      const csv = pricesToCsv(rows, exportedAt);
       const blob = new Blob([csv], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

@@ -81,8 +81,10 @@ func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiSe
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
+	now := timestamppb.Now()
 	for _, r := range rows {
 		row := &apiv1.ExportPriceRow{
+			ExportedAt:       now,
 			IdentifierType:   r.IdentifierType,
 			IdentifierValue:  r.IdentifierValue,
 			IdentifierDomain: r.IdentifierDomain,

@@ -42,6 +42,14 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		return false
 	}
 
+	var hintsValidAt *time.Time
+	if req.GetExportedAt() != nil {
+		t := req.GetExportedAt().AsTime()
+		hintsValidAt = &t
+	} else {
+		slog.Warn("price import missing exported_at; OCC symbols will not be split-adjusted", "job_id", j.JobID)
+	}
+
 	rows := req.GetPrices()
 	_ = database.SetJobTotalCount(ctx, j.JobID, int32(len(rows)))
 
@@ -78,7 +86,7 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		entry, cached := resolveCache[cacheKey]
 		if !cached {
 			acStr := db.AssetClassToStr(row.GetAssetClass())
-			instID, resolveErr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr)
+			instID, resolveErr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, hintsValidAt)
 			entry = &resolveEntry{instID: instID, err: resolveErr}
 			resolveCache[cacheKey] = entry
 		}
@@ -215,7 +223,7 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 }
 
 // resolveOrIdentifyInstrument finds an instrument by identifier, or creates one.
-func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, idType, domain, value, assetClass string) (string, error) {
+func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, idType, domain, value, assetClass string, hintsValidAt *time.Time) (string, error) {
 	hint := identifier.Identifier{Type: idType, Domain: domain, Value: value}
 
 	if assetClass != "" && pluginRegistry != nil {
@@ -226,7 +234,7 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		result, err := identification.ResolveWithPlugins(ctx, database, pluginRegistry,
 			"", "", "", hints,
 			[]identifier.Identifier{hint},
-			false, fallback, nil, nil, 0, nil)
+			false, fallback, nil, nil, 0, hintsValidAt)
 		if err != nil {
 			return "", fmt.Errorf("identification error for %s %q: %v", idType, value, err)
 		}

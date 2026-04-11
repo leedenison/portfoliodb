@@ -673,6 +673,7 @@ message ExportPriceRow {
   optional double adjusted_close = 9;
   optional int64 volume = 10;
   AssetClass asset_class = 11;   // denormalized from instrument
+  google.protobuf.Timestamp exported_at = 12; // when the export was generated
 }
 
 // ImportPriceRow is one price row to import. When the instrument is unknown, asset_class
@@ -698,6 +699,10 @@ message ImportPricesRequest {
   // UpsertPricesWithFill to generate synthetic LOCF prices for non-trading
   // days within each range. When absent, prices are upserted as-is.
   repeated ImportCoverage coverage = 2;
+  // When set, used as hintsValidAt for split adjustment during instrument
+  // resolution. OCC symbols in the file are assumed valid as of this time;
+  // any splits with ex_date after this and on or before today are applied.
+  google.protobuf.Timestamp exported_at = 3;
 }
 
 // ImportCoverage declares that the caller intends to cover a date range for

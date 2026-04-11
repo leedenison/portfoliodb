@@ -176,7 +176,7 @@ func resolveCorporateEventRow(ctx context.Context, database db.DB, pluginRegistr
 	}
 	acStr := db.AssetClassToStr(row.GetAssetClass())
 	instID, err := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
-		row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr)
+		row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, nil)
 	cache[key] = &resolveEntry{instID: instID, err: err}
 	return instID, err
 }
@@ -290,7 +290,7 @@ func writeImportCoverage(ctx context.Context, database db.DB, coverage []*apiv1.
 			// plugin registry is passed through so the resolution rules
 			// match the per-event resolution above.
 			instID, rerr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
-				c.GetIdentifierType(), c.GetIdentifierDomain(), c.GetIdentifierValue(), "")
+				c.GetIdentifierType(), c.GetIdentifierDomain(), c.GetIdentifierValue(), "", nil)
 			entry = &resolveEntry{instID: instID, err: rerr}
 			cache[key] = entry
 		}

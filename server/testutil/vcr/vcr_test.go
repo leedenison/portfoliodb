@@ -63,12 +63,12 @@ func TestNormalizeURL(t *testing.T) {
 			want: "https://api.massive.com/v2/aggs/ticker/TSLA/range/1/day/DATE/DATE?adjusted=false&apiKey=REDACTED&sort=asc",
 		},
 		{
-			name: "no dates in path",
+			name: "no dates in path or query",
 			in:   "https://api.massive.com/v3/reference/tickers/AAPL?apiKey=REDACTED",
 			want: "https://api.massive.com/v3/reference/tickers/AAPL?apiKey=REDACTED",
 		},
 		{
-			name: "eodhd search",
+			name: "eodhd search no dates",
 			in:   "https://eodhd.com/api/search/US0378331005?api_token=REDACTED&fmt=json&limit=10&type=stock",
 			want: "https://eodhd.com/api/search/US0378331005?api_token=REDACTED&fmt=json&limit=10&type=stock",
 		},
@@ -76,6 +76,16 @@ func TestNormalizeURL(t *testing.T) {
 			name: "different end dates match after normalization",
 			in:   "https://api.massive.com/v2/aggs/ticker/AMZN/range/1/day/2024-01-27/2026-03-27?adjusted=false&apiKey=REDACTED&sort=asc",
 			want: "https://api.massive.com/v2/aggs/ticker/AMZN/range/1/day/DATE/DATE?adjusted=false&apiKey=REDACTED&sort=asc",
+		},
+		{
+			name: "eodhd splits with date query params",
+			in:   "https://eodhd.com/api/splits/AAPL.US?api_token=REDACTED&fmt=json&from=2024-06-15&to=2026-05-11",
+			want: "https://eodhd.com/api/splits/AAPL.US?api_token=REDACTED&fmt=json&from=DATE&to=DATE",
+		},
+		{
+			name: "eodhd dividends with date query params",
+			in:   "https://eodhd.com/api/div/AAPL.US?api_token=REDACTED&fmt=json&from=2024-06-15&to=2026-05-11",
+			want: "https://eodhd.com/api/div/AAPL.US?api_token=REDACTED&fmt=json&from=DATE&to=DATE",
 		},
 	}
 	for _, tc := range tests {

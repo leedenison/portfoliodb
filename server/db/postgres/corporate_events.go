@@ -494,7 +494,8 @@ func (p *Postgres) SplitsByUnderlyingTicker(ctx context.Context, ticker string) 
 	return out, rows.Err()
 }
 
-// InstrumentsWithSplits implements db.CorporateEventDB.
+// InstrumentsWithSplits implements db.CorporateEventDB. Returns instruments
+// that have splits directly or via their underlying (for derivatives).
 func (p *Postgres) InstrumentsWithSplits(ctx context.Context, instrumentIDs []string) ([]string, error) {
 	if len(instrumentIDs) == 0 {
 		return nil, nil
@@ -508,8 +509,14 @@ func (p *Postgres) InstrumentsWithSplits(ctx context.Context, instrumentIDs []st
 		uuids = append(uuids, u)
 	}
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT DISTINCT instrument_id FROM stock_splits
-		WHERE instrument_id = ANY($1::uuid[])
+		SELECT DISTINCT id FROM (
+			SELECT instrument_id AS id FROM stock_splits
+			WHERE instrument_id = ANY($1::uuid[])
+			UNION
+			SELECT i.id FROM instruments i
+			JOIN stock_splits s ON s.instrument_id = i.underlying_id
+			WHERE i.id = ANY($1::uuid[])
+		) t
 	`, pq.Array(uuids))
 	if err != nil {
 		return nil, fmt.Errorf("instruments with splits: %w", err)

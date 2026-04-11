@@ -355,18 +355,18 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 					return err
 				}
 			}
-			// Update identified_at and option fields on survivor.
-			return updateIdentifiedAt(ctx, exec, survivor, optionFields)
+			// Update identified_at, underlying, and option fields on survivor.
+			return updateIdentifiedAt(ctx, exec, survivor, underlyingUUID, optionFields)
 		})
 		if err != nil {
 			return "", err
 		}
 		return survivor.String(), nil
 	}
-	// Exactly one instrument: update identified_at and option fields.
+	// Exactly one instrument: update identified_at, underlying, and option fields.
 	if len(distinctIDs) == 1 {
 		id := distinctIDs[0]
-		if err := updateIdentifiedAt(ctx, p.q, id, optionFields); err != nil {
+		if err := updateIdentifiedAt(ctx, p.q, id, underlyingUUID, optionFields); err != nil {
 			return "", err
 		}
 		return id.String(), nil
@@ -414,17 +414,17 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 	return newID.String(), nil
 }
 
-// updateIdentifiedAt sets identified_at = now() and optionally updates option
-// fields on an existing instrument.
-func updateIdentifiedAt(ctx context.Context, exec queryable, id uuid.UUID, optionFields *db.OptionFields) error {
+// updateIdentifiedAt sets identified_at = now(), optionally sets underlying_id,
+// and optionally updates option fields on an existing instrument.
+func updateIdentifiedAt(ctx context.Context, exec queryable, id uuid.UUID, underlyingID *uuid.UUID, optionFields *db.OptionFields) error {
 	if optionFields != nil {
 		_, err := exec.ExecContext(ctx, `
-			UPDATE instruments SET identified_at = now(), strike = $2, expiry = $3, put_call = $4
+			UPDATE instruments SET identified_at = now(), underlying_id = COALESCE($2, underlying_id), strike = $3, expiry = $4, put_call = $5
 			WHERE id = $1
-		`, id, optionFields.Strike, optionFields.Expiry, optionFields.PutCall)
+		`, id, nullUUID(underlyingID), optionFields.Strike, optionFields.Expiry, optionFields.PutCall)
 		return err
 	}
-	_, err := exec.ExecContext(ctx, `UPDATE instruments SET identified_at = now() WHERE id = $1`, id)
+	_, err := exec.ExecContext(ctx, `UPDATE instruments SET identified_at = now(), underlying_id = COALESCE($2, underlying_id) WHERE id = $1`, id, nullUUID(underlyingID))
 	return err
 }
 

@@ -154,15 +154,23 @@ func EnvOrSkip(t *testing.T, name string, suite string) string {
 // replay correctly on subsequent days.
 var dateRe = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
 
-// normalizeURL replaces ISO date segments in the URL path with a fixed
-// placeholder so that date-dependent URLs (e.g. Massive DailyBars) match
-// cassette entries regardless of when the test runs.
+// normalizeURL replaces ISO date segments in both the URL path and query
+// parameter values with a fixed placeholder so that date-dependent URLs
+// match cassette entries regardless of when the test runs.
 func normalizeURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return raw
 	}
 	u.Path = dateRe.ReplaceAllString(u.Path, "DATE")
+	q := u.Query()
+	for key, vals := range q {
+		for i, v := range vals {
+			vals[i] = dateRe.ReplaceAllString(v, "DATE")
+		}
+		q[key] = vals
+	}
+	u.RawQuery = q.Encode()
 	return u.String()
 }
 

@@ -6,7 +6,6 @@
 import type { ComponentType } from "react";
 import type { Broker } from "@/gen/api/v1/api_pb";
 import type { StandardParseResult } from "@/lib/csv/standard";
-import type { SplitParseResult } from "./splits";
 
 export interface ConverterOptionsProps {
   onOptionsChange: (opts: Record<string, unknown>) => void;
@@ -22,26 +21,11 @@ export interface FormatEntry {
   OptionsComponent?: ComponentType<ConverterOptionsProps>;
 }
 
-/**
- * SplitExtractor harvests SPLIT events from a broker transaction file.
- * Used by the admin Corporate Events page; never invoked from the
- * user-facing tx upload path.
- */
-export interface SplitExtractor {
-  id: string;
-  label: string;
-  /** File input accept attribute. Defaults to ".csv". */
-  accept?: string;
-  extract: (text: string) => SplitParseResult;
-}
-
 export interface BrokerEntry {
   broker: Broker;
   label: string;
   sourcePrefix: string;
   formats: FormatEntry[];
-  /** Optional split extractors for the admin Corporate Events upload. */
-  splitExtractors?: SplitExtractor[];
 }
 
 const registry: BrokerEntry[] = [];
@@ -55,18 +39,6 @@ export function getBrokerOptionsForUpload(): { value: Broker; label: string }[] 
   return registry
     .filter((e) => e.formats.some((f) => f.convert != null))
     .map((e) => ({ value: e.broker, label: e.label }));
-}
-
-/** Brokers that have at least one split extractor (for admin Corporate Events page). */
-export function getBrokerOptionsForSplitExtraction(): { value: Broker; label: string }[] {
-  return registry
-    .filter((e) => (e.splitExtractors?.length ?? 0) > 0)
-    .map((e) => ({ value: e.broker, label: e.label }));
-}
-
-export function getSplitExtractorsForBroker(broker: Broker): SplitExtractor[] {
-  const entry = getBrokerEntry(broker);
-  return entry?.splitExtractors ?? [];
 }
 
 export function getBrokerEntry(broker: Broker): BrokerEntry | undefined {

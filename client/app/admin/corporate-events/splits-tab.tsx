@@ -11,7 +11,6 @@ import {
 } from "@/lib/portfolio-api";
 import { JobStatus } from "@/gen/api/v1/api_pb";
 import { splitsToJson, parseSplitsJson } from "@/lib/json/corporate-events";
-import { ImportCorporateEventsModal } from "./import-modal";
 
 interface SplitDisplay {
   identifierType: string;
@@ -28,7 +27,6 @@ export function SplitsTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
   const [importJsonError, setImportJsonError] = useState<string | null>(null);
   const [importJobId, setImportJobId] = useState<string | null>(null);
   const [importJobStatus, setImportJobStatus] = useState<GetJobResult | null>(null);
@@ -168,13 +166,6 @@ export function SplitsTab() {
               className="sr-only"
             />
           </label>
-          <button
-            type="button"
-            onClick={() => setImportOpen(true)}
-            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15"
-          >
-            Import from Broker
-          </button>
         </div>
       </div>
 
@@ -249,11 +240,6 @@ export function SplitsTab() {
         </table>
       )}
 
-      <ImportCorporateEventsModal
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
-        onComplete={() => loadSplits()}
-      />
     </div>
   );
 }

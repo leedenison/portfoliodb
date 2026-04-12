@@ -6,24 +6,11 @@ import (
 	"testing"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 )
-
-// stubInstrument returns a minimal InstrumentRow for GetInstrument mocks.
-func stubInstrument(id, assetClass, exchange, currency string) *db.InstrumentRow {
-	row := &db.InstrumentRow{ID: id, Exchange: exchange}
-	if assetClass != "" {
-		row.AssetClass = &assetClass
-	}
-	if currency != "" {
-		row.Currency = &currency
-	}
-	return row
-}
 
 func TestProcessPriceImport_RejectsUnknownIdentifierType(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -112,10 +99,8 @@ func TestProcessPriceImport_AcceptsValidIdentifierType(t *testing.T) {
 	// Valid type passes validation, so resolveOrIdentifyInstrument is called.
 	// With no asset_class and no plugins, it does DB-only lookup.
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
-		Return("inst-aapl", nil)
-	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
-		Return(stubInstrument("inst-aapl", "", "XNAS", ""), nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-aapl", "", "XNAS", "", nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-2").Return(nil)
 	database.EXPECT().
 		UpsertPrices(gomock.Any(), gomock.Any()).
@@ -167,10 +152,8 @@ func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
 	database.EXPECT().ClearJobPayload(gomock.Any(), "job-price-cov").Return(nil)
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-price-cov", int32(1)).Return(nil)
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
-		Return("inst-aapl", nil)
-	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
-		Return(stubInstrument("inst-aapl", "", "XNAS", ""), nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-aapl", "", "XNAS", "", nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-cov").Return(nil)
 	// Expect UpsertPricesWithFill (not UpsertPrices) because coverage was provided.
 	database.EXPECT().
@@ -223,10 +206,8 @@ func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(
 	database.EXPECT().ClearJobPayload(gomock.Any(), "job-price-nocov").Return(nil)
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-price-nocov", int32(1)).Return(nil)
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
-		Return("inst-aapl", nil)
-	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
-		Return(stubInstrument("inst-aapl", "", "XNAS", ""), nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-aapl", "", "XNAS", "", nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-nocov").Return(nil)
 	// No coverage match for AAPL, so expect plain UpsertPrices.
 	database.EXPECT().
@@ -275,10 +256,8 @@ func TestProcessPriceImport_RejectsHintDiff(t *testing.T) {
 
 	// DB-only lookup succeeds, but the instrument has a different exchange.
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
-		Return("inst-aapl", nil)
-	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
-		Return(stubInstrument("inst-aapl", "", "XNYS", ""), nil) // exchange mismatch: XNYS != XNAS
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-aapl", "", "XNYS", "", nil) // exchange mismatch: XNYS != XNAS
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-diff").Return(nil)
 
 	var capturedErrs []*apiv1.ValidationError
@@ -341,10 +320,8 @@ func TestProcessPriceImport_RejectsCurrencyHintDiff(t *testing.T) {
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-price-curdiff", int32(1)).Return(nil)
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
-		Return("inst-aapl", nil)
-	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
-		Return(stubInstrument("inst-aapl", "", "XNAS", "USD"), nil) // currency mismatch: USD != GBP
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-aapl", "", "XNAS", "USD", nil) // currency mismatch: USD != GBP
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-curdiff").Return(nil)
 
 	var capturedErrs []*apiv1.ValidationError

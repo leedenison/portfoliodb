@@ -33,6 +33,15 @@ type ResolveResult struct {
 	HintDiffs    []identifier.HintDiff // differences between supplied hints and resolved instrument
 }
 
+// ResolvedInstrument holds an instrument ID plus the metadata needed for
+// hint comparison, as returned by ResolveByHintsDBOnly.
+type ResolvedInstrument struct {
+	ID         string
+	AssetClass string
+	Exchange   string
+	Currency   string
+}
+
 // FallbackFunc is called when no identifier plugin resolves the instrument.
 // It must return an instrument ID, typically by calling EnsureInstrument.
 type FallbackFunc func(ctx context.Context, database db.DB) (string, error)
@@ -50,9 +59,9 @@ type FallbackFunc func(ctx context.Context, database db.DB) (string, error)
 //     fallback FindInstrumentByTypeAndValue(type, value) matches any domain; if exactly one instrument has that
 //     (type, value), we use it. If multiple instruments match (same ticker on different exchanges), the fallback
 //     returns "" and we do not resolve (ambiguous).
-func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints []identifier.Identifier) ([]string, error) {
+func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints []identifier.Identifier) ([]ResolvedInstrument, error) {
 	seen := make(map[string]bool)
-	var ids []string
+	var resolved []ResolvedInstrument
 	for _, h := range hints {
 		if h.Type == "" || h.Value == "" {
 			continue
@@ -64,7 +73,7 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 				value = compact
 			}
 		}
-		id, err := database.FindInstrumentByIdentifier(ctx, h.Type, h.Domain, value)
+		id, ac, exch, cur, err := database.FindInstrumentWithMetaByIdentifier(ctx, h.Type, h.Domain, value)
 		if err != nil {
 			return nil, err
 		}
@@ -73,13 +82,15 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 			if err != nil {
 				return nil, err
 			}
+			// TypeAndValue fallback doesn't return metadata; leave fields empty.
+			ac, exch, cur = "", "", ""
 		}
 		if id != "" && !seen[id] {
 			seen[id] = true
-			ids = append(ids, id)
+			resolved = append(resolved, ResolvedInstrument{ID: id, AssetClass: ac, Exchange: exch, Currency: cur})
 		}
 	}
-	return ids, nil
+	return resolved, nil
 }
 
 // FilterIdentifierHints keeps only hints whose Type is in the controlled vocabulary (identifier.AllowedIdentifierTypes).
@@ -221,12 +232,18 @@ func ResolveWithPlugins(
 	identifierHints = AdjustOCCForKnownSplits(ctx, database, identifierHints, hintsValidAt, nil)
 
 	// If all hints already resolve to one instrument in DB, use it (avoids plugin call).
-	ids, err := ResolveByHintsDBOnly(ctx, database, identifierHints)
+	resolved, err := ResolveByHintsDBOnly(ctx, database, identifierHints)
 	if err != nil {
 		return ResolveResult{}, err
 	}
-	if len(ids) == 1 {
-		return ResolveResult{InstrumentID: ids[0], Identified: true}, nil
+	if len(resolved) == 1 {
+		inst := &identifier.Instrument{
+			AssetClass: resolved[0].AssetClass,
+			Exchange:   resolved[0].Exchange,
+			Currency:   resolved[0].Currency,
+		}
+		diffs := CompareHints(hints, identifierHints, inst, nil)
+		return ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs}, nil
 	}
 
 	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryIdentifier)

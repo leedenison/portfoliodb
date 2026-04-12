@@ -72,12 +72,10 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 
 	// Resolution: only one cache miss because both events share the same
 	// (type, domain, value). The plugin path's fast DB lookup resolves
-	// the instrument; GetInstrument is called to compare hints.
+	// the instrument with metadata for hint comparison.
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
-		Return("inst-aapl", nil)
-	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
-		Return(stubInstrument("inst-aapl", "STOCK", "XNAS", "USD"), nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-aapl", "STOCK", "XNAS", "USD", nil)
 
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-1").Return(nil).Times(2)
 
@@ -153,9 +151,7 @@ func TestProcessCorporateEventImport_RejectsBadSplitRatio(t *testing.T) {
 	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-2").Return(payload, nil)
 	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-2").Return(nil)
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-2", int32(1)).Return(nil)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("inst-aapl", nil)
-	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
-		Return(stubInstrument("inst-aapl", "STOCK", "XNAS", "USD"), nil)
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("inst-aapl", "STOCK", "XNAS", "USD", nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-2").Return(nil)
 
 	var capturedErrs []*apiv1.ValidationError
@@ -207,9 +203,7 @@ func TestProcessCorporateEventImport_DividendOnlyDoesNotRecompute(t *testing.T) 
 	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-3").Return(payload, nil)
 	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-3").Return(nil)
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-3", int32(1)).Return(nil)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", nil)
-	database.EXPECT().GetInstrument(gomock.Any(), "inst-msft").
-		Return(stubInstrument("inst-msft", "STOCK", "XNAS", "USD"), nil)
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", "XNAS", "USD", nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-3").Return(nil)
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).Return(nil)
 	// Critically: NO RecomputeSplitAdjustments call.
@@ -301,9 +295,7 @@ func TestProcessCorporateEventImport_AcceptsHighPrecisionDecimal(t *testing.T) {
 	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-prec").Return(payload, nil)
 	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-prec").Return(nil)
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-prec", int32(1)).Return(nil)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", nil)
-	database.EXPECT().GetInstrument(gomock.Any(), "inst-msft").
-		Return(stubInstrument("inst-msft", "STOCK", "XNAS", "USD"), nil)
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", "XNAS", "USD", nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-prec").Return(nil)
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, divs []db.CashDividend) error {
@@ -346,9 +338,7 @@ func TestProcessCorporateEventImport_RejectsInvalidDecimal(t *testing.T) {
 	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-bad").Return(payload, nil)
 	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-bad").Return(nil)
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-bad", int32(1)).Return(nil)
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", nil)
-	database.EXPECT().GetInstrument(gomock.Any(), "inst-msft").
-		Return(stubInstrument("inst-msft", "STOCK", "XNAS", "USD"), nil)
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", "XNAS", "USD", nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-bad").Return(nil)
 
 	var capturedErrs []*apiv1.ValidationError
@@ -397,9 +387,8 @@ func TestProcessCorporateEventImport_RejectsHintDiff(t *testing.T) {
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-diff", int32(1)).Return(nil)
 
 	// Instrument found but has asset class ETF, not STOCK.
-	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("inst-aapl", nil)
-	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
-		Return(stubInstrument("inst-aapl", "ETF", "XNAS", "USD"), nil) // asset class mismatch
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-aapl", "ETF", "XNAS", "USD", nil) // asset class mismatch
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-diff").Return(nil)
 
 	var capturedErrs []*apiv1.ValidationError

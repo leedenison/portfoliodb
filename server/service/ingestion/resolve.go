@@ -207,15 +207,15 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	// The in-memory batch cache above is still used to avoid repeated DB
 	// lookups within the same upload.
 	if len(identifierHints) > 0 {
-		ids, err := identification.ResolveByHintsDBOnly(ctx, database, identifierHints)
+		resolved, err := identification.ResolveByHintsDBOnly(ctx, database, identifierHints)
 		if err != nil {
 			return resolveResult{}, err
 		}
-		if len(ids) > 1 {
+		if len(resolved) > 1 {
 			return resolveResult{}, fmt.Errorf("conflicting identifier hints resolve to different instruments")
 		}
-		if len(ids) == 1 {
-			r := resolveResult{InstrumentID: ids[0], FirstRowIndex: rowIndex}
+		if len(resolved) == 1 {
+			r := resolveResult{InstrumentID: resolved[0].ID, FirstRowIndex: rowIndex}
 			if cache != nil {
 				cache[key] = r
 			}

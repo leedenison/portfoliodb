@@ -30,6 +30,7 @@ type ResolveResult struct {
 	HadTimeout   bool // at least one plugin timed out
 	HadError     bool // at least one plugin returned a non-ErrNotIdentified error
 	Identified   bool // a plugin successfully identified the instrument
+	HintDiffs    []identifier.HintDiff // differences between supplied hints and resolved instrument
 }
 
 // FallbackFunc is called when no identifier plugin resolves the instrument.
@@ -142,6 +143,58 @@ func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlug
 		}
 	}
 	return true
+}
+
+// CompareHints compares supplied hints and identifier hints against the
+// resolved instrument and its identifiers, returning any differences.
+// Fields are skipped when either side is empty or UNKNOWN.
+func CompareHints(hints identifier.Hints, identifierHints []identifier.Identifier, inst *identifier.Instrument, resolvedIDs []identifier.Identifier) []identifier.HintDiff {
+	if inst == nil {
+		return nil
+	}
+	var diffs []identifier.HintDiff
+
+	// Currency.
+	if hints.Currency != "" && inst.Currency != "" &&
+		!strings.EqualFold(hints.Currency, inst.Currency) {
+		diffs = append(diffs, identifier.HintDiff{Field: "Currency", HintValue: hints.Currency, ResolvedValue: inst.Currency})
+	}
+
+	// SecurityType (same vocabulary as AssetClass).
+	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
+		inst.AssetClass != "" && inst.AssetClass != identifier.SecurityTypeHintUnknown &&
+		!strings.EqualFold(hints.SecurityTypeHint, inst.AssetClass) {
+		diffs = append(diffs, identifier.HintDiff{Field: "SecurityType", HintValue: hints.SecurityTypeHint, ResolvedValue: inst.AssetClass})
+	}
+
+	// Exchange: compare MIC_TICKER hint domain (the MIC code) against inst.Exchange.
+	if inst.Exchange != "" {
+		for _, h := range identifierHints {
+			if h.Type == "MIC_TICKER" && h.Domain != "" &&
+				!strings.EqualFold(h.Domain, inst.Exchange) {
+				diffs = append(diffs, identifier.HintDiff{Field: "Exchange", HintValue: h.Domain, ResolvedValue: inst.Exchange})
+				break
+			}
+		}
+	}
+
+	// Identifier values: compare client-supplied hints against resolved identifiers.
+	resolvedByType := make(map[string]string, len(resolvedIDs))
+	for _, id := range resolvedIDs {
+		if id.Value != "" {
+			resolvedByType[id.Type] = id.Value
+		}
+	}
+	for _, h := range identifierHints {
+		if h.Value == "" {
+			continue
+		}
+		if rv, ok := resolvedByType[h.Type]; ok && rv != h.Value {
+			diffs = append(diffs, identifier.HintDiff{Field: h.Type, HintValue: h.Value, ResolvedValue: rv})
+		}
+	}
+
+	return diffs
 }
 
 // ResolveWithPlugins calls enabled identifier plugins with the given hints, merges results, and ensures the instrument.
@@ -310,11 +363,12 @@ func ResolveWithPlugins(
 		if inst.AssetClass == db.AssetClassOption {
 			optFields = optionFieldsFromIdentifiers(mergedIds)
 		}
+		diffs := CompareHints(hints, identifierHints, inst, mergedIds)
 		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validTo, optFields)
 		if err != nil {
 			return ResolveResult{}, err
 		}
-		return ResolveResult{InstrumentID: id, Identified: true}, nil
+		return ResolveResult{InstrumentID: id, Identified: true, HintDiffs: diffs}, nil
 	}
 
 	// Unresolved: call fallback if provided.

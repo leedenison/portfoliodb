@@ -693,6 +693,170 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 	}
 }
 
+// --- CompareHints tests ---
+
+func TestCompareHints_NoDiffs(t *testing.T) {
+	hints := identifier.Hints{Currency: "USD", SecurityTypeHint: "STOCK"}
+	inst := &identifier.Instrument{Currency: "USD", AssetClass: "STOCK"}
+	idnHints := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
+	resolvedIDs := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
+
+	diffs := CompareHints(hints, idnHints, inst, resolvedIDs)
+	if len(diffs) != 0 {
+		t.Errorf("expected no diffs, got %v", diffs)
+	}
+}
+
+func TestCompareHints_CurrencyMismatch(t *testing.T) {
+	hints := identifier.Hints{Currency: "USD"}
+	inst := &identifier.Instrument{Currency: "EUR"}
+
+	diffs := CompareHints(hints, nil, inst, nil)
+	if len(diffs) != 1 {
+		t.Fatalf("expected 1 diff, got %d", len(diffs))
+	}
+	if diffs[0].Field != "Currency" || diffs[0].HintValue != "USD" || diffs[0].ResolvedValue != "EUR" {
+		t.Errorf("unexpected diff: %+v", diffs[0])
+	}
+}
+
+func TestCompareHints_CurrencyCaseInsensitive(t *testing.T) {
+	hints := identifier.Hints{Currency: "usd"}
+	inst := &identifier.Instrument{Currency: "USD"}
+
+	diffs := CompareHints(hints, nil, inst, nil)
+	if len(diffs) != 0 {
+		t.Errorf("expected no diffs for case-insensitive match, got %v", diffs)
+	}
+}
+
+func TestCompareHints_EmptyCurrencySkipped(t *testing.T) {
+	// Empty hint currency.
+	diffs := CompareHints(identifier.Hints{}, nil, &identifier.Instrument{Currency: "USD"}, nil)
+	if len(diffs) != 0 {
+		t.Errorf("expected no diffs when hint currency empty, got %v", diffs)
+	}
+	// Empty resolved currency.
+	diffs = CompareHints(identifier.Hints{Currency: "USD"}, nil, &identifier.Instrument{}, nil)
+	if len(diffs) != 0 {
+		t.Errorf("expected no diffs when resolved currency empty, got %v", diffs)
+	}
+}
+
+func TestCompareHints_SecurityTypeMismatch(t *testing.T) {
+	hints := identifier.Hints{SecurityTypeHint: "STOCK"}
+	inst := &identifier.Instrument{AssetClass: "ETF"}
+
+	diffs := CompareHints(hints, nil, inst, nil)
+	if len(diffs) != 1 {
+		t.Fatalf("expected 1 diff, got %d", len(diffs))
+	}
+	if diffs[0].Field != "SecurityType" || diffs[0].HintValue != "STOCK" || diffs[0].ResolvedValue != "ETF" {
+		t.Errorf("unexpected diff: %+v", diffs[0])
+	}
+}
+
+func TestCompareHints_SecurityTypeUnknownSkipped(t *testing.T) {
+	// UNKNOWN hint should not produce a diff.
+	diffs := CompareHints(identifier.Hints{SecurityTypeHint: "UNKNOWN"}, nil, &identifier.Instrument{AssetClass: "STOCK"}, nil)
+	if len(diffs) != 0 {
+		t.Errorf("expected no diffs when hint is UNKNOWN, got %v", diffs)
+	}
+	// UNKNOWN resolved should not produce a diff.
+	diffs = CompareHints(identifier.Hints{SecurityTypeHint: "STOCK"}, nil, &identifier.Instrument{AssetClass: "UNKNOWN"}, nil)
+	if len(diffs) != 0 {
+		t.Errorf("expected no diffs when resolved is UNKNOWN, got %v", diffs)
+	}
+}
+
+func TestCompareHints_ExchangeViaMICTickerDomain(t *testing.T) {
+	hints := identifier.Hints{}
+	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}
+	inst := &identifier.Instrument{Exchange: "XNYS"}
+
+	diffs := CompareHints(hints, idnHints, inst, nil)
+	if len(diffs) != 1 {
+		t.Fatalf("expected 1 diff, got %d", len(diffs))
+	}
+	if diffs[0].Field != "Exchange" || diffs[0].HintValue != "XNAS" || diffs[0].ResolvedValue != "XNYS" {
+		t.Errorf("unexpected diff: %+v", diffs[0])
+	}
+}
+
+func TestCompareHints_ExchangeViaMICTickerMatch(t *testing.T) {
+	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}
+	inst := &identifier.Instrument{Exchange: "XNAS"}
+
+	diffs := CompareHints(identifier.Hints{}, idnHints, inst, nil)
+	if len(diffs) != 0 {
+		t.Errorf("expected no diffs, got %v", diffs)
+	}
+}
+
+func TestCompareHints_ExchangeEmptyDomainSkipped(t *testing.T) {
+	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "", Value: "AAPL"}}
+	inst := &identifier.Instrument{Exchange: "XNAS"}
+
+	diffs := CompareHints(identifier.Hints{}, idnHints, inst, nil)
+	if len(diffs) != 0 {
+		t.Errorf("expected no diffs when MIC_TICKER domain empty, got %v", diffs)
+	}
+}
+
+func TestCompareHints_IdentifierValueMismatch(t *testing.T) {
+	idnHints := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
+	resolvedIDs := []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}}
+
+	diffs := CompareHints(identifier.Hints{}, idnHints, &identifier.Instrument{}, resolvedIDs)
+	if len(diffs) != 1 {
+		t.Fatalf("expected 1 diff, got %d", len(diffs))
+	}
+	if diffs[0].Field != "ISIN" || diffs[0].HintValue != "US0378331005" || diffs[0].ResolvedValue != "GB0002634946" {
+		t.Errorf("unexpected diff: %+v", diffs[0])
+	}
+}
+
+func TestCompareHints_IdentifierTypeNotInResolved(t *testing.T) {
+	idnHints := []identifier.Identifier{{Type: "CUSIP", Value: "037833100"}}
+	resolvedIDs := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
+
+	diffs := CompareHints(identifier.Hints{}, idnHints, &identifier.Instrument{}, resolvedIDs)
+	if len(diffs) != 0 {
+		t.Errorf("expected no diffs when hint type not in resolved, got %v", diffs)
+	}
+}
+
+func TestCompareHints_MultipleDiffs(t *testing.T) {
+	hints := identifier.Hints{Currency: "USD", SecurityTypeHint: "STOCK"}
+	idnHints := []identifier.Identifier{
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"},
+		{Type: "ISIN", Value: "US0378331005"},
+	}
+	inst := &identifier.Instrument{Currency: "EUR", AssetClass: "ETF", Exchange: "XNYS"}
+	resolvedIDs := []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}}
+
+	diffs := CompareHints(hints, idnHints, inst, resolvedIDs)
+	if len(diffs) != 4 {
+		t.Fatalf("expected 4 diffs, got %d: %v", len(diffs), diffs)
+	}
+	fields := make(map[string]bool)
+	for _, d := range diffs {
+		fields[d.Field] = true
+	}
+	for _, f := range []string{"Currency", "SecurityType", "Exchange", "ISIN"} {
+		if !fields[f] {
+			t.Errorf("expected diff for %s", f)
+		}
+	}
+}
+
+func TestCompareHints_NilInstrument(t *testing.T) {
+	diffs := CompareHints(identifier.Hints{Currency: "USD"}, nil, nil, nil)
+	if diffs != nil {
+		t.Errorf("expected nil diffs for nil instrument, got %v", diffs)
+	}
+}
+
 func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 	saved := PluginRetryBackoff
 	PluginRetryBackoff = time.Millisecond

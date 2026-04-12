@@ -2,6 +2,7 @@ package ingestion
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,14 +71,13 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-1", int32(2)).Return(nil)
 
 	// Resolution: only one cache miss because both events share the same
-	// (type, domain, value). With asset_class set and no plugins registered,
-	// resolveOrIdentifyInstrument falls back to ensureWithSuppliedIdentifier.
-	// The path is "asset class set + plugins registry empty" -- the registry
-	// in this test is empty so the plugin path is skipped and we hit the
-	// DB-only lookup branch.
+	// (type, domain, value). The plugin path's fast DB lookup resolves
+	// the instrument; GetInstrument is called to compare hints.
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", nil)
+	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
+		Return(stubInstrument("inst-aapl", "STOCK", "XNAS", "USD"), nil)
 
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-1").Return(nil).Times(2)
 
@@ -154,6 +154,8 @@ func TestProcessCorporateEventImport_RejectsBadSplitRatio(t *testing.T) {
 	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-2").Return(nil)
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-2", int32(1)).Return(nil)
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("inst-aapl", nil)
+	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
+		Return(stubInstrument("inst-aapl", "STOCK", "XNAS", "USD"), nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-2").Return(nil)
 
 	var capturedErrs []*apiv1.ValidationError
@@ -206,6 +208,8 @@ func TestProcessCorporateEventImport_DividendOnlyDoesNotRecompute(t *testing.T) 
 	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-3").Return(nil)
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-3", int32(1)).Return(nil)
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", nil)
+	database.EXPECT().GetInstrument(gomock.Any(), "inst-msft").
+		Return(stubInstrument("inst-msft", "STOCK", "XNAS", "USD"), nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-3").Return(nil)
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).Return(nil)
 	// Critically: NO RecomputeSplitAdjustments call.
@@ -298,6 +302,8 @@ func TestProcessCorporateEventImport_AcceptsHighPrecisionDecimal(t *testing.T) {
 	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-prec").Return(nil)
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-prec", int32(1)).Return(nil)
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", nil)
+	database.EXPECT().GetInstrument(gomock.Any(), "inst-msft").
+		Return(stubInstrument("inst-msft", "STOCK", "XNAS", "USD"), nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-prec").Return(nil)
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, divs []db.CashDividend) error {
@@ -341,6 +347,8 @@ func TestProcessCorporateEventImport_RejectsInvalidDecimal(t *testing.T) {
 	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-bad").Return(nil)
 	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-bad", int32(1)).Return(nil)
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", nil)
+	database.EXPECT().GetInstrument(gomock.Any(), "inst-msft").
+		Return(stubInstrument("inst-msft", "STOCK", "XNAS", "USD"), nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-bad").Return(nil)
 
 	var capturedErrs []*apiv1.ValidationError
@@ -356,5 +364,62 @@ func TestProcessCorporateEventImport_RejectsInvalidDecimal(t *testing.T) {
 	}
 	if len(capturedErrs) != 1 || capturedErrs[0].Field != "amount" {
 		t.Fatalf("expected one validation error on field=amount, got %+v", capturedErrs)
+	}
+}
+
+// TestProcessCorporateEventImport_RejectsHintDiff verifies that when the
+// resolved instrument's asset class differs from the import row's declared
+// asset class, the row is rejected with a validation error.
+func TestProcessCorporateEventImport_RejectsHintDiff(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	req := &apiv1.ImportCorporateEventsRequest{
+		Events: []*apiv1.ImportCorporateEventRow{
+			{
+				IdentifierType:   "MIC_TICKER",
+				IdentifierDomain: "XNAS",
+				IdentifierValue:  "AAPL",
+				AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
+				Event: &apiv1.ImportCorporateEventRow_Split{Split: &apiv1.SplitRow{
+					ExDate: "2020-08-31", SplitFrom: "1", SplitTo: "4",
+				}},
+			},
+		},
+	}
+	payload, _ := proto.Marshal(req)
+	j := &JobRequest{JobID: "job-ce-diff", JobType: db.JobTypeCorporateEvent}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-diff").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-diff").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-diff", int32(1)).Return(nil)
+
+	// Instrument found but has asset class ETF, not STOCK.
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("inst-aapl", nil)
+	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
+		Return(stubInstrument("inst-aapl", "ETF", "XNAS", "USD"), nil) // asset class mismatch
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-diff").Return(nil)
+
+	var capturedErrs []*apiv1.ValidationError
+	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-diff", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+			capturedErrs = errs
+			return nil
+		})
+	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-diff", apiv1.JobStatus_SUCCESS).Return(nil)
+
+	if processCorporateEventImport(context.Background(), database, registry, j) {
+		t.Error("expected persisted=false when row was rejected for hint diff")
+	}
+	if len(capturedErrs) != 1 {
+		t.Fatalf("expected 1 validation error, got %d", len(capturedErrs))
+	}
+	if capturedErrs[0].Field != "identifier" {
+		t.Errorf("expected field=identifier, got %s", capturedErrs[0].Field)
+	}
+	if !strings.Contains(capturedErrs[0].Message, "SecurityType") {
+		t.Errorf("expected message to mention SecurityType, got %s", capturedErrs[0].Message)
 	}
 }

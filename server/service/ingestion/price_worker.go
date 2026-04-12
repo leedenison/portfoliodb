@@ -16,7 +16,7 @@ import (
 
 // resolveEntry caches the result of instrument resolution for a given identifier.
 type resolveEntry struct {
-	instID string
+	result identification.ResolveResult
 	err    error
 }
 
@@ -86,8 +86,8 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		entry, cached := resolveCache[cacheKey]
 		if !cached {
 			acStr := db.AssetClassToStr(row.GetAssetClass())
-			instID, resolveErr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, pricesAsOf)
-			entry = &resolveEntry{instID: instID, err: resolveErr}
+			result, resolveErr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, "", pricesAsOf)
+			entry = &resolveEntry{result: result, err: resolveErr}
 			resolveCache[cacheKey] = entry
 		}
 		if entry.err != nil {
@@ -99,9 +99,18 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 			_ = database.IncrJobProcessedCount(ctx, j.JobID)
 			continue
 		}
+		if len(entry.result.HintDiffs) > 0 {
+			valErrs = append(valErrs, &apiv1.ValidationError{
+				RowIndex: int32(i),
+				Field:    "identifier",
+				Message:  fmt.Sprintf("resolved instrument differs from import data: %s", hintDiffsSummary(entry.result.HintDiffs)),
+			})
+			_ = database.IncrJobProcessedCount(ctx, j.JobID)
+			continue
+		}
 
 		p := db.EODPrice{
-			InstrumentID: entry.instID,
+			InstrumentID: entry.result.InstrumentID,
 			PriceDate:    priceDate,
 			Close:        row.GetClose(),
 			DataProvider: "import",
@@ -170,10 +179,10 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 		}
 		key := coverageKey(c.GetIdentifierType(), c.GetIdentifierDomain(), c.GetIdentifierValue())
 		entry, ok := resolveCache[key]
-		if !ok || entry.err != nil || entry.instID == "" {
+		if !ok || entry.err != nil || entry.result.InstrumentID == "" {
 			continue
 		}
-		instCoverage[entry.instID] = append(instCoverage[entry.instID], dateRange{from, to})
+		instCoverage[entry.result.InstrumentID] = append(instCoverage[entry.result.InstrumentID], dateRange{from, to})
 	}
 
 	// Group prices by instrument ID.
@@ -228,35 +237,73 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 }
 
 // resolveOrIdentifyInstrument finds an instrument by identifier, or creates one.
-func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, idType, domain, value, assetClass string, hintsValidAt *time.Time) (string, error) {
+// When the resolved instrument's metadata differs from the supplied hints, the
+// returned ResolveResult.HintDiffs will be non-empty.
+func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, idType, domain, value, assetClass, currency string, hintsValidAt *time.Time) (identification.ResolveResult, error) {
 	hint := identifier.Identifier{Type: idType, Domain: domain, Value: value}
+	hints := identifier.Hints{SecurityTypeHint: assetClass, Currency: currency}
 
 	if assetClass != "" && pluginRegistry != nil {
 		fallback := func(ctx context.Context, database db.DB) (string, error) {
 			return ensureWithSuppliedIdentifier(ctx, database, idType, domain, value)
 		}
-		hints := identifier.Hints{SecurityTypeHint: assetClass}
 		result, err := identification.ResolveWithPlugins(ctx, database, pluginRegistry,
 			"", "", "", hints,
 			[]identifier.Identifier{hint},
 			false, fallback, nil, nil, 0, hintsValidAt)
 		if err != nil {
-			return "", fmt.Errorf("identification error for %s %q: %v", idType, value, err)
+			return identification.ResolveResult{}, fmt.Errorf("identification error for %s %q: %v", idType, value, err)
 		}
-		return result.InstrumentID, nil
+		// ResolveWithPlugins' fast DB path skips CompareHints; fill in
+		// diffs from the persisted instrument so admin imports still validate.
+		if len(result.HintDiffs) == 0 && result.InstrumentID != "" {
+			result.HintDiffs = compareHintsForDBInstrument(ctx, database, hints, []identifier.Identifier{hint}, result.InstrumentID)
+		}
+		return result, nil
 	}
 
 	ids, err := identification.ResolveByHintsDBOnly(ctx, database, []identifier.Identifier{hint})
 	if err != nil {
-		return "", fmt.Errorf("lookup error for %s %q: %v", idType, value, err)
+		return identification.ResolveResult{}, fmt.Errorf("lookup error for %s %q: %v", idType, value, err)
 	}
 	if len(ids) > 1 {
-		return "", fmt.Errorf("ambiguous: multiple instruments match %s %q", idType, value)
+		return identification.ResolveResult{}, fmt.Errorf("ambiguous: multiple instruments match %s %q", idType, value)
 	}
 	if len(ids) == 1 {
-		return ids[0], nil
+		diffs := compareHintsForDBInstrument(ctx, database, hints, []identifier.Identifier{hint}, ids[0])
+		return identification.ResolveResult{InstrumentID: ids[0], Identified: true, HintDiffs: diffs}, nil
 	}
-	return ensureWithSuppliedIdentifier(ctx, database, idType, domain, value)
+	id, err := ensureWithSuppliedIdentifier(ctx, database, idType, domain, value)
+	if err != nil {
+		return identification.ResolveResult{}, err
+	}
+	return identification.ResolveResult{InstrumentID: id}, nil
+}
+
+// compareHintsForDBInstrument fetches an instrument from the DB and compares
+// it against the supplied hints. Returns nil on any fetch error (best-effort).
+func compareHintsForDBInstrument(ctx context.Context, database db.DB, hints identifier.Hints, idHints []identifier.Identifier, instID string) []identifier.HintDiff {
+	row, err := database.GetInstrument(ctx, instID)
+	if err != nil || row == nil {
+		return nil
+	}
+	inst := &identifier.Instrument{
+		AssetClass: derefStr(row.AssetClass),
+		Exchange:   row.Exchange,
+		Currency:   derefStr(row.Currency),
+	}
+	var resolvedIDs []identifier.Identifier
+	for _, id := range row.Identifiers {
+		resolvedIDs = append(resolvedIDs, identifier.Identifier{Type: id.Type, Domain: id.Domain, Value: id.Value})
+	}
+	return identification.CompareHints(hints, idHints, inst, resolvedIDs)
+}
+
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, idType, domain, value string) (string, error) {

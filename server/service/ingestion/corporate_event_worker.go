@@ -11,6 +11,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/service/identification"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -60,7 +61,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 			continue
 		}
 
-		instID, err := resolveCorporateEventRow(ctx, database, pluginRegistry, resolveCache, row)
+		result, err := resolveCorporateEventRow(ctx, database, pluginRegistry, resolveCache, row)
 		if err != nil {
 			valErrs = append(valErrs, &apiv1.ValidationError{
 				RowIndex: int32(i),
@@ -70,6 +71,16 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 			_ = database.IncrJobProcessedCount(ctx, j.JobID)
 			continue
 		}
+		if len(result.HintDiffs) > 0 {
+			valErrs = append(valErrs, &apiv1.ValidationError{
+				RowIndex: int32(i),
+				Field:    "identifier",
+				Message:  fmt.Sprintf("resolved instrument differs from import data: %s", hintDiffsSummary(result.HintDiffs)),
+			})
+			_ = database.IncrJobProcessedCount(ctx, j.JobID)
+			continue
+		}
+		instID := result.InstrumentID
 
 		switch ev := row.GetEvent().(type) {
 		case *apiv1.ImportCorporateEventRow_Split:
@@ -164,21 +175,21 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 	return persisted
 }
 
-// resolveCorporateEventRow resolves an instrument id for one import row,
+// resolveCorporateEventRow resolves an instrument for one import row,
 // caching the result so a CSV with thousands of dividends for the same
 // ticker invokes the identifier plugins at most once. The asset class
 // passed to the resolver is the row's declared asset class -- the same
 // hint used by the price import path.
-func resolveCorporateEventRow(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, cache map[string]*resolveEntry, row *apiv1.ImportCorporateEventRow) (string, error) {
+func resolveCorporateEventRow(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, cache map[string]*resolveEntry, row *apiv1.ImportCorporateEventRow) (identification.ResolveResult, error) {
 	key := row.GetIdentifierType() + "\x00" + row.GetIdentifierDomain() + "\x00" + row.GetIdentifierValue()
 	if entry, ok := cache[key]; ok {
-		return entry.instID, entry.err
+		return entry.result, entry.err
 	}
 	acStr := db.AssetClassToStr(row.GetAssetClass())
-	instID, err := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
-		row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, nil)
-	cache[key] = &resolveEntry{instID: instID, err: err}
-	return instID, err
+	result, err := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
+		row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, "", nil)
+	cache[key] = &resolveEntry{result: result, err: err}
+	return result, err
 }
 
 // buildSplit converts a proto SplitRow into a db.StockSplit. ex_date is
@@ -289,12 +300,12 @@ func writeImportCoverage(ctx context.Context, database db.DB, coverage []*apiv1.
 			// touch; resolve it now (cached for sibling coverage rows). The
 			// plugin registry is passed through so the resolution rules
 			// match the per-event resolution above.
-			instID, rerr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
-				c.GetIdentifierType(), c.GetIdentifierDomain(), c.GetIdentifierValue(), "", nil)
-			entry = &resolveEntry{instID: instID, err: rerr}
+			result, rerr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
+				c.GetIdentifierType(), c.GetIdentifierDomain(), c.GetIdentifierValue(), "", "", nil)
+			entry = &resolveEntry{result: result, err: rerr}
 			cache[key] = entry
 		}
-		if entry.err != nil || entry.instID == "" {
+		if entry.err != nil || entry.result.InstrumentID == "" {
 			msg := fmt.Sprintf("could not resolve instrument for %s %q", c.GetIdentifierType(), c.GetIdentifierValue())
 			if entry.err != nil {
 				msg = entry.err.Error()
@@ -306,7 +317,7 @@ func writeImportCoverage(ctx context.Context, database db.DB, coverage []*apiv1.
 			})
 			continue
 		}
-		if err := database.UpsertCorporateEventCoverage(ctx, entry.instID, db.CorporateEventProviderImport, from, to); err != nil {
+		if err := database.UpsertCorporateEventCoverage(ctx, entry.result.InstrumentID, db.CorporateEventProviderImport, from, to); err != nil {
 			return written, errs, err
 		}
 		written++

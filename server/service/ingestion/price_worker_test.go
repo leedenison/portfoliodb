@@ -2,14 +2,28 @@ package ingestion
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 )
+
+// stubInstrument returns a minimal InstrumentRow for GetInstrument mocks.
+func stubInstrument(id, assetClass, exchange, currency string) *db.InstrumentRow {
+	row := &db.InstrumentRow{ID: id, Exchange: exchange}
+	if assetClass != "" {
+		row.AssetClass = &assetClass
+	}
+	if currency != "" {
+		row.Currency = &currency
+	}
+	return row
+}
 
 func TestProcessPriceImport_RejectsUnknownIdentifierType(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -100,6 +114,8 @@ func TestProcessPriceImport_AcceptsValidIdentifierType(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", nil)
+	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
+		Return(stubInstrument("inst-aapl", "", "XNAS", ""), nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-2").Return(nil)
 	database.EXPECT().
 		UpsertPrices(gomock.Any(), gomock.Any()).
@@ -153,6 +169,8 @@ func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", nil)
+	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
+		Return(stubInstrument("inst-aapl", "", "XNAS", ""), nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-cov").Return(nil)
 	// Expect UpsertPricesWithFill (not UpsertPrices) because coverage was provided.
 	database.EXPECT().
@@ -207,6 +225,8 @@ func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(
 	database.EXPECT().
 		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", nil)
+	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
+		Return(stubInstrument("inst-aapl", "", "XNAS", ""), nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-nocov").Return(nil)
 	// No coverage match for AAPL, so expect plain UpsertPrices.
 	database.EXPECT().
@@ -218,5 +238,71 @@ func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(
 
 	if !processPriceImport(ctx, database, registry, j) {
 		t.Error("expected persisted=true after a successful upsert")
+	}
+}
+
+// TestProcessPriceImport_RejectsHintDiff verifies that when the resolved
+// instrument's exchange differs from the import identifier domain, the row
+// is rejected with a validation error.
+func TestProcessPriceImport_RejectsHintDiff(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	req := &apiv1.ImportPricesRequest{
+		Prices: []*apiv1.ImportPriceRow{
+			{
+				IdentifierType:   "MIC_TICKER",
+				IdentifierValue:  "AAPL",
+				IdentifierDomain: "XNAS",
+				PriceDate:        "2024-01-15",
+				Close:            185.90,
+			},
+		},
+	}
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	j := &JobRequest{JobID: "job-price-diff", JobType: "price"}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-price-diff").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-price-diff").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-price-diff", int32(1)).Return(nil)
+
+	// DB-only lookup succeeds, but the instrument has a different exchange.
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-aapl", nil)
+	database.EXPECT().GetInstrument(gomock.Any(), "inst-aapl").
+		Return(stubInstrument("inst-aapl", "", "XNYS", ""), nil) // exchange mismatch: XNYS != XNAS
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-diff").Return(nil)
+
+	var capturedErrs []*apiv1.ValidationError
+	database.EXPECT().
+		AppendValidationErrors(gomock.Any(), "job-price-diff", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+			capturedErrs = errs
+			return nil
+		})
+	database.EXPECT().
+		SetJobStatus(gomock.Any(), "job-price-diff", apiv1.JobStatus_SUCCESS).
+		Return(nil)
+
+	if processPriceImport(ctx, database, registry, j) {
+		t.Error("expected persisted=false when row was rejected for hint diff")
+	}
+
+	if len(capturedErrs) != 1 {
+		t.Fatalf("expected 1 validation error, got %d", len(capturedErrs))
+	}
+	if capturedErrs[0].Field != "identifier" {
+		t.Errorf("expected field=identifier, got %s", capturedErrs[0].Field)
+	}
+	if !strings.Contains(capturedErrs[0].Message, "Exchange") {
+		t.Errorf("expected message to mention Exchange, got %s", capturedErrs[0].Message)
 	}
 }

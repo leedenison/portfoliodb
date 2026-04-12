@@ -5,6 +5,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/plugins/openfigi/exchangemap"
 )
 
 // classificationRule maps OpenFIGI response fields to a PortfolioDB asset class.
@@ -173,7 +174,8 @@ func classify(securityType, securityType2, marketSector string) string {
 
 // openFIGIResultToInstrument converts one OpenFIGI result to identifier.Instrument and identifiers.
 // If the result is a derivative (option/future), underlying is resolved separately and set on inst.
-func openFIGIResultToInstrument(r *OpenFIGIResult) (*identifier.Instrument, []identifier.Identifier) {
+// exchMap may be nil; when present, ExchCode is resolved to an ISO MIC for the Exchange field.
+func openFIGIResultToInstrument(r *OpenFIGIResult, exchMap *exchangemap.ExchangeMap) (*identifier.Instrument, []identifier.Identifier) {
 	assetClass := classify(r.SecurityType, r.SecurityType2, r.MarketSector)
 	name := r.Name
 	if name == "" {
@@ -184,7 +186,7 @@ func openFIGIResultToInstrument(r *OpenFIGIResult) (*identifier.Instrument, []id
 	}
 	inst := &identifier.Instrument{
 		AssetClass: assetClass,
-		Exchange:   "", // OpenFIGI ExchCode (e.g. "US") is not an ISO 10383 MIC
+		Exchange:   resolveExchange(r.ExchCode, exchMap),
 		Currency:   "", // OpenFIGI often omits; leave empty
 		Name:       name,
 	}
@@ -202,6 +204,18 @@ func openFIGIResultToInstrument(r *OpenFIGIResult) (*identifier.Instrument, []id
 		ids = append(ids, identifier.Identifier{Type: "OPENFIGI_TICKER", Domain: r.ExchCode, Value: identifier.NormalizeSplitTicker(r.Ticker, ".")})
 	}
 	return inst, ids
+}
+
+// resolveExchange maps an OpenFIGI exchange code to the first operating MIC.
+func resolveExchange(exchCode string, exchMap *exchangemap.ExchangeMap) string {
+	if exchMap == nil || exchCode == "" {
+		return ""
+	}
+	mics := exchMap.ExchCodeToMICs(exchCode)
+	if len(mics) == 0 {
+		return ""
+	}
+	return mics[0]
 }
 
 // isDerivative returns true if the result is an option or future.

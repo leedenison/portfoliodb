@@ -557,3 +557,195 @@ func (p *cancelOnRetryPlugin) AcceptableInstrumentKinds() map[string]bool { retu
 func (p *cancelOnRetryPlugin) AcceptableSecurityTypes() map[string]bool   { return nil }
 func (p *cancelOnRetryPlugin) DefaultConfig() []byte                    { return nil }
 func (p *cancelOnRetryPlugin) DisplayName() string                      { return "CancelOnRetry" }
+
+// --- consistentWith tests ---
+
+func TestConsistentWith_AllMatch(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{Exchange: "XNAS", Currency: "USD"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{Exchange: "XNAS", Currency: "USD"},
+		ids:  []identifier.Identifier{{Type: "OPENFIGI_GLOBAL", Value: "BBG000B9XRY4"}},
+	}
+	if !consistentWith(context.Background(), nil, "a", "b", w, o) {
+		t.Error("expected consistent")
+	}
+}
+
+func TestConsistentWith_CurrencyMismatch(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{Currency: "USD"},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{Currency: "EUR"},
+	}
+	if consistentWith(context.Background(), nil, "a", "b", w, o) {
+		t.Error("expected inconsistent on currency mismatch")
+	}
+}
+
+func TestConsistentWith_ExchangeMismatch(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{Exchange: "XNAS", Currency: "USD"},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{Exchange: "XNYS", Currency: "USD"},
+	}
+	if consistentWith(context.Background(), nil, "a", "b", w, o) {
+		t.Error("expected inconsistent on exchange mismatch")
+	}
+}
+
+func TestConsistentWith_EmptyFieldsSkipped(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{Exchange: "XNAS", Currency: "USD"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{Exchange: "", Currency: ""},
+		ids:  []identifier.Identifier{{Type: "OPENFIGI_GLOBAL", Value: "BBG000B9XRY4"}},
+	}
+	if !consistentWith(context.Background(), nil, "a", "b", w, o) {
+		t.Error("expected consistent when other has empty exchange/currency")
+	}
+}
+
+func TestConsistentWith_IdentifierValueMismatch(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB1234567890"}},
+	}
+	if consistentWith(context.Background(), nil, "a", "b", w, o) {
+		t.Error("expected inconsistent on ISIN value mismatch")
+	}
+}
+
+func TestConsistentWith_IdentifierValueMatch(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "OPENFIGI_GLOBAL", Value: "BBG000B9XRY4"}},
+	}
+	if !consistentWith(context.Background(), nil, "a", "b", w, o) {
+		t.Error("expected consistent when ISIN values match")
+	}
+}
+
+func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
+	saved := PluginRetryBackoff
+	PluginRetryBackoff = time.Millisecond
+	defer func() { PluginRetryBackoff = saved }()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	// Plugin A (higher precedence): XNAS/USD with ISIN
+	registry.Register("pluginA", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	})
+	// Plugin B (lower precedence): XNYS/EUR with FIGI -- inconsistent
+	registry.Register("pluginB", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNYS", Currency: "EUR", Name: "Pomme"},
+		ids:  []identifier.Identifier{{Type: "OPENFIGI_GLOBAL", Value: "BBG999999999"}},
+	})
+
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("", nil)
+	database.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{
+			{PluginID: "pluginA", Precedence: 100},
+			{PluginID: "pluginB", Precedence: 50},
+		}, nil)
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple", "", "", gomock.Any(), "", nil, nil, nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+			for _, idn := range idns {
+				if idn.Type == "OPENFIGI_GLOBAL" {
+					t.Errorf("OPENFIGI_GLOBAL from inconsistent plugin should not be merged, got %q", idn.Value)
+				}
+			}
+			return "id", nil
+		})
+
+	_, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		false, nil, nil, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+}
+
+func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
+	saved := PluginRetryBackoff
+	PluginRetryBackoff = time.Millisecond
+	defer func() { PluginRetryBackoff = saved }()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	// Plugin A (higher precedence): XNAS/USD with ISIN
+	registry.Register("pluginA", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	})
+	// Plugin B (lower precedence): XNAS/USD with FIGI -- consistent
+	registry.Register("pluginB", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
+		ids:  []identifier.Identifier{{Type: "OPENFIGI_GLOBAL", Value: "BBG000B9XRY4"}},
+	})
+
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("", nil)
+	database.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{
+			{PluginID: "pluginA", Precedence: 100},
+			{PluginID: "pluginB", Precedence: 50},
+		}, nil)
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple", "", "", gomock.Any(), "", nil, nil, nil).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+			hasFIGI := false
+			for _, idn := range idns {
+				if idn.Type == "OPENFIGI_GLOBAL" && idn.Value == "BBG000B9XRY4" {
+					hasFIGI = true
+				}
+			}
+			if !hasFIGI {
+				t.Error("expected OPENFIGI_GLOBAL from consistent plugin to be merged")
+			}
+			return "id", nil
+		})
+
+	_, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		false, nil, nil, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+}

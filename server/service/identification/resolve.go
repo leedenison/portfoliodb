@@ -103,6 +103,47 @@ func FilterIdentifierHints(ctx context.Context, hints []identifier.Identifier, l
 	return out
 }
 
+// pluginResult holds a single plugin's identification output.
+type pluginResult struct {
+	inst *identifier.Instrument
+	ids  []identifier.Identifier
+	err  error
+}
+
+// consistentWith returns true if other's instrument metadata is consistent with
+// winner's. Checks Currency, Exchange, and overlapping identifier values.
+// Logs a warning and returns false on mismatch.
+func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlugin string, winner, other *pluginResult) bool {
+	l = resolveLogger(l)
+	if winner.inst.Currency != "" && other.inst.Currency != "" &&
+		!strings.EqualFold(winner.inst.Currency, other.inst.Currency) {
+		l.WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
+			"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
+			"field", "Currency", "winner_value", winner.inst.Currency, "other_value", other.inst.Currency)
+		return false
+	}
+	if winner.inst.Exchange != "" && other.inst.Exchange != "" &&
+		!strings.EqualFold(winner.inst.Exchange, other.inst.Exchange) {
+		l.WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
+			"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
+			"field", "Exchange", "winner_value", winner.inst.Exchange, "other_value", other.inst.Exchange)
+		return false
+	}
+	winnerIDs := make(map[string]string, len(winner.ids))
+	for _, id := range winner.ids {
+		winnerIDs[id.Type] = id.Value
+	}
+	for _, id := range other.ids {
+		if wv, ok := winnerIDs[id.Type]; ok && wv != id.Value {
+			l.WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
+				"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
+				"field", "Identifier:"+id.Type, "winner_value", wv, "other_value", id.Value)
+			return false
+		}
+	}
+	return true
+}
+
 // ResolveWithPlugins calls enabled identifier plugins with the given hints, merges results, and ensures the instrument.
 // When storeSourceDescription is true and a plugin succeeds, (source, instrumentDescription) is added as a
 // non-canonical BROKER_DESCRIPTION identifier. If no plugin identifies the instrument, fallback is called.
@@ -164,12 +205,7 @@ func ResolveWithPlugins(
 	// Winner selection relies on inputs being ordered by precedence (descending),
 	// which is guaranteed by ListEnabledPluginConfigs. The first successful
 	// result in iteration order wins.
-	type result struct {
-		inst *identifier.Instrument
-		ids  []identifier.Identifier
-		err  error
-	}
-	results := make([]result, len(inputs))
+	results := make([]pluginResult, len(inputs))
 	var wg sync.WaitGroup
 	for i := range inputs {
 		wg.Add(1)
@@ -178,7 +214,7 @@ func ResolveWithPlugins(
 			in := inputs[idx]
 			timeout := timeoutFromConfig(in.config.Config)
 			inst, ids, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, hints, identifierHints, timeout, PluginRetryBackoff)
-			results[idx] = result{inst: inst, ids: ids, err: err}
+			results[idx] = pluginResult{inst: inst, ids: ids, err: err}
 		}(i)
 	}
 	wg.Wait()
@@ -195,7 +231,7 @@ func ResolveWithPlugins(
 		}
 	}
 
-	var winner *result
+	var winner *pluginResult
 	var winnerIdx int
 	var hadTimeout, hadOtherErr bool
 	for i := range results {
@@ -224,6 +260,9 @@ func ResolveWithPlugins(
 		for i := range results {
 			r := &results[i]
 			if r.err != nil || r.inst == nil {
+				continue
+			}
+			if i != winnerIdx && !consistentWith(ctx, l, inputs[winnerIdx].config.PluginID, inputs[i].config.PluginID, winner, r) {
 				continue
 			}
 			for _, idn := range r.ids {

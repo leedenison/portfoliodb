@@ -32,6 +32,7 @@ import (
 	cashid "github.com/leedenison/portfoliodb/server/plugins/cash/identifier"
 	eodhdce "github.com/leedenison/portfoliodb/server/plugins/eodhd/corporateevents"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
+	openfigiexchmap "github.com/leedenison/portfoliodb/server/plugins/openfigi/exchangemap"
 	eodhdplugin "github.com/leedenison/portfoliodb/server/plugins/eodhd/identifier"
 	eodhdprice "github.com/leedenison/portfoliodb/server/plugins/eodhd/price"
 	massivece "github.com/leedenison/portfoliodb/server/plugins/massive/corporateevents"
@@ -183,7 +184,8 @@ func main() {
 
 	pluginHTTPClient := newPluginHTTPClient()
 	pluginRegistry := identifier.NewRegistry()
-	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openfigi"), pluginHTTPClient))
+	openfigiExchMap := openfigiexchmap.New()
+	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openfigi"), pluginHTTPClient, openfigiExchMap))
 	pluginRegistry.Register(massiveplugin.PluginID, massiveplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive"), pluginHTTPClient))
 	exchMap := exchangemap.New()
 	eodhdPlugin := eodhdplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/eodhd"), pluginHTTPClient, exchMap)

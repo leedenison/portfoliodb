@@ -29,6 +29,7 @@ func TestExportPrices_Success(t *testing.T) {
 			IdentifierValue:  "AAPL",
 			IdentifierDomain: "US",
 			AssetClass:       "STOCK",
+			Currency:         "USD",
 			PriceDate:        time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
 			Open:             &open,
 			Close:            185.90,
@@ -64,6 +65,9 @@ func TestExportPrices_Success(t *testing.T) {
 	}
 	if row.Volume == nil || *row.Volume != 50000000 {
 		t.Fatalf("expected volume=50000000, got %v", row.Volume)
+	}
+	if row.GetCurrency() != "USD" {
+		t.Fatalf("expected currency=USD, got %s", row.GetCurrency())
 	}
 }
 

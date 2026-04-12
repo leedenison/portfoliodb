@@ -115,6 +115,7 @@ type exportPriceRow struct {
 	IdentifierValue  string    `db:"value"`
 	IdentifierDomain string    `db:"domain"`
 	AssetClass       string    `db:"asset_class"`
+	Currency         string    `db:"currency"`
 	PriceDate        time.Time `db:"price_date"`
 	Open             *float64  `db:"open"`
 	High             *float64  `db:"high"`
@@ -129,6 +130,7 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 	q := `
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
 			COALESCE(i.asset_class, '') AS asset_class,
+			COALESCE(i.currency, '') AS currency,
 			ep.price_date, ep.open, ep.high, ep.low, ep.close,
 			ep.adjusted_close, ep.volume
 		FROM eod_prices ep
@@ -148,6 +150,7 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 			IdentifierValue:  r.IdentifierValue,
 			IdentifierDomain: r.IdentifierDomain,
 			AssetClass:       r.AssetClass,
+			Currency:         r.Currency,
 			PriceDate:        r.PriceDate,
 			Open:             r.Open,
 			High:             r.High,

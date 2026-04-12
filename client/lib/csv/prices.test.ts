@@ -21,7 +21,7 @@ describe("pricesToCsv", () => {
     const lines = csv.trim().split("\n");
     expect(lines).toHaveLength(2);
     expect(lines[0]).toBe(
-      "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class"
+      "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class,currency"
     );
     expect(lines[1]).toContain("ISIN");
     expect(lines[1]).toContain("US0378331005");
@@ -35,7 +35,7 @@ describe("pricesToCsv", () => {
     const lines = csv.split("\n");
     expect(lines[0]).toBe("# exported_at=2025-07-15T10:30:00.000Z");
     expect(lines[1]).toBe(
-      "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class"
+      "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class,currency"
     );
   });
 
@@ -46,7 +46,7 @@ describe("pricesToCsv", () => {
 
   it("includes optional fields when present", () => {
     const csv = pricesToCsv([
-      makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n, assetClass: AssetClass.STOCK }),
+      makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n, assetClass: AssetClass.STOCK, currency: "USD" }),
     ]);
     const lines = csv.trim().split("\n");
     const fields = lines[1].split(",");
@@ -56,6 +56,7 @@ describe("pricesToCsv", () => {
     expect(fields[8]).toBe("185.9"); // adjusted_close
     expect(fields[9]).toBe("50000000"); // volume
     expect(fields[10]).toBe("STOCK"); // asset_class
+    expect(fields[11]).toBe("USD"); // currency
   });
 
   it("leaves optional fields empty when absent", () => {
@@ -81,7 +82,7 @@ describe("pricesToCsv", () => {
 });
 
 describe("csvToPrices", () => {
-  const HEADER = "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class";
+  const HEADER = "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class,currency";
 
   it("parses valid CSV", () => {
     const csv = `${HEADER}\nISIN,US0378331005,,2024-01-15,185.5,186.2,184.8,185.9,185.9,50000000`;
@@ -180,10 +181,24 @@ describe("csvToPrices", () => {
     expect(result.prices[0].assetClass).toBe(AssetClass.UNSPECIFIED);
   });
 
+  it("parses currency column", () => {
+    const csv = `${HEADER}\nMIC_TICKER,AAPL,XNAS,2024-01-15,,,,185.9,,,STOCK,USD`;
+    const result = csvToPrices(csv);
+    expect(result.errors).toHaveLength(0);
+    expect(result.prices[0].currency).toBe("USD");
+  });
+
+  it("handles empty currency", () => {
+    const csv = `${HEADER}\nMIC_TICKER,AAPL,XNAS,2024-01-15,,,,185.9,,`;
+    const result = csvToPrices(csv);
+    expect(result.errors).toHaveLength(0);
+    expect(result.prices[0].currency).toBe("");
+  });
+
   it("round-trips through pricesToCsv and csvToPrices", () => {
     const original = [
-      makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n }),
-      makeRow({ identifierType: "MIC_TICKER", identifierValue: "AAPL", identifierDomain: "XNAS", priceDate: "2024-01-16", close: 186.5 }),
+      makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n, currency: "USD" }),
+      makeRow({ identifierType: "MIC_TICKER", identifierValue: "AAPL", identifierDomain: "XNAS", priceDate: "2024-01-16", close: 186.5, currency: "GBP" }),
     ];
     const exportedAt = new Date("2025-07-15T10:30:00.000Z");
     const csv = pricesToCsv(original, exportedAt);
@@ -195,10 +210,12 @@ describe("csvToPrices", () => {
     expect(result.prices[0].close).toBe(185.9);
     expect(result.prices[0].open).toBe(185.5);
     expect(result.prices[0].volume).toBe(50000000n);
+    expect(result.prices[0].currency).toBe("USD");
     expect(result.prices[1].identifierType).toBe("MIC_TICKER");
     expect(result.prices[1].identifierDomain).toBe("XNAS");
     expect(result.prices[1].close).toBe(186.5);
     expect(result.prices[1].open).toBeUndefined();
+    expect(result.prices[1].currency).toBe("GBP");
   });
 
   it("extracts exported_at from comment line", () => {

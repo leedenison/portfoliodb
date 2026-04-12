@@ -674,6 +674,7 @@ message ExportPriceRow {
   optional int64 volume = 10;
   AssetClass asset_class = 11;   // denormalized from instrument
   google.protobuf.Timestamp exported_at = 12; // when the export was generated
+  string currency = 13;          // ISO 4217 currency code; denormalized from instrument
 }
 
 // ImportPriceRow is one price row to import. When the instrument is unknown, asset_class
@@ -691,6 +692,7 @@ message ImportPriceRow {
   optional double adjusted_close = 9;
   optional int64 volume = 10;
   AssetClass asset_class = 11;   // optional; security type hint for plugin routing on unknown instruments
+  string currency = 12;          // optional; ISO 4217 currency code used as hint for validation
 }
 
 message ImportPricesRequest {

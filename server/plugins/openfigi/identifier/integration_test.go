@@ -65,7 +65,7 @@ func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "openfigi/identifier")
 
-			p := NewPlugin(nil, nil, httpClient)
+			p := NewPlugin(nil, nil, httpClient, nil)
 			cfg, err := json.Marshal(configJSON{
 				OpenFIGIAPIKey: apiKey,
 			})

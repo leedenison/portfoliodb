@@ -9,6 +9,7 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/plugins/openfigi/exchangemap"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
@@ -28,11 +29,13 @@ type Plugin struct {
 	counter    telemetry.CounterIncrementer
 	log        *slog.Logger
 	httpClient *http.Client
+	exchMap    *exchangemap.ExchangeMap
 }
 
 // NewPlugin returns a plugin. Counter and log are optional (nil for tests); when set, OpenFIGI calls are counted and logged.
-func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client) *Plugin {
-	return &Plugin{counter: counter, log: log, httpClient: httpClient}
+// exchMap may be nil (exchange resolution is best-effort).
+func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client, exchMap *exchangemap.ExchangeMap) *Plugin {
+	return &Plugin{counter: counter, log: log, httpClient: httpClient, exchMap: exchMap}
 }
 
 // DisplayName returns a human-readable name for the plugin.
@@ -144,7 +147,7 @@ func (p *Plugin) resolveResults(results []OpenFIGIResult, hints identifier.Hints
 			return nil, nil, false
 		}
 	}
-	inst, ids := openFIGIResultToInstrument(&results[idx])
+	inst, ids := openFIGIResultToInstrument(&results[idx], p.exchMap)
 	if isDerivative(&results[idx]) {
 		parsed, ok := derivative.ParseOptionTicker(results[idx].Ticker)
 		if !ok || parsed.Symbol == "" {

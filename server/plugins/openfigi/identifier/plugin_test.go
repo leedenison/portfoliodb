@@ -43,7 +43,7 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "IBM"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Hints{}, hints)
 	if err != nil {
@@ -109,7 +109,7 @@ func TestPlugin_Identify_OpenFIGIMapping_ID_BB_GLOBAL_SHARE_CLASS_LEVEL(t *testi
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5S399"}}
 	inst, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Hints{}, hints)
 	if err != nil {
@@ -152,7 +152,7 @@ func TestPlugin_Identify_OpenFIGIMapping_FromTickerHint(t *testing.T) {
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "Apple Inc", identifier.Hints{}, hints)
 	if err != nil {
@@ -218,7 +218,7 @@ func TestPlugin_Identify_OpenFIGIMapping_MICTickerDomainNotSentAsMICCode(t *test
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "ABNB", Domain: "XNAS"}}
 	inst, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "ABNB", identifier.Hints{}, hints)
 	if err != nil {
@@ -261,7 +261,7 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDotConvertedToSlash(t *testing.T)
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK.B"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "BRK B BERKSHIRE HATHAWAY INC-CL B", identifier.Hints{}, hints)
 	if err != nil {
@@ -313,7 +313,7 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDashConvertedToSlash(t *testing.T
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "BRK-B"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "BRK-B", identifier.Hints{}, hints)
 	if err != nil {
@@ -334,7 +334,7 @@ func TestPlugin_Identify_OpenFIGIMapping_TickerDashConvertedToSlash(t *testing.T
 
 func TestPlugin_Identify_ErrNotIdentified_WhenNoHints(t *testing.T) {
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	inst, ids, err := p.Identify(ctx, []byte("{}"), "IBKR", "IBKR:test:statement", "Apple Inc", identifier.Hints{}, nil)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
@@ -360,7 +360,7 @@ func TestPlugin_Identify_ErrNotIdentified_WhenMappingReturnsNoResults(t *testing
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "UNKNOWN"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "UNKNOWN THING XYZ", identifier.Hints{}, hints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
@@ -383,7 +383,7 @@ func TestPlugin_Identify_ErrNotIdentified_WhenMappingReturnsEmpty(t *testing.T) 
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "SOMEUNKNOWN"}}
 	_, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "SOME UNKNOWN", identifier.Hints{}, hints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
@@ -419,7 +419,7 @@ func TestPlugin_Identify_Option_ErrNotIdentified_WhenUnderlyingUnparseable(t *te
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "UNPARSEABLE"}}
 	_, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "Some Exotic Option",
 		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
@@ -466,7 +466,7 @@ func TestPlugin_Identify_Option_WithUnderlying(t *testing.T) {
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00200000"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
 		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
@@ -533,7 +533,7 @@ func TestPlugin_Identify_Option_OCCSpacePadded(t *testing.T) {
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	// Pass OCC with space-padding already present.
 	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL  251219C00200000"}}
 	inst, _, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
@@ -580,7 +580,7 @@ func TestPlugin_Identify_Option_ClassicTickerConvertedToOCC(t *testing.T) {
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00200000"}}
 	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "AAPL Dec 2025 200 Call",
 		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
@@ -616,7 +616,7 @@ func TestResolveResults_HintMatchesOneResult(t *testing.T) {
 		{FIGI: "BBG_ETF", Ticker: "X", SecurityType: "ETP", SecurityType2: "ETP", MarketSector: "Equity"},
 		{FIGI: "BBG_BOND", Ticker: "X", SecurityType: "Bond", SecurityType2: "Corp", MarketSector: "Corp"},
 	}
-	p := NewPlugin(nil, nil, nil)
+	p := NewPlugin(nil, nil, nil, nil)
 	inst, ids, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
@@ -640,7 +640,7 @@ func TestResolveResults_HintMatchesNone_FallsBackToFirst(t *testing.T) {
 		{FIGI: "BBG_STOCK", Ticker: "X", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
 		{FIGI: "BBG_BOND", Ticker: "X", SecurityType: "Bond", SecurityType2: "Corp", MarketSector: "Corp"},
 	}
-	p := NewPlugin(nil, nil, nil)
+	p := NewPlugin(nil, nil, nil, nil)
 	inst, ids, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result (fallback to first)")
@@ -664,7 +664,7 @@ func TestResolveResults_NoHint_FallsBackToFirst(t *testing.T) {
 		{FIGI: "BBG_BOND", Ticker: "X", SecurityType: "Bond", SecurityType2: "Corp", MarketSector: "Corp"},
 		{FIGI: "BBG_STOCK", Ticker: "X", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
 	}
-	p := NewPlugin(nil, nil, nil)
+	p := NewPlugin(nil, nil, nil, nil)
 	inst, _, ok := p.resolveResults(results, identifier.Hints{}, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
@@ -682,7 +682,7 @@ func TestResolveResults_AssetClassFromSelectedResult(t *testing.T) {
 		{FIGI: "BBG_ETF", Ticker: "X", SecurityType: "ETP", SecurityType2: "ETP", MarketSector: "Equity"},
 		{FIGI: "BBG_ADR", Ticker: "X", SecurityType: "ADR", SecurityType2: "Depositary Receipt", MarketSector: "Equity"},
 	}
-	p := NewPlugin(nil, nil, nil)
+	p := NewPlugin(nil, nil, nil, nil)
 	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
@@ -718,7 +718,7 @@ func TestPlugin_Identify_MICTickerWithDomainPreserved(t *testing.T) {
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "EQQQ"}}
 	_, ids, err := p.Identify(ctx, config, "Fidelity", "Fidelity:web:standard", "EQQQ", identifier.Hints{}, hints)
 	if err != nil {
@@ -763,7 +763,7 @@ func TestPlugin_Identify_NonTickerHintNotAppended(t *testing.T) {
 		"openfigi_base_url": server.URL,
 	})
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5S399"}}
 	_, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "IBM", identifier.Hints{}, hints)
 	if err != nil {

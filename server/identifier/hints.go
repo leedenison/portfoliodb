@@ -57,6 +57,14 @@ func ShouldAttemptPlugin(acceptableKinds, acceptableTypes map[string]bool, kind,
 	return true
 }
 
+// HintDiff records a single difference between a supplied hint and the
+// resolved instrument value.
+type HintDiff struct {
+	Field         string // "Currency", "SecurityType", "Exchange", or identifier type e.g. "ISIN"
+	HintValue     string
+	ResolvedValue string
+}
+
 // AllowedIdentifierTypes is the controlled vocabulary for identifier hint types (proto IdentifierType names).
 // Description plugins must return hints whose Type is in this set; invalid types are discarded at debug log.
 var AllowedIdentifierTypes = map[string]bool{

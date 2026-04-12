@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
@@ -280,6 +281,22 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, counter, true, hintsValidAt)
 }
 
+// hintDiffsSummary formats hint diffs as a readable string (e.g. "Currency: USD->EUR, ISIN: US037->US038").
+func hintDiffsSummary(diffs []identifier.HintDiff) string {
+	var b strings.Builder
+	for i, d := range diffs {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(d.Field)
+		b.WriteString(": ")
+		b.WriteString(d.HintValue)
+		b.WriteString("->")
+		b.WriteString(d.ResolvedValue)
+	}
+	return b.String()
+}
+
 // hintsByType returns hints whose Type equals typ (e.g. "MIC_TICKER", "OPENFIGI_SHARE_CLASS").
 func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identifier {
 	var out []identifier.Identifier
@@ -304,6 +321,14 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, storeSourceDescription, fallback, counter, ingestionLogger(), 0, hintsValidAt)
 	if err != nil {
 		return resolveResult{}, err
+	}
+	if len(result.HintDiffs) > 0 {
+		ingestionLogger().InfoContext(ctx, "instrument resolved with hint differences",
+			"source", source,
+			"instrument_description", instrumentDescription,
+			"instrument_id", result.InstrumentID,
+			"diffs", hintDiffsSummary(result.HintDiffs),
+		)
 	}
 
 	r := resolveResult{InstrumentID: result.InstrumentID, FirstRowIndex: rowIndex}

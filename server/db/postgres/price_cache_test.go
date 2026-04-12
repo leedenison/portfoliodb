@@ -718,7 +718,7 @@ func TestUpsertPricesWithFill_BasicWeekend(t *testing.T) {
 		{InstrumentID: instID, PriceDate: mon.AddDate(0, 0, 4), Close: 106.0}, // Fri
 	}
 	to := mon.AddDate(0, 0, 7)
-	err := p.UpsertPricesWithFill(ctx, instID, "test", bars, mon, to)
+	err := p.UpsertPricesWithFill(ctx, instID, "test", bars, mon, to, nil)
 	if err != nil {
 		t.Fatalf("upsert with fill: %v", err)
 	}
@@ -773,7 +773,7 @@ func TestUpsertPricesWithFill_SeedFromDB(t *testing.T) {
 	// Gap fill Sat-Mon with no new bars (seed from Friday's close).
 	from := d(2024, 1, 6) // Sat
 	to := d(2024, 1, 9)   // Tue (exclusive)
-	err := p.UpsertPricesWithFill(ctx, instID, "test", nil, from, to)
+	err := p.UpsertPricesWithFill(ctx, instID, "test", nil, from, to, nil)
 	if err != nil {
 		t.Fatalf("upsert with fill: %v", err)
 	}
@@ -803,7 +803,7 @@ func TestUpsertPricesWithFill_NoSeedNoBars(t *testing.T) {
 	instID := setupInstrument(t, p, "FILL3")
 
 	// No seed, no bars — nothing should be inserted.
-	err := p.UpsertPricesWithFill(ctx, instID, "test", nil, d(2024, 1, 1), d(2024, 1, 4))
+	err := p.UpsertPricesWithFill(ctx, instID, "test", nil, d(2024, 1, 1), d(2024, 1, 4), nil)
 	if err != nil {
 		t.Fatalf("upsert with fill: %v", err)
 	}
@@ -825,7 +825,7 @@ func TestUpsertPricesWithFill_NoSeedAtStart(t *testing.T) {
 	bars := []db.EODPrice{
 		{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: 50.0},
 	}
-	err := p.UpsertPricesWithFill(ctx, instID, "test", bars, d(2024, 1, 1), d(2024, 1, 5))
+	err := p.UpsertPricesWithFill(ctx, instID, "test", bars, d(2024, 1, 1), d(2024, 1, 5), nil)
 	if err != nil {
 		t.Fatalf("upsert with fill: %v", err)
 	}
@@ -865,7 +865,7 @@ func TestUpsertPricesWithFill_DuplicateDates(t *testing.T) {
 		{InstrumentID: instID, PriceDate: mon.AddDate(0, 0, 1), Close: 102.0},
 	}
 	to := mon.AddDate(0, 0, 2)
-	err := p.UpsertPricesWithFill(ctx, instID, "test", bars, mon, to)
+	err := p.UpsertPricesWithFill(ctx, instID, "test", bars, mon, to, nil)
 	if err != nil {
 		t.Fatalf("upsert with fill: %v", err)
 	}

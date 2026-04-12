@@ -414,6 +414,8 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 	volumes := make([]*int64, len(prices))
 	providers := make([]string, len(prices))
 	synthetics := make([]bool, len(prices))
+	fetchedAts := make([]time.Time, len(prices))
+	now := time.Now()
 
 	for i, pr := range prices {
 		instIDs[i] = pr.InstrumentID
@@ -425,6 +427,11 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 		volumes[i] = pr.Volume
 		providers[i] = pr.DataProvider
 		synthetics[i] = pr.Synthetic
+		if pr.FetchedAt != nil {
+			fetchedAts[i] = *pr.FetchedAt
+		} else {
+			fetchedAts[i] = now
+		}
 	}
 
 	_, err := p.q.ExecContext(ctx, `
@@ -432,7 +439,8 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::double precision[]),
 			unnest($4::double precision[]), unnest($5::double precision[]),
 			unnest($6::double precision[]), unnest($7::bigint[]),
-			unnest($8::text[]), unnest($9::boolean[]), now()
+			unnest($8::text[]), unnest($9::boolean[]),
+			unnest($10::timestamptz[])
 		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
 			open = EXCLUDED.open,
 			high = EXCLUDED.high,
@@ -445,7 +453,8 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
 	`, pq.Array(instIDs), pq.Array(dates), pq.Array(opens),
 		pq.Array(highs), pq.Array(lows), pq.Array(closes),
-		pq.Array(volumes), pq.Array(providers), pq.Array(synthetics))
+		pq.Array(volumes), pq.Array(providers), pq.Array(synthetics),
+		pq.Array(fetchedAts))
 	if err != nil {
 		return fmt.Errorf("upsert prices: %w", err)
 	}
@@ -457,10 +466,15 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 // [from, to) that has no real bar, all in a single SQL round-trip. The last
 // non-synthetic close price before `from` seeds the forward-fill for dates
 // preceding the first real bar.
-func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provider string, bars []db.EODPrice, from, to time.Time) error {
+func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provider string, bars []db.EODPrice, from, to time.Time, fetchedAt *time.Time) error {
 	id, err := uuid.Parse(instrumentID)
 	if err != nil {
 		return fmt.Errorf("upsert prices with fill: invalid id %q: %w", instrumentID, err)
+	}
+
+	if fetchedAt == nil {
+		now := time.Now()
+		fetchedAt = &now
 	}
 
 	// Deduplicate bars by date, keeping the last occurrence.
@@ -534,7 +548,7 @@ func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provi
 			FROM grouped
 		)
 		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, fetched_at)
-		SELECT $1::uuid, price_date, open, high, low, close, volume, $10::text, synthetic, now()
+		SELECT $1::uuid, price_date, open, high, low, close, volume, $10::text, synthetic, $11::timestamptz
 		FROM locf
 		WHERE price_date >= $2::date AND close IS NOT NULL
 		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
@@ -544,7 +558,7 @@ func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provi
 			fetched_at = EXCLUDED.fetched_at
 		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
 	`, id, from, to, pq.Array(dates), pq.Array(opens), pq.Array(highs),
-		pq.Array(lows), pq.Array(closes), pq.Array(volumes), provider)
+		pq.Array(lows), pq.Array(closes), pq.Array(volumes), provider, fetchedAt)
 	if err != nil {
 		return fmt.Errorf("upsert prices with fill: %w", err)
 	}

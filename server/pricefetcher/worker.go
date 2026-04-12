@@ -208,7 +208,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 				}
 
 				prices := barsToEODPrices(ig.InstrumentID, pe.id, result.Bars)
-				if err := database.UpsertPricesWithFill(ctx, ig.InstrumentID, pe.id, prices, gap.From, gap.To); err != nil {
+				if err := database.UpsertPricesWithFill(ctx, ig.InstrumentID, pe.id, prices, gap.From, gap.To, nil); err != nil {
 					if log != nil {
 						log.ErrorContext(ctx, "price fetch: upsert", "instrument", ig.InstrumentID, "err", err)
 					}

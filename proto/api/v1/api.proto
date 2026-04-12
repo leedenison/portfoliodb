@@ -699,9 +699,10 @@ message ImportPricesRequest {
   // UpsertPricesWithFill to generate synthetic LOCF prices for non-trading
   // days within each range. When absent, prices are upserted as-is.
   repeated ImportCoverage coverage = 2;
-  // When set, used as hintsValidAt for split adjustment during instrument
-  // resolution. OCC symbols in the file are assumed valid as of this time;
-  // any splits with ex_date after this and on or before today are applied.
+  // When set, used as pricesAsOf: prices and identifiers in the file are
+  // assumed current as of this time. OCC symbols are split-adjusted during
+  // instrument resolution, and imported price rows use this as fetched_at
+  // so that splits with ex_date after this timestamp are applied.
   google.protobuf.Timestamp exported_at = 3;
 }
 

@@ -6,7 +6,7 @@ tmp_dir = "tmp"
   cmd = "buf generate --template buf.gen.go.yaml && go build -o /tmp/portfoliodb ./server/cmd/portfoliodb"
   entrypoint = ["/tmp/portfoliodb", "-grpc-addr", ":50051", "-db-url", "postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb?sslmode=disable"]
   include_ext = ["go", "proto", "mod", "sum", "yaml", "yml"]
-  include_dir = [".", "server", "proto"]
+  include_dir = ["server", "proto"]
   exclude_dir = ["tmp", "vendor", "testdata", ".git", "client"]
   exclude_regex = ["_test\\.go", "\\.pb\\.go$"]
   delay = 1000

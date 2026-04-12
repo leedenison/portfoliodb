@@ -16,7 +16,7 @@ const VALID_IDENTIFIER_TYPES = new Set(
     .map((v) => v.name),
 );
 
-const HEADER = "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class";
+const HEADER = "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class,currency";
 
 const REQUIRED_COLUMNS = new Set(["identifier_type", "identifier_value", "price_date", "close"]);
 
@@ -42,6 +42,7 @@ export function pricesToCsv(rows: ExportPriceRow[], exportedAt?: Date): string {
     fmtOptNum(r.adjustedClose),
     fmtOptBigint(r.volume),
     assetClassToStr(r.assetClass),
+    r.currency,
   ]);
   const csv = Papa.unparse({ fields: HEADER.split(","), data }, { newline: "\n" }) + "\n";
   if (exportedAt) {
@@ -147,6 +148,7 @@ export function csvToPrices(text: string): PriceParseResult {
       priceDate,
       close,
       assetClass: assetClassFromStr(get("asset_class")),
+      currency: get("currency"),
     });
 
     const openStr = get("open");

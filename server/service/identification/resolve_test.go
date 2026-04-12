@@ -33,8 +33,8 @@ func TestResolveByHintsDBOnly_ExactMatch(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "OPENFIGI_TICKER", "US", "AAPL").
-		Return("inst-1", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "OPENFIGI_TICKER", "US", "AAPL").
+		Return("inst-1", "", "", "", nil)
 
 	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
 		{Type: "OPENFIGI_TICKER", Domain: "US", Value: "AAPL"},
@@ -42,7 +42,7 @@ func TestResolveByHintsDBOnly_ExactMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveByHintsDBOnly: %v", err)
 	}
-	if len(ids) != 1 || ids[0] != "inst-1" {
+	if len(ids) != 1 || ids[0].ID != "inst-1" {
 		t.Errorf("got %v, want [inst-1]", ids)
 	}
 }
@@ -54,8 +54,8 @@ func TestResolveByHintsDBOnly_FallbackByTypeAndValue(t *testing.T) {
 
 	// Exact match fails (domain is empty, stored domain is "US")
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
-		Return("", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("", "", "", "", nil)
 	// Fallback by (type, value) finds it
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
@@ -67,7 +67,7 @@ func TestResolveByHintsDBOnly_FallbackByTypeAndValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveByHintsDBOnly: %v", err)
 	}
-	if len(ids) != 1 || ids[0] != "inst-1" {
+	if len(ids) != 1 || ids[0].ID != "inst-1" {
 		t.Errorf("got %v, want [inst-1]", ids)
 	}
 }
@@ -97,11 +97,11 @@ func TestResolveByHintsDBOnly_Deduplicates(t *testing.T) {
 
 	// Two hints resolve to the same instrument
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "OPENFIGI_TICKER", "US", "AAPL").
-		Return("inst-1", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "OPENFIGI_TICKER", "US", "AAPL").
+		Return("inst-1", "", "", "", nil)
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").
-		Return("inst-1", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "ISIN", "", "US0378331005").
+		Return("inst-1", "", "", "", nil)
 
 	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
 		{Type: "OPENFIGI_TICKER", Domain: "US", Value: "AAPL"},
@@ -122,8 +122,8 @@ func TestResolveByHintsDBOnly_NormalizesOCCToCompact(t *testing.T) {
 
 	// Padded OCC "NVDA  240315P00420000" should be normalized to compact "NVDA240315P00420000" for lookup.
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "OCC", "", "NVDA240315P00420000").
-		Return("inst-1", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", "NVDA240315P00420000").
+		Return("inst-1", "", "", "", nil)
 
 	ids, err := ResolveByHintsDBOnly(context.Background(), database, []identifier.Identifier{
 		{Type: "OCC", Value: "NVDA  240315P00420000"},
@@ -131,7 +131,7 @@ func TestResolveByHintsDBOnly_NormalizesOCCToCompact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveByHintsDBOnly: %v", err)
 	}
-	if len(ids) != 1 || ids[0] != "inst-1" {
+	if len(ids) != 1 || ids[0].ID != "inst-1" {
 		t.Errorf("got %v, want [inst-1]", ids)
 	}
 }
@@ -166,8 +166,8 @@ func TestResolveWithPlugins_DBHit(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
-		Return("", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("", "", "", "", nil)
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("existing-id", nil)
@@ -198,8 +198,8 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 	})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
-		Return("", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("", "", "", "", nil)
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("", nil)
@@ -233,8 +233,8 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "XYZ").
-		Return("", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "XYZ").
+		Return("", "", "", "", nil)
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "XYZ").
 		Return("", nil)
@@ -278,8 +278,8 @@ func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
 	registry.Register("slow", &fakePlugin{err: context.DeadlineExceeded})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "SLOW").
-		Return("", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "SLOW").
+		Return("", "", "", "", nil)
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "SLOW").
 		Return("", nil)
@@ -314,8 +314,8 @@ func TestResolveWithPlugins_NilFallback_ReturnsEmpty(t *testing.T) {
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "XYZ").
-		Return("", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "XYZ").
+		Return("", "", "", "", nil)
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "XYZ").
 		Return("", nil)
@@ -348,8 +348,8 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 	})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", desc).
-		Return("", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", desc).
+		Return("", "", "", "", nil)
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", desc).
 		Return("", nil)
@@ -392,8 +392,8 @@ func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
 	registry.Register("bad", &fakePlugin{err: errors.New("connection refused")})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "BAD").
-		Return("", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "BAD").
+		Return("", "", "", "", nil)
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "BAD").
 		Return("", nil)
@@ -662,8 +662,8 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 	})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
-		Return("", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("", "", "", "", nil)
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("", nil)
@@ -879,8 +879,8 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 	})
 
 	database.EXPECT().
-		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
-		Return("", nil)
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("", "", "", "", nil)
 	database.EXPECT().
 		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
 		Return("", nil)

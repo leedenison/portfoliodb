@@ -339,6 +339,7 @@ type ExportPriceRow struct {
 	IdentifierValue  string
 	IdentifierDomain string
 	AssetClass       string
+	Currency         string
 	PriceDate        time.Time
 	Open             *float64
 	High             *float64
@@ -560,6 +561,8 @@ type InstrumentDB interface {
 	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, underlyingID string, validFrom, validTo *time.Time, optionFields *OptionFields) (string, error)
 	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
 	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
+	// FindInstrumentWithMetaByIdentifier is like FindInstrumentByIdentifier but also returns asset_class, exchange, and currency from the instruments table in one query.
+	FindInstrumentWithMetaByIdentifier(ctx context.Context, identifierType, domain, value string) (instrumentID, assetClass, exchange, currency string, err error)
 	// FindInstrumentByTypeAndValue looks up instrument_id by (identifier_type, value) with any domain. Returns "" if not found or if multiple instruments match (ambiguous).
 	FindInstrumentByTypeAndValue(ctx context.Context, identifierType, value string) (string, error)
 	// FindInstrumentBySourceDescription looks up instrument_id by (source, NULL domain, instrument_description). Returns "" if not found.

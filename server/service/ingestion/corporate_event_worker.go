@@ -317,6 +317,14 @@ func writeImportCoverage(ctx context.Context, database db.DB, coverage []*apiv1.
 			})
 			continue
 		}
+		if len(entry.result.HintDiffs) > 0 {
+			errs = append(errs, &apiv1.ValidationError{
+				RowIndex: -1,
+				Field:    "coverage.identifier",
+				Message:  fmt.Sprintf("resolved instrument differs from import data: %s", hintDiffsSummary(entry.result.HintDiffs)),
+			})
+			continue
+		}
 		if err := database.UpsertCorporateEventCoverage(ctx, entry.result.InstrumentID, db.CorporateEventProviderImport, from, to); err != nil {
 			return written, errs, err
 		}

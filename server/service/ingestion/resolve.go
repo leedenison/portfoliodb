@@ -207,7 +207,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	// The in-memory batch cache above is still used to avoid repeated DB
 	// lookups within the same upload.
 	if len(identifierHints) > 0 {
-		ids, err := identification.ResolveByHintsDBOnly(ctx, database, identifierHints)
+		ids, err := identification.ResolveIDsByHintsDBOnly(ctx, database, identifierHints)
 		if err != nil {
 			return resolveResult{}, err
 		}

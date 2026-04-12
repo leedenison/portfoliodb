@@ -147,6 +147,35 @@ func (p *Postgres) FindInstrumentByIdentifier(ctx context.Context, identifierTyp
 	return id.String(), nil
 }
 
+// FindInstrumentWithMetaByIdentifier implements db.InstrumentDB.
+func (p *Postgres) FindInstrumentWithMetaByIdentifier(ctx context.Context, identifierType, domain, value string) (string, string, string, string, error) {
+	var id uuid.UUID
+	var ac, exch, cur string
+	var err error
+	if domain == "" {
+		err = p.q.QueryRowContext(ctx, `
+			SELECT ii.instrument_id, COALESCE(i.asset_class, ''), i.exchange, COALESCE(i.currency, '')
+			FROM instrument_identifiers ii
+			JOIN instruments i ON i.id = ii.instrument_id
+			WHERE ii.identifier_type = $1 AND ii.domain IS NULL AND ii.value = $2
+		`, identifierType, value).Scan(&id, &ac, &exch, &cur)
+	} else {
+		err = p.q.QueryRowContext(ctx, `
+			SELECT ii.instrument_id, COALESCE(i.asset_class, ''), i.exchange, COALESCE(i.currency, '')
+			FROM instrument_identifiers ii
+			JOIN instruments i ON i.id = ii.instrument_id
+			WHERE ii.identifier_type = $1 AND ii.domain = $2 AND ii.value = $3
+		`, identifierType, domain, value).Scan(&id, &ac, &exch, &cur)
+	}
+	if err == sql.ErrNoRows {
+		return "", "", "", "", nil
+	}
+	if err != nil {
+		return "", "", "", "", fmt.Errorf("find instrument with meta by identifier: %w", err)
+	}
+	return id.String(), ac, exch, cur, nil
+}
+
 // FindInstrumentByTypeAndValue implements db.InstrumentDB.
 // Returns "" if no row matches or if more than one instrument has the same (type, value) with different domains (ambiguous).
 func (p *Postgres) FindInstrumentByTypeAndValue(ctx context.Context, identifierType, value string) (string, error) {

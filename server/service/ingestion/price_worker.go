@@ -86,7 +86,7 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		entry, cached := resolveCache[cacheKey]
 		if !cached {
 			acStr := db.AssetClassToStr(row.GetAssetClass())
-			result, resolveErr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, "", pricesAsOf)
+			result, resolveErr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, row.GetCurrency(), pricesAsOf)
 			entry = &resolveEntry{result: result, err: resolveErr}
 			resolveCache[cacheKey] = entry
 		}
@@ -254,56 +254,30 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		if err != nil {
 			return identification.ResolveResult{}, fmt.Errorf("identification error for %s %q: %v", idType, value, err)
 		}
-		// ResolveWithPlugins' fast DB path skips CompareHints; fill in
-		// diffs from the persisted instrument so admin imports still validate.
-		if len(result.HintDiffs) == 0 && result.InstrumentID != "" {
-			result.HintDiffs = compareHintsForDBInstrument(ctx, database, hints, []identifier.Identifier{hint}, result.InstrumentID)
-		}
 		return result, nil
 	}
 
-	ids, err := identification.ResolveByHintsDBOnly(ctx, database, []identifier.Identifier{hint})
+	resolved, err := identification.ResolveByHintsDBOnly(ctx, database, []identifier.Identifier{hint})
 	if err != nil {
 		return identification.ResolveResult{}, fmt.Errorf("lookup error for %s %q: %v", idType, value, err)
 	}
-	if len(ids) > 1 {
+	if len(resolved) > 1 {
 		return identification.ResolveResult{}, fmt.Errorf("ambiguous: multiple instruments match %s %q", idType, value)
 	}
-	if len(ids) == 1 {
-		diffs := compareHintsForDBInstrument(ctx, database, hints, []identifier.Identifier{hint}, ids[0])
-		return identification.ResolveResult{InstrumentID: ids[0], Identified: true, HintDiffs: diffs}, nil
+	if len(resolved) == 1 {
+		inst := &identifier.Instrument{
+			AssetClass: resolved[0].AssetClass,
+			Exchange:   resolved[0].Exchange,
+			Currency:   resolved[0].Currency,
+		}
+		diffs := identification.CompareHints(hints, []identifier.Identifier{hint}, inst, nil)
+		return identification.ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs}, nil
 	}
 	id, err := ensureWithSuppliedIdentifier(ctx, database, idType, domain, value)
 	if err != nil {
 		return identification.ResolveResult{}, err
 	}
 	return identification.ResolveResult{InstrumentID: id}, nil
-}
-
-// compareHintsForDBInstrument fetches an instrument from the DB and compares
-// it against the supplied hints. Returns nil on any fetch error (best-effort).
-func compareHintsForDBInstrument(ctx context.Context, database db.DB, hints identifier.Hints, idHints []identifier.Identifier, instID string) []identifier.HintDiff {
-	row, err := database.GetInstrument(ctx, instID)
-	if err != nil || row == nil {
-		return nil
-	}
-	inst := &identifier.Instrument{
-		AssetClass: derefStr(row.AssetClass),
-		Exchange:   row.Exchange,
-		Currency:   derefStr(row.Currency),
-	}
-	var resolvedIDs []identifier.Identifier
-	for _, id := range row.Identifiers {
-		resolvedIDs = append(resolvedIDs, identifier.Identifier{Type: id.Type, Domain: id.Domain, Value: id.Value})
-	}
-	return identification.CompareHints(hints, idHints, inst, resolvedIDs)
-}
-
-func derefStr(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
 }
 
 func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, idType, domain, value string) (string, error) {

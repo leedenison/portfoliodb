@@ -159,7 +159,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 			},
 		},
 	}, nil)
-	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), fxInstID, pluginID, gomock.Any(), from, to).Return(nil)
+	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), fxInstID, pluginID, gomock.Any(), from, to, gomock.Any()).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
@@ -329,7 +329,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 			},
 		},
 	}, nil)
-	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, gomock.Any(), gomock.Any(), to).Return(nil)
+	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, gomock.Any(), gomock.Any(), to, gomock.Any()).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 

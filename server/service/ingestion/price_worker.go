@@ -42,10 +42,10 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		return false
 	}
 
-	var hintsValidAt *time.Time
+	var pricesAsOf *time.Time
 	if req.GetExportedAt() != nil {
 		t := req.GetExportedAt().AsTime()
-		hintsValidAt = &t
+		pricesAsOf = &t
 	} else {
 		slog.Warn("price import missing exported_at; OCC symbols will not be split-adjusted", "job_id", j.JobID)
 	}
@@ -86,7 +86,7 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		entry, cached := resolveCache[cacheKey]
 		if !cached {
 			acStr := db.AssetClassToStr(row.GetAssetClass())
-			instID, resolveErr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, hintsValidAt)
+			instID, resolveErr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, pricesAsOf)
 			entry = &resolveEntry{instID: instID, err: resolveErr}
 			resolveCache[cacheKey] = entry
 		}
@@ -105,6 +105,7 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 			PriceDate:    priceDate,
 			Close:        row.GetClose(),
 			DataProvider: "import",
+			FetchedAt:    pricesAsOf,
 		}
 		if row.Open != nil {
 			p.Open = row.Open
@@ -203,7 +204,11 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 			if len(inRange) > 0 {
 				provider = inRange[0].DataProvider
 			}
-			if err := database.UpsertPricesWithFill(ctx, instID, provider, inRange, r.from, r.to); err != nil {
+			var fetchedAt *time.Time
+			if len(inRange) > 0 {
+				fetchedAt = inRange[0].FetchedAt
+			}
+			if err := database.UpsertPricesWithFill(ctx, instID, provider, inRange, r.from, r.to, fetchedAt); err != nil {
 				return err
 			}
 		}

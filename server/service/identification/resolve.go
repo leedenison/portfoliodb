@@ -82,7 +82,10 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 			if err != nil {
 				return nil, err
 			}
-			// TypeAndValue fallback doesn't return metadata; leave fields empty.
+			// TypeAndValue fallback doesn't return metadata. Empty fields
+			// cause CompareHints to skip currency/exchange/assetClass
+			// checks, so hint validation is not performed for instruments
+			// matched by type+value without an exact domain match.
 			ac, exch, cur = "", "", ""
 		}
 		if id != "" && !seen[id] {
@@ -91,6 +94,41 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 		}
 	}
 	return resolved, nil
+}
+
+// ResolveIDsByHintsDBOnly is a lightweight variant of ResolveByHintsDBOnly that
+// returns only instrument IDs (no metadata). It uses FindInstrumentByIdentifier
+// (index-only lookup) instead of FindInstrumentWithMetaByIdentifier (JOIN),
+// making it cheaper for callers that don't need hint comparison.
+func ResolveIDsByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints []identifier.Identifier) ([]string, error) {
+	seen := make(map[string]bool)
+	var ids []string
+	for _, h := range hints {
+		if h.Type == "" || h.Value == "" {
+			continue
+		}
+		value := h.Value
+		if h.Type == "OCC" {
+			if compact, ok := derivative.OCCCompact(value); ok {
+				value = compact
+			}
+		}
+		id, err := database.FindInstrumentByIdentifier(ctx, h.Type, h.Domain, value)
+		if err != nil {
+			return nil, err
+		}
+		if id == "" && h.Domain == "" {
+			id, err = database.FindInstrumentByTypeAndValue(ctx, h.Type, value)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if id != "" && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 // FilterIdentifierHints keeps only hints whose Type is in the controlled vocabulary (identifier.AllowedIdentifierTypes).

@@ -757,8 +757,8 @@ func TestResolve_SameDescription_DifferentHints_NoCacheConflict(t *testing.T) {
 
 	// First: resolve the security transaction (CUSIP hint).
 	database.EXPECT().
-		FindInstrumentWithMetaByIdentifier(gomock.Any(), "CUSIP", "", "594918104").
-		Return("msft-inst-id", "", "", "", nil)
+		FindInstrumentByIdentifier(gomock.Any(), "CUSIP", "", "594918104").
+		Return("msft-inst-id", nil)
 
 	r1, err := Resolve(ctx, database, registry, "IBKR", source, desc,
 		identifier.Hints{}, []identifier.Identifier{{Type: "CUSIP", Value: "594918104"}},
@@ -772,8 +772,8 @@ func TestResolve_SameDescription_DifferentHints_NoCacheConflict(t *testing.T) {
 
 	// Second: resolve the cash transaction (CURRENCY hint) with the same description.
 	database.EXPECT().
-		FindInstrumentWithMetaByIdentifier(gomock.Any(), "CURRENCY", "", "USD").
-		Return("usd-inst-id", "", "", "", nil)
+		FindInstrumentByIdentifier(gomock.Any(), "CURRENCY", "", "USD").
+		Return("usd-inst-id", nil)
 
 	r2, err := Resolve(ctx, database, registry, "IBKR", source, desc,
 		identifier.Hints{}, []identifier.Identifier{{Type: "CURRENCY", Value: "USD"}},

@@ -22,6 +22,10 @@ func stockFromSearch(r *client.SearchResult, exchMap *exchangemap.ExchangeMap) (
 		Currency:   strings.ToUpper(r.Currency),
 		Name:       r.Name,
 	}
+	if r.Exchange != "" {
+		inst.ProviderIdentifiers = append(inst.ProviderIdentifiers,
+			identifier.ProviderIdentifier{Provider: "eodhd", Type: "EODHD_EXCH_CODE", Value: r.Exchange})
+	}
 	var ids []identifier.Identifier
 	if r.Code != "" {
 		ids = append(ids, identifier.Identifier{Type: "MIC_TICKER", Domain: exchange, Value: identifier.NormalizeSplitTicker(r.Code, ".")})

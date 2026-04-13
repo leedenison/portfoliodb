@@ -22,6 +22,10 @@ func stockFromTicker(r *client.TickerOverviewResult) (*identifier.Instrument, []
 		CIK:        r.CIK,
 		SICCode:    r.SICCode,
 	}
+	if r.PrimaryExchange != "" && r.Ticker != "" {
+		inst.ProviderIdentifiers = append(inst.ProviderIdentifiers,
+			identifier.ProviderIdentifier{Provider: "massive", Type: "SEGMENT_MIC_TICKER", Domain: r.PrimaryExchange, Value: r.Ticker})
+	}
 	ids := tickerIdentifiers(r)
 	return inst, ids
 }
@@ -34,6 +38,10 @@ func optionFromContract(r *client.OptionsContractResult) (*identifier.Instrument
 		AssetClass: db.AssetClassOption,
 		Exchange:   r.PrimaryExchange,
 		Name:       strings.TrimPrefix(r.Ticker, "O:"),
+	}
+	if r.PrimaryExchange != "" && r.Ticker != "" {
+		inst.ProviderIdentifiers = append(inst.ProviderIdentifiers,
+			identifier.ProviderIdentifier{Provider: "massive", Type: "SEGMENT_MIC_TICKER", Domain: r.PrimaryExchange, Value: strings.TrimPrefix(r.Ticker, "O:")})
 	}
 	if r.UnderlyingTicker != "" {
 		inst.UnderlyingIdentifiers = []identifier.Identifier{

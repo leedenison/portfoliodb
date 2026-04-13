@@ -444,3 +444,109 @@ func TestListInstruments_PaginationPastEnd(t *testing.T) {
 		t.Fatalf("past-end page: expected total=3, got %d", total)
 	}
 }
+
+func TestLookupOperatingMIC(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	// Operating MIC returns itself.
+	mic, err := p.LookupOperatingMIC(ctx, "XNAS")
+	if err != nil {
+		t.Fatalf("lookup XNAS: %v", err)
+	}
+	if mic != "XNAS" {
+		t.Fatalf("expected XNAS, got %s", mic)
+	}
+
+	// Segment MIC returns its operating MIC.
+	// XNGS (NASDAQ/NGS Global Select Market) is a segment of XNAS.
+	mic, err = p.LookupOperatingMIC(ctx, "XNGS")
+	if err != nil {
+		t.Fatalf("lookup XNGS: %v", err)
+	}
+	if mic != "XNAS" {
+		t.Fatalf("expected XNAS for segment XNGS, got %s", mic)
+	}
+
+	// Unknown MIC returns error.
+	_, err = p.LookupOperatingMIC(ctx, "ZZZZ")
+	if err == nil {
+		t.Fatal("expected error for unknown MIC")
+	}
+}
+
+func TestSaveAndFindProviderIdentifiers(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	// Create an instrument to attach provider identifiers to.
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "AAPL", "", "",
+		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}},
+		"", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+
+	// Save provider identifiers.
+	err = p.SaveProviderIdentifiers(ctx, instID, []db.ProviderIdentifierInput{
+		{Provider: "massive", Type: "SEGMENT_MIC_TICKER", Domain: "XNGS", Value: "AAPL"},
+		{Provider: "eodhd", Type: "EODHD_EXCH_CODE", Value: "US"},
+		{Provider: "openfigi", Type: "FIGI", Value: "BBG000B9XRY4"},
+	})
+	if err != nil {
+		t.Fatalf("save provider identifiers: %v", err)
+	}
+
+	// Find by provider.
+	ids, err := p.FindProviderIdentifiers(ctx, instID, "massive")
+	if err != nil {
+		t.Fatalf("find massive: %v", err)
+	}
+	if len(ids) != 1 {
+		t.Fatalf("expected 1 massive identifier, got %d", len(ids))
+	}
+	if ids[0].Type != "SEGMENT_MIC_TICKER" || ids[0].Domain != "XNGS" || ids[0].Value != "AAPL" {
+		t.Fatalf("unexpected massive identifier: %+v", ids[0])
+	}
+
+	ids, err = p.FindProviderIdentifiers(ctx, instID, "eodhd")
+	if err != nil {
+		t.Fatalf("find eodhd: %v", err)
+	}
+	if len(ids) != 1 || ids[0].Type != "EODHD_EXCH_CODE" || ids[0].Value != "US" {
+		t.Fatalf("unexpected eodhd identifiers: %+v", ids)
+	}
+
+	// Duplicate insert is idempotent.
+	err = p.SaveProviderIdentifiers(ctx, instID, []db.ProviderIdentifierInput{
+		{Provider: "massive", Type: "SEGMENT_MIC_TICKER", Domain: "XNGS", Value: "AAPL"},
+	})
+	if err != nil {
+		t.Fatalf("duplicate save: %v", err)
+	}
+	ids, err = p.FindProviderIdentifiers(ctx, instID, "massive")
+	if err != nil {
+		t.Fatalf("find after dup: %v", err)
+	}
+	if len(ids) != 1 {
+		t.Fatalf("expected 1 after dup, got %d", len(ids))
+	}
+
+	// Provider identifiers are loaded by GetInstrument.
+	inst, err := p.GetInstrument(ctx, instID)
+	if err != nil {
+		t.Fatalf("get instrument: %v", err)
+	}
+	if len(inst.ProviderIdentifiers) != 3 {
+		t.Fatalf("expected 3 provider identifiers on instrument, got %d", len(inst.ProviderIdentifiers))
+	}
+
+	// Unknown provider returns empty.
+	ids, err = p.FindProviderIdentifiers(ctx, instID, "unknown")
+	if err != nil {
+		t.Fatalf("find unknown: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("expected 0 for unknown provider, got %d", len(ids))
+	}
+}

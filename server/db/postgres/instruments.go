@@ -239,8 +239,13 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 		return nil, fmt.Errorf("get instrument: %w", err)
 	}
 	row := r.toDBRow()
-	if err := loadIdentifiers(ctx, p.q, []uuid.UUID{r.ID}, []*db.InstrumentRow{row}); err != nil {
+	instIDs := []uuid.UUID{r.ID}
+	instRows := []*db.InstrumentRow{row}
+	if err := loadIdentifiers(ctx, p.q, instIDs, instRows); err != nil {
 		return nil, fmt.Errorf("get instrument identifiers: %w", err)
+	}
+	if err := loadProviderIdentifiers(ctx, p.q, instIDs, instRows); err != nil {
+		return nil, fmt.Errorf("get instrument provider identifiers: %w", err)
 	}
 	return row, nil
 }
@@ -282,6 +287,9 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 	}
 	if err := loadIdentifiers(ctx, p.q, ids, results); err != nil {
 		return nil, fmt.Errorf("list identifiers for export: %w", err)
+	}
+	if err := loadProviderIdentifiers(ctx, p.q, ids, results); err != nil {
+		return nil, fmt.Errorf("list provider identifiers for export: %w", err)
 	}
 	return results, nil
 }
@@ -329,6 +337,9 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	}
 	if err := loadIdentifiers(ctx, p.q, resultIDs, results); err != nil {
 		return nil, fmt.Errorf("list identifiers for instruments: %w", err)
+	}
+	if err := loadProviderIdentifiers(ctx, p.q, resultIDs, results); err != nil {
+		return nil, fmt.Errorf("list provider identifiers for instruments: %w", err)
 	}
 	return results, nil
 }
@@ -539,6 +550,9 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	if err := loadIdentifiers(ctx, p.q, ids, results); err != nil {
 		return nil, 0, "", fmt.Errorf("list instrument identifiers: %w", err)
 	}
+	if err := loadProviderIdentifiers(ctx, p.q, ids, results); err != nil {
+		return nil, 0, "", fmt.Errorf("list instrument provider identifiers: %w", err)
+	}
 	return results, total, nextToken, nil
 }
 
@@ -583,6 +597,9 @@ func (p *Postgres) ListOptionsByUnderlying(ctx context.Context, underlyingID str
 	}
 	if err := loadIdentifiers(ctx, p.q, ids, results); err != nil {
 		return nil, fmt.Errorf("list options by underlying identifiers: %w", err)
+	}
+	if err := loadProviderIdentifiers(ctx, p.q, ids, results); err != nil {
+		return nil, fmt.Errorf("list options by underlying provider identifiers: %w", err)
 	}
 	return results, nil
 }
@@ -656,4 +673,70 @@ func (p *Postgres) UpdateIdentifiedAt(ctx context.Context, instrumentID string) 
 		return fmt.Errorf("update identified_at: %w", err)
 	}
 	return nil
+}
+
+// SaveProviderIdentifiers implements db.InstrumentDB.
+func (p *Postgres) SaveProviderIdentifiers(ctx context.Context, instrumentID string, ids []db.ProviderIdentifierInput) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	uid, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("save provider identifiers: invalid id: %w", err)
+	}
+	for _, id := range ids {
+		_, err := p.q.ExecContext(ctx, `
+			INSERT INTO provider_instrument_identifiers (instrument_id, provider, identifier_type, domain, value)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT DO NOTHING
+		`, uid, id.Provider, id.Type, nullStr(id.Domain), id.Value)
+		if err != nil {
+			return fmt.Errorf("save provider identifier (%s/%s): %w", id.Provider, id.Type, err)
+		}
+	}
+	return nil
+}
+
+// FindProviderIdentifiers implements db.InstrumentDB.
+func (p *Postgres) FindProviderIdentifiers(ctx context.Context, instrumentID, provider string) ([]db.ProviderIdentifierInput, error) {
+	uid, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return nil, fmt.Errorf("find provider identifiers: invalid id: %w", err)
+	}
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT provider, identifier_type, domain, value
+		FROM provider_instrument_identifiers
+		WHERE instrument_id = $1 AND provider = $2
+		ORDER BY identifier_type, value
+	`, uid, provider)
+	if err != nil {
+		return nil, fmt.Errorf("find provider identifiers: %w", err)
+	}
+	defer rows.Close()
+	var result []db.ProviderIdentifierInput
+	for rows.Next() {
+		var pi db.ProviderIdentifierInput
+		var domain sql.NullString
+		if err := rows.Scan(&pi.Provider, &pi.Type, &domain, &pi.Value); err != nil {
+			return nil, err
+		}
+		if domain.Valid {
+			pi.Domain = domain.String
+		}
+		result = append(result, pi)
+	}
+	return result, rows.Err()
+}
+
+// LookupOperatingMIC implements db.InstrumentDB.
+func (p *Postgres) LookupOperatingMIC(ctx context.Context, mic string) (string, error) {
+	var opMIC string
+	err := p.q.QueryRowContext(ctx, `SELECT operating_mic FROM exchanges WHERE mic = $1`, mic).Scan(&opMIC)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("lookup operating mic: unknown MIC %q", mic)
+	}
+	if err != nil {
+		return "", fmt.Errorf("lookup operating mic: %w", err)
+	}
+	return opMIC, nil
 }

@@ -224,6 +224,24 @@ CREATE TRIGGER trg_recompute_instrument_name_on_inst
   AFTER INSERT OR UPDATE OF exchange_mic ON instruments
   FOR EACH ROW EXECUTE FUNCTION recompute_instrument_name();
 
+-- Provider-specific instrument identifiers. Mirrors instrument_identifiers but
+-- scoped to a data provider. Identifier types are free-form strings specific to
+-- the provider (e.g. "SEGMENT_MIC_TICKER", "EODHD_EXCH_CODE", "FIGI").
+CREATE TABLE provider_instrument_identifiers (
+  id              UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  instrument_id   UUID NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  provider        TEXT NOT NULL,
+  identifier_type TEXT NOT NULL,
+  domain          TEXT,
+  value           TEXT NOT NULL
+);
+
+-- Per-instrument per-provider uniqueness.
+CREATE UNIQUE INDEX idx_prov_instr_ident_unique_null_domain ON provider_instrument_identifiers (instrument_id, provider, identifier_type, value) WHERE domain IS NULL;
+CREATE UNIQUE INDEX idx_prov_instr_ident_unique_non_null_domain ON provider_instrument_identifiers (instrument_id, provider, identifier_type, domain, value) WHERE domain IS NOT NULL;
+-- Reverse lookup by provider + identifier.
+CREATE INDEX idx_prov_instr_ident_lookup ON provider_instrument_identifiers (provider, identifier_type, value);
+
 -- Plugin config: which plugins are enabled, precedence (unique per category), plugin-specific config.
 -- category: 'identifier', 'description', 'price'.
 -- Precedence constraints are DEFERRABLE so that two plugins' precedences can be swapped

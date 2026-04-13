@@ -160,10 +160,42 @@ type pluginResult struct {
 	err  error
 }
 
+// MICNormalizer maps a MIC to its operating MIC. Returns the input unchanged
+// if normalization fails (unknown MIC, DB error, etc.).
+type MICNormalizer func(ctx context.Context, mic string) string
+
+// MICLookup is the subset of db.InstrumentDB needed to build a MICNormalizer.
+type MICLookup interface {
+	LookupOperatingMIC(ctx context.Context, mic string) (string, error)
+}
+
+// NewDBMICNormalizer returns a MICNormalizer backed by a database lookup.
+func NewDBMICNormalizer(db MICLookup) MICNormalizer {
+	return func(ctx context.Context, mic string) string {
+		if mic == "" {
+			return mic
+		}
+		op, err := db.LookupOperatingMIC(ctx, mic)
+		if err != nil {
+			return mic
+		}
+		return op
+	}
+}
+
+// normalizeMICValue applies the normalizer if non-nil, otherwise returns mic unchanged.
+func normalizeMICValue(ctx context.Context, normalizeMIC MICNormalizer, mic string) string {
+	if normalizeMIC == nil || mic == "" {
+		return mic
+	}
+	return normalizeMIC(ctx, mic)
+}
+
 // consistentWith returns true if other's instrument metadata is consistent with
 // winner's. Checks Currency, Exchange, and overlapping identifier values.
-// Logs a warning and returns false on mismatch.
-func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlugin string, winner, other *pluginResult) bool {
+// Logs a warning and returns false on mismatch. Exchange comparison normalizes
+// both sides to operating MICs via normalizeMIC (if non-nil).
+func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlugin string, winner, other *pluginResult, normalizeMIC MICNormalizer) bool {
 	l = resolveLogger(l)
 	if winner.inst.Currency != "" && other.inst.Currency != "" &&
 		!strings.EqualFold(winner.inst.Currency, other.inst.Currency) {
@@ -172,8 +204,10 @@ func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlug
 			"field", "Currency", "winner_value", winner.inst.Currency, "other_value", other.inst.Currency)
 		return false
 	}
-	if winner.inst.Exchange != "" && other.inst.Exchange != "" &&
-		!strings.EqualFold(winner.inst.Exchange, other.inst.Exchange) {
+	winnerExch := normalizeMICValue(ctx, normalizeMIC, winner.inst.Exchange)
+	otherExch := normalizeMICValue(ctx, normalizeMIC, other.inst.Exchange)
+	if winnerExch != "" && otherExch != "" &&
+		!strings.EqualFold(winnerExch, otherExch) {
 		l.WarnContext(ctx, "identifier plugin mismatch, excluding from merge",
 			"winner_plugin", winnerPlugin, "other_plugin", otherPlugin,
 			"field", "Exchange", "winner_value", winner.inst.Exchange, "other_value", other.inst.Exchange)
@@ -196,8 +230,10 @@ func consistentWith(ctx context.Context, l *slog.Logger, winnerPlugin, otherPlug
 
 // CompareHints compares supplied hints and identifier hints against the
 // resolved instrument and its identifiers, returning any differences.
-// Fields are skipped when either side is empty or UNKNOWN.
-func CompareHints(hints identifier.Hints, identifierHints []identifier.Identifier, inst *identifier.Instrument, resolvedIDs []identifier.Identifier) []identifier.HintDiff {
+// Fields are skipped when either side is empty or UNKNOWN. normalizeMIC
+// (if non-nil) maps both sides of the exchange comparison to operating MICs
+// so that segment-vs-operating differences are not flagged.
+func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints []identifier.Identifier, inst *identifier.Instrument, resolvedIDs []identifier.Identifier, normalizeMIC MICNormalizer) []identifier.HintDiff {
 	if inst == nil {
 		return nil
 	}
@@ -217,11 +253,15 @@ func CompareHints(hints identifier.Hints, identifierHints []identifier.Identifie
 	}
 
 	// Exchange: compare MIC_TICKER hint domain (the MIC code) against inst.Exchange.
+	// Both sides are normalized to operating MICs before comparison.
 	if inst.Exchange != "" {
+		instExch := normalizeMICValue(ctx, normalizeMIC, inst.Exchange)
 		for _, h := range identifierHints {
-			if h.Type == "MIC_TICKER" && h.Domain != "" &&
-				!strings.EqualFold(h.Domain, inst.Exchange) {
-				diffs = append(diffs, identifier.HintDiff{Field: "Exchange", HintValue: h.Domain, ResolvedValue: inst.Exchange})
+			if h.Type == "MIC_TICKER" && h.Domain != "" {
+				hintExch := normalizeMICValue(ctx, normalizeMIC, h.Domain)
+				if !strings.EqualFold(hintExch, instExch) {
+					diffs = append(diffs, identifier.HintDiff{Field: "Exchange", HintValue: h.Domain, ResolvedValue: inst.Exchange})
+				}
 				break
 			}
 		}
@@ -265,6 +305,7 @@ func ResolveWithPlugins(
 	hintsValidAt *time.Time,
 ) (ResolveResult, error) {
 	l := resolveLogger(logger)
+	normMIC := NewDBMICNormalizer(database)
 
 	// Adjust OCC hints for known stock splits before any lookups.
 	identifierHints = AdjustOCCForKnownSplits(ctx, database, identifierHints, hintsValidAt, nil)
@@ -280,7 +321,7 @@ func ResolveWithPlugins(
 			Exchange:   resolved[0].Exchange,
 			Currency:   resolved[0].Currency,
 		}
-		diffs := CompareHints(hints, identifierHints, inst, nil)
+		diffs := CompareHints(ctx, hints, identifierHints, inst, nil, normMIC)
 		return ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs}, nil
 	}
 
@@ -370,7 +411,7 @@ func ResolveWithPlugins(
 			if r.err != nil || r.inst == nil {
 				continue
 			}
-			if i != winnerIdx && !consistentWith(ctx, l, inputs[winnerIdx].config.PluginID, inputs[i].config.PluginID, winner, r) {
+			if i != winnerIdx && !consistentWith(ctx, l, inputs[winnerIdx].config.PluginID, inputs[i].config.PluginID, winner, r, normMIC) {
 				continue
 			}
 			for _, idn := range r.ids {
@@ -418,7 +459,7 @@ func ResolveWithPlugins(
 		if inst.AssetClass == db.AssetClassOption {
 			optFields = optionFieldsFromIdentifiers(mergedIds)
 		}
-		diffs := CompareHints(hints, identifierHints, inst, mergedIds)
+		diffs := CompareHints(ctx, hints, identifierHints, inst, mergedIds, normMIC)
 		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validTo, optFields)
 		if err != nil {
 			return ResolveResult{}, err

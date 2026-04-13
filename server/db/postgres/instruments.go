@@ -358,6 +358,13 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 	if (assetClass == db.AssetClassOption || assetClass == db.AssetClassFuture) && underlyingID == "" {
 		return "", fmt.Errorf("underlying_id required when asset_class is %s", assetClass)
 	}
+	// Normalize MIC_TICKER domains and exchangeMIC to operating MICs.
+	exchangeMIC = p.normalizeToOperatingMIC(ctx, exchangeMIC)
+	for i := range identifiers {
+		if identifiers[i].Type == "MIC_TICKER" && identifiers[i].Domain != "" {
+			identifiers[i].Domain = p.normalizeToOperatingMIC(ctx, identifiers[i].Domain)
+		}
+	}
 	var underlyingUUID *uuid.UUID
 	if underlyingID != "" {
 		parsed, err := uuid.Parse(underlyingID)
@@ -626,6 +633,9 @@ func (p *Postgres) InsertInstrumentIdentifier(ctx context.Context, instrumentID 
 	if err != nil {
 		return fmt.Errorf("insert instrument identifier: invalid id: %w", err)
 	}
+	if input.Type == "MIC_TICKER" && input.Domain != "" {
+		input.Domain = p.normalizeToOperatingMIC(ctx, input.Domain)
+	}
 	_, err = p.q.ExecContext(ctx, `
 		INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical)
 		VALUES ($1, $2, $3, $4, $5)
@@ -726,6 +736,19 @@ func (p *Postgres) FindProviderIdentifiers(ctx context.Context, instrumentID, pr
 		result = append(result, pi)
 	}
 	return result, rows.Err()
+}
+
+// normalizeToOperatingMIC maps a MIC to its operating MIC. If the lookup fails
+// (unknown MIC or DB error), returns the original value unchanged.
+func (p *Postgres) normalizeToOperatingMIC(ctx context.Context, mic string) string {
+	if mic == "" {
+		return mic
+	}
+	opMIC, err := p.LookupOperatingMIC(ctx, mic)
+	if err != nil {
+		return mic
+	}
+	return opMIC
 }
 
 // LookupOperatingMIC implements db.InstrumentDB.

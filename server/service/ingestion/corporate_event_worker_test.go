@@ -22,6 +22,7 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	req := &apiv1.ImportCorporateEventsRequest{
@@ -130,6 +131,7 @@ func TestProcessCorporateEventImport_RejectsBadSplitRatio(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	req := &apiv1.ImportCorporateEventsRequest{
@@ -182,6 +184,7 @@ func TestProcessCorporateEventImport_DividendOnlyDoesNotRecompute(t *testing.T) 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	req := &apiv1.ImportCorporateEventsRequest{
@@ -223,6 +226,7 @@ func TestProcessCorporateEventImport_RejectsBadCoverageDate(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	req := &apiv1.ImportCorporateEventsRequest{
@@ -274,6 +278,7 @@ func TestProcessCorporateEventImport_AcceptsHighPrecisionDecimal(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	req := &apiv1.ImportCorporateEventsRequest{
@@ -317,6 +322,7 @@ func TestProcessCorporateEventImport_RejectsInvalidDecimal(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	req := &apiv1.ImportCorporateEventsRequest{
@@ -364,6 +370,7 @@ func TestProcessCorporateEventImport_RejectsHintDiff(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	req := &apiv1.ImportCorporateEventsRequest{

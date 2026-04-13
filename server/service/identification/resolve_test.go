@@ -982,3 +982,320 @@ func TestCompareHints_SegmentMICNormalized(t *testing.T) {
 		t.Errorf("expected no diffs with normalizer, got %v", diffs)
 	}
 }
+
+// --- resultMatchesHints tests ---
+
+func TestResultMatchesHints_CurrencyConfirmed(t *testing.T) {
+	r := &pluginResult{
+		inst: &identifier.Instrument{Currency: "USD", Exchange: "XNAS"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	}
+	hints := identifier.Hints{Currency: "USD"}
+	if !resultMatchesHints(context.Background(), hints, nil, r, nil) {
+		t.Error("expected match when currency confirmed")
+	}
+}
+
+func TestResultMatchesHints_CurrencyMismatch(t *testing.T) {
+	r := &pluginResult{
+		inst: &identifier.Instrument{Currency: "EUR"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	}
+	hints := identifier.Hints{Currency: "USD"}
+	if resultMatchesHints(context.Background(), hints, nil, r, nil) {
+		t.Error("expected no match when currency differs")
+	}
+}
+
+func TestResultMatchesHints_SparseResultNoConfirmation(t *testing.T) {
+	// Plugin returns empty currency and exchange -- no field is confirmed.
+	r := &pluginResult{
+		inst: &identifier.Instrument{Currency: "", Exchange: "", AssetClass: "STOCK"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	}
+	hints := identifier.Hints{Currency: "GBX"}
+	if resultMatchesHints(context.Background(), hints, nil, r, nil) {
+		t.Error("expected no match when result is too sparse to confirm any hint")
+	}
+}
+
+func TestResultMatchesHints_ExchangeConfirmed(t *testing.T) {
+	r := &pluginResult{
+		inst: &identifier.Instrument{Exchange: "XLON", Currency: ""},
+		ids:  []identifier.Identifier{},
+	}
+	hints := identifier.Hints{}
+	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}}
+	if !resultMatchesHints(context.Background(), hints, idnHints, r, nil) {
+		t.Error("expected match when exchange confirmed via MIC_TICKER")
+	}
+}
+
+func TestResultMatchesHints_IdentifierValueConfirmed(t *testing.T) {
+	r := &pluginResult{
+		inst: &identifier.Instrument{},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	}
+	hints := identifier.Hints{}
+	idnHints := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
+	if !resultMatchesHints(context.Background(), hints, idnHints, r, nil) {
+		t.Error("expected match when identifier value confirmed")
+	}
+}
+
+func TestResultMatchesHints_NilInstrument(t *testing.T) {
+	r := &pluginResult{inst: nil}
+	if resultMatchesHints(context.Background(), identifier.Hints{Currency: "USD"}, nil, r, nil) {
+		t.Error("expected no match for nil instrument")
+	}
+}
+
+// --- Winner selection with hint preference tests ---
+
+// resolveWithPluginsTestSetup creates common mock expectations for winner selection tests.
+func resolveWithPluginsTestSetup(t *testing.T) (*gomock.Controller, *mock.MockDB) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, mic string) (string, error) { return mic, nil },
+	).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	return ctrl, database
+}
+
+func TestResolveWithPlugins_HintMatchPrefersLowerPrecedence(t *testing.T) {
+	saved := PluginRetryBackoff
+	PluginRetryBackoff = time.Millisecond
+	defer func() { PluginRetryBackoff = saved }()
+
+	ctrl, database := resolveWithPluginsTestSetup(t)
+	defer ctrl.Finish()
+	registry := identifier.NewRegistry()
+
+	// Plugin A (higher precedence): wrong exchange/currency
+	registry.Register("pluginA", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "BAC"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0605051046"}},
+	})
+	// Plugin B (lower precedence): matches hints (XLON/GBX)
+	registry.Register("pluginB", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XLON", Currency: "GBX", Name: "BAE Systems"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}},
+	})
+
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XLON", "BA").
+		Return("", "", "", "", nil)
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{
+			{PluginID: "pluginA", Precedence: 100},
+			{PluginID: "pluginB", Precedence: 50},
+		}, nil)
+	// Expect the lower-precedence plugin's data (XLON/GBX/BAE Systems).
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XLON", "GBX", "BAE Systems", "", "", gomock.Any(), "", nil, nil, nil).
+		Return("id-bae", nil)
+
+	result, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{Currency: "GBX"},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}},
+		false, nil, nil, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if result.InstrumentID != "id-bae" {
+		t.Errorf("expected id-bae, got %s", result.InstrumentID)
+	}
+	if len(result.HintDiffs) != 0 {
+		t.Errorf("expected no hint diffs, got %v", result.HintDiffs)
+	}
+}
+
+func TestResolveWithPlugins_NoHintMatch_FallsBackToPrecedence(t *testing.T) {
+	saved := PluginRetryBackoff
+	PluginRetryBackoff = time.Millisecond
+	defer func() { PluginRetryBackoff = saved }()
+
+	ctrl, database := resolveWithPluginsTestSetup(t)
+	defer ctrl.Finish()
+	registry := identifier.NewRegistry()
+
+	// Both plugins return wrong currency -- neither matches hints.
+	registry.Register("pluginA", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	})
+	registry.Register("pluginB", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNYS", Currency: "EUR", Name: "Apple EU"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "EU0000000001"}},
+	})
+
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("", "", "", "", nil)
+	database.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{
+			{PluginID: "pluginA", Precedence: 100},
+			{PluginID: "pluginB", Precedence: 50},
+		}, nil)
+	// Highest precedence (pluginA) should win.
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple", "", "", gomock.Any(), "", nil, nil, nil).
+		Return("id-apple", nil)
+
+	result, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{Currency: "GBX"},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		false, nil, nil, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if result.InstrumentID != "id-apple" {
+		t.Errorf("expected id-apple, got %s", result.InstrumentID)
+	}
+}
+
+func TestResolveWithPlugins_NoHints_PurePrecedence(t *testing.T) {
+	saved := PluginRetryBackoff
+	PluginRetryBackoff = time.Millisecond
+	defer func() { PluginRetryBackoff = saved }()
+
+	ctrl, database := resolveWithPluginsTestSetup(t)
+	defer ctrl.Finish()
+	registry := identifier.NewRegistry()
+
+	registry.Register("pluginA", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	})
+	registry.Register("pluginB", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XLON", Currency: "GBX", Name: "BAE"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}},
+	})
+
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("", "", "", "", nil)
+	database.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "MIC_TICKER", "AAPL").
+		Return("", nil)
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{
+			{PluginID: "pluginA", Precedence: 100},
+			{PluginID: "pluginB", Precedence: 50},
+		}, nil)
+	// No hints: highest precedence wins.
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple", "", "", gomock.Any(), "", nil, nil, nil).
+		Return("id-apple", nil)
+
+	result, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+		false, nil, nil, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if result.InstrumentID != "id-apple" {
+		t.Errorf("expected id-apple, got %s", result.InstrumentID)
+	}
+}
+
+func TestResolveWithPlugins_AllMatch_HighestPrecedenceWins(t *testing.T) {
+	saved := PluginRetryBackoff
+	PluginRetryBackoff = time.Millisecond
+	defer func() { PluginRetryBackoff = saved }()
+
+	ctrl, database := resolveWithPluginsTestSetup(t)
+	defer ctrl.Finish()
+	registry := identifier.NewRegistry()
+
+	// Both plugins match hints (XLON/GBX).
+	registry.Register("pluginA", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XLON", Currency: "GBX", Name: "BAE Systems A"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}},
+	})
+	registry.Register("pluginB", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XLON", Currency: "GBX", Name: "BAE Systems B"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}},
+	})
+
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XLON", "BA").
+		Return("", "", "", "", nil)
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{
+			{PluginID: "pluginA", Precedence: 100},
+			{PluginID: "pluginB", Precedence: 50},
+		}, nil)
+	// Both match, highest precedence (pluginA) wins.
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XLON", "GBX", "BAE Systems A", "", "", gomock.Any(), "", nil, nil, nil).
+		Return("id-bae-a", nil)
+
+	result, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{Currency: "GBX"},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}},
+		false, nil, nil, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if result.InstrumentID != "id-bae-a" {
+		t.Errorf("expected id-bae-a, got %s", result.InstrumentID)
+	}
+}
+
+func TestResolveWithPlugins_SparseResultDoesNotVacuouslyMatch(t *testing.T) {
+	saved := PluginRetryBackoff
+	PluginRetryBackoff = time.Millisecond
+	defer func() { PluginRetryBackoff = saved }()
+
+	ctrl, database := resolveWithPluginsTestSetup(t)
+	defer ctrl.Finish()
+	registry := identifier.NewRegistry()
+
+	// Plugin A (higher precedence): rich data, currency mismatch with hints.
+	registry.Register("pluginA", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	})
+	// Plugin B (lower precedence): sparse -- empty currency/exchange.
+	// Zero diffs vacuously but should NOT win because no field is confirmed.
+	registry.Register("pluginB", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "STOCK", Currency: "", Exchange: "", Name: "Unknown"},
+		ids:  []identifier.Identifier{{Type: "SEDOL", Value: "B0YQ5W0"}},
+	})
+
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XLON", "BA").
+		Return("", "", "", "", nil)
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{
+			{PluginID: "pluginA", Precedence: 100},
+			{PluginID: "pluginB", Precedence: 50},
+		}, nil)
+	// Sparse result should not beat rich result; pluginA wins by precedence.
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple", "", "", gomock.Any(), "", nil, nil, nil).
+		Return("id-apple", nil)
+
+	result, err := ResolveWithPlugins(context.Background(), database, registry,
+		"", "", "", identifier.Hints{Currency: "GBX"},
+		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}},
+		false, nil, nil, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+	if result.InstrumentID != "id-apple" {
+		t.Errorf("expected id-apple (highest precedence), got %s", result.InstrumentID)
+	}
+}

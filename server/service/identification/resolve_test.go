@@ -163,6 +163,7 @@ func TestResolveWithPlugins_DBHit(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	database.EXPECT().
@@ -191,6 +192,7 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
@@ -229,6 +231,7 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
 
@@ -274,6 +277,7 @@ func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("slow", &fakePlugin{err: context.DeadlineExceeded})
 
@@ -310,6 +314,7 @@ func TestResolveWithPlugins_NilFallback_ReturnsEmpty(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
 
@@ -339,6 +344,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 	source := "IBKR:test:statement"
 	desc := "APPLE INC COM"
@@ -388,6 +394,7 @@ func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("bad", &fakePlugin{err: errors.New("connection refused")})
 
@@ -569,7 +576,7 @@ func TestConsistentWith_AllMatch(t *testing.T) {
 		inst: &identifier.Instrument{Exchange: "XNAS", Currency: "USD"},
 		ids:  []identifier.Identifier{{Type: "OPENFIGI_GLOBAL", Value: "BBG000B9XRY4"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o) {
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
 		t.Error("expected consistent")
 	}
 }
@@ -581,7 +588,7 @@ func TestConsistentWith_CurrencyMismatch(t *testing.T) {
 	o := &pluginResult{
 		inst: &identifier.Instrument{Currency: "EUR"},
 	}
-	if consistentWith(context.Background(), nil, "a", "b", w, o) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
 		t.Error("expected inconsistent on currency mismatch")
 	}
 }
@@ -593,7 +600,7 @@ func TestConsistentWith_ExchangeMismatch(t *testing.T) {
 	o := &pluginResult{
 		inst: &identifier.Instrument{Exchange: "XNYS", Currency: "USD"},
 	}
-	if consistentWith(context.Background(), nil, "a", "b", w, o) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
 		t.Error("expected inconsistent on exchange mismatch")
 	}
 }
@@ -607,7 +614,7 @@ func TestConsistentWith_EmptyFieldsSkipped(t *testing.T) {
 		inst: &identifier.Instrument{Exchange: "", Currency: ""},
 		ids:  []identifier.Identifier{{Type: "OPENFIGI_GLOBAL", Value: "BBG000B9XRY4"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o) {
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
 		t.Error("expected consistent when other has empty exchange/currency")
 	}
 }
@@ -621,7 +628,7 @@ func TestConsistentWith_IdentifierValueMismatch(t *testing.T) {
 		inst: &identifier.Instrument{},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "GB1234567890"}},
 	}
-	if consistentWith(context.Background(), nil, "a", "b", w, o) {
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
 		t.Error("expected inconsistent on ISIN value mismatch")
 	}
 }
@@ -635,7 +642,7 @@ func TestConsistentWith_IdentifierValueMatch(t *testing.T) {
 		inst: &identifier.Instrument{},
 		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "OPENFIGI_GLOBAL", Value: "BBG000B9XRY4"}},
 	}
-	if !consistentWith(context.Background(), nil, "a", "b", w, o) {
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
 		t.Error("expected consistent when ISIN values match")
 	}
 }
@@ -648,6 +655,7 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	// Plugin A (higher precedence): XNAS/USD with ISIN
@@ -701,7 +709,7 @@ func TestCompareHints_NoDiffs(t *testing.T) {
 	idnHints := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
 	resolvedIDs := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
 
-	diffs := CompareHints(hints, idnHints, inst, resolvedIDs)
+	diffs := CompareHints(context.Background(), hints, idnHints, inst, resolvedIDs, nil)
 	if len(diffs) != 0 {
 		t.Errorf("expected no diffs, got %v", diffs)
 	}
@@ -711,7 +719,7 @@ func TestCompareHints_CurrencyMismatch(t *testing.T) {
 	hints := identifier.Hints{Currency: "USD"}
 	inst := &identifier.Instrument{Currency: "EUR"}
 
-	diffs := CompareHints(hints, nil, inst, nil)
+	diffs := CompareHints(context.Background(), hints, nil, inst, nil, nil)
 	if len(diffs) != 1 {
 		t.Fatalf("expected 1 diff, got %d", len(diffs))
 	}
@@ -724,7 +732,7 @@ func TestCompareHints_CurrencyCaseInsensitive(t *testing.T) {
 	hints := identifier.Hints{Currency: "usd"}
 	inst := &identifier.Instrument{Currency: "USD"}
 
-	diffs := CompareHints(hints, nil, inst, nil)
+	diffs := CompareHints(context.Background(), hints, nil, inst, nil, nil)
 	if len(diffs) != 0 {
 		t.Errorf("expected no diffs for case-insensitive match, got %v", diffs)
 	}
@@ -732,12 +740,12 @@ func TestCompareHints_CurrencyCaseInsensitive(t *testing.T) {
 
 func TestCompareHints_EmptyCurrencySkipped(t *testing.T) {
 	// Empty hint currency.
-	diffs := CompareHints(identifier.Hints{}, nil, &identifier.Instrument{Currency: "USD"}, nil)
+	diffs := CompareHints(context.Background(), identifier.Hints{}, nil, &identifier.Instrument{Currency: "USD"}, nil, nil)
 	if len(diffs) != 0 {
 		t.Errorf("expected no diffs when hint currency empty, got %v", diffs)
 	}
 	// Empty resolved currency.
-	diffs = CompareHints(identifier.Hints{Currency: "USD"}, nil, &identifier.Instrument{}, nil)
+	diffs = CompareHints(context.Background(), identifier.Hints{Currency: "USD"}, nil, &identifier.Instrument{}, nil, nil)
 	if len(diffs) != 0 {
 		t.Errorf("expected no diffs when resolved currency empty, got %v", diffs)
 	}
@@ -747,7 +755,7 @@ func TestCompareHints_SecurityTypeMismatch(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: "STOCK"}
 	inst := &identifier.Instrument{AssetClass: "ETF"}
 
-	diffs := CompareHints(hints, nil, inst, nil)
+	diffs := CompareHints(context.Background(), hints, nil, inst, nil, nil)
 	if len(diffs) != 1 {
 		t.Fatalf("expected 1 diff, got %d", len(diffs))
 	}
@@ -758,12 +766,12 @@ func TestCompareHints_SecurityTypeMismatch(t *testing.T) {
 
 func TestCompareHints_SecurityTypeUnknownSkipped(t *testing.T) {
 	// UNKNOWN hint should not produce a diff.
-	diffs := CompareHints(identifier.Hints{SecurityTypeHint: "UNKNOWN"}, nil, &identifier.Instrument{AssetClass: "STOCK"}, nil)
+	diffs := CompareHints(context.Background(), identifier.Hints{SecurityTypeHint: "UNKNOWN"}, nil, &identifier.Instrument{AssetClass: "STOCK"}, nil, nil)
 	if len(diffs) != 0 {
 		t.Errorf("expected no diffs when hint is UNKNOWN, got %v", diffs)
 	}
 	// UNKNOWN resolved should not produce a diff.
-	diffs = CompareHints(identifier.Hints{SecurityTypeHint: "STOCK"}, nil, &identifier.Instrument{AssetClass: "UNKNOWN"}, nil)
+	diffs = CompareHints(context.Background(), identifier.Hints{SecurityTypeHint: "STOCK"}, nil, &identifier.Instrument{AssetClass: "UNKNOWN"}, nil, nil)
 	if len(diffs) != 0 {
 		t.Errorf("expected no diffs when resolved is UNKNOWN, got %v", diffs)
 	}
@@ -774,7 +782,7 @@ func TestCompareHints_ExchangeViaMICTickerDomain(t *testing.T) {
 	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}
 	inst := &identifier.Instrument{Exchange: "XNYS"}
 
-	diffs := CompareHints(hints, idnHints, inst, nil)
+	diffs := CompareHints(context.Background(), hints, idnHints, inst, nil, nil)
 	if len(diffs) != 1 {
 		t.Fatalf("expected 1 diff, got %d", len(diffs))
 	}
@@ -787,7 +795,7 @@ func TestCompareHints_ExchangeViaMICTickerMatch(t *testing.T) {
 	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL"}}
 	inst := &identifier.Instrument{Exchange: "XNAS"}
 
-	diffs := CompareHints(identifier.Hints{}, idnHints, inst, nil)
+	diffs := CompareHints(context.Background(), identifier.Hints{}, idnHints, inst, nil, nil)
 	if len(diffs) != 0 {
 		t.Errorf("expected no diffs, got %v", diffs)
 	}
@@ -797,7 +805,7 @@ func TestCompareHints_ExchangeEmptyDomainSkipped(t *testing.T) {
 	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "", Value: "AAPL"}}
 	inst := &identifier.Instrument{Exchange: "XNAS"}
 
-	diffs := CompareHints(identifier.Hints{}, idnHints, inst, nil)
+	diffs := CompareHints(context.Background(), identifier.Hints{}, idnHints, inst, nil, nil)
 	if len(diffs) != 0 {
 		t.Errorf("expected no diffs when MIC_TICKER domain empty, got %v", diffs)
 	}
@@ -807,7 +815,7 @@ func TestCompareHints_IdentifierValueMismatch(t *testing.T) {
 	idnHints := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
 	resolvedIDs := []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}}
 
-	diffs := CompareHints(identifier.Hints{}, idnHints, &identifier.Instrument{}, resolvedIDs)
+	diffs := CompareHints(context.Background(), identifier.Hints{}, idnHints, &identifier.Instrument{}, resolvedIDs, nil)
 	if len(diffs) != 1 {
 		t.Fatalf("expected 1 diff, got %d", len(diffs))
 	}
@@ -820,7 +828,7 @@ func TestCompareHints_IdentifierTypeNotInResolved(t *testing.T) {
 	idnHints := []identifier.Identifier{{Type: "CUSIP", Value: "037833100"}}
 	resolvedIDs := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
 
-	diffs := CompareHints(identifier.Hints{}, idnHints, &identifier.Instrument{}, resolvedIDs)
+	diffs := CompareHints(context.Background(), identifier.Hints{}, idnHints, &identifier.Instrument{}, resolvedIDs, nil)
 	if len(diffs) != 0 {
 		t.Errorf("expected no diffs when hint type not in resolved, got %v", diffs)
 	}
@@ -835,7 +843,7 @@ func TestCompareHints_MultipleDiffs(t *testing.T) {
 	inst := &identifier.Instrument{Currency: "EUR", AssetClass: "ETF", Exchange: "XNYS"}
 	resolvedIDs := []identifier.Identifier{{Type: "ISIN", Value: "GB0002634946"}}
 
-	diffs := CompareHints(hints, idnHints, inst, resolvedIDs)
+	diffs := CompareHints(context.Background(), hints, idnHints, inst, resolvedIDs, nil)
 	if len(diffs) != 4 {
 		t.Fatalf("expected 4 diffs, got %d: %v", len(diffs), diffs)
 	}
@@ -851,7 +859,7 @@ func TestCompareHints_MultipleDiffs(t *testing.T) {
 }
 
 func TestCompareHints_NilInstrument(t *testing.T) {
-	diffs := CompareHints(identifier.Hints{Currency: "USD"}, nil, nil, nil)
+	diffs := CompareHints(context.Background(), identifier.Hints{Currency: "USD"}, nil, nil, nil, nil)
 	if diffs != nil {
 		t.Errorf("expected nil diffs for nil instrument, got %v", diffs)
 	}
@@ -865,6 +873,7 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	// Plugin A (higher precedence): XNAS/USD with ISIN
@@ -911,5 +920,56 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 		false, nil, nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
+	}
+}
+
+// --- MIC normalization tests ---
+
+func testMICNormalizer() MICNormalizer {
+	mapping := map[string]string{
+		"XNGS": "XNAS", "XNMS": "XNAS", "XNAS": "XNAS",
+		"ARCX": "XNYS", "XNYS": "XNYS",
+	}
+	return func(_ context.Context, mic string) string {
+		if op, ok := mapping[mic]; ok {
+			return op
+		}
+		return mic
+	}
+}
+
+func TestConsistentWith_SegmentVsOperatingMIC(t *testing.T) {
+	w := &pluginResult{
+		inst: &identifier.Instrument{Exchange: "XNAS", Currency: "USD"},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
+	}
+	o := &pluginResult{
+		inst: &identifier.Instrument{Exchange: "XNGS", Currency: "USD"},
+		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG001S5N8V8"}},
+	}
+	// Without normalizer: different exchanges are inconsistent.
+	if consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
+		t.Error("expected inconsistent without normalizer")
+	}
+	// With normalizer: XNGS and XNAS map to the same operating MIC.
+	if !consistentWith(context.Background(), nil, "a", "b", w, o, testMICNormalizer()) {
+		t.Error("expected consistent with normalizer (XNGS -> XNAS)")
+	}
+}
+
+func TestCompareHints_SegmentMICNormalized(t *testing.T) {
+	idnHints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XNGS", Value: "AAPL"}}
+	inst := &identifier.Instrument{Exchange: "XNAS"}
+
+	// Without normalizer: segment vs operating produces a diff.
+	diffs := CompareHints(context.Background(), identifier.Hints{}, idnHints, inst, nil, nil)
+	if len(diffs) != 1 || diffs[0].Field != "Exchange" {
+		t.Fatalf("expected Exchange diff without normalizer, got %v", diffs)
+	}
+
+	// With normalizer: both normalize to XNAS, no diff.
+	diffs = CompareHints(context.Background(), identifier.Hints{}, idnHints, inst, nil, testMICNormalizer())
+	if len(diffs) != 0 {
+		t.Errorf("expected no diffs with normalizer, got %v", diffs)
 	}
 }

@@ -589,3 +589,90 @@ func TestSaveAndFindProviderIdentifiers(t *testing.T) {
 		t.Fatalf("expected 0 for unknown provider, got %d", len(ids))
 	}
 }
+
+func TestEnsureInstrument_NormalizesSegmentMIC(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	// Create instrument with segment MIC XNGS (segment of XNAS).
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "XNGS", "USD", "AAPL", "", "",
+		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNGS", Value: "AAPL", Canonical: true}},
+		"", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+
+	// Verify exchangeMIC was normalized to operating MIC.
+	inst, err := p.GetInstrument(ctx, instID)
+	if err != nil {
+		t.Fatalf("get instrument: %v", err)
+	}
+	if inst.ExchangeMIC == nil || *inst.ExchangeMIC != "XNAS" {
+		t.Fatalf("expected exchangeMIC XNAS, got %v", inst.ExchangeMIC)
+	}
+
+	// Verify MIC_TICKER domain was normalized to operating MIC.
+	var found bool
+	for _, id := range inst.Identifiers {
+		if id.Type == "MIC_TICKER" {
+			if id.Domain != "XNAS" {
+				t.Fatalf("expected MIC_TICKER domain XNAS, got %s", id.Domain)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("MIC_TICKER identifier not found")
+	}
+
+	// Ensure same instrument is found when looking up with segment MIC.
+	// The domain was normalized, so direct lookup with segment MIC should NOT match.
+	id, err := p.FindInstrumentByIdentifier(ctx, "MIC_TICKER", "XNGS", "AAPL")
+	if err != nil {
+		t.Fatalf("find by segment MIC: %v", err)
+	}
+	if id != "" {
+		t.Fatal("expected no match for segment MIC domain (was normalized)")
+	}
+
+	// But lookup with operating MIC should find it.
+	id, err = p.FindInstrumentByIdentifier(ctx, "MIC_TICKER", "XNAS", "AAPL")
+	if err != nil {
+		t.Fatalf("find by operating MIC: %v", err)
+	}
+	if id != instID {
+		t.Fatalf("expected %s, got %s", instID, id)
+	}
+}
+
+func TestInsertInstrumentIdentifier_NormalizesSegmentMIC(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	// Create instrument with operating MIC.
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "AAPL", "", "",
+		[]db.IdentifierInput{{Type: "ISIN", Value: "US0378331005", Canonical: true}},
+		"", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+
+	// Insert MIC_TICKER with segment MIC.
+	err = p.InsertInstrumentIdentifier(ctx, instID, db.IdentifierInput{
+		Type: "MIC_TICKER", Domain: "XNGS", Value: "AAPL", Canonical: true,
+	})
+	if err != nil {
+		t.Fatalf("insert identifier: %v", err)
+	}
+
+	// Verify domain was normalized.
+	inst, err := p.GetInstrument(ctx, instID)
+	if err != nil {
+		t.Fatalf("get instrument: %v", err)
+	}
+	for _, id := range inst.Identifiers {
+		if id.Type == "MIC_TICKER" && id.Domain != "XNAS" {
+			t.Fatalf("expected MIC_TICKER domain XNAS, got %s", id.Domain)
+		}
+	}
+}

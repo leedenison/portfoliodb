@@ -270,7 +270,8 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 			Exchange:   resolved[0].Exchange,
 			Currency:   resolved[0].Currency,
 		}
-		diffs := identification.CompareHints(hints, []identifier.Identifier{hint}, inst, nil)
+		normMIC := identification.NewDBMICNormalizer(database)
+		diffs := identification.CompareHints(ctx, hints, []identifier.Identifier{hint}, inst, nil, normMIC)
 		return identification.ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs}, nil
 	}
 	id, err := ensureWithSuppliedIdentifier(ctx, database, idType, domain, value)

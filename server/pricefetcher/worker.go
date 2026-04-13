@@ -161,6 +161,13 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 				continue
 			}
 			ids := pluginutil.FilterIdentifiers(pe.plugin.SupportedIdentifierTypes(), inst.Identifiers)
+			// Merge provider-specific identifiers for this plugin.
+			for _, pi := range inst.ProviderIdentifiers {
+				if pi.Provider == pe.id {
+					ids = append(ids, db.IdentifierInput{Type: pi.Type, Domain: pi.Domain, Value: pi.Value})
+				}
+			}
+			ids = pluginutil.FilterIdentifiers(pe.plugin.SupportedIdentifierTypes(), ids)
 			if len(ids) == 0 {
 				continue
 			}

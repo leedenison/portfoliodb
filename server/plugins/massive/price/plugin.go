@@ -49,7 +49,7 @@ func (p *Plugin) DefaultConfig() []byte {
 }
 
 func (p *Plugin) SupportedIdentifierTypes() []string {
-	return []string{"MIC_TICKER", "OPENFIGI_TICKER", "OCC", "FX_PAIR"}
+	return []string{"SEGMENT_MIC_TICKER", "MIC_TICKER", "OPENFIGI_TICKER", "OCC", "FX_PAIR"}
 }
 
 func (p *Plugin) AcceptableAssetClasses() map[string]bool {
@@ -181,6 +181,12 @@ func tickerForAssetClass(ids []pricefetcher.Identifier, assetClass string) (stri
 			}
 		}
 		return "", 1
+	}
+	// Prefer provider-specific SEGMENT_MIC_TICKER over canonical MIC_TICKER.
+	for _, id := range ids {
+		if id.Type == "SEGMENT_MIC_TICKER" && id.Value != "" {
+			return id.Value, 1
+		}
 	}
 	for _, id := range ids {
 		if id.Type == "MIC_TICKER" && id.Value != "" {

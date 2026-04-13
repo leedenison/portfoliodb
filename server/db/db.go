@@ -282,6 +282,16 @@ type IdentifierInput struct {
 	Canonical bool   // default true when not set for backward compat
 }
 
+// ProviderIdentifierInput is a provider-specific identifier for an instrument.
+// Identifier types are free-form strings specific to the provider (e.g.
+// "SEGMENT_MIC_TICKER", "EODHD_EXCH_CODE", "FIGI").
+type ProviderIdentifierInput struct {
+	Provider string
+	Type     string
+	Domain   string
+	Value    string
+}
+
 // OptionFields carries denormalized OCC components for option instruments.
 // Nil when the instrument is not an option.
 type OptionFields struct {
@@ -516,9 +526,10 @@ type InstrumentRow struct {
 	ContractMultiplier  float64    // deliverable multiplier; 1 = standard
 	IdentifiedAt        *time.Time // last identification timestamp
 	Identifiers         []IdentifierInput
-	ExchangeName        *string // read-only; from exchanges JOIN
-	ExchangeAcronym     *string // read-only; from exchanges JOIN
-	ExchangeCountryCode *string // read-only; from exchanges JOIN
+	ProviderIdentifiers []ProviderIdentifierInput // provider-specific identifiers
+	ExchangeName        *string                   // read-only; from exchanges JOIN
+	ExchangeAcronym     *string                   // read-only; from exchanges JOIN
+	ExchangeCountryCode *string                   // read-only; from exchanges JOIN
 }
 
 // HoldingDeclarationRow is a single holding declaration for API responses.
@@ -592,6 +603,14 @@ type InstrumentDB interface {
 	UpdateInstrumentName(ctx context.Context, instrumentID, name string) error
 	// UpdateIdentifiedAt sets identified_at = now() on an existing instrument.
 	UpdateIdentifiedAt(ctx context.Context, instrumentID string) error
+	// SaveProviderIdentifiers inserts provider-specific identifiers for an instrument.
+	// Duplicates (same instrument, provider, type, domain, value) are silently ignored.
+	SaveProviderIdentifiers(ctx context.Context, instrumentID string, ids []ProviderIdentifierInput) error
+	// FindProviderIdentifiers returns provider-specific identifiers for an instrument and provider.
+	FindProviderIdentifiers(ctx context.Context, instrumentID, provider string) ([]ProviderIdentifierInput, error)
+	// LookupOperatingMIC returns the operating MIC for the given MIC code.
+	// If mic is already an operating MIC it returns itself. Returns ("", error) if not found.
+	LookupOperatingMIC(ctx context.Context, mic string) (string, error)
 }
 
 // IgnoredAssetClass is one ignore rule: skip tx types mapping to this asset class for

@@ -379,3 +379,40 @@ func loadIdentifiers(ctx context.Context, q queryable, ids []uuid.UUID, rows []*
 	}
 	return idRows.Err()
 }
+
+// loadProviderIdentifiers batch-loads provider-specific identifiers for the given instrument IDs.
+func loadProviderIdentifiers(ctx context.Context, q queryable, ids []uuid.UUID, rows []*db.InstrumentRow) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	inClause, args := inClauseUUIDs(ids)
+	piRows, err := q.QueryContext(ctx, fmt.Sprintf(`
+		SELECT instrument_id, provider, identifier_type, domain, value
+		FROM provider_instrument_identifiers
+		WHERE instrument_id IN (%s)
+		ORDER BY instrument_id
+	`, inClause), args...)
+	if err != nil {
+		return err
+	}
+	defer piRows.Close()
+	byID := make(map[string]*db.InstrumentRow, len(rows))
+	for _, r := range rows {
+		byID[r.ID] = r
+	}
+	for piRows.Next() {
+		var instID uuid.UUID
+		var pi db.ProviderIdentifierInput
+		var domain sql.NullString
+		if err := piRows.Scan(&instID, &pi.Provider, &pi.Type, &domain, &pi.Value); err != nil {
+			return err
+		}
+		if domain.Valid {
+			pi.Domain = domain.String
+		}
+		if r := byID[instID.String()]; r != nil {
+			r.ProviderIdentifiers = append(r.ProviderIdentifiers, pi)
+		}
+	}
+	return piRows.Err()
+}

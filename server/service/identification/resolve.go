@@ -286,6 +286,48 @@ func CompareHints(ctx context.Context, hints identifier.Hints, identifierHints [
 	return diffs
 }
 
+// resultMatchesHints returns true when the plugin result has zero hint diffs
+// and at least one hint field was actually confirmed (both sides non-empty).
+// This prevents sparse results from vacuously "matching" because they lack data.
+func resultMatchesHints(ctx context.Context, hints identifier.Hints, identifierHints []identifier.Identifier, r *pluginResult, normalizeMIC MICNormalizer) bool {
+	if r.inst == nil {
+		return false
+	}
+	diffs := CompareHints(ctx, hints, identifierHints, r.inst, r.ids, normalizeMIC)
+	if len(diffs) != 0 {
+		return false
+	}
+	// At least one hint field must have been compared (both sides non-empty).
+	if hints.Currency != "" && r.inst.Currency != "" {
+		return true
+	}
+	if hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown &&
+		r.inst.AssetClass != "" && r.inst.AssetClass != identifier.SecurityTypeHintUnknown {
+		return true
+	}
+	if r.inst.Exchange != "" {
+		for _, h := range identifierHints {
+			if h.Type == "MIC_TICKER" && h.Domain != "" {
+				return true
+			}
+		}
+	}
+	resolvedByType := make(map[string]string, len(r.ids))
+	for _, id := range r.ids {
+		if id.Value != "" {
+			resolvedByType[id.Type] = id.Value
+		}
+	}
+	for _, h := range identifierHints {
+		if h.Value != "" {
+			if _, ok := resolvedByType[h.Type]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ResolveWithPlugins calls enabled identifier plugins with the given hints, merges results, and ensures the instrument.
 // When storeSourceDescription is true and a plugin succeeds, (source, instrumentDescription) is added as a
 // non-canonical BROKER_DESCRIPTION identifier. If no plugin identifies the instrument, fallback is called.
@@ -380,15 +422,24 @@ func ResolveWithPlugins(
 		}
 	}
 
+	// Check whether any meaningful hints are supplied (to avoid vacuous matching).
+	hasHints := hints.Currency != "" ||
+		(hints.SecurityTypeHint != "" && hints.SecurityTypeHint != identifier.SecurityTypeHintUnknown) ||
+		len(identifierHints) > 0
+
 	var winner *pluginResult
 	var winnerIdx int
+	firstSuccessIdx := -1
+	firstMatchIdx := -1
 	var hadTimeout, hadOtherErr bool
 	for i := range results {
 		r := &results[i]
 		if r.err == nil && r.inst != nil {
-			if winner == nil {
-				winner = r
-				winnerIdx = i
+			if firstSuccessIdx < 0 {
+				firstSuccessIdx = i
+			}
+			if hasHints && firstMatchIdx < 0 && resultMatchesHints(ctx, hints, identifierHints, r, normMIC) {
+				firstMatchIdx = i
 			}
 			continue
 		}
@@ -400,6 +451,20 @@ func ResolveWithPlugins(
 		} else {
 			hadOtherErr = true
 		}
+	}
+	if firstMatchIdx >= 0 {
+		winnerIdx = firstMatchIdx
+	} else if firstSuccessIdx >= 0 {
+		winnerIdx = firstSuccessIdx
+	}
+	if firstSuccessIdx >= 0 {
+		winner = &results[winnerIdx]
+	}
+	if winner != nil && firstMatchIdx >= 0 && firstMatchIdx != firstSuccessIdx {
+		l.InfoContext(ctx, "identifier plugin preferred over higher-precedence plugin due to hint match",
+			"chosen_plugin", inputs[winnerIdx].config.PluginID,
+			"bypassed_plugin", inputs[firstSuccessIdx].config.PluginID,
+			"instrument_description", instrumentDescription)
 	}
 
 	if winner != nil {

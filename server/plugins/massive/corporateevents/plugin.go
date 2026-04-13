@@ -61,7 +61,7 @@ func (p *Plugin) DefaultConfig() []byte {
 }
 
 func (p *Plugin) SupportedIdentifierTypes() []string {
-	return []string{"MIC_TICKER", "OPENFIGI_TICKER"}
+	return []string{"SEGMENT_MIC_TICKER", "MIC_TICKER", "OPENFIGI_TICKER"}
 }
 
 func (p *Plugin) AcceptableAssetClasses() map[string]bool {
@@ -151,6 +151,11 @@ func (p *Plugin) translateError(err error, ticker string) error {
 // tickerFromIdentifiers picks a Massive ticker symbol from identifiers.
 // Massive uses bare tickers (no exchange suffix) for US securities.
 func tickerFromIdentifiers(ids []corporateevents.Identifier) string {
+	for _, id := range ids {
+		if id.Type == "SEGMENT_MIC_TICKER" && id.Value != "" {
+			return id.Value
+		}
+	}
 	for _, id := range ids {
 		if id.Type == "MIC_TICKER" && id.Value != "" {
 			return id.Value

@@ -65,7 +65,7 @@ func (p *Plugin) DefaultConfig() []byte {
 }
 
 func (p *Plugin) SupportedIdentifierTypes() []string {
-	return []string{"MIC_TICKER", "OPENFIGI_TICKER"}
+	return []string{"EODHD_EXCH_CODE", "MIC_TICKER", "OPENFIGI_TICKER"}
 }
 
 func (p *Plugin) AcceptableAssetClasses() map[string]bool {
@@ -153,6 +153,22 @@ func (p *Plugin) translateError(err error, symbol string) error {
 // symbolFromIdentifiers picks the EODHD API symbol from identifiers.
 // Format: {ticker}.{eodhd_exchange_code}.
 func (p *Plugin) symbolFromIdentifiers(ids []corporateevents.Identifier) string {
+	// Prefer provider-specific EODHD exchange code over MIC lookup.
+	var ticker string
+	for _, id := range ids {
+		if (id.Type == "MIC_TICKER" || id.Type == "OPENFIGI_TICKER") && id.Value != "" {
+			ticker = id.Value
+			break
+		}
+	}
+	if ticker != "" {
+		for _, id := range ids {
+			if id.Type == "EODHD_EXCH_CODE" && id.Value != "" {
+				return ticker + "." + id.Value
+			}
+		}
+	}
+	// Fallback: resolve MIC domain to EODHD code via exchange map.
 	for _, id := range ids {
 		if id.Type == "MIC_TICKER" && id.Value != "" {
 			if code := p.micToEODHDCode(id.Domain); code != "" {

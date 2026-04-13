@@ -330,7 +330,7 @@ func TestPluginInterface(t *testing.T) {
 		t.Errorf("AcceptableExchanges should be nil, got %v", ex)
 	}
 	types := p.SupportedIdentifierTypes()
-	if len(types) != 3 || types[0] != "MIC_TICKER" || types[1] != "OPENFIGI_TICKER" || types[2] != "FX_PAIR" {
+	if len(types) != 4 || types[0] != "EODHD_EXCH_CODE" || types[1] != "MIC_TICKER" || types[2] != "OPENFIGI_TICKER" || types[3] != "FX_PAIR" {
 		t.Errorf("SupportedIdentifierTypes = %v", types)
 	}
 }

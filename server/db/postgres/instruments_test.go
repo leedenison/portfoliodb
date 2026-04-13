@@ -384,6 +384,45 @@ func TestListInstruments_NullAssetClassMatchesUnknown(t *testing.T) {
 	}
 }
 
+// TestFindInstrumentWithMetaByIdentifier_ReturnsMIC verifies that FindInstrumentWithMetaByIdentifier
+// returns the exchange_mic column (e.g. "XNAS"), not the denormalized exchange acronym (e.g. "NASDAQ").
+func TestFindInstrumentWithMetaByIdentifier_ReturnsMIC(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	// Create instrument with exchange_mic = "XNAS". The DB trigger sets the
+	// denormalized exchange column to "NASDAQ" (the acronym from the exchanges table).
+	_, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "TestCo", "", "", []db.IdentifierInput{
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "TEST", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+
+	// Look up by exact (type, domain, value).
+	_, _, exch, _, err := p.FindInstrumentWithMetaByIdentifier(ctx, "MIC_TICKER", "XNAS", "TEST")
+	if err != nil {
+		t.Fatalf("FindInstrumentWithMetaByIdentifier: %v", err)
+	}
+	if exch != "XNAS" {
+		t.Errorf("exchange = %q, want %q (must be MIC code, not acronym)", exch, "XNAS")
+	}
+
+	// Also verify the domain-less path returns MIC.
+	_, err = p.EnsureInstrument(ctx, "STOCK", "XNYS", "USD", "TestCo2", "", "", []db.IdentifierInput{
+		{Type: "ISIN", Value: "US9999999999", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure XNYS: %v", err)
+	}
+	_, _, exch2, _, err := p.FindInstrumentWithMetaByIdentifier(ctx, "ISIN", "", "US9999999999")
+	if err != nil {
+		t.Fatalf("FindInstrumentWithMetaByIdentifier domain-less: %v", err)
+	}
+	if exch2 != "XNYS" {
+		t.Errorf("exchange (domain-less) = %q, want %q", exch2, "XNYS")
+	}
+}
+
 func TestListInstruments_PaginationPastEnd(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

@@ -154,14 +154,14 @@ func (p *Postgres) FindInstrumentWithMetaByIdentifier(ctx context.Context, ident
 	var err error
 	if domain == "" {
 		err = p.q.QueryRowContext(ctx, `
-			SELECT ii.instrument_id, COALESCE(i.asset_class, ''), i.exchange, COALESCE(i.currency, '')
+			SELECT ii.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
 			FROM instrument_identifiers ii
 			JOIN instruments i ON i.id = ii.instrument_id
 			WHERE ii.identifier_type = $1 AND ii.domain IS NULL AND ii.value = $2
 		`, identifierType, value).Scan(&id, &ac, &exch, &cur)
 	} else {
 		err = p.q.QueryRowContext(ctx, `
-			SELECT ii.instrument_id, COALESCE(i.asset_class, ''), i.exchange, COALESCE(i.currency, '')
+			SELECT ii.instrument_id, COALESCE(i.asset_class, ''), COALESCE(i.exchange_mic, ''), COALESCE(i.currency, '')
 			FROM instrument_identifiers ii
 			JOIN instruments i ON i.id = ii.instrument_id
 			WHERE ii.identifier_type = $1 AND ii.domain = $2 AND ii.value = $3

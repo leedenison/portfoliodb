@@ -11,7 +11,7 @@ import "time"
 type Instrument struct {
 	ID         string // UUID; may be empty when creating new
 	AssetClass string // one of STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN
-	Exchange   string
+	Exchange   string // ISO 10383 MIC code (e.g. "XNAS")
 	Currency   string
 	Name       string // optional display name
 

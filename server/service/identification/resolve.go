@@ -38,7 +38,7 @@ type ResolveResult struct {
 type ResolvedInstrument struct {
 	ID         string
 	AssetClass string
-	Exchange   string
+	Exchange   string // ISO 10383 MIC code (e.g. "XNAS")
 	Currency   string
 }
 

@@ -57,7 +57,9 @@ These two values serve different purposes and should not be conflated.  When dis
 
 ## Identifying Instruments
 
-Identifying an instrument means associating the canonical **instrument** (security master) with zero or more **identifiers** (opaque type + domain + value, e.g. ISIN, CUSIP, EXCHANGE + TICKER, FIGI, broker description, etc).  The process of identifying instruments happens during transaction upload processing and periodically (see docs/identifiers.md).
+Identifying an instrument means associating the canonical **instrument** (security master) with zero or more **identifiers** (opaque type + domain + value, e.g. ISIN, CUSIP, EXCHANGE + TICKER, broker description, etc).  The process of identifying instruments happens during transaction upload processing and periodically (see docs/identifiers.md).
+
+Exchange codes on MIC_TICKER identifiers are always stored as **operating MICs** (segment MICs are normalized on storage). Provider-specific identifiers (e.g. segment MICs for Polygon, EODHD exchange codes, venue FIGIs) are stored separately and used by the originating provider's price/event fetcher. See docs/identifiers.md for details.
 
 ### Transaction ingestion: resolution cases
 

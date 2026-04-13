@@ -8,9 +8,30 @@ An **instrument** holds canonical data (id, asset class, exchange, currency, nam
 
 Instrument **identifiers** are unique identifiers for instruments and consist of three parts: `identifier_type` (required), `domain` (nullable) and `value` (required).  Each triplet is unique within the system.
 
-Most identifiers (eg. ISIN, CUSIP, FIGI) consist of an identifier_type and an opaque value.  Ticker identifiers include a domain: MIC_TICKER uses an ISO 10383 MIC code as domain, OPENFIGI_TICKER uses a Bloomberg/OpenFIGI exchange code as domain.
+Most identifiers (eg. ISIN, CUSIP) consist of an identifier_type and an opaque value.  Ticker identifiers include a domain: MIC_TICKER uses an ISO 10383 MIC code as domain, OPENFIGI_TICKER uses a Bloomberg/OpenFIGI exchange code as domain.
 
-Externally understood identifiers (eg. type = `"ISIN"`, `"CUSIP"`, `"FIGI"`, `"MIC_TICKER"`, `"OPENFIGI_TICKER"`, etc) are **canonical** (ie. canonical: true).  Instruments can also be identified by a broker description (eg. type equals a source string like `"IBKR:<client>:statement"`) which is a non-canonical identifier (ie. canonical: false).  This flag is stored in the database and used (e.g. for export) to distinguish broker-description-only instruments without inferring from identifier_type. Broker descriptions are stored as identifiers: `identifier_type` = source (the ingestion request’s source), `value` = full instrument description.
+### Exchange code normalization
+
+MIC_TICKER domains are always stored as **operating MICs** (ISO 10383 mic_type = 'O'). When a segment MIC (mic_type = 'S') is supplied -- whether from a data provider, CSV import, or API call -- it is silently normalized to the corresponding operating MIC via the `exchanges` table before storage. For example, XNGS (NASDAQ/NGS Global Select Market, a segment) is normalized to XNAS (NASDAQ, the operating MIC).
+
+This normalization ensures that the same instrument is always identified by the same MIC regardless of which provider or segment returned it. Different providers may disagree about which segment is "primary" for an instrument; normalizing to the operating MIC eliminates this ambiguity.
+
+Consistency checks between identifier plugins and between import hints and resolved instruments compare exchanges at the operating MIC level. Two plugins returning different segment MICs for the same operating exchange are considered consistent.
+
+### Provider-specific identifiers
+
+Some identifiers are specific to a particular data provider and are not part of the canonical identifier vocabulary. These are stored in the `provider_instrument_identifiers` table, separate from canonical identifiers. Each row includes a `provider` column (e.g. "massive", "eodhd", "openfigi") and a free-form `identifier_type` specific to that provider.
+
+Examples of provider-specific identifiers:
+- **SEGMENT_MIC_TICKER** (provider: massive) -- the segment-level MIC and ticker that Polygon.io's API requires for price and corporate event lookups
+- **EODHD_EXCH_CODE** (provider: eodhd) -- EODHD's proprietary exchange code (e.g. "US", "LSE") used to build `ticker.code` symbols for API calls
+- **FIGI** (provider: openfigi) -- the venue-specific FIGI (formerly OPENFIGI_GLOBAL), which is tied to a specific trading venue
+
+Provider identifiers are populated by identifier plugins during resolution and stored alongside canonical identifiers. When a price or corporate event plugin needs to fetch data, the orchestrator loads provider-specific identifiers for the plugin's provider ID and merges them into the identifier list. Plugins prefer their provider-specific identifiers when available and fall back to canonical identifiers.
+
+If a provider-specific identifier is not available (e.g. the instrument was imported without running through the provider's identifier plugin), the provider plugin falls back to canonical identifiers. If those are also insufficient for the provider's API, the fetch fails gracefully and the orchestrator tries the next plugin in precedence order.
+
+Externally understood identifiers (eg. type = `"ISIN"`, `"CUSIP"`, `"MIC_TICKER"`, `"OPENFIGI_TICKER"`, etc) are **canonical** (ie. canonical: true).  Instruments can also be identified by a broker description (eg. type equals a source string like `"IBKR:<client>:statement"`) which is a non-canonical identifier (ie. canonical: false).  This flag is stored in the database and used (e.g. for export) to distinguish broker-description-only instruments without inferring from identifier_type. Broker descriptions are stored as identifiers: `identifier_type` = source (the ingestion request’s source), `value` = full instrument description.
 
 The triple **(identifier_type, domain, value) is unique** in the system; the server does not allow duplicates. The database should enforce this with a unique index on (identifier_type, domain, value) so that instruments can be looked up by any known identifier.
 
@@ -32,7 +53,7 @@ Every valid transaction has a broker, a **source** (required; opaque, eg. `"IBKR
 
 Clients may also pass a `currency` hint along with each transaction.  This can be used to narrow instrument resolution (see plugins below).  The hint must never be stored as canonical information directly; it can only be used to narrow resolution with the authoritative data coming from the plugin resolution.
 
-Clients may also pass known, external identifiers for a transaction (eg. `"ISIN"`, `"CUSIP"`, `"FIGI"`, `"MIC_TICKER"`, `"OPENFIGI_TICKER"`, etc).  Exchange information is carried on the identifier itself: MIC_TICKER uses an ISO 10383 MIC code as domain, OPENFIGI_TICKER uses a Bloomberg exchange code as domain.  
+Clients may also pass known, external identifiers for a transaction (eg. `"ISIN"`, `"CUSIP"`, `"MIC_TICKER"`, `"OPENFIGI_TICKER"`, etc).  Exchange information is carried on the identifier itself: MIC_TICKER uses an ISO 10383 operating MIC code as domain, OPENFIGI_TICKER uses a Bloomberg exchange code as domain.  
 
 ### Extract Identifiers from Transaction
 

@@ -70,7 +70,7 @@ type HintDiff struct {
 var AllowedIdentifierTypes = map[string]bool{
 	"ISIN": true, "CUSIP": true, "SEDOL": true, "CINS": true, "WERTPAPIER": true,
 	"OCC": true, "OPRA": true, "FUT_OPT": true,
-	"OPENFIGI_GLOBAL": true, "OPENFIGI_SHARE_CLASS": true, "OPENFIGI_COMPOSITE": true,
+	"OPENFIGI_SHARE_CLASS": true, "OPENFIGI_COMPOSITE": true,
 	"MIC_TICKER": true, "OPENFIGI_TICKER": true, "BROKER_DESCRIPTION": true,
 	"CURRENCY": true,
 	"FX_PAIR":  true,

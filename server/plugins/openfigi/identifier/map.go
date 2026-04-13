@@ -190,10 +190,11 @@ func openFIGIResultToInstrument(r *OpenFIGIResult, exchMap *exchangemap.Exchange
 		Currency:   "", // OpenFIGI often omits; leave empty
 		Name:       name,
 	}
-	var ids []identifier.Identifier
 	if r.FIGI != "" {
-		ids = append(ids, identifier.Identifier{Type: "OPENFIGI_GLOBAL", Value: r.FIGI})
+		inst.ProviderIdentifiers = append(inst.ProviderIdentifiers,
+			identifier.ProviderIdentifier{Provider: "openfigi", Type: "FIGI", Value: r.FIGI})
 	}
+	var ids []identifier.Identifier
 	if r.ShareClassFIGI != nil && *r.ShareClassFIGI != "" {
 		ids = append(ids, identifier.Identifier{Type: "OPENFIGI_SHARE_CLASS", Value: *r.ShareClassFIGI})
 	}

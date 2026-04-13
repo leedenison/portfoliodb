@@ -164,6 +164,7 @@ func TestResolveWithPlugins_DBHit(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	database.EXPECT().
@@ -193,6 +194,7 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
@@ -232,6 +234,7 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
 
@@ -278,6 +281,7 @@ func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("slow", &fakePlugin{err: context.DeadlineExceeded})
 
@@ -315,6 +319,7 @@ func TestResolveWithPlugins_NilFallback_ReturnsEmpty(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("test", &fakePlugin{err: identifier.ErrNotIdentified})
 
@@ -345,6 +350,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	source := "IBKR:test:statement"
 	desc := "APPLE INC COM"
@@ -395,6 +401,7 @@ func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 	registry.Register("bad", &fakePlugin{err: errors.New("connection refused")})
 
@@ -574,7 +581,7 @@ func TestConsistentWith_AllMatch(t *testing.T) {
 	}
 	o := &pluginResult{
 		inst: &identifier.Instrument{Exchange: "XNAS", Currency: "USD"},
-		ids:  []identifier.Identifier{{Type: "OPENFIGI_GLOBAL", Value: "BBG000B9XRY4"}},
+		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 	}
 	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
 		t.Error("expected consistent")
@@ -612,7 +619,7 @@ func TestConsistentWith_EmptyFieldsSkipped(t *testing.T) {
 	}
 	o := &pluginResult{
 		inst: &identifier.Instrument{Exchange: "", Currency: ""},
-		ids:  []identifier.Identifier{{Type: "OPENFIGI_GLOBAL", Value: "BBG000B9XRY4"}},
+		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 	}
 	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
 		t.Error("expected consistent when other has empty exchange/currency")
@@ -640,7 +647,7 @@ func TestConsistentWith_IdentifierValueMatch(t *testing.T) {
 	}
 	o := &pluginResult{
 		inst: &identifier.Instrument{},
-		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "OPENFIGI_GLOBAL", Value: "BBG000B9XRY4"}},
+		ids:  []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}, {Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 	}
 	if !consistentWith(context.Background(), nil, "a", "b", w, o, nil) {
 		t.Error("expected consistent when ISIN values match")
@@ -656,6 +663,7 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	// Plugin A (higher precedence): XNAS/USD with ISIN
@@ -666,7 +674,7 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 	// Plugin B (lower precedence): XNYS/EUR with FIGI -- inconsistent
 	registry.Register("pluginB", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNYS", Currency: "EUR", Name: "Pomme"},
-		ids:  []identifier.Identifier{{Type: "OPENFIGI_GLOBAL", Value: "BBG999999999"}},
+		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG999999999"}},
 	})
 
 	database.EXPECT().
@@ -685,7 +693,7 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple", "", "", gomock.Any(), "", nil, nil, nil).
 		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			for _, idn := range idns {
-				if idn.Type == "OPENFIGI_GLOBAL" {
+				if idn.Type == "OPENFIGI_SHARE_CLASS" {
 					t.Errorf("OPENFIGI_GLOBAL from inconsistent plugin should not be merged, got %q", idn.Value)
 				}
 			}
@@ -874,6 +882,7 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
 	// Plugin A (higher precedence): XNAS/USD with ISIN
@@ -884,7 +893,7 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 	// Plugin B (lower precedence): XNAS/USD with FIGI -- consistent
 	registry.Register("pluginB", &fakePlugin{
 		inst: &identifier.Instrument{AssetClass: "STOCK", Exchange: "XNAS", Currency: "USD", Name: "Apple Inc."},
-		ids:  []identifier.Identifier{{Type: "OPENFIGI_GLOBAL", Value: "BBG000B9XRY4"}},
+		ids:  []identifier.Identifier{{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"}},
 	})
 
 	database.EXPECT().
@@ -904,7 +913,7 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
 			hasFIGI := false
 			for _, idn := range idns {
-				if idn.Type == "OPENFIGI_GLOBAL" && idn.Value == "BBG000B9XRY4" {
+				if idn.Type == "OPENFIGI_SHARE_CLASS" && idn.Value == "BBG000B9XRY4" {
 					hasFIGI = true
 				}
 			}

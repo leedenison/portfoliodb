@@ -23,6 +23,9 @@ type Instrument struct {
 	// plugin pipeline using these hints.
 	UnderlyingIdentifiers []Identifier
 
+	// Provider-specific identifiers returned by identifier plugins.
+	ProviderIdentifiers []ProviderIdentifier
+
 	// Optional: when the instrument was available to trade on the exchange.
 	ValidFrom *time.Time
 	ValidTo   *time.Time
@@ -36,4 +39,14 @@ type Identifier struct {
 	Type   string // e.g. "CUSIP", "ISIN", "MIC_TICKER", "OPENFIGI_TICKER"
 	Domain string // optional; MIC for MIC_TICKER, exchange code for OPENFIGI_TICKER
 	Value  string
+}
+
+// ProviderIdentifier is a provider-specific identifier returned by identifier
+// plugins. These are stored separately from canonical identifiers and used
+// when fetching prices or events from the originating provider.
+type ProviderIdentifier struct {
+	Provider string // e.g. "massive", "eodhd", "openfigi"
+	Type     string // e.g. "SEGMENT_MIC_TICKER", "EODHD_EXCH_CODE", "FIGI"
+	Domain   string // optional
+	Value    string
 }

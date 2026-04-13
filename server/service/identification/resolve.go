@@ -406,6 +406,7 @@ func ResolveWithPlugins(
 		l.DebugContext(ctx, "identifier plugin chosen", "plugin_id", inputs[winnerIdx].config.PluginID, "instrument_description", instrumentDescription, "instrument_name", winner.inst.Name)
 		seenType := make(map[string]bool)
 		var mergedIds []identifier.Identifier
+		var providerIDs []db.ProviderIdentifierInput
 		for i := range results {
 			r := &results[i]
 			if r.err != nil || r.inst == nil {
@@ -419,6 +420,11 @@ func ResolveWithPlugins(
 					seenType[idn.Type] = true
 					mergedIds = append(mergedIds, idn)
 				}
+			}
+			for _, pi := range r.inst.ProviderIdentifiers {
+				providerIDs = append(providerIDs, db.ProviderIdentifierInput{
+					Provider: pi.Provider, Type: pi.Type, Domain: pi.Domain, Value: pi.Value,
+				})
 			}
 		}
 		identifiers := make([]db.IdentifierInput, 0, len(mergedIds)+1)
@@ -463,6 +469,11 @@ func ResolveWithPlugins(
 		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validTo, optFields)
 		if err != nil {
 			return ResolveResult{}, err
+		}
+		if len(providerIDs) > 0 {
+			if err := database.SaveProviderIdentifiers(ctx, id, providerIDs); err != nil {
+				l.WarnContext(ctx, "save provider identifiers failed", "instrument_id", id, "err", err)
+			}
 		}
 		return ResolveResult{InstrumentID: id, Identified: true, HintDiffs: diffs}, nil
 	}

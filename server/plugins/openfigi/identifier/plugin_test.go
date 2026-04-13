@@ -55,11 +55,8 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 	if inst.AssetClass != "STOCK" || inst.Name != "INTL BUSINESS MACHINES CORP" || inst.Exchange != "" {
 		t.Errorf("instrument = %+v", inst)
 	}
-	hasFIGI, hasOpenFIGITicker, hasMICTicker := false, false, false
+	hasOpenFIGITicker, hasMICTicker := false, false
 	for _, id := range ids {
-		if id.Type == "OPENFIGI_GLOBAL" && id.Value == "BBG000BLNNH6" {
-			hasFIGI = true
-		}
 		if id.Type == "OPENFIGI_TICKER" && id.Value == "IBM" && id.Domain == "US" {
 			hasOpenFIGITicker = true
 		}
@@ -67,8 +64,18 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 			hasMICTicker = true
 		}
 	}
-	if !hasFIGI || !hasOpenFIGITicker || !hasMICTicker {
-		t.Errorf("identifiers = %+v; want OPENFIGI_GLOBAL, OPENFIGI_TICKER, and MIC_TICKER", ids)
+	if !hasOpenFIGITicker || !hasMICTicker {
+		t.Errorf("identifiers = %+v; want OPENFIGI_TICKER and MIC_TICKER", ids)
+	}
+	// FIGI should be in provider identifiers, not canonical.
+	hasFIGI := false
+	for _, pi := range inst.ProviderIdentifiers {
+		if pi.Provider == "openfigi" && pi.Type == "FIGI" && pi.Value == "BBG000BLNNH6" {
+			hasFIGI = true
+		}
+	}
+	if !hasFIGI {
+		t.Errorf("expected FIGI in ProviderIdentifiers, got %+v", inst.ProviderIdentifiers)
 	}
 }
 
@@ -164,8 +171,8 @@ func TestPlugin_Identify_OpenFIGIMapping_FromTickerHint(t *testing.T) {
 	if inst.Name != "APPLE INC" {
 		t.Errorf("inst.Name = %q", inst.Name)
 	}
-	if len(ids) < 3 {
-		t.Errorf("expected OPENFIGI_GLOBAL, OPENFIGI_TICKER, and MIC_TICKER, got %+v", ids)
+	if len(ids) < 2 {
+		t.Errorf("expected OPENFIGI_TICKER and MIC_TICKER, got %+v", ids)
 	}
 	hasMICTicker := false
 	for _, id := range ids {
@@ -625,14 +632,15 @@ func TestResolveResults_HintMatchesOneResult(t *testing.T) {
 		t.Errorf("AssetClass = %q, want ETF", inst.AssetClass)
 	}
 	hasFIGI := false
-	for _, id := range ids {
-		if id.Type == "OPENFIGI_GLOBAL" && id.Value == "BBG_ETF" {
+	for _, pi := range inst.ProviderIdentifiers {
+		if pi.Provider == "openfigi" && pi.Type == "FIGI" && pi.Value == "BBG_ETF" {
 			hasFIGI = true
 		}
 	}
 	if !hasFIGI {
-		t.Errorf("expected OPENFIGI_GLOBAL=BBG_ETF in ids: %+v", ids)
+		t.Errorf("expected FIGI=BBG_ETF in ProviderIdentifiers: %+v", inst.ProviderIdentifiers)
 	}
+	_ = ids // canonical ids no longer include FIGI
 }
 
 func TestResolveResults_HintMatchesNone_FallsBackToFirst(t *testing.T) {
@@ -649,14 +657,15 @@ func TestResolveResults_HintMatchesNone_FallsBackToFirst(t *testing.T) {
 		t.Errorf("AssetClass = %q, want STOCK (first result)", inst.AssetClass)
 	}
 	hasFIGI := false
-	for _, id := range ids {
-		if id.Type == "OPENFIGI_GLOBAL" && id.Value == "BBG_STOCK" {
+	for _, pi := range inst.ProviderIdentifiers {
+		if pi.Provider == "openfigi" && pi.Type == "FIGI" && pi.Value == "BBG_STOCK" {
 			hasFIGI = true
 		}
 	}
 	if !hasFIGI {
-		t.Errorf("expected OPENFIGI_GLOBAL=BBG_STOCK in ids: %+v", ids)
+		t.Errorf("expected FIGI=BBG_STOCK in ProviderIdentifiers: %+v", inst.ProviderIdentifiers)
 	}
+	_ = ids
 }
 
 func TestResolveResults_NoHint_FallsBackToFirst(t *testing.T) {

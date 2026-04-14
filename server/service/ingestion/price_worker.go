@@ -9,6 +9,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/service/identification"
 	"google.golang.org/protobuf/proto"
@@ -285,7 +286,28 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 	slog.Debug("creating instrument from price import with supplied identifier only",
 		"identifier_type", idType, "identifier_domain", domain, "identifier_value", value,
 		"asset_class", assetClass, "currency", currency)
+
+	var underlyingID string
+	var optFields *db.OptionFields
+	if assetClass == db.AssetClassOption {
+		parsed, ok := derivative.ParseOptionTicker(value)
+		if ok && parsed.Symbol != "" {
+			uHint := identifier.Identifier{Type: "MIC_TICKER", Value: parsed.Symbol}
+			resolved, err := identification.ResolveByHintsDBOnly(ctx, database, []identifier.Identifier{uHint})
+			if err == nil && len(resolved) == 1 {
+				underlyingID = resolved[0].ID
+			}
+			if parsed.Strike > 0 && !parsed.Expiry.IsZero() && parsed.PutCall != "" {
+				optFields = &db.OptionFields{
+					Strike:  parsed.Strike,
+					Expiry:  parsed.Expiry,
+					PutCall: parsed.PutCall,
+				}
+			}
+		}
+	}
+
 	return database.EnsureInstrument(ctx, assetClass, "", currency, "", "", "",
 		[]db.IdentifierInput{{Type: idType, Domain: domain, Value: value, Canonical: true}},
-		"", nil, nil, nil)
+		underlyingID, nil, nil, optFields)
 }

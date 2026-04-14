@@ -65,6 +65,12 @@ type HintDiff struct {
 	ResolvedValue string
 }
 
+// InternalHintTypeOCCAtExpiry is an internally-computed hint type representing
+// the OCC symbol with splits applied only up to the option's expiry date
+// (rather than up to today). Used by OpenFIGI; never persisted or
+// client-supplied.
+const InternalHintTypeOCCAtExpiry = "OCC_AT_EXPIRY"
+
 // AllowedIdentifierTypes is the controlled vocabulary for identifier hint types (proto IdentifierType names).
 // Description plugins must return hints whose Type is in this set; invalid types are discarded at debug log.
 var AllowedIdentifierTypes = map[string]bool{

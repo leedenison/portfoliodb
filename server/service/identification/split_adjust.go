@@ -22,39 +22,53 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 	if hintsValidAt == nil {
 		return hints
 	}
-	adjusted := make([]identifier.Identifier, len(hints))
-	copy(adjusted, hints)
+	now := timer.Now().Truncate(24 * time.Hour)
+	var adjusted []identifier.Identifier
 
-	for i, h := range adjusted {
+	for _, h := range hints {
 		if h.Type != "OCC" {
+			adjusted = append(adjusted, h)
 			continue
 		}
 		compact, ok := derivative.OCCCompact(h.Value)
 		if !ok {
+			adjusted = append(adjusted, h)
 			continue
 		}
 		parsed, ok := derivative.ParseOptionTicker(compact)
 		if !ok || parsed.Symbol == "" || parsed.Strike <= 0 {
+			adjusted = append(adjusted, h)
 			continue
 		}
 
 		splits, err := database.SplitsByUnderlyingTicker(ctx, parsed.Symbol)
 		if err != nil || len(splits) == 0 {
+			adjusted = append(adjusted, h)
 			continue
 		}
 
+		// Compute OCC_AT_EXPIRY for expired options: apply splits only
+		// up to the expiry date so OpenFIGI receives the OCC as it was
+		// when the option expired.
+		expiry := parsed.Expiry.Truncate(24 * time.Hour)
+		if !expiry.After(now) {
+			factorAtExpiry := splitFactorBetween(splits, *hintsValidAt, expiry)
+			expiryStrike := parsed.Strike / factorAtExpiry
+			if expiryOCC, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, expiryStrike); ok {
+				adjusted = append(adjusted, identifier.Identifier{Type: identifier.InternalHintTypeOCCAtExpiry, Domain: h.Domain, Value: expiryOCC})
+			}
+		}
+
+		// Adjust the OCC hint for DB lookups (splits up to now).
 		factor := splitFactorSince(splits, *hintsValidAt, timer)
-		if factor == 1.0 {
-			continue
+		if factor != 1.0 {
+			newStrike := parsed.Strike / factor
+			if newOCC, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, newStrike); ok {
+				adjusted = append(adjusted, identifier.Identifier{Type: h.Type, Domain: h.Domain, Value: newOCC})
+				continue
+			}
 		}
-
-		newStrike := parsed.Strike / factor
-		newOCC, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, newStrike)
-		if !ok {
-			continue
-		}
-
-		adjusted[i] = identifier.Identifier{Type: h.Type, Domain: h.Domain, Value: newOCC}
+		adjusted = append(adjusted, h)
 	}
 	return adjusted
 }
@@ -64,11 +78,17 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 // ex_date <= now. Returns 1.0 when no applicable splits. timer may be
 // nil (uses time.Now).
 func splitFactorSince(splits []db.StockSplit, since time.Time, timer *clock.Timer) float64 {
+	return splitFactorBetween(splits, since, timer.Now().Truncate(24*time.Hour))
+}
+
+// splitFactorBetween computes the cumulative split factor for splits where
+// ex_date > since AND ex_date <= until. Returns 1.0 when no applicable splits.
+func splitFactorBetween(splits []db.StockSplit, since, until time.Time) float64 {
 	factor := 1.0
-	now := timer.Now().Truncate(24 * time.Hour)
 	sinceDate := since.Truncate(24 * time.Hour)
+	untilDate := until.Truncate(24 * time.Hour)
 	for _, s := range splits {
-		if s.ExDate.After(now) || !s.ExDate.After(sinceDate) {
+		if s.ExDate.After(untilDate) || !s.ExDate.After(sinceDate) {
 			continue
 		}
 		from, okF := new(big.Rat).SetString(s.SplitFrom)

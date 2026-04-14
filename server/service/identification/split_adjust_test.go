@@ -146,8 +146,23 @@ func TestAdjustOCCForKnownSplits_SplitAfterHintsValidAt(t *testing.T) {
 
 	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
-	if adjusted[0].Value != "AAPL250117C00100000" {
-		t.Errorf("adjusted OCC = %q, want AAPL250117C00100000", adjusted[0].Value)
+	// Option expires 2025-01-17, split is 2025-06-01 (after expiry).
+	// OCC_AT_EXPIRY should have original strike (no post-hintsValidAt
+	// splits before expiry), OCC should be adjusted.
+	if len(adjusted) != 2 {
+		t.Fatalf("want 2 hints (OCC_AT_EXPIRY + OCC), got %d", len(adjusted))
+	}
+	if adjusted[0].Type != identifier.InternalHintTypeOCCAtExpiry {
+		t.Errorf("adjusted[0].Type = %q, want OCC_AT_EXPIRY", adjusted[0].Type)
+	}
+	if adjusted[0].Value != "AAPL250117C00200000" {
+		t.Errorf("OCC_AT_EXPIRY = %q, want AAPL250117C00200000 (original strike)", adjusted[0].Value)
+	}
+	if adjusted[1].Type != "OCC" {
+		t.Errorf("adjusted[1].Type = %q, want OCC", adjusted[1].Type)
+	}
+	if adjusted[1].Value != "AAPL250117C00100000" {
+		t.Errorf("adjusted OCC = %q, want AAPL250117C00100000", adjusted[1].Value)
 	}
 }
 
@@ -171,8 +186,16 @@ func TestAdjustOCCForKnownSplits_SplitBeforeHintsValidAt(t *testing.T) {
 
 	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
-	if adjusted[0].Value != "AAPL250117C00200000" {
-		t.Errorf("OCC should not change, got %q", adjusted[0].Value)
+	// No split adjustment (split before hintsValidAt), but OCC_AT_EXPIRY
+	// is still emitted for the expired option.
+	if len(adjusted) != 2 {
+		t.Fatalf("want 2 hints, got %d", len(adjusted))
+	}
+	if adjusted[0].Type != identifier.InternalHintTypeOCCAtExpiry {
+		t.Errorf("adjusted[0].Type = %q, want OCC_AT_EXPIRY", adjusted[0].Type)
+	}
+	if adjusted[1].Value != "AAPL250117C00200000" {
+		t.Errorf("OCC should not change, got %q", adjusted[1].Value)
 	}
 }
 
@@ -196,8 +219,16 @@ func TestAdjustOCCForKnownSplits_FutureSplit(t *testing.T) {
 
 	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
-	if adjusted[0].Value != "AAPL250117C00400000" {
-		t.Errorf("OCC should not change for future split, got %q", adjusted[0].Value)
+	// Option expired (Jan 17 < Jun 1), so OCC_AT_EXPIRY is emitted.
+	// Split is after now, so neither OCC nor OCC_AT_EXPIRY is adjusted.
+	if len(adjusted) != 2 {
+		t.Fatalf("want 2 hints, got %d", len(adjusted))
+	}
+	if adjusted[0].Type != identifier.InternalHintTypeOCCAtExpiry {
+		t.Errorf("adjusted[0].Type = %q, want OCC_AT_EXPIRY", adjusted[0].Type)
+	}
+	if adjusted[1].Value != "AAPL250117C00400000" {
+		t.Errorf("OCC should not change for future split, got %q", adjusted[1].Value)
 	}
 }
 
@@ -260,5 +291,177 @@ func TestSplitFactorSince_WithTimer(t *testing.T) {
 	got = splitFactorSince(splits, d(2024, 1, 1), timer)
 	if got != 4.0 {
 		t.Errorf("with timer after ex_date: got %f, want 4.0", got)
+	}
+}
+
+func TestSplitFactorBetween(t *testing.T) {
+	splits := []db.StockSplit{
+		{ExDate: d(2024, 3, 1), SplitFrom: "1", SplitTo: "2"},
+		{ExDate: d(2025, 6, 1), SplitFrom: "1", SplitTo: "5"},
+	}
+	tests := []struct {
+		name         string
+		since, until time.Time
+		want         float64
+	}{
+		{"both included", d(2024, 1, 1), d(2026, 1, 1), 10.0},
+		{"only first", d(2024, 1, 1), d(2025, 1, 1), 2.0},
+		{"only second", d(2024, 6, 1), d(2026, 1, 1), 5.0},
+		{"none (too early)", d(2023, 1, 1), d(2024, 1, 1), 1.0},
+		{"none (too late)", d(2026, 1, 1), d(2027, 1, 1), 1.0},
+		{"until equals ex_date (inclusive)", d(2024, 1, 1), d(2024, 3, 1), 2.0},
+		{"since equals ex_date (exclusive)", d(2024, 3, 1), d(2025, 1, 1), 1.0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitFactorBetween(splits, tt.since, tt.until)
+			if got != tt.want {
+				t.Errorf("got %f, want %f", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAdjustOCC_OCCAtExpiry_PostExpirySplit verifies that when a split
+// occurs after the option's expiry, OCC_AT_EXPIRY has the original
+// strike while the OCC hint is adjusted.
+func TestAdjustOCC_OCCAtExpiry_PostExpirySplit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	// Option expires 2025-01-17, split on 2025-06-01 (after expiry).
+	splits := []db.StockSplit{
+		{ExDate: d(2025, 6, 1), SplitFrom: "1", SplitTo: "2"},
+	}
+	mockDB.EXPECT().SplitsByUnderlyingTicker(gomock.Any(), "AAPL").Return(splits, nil)
+
+	hints := []identifier.Identifier{
+		{Type: "OCC", Value: "AAPL250117C00200000"}, // $200 strike
+	}
+	validAt := d(2024, 6, 1) // before split
+	timer := fixedTimer(d(2025, 7, 1)) // after split
+
+	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+
+	if len(adjusted) != 2 {
+		t.Fatalf("want 2 hints, got %d: %+v", len(adjusted), adjusted)
+	}
+	// OCC_AT_EXPIRY: no splits between validAt and expiry, original strike.
+	if adjusted[0].Type != identifier.InternalHintTypeOCCAtExpiry {
+		t.Errorf("[0].Type = %q, want OCC_AT_EXPIRY", adjusted[0].Type)
+	}
+	if adjusted[0].Value != "AAPL250117C00200000" {
+		t.Errorf("OCC_AT_EXPIRY = %q, want AAPL250117C00200000", adjusted[0].Value)
+	}
+	// OCC: split applied, $100 strike.
+	if adjusted[1].Value != "AAPL250117C00100000" {
+		t.Errorf("OCC = %q, want AAPL250117C00100000", adjusted[1].Value)
+	}
+}
+
+// TestAdjustOCC_OCCAtExpiry_PreExpirySplit verifies that when a split
+// occurs before the option's expiry, both OCC and OCC_AT_EXPIRY have
+// the adjusted strike.
+func TestAdjustOCC_OCCAtExpiry_PreExpirySplit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	// Option expires 2026-01-17, split on 2025-06-01 (before expiry).
+	splits := []db.StockSplit{
+		{ExDate: d(2025, 6, 1), SplitFrom: "1", SplitTo: "2"},
+	}
+	mockDB.EXPECT().SplitsByUnderlyingTicker(gomock.Any(), "AAPL").Return(splits, nil)
+
+	hints := []identifier.Identifier{
+		{Type: "OCC", Value: "AAPL260117C00200000"}, // $200 strike, expires 2026-01-17
+	}
+	validAt := d(2024, 6, 1)
+	timer := fixedTimer(d(2025, 7, 1))
+
+	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+
+	// Option hasn't expired (2026-01-17 > 2025-07-01), so no OCC_AT_EXPIRY.
+	if len(adjusted) != 1 {
+		t.Fatalf("want 1 hint (no OCC_AT_EXPIRY for non-expired), got %d: %+v", len(adjusted), adjusted)
+	}
+	if adjusted[0].Type != "OCC" {
+		t.Errorf("[0].Type = %q, want OCC", adjusted[0].Type)
+	}
+	if adjusted[0].Value != "AAPL260117C00100000" {
+		t.Errorf("OCC = %q, want AAPL260117C00100000", adjusted[0].Value)
+	}
+}
+
+// TestAdjustOCC_OCCAtExpiry_MultipleSplits verifies correct handling
+// when one split is before expiry and another is after.
+func TestAdjustOCC_OCCAtExpiry_MultipleSplits(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	// Option expires 2025-06-17.
+	// Split 1: 2025-03-01 (before expiry) 2:1
+	// Split 2: 2025-09-01 (after expiry) 5:1
+	splits := []db.StockSplit{
+		{ExDate: d(2025, 3, 1), SplitFrom: "1", SplitTo: "2"},
+		{ExDate: d(2025, 9, 1), SplitFrom: "1", SplitTo: "5"},
+	}
+	mockDB.EXPECT().SplitsByUnderlyingTicker(gomock.Any(), "AAPL").Return(splits, nil)
+
+	hints := []identifier.Identifier{
+		{Type: "OCC", Value: "AAPL250617C01000000"}, // $1000 strike, expires 2025-06-17
+	}
+	validAt := d(2024, 6, 1)
+	timer := fixedTimer(d(2025, 12, 1))
+
+	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+
+	if len(adjusted) != 2 {
+		t.Fatalf("want 2 hints, got %d: %+v", len(adjusted), adjusted)
+	}
+	// OCC_AT_EXPIRY: only pre-expiry split (2:1) applied. $1000/2 = $500.
+	if adjusted[0].Type != identifier.InternalHintTypeOCCAtExpiry {
+		t.Errorf("[0].Type = %q, want OCC_AT_EXPIRY", adjusted[0].Type)
+	}
+	if adjusted[0].Value != "AAPL250617C00500000" {
+		t.Errorf("OCC_AT_EXPIRY = %q, want AAPL250617C00500000", adjusted[0].Value)
+	}
+	// OCC: both splits applied. $1000/10 = $100.
+	if adjusted[1].Value != "AAPL250617C00100000" {
+		t.Errorf("OCC = %q, want AAPL250617C00100000", adjusted[1].Value)
+	}
+}
+
+// TestAdjustOCC_OCCAtExpiry_NotExpired verifies that OCC_AT_EXPIRY is
+// not emitted for options that have not yet expired.
+func TestAdjustOCC_OCCAtExpiry_NotExpired(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	splits := []db.StockSplit{
+		{ExDate: d(2025, 6, 1), SplitFrom: "1", SplitTo: "2"},
+	}
+	mockDB.EXPECT().SplitsByUnderlyingTicker(gomock.Any(), "AAPL").Return(splits, nil)
+
+	hints := []identifier.Identifier{
+		{Type: "OCC", Value: "AAPL261219C00200000"}, // expires 2026-12-19
+	}
+	validAt := d(2024, 6, 1)
+	timer := fixedTimer(d(2025, 7, 1)) // option not expired yet
+
+	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+
+	// No OCC_AT_EXPIRY for non-expired options.
+	if len(adjusted) != 1 {
+		t.Fatalf("want 1 hint, got %d: %+v", len(adjusted), adjusted)
+	}
+	if adjusted[0].Type != "OCC" {
+		t.Errorf("[0].Type = %q, want OCC", adjusted[0].Type)
+	}
+	if adjusted[0].Value != "AAPL261219C00100000" {
+		t.Errorf("OCC = %q, want AAPL261219C00100000 (split applied)", adjusted[0].Value)
 	}
 }

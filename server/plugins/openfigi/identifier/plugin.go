@@ -177,7 +177,7 @@ func (p *Plugin) resolveResults(results []OpenFIGIResult, hints identifier.Hints
 // Returns empty string if the hint type is not supported by OpenFIGI Mapping.
 var openFIGIIDTypeFromHint = map[string]string{
 	"MIC_TICKER": "TICKER", "OPENFIGI_TICKER": "TICKER", "ISIN": "ID_ISIN", "CUSIP": "ID_CUSIP", "SEDOL": "ID_SEDOL", "CINS": "ID_CINS", "WERTPAPIER": "ID_WERTPAPIER",
-	"OCC": "OCC_SYMBOL", "OPRA": "OPRA_SYMBOL", "FUT_OPT": "UNIQUE_ID_FUT_OPT",
+	"OCC": "OCC_SYMBOL", "OCC_AT_EXPIRY": "OCC_SYMBOL", "OPRA": "OPRA_SYMBOL", "FUT_OPT": "UNIQUE_ID_FUT_OPT",
 	"OPENFIGI_SHARE_CLASS": "ID_BB_GLOBAL_SHARE_CLASS_LEVEL", "OPENFIGI_COMPOSITE": "COMPOSITE_ID_BB_GLOBAL",
 }
 

@@ -6,6 +6,7 @@ export const ALL_ASSET_CLASSES = [
   AssetClass.ETF,
   AssetClass.OPTION,
   AssetClass.FUTURE,
+  AssetClass.FX,
   AssetClass.CASH,
   AssetClass.MUTUAL_FUND,
   AssetClass.FIXED_INCOME,

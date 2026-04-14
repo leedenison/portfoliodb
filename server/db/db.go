@@ -582,8 +582,8 @@ type InstrumentDB interface {
 	GetInstrument(ctx context.Context, instrumentID string) (*InstrumentRow, error)
 	// ListInstrumentsByIDs returns instruments by ID slice (for batch underlying lookup). Missing IDs are omitted; order not guaranteed.
 	ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*InstrumentRow, error)
-	// ListInstrumentsForExport returns all instruments that have at least one identifier with canonical = true. Excludes CASH and FX asset classes (reference data). If exchangeFilter != "", filter by instruments.exchange_mic. Order by instruments.id.
-	ListInstrumentsForExport(ctx context.Context, exchangeFilter string) ([]*InstrumentRow, error)
+	// ListInstrumentsForExport returns all instruments that have at least one identifier with canonical = true. If assetClasses is non-empty, filter to those classes; otherwise exclude CASH and FX (reference data). If exchangeFilter != "", filter by instruments.exchange_mic. Order by instruments.id.
+	ListInstrumentsForExport(ctx context.Context, exchangeFilter string, assetClasses []string) ([]*InstrumentRow, error)
 	// ValidateMIC checks whether the given MIC code exists in the exchanges reference table.
 	ValidateMIC(ctx context.Context, mic string) (bool, error)
 	// ListInstruments returns instruments sorted alphabetically by display name (ticker, then name, then broker description). If search is non-empty, only instruments with at least one identifier value matching (case-insensitive substring) are returned. If assetClasses is non-empty, only instruments with matching asset_class are returned. Returns (rows, totalCount, nextPageToken, error).

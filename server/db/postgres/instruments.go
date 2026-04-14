@@ -251,31 +251,34 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 }
 
 // ListInstrumentsForExport implements db.InstrumentDB.
-func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter string) ([]*db.InstrumentRow, error) {
+func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter string, assetClasses []string) ([]*db.InstrumentRow, error) {
 	var irows []instrumentRow
 	var err error
-	if exchangeFilter != "" {
-		err = p.q.SelectContext(ctx, &irows, `
-			SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_to,
-			       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
-			FROM instruments i
-			LEFT JOIN exchanges e ON e.mic = i.exchange_mic
-			WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)
-			AND i.asset_class NOT IN ('CASH', 'FX')
-			AND i.exchange_mic = $1
-			ORDER BY i.id
-		`, exchangeFilter)
+
+	base := `
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_to,
+		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
+		FROM instruments i
+		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
+		WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)`
+
+	args := []interface{}{}
+	argN := 1
+
+	if len(assetClasses) > 0 {
+		base += fmt.Sprintf("\n\t\t\tAND i.asset_class = ANY($%d)", argN)
+		args = append(args, pq.Array(assetClasses))
+		argN++
 	} else {
-		err = p.q.SelectContext(ctx, &irows, `
-			SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_to,
-			       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
-			FROM instruments i
-			LEFT JOIN exchanges e ON e.mic = i.exchange_mic
-			WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)
-			AND i.asset_class NOT IN ('CASH', 'FX')
-			ORDER BY i.id
-		`)
+		base += "\n\t\t\tAND i.asset_class NOT IN ('CASH', 'FX')"
 	}
+	if exchangeFilter != "" {
+		base += fmt.Sprintf("\n\t\t\tAND i.exchange_mic = $%d", argN)
+		args = append(args, exchangeFilter)
+	}
+	base += "\n\t\t\tORDER BY i.id"
+
+	err = p.q.SelectContext(ctx, &irows, base, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list instruments for export: %w", err)
 	}

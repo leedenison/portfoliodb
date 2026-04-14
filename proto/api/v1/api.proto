@@ -475,7 +475,8 @@ message ListInstrumentsResponse {
 
 // ExportInstruments streams all instruments that have at least one canonical identifier. Optional exchange filter.
 message ExportInstrumentsRequest {
-  string exchange = 1;  // optional; empty = all exchanges
+  string exchange = 1;              // optional; empty = all exchanges
+  repeated AssetClass asset_classes = 2;  // optional; empty = server default (excludes CASH/FX)
 }
 
 // ImportInstruments ensures the given instruments exist (find-or-create by identifiers, merge on conflict). No overwrite of canonical fields for existing.

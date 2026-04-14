@@ -115,7 +115,7 @@ func TestExportInstruments_Success(t *testing.T) {
 		{ID: "id-1", Name: strPtr("Apple"), Identifiers: []dbpkg.IdentifierInput{{Type: "ISIN", Value: "US0378331005", Canonical: true}}},
 	}
 	db.EXPECT().
-		ListInstrumentsForExport(gomock.Any(), "").
+		ListInstrumentsForExport(gomock.Any(), "", []string(nil)).
 		Return(rows, nil)
 	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
 	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream)
@@ -136,7 +136,7 @@ func TestExportInstruments_Success(t *testing.T) {
 func TestExportInstruments_WithExchangeFilter(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
-		ListInstrumentsForExport(gomock.Any(), "XNAS").
+		ListInstrumentsForExport(gomock.Any(), "XNAS", []string(nil)).
 		Return(nil, nil)
 	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
 	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{Exchange: "XNAS"}, stream)

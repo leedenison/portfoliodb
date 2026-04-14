@@ -245,7 +245,7 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 
 	if assetClass != "" && pluginRegistry != nil {
 		fallback := func(ctx context.Context, database db.DB) (string, error) {
-			return ensureWithSuppliedIdentifier(ctx, database, idType, domain, value)
+			return ensureWithSuppliedIdentifier(ctx, database, assetClass, currency, idType, domain, value)
 		}
 		result, err := identification.ResolveWithPlugins(ctx, database, pluginRegistry,
 			"", "", "", hints,
@@ -274,17 +274,18 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		diffs := identification.CompareHints(ctx, hints, []identifier.Identifier{hint}, inst, nil, normMIC)
 		return identification.ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs}, nil
 	}
-	id, err := ensureWithSuppliedIdentifier(ctx, database, idType, domain, value)
+	id, err := ensureWithSuppliedIdentifier(ctx, database, assetClass, currency, idType, domain, value)
 	if err != nil {
 		return identification.ResolveResult{}, err
 	}
 	return identification.ResolveResult{InstrumentID: id}, nil
 }
 
-func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, idType, domain, value string) (string, error) {
+func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClass, currency, idType, domain, value string) (string, error) {
 	slog.Debug("creating instrument from price import with supplied identifier only",
-		"identifier_type", idType, "identifier_domain", domain, "identifier_value", value)
-	return database.EnsureInstrument(ctx, "", "", "", "", "", "",
+		"identifier_type", idType, "identifier_domain", domain, "identifier_value", value,
+		"asset_class", assetClass, "currency", currency)
+	return database.EnsureInstrument(ctx, assetClass, "", currency, "", "", "",
 		[]db.IdentifierInput{{Type: idType, Domain: domain, Value: value, Canonical: true}},
 		"", nil, nil, nil)
 }

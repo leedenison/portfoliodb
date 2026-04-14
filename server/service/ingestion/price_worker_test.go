@@ -427,3 +427,74 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 		t.Error("expected persisted=true after a successful upsert")
 	}
 }
+
+// TestProcessPriceImport_OptionFallbackResolvesUnderlying verifies that when
+// identifier plugins fail for an option OCC symbol, the fallback parses the
+// underlying ticker from the OCC and resolves it via DB lookup.
+func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	req := &apiv1.ImportPricesRequest{
+		Prices: []*apiv1.ImportPriceRow{
+			{
+				IdentifierType:  "OCC",
+				IdentifierValue: "NVDA240315P00510000",
+				PriceDate:       "2024-03-01",
+				Close:           12.50,
+				AssetClass:      apiv1.AssetClass_ASSET_CLASS_OPTION,
+				Currency:        "USD",
+			},
+		},
+	}
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	j := &JobRequest{JobID: "job-price-opt", JobType: "price"}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-price-opt").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-price-opt").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-price-opt", int32(1)).Return(nil)
+
+	// No plugins registered: plugin path triggers fallback.
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), "identifier").
+		Return(nil, nil)
+	// OCC DB lookup finds nothing.
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", "NVDA240315P00510000").
+		Return("", "", "", "", nil)
+	database.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "OCC", "NVDA240315P00510000").
+		Return("", nil)
+
+	// Fallback parses underlying "NVDA" from OCC and resolves via DB.
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "NVDA").
+		Return("inst-nvda", "STOCK", "XNAS", "USD", nil)
+
+	// EnsureInstrument must receive the underlying ID and option fields.
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "",
+			[]db.IdentifierInput{{Type: "OCC", Domain: "", Value: "NVDA240315P00510000", Canonical: true}},
+			"inst-nvda", nil, nil, gomock.Not(gomock.Nil())).
+		Return("inst-opt", nil)
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-opt").Return(nil)
+	database.EXPECT().
+		UpsertPrices(gomock.Any(), gomock.Any()).
+		Return(nil)
+	database.EXPECT().
+		SetJobStatus(gomock.Any(), "job-price-opt", apiv1.JobStatus_SUCCESS).
+		Return(nil)
+
+	if !processPriceImport(ctx, database, registry, j) {
+		t.Error("expected persisted=true after a successful upsert")
+	}
+}

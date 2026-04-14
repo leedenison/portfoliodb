@@ -103,6 +103,27 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		// identifiers. A successful Mapping API response for that ticker proves
 		// the association. Other hint types (ISIN, CUSIP, etc.) are not appended
 		// because OpenFIGI may return corrected values for those.
+		// When matched via OCC_AT_EXPIRY, the API response reflects the
+		// at-expiry strike. Replace the returned OCC with the
+		// split-adjusted OCC from identifierHints so downstream
+		// storage and comparison use the current strike.
+		if matchedHint != nil && matchedHint.Type == identifier.InternalHintTypeOCCAtExpiry {
+			for _, h := range identifierHints {
+				if h.Type == "OCC" {
+					occVal := h.Value
+					if c, ok := derivative.OCCCompact(occVal); ok {
+						occVal = c
+					}
+					for i := range ids {
+						if ids[i].Type == "OCC" {
+							ids[i].Value = occVal
+							break
+						}
+					}
+					break
+				}
+			}
+		}
 		if matchedHint != nil && matchedHint.Type == "MIC_TICKER" {
 			hasMICTicker := false
 			for _, id := range ids {

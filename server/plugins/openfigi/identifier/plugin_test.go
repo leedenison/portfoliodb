@@ -785,6 +785,73 @@ func TestPlugin_Identify_NonTickerHintNotAppended(t *testing.T) {
 	}
 }
 
+func TestPlugin_Identify_OCCAtExpiry_ReplacesReturnedOCC(t *testing.T) {
+	// When OpenFIGI is matched via OCC_AT_EXPIRY, the API response reflects
+	// the at-expiry strike ($510). The plugin should replace the returned OCC
+	// with the split-adjusted OCC ($51) from the regular OCC hint.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/v3/mapping" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		var jobs []MappingJob
+		if err := json.NewDecoder(r.Body).Decode(&jobs); err != nil || len(jobs) != 1 {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		// Expect the OCC_AT_EXPIRY value (padded to 21 chars).
+		if jobs[0].IDValue == "NVDA  240315P00510000" {
+			json.NewEncoder(w).Encode([]MappingResponseItem{
+				{Data: []OpenFIGIResult{{
+					FIGI:          "BBG00OPTION2",
+					Ticker:        "NVDA  240315P00510000",
+					Name:          "NVDA Mar 2024 510 Put",
+					ExchCode:      "US",
+					SecurityType:  "Option",
+					SecurityType2: "Equity Option",
+					MarketSector:  "Equity",
+				}}},
+			})
+		} else {
+			json.NewEncoder(w).Encode([]MappingResponseItem{{Data: nil}})
+		}
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{
+		"openfigi_api_key":  "test-key",
+		"openfigi_base_url": server.URL,
+	})
+	ctx := context.Background()
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+
+	// OCC_AT_EXPIRY first (at-expiry strike $510), then OCC (split-adjusted $51).
+	hints := []identifier.Identifier{
+		{Type: identifier.InternalHintTypeOCCAtExpiry, Value: "NVDA240315P00510000"},
+		{Type: "OCC", Value: "NVDA240315P00051000"},
+	}
+	inst, ids, err := p.Identify(ctx, config, "IBKR", "IBKR:test:statement", "NVDA Mar 2024 510 Put",
+		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}, hints)
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if inst == nil {
+		t.Fatal("expected instrument")
+	}
+
+	// The returned OCC should be the split-adjusted value, not the at-expiry value.
+	for _, id := range ids {
+		if id.Type == "OCC" {
+			if id.Value != "NVDA240315P00051000" {
+				t.Errorf("OCC = %q, want NVDA240315P00051000 (split-adjusted)", id.Value)
+			}
+			return
+		}
+	}
+	t.Errorf("expected OCC identifier in %+v", ids)
+}
+
 func mustJSON(v interface{}) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

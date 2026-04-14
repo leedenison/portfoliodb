@@ -8,6 +8,23 @@ import (
 	"github.com/leedenison/portfoliodb/server/plugins/openfigi/exchangemap"
 )
 
+// openFIGICurrencyOverrides maps ISO minor-unit currency codes to the
+// Bloomberg-style codes that the OpenFIGI Mapping API expects.
+// For example, GBX (ISO pence sterling) must be sent as "GBp".
+var openFIGICurrencyOverrides = map[string]string{
+	"GBX": "GBp",
+}
+
+// toOpenFIGICurrency converts a currency code to the form expected by the
+// OpenFIGI API. Most codes pass through unchanged; known minor-unit codes
+// (e.g. GBX) are replaced with their Bloomberg equivalents.
+func toOpenFIGICurrency(code string) string {
+	if v, ok := openFIGICurrencyOverrides[code]; ok {
+		return v
+	}
+	return code
+}
+
 // classificationRule maps OpenFIGI response fields to a PortfolioDB asset class.
 // Non-nil set fields are ANDed: all must match. Nil means "don't care".
 // Rules are evaluated in slice order; first match wins.
@@ -187,7 +204,7 @@ func openFIGIResultToInstrument(r *OpenFIGIResult, exchMap *exchangemap.Exchange
 	inst := &identifier.Instrument{
 		AssetClass: assetClass,
 		Exchange:   resolveExchange(r.ExchCode, exchMap),
-		Currency:   "", // OpenFIGI often omits; leave empty
+		Currency:   "", // OpenFIGI does not return currency; caller sets from hints
 		Name:       name,
 	}
 	if r.FIGI != "" {

@@ -96,6 +96,9 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		return nil, nil, err
 	}
 	if inst, ids, ok := p.resolveResults(results, hints, true); ok {
+		if hints.Currency != "" {
+			inst.Currency = hints.Currency
+		}
 		// When the matched hint was a MIC_TICKER, include it in the returned
 		// identifiers. A successful Mapping API response for that ticker proves
 		// the association. Other hint types (ISIN, CUSIP, etc.) are not appended
@@ -215,7 +218,7 @@ func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []ide
 			job.ExchCode = h.Domain
 		}
 		if hints.Currency != "" {
-			job.Currency = hints.Currency
+			job.Currency = toOpenFIGICurrency(hints.Currency)
 		}
 		results, err := p.openfigi.Mapping(ctx, job)
 		if err != nil {

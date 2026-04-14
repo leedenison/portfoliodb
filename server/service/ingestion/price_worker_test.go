@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"go.uber.org/mock/gomock"
@@ -356,5 +357,73 @@ func TestProcessPriceImport_RejectsCurrencyHintDiff(t *testing.T) {
 	}
 	if !strings.Contains(capturedErrs[0].Message, "Currency") {
 		t.Errorf("expected message to mention Currency, got %s", capturedErrs[0].Message)
+	}
+}
+
+// TestProcessPriceImport_FallbackPassesAssetClassAndCurrency verifies that
+// when no identifier plugin can handle the identifier type (e.g. FX_PAIR),
+// the fallback creates the instrument with the asset class and currency from
+// the import row rather than empty strings.
+func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	req := &apiv1.ImportPricesRequest{
+		Prices: []*apiv1.ImportPriceRow{
+			{
+				IdentifierType:  "FX_PAIR",
+				IdentifierValue: "EURGBP",
+				PriceDate:       "2021-12-31",
+				Close:           0.84,
+				AssetClass:      apiv1.AssetClass_ASSET_CLASS_FX,
+				Currency:        "EUR",
+			},
+		},
+	}
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	j := &JobRequest{JobID: "job-price-fx", JobType: "price"}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-price-fx").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-price-fx").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-price-fx", int32(1)).Return(nil)
+
+	// asset_class is non-empty so the plugin path is taken. With no plugins
+	// registered, ListEnabledPluginConfigs returns empty and the DB-only
+	// lookup inside ResolveWithPlugins finds nothing, triggering the fallback.
+	database.EXPECT().
+		ListEnabledPluginConfigs(gomock.Any(), "identifier").
+		Return(nil, nil)
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "FX_PAIR", "", "EURGBP").
+		Return("", "", "", "", nil) // not found
+	database.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "FX_PAIR", "EURGBP").
+		Return("", nil) // not found
+
+	// The key assertion: EnsureInstrument must receive "FX" and "EUR".
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "FX", "", "EUR", "", "", "",
+			[]db.IdentifierInput{{Type: "FX_PAIR", Domain: "", Value: "EURGBP", Canonical: true}},
+			"", nil, nil, nil).
+		Return("inst-eurgbp", nil)
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-fx").Return(nil)
+	database.EXPECT().
+		UpsertPrices(gomock.Any(), gomock.Any()).
+		Return(nil)
+	database.EXPECT().
+		SetJobStatus(gomock.Any(), "job-price-fx", apiv1.JobStatus_SUCCESS).
+		Return(nil)
+
+	if !processPriceImport(ctx, database, registry, j) {
+		t.Error("expected persisted=true after a successful upsert")
 	}
 }

@@ -28,6 +28,7 @@ const IDENTIFIER_LABELS: Record<number, string> = {
   [IdentifierType.OPENFIGI_TICKER]: "Ticker",
   [IdentifierType.BROKER_DESCRIPTION]: "Broker Desc",
   [IdentifierType.CURRENCY]: "Currency",
+  [IdentifierType.FX_PAIR]: "FX Pair",
 };
 
 function idLabel(id: InstrumentIdentifier): string {
@@ -75,8 +76,11 @@ export default function AdminInstrumentsPage() {
     setExportLoading(true);
     setExportError(null);
     try {
+      const classes = [...activeClasses] as AssetClass[];
       const instruments: Instrument[] = [];
-      for await (const inst of exportInstruments()) {
+      for await (const inst of exportInstruments({
+        assetClasses: classes.length < ALL_ASSET_CLASSES.length ? classes : [],
+      })) {
         instruments.push(inst);
       }
       const json = instrumentsToJson(instruments);

@@ -127,7 +127,7 @@ func TestListInstrumentsForExport_ExcludesBrokerDescriptionOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure with canonical: %v", err)
 	}
-	list, err := p.ListInstrumentsForExport(ctx, "")
+	list, err := p.ListInstrumentsForExport(ctx, "", nil)
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure XNYS: %v", err)
 	}
-	list, err := p.ListInstrumentsForExport(ctx, "XNAS")
+	list, err := p.ListInstrumentsForExport(ctx, "XNAS", nil)
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 		}
 		t.Fatalf("expected 1 instrument with exchange XNAS, got %d (first exchange %q)", len(list), ex)
 	}
-	listAll, err := p.ListInstrumentsForExport(ctx, "")
+	listAll, err := p.ListInstrumentsForExport(ctx, "", nil)
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport all: %v", err)
 	}

@@ -603,9 +603,12 @@ export async function listJobs(pageToken?: string | null): Promise<ListJobsResul
 }
 
 /** Stream all exported instruments (admin only). */
-export async function* exportInstruments(params?: { exchange?: string }): AsyncGenerator<Instrument> {
+export async function* exportInstruments(params?: { exchange?: string; assetClasses?: AssetClass[] }): AsyncGenerator<Instrument> {
   const base = getBaseUrl();
-  const req = create(ExportInstrumentsRequestSchema, { exchange: params?.exchange ?? "" });
+  const req = create(ExportInstrumentsRequestSchema, {
+    exchange: params?.exchange ?? "",
+    assetClasses: params?.assetClasses ?? [],
+  });
   for await (const bytes of streamingFetch(base, ApiServicePrefix + "ExportInstruments", toBinary(ExportInstrumentsRequestSchema, req), { credentials: "include" })) {
     yield fromBinary(InstrumentSchema, bytes);
   }

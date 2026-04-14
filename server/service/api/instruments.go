@@ -47,7 +47,11 @@ func (s *Server) ExportInstruments(req *apiv1.ExportInstrumentsRequest, stream a
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return authErr
 	}
-	rows, err := s.db.ListInstrumentsForExport(ctx, req.GetExchange())
+	var acStrsExport []string
+	for _, ac := range req.GetAssetClasses() {
+		acStrsExport = append(acStrsExport, db.AssetClassToStr(ac))
+	}
+	rows, err := s.db.ListInstrumentsForExport(ctx, req.GetExchange(), acStrsExport)
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}

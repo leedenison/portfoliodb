@@ -99,6 +99,7 @@ func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashD
 	amounts := make([]string, len(dividends))
 	currencies := make([]string, len(dividends))
 	frequencies := make([]sql.NullString, len(dividends))
+	types := make([]string, len(dividends))
 	providers := make([]string, len(dividends))
 	for i, d := range dividends {
 		instIDs[i] = d.InstrumentID
@@ -111,17 +112,21 @@ func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashD
 		if d.Frequency != "" {
 			frequencies[i] = sql.NullString{String: d.Frequency, Valid: true}
 		}
+		types[i] = d.Type
+		if types[i] == "" {
+			types[i] = "CD"
+		}
 		providers[i] = d.DataProvider
 	}
 	_, err := p.q.ExecContext(ctx, `
 		INSERT INTO cash_dividends (
 			instrument_id, ex_date, pay_date, record_date, declaration_date,
-			amount, currency, frequency, data_provider, fetched_at
+			amount, currency, frequency, type, data_provider, fetched_at
 		)
 		SELECT unnest($1::uuid[]), unnest($2::date[]),
 			unnest($3::date[]), unnest($4::date[]), unnest($5::date[]),
 			unnest($6::numeric[]), unnest($7::text[]), unnest($8::text[]),
-			unnest($9::text[]), now()
+			unnest($9::text[]), unnest($10::text[]), now()
 		ON CONFLICT (instrument_id, ex_date) DO UPDATE SET
 			pay_date         = EXCLUDED.pay_date,
 			record_date      = EXCLUDED.record_date,
@@ -129,12 +134,13 @@ func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashD
 			amount           = EXCLUDED.amount,
 			currency         = EXCLUDED.currency,
 			frequency        = EXCLUDED.frequency,
+			type             = EXCLUDED.type,
 			data_provider    = EXCLUDED.data_provider,
 			fetched_at       = EXCLUDED.fetched_at
 	`, pq.Array(instIDs), pq.Array(exDates),
 		pq.Array(payDates), pq.Array(recordDates), pq.Array(declDates),
 		pq.Array(amounts), pq.Array(currencies), pq.Array(frequencies),
-		pq.Array(providers))
+		pq.Array(types), pq.Array(providers))
 	if err != nil {
 		return fmt.Errorf("upsert cash dividends: %w", err)
 	}
@@ -149,7 +155,7 @@ func (p *Postgres) ListCashDividends(ctx context.Context, instrumentID string) (
 	}
 	rows, err := p.q.QueryContext(ctx, `
 		SELECT instrument_id, ex_date, pay_date, record_date, declaration_date,
-			amount::text, currency, frequency, data_provider, fetched_at
+			amount::text, currency, frequency, type, data_provider, fetched_at
 		FROM cash_dividends
 		WHERE instrument_id = $1
 		ORDER BY ex_date
@@ -165,7 +171,7 @@ func (p *Postgres) ListCashDividends(ctx context.Context, instrumentID string) (
 		var pay, record, decl sql.NullTime
 		var freq sql.NullString
 		if err := rows.Scan(&instUUID, &d.ExDate, &pay, &record, &decl,
-			&d.Amount, &d.Currency, &freq, &d.DataProvider, &d.FetchedAt); err != nil {
+			&d.Amount, &d.Currency, &freq, &d.Type, &d.DataProvider, &d.FetchedAt); err != nil {
 			return nil, fmt.Errorf("list cash dividends scan: %w", err)
 		}
 		d.InstrumentID = instUUID.String()
@@ -379,7 +385,7 @@ func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportC
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
 			COALESCE(i.asset_class, '') AS asset_class,
 			d.data_provider, d.ex_date, d.pay_date, d.record_date, d.declaration_date,
-			d.amount::text, d.currency, d.frequency
+			d.amount::text, d.currency, d.frequency, d.type
 		FROM cash_dividends d
 		JOIN instruments i ON i.id = d.instrument_id
 		` + bestIdentifierJoin + `
@@ -397,7 +403,7 @@ func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportC
 		var freq sql.NullString
 		if err := rows.Scan(&r.IdentifierType, &r.IdentifierValue, &r.IdentifierDomain,
 			&r.AssetClass, &r.DataProvider, &r.ExDate, &pay, &rec, &decl,
-			&r.Amount, &r.Currency, &freq); err != nil {
+			&r.Amount, &r.Currency, &freq, &r.Type); err != nil {
 			return nil, fmt.Errorf("list cash dividends for export scan: %w", err)
 		}
 		if pay.Valid {

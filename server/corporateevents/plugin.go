@@ -85,6 +85,8 @@ type Split struct {
 
 // CashDividend is a single cash dividend returned by a plugin. Optional
 // fields are zero (time.Time{}, "") when the provider does not supply them.
+// Type uses terse codes: "CD" (regular cash dividend), "SC" (special cash
+// dividend). Empty string is treated as "CD".
 type CashDividend struct {
 	ExDate          time.Time
 	PayDate         time.Time
@@ -93,4 +95,5 @@ type CashDividend struct {
 	Amount          string // decimal string per share
 	Currency        string
 	Frequency       string
+	Type            string // "CD", "SC"; empty = "CD"
 }

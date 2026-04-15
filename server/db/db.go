@@ -673,7 +673,8 @@ type StockSplit struct {
 
 // CashDividend is a single cash dividend row. Amount is per share in Currency.
 // PayDate, RecordDate, DeclarationDate, and Frequency are optional and may be
-// nil/empty when the provider does not supply them.
+// nil/empty when the provider does not supply them. Type is "CD" (regular) or
+// "SC" (special cash); defaults to "CD" when empty.
 type CashDividend struct {
 	InstrumentID    string
 	ExDate          time.Time
@@ -683,6 +684,7 @@ type CashDividend struct {
 	Amount          string // numeric, e.g. "0.24"
 	Currency        string
 	Frequency       string // empty when unknown
+	Type            string // "CD" or "SC"; empty = "CD"
 	DataProvider    string
 	FetchedAt       time.Time
 }
@@ -863,4 +865,5 @@ type ExportCashDividend struct {
 	Amount           string
 	Currency         string
 	Frequency        string
+	Type             string
 }

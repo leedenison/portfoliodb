@@ -2,6 +2,7 @@ package corporateevents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -226,12 +227,22 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 					splitsLanded = true
 				}
 				if len(result.CashDividends) > 0 {
-					if err := database.UpsertCashDividends(ctx, dividendsToDB(inst.ID, pe.id, result.CashDividends)); err != nil {
-						if log != nil {
-							log.ErrorContext(ctx, "corporate event fetch: upsert dividends",
-								"plugin", pe.id, "instrument", inst.ID, "err", err)
+					var regular []CashDividend
+					for _, d := range result.CashDividends {
+						if d.Type == "SC" {
+							insertSpecialDividend(ctx, database, inst.ID, pe.id, d, log)
+						} else {
+							regular = append(regular, d)
 						}
-						continue
+					}
+					if len(regular) > 0 {
+						if err := database.UpsertCashDividends(ctx, dividendsToDB(inst.ID, pe.id, regular)); err != nil {
+							if log != nil {
+								log.ErrorContext(ctx, "corporate event fetch: upsert dividends",
+									"plugin", pe.id, "instrument", inst.ID, "err", err)
+							}
+							continue
+						}
 					}
 				}
 			}
@@ -332,12 +343,17 @@ func splitsToDB(instrumentID, provider string, splits []Split) []db.StockSplit {
 func dividendsToDB(instrumentID, provider string, dividends []CashDividend) []db.CashDividend {
 	out := make([]db.CashDividend, len(dividends))
 	for i, d := range dividends {
+		typ := d.Type
+		if typ == "" {
+			typ = "CD"
+		}
 		row := db.CashDividend{
 			InstrumentID: instrumentID,
 			ExDate:       d.ExDate,
 			Amount:       d.Amount,
 			Currency:     d.Currency,
 			Frequency:    d.Frequency,
+			Type:         typ,
 			DataProvider: provider,
 		}
 		if !d.PayDate.IsZero() {
@@ -355,5 +371,58 @@ func dividendsToDB(instrumentID, provider string, dividends []CashDividend) []db
 		out[i] = row
 	}
 	return out
+}
+
+// insertSpecialDividend stores a special cash dividend as an unhandled
+// corporate event with the dividend details in the JSONB data field.
+func insertSpecialDividend(ctx context.Context, database db.CorporateEventDB, instrumentID, provider string, d CashDividend, log *slog.Logger) {
+	type specialDivData struct {
+		Amount          string `json:"amount"`
+		Currency        string `json:"currency"`
+		PayDate         string `json:"pay_date,omitempty"`
+		RecordDate      string `json:"record_date,omitempty"`
+		DeclarationDate string `json:"declaration_date,omitempty"`
+		Frequency       string `json:"frequency,omitempty"`
+		DividendType    string `json:"dividend_type"`
+		DataProvider    string `json:"data_provider"`
+	}
+	sd := specialDivData{
+		Amount:       d.Amount,
+		Currency:     d.Currency,
+		DividendType: d.Type,
+		DataProvider: provider,
+		Frequency:    d.Frequency,
+	}
+	if !d.PayDate.IsZero() {
+		sd.PayDate = d.PayDate.Format("2006-01-02")
+	}
+	if !d.RecordDate.IsZero() {
+		sd.RecordDate = d.RecordDate.Format("2006-01-02")
+	}
+	if !d.DeclarationDate.IsZero() {
+		sd.DeclarationDate = d.DeclarationDate.Format("2006-01-02")
+	}
+	data, err := json.Marshal(sd)
+	if err != nil {
+		if log != nil {
+			log.ErrorContext(ctx, "corporate event fetch: marshal special dividend",
+				"instrument", instrumentID, "err", err)
+		}
+		return
+	}
+	exDate := d.ExDate
+	event := db.UnhandledCorporateEvent{
+		InstrumentID: instrumentID,
+		EventType:    "SPECIAL_CASH_DIVIDEND",
+		ExDate:       &exDate,
+		Detail:       fmt.Sprintf("Special cash dividend %s %s (provider: %s)", d.Amount, d.Currency, provider),
+		Data:         data,
+	}
+	if err := database.InsertUnhandledCorporateEvent(ctx, event); err != nil {
+		if log != nil {
+			log.ErrorContext(ctx, "corporate event fetch: insert special dividend",
+				"instrument", instrumentID, "err", err)
+		}
+	}
 }
 

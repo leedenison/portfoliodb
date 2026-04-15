@@ -1053,7 +1053,7 @@ message UnhandledCorporateEvent {
   string id = 1;
   string instrument_id = 2;
   string instrument_name = 3;
-  string event_type = 4;   // REVERSE_SPLIT, NON_WHOLE_SPLIT, MERGER, EXTRAORDINARY_DIVIDEND, FUTURES_SPLIT
+  string event_type = 4;   // REVERSE_SPLIT, NON_WHOLE_SPLIT, MERGER, EXTRAORDINARY_DIVIDEND, SPECIAL_CASH_DIVIDEND, FUTURES_SPLIT
   string ex_date = 5;      // YYYY-MM-DD, may be empty
   string detail = 6;
   string data = 7;         // JSON

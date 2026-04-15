@@ -113,6 +113,9 @@ func TestUpsertCashDividends_RoundTrip(t *testing.T) {
 	if d0.Amount != "0.24" || d0.Currency != "USD" || d0.Frequency != "quarterly" {
 		t.Errorf("dividend: %+v", d0)
 	}
+	if d0.Type != "CD" {
+		t.Errorf("type: got %q, want %q", d0.Type, "CD")
+	}
 	if d0.PayDate == nil || !d0.PayDate.Equal(pay) {
 		t.Errorf("pay_date: %+v", d0.PayDate)
 	}
@@ -121,6 +124,36 @@ func TestUpsertCashDividends_RoundTrip(t *testing.T) {
 	}
 	if d0.DeclarationDate == nil || !d0.DeclarationDate.Equal(decl) {
 		t.Errorf("declaration_date: %+v", d0.DeclarationDate)
+	}
+}
+
+func TestUpsertCashDividends_TypeDefaultsToCD(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	// Insert without setting Type (empty string) — should default to "CD".
+	if err := p.UpsertCashDividends(ctx, []db.CashDividend{
+		{
+			InstrumentID: instID,
+			ExDate:       d(2024, 3, 1),
+			Amount:       "0.50",
+			Currency:     "USD",
+			DataProvider: "test",
+		},
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	got, err := p.ListCashDividends(ctx, instID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 dividend, got %d", len(got))
+	}
+	if got[0].Type != "CD" {
+		t.Errorf("type: got %q, want %q", got[0].Type, "CD")
 	}
 }
 

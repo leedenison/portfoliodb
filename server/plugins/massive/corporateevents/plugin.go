@@ -191,6 +191,7 @@ func parseDividend(r client.DividendResult) (corporateevents.CashDividend, bool)
 		Amount:    formatFloat(r.CashAmount),
 		Currency:  r.Currency,
 		Frequency: frequencyFromInt(r.Frequency),
+		Type:      dividendType(r.DividendType),
 	}
 	if t, err := time.Parse("2006-01-02", r.PayDate); err == nil {
 		d.PayDate = t
@@ -202,6 +203,17 @@ func parseDividend(r client.DividendResult) (corporateevents.CashDividend, bool)
 		d.DeclarationDate = t
 	}
 	return d, true
+}
+
+// dividendType maps Massive's dividend_type code to the canonical type.
+// "CD" (or empty) is a regular cash dividend. "LT" and "ST" are capital
+// gains distributions which behave like regular dividends for portfolio
+// tracking. "SC" is a special cash dividend routed to unhandled events.
+func dividendType(dt string) string {
+	if dt == "SC" {
+		return "SC"
+	}
+	return "CD"
 }
 
 // frequencyFromInt translates Massive's payments-per-year integer into a

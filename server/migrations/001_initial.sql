@@ -381,6 +381,7 @@ CREATE TABLE cash_dividends (
   amount           NUMERIC     NOT NULL CHECK (amount >= 0),
   currency         TEXT        NOT NULL,
   frequency        TEXT,
+  type             TEXT        NOT NULL DEFAULT 'CD',
   data_provider    TEXT        NOT NULL,
   fetched_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, ex_date)

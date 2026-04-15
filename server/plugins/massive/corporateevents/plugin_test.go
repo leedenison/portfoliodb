@@ -86,6 +86,9 @@ func TestFetchEvents_StockSplitsAndDividends(t *testing.T) {
 	if d0.Amount != "0.24" || d0.Currency != "USD" || d0.Frequency != "quarterly" {
 		t.Errorf("dividend: %+v", d0)
 	}
+	if d0.Type != "CD" {
+		t.Errorf("type: got %q, want %q", d0.Type, "CD")
+	}
 	if d0.PayDate != time.Date(2024, 2, 15, 0, 0, 0, 0, time.UTC) {
 		t.Errorf("pay date: %v", d0.PayDate)
 	}
@@ -187,6 +190,63 @@ func TestFetchEvents_NoSupportedIdentifier(t *testing.T) {
 		time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC))
 	if !errors.Is(err, corporateevents.ErrNoData) {
 		t.Errorf("expected ErrNoData, got %v", err)
+	}
+}
+
+func TestDividendType(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", "CD"},
+		{"CD", "CD"},
+		{"SC", "SC"},
+		{"LT", "CD"},
+		{"ST", "CD"},
+	}
+	for _, c := range cases {
+		if got := dividendType(c.in); got != c.want {
+			t.Errorf("dividendType(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestFetchEvents_SpecialDividendType(t *testing.T) {
+	dividends := []client.DividendResult{
+		{
+			Ticker:         "AAPL",
+			ExDividendDate: "2024-06-01",
+			CashAmount:     1.50,
+			Currency:       "USD",
+			DividendType:   "SC",
+		},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v3/reference/splits":
+			_ = json.NewEncoder(w).Encode(envelope{Status: "OK", Results: []client.SplitResult{}})
+		case "/v3/reference/dividends":
+			_ = json.NewEncoder(w).Encode(envelope{Status: "OK", Results: dividends})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	p := NewPlugin(nil, nil, srv.Client())
+	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
+	got, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
+		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("FetchEvents: %v", err)
+	}
+	if len(got.CashDividends) != 1 {
+		t.Fatalf("expected 1 dividend, got %d", len(got.CashDividends))
+	}
+	if got.CashDividends[0].Type != "SC" {
+		t.Errorf("type: got %q, want %q", got.CashDividends[0].Type, "SC")
 	}
 }
 

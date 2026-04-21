@@ -1,16 +1,9 @@
 .DEFAULT_GOAL := help
 
-# Load .env so DB_INITIALISE_SCRIPT etc. are available to run/init-db
--include .env
+include .env
 export
 
 # === Stack Isolation ===
-# Each stack uses an explicit -p project name and non-overlapping host ports.
-# All stacks can run simultaneously without collision.
-#   Dev  (portfoliodb-dev):  postgres 5432, redis 6379, grpc 50051, envoy 8080
-#   Test (portfoliodb-test): postgres 5433, redis 6380
-#   E2E  (portfoliodb-e2e):  postgres 5434, redis 6381, grpc 50052, envoy 8081
-
 COMPOSE_RUN  = docker compose -p portfoliodb      -f docker/docker-compose.yml --env-file .env
 COMPOSE_DEV  = docker compose -p portfoliodb-dev   -f docker/docker-compose.yml -f docker/docker-compose.dev.yml --env-file .env
 COMPOSE_E2E  = docker compose -p portfoliodb-e2e   -f docker/docker-compose.yml -f docker/docker-compose.e2e.yml --env-file .env
@@ -29,6 +22,10 @@ STAMP_DIR := .stamps
 
 $(STAMP_DIR):
 	@mkdir -p $(STAMP_DIR)
+
+# --- .env bootstrap ---
+.env:
+	@touch $@
 
 # --- tools stamp ---
 # Re-run when Go module deps or JS package manifests change.

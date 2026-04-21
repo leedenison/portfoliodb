@@ -68,7 +68,7 @@ run: $(STAMP_DIR)/tools $(STAMP_DIR)/generate
 	@echo "Waiting for Postgres..."
 	@scripts/postgres-ready.sh "$(COMPOSE_DEV)"
 	@echo "Waiting for portfoliodb (gRPC)..."
-	@scripts/server-ready.sh
+	@scripts/server-ready.sh "$(COMPOSE_DEV)"
 	@$(MAKE) init-db
 
 # Run the DB initialise script when DB_INITIALISE_SCRIPT is set and the file exists. Used by 'make run'.
@@ -116,7 +116,7 @@ e2e-test: $(STAMP_DIR)/generate
 		echo "Waiting for Postgres..."; \
 		scripts/postgres-ready.sh "$(COMPOSE_E2E)"; \
 		echo "Waiting for portfoliodb (gRPC)..."; \
-		scripts/server-ready.sh localhost:50052; \
+		scripts/server-ready.sh "$(COMPOSE_E2E)"; \
 		HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test; \
 		rc=$$?; $(COMPOSE_E2E) --profile test down; exit $$rc
 
@@ -135,7 +135,7 @@ e2e-test-record: $(STAMP_DIR)/generate
 		echo "Waiting for Postgres..."; \
 		scripts/postgres-ready.sh "$(COMPOSE_E2E)"; \
 		echo "Waiting for portfoliodb (gRPC)..."; \
-		scripts/server-ready.sh localhost:50052; \
+		scripts/server-ready.sh "$(COMPOSE_E2E)"; \
 		logdir="/tmp/e2e-record-$$(date +%Y%m%d-%H%M%S)"; mkdir -p "$$logdir"; \
 		HOST_UID=$$(id -u) HOST_GID=$$(id -g) VCR_MODE=$(VCR_SUITES) $(COMPOSE_E2E) --profile test run --rm playwright \
 			sh -c 'npx playwright test 2>&1; echo $$? > /e2e/.e2e-rc' | tee "$$logdir/playwright.log"; \

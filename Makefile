@@ -94,8 +94,7 @@ client-test: $(STAMP_DIR)/tools
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm run test:run
 
 db-test: $(STAMP_DIR)/generate
-	$(COMPOSE_TEST_TESTER) go test -v ./server/db/postgres/...
-	@$(COMPOSE_TEST) down
+	@rc=0; $(COMPOSE_TEST_TESTER) go test -v ./server/db/postgres/... || rc=$$?; $(COMPOSE_TEST) down; exit $$rc
 
 integration-test: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS) go test -tags integration -v ./server/plugins/...

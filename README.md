@@ -12,39 +12,23 @@ gRPC-backed service for portfolio and transaction data. Backend is Go with Postg
 
 These steps verify the system builds and the core test suites pass.
 
-### 1. Install tools and generate code
+### 1. Generate code and build
 
 ```bash
-make tools
-make generate
 make build
 ```
 
-### 2. Run server tests
+This runs protobuf and mock code generation as a dependency, then builds the server binary.
 
-`make server-test` runs all server tests.
-
-```bash
-make server-test
-```
-
-### 3. Run client tests
-
-`make client-test` runs the Next.js/Vitest front-end tests under `client/`.
+### 2. Run the tests
 
 ```bash
-make client-test
+make test
 ```
 
-### 4. Run database tests
+Runs the server, client, database, and plugin integration test suites. Individual suites are available as `make server-test`, `make client-test`, `make db-test`, and `make integration-test`.
 
-`make db-test` brings up Postgres in Docker, applies migrations, runs the DB integration tests, and then tears everything down.
-
-```bash
-make db-test
-```
-
-### 5. Run the server locally
+### 3. Run the server locally
 
 From the repo root, configure the environment and then use `make run`:
 

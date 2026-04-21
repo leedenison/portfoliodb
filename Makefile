@@ -22,10 +22,10 @@ BUILD_REV ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 export BUILD_REV
 
 # --- Stamp infrastructure ---
-# Stamp files track when expensive operations (tools, generate) last ran.
-# Make compares stamp mtimes against source file mtimes -- if any source is
-# newer, the stamp is stale and the recipe re-runs. Downstream targets depend
-# on stamps, so staleness propagates automatically.
+# Stamp files track when expensive operations (generate) last ran. Make compares
+# stamp mtimes against source file mtimes -- if any source is newer, the stamp
+# is stale and the recipe re-runs. Downstream targets depend on stamps, so
+# staleness propagates automatically.
 STAMP_DIR := .stamps
 
 $(STAMP_DIR):
@@ -35,28 +35,18 @@ $(STAMP_DIR):
 .env:
 	@touch $@
 
-# --- tools stamp ---
-# Re-run when JS package manifests change. Go tooling (buf, protoc plugins, grpc-health-probe)
-# is baked into docker/server/Dockerfile.dev; go modules resolve at `go test`/`go build` time.
-TOOLS_DEPS := client/package.json client/package-lock.json e2e/package.json e2e/package-lock.json
-
-$(STAMP_DIR)/tools: $(TOOLS_DEPS) | $(STAMP_DIR)
-	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm ci
-	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright npm ci
-	@touch $@
-
 # --- generate stamp ---
 # Re-run when proto files, buf configs, or go:generate source changes.
+# npm deps for the client container are bootstrapped by its compose entrypoint before buf runs.
 PROTO_FILES := $(shell find proto -name '*.proto' 2>/dev/null)
 GENERATE_DEPS := $(PROTO_FILES) buf.gen.go.yaml buf.gen.ts.yaml buf.gen.e2e.yaml server/db/db.go
 
-$(STAMP_DIR)/generate: $(GENERATE_DEPS) $(STAMP_DIR)/tools | $(STAMP_DIR)
+$(STAMP_DIR)/generate: $(GENERATE_DEPS) | $(STAMP_DIR)
 	$(COMPOSE_TOOLS) sh -c 'buf generate --template buf.gen.go.yaml && go generate ./server/db'
 	$(COMPOSE_TOOLS_CLIENT) sh -c 'buf generate --template buf.gen.ts.yaml --include-imports && buf generate --template buf.gen.e2e.yaml --include-imports --path proto/e2e --path proto/api'
 	@touch $@
 
-# PHONY aliases so 'make tools' and 'make generate' still work directly.
-tools: $(STAMP_DIR)/tools
+# PHONY alias so 'make generate' still works directly.
 generate: $(STAMP_DIR)/generate
 
 build: $(STAMP_DIR)/generate
@@ -67,7 +57,7 @@ google-finance-cli: $(STAMP_DIR)/generate
 
 # Full stack (Postgres 5432, Redis 6379, portfoliodb, Envoy, client SPA) for local dev. SPA at localhost:8080.
 # Uses dev override: source mounts, host UID/GID, Air + next dev for live-reload.
-run: $(STAMP_DIR)/tools $(STAMP_DIR)/generate
+run: $(STAMP_DIR)/generate
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) up -d --build
 	@echo "Waiting for Postgres..."
 	@scripts/postgres-ready.sh "$(COMPOSE_DEV)"
@@ -159,10 +149,10 @@ clean-docker:
 	$(COMPOSE_TEST) down --rmi local --volumes
 	$(COMPOSE_E2E) --profile test down --rmi local --volumes --remove-orphans
 
-# Remove client node_modules and .next (e.g. after switching Node versions). Re-run 'make tools' to reinstall.
+# Remove client node_modules and .next (e.g. after switching Node versions). The client container
+# will re-run npm ci on next start.
 clean-next:
 	rm -rf client/node_modules client/.next
-	rm -f $(STAMP_DIR)/tools
 
 clean-stamps:
 	rm -rf $(STAMP_DIR)
@@ -171,7 +161,6 @@ help:
 	@echo "portfoliodb Makefile"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make tools              Install npm deps into containers (auto-skipped if up-to-date)"
 	@echo "  make generate           Run protobuf + mock codegen (auto-skipped if up-to-date)"
 	@echo ""
 	@echo "Development:"
@@ -199,7 +188,6 @@ help:
 	@echo "  make clean-docker       Remove all Docker containers, images, and volumes"
 	@echo "  make clean-next         Remove client node_modules and .next"
 	@echo ""
-	@echo "After 'git pull', run 'make tools generate' if deps or protos changed."
 	@echo "Dependencies are tracked automatically -- stale steps re-run as needed."
 
-.PHONY: tools generate build google-finance-cli server-test db-test client-test integration-test integration-test-list integration-test-record e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help
+.PHONY: generate build google-finance-cli server-test db-test client-test integration-test integration-test-list integration-test-record e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help

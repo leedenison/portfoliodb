@@ -47,6 +47,16 @@ services:
     volumes:
       - ..:/app
     working_dir: /app/client
+    # Bootstrap node_modules on first start (or after package-lock.json changes), then exec the command.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ ! -f /app/client/node_modules/.package-lock.json ] || [ /app/client/package-lock.json -nt /app/client/node_modules/.package-lock.json ]; then
+          (cd /app/client && npm ci)
+        fi
+        exec "$$@"
+      - --
     command: [ "sh", "/app/client/scripts/dev-with-codegen.sh" ]
 
 volumes:

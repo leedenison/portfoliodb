@@ -59,6 +59,16 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - ../e2e:/e2e
+    # Bootstrap node_modules on first start (or after package-lock.json changes), then exec the command.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ ! -f /e2e/node_modules/.package-lock.json ] || [ /e2e/package-lock.json -nt /e2e/node_modules/.package-lock.json ]; then
+          (cd /e2e && npm ci)
+        fi
+        exec "$$@"
+      - --
     depends_on:
       - envoy
     profiles:

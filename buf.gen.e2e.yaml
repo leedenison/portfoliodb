@@ -5,6 +5,6 @@
 # Use: buf generate --template buf.gen.e2e.yaml --path proto/e2e
 version: v2
 plugins:
-  - local: e2e/node_modules/.bin/protoc-gen-es
+  - local: client/node_modules/.bin/protoc-gen-es
     out: e2e/gen
     opt: target=ts

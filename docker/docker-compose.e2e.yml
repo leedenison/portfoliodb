@@ -47,6 +47,8 @@ services:
     working_dir: /e2e
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     environment:
+      # Give npm a writable HOME when HOST_UID has no /etc/passwd entry (e.g. CI runner uid 1001).
+      HOME: /tmp
       E2E_BASE_URL: http://envoy:8080
       E2E_REDIS_URL: redis://redis:6379/0
       E2E_DATABASE_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb

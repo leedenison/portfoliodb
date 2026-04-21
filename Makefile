@@ -69,8 +69,6 @@ google-finance-cli: $(STAMP_DIR)/generate
 # Uses dev override: source mounts, host UID/GID, Air + next dev for live-reload.
 run: $(STAMP_DIR)/tools $(STAMP_DIR)/generate
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) up -d --build
-	@echo "Waiting for Postgres..."
-	@scripts/postgres-ready.sh "$(COMPOSE_DEV)"
 	@echo "Waiting for portfoliodb (gRPC)..."
 	@scripts/server-ready.sh "$(COMPOSE_DEV)"
 	@$(MAKE) init-db
@@ -113,8 +111,6 @@ integration-test-record: $(STAMP_DIR)/generate
 e2e-test: $(STAMP_DIR)/generate
 	@$(COMPOSE_E2E) --profile test down --remove-orphans 2>/dev/null; \
 		$(COMPOSE_E2E) up -d --build --force-recreate; \
-		echo "Waiting for Postgres..."; \
-		scripts/postgres-ready.sh "$(COMPOSE_E2E)"; \
 		echo "Waiting for portfoliodb (gRPC)..."; \
 		scripts/server-ready.sh "$(COMPOSE_E2E)"; \
 		HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright npx playwright test; \
@@ -132,8 +128,6 @@ e2e-test-record: $(STAMP_DIR)/generate
 	@if [ -z "$(VCR_SUITES)" ]; then echo "usage: make e2e-test-record VCR_SUITES=ingestion-flow,fetch-blocks"; exit 1; fi
 	@$(COMPOSE_E2E) --profile test down --remove-orphans 2>/dev/null; \
 		VCR_MODE=$(VCR_SUITES) $(COMPOSE_E2E) up -d --build --force-recreate; \
-		echo "Waiting for Postgres..."; \
-		scripts/postgres-ready.sh "$(COMPOSE_E2E)"; \
 		echo "Waiting for portfoliodb (gRPC)..."; \
 		scripts/server-ready.sh "$(COMPOSE_E2E)"; \
 		logdir="/tmp/e2e-record-$$(date +%Y%m%d-%H%M%S)"; mkdir -p "$$logdir"; \

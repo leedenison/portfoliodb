@@ -56,6 +56,8 @@ import (
 	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -171,7 +173,7 @@ func main() {
 	)
 
 	interceptorConfig := auth.InterceptorConfig{
-		SkipAuthPrefixes: append([]string{"/grpc.reflection."}, e2eSkipPrefixes()...),
+		SkipAuthPrefixes: append([]string{"/grpc.reflection.", "/grpc.health.v1."}, e2eSkipPrefixes()...),
 		NoSessionMethods: []string{
 			"/portfoliodb.auth.v1.AuthService/AuthUser",
 			"/portfoliodb.auth.v1.AuthService/AuthMachine",
@@ -325,6 +327,9 @@ func main() {
 	}))
 	ingestionv1.RegisterIngestionServiceServer(svc, ingestion.NewServer(database, queue))
 	reflection.Register(svc)
+	healthSrv := health.NewServer()
+	healthpb.RegisterHealthServer(svc, healthSrv)
+	healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	registerE2EService(svc)
 	lis, err := net.Listen("tcp", *grpcAddr)
 	if err != nil {

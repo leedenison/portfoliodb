@@ -23,3 +23,23 @@ services:
       interval: 2s
       timeout: 2s
       retries: 10
+
+  # Go test runner for db-test. Reuses the server dev image (go + cached module deps)
+  # and connects to the postgres service over the compose network.
+  tester:
+    build:
+      context: ..
+      dockerfile: docker/server/Dockerfile.dev
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GOCACHE: /app/.cache/go-build
+      GOMODCACHE: /app/.gomodcache
+      TEST_DATABASE_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb_test?sslmode=disable
+    volumes:
+      - ..:/app
+    working_dir: /app
+    entrypoint: []
+    command: ["true"]

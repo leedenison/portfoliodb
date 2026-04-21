@@ -4,21 +4,9 @@ gRPC-backed service for portfolio and transaction data. Backend is Go with Postg
 
 ## Prerequisites
 
-To develop and run this project you need:
-
 | Tool | Purpose |
 |------|---------|
-| **Go 1.25+** | Build and run the server; run tests; install buf and protoc plugins via `make tools`. |
-| **Node.js & npm** | Client app and `protoc-gen-es` for TypeScript codegen; install client deps via `make tools`. |
-| **Docker & Docker Compose** | Run PostgreSQL for local development and for the DB integration tests. |
-
-Install project tooling and dependencies (buf, protoc-gen-go, protoc-gen-go-grpc, and client npm packages) with:
-
-```bash
-make tools
-```
-
-Ensure `$(go env GOPATH)/bin` is on your `PATH` so `buf` and the protoc plugins are found.
+| **Docker & Docker Compose** | Required for local development, building, testing, and code generation. |
 
 ## Quick start
 

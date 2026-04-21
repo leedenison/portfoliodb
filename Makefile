@@ -9,6 +9,14 @@ COMPOSE_DEV  = docker compose -p portfoliodb-dev   -f docker/docker-compose.yml 
 COMPOSE_E2E  = docker compose -p portfoliodb-e2e   -f docker/docker-compose.yml -f docker/docker-compose.e2e.yml --env-file .env
 COMPOSE_TEST = docker compose -p portfoliodb-test  -f docker/docker-compose.test.yml
 
+# One-shot invocations of the dev server image for buf/go/go-generate/go-test/go-build.
+# --no-deps skips postgres/redis/envoy/client; bind mount + GOCACHE + GOMODCACHE come from the compose service definition.
+COMPOSE_TOOLS        = HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV)  run --rm --no-deps -T portfoliodb
+# One-shot invocations of the client image for TS codegen (needs node + buf). -w /app overrides the /app/client working_dir.
+COMPOSE_TOOLS_CLIENT = HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV)  run --rm --no-deps -T -w /app client
+# DB-backed tests run in the test stack so they share a network with postgres.
+COMPOSE_TEST_TESTER  = HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_TEST) run --rm -T tester
+
 # Git revision for Docker build args (works in both regular repos and worktrees).
 BUILD_REV ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 export BUILD_REV
@@ -28,15 +36,11 @@ $(STAMP_DIR):
 	@touch $@
 
 # --- tools stamp ---
-# Re-run when Go module deps or JS package manifests change.
-TOOLS_DEPS := go.mod go.sum client/package.json client/package-lock.json e2e/package.json e2e/package-lock.json
+# Re-run when JS package manifests change. Go tooling (buf, protoc plugins, grpc-health-probe)
+# is baked into docker/server/Dockerfile.dev; go modules resolve at `go test`/`go build` time.
+TOOLS_DEPS := client/package.json client/package-lock.json e2e/package.json e2e/package-lock.json
 
 $(STAMP_DIR)/tools: $(TOOLS_DEPS) | $(STAMP_DIR)
-	@command -v go >/dev/null 2>&1 || { echo "go is required; install from https://go.dev/dl"; exit 1; }
-	go install github.com/bufbuild/buf/cmd/buf@latest
-	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-	go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm ci
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_E2E) --profile test run --rm playwright npm ci
 	@touch $@
@@ -46,9 +50,9 @@ $(STAMP_DIR)/tools: $(TOOLS_DEPS) | $(STAMP_DIR)
 PROTO_FILES := $(shell find proto -name '*.proto' 2>/dev/null)
 GENERATE_DEPS := $(PROTO_FILES) buf.gen.go.yaml buf.gen.ts.yaml buf.gen.e2e.yaml server/db/db.go
 
-$(STAMP_DIR)/generate: $(GENERATE_DEPS) | $(STAMP_DIR)
-	buf generate --template buf.gen.go.yaml && buf generate --template buf.gen.ts.yaml --include-imports && buf generate --template buf.gen.e2e.yaml --include-imports --path proto/e2e --path proto/api
-	go generate ./server/db
+$(STAMP_DIR)/generate: $(GENERATE_DEPS) $(STAMP_DIR)/tools | $(STAMP_DIR)
+	$(COMPOSE_TOOLS) sh -c 'buf generate --template buf.gen.go.yaml && go generate ./server/db'
+	$(COMPOSE_TOOLS_CLIENT) sh -c 'buf generate --template buf.gen.ts.yaml --include-imports && buf generate --template buf.gen.e2e.yaml --include-imports --path proto/e2e --path proto/api'
 	@touch $@
 
 # PHONY aliases so 'make tools' and 'make generate' still work directly.
@@ -56,10 +60,10 @@ tools: $(STAMP_DIR)/tools
 generate: $(STAMP_DIR)/generate
 
 build: $(STAMP_DIR)/generate
-	go build -o portfoliodb ./server/cmd/portfoliodb
+	$(COMPOSE_TOOLS) sh -c 'CGO_ENABLED=0 go build -o portfoliodb ./server/cmd/portfoliodb'
 
 google-finance-cli: $(STAMP_DIR)/generate
-	go build -o bin/google-finance-cli ./cli/google
+	$(COMPOSE_TOOLS) sh -c 'CGO_ENABLED=0 go build -o bin/google-finance-cli ./cli/google'
 
 # Full stack (Postgres 5432, Redis 6379, portfoliodb, Envoy, client SPA) for local dev. SPA at localhost:8080.
 # Uses dev override: source mounts, host UID/GID, Air + next dev for live-reload.
@@ -84,27 +88,24 @@ stop:
 	$(COMPOSE_DEV) down
 
 server-test: $(STAMP_DIR)/generate
-	go test ./server/...
+	$(COMPOSE_TOOLS) go test ./server/...
 
 client-test: $(STAMP_DIR)/tools
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm run test:run
 
 db-test: $(STAMP_DIR)/generate
-	$(COMPOSE_TEST) up -d
-	@echo "Waiting for Postgres..."
-	@scripts/postgres-ready.sh "$(COMPOSE_TEST)"
-	TEST_DATABASE_URL="postgres://portfoliodb:portfoliodb@localhost:5433/portfoliodb_test?sslmode=disable" go test -v ./server/db/postgres/...
+	$(COMPOSE_TEST_TESTER) go test -v ./server/db/postgres/...
 	@$(COMPOSE_TEST) down
 
 integration-test: $(STAMP_DIR)/generate
-	go test -tags integration -v ./server/plugins/...
+	$(COMPOSE_TOOLS) go test -tags integration -v ./server/plugins/...
 
 integration-test-list:
 	@find server/plugins -name 'integration_test.go' | xargs -I{} dirname {} | sed 's|^server/plugins/||' | sort
 
 integration-test-record: $(STAMP_DIR)/generate
 	@if [ -z "$(VCR_SUITES)" ]; then echo "usage: make integration-test-record VCR_SUITES=eodhd/identifier,massive/price"; exit 1; fi
-	VCR_MODE=$(VCR_SUITES) go test -tags integration -v -count=1 ./server/plugins/...
+	$(COMPOSE_TOOLS) env VCR_MODE=$(VCR_SUITES) go test -tags integration -v -count=1 ./server/plugins/...
 
 # E2E tests: replay mode (VCR cassettes, dummy API keys, no rate limits).
 # Full stack at isolated ports: Postgres 5434, Redis 6381, Envoy 8081.
@@ -171,7 +172,7 @@ help:
 	@echo "portfoliodb Makefile"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make tools              Install Go tools and npm deps (auto-skipped if up-to-date)"
+	@echo "  make tools              Install npm deps into containers (auto-skipped if up-to-date)"
 	@echo "  make generate           Run protobuf + mock codegen (auto-skipped if up-to-date)"
 	@echo ""
 	@echo "Development:"

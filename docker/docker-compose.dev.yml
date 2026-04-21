@@ -42,6 +42,8 @@ services:
       NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
       # Poll for file changes so bind-mounted source updates are picked up (inotify often doesn't propagate into the container).
       CHOKIDAR_USEPOLLING: "true"
+      # Give npm a writable HOME when HOST_UID has no /etc/passwd entry (e.g. CI runner uid 1001).
+      HOME: /tmp
     volumes:
       - ..:/app
     working_dir: /app/client

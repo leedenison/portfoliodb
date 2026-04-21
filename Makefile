@@ -90,7 +90,7 @@ stop:
 server-test: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS) go test ./server/...
 
-client-test: $(STAMP_DIR)/tools
+client-test: $(STAMP_DIR)/generate
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm run test:run
 
 db-test: $(STAMP_DIR)/generate

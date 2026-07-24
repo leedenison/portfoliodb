@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/leedenison/portfoliodb/server/clock"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
@@ -50,7 +51,7 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
@@ -104,7 +105,7 @@ func TestPlugin_Identify_Stock_SplitTickerNormalized(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := NewPlugin(nil, nil, http.DefaultClient)
+			p := NewPlugin(nil, nil, http.DefaultClient, nil)
 			cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 			hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 			idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: tt.input}}
@@ -135,7 +136,7 @@ func TestPlugin_Identify_Stock_IndexReturnsNotIdentified(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "SPX"}}
@@ -147,7 +148,7 @@ func TestPlugin_Identify_Stock_IndexReturnsNotIdentified(t *testing.T) {
 }
 
 func TestPlugin_Identify_NoHints(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	_, _, err := p.Identify(context.Background(), nil, "", "", "", identifier.Hints{}, nil)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified, got %v", err)
@@ -155,7 +156,7 @@ func TestPlugin_Identify_NoHints(t *testing.T) {
 }
 
 func TestPlugin_Identify_NoTickerHint(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: "http://unused"})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
@@ -191,7 +192,7 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
@@ -236,7 +237,7 @@ func TestPlugin_Identify_Option_OCC_SpacePadded(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	// Pass OCC with space-padding (21-char format).
@@ -269,7 +270,7 @@ func TestPlugin_Identify_Option_NoUnderlyingTicker(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
@@ -281,7 +282,7 @@ func TestPlugin_Identify_Option_NoUnderlyingTicker(t *testing.T) {
 }
 
 func TestPlugin_Identify_Option_NoOCC(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: "http://unused"})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
@@ -298,7 +299,7 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
@@ -314,7 +315,7 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 }
 
 func TestPlugin_DefaultConfig(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	cfg := p.DefaultConfig()
 	var parsed configJSON
 	if err := json.Unmarshal(cfg, &parsed); err != nil {
@@ -326,7 +327,7 @@ func TestPlugin_DefaultConfig(t *testing.T) {
 }
 
 func TestPlugin_AcceptableInstrumentKinds(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	kinds := p.AcceptableInstrumentKinds()
 	if len(kinds) != 1 || !kinds[identifier.InstrumentKindSecurity] {
 		t.Errorf("AcceptableInstrumentKinds = %v, want {SECURITY}", kinds)
@@ -334,7 +335,7 @@ func TestPlugin_AcceptableInstrumentKinds(t *testing.T) {
 }
 
 func TestPlugin_AcceptableSecurityTypes(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	types := p.AcceptableSecurityTypes()
 	if !types[identifier.SecurityTypeHintStock] {
 		t.Error("expected STOCK to be acceptable")
@@ -353,6 +354,17 @@ func makeOCC(ticker string, expiry time.Time, pc string, strike int) string {
 	return fmt.Sprintf("%s%s%s%08d", ticker, expiry.Format("060102"), pc, strike*1000)
 }
 
+// refNow is a fixed "current time" for option tests that exercise the
+// expiry-horizon check. Pinning it via an injected Timer keeps those tests
+// deterministic regardless of when the suite runs. It sits just after the
+// 2025-12-19 expiry hardcoded by the fixed-OCC tests.
+var refNow = time.Date(2025, 12, 20, 0, 0, 0, 0, time.UTC)
+
+// fixedTimer returns a Timer pinned to now for deterministic horizon checks.
+func fixedTimer(now time.Time) *clock.Timer {
+	return &clock.Timer{NowFunc: func() time.Time { return now }}
+}
+
 func TestPlugin_Identify_Option_ExpiredBeyondHorizon(t *testing.T) {
 	apiCalled := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -362,11 +374,11 @@ func TestPlugin_Identify_Option_ExpiredBeyondHorizon(t *testing.T) {
 	defer srv.Close()
 
 	// OCC expired 200 days ago — beyond the default 180-day horizon.
-	expiry := time.Now().AddDate(0, 0, -200)
+	expiry := refNow.AddDate(0, 0, -200)
 	occ := makeOCC("AAPL", expiry, "C", 230)
 
 	ctr := &recordingCounter{counts: map[string]int{}}
-	p := NewPlugin(ctr, slog.Default(), http.DefaultClient)
+	p := NewPlugin(ctr, slog.Default(), http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
@@ -385,7 +397,7 @@ func TestPlugin_Identify_Option_ExpiredBeyondHorizon(t *testing.T) {
 
 func TestPlugin_Identify_Option_ExpiredWithinHorizon(t *testing.T) {
 	// OCC expired 90 days ago — within the default 180-day horizon.
-	expiry := time.Now().AddDate(0, 0, -90)
+	expiry := refNow.AddDate(0, 0, -90)
 	occ := makeOCC("AAPL", expiry, "C", 230)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -406,7 +418,7 @@ func TestPlugin_Identify_Option_ExpiredWithinHorizon(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
@@ -429,12 +441,12 @@ func TestPlugin_Identify_Option_CustomHorizon(t *testing.T) {
 	defer srv.Close()
 
 	// OCC expired 40 days ago — beyond a custom 30-day horizon.
-	expiry := time.Now().AddDate(0, 0, -40)
+	expiry := refNow.AddDate(0, 0, -40)
 	occ := makeOCC("AAPL", expiry, "P", 150)
 	horizon := 30
 
 	ctr := &recordingCounter{counts: map[string]int{}}
-	p := NewPlugin(ctr, slog.Default(), http.DefaultClient)
+	p := NewPlugin(ctr, slog.Default(), http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{
 		MassiveBaseURL:           srv.URL,
 		ExpiredDerivativeHorizon: &horizon,
@@ -456,7 +468,7 @@ func TestPlugin_Identify_Option_CustomHorizon(t *testing.T) {
 
 func TestPlugin_Identify_Option_FutureExpiry(t *testing.T) {
 	// OCC that hasn't expired yet — should always call API.
-	expiry := time.Now().AddDate(0, 3, 0)
+	expiry := refNow.AddDate(0, 3, 0)
 	occ := makeOCC("AAPL", expiry, "C", 300)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -477,7 +489,7 @@ func TestPlugin_Identify_Option_FutureExpiry(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
@@ -492,7 +504,7 @@ func TestPlugin_Identify_Option_FutureExpiry(t *testing.T) {
 }
 
 func TestPlugin_DefaultConfig_IncludesHorizon(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	cfg := p.DefaultConfig()
 	var parsed configJSON
 	if err := json.Unmarshal(cfg, &parsed); err != nil {

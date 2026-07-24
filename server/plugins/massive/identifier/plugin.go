@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/leedenison/portfoliodb/server/clock"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
@@ -36,6 +37,7 @@ type Plugin struct {
 	counter    telemetry.CounterIncrementer
 	log        *slog.Logger
 	httpClient *http.Client
+	timer      *clock.Timer
 
 	mu            sync.Mutex
 	client        *client.Client
@@ -43,9 +45,10 @@ type Plugin struct {
 	expiryHorizon time.Duration
 }
 
-// NewPlugin returns a plugin. counter and log are optional (nil for tests).
-func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client) *Plugin {
-	return &Plugin{counter: counter, log: log, httpClient: httpClient}
+// NewPlugin returns a plugin. counter, log, and timer are optional (nil for
+// tests). A nil timer delegates to time.Now().
+func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client, timer *clock.Timer) *Plugin {
+	return &Plugin{counter: counter, log: log, httpClient: httpClient, timer: timer}
 }
 
 func (p *Plugin) DisplayName() string { return "Massive" }
@@ -185,7 +188,7 @@ func (p *Plugin) identifyOption(ctx context.Context, c *client.Client, hints []i
 	}
 	if p.expiryHorizon > 0 {
 		if expiry, ok := derivative.OCCExpiry(compact); ok {
-			if time.Since(expiry) > p.expiryHorizon {
+			if p.timer.Now().Sub(expiry) > p.expiryHorizon {
 				if p.log != nil {
 					p.log.InfoContext(ctx, "massive: skipping expired option beyond horizon",
 						"occ", compact, "expiry", expiry.Format("2006-01-02"),

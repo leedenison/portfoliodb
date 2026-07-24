@@ -188,7 +188,7 @@ func main() {
 	pluginRegistry := identifier.NewRegistry()
 	openfigiExchMap := openfigiexchmap.New()
 	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openfigi"), pluginHTTPClient, openfigiExchMap))
-	pluginRegistry.Register(massiveplugin.PluginID, massiveplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive"), pluginHTTPClient))
+	pluginRegistry.Register(massiveplugin.PluginID, massiveplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive"), pluginHTTPClient, nil))
 	exchMap := exchangemap.New()
 	eodhdPlugin := eodhdplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/eodhd"), pluginHTTPClient, exchMap)
 	pluginRegistry.Register(eodhdplugin.PluginID, eodhdPlugin)

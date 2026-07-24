@@ -65,7 +65,7 @@ func TestIntegration_Massive_Identify(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "massive/identifier")
 
-			p := NewPlugin(nil, nil, httpClient)
+			p := NewPlugin(nil, nil, httpClient, fixedTimer(refNow))
 			cfg, err := json.Marshal(configJSON{
 				MassiveAPIKey: apiKey,
 			})

@@ -547,7 +547,7 @@ CREATE TRIGGER trg_default_split_adjusted_eod_price
 -- pre-split shares trading at pre-split prices. With this clause, future-
 -- dated splits sit inert in stock_splits until their ex_date passes, at
 -- which point the next recompute pass picks them up. The corporate event
--- daily scheduler (see docs/corporate-events.md) is responsible for
+-- daily scheduler (see docs/spec/corporate-events.md) is responsible for
 -- triggering that recompute when ex_dates cross.
 --
 -- Returns 1 when no effective future splits are known, so a row with no

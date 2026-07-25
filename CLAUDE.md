@@ -38,10 +38,10 @@ The PortfolioDB service implements a database abstraction layer (in **server/db*
 ## Key Documentation
 
 * docs/layout.md \- Repository directory layout (where each component lives)  
-* docs/portfoliodb-spec.md \- Full specification  
+* docs/spec/portfoliodb-spec.md \- Full specification (behaviour); sub-specs live alongside it in docs/spec/  
 * docs/issues/ \- Milestones and issues (see docs/issues/milestones.md); governed by the `issue-tracker` skill
 
-Important: Before implementing any feature or making architectural decisions, consult docs/portfoliodb-spec.md to ensure alignment with the project specification. The spec contains detailed requirements, expected behaviors, and design decisions that should guide implementation.
+Important: Before implementing any feature or making architectural decisions, consult docs/spec/portfoliodb-spec.md to ensure alignment with the project specification. The spec contains detailed requirements, expected behaviors, and design decisions that should guide implementation.
 
 ## Pull Request Guidelines
 
@@ -77,9 +77,9 @@ Whenever you begin work in a new worktree you should:
 
 ## User Interface
 
-The informantion architecture of the user interface is described in docs/ui/information-architecture.md.  It describes key concepts for users (and admin users), how they relate to each other, the relative importance they carry for the user and gives the example of how the information architecture should impact global navigation.
+The informantion architecture of the user interface is described in docs/spec/information-architecture.md.  It describes key concepts for users (and admin users), how they relate to each other, the relative importance they carry for the user and gives the example of how the information architecture should impact global navigation.
 
-The CSV format specification for transaction uploads is documented in docs/csv-format.md.
+The CSV format specification for transaction uploads is documented in docs/spec/csv-format.md.
 
 Use text placeholders for unimplemented functionality as development progresses.  It should always be possible to see where UI elements will be displayed even if they are not yet implemented.
 

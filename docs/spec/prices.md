@@ -165,7 +165,7 @@ Each component should be independently testable:
 FX rates are stored in `eod_prices` using synthetic FX pair instruments with
 `asset_class = 'FX'` and identifier type `FX_PAIR` (value like `EURUSD`).
 The `close` column stores the exchange rate (how many USD per 1 unit of base
-currency). See `docs/display-currency.md` for the full design.
+currency). See `display-currency.md` for the full design.
 
 This means `PriceCoverage`, `UpsertPrices`, and the range utilities work
 without modification for FX data -- an FX pair is just another instrument

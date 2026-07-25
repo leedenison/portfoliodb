@@ -1,0 +1,8 @@
+---
+status: open
+title: Admin UI (or API) for manual price entry when no automatic source is available
+milestone: M08
+dependencies: [0022]
+---
+
+Admin UI (or API) for manual price entry when no automatic source is available.

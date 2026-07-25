@@ -37,7 +37,7 @@ The price cache.
 
 All components are implemented as Go functions in the database abstraction layer (`server/db`). The `PriceCacheDB` interface in `server/db/db.go` defines the contract; the Postgres implementation lives in `server/db/postgres/price_cache.go`.
 
-Date ranges use the half-open `[From, To)` convention with `time.Time` values at midnight UTC, matching PostgreSQL's `daterange` default.
+Date ranges use the half-open `[From, To)` convention with `time.Time` values at midnight UTC, matching PostgreSQL's `daterange` default (see adr/0007-calendar-day-valuation.md).
 
 ### Types
 
@@ -165,11 +165,10 @@ Each component should be independently testable:
 FX rates are stored in `eod_prices` using synthetic FX pair instruments with
 `asset_class = 'FX'` and identifier type `FX_PAIR` (value like `EURUSD`).
 The `close` column stores the exchange rate (how many USD per 1 unit of base
-currency). See `display-currency.md` for the full design.
-
-This means `PriceCoverage`, `UpsertPrices`, and the range utilities work
-without modification for FX data -- an FX pair is just another instrument
-with prices.
+currency). An FX pair is just another instrument with prices, so
+`PriceCoverage`, `UpsertPrices`, and the range utilities work without
+modification for FX data. See `display-currency.md` for the full design and
+adr/0006-fx-as-synthetic-instruments.md for the rationale.
 
 ---
 
@@ -244,7 +243,7 @@ forex pairs in the same format as equities.
 ## Out of scope
 
 - Actual API fetching / HTTP calls to data providers.
-- Trading calendar / business day logic (we work with calendar days throughout).
+- Trading calendar / business day logic; the system works in calendar days (see adr/0007-calendar-day-valuation.md).
 - User interface.
 - Authentication or multi-tenancy.
 - Provider selection logic (choosing *which* provider to use for a given instrument). This will be handled by price plugins.

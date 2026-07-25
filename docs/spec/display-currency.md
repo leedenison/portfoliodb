@@ -31,7 +31,8 @@ on the next valuation request.
 
 FX rates are stored as synthetic instruments in the `instruments` table and
 their daily rates go into `eod_prices`, reusing the entire price cache
-pipeline (gap detection, coverage tracking, gapfilling, plugin fetching).
+pipeline (gap detection, coverage tracking, gapfilling, plugin fetching). See
+adr/0006-fx-as-synthetic-instruments.md.
 
 Each FX pair instrument has:
 
@@ -55,7 +56,7 @@ currencies.
 
 All FX pairs are stored with USD as the quote currency (BASE/USD). This means
 only one rate per foreign currency is stored, regardless of how many different
-display currencies users choose.
+display currencies users choose (see adr/0006-fx-as-synthetic-instruments.md).
 
 ### Conversion formulas
 

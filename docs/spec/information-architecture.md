@@ -1,6 +1,6 @@
 # Information Architecture
 
-The informantion architecture describes key concepts for users (and admin users), how they relate to each other, the relative importance they carry for the user and gives the example of how the information architecture should impact global navigation.  However, these concepts should be used to inform the way user interfaces are presented to users across the application.
+The informantion architecture describes key concepts for users (and admin users), how they relate to each other, the relative importance they carry for the user and gives the example of how the information architecture should impact global navigation.  However, these concepts should be used to inform the way user interfaces are presented to users across the application.  For the reasoning behind concept visibility and the navigation split, see adr/0012-ui-concept-visibility.md.
 
 ## Key User Concepts
 
@@ -14,7 +14,7 @@ The informantion architecture describes key concepts for users (and admin users)
      - **Holdings Checkpoint** is a point in time when the user specifies absolute values held for all instruments.  Users can provide a checkpoint by reading off the current values in their accounts without needing to do any arithmetic.  The system can calculate the required initialization transactions from the checkpoint.  This concept is not prominent for the user and should only be presented to the user when absolutely necessary.
      - **Uploads** are the jobs related to the uploads of transaction data that the user has provided in the past.  Users are most interested in whether the uploads succeeded and any errors associated with failures.
         + **Errors** are the errors associated with processing a transaction.  Identification errors and validation errors are presented to the user - ideally with links directly to UI that allows corrective action, or with a helpful, actionable error message. 
-     - **Trade Notifications** are the single transaction uploads which are likely to have been automated.  We keep them separate from the uploads since the user is likely to conceive of automated uploads as distinct from manual uploads.
+     - **Trade Notifications** are the single transaction uploads which are likely to have been automated.  They are kept separate from the (manual) uploads.
 
  ## Key Admin User Concepts
 
@@ -63,7 +63,7 @@ The user menu is a dropdown anchored to the user's email address on the right si
 | **Admin** | Link (`/admin`) | Admin role only |
 | **Log out** | Action | Always |
 
- * **Uploads** shows all uploads regardless of the selected portfolio, since a single upload can contain transactions spanning multiple portfolios.  However, when a portfolio other than "All Holdings" is selected, rows containing transactions relevant to that portfolio should be visually highlighted.  Note: the upload flow itself is a modal launched from the Holdings page, not a separate route; the `/uploads` page is the upload history list.
+ * **Uploads** shows all uploads regardless of the selected portfolio.  However, when a portfolio other than "All Holdings" is selected, rows containing transactions relevant to that portfolio should be visually highlighted.  Note: the upload flow itself is a modal launched from the Holdings page, not a separate route; the `/uploads` page is the upload history list.
  * **Admin** navigates to the admin area.  Only visible to users with the admin role.
 
 ### Left Sidebar

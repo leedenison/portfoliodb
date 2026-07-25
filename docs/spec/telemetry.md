@@ -15,7 +15,7 @@
   - **Segment 1 - (n - 2) (subsystem)**: The plugin or server subsystem (e.g. `instruments.resolution.totals`, `instruments.description.openai`, `instruments.identification.openfigi`, `instruments.identification.massive`).
   - **Segment (n - 1) (operation)**: The specific operation or feature within that subsystem (e.g. `ticker_mapping`, `ticker_search`, `ticker_extraction`, `ticker_metadata`).
   - **Segment (n) (outcome)**: The specific metric or outcome (e.g. `succeeded`, `failed`, `rate_limit`, `prompt_tokens`).
-- This keeps discovery simple, supports grouping in the admin UI, and ensures consistency across plugins.
+- See adr/0009-telemetry-and-logging.md for why counters use this convention.
 
 ### Admin page
 
@@ -77,7 +77,7 @@
 
 ### Counter interface (injected into plugins)
 
-- Plugins must **not** depend on Redis. The server injects a small counter interface so that plugins can report metrics without importing Redis or the telemetry implementation.
+- Plugins must **not** depend on Redis. The server injects a small counter interface so that plugins can report metrics without importing Redis or the telemetry implementation (see adr/0009-telemetry-and-logging.md).
 - **Interface**: A single method, e.g. `Incr(name string)` or `Incr(ctx, name string)`, where `name` is the counter suffix (e.g. `instruments.identification.openfigi.mapping.succeeded`). The implementation (in the server or a shared telemetry package) prepends `portfoliodb:counters:` and calls Redis `INCR`.
 - **Wiring**: When the server constructs or invokes plugins (e.g. identifier registry, ingestion worker), it passes an implementation of this interface. The ingestion worker also receives an implementation (backed by the same Redis client) for `instruments.resolution.totals.identify.attempts`. The OpenFIGI plugin receives the interface and calls it from `openfigi.go` after each Mapping/Search.
 
@@ -92,7 +92,7 @@
 ### Overview
 
 - **Output**: Standard out (stdout).
-- **Level**: Controlled by an environment variable (e.g. `LOG_LEVEL`). For now use **debug** as the default so that OpenFIGI and identification paths are visible during debugging.
+- **Level**: Controlled by an environment variable (e.g. `LOG_LEVEL`). The default is currently **debug** (see adr/0009-telemetry-and-logging.md).
 - **Behaviour**: When OpenFIGI is invoked (mapping or search), log at debug (or info) that we're calling the API (and optionally the input, e.g. ticker or query). On success, log success; on error, log the error (message and optionally status code / response body summary).
 
 ### LOG_LEVEL
@@ -119,4 +119,4 @@
 
 ### Dependencies
 
-- Prefer **stdlib only** for T15: `log/slog` (Go 1.21+) is sufficient. No need for a third-party logging library unless we want structured JSON output to stdout; slog can do JSON or text.
+- Use the standard library `log/slog` (Go 1.21+); no third-party logging library (see adr/0009-telemetry-and-logging.md).

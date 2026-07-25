@@ -8,11 +8,8 @@
 - Enforce authorization (authz) in the backend per-RPC using gRPC interceptors.
 - Restrict account creation (CreateUser) to users whose verified email matches an allowlist pattern.
 
-## Non-goals
-
-- Do not use Envoy JWT/Auth filters or external authz (ext_authz) at the edge.
-- No refresh token handling on the SPA.
-- No multi-provider auth (Google-only).
+The rationale for opaque server-side sessions, backend-enforced authz (no Envoy
+edge auth), and Google-only auth is in (see adr/0001-authn-authz-architecture.md).
 
 ## High-level Architecture
 

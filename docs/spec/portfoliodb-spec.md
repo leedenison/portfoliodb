@@ -16,7 +16,7 @@ In a portfolio the holdings information is owned by the user.  Instrument identi
 
 ## Authentication and authorization
 
-See [docs/auth.md](docs/auth.md) for authentication, session bootstrap, and authorization.
+See [auth.md](auth.md) for authentication, session bootstrap, and authorization.
 
 ## Data Ingestion
 
@@ -45,7 +45,7 @@ The client supports uploading transactions in several formats:
 
 Each transaction modifies holding data for a specific canonical instrument (and possibly modifies a cash holding).  So an instrument must be associated with every transaction.
 
-Every valid transaction must end up with an **instrument_id**: either from plugin resolution or from a **broker-description-only** instrument (an instrument whose only identifier is that source’s description). Truly unidentified transactions must not exist and are considered a fatal validation error.  See docs/identifiers.md.
+Every valid transaction must end up with an **instrument_id**: either from plugin resolution or from a **broker-description-only** instrument (an instrument whose only identifier is that source’s description). Truly unidentified transactions must not exist and are considered a fatal validation error.  See identifiers.md.
 
 ### Transaction description vs instrument name
 
@@ -57,9 +57,9 @@ These two values serve different purposes and should not be conflated.  When dis
 
 ## Identifying Instruments
 
-Identifying an instrument means associating the canonical **instrument** (security master) with zero or more **identifiers** (opaque type + domain + value, e.g. ISIN, CUSIP, EXCHANGE + TICKER, broker description, etc).  The process of identifying instruments happens during transaction upload processing and periodically (see docs/identifiers.md).
+Identifying an instrument means associating the canonical **instrument** (security master) with zero or more **identifiers** (opaque type + domain + value, e.g. ISIN, CUSIP, EXCHANGE + TICKER, broker description, etc).  The process of identifying instruments happens during transaction upload processing and periodically (see identifiers.md).
 
-Exchange codes on MIC_TICKER identifiers are always stored as **operating MICs** (segment MICs are normalized on storage). Provider-specific identifiers (e.g. segment MICs for Polygon, EODHD exchange codes, venue FIGIs) are stored separately and used by the originating provider's price/event fetcher. See docs/identifiers.md for details.
+Exchange codes on MIC_TICKER identifiers are always stored as **operating MICs** (segment MICs are normalized on storage). Provider-specific identifiers (e.g. segment MICs for Polygon, EODHD exchange codes, venue FIGIs) are stored separately and used by the originating provider's price/event fetcher. See identifiers.md for details.
 
 ### Transaction ingestion: resolution cases
 
@@ -116,7 +116,7 @@ flowchart TD
 | Txs with **description + hints only** | Return identifiers | Resolve (DB or plugins) | Canonical instrument; (source, description) stored. |
 | Txs with **description + hints only** | Return identifiers | Do **not** resolve / timeout / unavailable | Broker-description-only; error "broker description only" or "plugin timeout" / "plugin unavailable". |
 
-Other behaviours (see docs/identifiers.md): conflicting client identifiers → validation error; same (source, description) in batch → resolved once and cached; instrument merge when plugins link two existing instruments.
+Other behaviours (see identifiers.md): conflicting client identifiers → validation error; same (source, description) in batch → resolved once and cached; instrument merge when plugins link two existing instruments.
 
 ## Fetching Prices
 
@@ -162,7 +162,7 @@ These transaction types need only be interpreted enough to determine the change 
 
 ## User Interface
 
-The user interface is specified in separate files \- see docs/ui/\*.md
+The user interface information architecture is specified in information-architecture.md.
 
 ## Security
 
@@ -177,7 +177,7 @@ API integrations are likely to be paid for and have quota limits.  PortfolioDB s
 
 ## Charting
 
-The front end uses Recharts for data visualization (e.g. portfolio performance charts). Design decisions are documented in docs/performance.md.
+The front end uses Recharts for data visualization (e.g. portfolio performance charts). Design decisions are documented in performance.md.
 
 ## Datamodel Migration
 

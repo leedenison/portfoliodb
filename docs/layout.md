@@ -84,14 +84,14 @@ Go code for the PortfolioDB command line tools.
 
 ## docs/
 
-- **docs/portfoliodb-spec.md**  
-  Full product and system specification. Consult before features or architectural decisions.
-- **docs/plan.md**  
-  Project plan, milestones, and tasks.
+- **docs/spec/**  
+  Product and system specification (behaviour only). `docs/spec/portfoliodb-spec.md` is the top-level spec; consult before features or architectural decisions. Sub-specs cover auth, identifiers, prices, corporate events, UI information architecture, etc.
+- **docs/issues/**  
+  Issue tracker: `milestones.md` (milestone labels) plus one `NNNN-slug.md` file per issue. Governed by the `issue-tracker` skill.
+- **docs/adr/**  
+  Architecture decision records (`NNNN-slug.md`): why decisions were made, kept out of the spec. Governed by the `adr` skill.
 - **docs/layout.md**  
   This file; single source of truth for directory layout.
-- **docs/ui/*.md**  
-  User interface specifications (screens, flows, placeholders).
 
 ---
 

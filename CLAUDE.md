@@ -40,6 +40,7 @@ The PortfolioDB service implements a database abstraction layer (in **server/db*
 * docs/layout.md \- Repository directory layout (where each component lives)  
 * docs/spec/portfoliodb-spec.md \- Full specification (behaviour); sub-specs live alongside it in docs/spec/  
 * docs/issues/ \- Milestones and issues (see docs/issues/milestones.md); governed by the `issue-tracker` skill
+* docs/adr/ \- Architecture decision records (why decisions were made, kept out of the spec); governed by the `adr` skill
 
 Important: Before implementing any feature or making architectural decisions, consult docs/spec/portfoliodb-spec.md to ensure alignment with the project specification. The spec contains detailed requirements, expected behaviors, and design decisions that should guide implementation.
 

@@ -1,11 +1,7 @@
-# Performance Chart Design Decisions
+# Portfolio Valuation and Performance Chart
 
-## Charting library: Recharts
-
-Recharts was chosen for its React-native API (composable components rather than
-imperative D3 wrappers), small bundle size, and built-in responsive container.
-It handles time-series data well and supports custom tooltip/dot renderers needed
-for the unpriced-instrument indicators.
+The front end charts portfolio value over time with Recharts (see
+adr/0008-recharts-charting.md).
 
 ## Valuation computation
 
@@ -29,19 +25,16 @@ The final SELECT joins holdings with prices and aggregates
 `time_bucket_gapfill('1 day', price_date, dateFrom, dateTo)` generates a row
 for every date in the range per instrument, even when `eod_prices` has no row
 (weekends, holidays). `locf(close)` forward-fills the last known closing price
-into those generated gap rows. This gives a continuous price series without
-application-level logic -- a holding valued at $100 on Friday correctly shows
-$100 on Saturday/Sunday rather than NULL.
-
-Both are core TimescaleDB functions (not toolkit), available in the
-`timescale/timescaledb:latest-pg16` image used by the project.
+into those generated gap rows, giving a continuous daily price series. For why
+the system works in calendar days and forward-fills rather than using a trading
+calendar, see adr/0007-calendar-day-valuation.md.
 
 ## Display currency conversion
 
-The valuation computation described above sums `qty * close` without regard
-for currency. When a portfolio holds instruments denominated in different
-currencies, this sum is invalid. Display currency conversion fixes this by
-applying an FX rate to each holding before aggregation.
+The valuation computation above sums `qty * close` in each instrument's native
+currency. Display currency conversion applies an FX rate to each holding before
+aggregation so a mixed-currency portfolio sums to a single meaningful figure. FX
+rates are stored as synthetic instruments (see adr/0006-fx-as-synthetic-instruments.md).
 
 ### FX rate CTE
 
@@ -98,8 +91,8 @@ chart when any point has unpriced instruments.
 ## Period selection
 
 Periods (3M, 6M, 1Y, 2Y, 5Y) are calendar-based, computed relative to today.
-The server returns data for all calendar dates, not just trading days, which
-gives a uniform x-axis.
+The server returns data for all calendar dates, not just trading days (see
+adr/0007-calendar-day-valuation.md).
 
 ## Weekend and holiday treatment
 

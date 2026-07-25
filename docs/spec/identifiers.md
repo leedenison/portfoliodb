@@ -14,9 +14,7 @@ Most identifiers (eg. ISIN, CUSIP) consist of an identifier_type and an opaque v
 
 MIC_TICKER domains are always stored as **operating MICs** (ISO 10383 mic_type = 'O'). When a segment MIC (mic_type = 'S') is supplied -- whether from a data provider, CSV import, or API call -- it is silently normalized to the corresponding operating MIC via the `exchanges` table before storage. For example, XNGS (NASDAQ/NGS Global Select Market, a segment) is normalized to XNAS (NASDAQ, the operating MIC).
 
-This normalization ensures that the same instrument is always identified by the same MIC regardless of which provider or segment returned it. Different providers may disagree about which segment is "primary" for an instrument; normalizing to the operating MIC eliminates this ambiguity.
-
-Consistency checks between identifier plugins and between import hints and resolved instruments compare exchanges at the operating MIC level. Two plugins returning different segment MICs for the same operating exchange are considered consistent.
+Consistency checks between identifier plugins and between import hints and resolved instruments compare exchanges at the operating MIC level. Two plugins returning different segment MICs for the same operating exchange are considered consistent. See adr/0003-mic-operating-mic-normalization.md.
 
 ### Provider-specific identifiers
 
@@ -57,7 +55,7 @@ Clients may also pass known, external identifiers for a transaction (eg. `"ISIN"
 
 ### Extract Identifiers from Transaction
 
-If a client supplies one or more external identifiers with a transaction then the identifier extraction step is skipped and the system resolves instruments from the supplied identifiers.  The transaction is associated with the resolved instrument.  **No (source, NULL, description) identifier is stored in this case since we are relying on the authority of the user.** A later upload with the same source and description but without those identifiers will go through description extraction and resolution and may resolve to a different instrument.
+If a client supplies one or more external identifiers with a transaction then the identifier extraction step is skipped and the system resolves instruments from the supplied identifiers.  The transaction is associated with the resolved instrument.  **No (source, NULL, description) identifier is stored in this case** (the client's identifiers are authoritative; see adr/0004-instrument-resolution-and-merge.md). A later upload with the same source and description but without those identifiers will go through description extraction and resolution and may resolve to a different instrument.
 
 If the client supplies conflicting external identifiers which resolve to more than one instrument it is considered a validation error.
 
@@ -69,13 +67,13 @@ Extraction failure is treated as an identity lookup failure.  **A (source, NULL,
 
 When a client supplies external identifier hints for a transaction, or when a description plugin has successfully extracted one or more identifier hints from a transaction description, the identifier plugins will attempt to look up canonical instrument metadata and canonical identifiers for the instrument.
  
-Resolution order: (1) DB lookup by (source, NULL (domain), instrument_description) or by existing identifiers; (2) within the current batch, use a cache so the same (source, description) is resolved once; (3) only if still unresolved, call enabled plugins (passing broker, source, instrument_description, currency hint, and identifier hints). This avoids unnecessary or duplicate calls to expensive (e.g. quota-managed) plugins.
+Resolution order: (1) DB lookup by (source, NULL (domain), instrument_description) or by existing identifiers; (2) within the current batch, use a cache so the same (source, description) is resolved once; (3) only if still unresolved, call enabled plugins (passing broker, source, instrument_description, currency hint, and identifier hints). See adr/0004-instrument-resolution-and-merge.md.
 
 If no plugin resolves a given (source, instrument_description), the system ensures an instrument exists with at least that source identifier and attaches it to the transaction and adds to the status counter. Plugin failures (e.g. timeout, unavailable) are handled the same way: persist the transaction with the broker-description-only instrument and record an identification error; do not fail the whole job. Identification reporting (e.g. GetJob, UI) must distinguish between description extraction failure (no description plugin returned identifiers), identifier resolution failure (extraction succeeded or client supplied identifiers but no identifier plugin resolved), and plugin failure (e.g. timeout, unavailable).
 
 **Instrument merge**: When a new identifier would link two previously distinct instruments (e.g. same ISIN), the system must merge them: choose a survivor, update all transaction references, move identifiers to the survivor, delete the merged-away instrument. When **multiple** identifiers returned for the same logical security resolve to **more than one** existing instrument (e.g. instrument A has ISIN 1, instrument B has CUSIP 1, and a plugin returns both identifiers for one security), the system **detects** this and **merges** those instruments eagerly during resolution. After merge, a single canonical instrument remains; the survivor is chosen as follows: the instrument with more identifiers wins; if tied, the one with older `created_at` (further tie-breaker may be non-deterministic). All updates (transaction references, identifier moves, deletion of the merged-away instrument) happen in one database transaction; implementations may batch the updates within that transaction for scale.
 
-Merge runs **eagerly** when such a conflict is detected during the resolution step (ingestion path). The same merge logic can be reused by a future periodic job; the job’s scheduling and implementation are out of scope for the initial milestone. When a plugin returns identifiers that match an **existing** instrument, the **identifier is the source of truth**: attach the transaction to that instrument and do not overwrite its canonical fields with the plugin’s output.
+Merge runs **eagerly** when such a conflict is detected during the resolution step (ingestion path); see adr/0004-instrument-resolution-and-merge.md. When a plugin returns identifiers that match an **existing** instrument, the **identifier is the source of truth**: attach the transaction to that instrument and do not overwrite its canonical fields with the plugin’s output.
 
 **Duplicate (source, instrument_description) in same batch with different plugin results**: Resolve each (source, instrument_description) once per batch and cache the result. All transactions in the batch with that key receive the same instrument_id. No per-transaction plugin call for the same key—ensures consistency and avoids extra plugin cost.
 

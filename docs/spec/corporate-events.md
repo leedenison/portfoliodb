@@ -26,18 +26,18 @@ Three sources feed `stock_splits` and `cash_dividends`. All three write through 
 | Admin CSV / JSON import | `"import"` | `ImportCorporateEvents` admin RPC |
 | Broker statement parsers (planned) | `"import"` | Client-side per-broker parsers; submit through `ImportCorporateEvents` |
 
-The broker statement parsers are deferred follow-up work. They live entirely in client converters; broker tx logs that contain SPLIT entries should be parsed by the converter for the broker's specific format and submitted via `ImportCorporateEvents`. The server-side `TX_TYPE=SPLIT` filter in `server/service/ingestion/hints.go` continues to drop SPLIT txs at ingestion — corporate events are admin-only shared data and are never derived from user txs at ingestion time.
+The broker statement parsers are deferred follow-up work. They live entirely in client converters; broker tx logs that contain SPLIT entries should be parsed by the converter for the broker's specific format and submitted via `ImportCorporateEvents`. The server-side `TX_TYPE=SPLIT` filter in `server/service/ingestion/hints.go` continues to drop SPLIT txs at ingestion; corporate events are admin-only shared data, never derived from user txs (see adr/0005-corporate-events-design.md).
 
 ## Fetch model
 
 The corporate event fetcher worker (`server/corporateevents/worker.go`) is structurally identical to the price and inflation fetchers: it sits idle until a non-blocking signal arrives on a trigger channel, then runs one cycle. A cycle does the following per held instrument:
 
-1. Compute the required date range. Today this is `[earliest_tx_date, today + lookahead]` where the lookahead defaults to 30 days. **The lookahead exists for cash dividends only** — it lets the database hold an upcoming-dividends calendar pulled from provider responses. For stock splits the recompute pass ignores any future-dated rows (see [Adjustment](#adjustment)), so storing them early is harmless.
+1. Compute the required date range. Today this is `[earliest_tx_date, today + lookahead]` where the lookahead defaults to 30 days. The lookahead applies to cash dividends only, letting the database hold an upcoming-dividends calendar; the split recompute ignores future-dated rows (see [Adjustment](#adjustment) and adr/0005-corporate-events-design.md).
 2. Subtract `corporate_event_coverage` rows for the instrument (across all plugins) from the required range to compute missing intervals.
-3. For each missing interval, walk plugins in precedence order. The first plugin to return successfully (including an empty result) records a coverage row tagged with its plugin id and stops the precedence walk for that interval. Empty is treated as authoritative because the normal answer for most ticker/date windows is "nothing happened".
+3. For each missing interval, walk plugins in precedence order. The first plugin to return successfully (including an empty result) records a coverage row tagged with its plugin id and stops the precedence walk for that interval. An empty result is treated as authoritative coverage (see adr/0005-corporate-events-design.md).
 4. After upserting any new splits for the instrument, call `RecomputeSplitAdjustments` for that instrument so the `split_adjusted_*` columns reflect the new state.
 
-The fetch is **per-instrument**, not bulk-by-exchange. Both Massive and EODHD support per-symbol filtering for splits and dividends, so a per-ticker loop is the natural fit and the API surface across providers is symmetric.
+The fetch is **per-instrument**, not bulk-by-exchange (see adr/0005-corporate-events-design.md).
 
 ### What triggers a fetch today
 
@@ -47,14 +47,7 @@ Only an explicit call to the `TriggerCorporateEventFetch` admin RPC, or the in-p
 
 The corporate event subsystem needs a periodic in-process scheduler so that newly-effective splits and freshly-announced events get picked up automatically. This section is the spec for that work; nothing in this section is implemented yet.
 
-### Why it's needed
-
-Two distinct problems show up without a scheduler:
-
-1. **Newly-announced events.** Providers publish a split or dividend the moment it is announced, often weeks before the ex_date. A user who imports a portfolio in January and never triggers a manual fetch will not see the AAPL split announced in May until they remember to call the trigger RPC.
-2. **Newly-effective splits.** Even with the future-date guard in `split_factor_at`, a future-dated split sitting in `stock_splits` does not produce any `split_adjusted_*` change until its ex_date passes. Today, nothing in the codebase fires on the day an ex_date crosses. The recompute is only invoked when new splits are upserted; if the split landed in the database 30 days ago via the lookahead, no upsert happens on the actual ex_date and the recompute never runs.
-
-A daily scheduler that fires the trigger channel once a day, plus a recompute pass after the fetch cycle, fixes both.
+The scheduler exists so newly-effective splits and freshly-announced events are picked up automatically without a manual trigger (see adr/0005-corporate-events-design.md).
 
 ### Required behaviour
 
@@ -72,7 +65,7 @@ The cadence and fire time should be configurable but with sensible defaults:
 - `daily_fetch_hour_utc` — defaults to 2 (02:00 UTC).
 - `daily_fetch_enabled` — defaults to true.
 
-These belong in the corporate event plugin config or a top-level scheduler config — not in any individual plugin's JSON. The simplest place is a small new section of the existing config table or a hard-coded constant pair in `server/corporateevents` until we have a strong reason to expose them via the admin UI.
+These belong in a top-level scheduler config, not any individual plugin's JSON (see adr/0005-corporate-events-design.md).
 
 ### Skip conditions
 
@@ -91,9 +84,11 @@ Both checks already exist as early returns in the worker, so the scheduler can c
 
 ### Out of scope
 
-- Smart "next event date" scheduling (only fire when the calendar says we should expect something). The simple fixed-cadence model is sufficient for now and the calendar-driven model can replace it later without changing the data model.
-- Cron-style runtime configuration via the admin UI. Hard-coded daily is fine for v1.
-- Backfill on startup. The scheduler runs on its cadence; if the server has been down for a day, the next tick catches up because gaps and missing recompute opportunities are computed against `current_date` regardless of how long it has been since the last run.
+- Smart "next event date" scheduling.
+- Cron-style runtime configuration via the admin UI.
+- Backfill on startup (the next tick catches up, since gaps are computed against `current_date`).
+
+For why these are excluded, see adr/0005-corporate-events-design.md.
 
 ## Adjustment
 
@@ -122,8 +117,8 @@ The cost-basis invariant `qty × price == split_adjusted_quantity × split_adjus
 
 ### Scope: STOCK and ETF only
 
-The current adjustment pass only applies to instruments with `asset_class IN ('STOCK', 'ETF')`. Options need underlying-driven adjustment of strike, contract count, and per-contract premium — that's a separate planned follow-up. The `HeldStockEtfInstruments` query also filters to STOCK and ETF; underlyings of held options are not currently fetched. See the follow-up issue documents for the planned extension.
+The current adjustment pass only applies to instruments with `asset_class IN ('STOCK', 'ETF')`; the `HeldStockEtfInstruments` query filters to STOCK and ETF, and underlyings of held options are not currently fetched. Option adjustment is deferred (see adr/0005-corporate-events-design.md).
 
 ### Dividends
 
-Cash dividends are stored but **not applied** to `split_adjusted_*` columns. The user-facing semantics of "what would I get by selling this position right now" are well-served by raw close prices, and broker-imported INCOME / REINVEST txs already capture the cash side of dividend payments, so PortfolioDB does not derive a dividend-adjusted price view today. The `cash_dividends` table is populated for calendar / reporting use.
+Cash dividends are stored but **not applied** to `split_adjusted_*` columns; PortfolioDB does not derive a dividend-adjusted price view (see adr/0005-corporate-events-design.md). The `cash_dividends` table is populated for calendar / reporting use.

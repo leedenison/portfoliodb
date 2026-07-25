@@ -1,6 +1,6 @@
 /**
  * Parser for the standard transaction CSV format.
- * See docs/csv-format.md for the format specification.
+ * See docs/spec/csv-format.md for the format specification.
  */
 
 import Papa from "papaparse";

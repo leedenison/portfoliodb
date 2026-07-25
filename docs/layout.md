@@ -9,7 +9,7 @@ Single reference for where each component of the PortfolioDB monorepo lives. The
 | **proto/** | API definitions (protobuf). Shared contract between server and client; no runtime code. |
 | **client/** | Web front end. Next.js (TypeScript) SPA; consumes gRPC/HTTP API and displays portfolio UI. |
 | **server/** | Back end. Go services, DB layer, plugins, and migrations. |
-| **docs/** | Project documentation: spec, plan, style guides, UI specs, and this layout. |
+| **docs/** | Project documentation: spec, plan, UI specs, and this layout. Language style and testing guidance live in `.claude/skills/`. |
 | **docker/** | Dockerfiles and compose (or scripts) for local dev and QA (e.g. Postgres + PortfolioDB service). |
 
 ---
@@ -23,7 +23,7 @@ Protobuf source only; generated `.pb.go` files under `proto/` are build outputs 
   Example: `proto/api/v1/api.proto`, `proto/ingestion/v1/ingestion.proto`.  
   These define the gRPC services used by the front end and by transaction ingestion.
 
-Generated bindings are produced by buf/protoc: Go code under **proto/** (e.g. `proto/api/v1/*.pb.go`), TypeScript under **client/gen**. Those outputs are in `.gitignore`. See docs/style/protobuf.md for generation rules.
+Generated bindings are produced by buf/protoc: Go code under **proto/** (e.g. `proto/api/v1/*.pb.go`), TypeScript under **client/gen**. Those outputs are in `.gitignore`. See the `protobuf` skill (`.claude/skills/protobuf/`) for generation rules.
 
 ---
 
@@ -90,10 +90,6 @@ Go code for the PortfolioDB command line tools.
   Project plan, milestones, and tasks.
 - **docs/layout.md**  
   This file; single source of truth for directory layout.
-- **docs/testing.md**  
-  Guidance for unit, functional, and integration testing.
-- **docs/style/&lt;language&gt;.md**  
-  Style guides (e.g. `docs/style/go.md`, `docs/style/protobuf.md`).
 - **docs/ui/*.md**  
   User interface specifications (screens, flows, placeholders).
 

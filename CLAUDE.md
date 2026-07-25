@@ -101,8 +101,10 @@ Never use smart quotes when generating documentation or plans.
 
 Use language specific, idiomatic solutions to problems when possible.
 
-Refer to docs/style/\<language\>.md for style guidance on specific languages.
+Language style and conventions live in the `go`, `protobuf`, and `typescript`
+skills (`.claude/skills/`).
 
 ## Testing
 
-Refer to docs/testing.md for guidance on unit, functional and integration testing.
+Testing guidance lives in the `unit-testing`, `integration-testing`, and
+`e2e-testing` skills (`.claude/skills/`).

@@ -1,6 +1,6 @@
 # Portfolio views
 
-Portfolios are **views** over transaction sets. Transactions are owned by the user and associated with a broker and account; they are not owned by a portfolio. A portfolio defines which transactions are visible in that view via **filters**.
+Portfolios are **views** over transaction sets. Transactions are owned by the user and associated with a broker and account; they are not owned by a portfolio. A portfolio defines which transactions are visible in that view via **filters**. See adr/0010-portfolios-as-views.md.
 
 ## Model
 

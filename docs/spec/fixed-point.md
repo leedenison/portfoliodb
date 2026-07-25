@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Users may not have complete transaction history going back to the inception of their portfolio. This feature allows a user to declare a known holding quantity at a specific point in time, and the system will generate a synthetic transaction that establishes the correct opening balance. This synthetic transaction accounts for all holding activity that occurred before the user began tracking.
+Users may not have complete transaction history going back to the inception of their portfolio. This feature allows a user to declare a known holding quantity at a specific point in time, and the system will generate a synthetic transaction that establishes the correct opening balance. This synthetic transaction accounts for all holding activity that occurred before the user began tracking. See adr/0011-synthetic-initialize-transactions.md.
 
 ## Concepts
 
@@ -114,14 +114,7 @@ When a real transaction is added, edited, or deleted for a holding that has a de
 
 ### Transaction Ordering
 
-INITIALIZE transactions are dated at midnight (`00:00:00`) on the portfolio start date. To ensure correct balance calculations, INITIALIZE transactions must be ordered **before** any real transactions on the same day.
-
-This can be achieved by:
-
-- Using a time component of `00:00:00` for INITIALIZE transactions, with real transactions always having a time later than midnight; or
-- Adding an explicit `sort_order` or `is_synthetic` flag used as a tiebreaker in ordering queries.
-
-The system must never produce a state where a real sell is processed before the INITIALIZE buy on the same day, as this would create a transient negative balance in balance-tracking logic.
+INITIALIZE transactions are dated at midnight (`00:00:00`) on the portfolio start date and must be ordered **before** any real transactions on the same day. The system must never process a real sell before the INITIALIZE buy on the same day, which would create a transient negative balance in balance-tracking logic. See adr/0011-synthetic-initialize-transactions.md.
 
 ## Edge Cases
 

@@ -69,7 +69,7 @@ InstrumentKind is a coarse classification (CASH or SECURITY) derived from TxType
 
 ## Security Type Hint
 
-The security type hint is derived from TxType and uses the same vocabulary as asset class (STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN). It is passed to plugins for routing only. TxType cannot distinguish stock from ETF, so stock-like types (BUYSTOCK, SELLSTOCK) map to STOCK, never ETF. The canonical asset class stored on the instrument is always determined by identifier plugins, not the hint.
+The security type hint is derived from TxType and uses the same vocabulary as asset class (STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN). It is passed to plugins for routing only. TxType cannot distinguish stock from ETF, so stock-like types (BUYSTOCK, SELLSTOCK) map to STOCK, never ETF. The canonical asset class stored on the instrument is always determined by identifier plugins, not the hint. See adr/0013-security-type-hint-vs-asset-class.md.
 
 ## Source Code
 

@@ -4,7 +4,6 @@
   "version": "0.1.0",
   "description": "Automates broker transaction import into PortfolioDB.",
   "permissions": ["storage", "scripting", "tabs"],
-  "host_permissions": ["https://*.fidelity.co.uk/*"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js",

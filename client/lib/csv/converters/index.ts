@@ -22,4 +22,5 @@ export type {
   FormatEntry,
   BrokerEntry,
 } from "./registry";
-export { FidelityOptions, convertFidelityToStandard } from "./fidelity";
+export { FidelityOptions } from "./fidelity";
+export { FIDELITY_TYPE_TO_OFX, convertFidelityToStandard } from "./fidelity-csv";

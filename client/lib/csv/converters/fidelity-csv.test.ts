@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { convertFidelityToStandard } from "./fidelity";
+import { convertFidelityToStandard, FIDELITY_TYPE_TO_OFX } from "./fidelity-csv";
+
+const HEADER =
+  "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit";
 
 describe("convertFidelityToStandard", () => {
   it("returns error when currency is missing", () => {
@@ -65,6 +68,35 @@ describe("convertFidelityToStandard", () => {
     expect(result.txs[0]!.type).toBe(11); // INCOME
     expect(result.txs[0]!.quantity).toBe(3.27);
     expect(result.txs[0]!.settlementCurrency).toBe("USD");
+  });
+
+  // The exported map is the set of types the converter accepts. Consumers that
+  // upload despite dropped rows use it to name the types they dropped, so a type
+  // present in the map must not be rejected by the converter.
+  it("accepts every transaction type in FIDELITY_TYPE_TO_OFX", () => {
+    const types = Object.keys(FIDELITY_TYPE_TO_OFX);
+    const csv = [
+      HEADER,
+      ...types.map((t) => `20 Oct 2025,22 Oct 2025,${t},ISHARES II PLC INRG,SIPP,1,7.16`),
+    ].join("\n");
+    const result = convertFidelityToStandard(csv, { currency: "GBP" });
+    expect(result.errors).toEqual([]);
+    expect(result.txs.length).toBe(types.length);
+    expect(new Set(result.txs.map((tx) => tx.type))).toEqual(
+      new Set(Object.values(FIDELITY_TYPE_TO_OFX))
+    );
+  });
+
+  it("names the offending type when a row's type is unrecognised", () => {
+    const csv = [
+      HEADER,
+      "20 Oct 2025,22 Oct 2025,Corporate Action Reinvestment,ISHARES II PLC INRG,SIPP,1,7.16",
+    ].join("\n");
+    const result = convertFidelityToStandard(csv, { currency: "GBP" });
+    expect(result.txs).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.field).toBe("type");
+    expect(result.errors[0]!.message).toContain("Corporate Action Reinvestment");
   });
 
   it("parses Buy with positive quantity", () => {

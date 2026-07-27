@@ -7,6 +7,7 @@
 
 import { loadConfig, missingRequired, saveConfig, type Config } from "../config";
 import type { SessionStatus } from "../lib/messages";
+import { requestOriginPermission } from "../lib/permissions";
 
 function field(name: string): HTMLInputElement {
   const el = document.getElementById(name);
@@ -53,20 +54,39 @@ function renderSession(status: SessionStatus): void {
 }
 
 async function main(): Promise<void> {
-  render(await loadConfig());
+  // Held so the connect handler can read the origin without awaiting. It uses the
+  // saved value rather than the live form field, because the service worker
+  // checks the permission against the saved one too.
+  let config = await loadConfig();
+  render(config);
 
   renderSession(await chrome.runtime.sendMessage({ type: "status" }));
 
   document.getElementById("connect")?.addEventListener("click", () => {
-    renderSession({ connected: false, error: "connecting..." });
-    void chrome.runtime.sendMessage({ type: "connect" }).then(renderSession);
+    const origin = config.portfoliodbOrigin;
+    if (!origin) {
+      renderSession({ connected: false, error: "set the PortfolioDB origin in settings first" });
+      return;
+    }
+    // Called synchronously inside the gesture: permissions.request requires one,
+    // and awaiting anything first can lose it. The service worker cannot make
+    // this call at all, so it only checks the result.
+    void requestOriginPermission(origin).then(async (granted) => {
+      if (!granted) {
+        renderSession({ connected: false, error: `access to ${origin} was declined` });
+        return;
+      }
+      renderSession({ connected: false, error: "connecting..." });
+      renderSession(await chrome.runtime.sendMessage({ type: "connect" }));
+    });
   });
 
   const form = document.getElementById("config-form");
   form?.addEventListener("submit", (e) => {
     e.preventDefault();
     const next = readForm();
-    void saveConfig(next).then(() => {
+    void saveConfig(next).then((saved) => {
+      config = saved;
       const missing = missingRequired(next);
       if (missing.length > 0) {
         setStatus(`Saved. Still required: ${missing.join(", ")}`, false);

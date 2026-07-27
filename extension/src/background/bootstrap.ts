@@ -6,6 +6,7 @@
 
 import { loadConfig } from "../config";
 import type { SessionBootstrapped } from "../lib/messages";
+import { hasOriginPermission, originPattern } from "../lib/permissions";
 
 const CONTENT_SCRIPT = "content/portfoliodb.js";
 const BOOTSTRAP_TIMEOUT_MS = 15_000;
@@ -63,11 +64,12 @@ export async function bootstrapSession(): Promise<BootstrapResult> {
   if (!portfoliodbOrigin) {
     throw new Error("Set the PortfolioDB origin in settings first");
   }
-  const pattern = `${portfoliodbOrigin}/*`;
+  const pattern = originPattern(portfoliodbOrigin);
 
-  const granted = await chrome.permissions.request({ origins: [pattern] });
-  if (!granted) {
-    throw new Error(`Permission to access ${portfoliodbOrigin} was declined`);
+  // Granting happens in the popup, which has the user gesture that
+  // permissions.request requires; the worker only checks.
+  if (!(await hasOriginPermission(portfoliodbOrigin))) {
+    throw new Error(`Permission to access ${portfoliodbOrigin} has not been granted`);
   }
 
   const existing = await chrome.tabs.query({ url: pattern });

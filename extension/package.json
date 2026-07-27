@@ -1,0 +1,25 @@
+{
+  "name": "portfoliodb-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chrome MV3 extension that automates broker transaction import into PortfolioDB",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.11.0",
+    "papaparse": "^5.5.3"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "@types/papaparse": "^5.5.2",
+    "typescript": "^5.0.0",
+    "vite": "^6.0.0",
+    "vitest": "^4.0.18"
+  }
+}

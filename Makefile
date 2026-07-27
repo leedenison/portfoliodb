@@ -14,6 +14,9 @@ COMPOSE_TEST = docker compose -p portfoliodb-test  -f docker/docker-compose.test
 COMPOSE_TOOLS        = HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV)  run --rm --no-deps -T portfoliodb
 # One-shot invocations of the client image for TS codegen (needs node + buf). -w /app overrides the /app/client working_dir.
 COMPOSE_TOOLS_CLIENT = HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV)  run --rm --no-deps -T -w /app client
+# The extension reuses the client image (node + the repo bind mount) with the working dir moved.
+# Its recipes run npm ci themselves: the client service entrypoint only bootstraps /app/client/node_modules.
+COMPOSE_TOOLS_EXT    = HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV)  run --rm --no-deps -T -w /app/extension client
 # DB-backed tests run in the test stack so they share a network with postgres.
 COMPOSE_TEST_TESTER  = HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_TEST) run --rm -T tester
 
@@ -87,6 +90,11 @@ db-test: $(STAMP_DIR)/generate
 integration-test: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS) go test -tags integration -v ./server/plugins/...
 
+# Typecheck as well as test: the extension imports client modules across two npm
+# projects via a path alias, and a broken alias only shows up in the type checker.
+extension-test: $(STAMP_DIR)/generate
+	$(COMPOSE_TOOLS_EXT) sh -c 'npm ci && npm run typecheck && npm run test:run'
+
 integration-test-list:
 	@find server/plugins -name 'integration_test.go' | xargs -I{} dirname {} | sed 's|^server/plugins/||' | sort
 
@@ -128,7 +136,16 @@ e2e-test-record: $(STAMP_DIR)/generate
 		echo "Logs saved to $$logdir/"; \
 		$(COMPOSE_E2E) --profile test down; exit $$rc
 
-test: server-test client-test db-test integration-test
+test: server-test client-test db-test integration-test extension-test
+
+# Build the unpacked extension into extension/dist, ready to Load unpacked in Chrome.
+extension: $(STAMP_DIR)/generate
+	$(COMPOSE_TOOLS_EXT) sh -c 'npm ci && npm run build'
+
+# Rebuild extension/dist on change. Chrome still needs a manual reload of the
+# unpacked extension to pick up a new build.
+extension-dev: $(STAMP_DIR)/generate
+	$(COMPOSE_TOOLS_EXT) sh -c 'npm ci && npm run dev'
 
 clean: clean-stamps
 	rm -f portfoliodb portfoliodb.exe
@@ -184,4 +201,6 @@ help:
 	@echo ""
 	@echo "Dependencies are tracked automatically -- stale steps re-run as needed."
 
-.PHONY: generate build google-finance-cli server-test db-test client-test integration-test integration-test-list integration-test-record e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help
+# 'extension' must be phony: it collides with the extension/ directory, and make
+# would otherwise consider the target already satisfied and do nothing.
+.PHONY: generate build google-finance-cli server-test db-test client-test integration-test integration-test-list integration-test-record extension extension-dev extension-test e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help

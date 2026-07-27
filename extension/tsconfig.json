@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["chrome"],
+    // Typechecking pulls in the client sources reached through "@/*", so the
+    // options here cannot be stricter than the ones client/tsconfig.json compiles
+    // them under -- noUncheckedIndexedAccess, for one, fails on client code.
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    // Resolves the client's React-free modules (CSV converters, the gRPC-Web
+    // transport) and its generated protobuf types, so parsing and wire format
+    // are not reimplemented here. Kept in step with vite.config.ts.
+    "paths": {
+      "@/*": ["../client/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

@@ -1,0 +1,99 @@
+:root {
+  color-scheme: light dark;
+  --border: color-mix(in srgb, currentColor 20%, transparent);
+  --muted: color-mix(in srgb, currentColor 60%, transparent);
+}
+
+body {
+  width: 22rem;
+  margin: 0;
+  padding: 0.75rem;
+  font: 13px/1.45 system-ui, sans-serif;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+section {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+label {
+  display: block;
+  margin-top: 0.6rem;
+  font-weight: 500;
+}
+
+input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+button {
+  margin-top: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+button.secondary {
+  font-weight: 400;
+}
+
+.hint,
+.placeholder {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+}
+
+.placeholder {
+  font-style: italic;
+}
+
+.status {
+  margin: 0.5rem 0 0;
+}
+
+.status-unknown {
+  color: var(--muted);
+}
+
+.status-ok {
+  color: #1a7f37;
+}
+
+.status-error {
+  color: #b3261e;
+}

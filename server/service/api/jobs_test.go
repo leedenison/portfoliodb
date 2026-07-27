@@ -41,7 +41,7 @@ func TestListJobs_Success(t *testing.T) {
 	now := time.Now()
 	rows := []db.JobRow{
 		{ID: "j1", Filename: "test.csv", Broker: "IBKR", Status: "SUCCESS", CreatedAt: now, ValidationErrorCount: 0, IdentificationErrorCount: 2},
-		{ID: "j2", Filename: "", Broker: "Fidelity", Status: "FAILED", CreatedAt: now.Add(-time.Hour), ValidationErrorCount: 3, IdentificationErrorCount: 0},
+		{ID: "j2", Filename: "", Broker: "FIDELITY", Status: "FAILED", CreatedAt: now.Add(-time.Hour), ValidationErrorCount: 3, IdentificationErrorCount: 0},
 	}
 	mockDB.EXPECT().
 		ListJobs(gomock.Any(), "user-1", int32(30), "").

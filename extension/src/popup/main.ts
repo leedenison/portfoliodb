@@ -6,6 +6,7 @@
  */
 
 import { loadConfig, missingRequired, saveConfig, type Config } from "../config";
+import type { SessionStatus } from "../lib/messages";
 
 function field(name: string): HTMLInputElement {
   const el = document.getElementById(name);
@@ -39,8 +40,27 @@ function setStatus(text: string, ok: boolean): void {
   el.className = `status ${ok ? "status-ok" : "status-error"}`;
 }
 
+function renderSession(status: SessionStatus): void {
+  const el = document.getElementById("session-status");
+  if (!el) return;
+  if (status.connected) {
+    el.textContent = `Session: connected${status.email ? ` as ${status.email}` : ""}`;
+    el.className = "status status-ok";
+    return;
+  }
+  el.textContent = status.error ? `Session: ${status.error}` : "Session: not connected";
+  el.className = status.error ? "status status-error" : "status status-unknown";
+}
+
 async function main(): Promise<void> {
   render(await loadConfig());
+
+  renderSession(await chrome.runtime.sendMessage({ type: "status" }));
+
+  document.getElementById("connect")?.addEventListener("click", () => {
+    renderSession({ connected: false, error: "connecting..." });
+    void chrome.runtime.sendMessage({ type: "connect" }).then(renderSession);
+  });
 
   const form = document.getElementById("config-form");
   form?.addEventListener("submit", (e) => {

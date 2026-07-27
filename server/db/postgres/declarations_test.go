@@ -184,7 +184,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	}
 
 	// Verify it shows up in ListTxs
-	txs, _, err := p.ListTxs(ctx, userID, nil, "", nil, nil, 50, "")
+	txs, _, err := p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert update: %v", err)
 	}
-	txs, _, _ = p.ListTxs(ctx, userID, nil, "", nil, nil, 50, "")
+	txs, _, _ = p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
 	var initCount int
 	for _, pt := range txs {
 		if pt.GetTx().GetSyntheticPurpose() == "INITIALIZE" {
@@ -225,7 +225,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	txs, _, _ = p.ListTxs(ctx, userID, nil, "", nil, nil, 50, "")
+	txs, _, _ = p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
 	for _, pt := range txs {
 		if pt.GetTx().GetSyntheticPurpose() == "INITIALIZE" {
 			t.Fatal("INITIALIZE tx should have been deleted")

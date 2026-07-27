@@ -201,6 +201,4 @@ help:
 	@echo ""
 	@echo "Dependencies are tracked automatically -- stale steps re-run as needed."
 
-# 'extension' must be phony: it collides with the extension/ directory, and make
-# would otherwise consider the target already satisfied and do nothing.
 .PHONY: generate build google-finance-cli server-test db-test client-test integration-test integration-test-list integration-test-record extension extension-dev extension-test e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help

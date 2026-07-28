@@ -1,6 +1,7 @@
 ---
 status: open
 title: Derive cash legs at ingestion and route residuals to Imbalance
+milestone: M12
 dependencies: [0036, 0037]
 ---
 

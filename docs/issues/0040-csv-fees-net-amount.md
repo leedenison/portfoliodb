@@ -1,6 +1,7 @@
 ---
 status: open
 title: Extend standard CSV with fees and net amount
+milestone: M12
 dependencies: [0039]
 ---
 

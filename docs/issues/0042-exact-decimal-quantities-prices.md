@@ -1,6 +1,7 @@
 ---
 status: open
 title: Use exact decimals for quantities and prices
+milestone: M12
 ---
 
 Move the `txs` quantity and price columns from `DOUBLE PRECISION` to `NUMERIC`

@@ -1,6 +1,7 @@
 ---
 status: open
 title: Enforce posting balance with a deferred constraint trigger
+milestone: M12
 dependencies: [0038, 0042]
 ---
 

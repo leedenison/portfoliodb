@@ -1,6 +1,7 @@
 ---
 status: open
 title: Group transaction legs with tx_groups
+milestone: M12
 ---
 
 Add a `tx_groups` table and a nullable `txs.group_id` so that the legs of one

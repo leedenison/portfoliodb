@@ -1,6 +1,7 @@
 ---
 status: open
 title: Reserved non-asset account vocabulary
+milestone: M12
 ---
 
 Introduce a small set of reserved account names that are not broker accounts:

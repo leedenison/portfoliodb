@@ -1,8 +1,8 @@
 # Broker import browser extension
 
-A Chrome MV3 extension that automates the manual transaction import loop for a broker: it asks PortfolioDB for the most recent transaction it already holds for that broker, computes a date window, drives the broker website to export a transaction CSV covering that window, converts and uploads it, and reports the outcome.
+A Chrome MV3 extension that automates the manual transaction import loop for a broker: it asks PortfolioDB for the most recent transaction it already holds for that broker, computes a date window, drives the broker website to export the transactions covering that window, converts and uploads them, and reports the outcome.
 
-The first supported broker is Fidelity UK (fidelity.co.uk). The artifact is the broker's transaction-history CSV export, not a PDF statement.
+The first supported broker is Fidelity UK (fidelity.co.uk). The artifact is the broker's transaction-history export, not a PDF statement. Which payload that is depends on the broker: for Fidelity it is the JSON its own CSV export is generated from, which is one request rather than two and carries identifiers the CSV discards.
 
 The rationale for uploading directly rather than driving the web UI, for the bearer-token session, and for the overlapping replace window is in (see adr/0014-extension-transaction-import.md).
 
@@ -10,7 +10,7 @@ The rationale for uploading directly rather than driving the web UI, for the bea
 
 - The trigger is manual and attended: a Sync button in the extension popup. There is no scheduling and no background execution.
 - The extension is a client of the existing gRPC-Web API. It introduces no server-side state of its own.
-- The extension reuses the converters in `client/lib/csv/converters/` rather than reimplementing CSV parsing, so a fix to a converter benefits both the web UI and the extension.
+- Where the extension and the web UI consume the same payload, they share a converter rather than reimplementing parsing. Where the payloads differ, the parts that classify broker data -- the transaction type map, and which types are cash -- are still shared, so the two cannot disagree about what a broker type means.
 
 ## Sync
 
@@ -19,7 +19,7 @@ A sync run performs these steps in order. Any step failing aborts the run and re
 1. **Session.** Obtain a session id (see Session below). On `UNAUTHENTICATED`, open a PortfolioDB tab to re-bootstrap and abort the run.
 2. **Latest transaction.** `ListTxs` with `broker` set to the target broker, `descending` true and `page_size` 1.
 3. **Window.** Compute `[from, to]` (see Date window below). If `from > to` there is nothing to fetch: report "already up to date" and stop.
-4. **Export.** Run the broker recipe (see Recipes below) to capture the CSV text for the window.
+4. **Export.** Run the broker recipe (see Recipes below) to capture the payload for the window.
 5. **Convert.** Run the registered converter for the broker and format.
 6. **Report dropped rows.** If the converter reported errors, record them and continue (see Unparseable rows below).
 7. **Guard against an empty upload.** If the conversion produced no transactions, refuse to upload (see Empty result below).
@@ -94,7 +94,7 @@ This is a deliberate trade-off. Because ingestion replaces the period wholesale,
 The warning must therefore be hard to miss, and the run log must record enough to fix the converter:
 
 - The number of rows dropped.
-- Each dropped row's index in the source CSV, and why it was dropped.
+- Each dropped row's index in the source payload, and why it was dropped.
 - The distinct unrecognised transaction type strings, named explicitly. These are what get added to the converter's type map.
 
 ## Session
@@ -116,25 +116,25 @@ A recipe declares:
 - The broker enum and the converter format id, which together produce the source string.
 - The origins the extension needs access to.
 - The date format and timezone the site expects for the window bounds.
-- How to obtain the CSV.
+- How to obtain the payload.
 - Probes: selectors that indicate whether the user is logged in and whether the export is ready.
 
 ### Selectors
 
 Every selector is an **ordered list of candidates**; the interpreter tries each in turn and uses the first that matches. A single renamed class or id therefore degrades rather than breaks the run. Each step records which candidates were tried and which one matched, so a failure log names the exact selector that died.
 
-### Obtaining the CSV
+### Obtaining the payload
 
 Two strategies, in order of preference:
 
-1. **Request replay.** The recipe declares the export request (URL, method, headers, body template) with the window bounds substituted in. The content script issues it from the page's own origin with credentials included and reads the response body as text. This covers both an XHR that returns CSV and a plain download URL, since both are ordinary HTTP requests.
+1. **Request replay.** The recipe declares the export request (URL, method, headers, body template) with the window bounds substituted in. The content script issues it from the page's own origin with credentials included and reads the response body as text. This covers an XHR returning either JSON or CSV as well as a plain download URL, since all are ordinary HTTP requests. It is the strategy Fidelity uses, and it needs only the session cookie.
 2. **DOM driving.** The recipe declares a sequence of navigate, wait, click and set-value steps against the page, and the interpreter captures a file the page builds client-side.
 
 Request replay is preferred because it is far less sensitive to markup changes: it depends on one URL rather than a chain of selectors.
 
 ### Dry run
 
-The popup offers a dry run that performs every step through capture and conversion -- session, window, export, convert -- and displays the computed window, the captured CSV and the conversion result, **without uploading**. This is how a recipe is developed and repaired against the live site without touching stored data.
+The popup offers a dry run that performs every step through capture and conversion -- session, window, export, convert -- and displays the requested window, what the export returned and the conversion result, **without uploading**. This is how a recipe is developed and repaired against the live site without touching stored data.
 
 ## Configuration
 

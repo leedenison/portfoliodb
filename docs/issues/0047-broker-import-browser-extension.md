@@ -1,12 +1,12 @@
 ---
 status: open
 title: Automate broker transaction import with a browser extension
-milestone: M12
+milestone: M13
 ---
 
 A Chrome MV3 extension that replaces the manual import loop: query the most
 recent transaction held for a broker, compute a date window, drive the broker
-website to export a transaction CSV covering it, convert and upload it, and
+website to export the transactions covering it, convert and upload them, and
 report the outcome. Fidelity UK first, with the site-specific parts expressed as
 data so further brokers are added by writing a recipe.
 

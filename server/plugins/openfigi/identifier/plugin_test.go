@@ -729,7 +729,7 @@ func TestPlugin_Identify_MICTickerWithDomainPreserved(t *testing.T) {
 	ctx := context.Background()
 	p := NewPlugin(nil, nil, http.DefaultClient, nil)
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "EQQQ"}}
-	_, ids, err := p.Identify(ctx, config, "Fidelity", "Fidelity:web:standard", "EQQQ", identifier.Hints{}, hints)
+	_, ids, err := p.Identify(ctx, config, "FIDELITY", "Fidelity:web:standard", "EQQQ", identifier.Hints{}, hints)
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}

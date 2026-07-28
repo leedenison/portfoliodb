@@ -90,7 +90,7 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 	}
 
 	// Verify both new real txs and the synthetic INITIALIZE row are present.
-	rows, _, err := p.ListTxs(ctx, userID, nil, "", from, to, 100, "")
+	rows, _, err := p.ListTxs(ctx, userID, nil, "", from, to, false, 100, "")
 	if err != nil {
 		t.Fatalf("list txs: %v", err)
 	}
@@ -148,6 +148,144 @@ func TestCreateTx_AppendOnly(t *testing.T) {
 	}
 }
 
+func TestListTxs_BrokerFilterAndOrder(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|order", "U", "u@u.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "ORD", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+	// Quantity doubles as an identity marker so ordering can be asserted.
+	seed := []struct {
+		broker apiv1.Broker
+		offset time.Duration
+		qty    float64
+	}{
+		{apiv1.Broker_IBKR, -3 * time.Hour, 1},
+		{apiv1.Broker_FIDELITY, -2 * time.Hour, 2},
+		{apiv1.Broker_IBKR, -1 * time.Hour, 3},
+	}
+	for _, s := range seed {
+		// Seed through the same enum-to-string mapping the filter uses, rather than
+		// a literal: the stored strings are not simply the enum names.
+		brokerStr, err := brokerToStr(s.broker)
+		if err != nil {
+			t.Fatalf("broker to str: %v", err)
+		}
+		tx := &apiv1.Tx{Timestamp: timestamppb.New(now.Add(s.offset)), InstrumentDescription: "ORD", Type: apiv1.TxType_BUYSTOCK, Quantity: s.qty}
+		if err := p.CreateTx(ctx, userID, brokerStr, "", tx, instID); err != nil {
+			t.Fatalf("create tx: %v", err)
+		}
+	}
+
+	qtys := func(rows []*apiv1.PortfolioTx) []float64 {
+		out := make([]float64, len(rows))
+		for i, r := range rows {
+			out[i] = r.GetTx().GetQuantity()
+		}
+		return out
+	}
+	fidelity := apiv1.Broker_FIDELITY.Enum()
+
+	cases := []struct {
+		name       string
+		broker     *apiv1.Broker
+		descending bool
+		want       []float64
+	}{
+		{"ascending, all brokers", nil, false, []float64{1, 2, 3}},
+		{"descending, all brokers", nil, true, []float64{3, 2, 1}},
+		{"broker filter", fidelity, false, []float64{2}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rows, _, err := p.ListTxs(ctx, userID, tc.broker, "", nil, nil, tc.descending, 50, "")
+			if err != nil {
+				t.Fatalf("list txs: %v", err)
+			}
+			got := qtys(rows)
+			if len(got) != len(tc.want) {
+				t.Fatalf("want %v, got %v", tc.want, got)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("want %v, got %v", tc.want, got)
+				}
+			}
+		})
+	}
+
+	// The most recent transaction for one broker in a single row -- the query the
+	// import extension issues to size its fetch window.
+	rows, _, err := p.ListTxs(ctx, userID, apiv1.Broker_IBKR.Enum(), "", nil, nil, true, 1, "")
+	if err != nil {
+		t.Fatalf("latest tx: %v", err)
+	}
+	if len(rows) != 1 || rows[0].GetTx().GetQuantity() != 3 {
+		t.Fatalf("latest IBKR tx: want qty 3, got %v", qtys(rows))
+	}
+}
+
+// Rows sharing a timestamp must not be skipped or repeated across a page
+// boundary. Ordering by timestamp alone is not a total order, so the id
+// tiebreaker is what makes offset paging stable.
+func TestListTxs_TiedTimestampsPageBoundary(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|ties", "U", "u@u.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "TIE", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	// Six transactions on one date, as a broker statement that carries no time
+	// of day would produce.
+	ts := timestamppb.New(time.Now().Truncate(24 * time.Hour))
+	const total = 6
+	for i := 0; i < total; i++ {
+		tx := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "TIE", Type: apiv1.TxType_BUYSTOCK, Quantity: float64(i + 1)}
+		if err := p.CreateTx(ctx, userID, "IBKR", "", tx, instID); err != nil {
+			t.Fatalf("create tx %d: %v", i, err)
+		}
+	}
+
+	for _, descending := range []bool{false, true} {
+		name := "ascending"
+		if descending {
+			name = "descending"
+		}
+		t.Run(name, func(t *testing.T) {
+			seen := map[float64]int{}
+			token := ""
+			for pages := 0; ; pages++ {
+				if pages > total {
+					t.Fatal("paging did not terminate")
+				}
+				rows, next, err := p.ListTxs(ctx, userID, nil, "", nil, nil, descending, 2, token)
+				if err != nil {
+					t.Fatalf("list txs: %v", err)
+				}
+				for _, r := range rows {
+					seen[r.GetTx().GetQuantity()]++
+				}
+				if next == "" {
+					break
+				}
+				token = next
+			}
+			if len(seen) != total {
+				t.Fatalf("want %d distinct txs across pages, got %d: %v", total, len(seen), seen)
+			}
+			for qty, count := range seen {
+				if count != 1 {
+					t.Errorf("tx qty %v returned %d times across pages", qty, count)
+				}
+			}
+		})
+	}
+}
+
 func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -157,7 +295,7 @@ func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 		t.Fatalf("create portfolio: %v", err)
 	}
 	// No filters: portfolio view should return no txs
-	txs, tok, err := p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, 50, "")
+	txs, tok, err := p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, nil, false, 50, "")
 	if err != nil {
 		t.Fatalf("ListTxsByPortfolio no filters: %v", err)
 	}
@@ -191,7 +329,7 @@ func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txList, []string{instID, instID}); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
-	txs, tok, err = p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, 50, "")
+	txs, tok, err = p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, nil, false, 50, "")
 	if err != nil {
 		t.Fatalf("ListTxsByPortfolio: %v", err)
 	}
@@ -251,7 +389,7 @@ func TestListTxsByPortfolio_ANDBetweenCategories(t *testing.T) {
 	if err := p.CreateTx(ctx, userID, "IBKR", "A", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 3, Account: "A"}, instID); err != nil {
 		t.Fatalf("create tx3: %v", err)
 	}
-	txs, _, err := p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, 50, "")
+	txs, _, err := p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, nil, false, 50, "")
 	if err != nil {
 		t.Fatalf("ListTxsByPortfolio: %v", err)
 	}

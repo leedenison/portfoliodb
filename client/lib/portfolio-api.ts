@@ -107,6 +107,7 @@ import {
   WorkerState,
 } from "@/gen/api/v1/api_pb";
 import type {
+  Broker,
   DescriptionPluginConfig,
   EODPriceProto,
   ExportCorporateEventRow,
@@ -259,6 +260,10 @@ export interface ListTxsParams {
   periodFrom?: Date | null;
   periodTo?: Date | null;
   pageToken?: string | null;
+  /** Restrict to one broker. Omit for all brokers. */
+  broker?: Broker;
+  /** Order newest first. Defaults to oldest first. */
+  descending?: boolean;
 }
 
 export interface ListTxsResult {
@@ -274,6 +279,8 @@ export async function listTxs(params?: ListTxsParams): Promise<ListTxsResult> {
     periodTo: params?.periodTo != null ? timestampFromDate(params.periodTo) : undefined,
     pageSize: PAGE_SIZE,
     pageToken: params?.pageToken ?? "",
+    broker: params?.broker,
+    descending: params?.descending ?? false,
   });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "ListTxs", toBinary(ListTxsRequestSchema, req), {
     credentials: "include",

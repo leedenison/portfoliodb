@@ -360,15 +360,14 @@ func resolveInstruments(ctx context.Context, database db.DB, registry *identifie
 }
 
 // brokerToStr converts a proto Broker enum to its string representation.
+// brokerToStr returns the stored form of a broker: its enum name.
 func brokerToStr(b apiv1.Broker) (string, error) {
-	switch b {
-	case apiv1.Broker_IBKR:
-		return "IBKR", nil
-	case apiv1.Broker_SCHB:
-		return "SCHB", nil
-	case apiv1.Broker_FIDELITY:
-		return "Fidelity", nil
-	default:
+	if b == apiv1.Broker_BROKER_UNSPECIFIED {
+		return "", fmt.Errorf("broker unspecified")
+	}
+	s, ok := apiv1.Broker_name[int32(b)]
+	if !ok {
 		return "", fmt.Errorf("unknown broker")
 	}
+	return s, nil
 }

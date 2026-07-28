@@ -97,8 +97,21 @@ func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account string,
 	return nil
 }
 
+// txOrderBy returns the ORDER BY clauses for a tx listing, with an id tiebreaker
+// that makes the order total. Timestamps are not unique -- broker statements often
+// supply only a date -- so without a tiebreaker the database is free to return
+// tied rows in any order, and offset paging can then skip or repeat them across a
+// page boundary.
+func txOrderBy(prefix string, descending bool) []string {
+	dir := ""
+	if descending {
+		dir = " DESC"
+	}
+	return []string{prefix + "timestamp" + dir, prefix + "id" + dir}
+}
+
 // ListTxs implements db.TxDB.
-func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Broker, account string, periodFrom, periodTo *timestamppb.Timestamp, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
+func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Broker, account string, periodFrom, periodTo *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid user id: %w", err)
@@ -110,7 +123,7 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 	qb := psql.Select("broker", "account", "timestamp", "instrument_description", "tx_type", "quantity", "split_adjusted_quantity", "trading_currency", "settlement_currency", "unit_price", "split_adjusted_unit_price", "instrument_id", "synthetic_purpose").
 		From("txs").
 		Where(sq.Eq{"user_id": userUUID}).
-		OrderBy("timestamp")
+		OrderBy(txOrderBy("", descending)...)
 	if broker != nil {
 		brokerStr, err := brokerToStr(*broker)
 		if err != nil {
@@ -158,7 +171,7 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 }
 
 // ListTxsByPortfolio implements db.TxDB. Returns txs that match any of the portfolio's filters (OR), deduped.
-func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, periodFrom, periodTo *timestamppb.Timestamp, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
+func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodTo *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
 	portUUID, err := uuid.Parse(portfolioID)
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid portfolio id: %w", err)
@@ -170,7 +183,14 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, p
 	qb := psql.Select("t.broker", "t.account", "t.timestamp", "t.instrument_description", "t.tx_type", "t.quantity", "t.split_adjusted_quantity", "t.trading_currency", "t.settlement_currency", "t.unit_price", "t.split_adjusted_unit_price", "t.instrument_id", "t.synthetic_purpose").
 		From("txs t").
 		Join("portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = ?", portUUID).
-		OrderBy("t.timestamp")
+		OrderBy(txOrderBy("t.", descending)...)
+	if broker != nil {
+		brokerStr, err := brokerToStr(*broker)
+		if err != nil {
+			return nil, "", err
+		}
+		qb = qb.Where(sq.Eq{"t.broker": brokerStr})
+	}
 	if periodFrom != nil {
 		fromT, err := tsToTime(periodFrom)
 		if err != nil {

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>PortfolioDB Import</title>
+    <link rel="stylesheet" href="./src/popup/popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>PortfolioDB Import</h1>
+      <p id="session-status" class="status status-unknown">Session: not connected</p>
+    </header>
+
+    <section>
+      <h2>Sync</h2>
+      <div class="actions">
+        <button id="sync" type="button" disabled>Sync Fidelity</button>
+        <button id="dry-run" type="button" class="secondary" disabled>Dry run</button>
+      </div>
+      <p class="placeholder">
+        Not implemented yet. Sync will fetch the missing period from the broker and
+        upload it; dry run will stop before uploading and show what it captured.
+      </p>
+    </section>
+
+    <section>
+      <h2>Settings</h2>
+      <form id="config-form">
+        <label for="portfoliodbOrigin">PortfolioDB origin</label>
+        <input id="portfoliodbOrigin" name="portfoliodbOrigin" type="url" placeholder="http://localhost:8080" />
+
+        <label for="currency">Settlement currency</label>
+        <input id="currency" name="currency" type="text" placeholder="GBP" />
+
+        <label for="historyStartDate">History start date</label>
+        <input id="historyStartDate" name="historyStartDate" type="date" />
+        <p class="hint">Used only for the first sync, when no transactions exist for the broker.</p>
+
+        <label for="lookbackDays">Lookback days</label>
+        <input id="lookbackDays" name="lookbackDays" type="number" min="0" step="1" />
+        <p class="hint">
+          Overlap before the last known transaction. Must exceed the broker's longest
+          order-to-completion lag, or settled transactions duplicate.
+        </p>
+
+        <label for="timeZone">Time zone</label>
+        <input id="timeZone" name="timeZone" type="text" placeholder="Europe/London" />
+
+        <button type="submit">Save settings</button>
+        <p id="config-status" class="status" role="status"></p>
+      </form>
+    </section>
+
+    <section>
+      <h2>Run log</h2>
+      <p id="run-log" class="placeholder">No runs yet.</p>
+    </section>
+
+    <script type="module" src="./src/popup/main.ts"></script>
+  </body>
+</html>

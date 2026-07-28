@@ -43,3 +43,7 @@ client/gen/
 e2e/gen/
 *.tsbuildinfo
 test-results/
+
+# Browser extension
+extension/node_modules/
+extension/dist/

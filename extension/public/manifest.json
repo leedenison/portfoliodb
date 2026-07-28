@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "PortfolioDB Import",
+  "version": "0.1.0",
+  "description": "Automates broker transaction import into PortfolioDB.",
+  "permissions": ["storage"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "PortfolioDB Import",
+    "default_popup": "popup.html"
+  }
+}

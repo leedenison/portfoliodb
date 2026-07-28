@@ -51,30 +51,26 @@ func NewWithQueryable(q queryable) *Postgres {
 // Ensure Postgres implements db.DB.
 var _ db.DB = (*Postgres)(nil)
 
+// brokerToStr returns the stored form of a broker: its enum name. Derived rather
+// than mapped by hand so a new broker cannot be stored under a spelling that
+// strToBroker does not recognise.
 func brokerToStr(b apiv1.Broker) (string, error) {
-	switch b {
-	case apiv1.Broker_IBKR:
-		return "IBKR", nil
-	case apiv1.Broker_SCHB:
-		return "SCHB", nil
-	case apiv1.Broker_FIDELITY:
-		return "Fidelity", nil
-	default:
+	if b == apiv1.Broker_BROKER_UNSPECIFIED {
+		return "", fmt.Errorf("broker unspecified")
+	}
+	s, ok := apiv1.Broker_name[int32(b)]
+	if !ok {
 		return "", fmt.Errorf("unknown broker: %v", b)
 	}
+	return s, nil
 }
 
 func strToBroker(s string) apiv1.Broker {
-	switch s {
-	case "IBKR":
-		return apiv1.Broker_IBKR
-	case "SCHB":
-		return apiv1.Broker_SCHB
-	case "Fidelity":
-		return apiv1.Broker_FIDELITY
-	default:
+	v, ok := apiv1.Broker_value[s]
+	if !ok {
 		return apiv1.Broker_BROKER_UNSPECIFIED
 	}
+	return apiv1.Broker(v)
 }
 
 func txTypeToStr(t apiv1.TxType) (string, error) {

@@ -14,7 +14,9 @@ import type { BrokerRecipe } from "./types";
 export const fidelityUk: BrokerRecipe = {
   id: "fidelity-uk",
   broker: Broker.FIDELITY,
-  formatId: "fidelity-json",
+  // Deliberately not "fidelity-json": the web client's Fidelity uploads already
+  // resolve under this source, and changing it would fork those instruments.
+  sourceFormatId: "fidelity-csv",
   origins: ["https://www.fidelity.co.uk/*"],
   homeUrl: "https://www.fidelity.co.uk/secure/accounts/",
   timeZone: "Europe/London",

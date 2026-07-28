@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/leedenison/portfoliodb/server/testutil"
@@ -14,7 +15,7 @@ func TestListTxs_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	txs := []*apiv1.PortfolioTx{{Broker: apiv1.Broker_IBKR, Tx: &apiv1.Tx{InstrumentDescription: "AAPL"}}}
 	db.EXPECT().
-		ListTxs(gomock.Any(), "user-1", (*apiv1.Broker)(nil), "", (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), int32(50), "").
+		ListTxs(gomock.Any(), "user-1", (*apiv1.Broker)(nil), "", (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), false, int32(50), "").
 		Return(txs, "", nil)
 	ctx := authCtx("user-1", "sub|1")
 	resp, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{})
@@ -33,7 +34,7 @@ func TestListTxs_WithPortfolioId_Success(t *testing.T) {
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
 		Return(true, nil)
 	db.EXPECT().
-		ListTxsByPortfolio(gomock.Any(), "port-1", (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), int32(50), "").
+		ListTxsByPortfolio(gomock.Any(), "port-1", (*apiv1.Broker)(nil), (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), false, int32(50), "").
 		Return(txs, "", nil)
 	ctx := authCtx("user-1", "sub|1")
 	resp, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "port-1"})
@@ -53,4 +54,50 @@ func TestListTxs_WithPortfolioId_NotFound(t *testing.T) {
 	ctx := authCtx("user-1", "sub|1")
 	_, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "port-1"})
 	testutil.RequireGRPCCode(t, err, codes.NotFound)
+}
+
+// A db failure in the portfolio branch must surface as Internal. The branch
+// previously shadowed err, so the failure was reported as an empty OK response.
+func TestListTxs_WithPortfolioId_DBError(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().
+		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
+		Return(true, nil)
+	db.EXPECT().
+		ListTxsByPortfolio(gomock.Any(), "port-1", (*apiv1.Broker)(nil), (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), false, int32(50), "").
+		Return(nil, "", errors.New("boom"))
+	ctx := authCtx("user-1", "sub|1")
+	_, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "port-1"})
+	testutil.RequireGRPCCode(t, err, codes.Internal)
+}
+
+// BROKER_UNSPECIFIED means "all brokers" and must reach the db layer as a nil
+// filter, not as a pointer to the zero enum value.
+func TestListTxs_BrokerAndDescending(t *testing.T) {
+	cases := []struct {
+		name       string
+		broker     apiv1.Broker
+		descending bool
+		want       *apiv1.Broker
+	}{
+		{"unspecified broker is no filter", apiv1.Broker_BROKER_UNSPECIFIED, false, nil},
+		{"broker filter with descending", apiv1.Broker_FIDELITY, true, apiv1.Broker_FIDELITY.Enum()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, db := newAPIServerWithMock(t)
+			db.EXPECT().
+				ListTxs(gomock.Any(), "user-1", tc.want, "", (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), tc.descending, int32(1), "").
+				Return(nil, "", nil)
+			ctx := authCtx("user-1", "sub|1")
+			_, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{
+				Broker:     tc.broker,
+				Descending: tc.descending,
+				PageSize:   1,
+			})
+			if err != nil {
+				t.Fatalf("ListTxs: %v", err)
+			}
+		})
+	}
 }

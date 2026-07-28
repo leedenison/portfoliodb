@@ -23,7 +23,7 @@ export function getRecipeForBroker(broker: Broker): BrokerRecipe | undefined {
 
 /** The ingestion source string for a recipe, e.g. "Fidelity:web:fidelity-csv". */
 export function sourceFor(recipe: BrokerRecipe, prefix: string): string {
-  return `${prefix}:web:${recipe.formatId}`;
+  return `${prefix}:web:${recipe.sourceFormatId}`;
 }
 
 /**

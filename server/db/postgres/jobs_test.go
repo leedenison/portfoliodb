@@ -158,7 +158,7 @@ func TestListJobs(t *testing.T) {
 	_, _ = p.CreateJob(ctx, db.CreateJobParams{
 		UserID:     userID,
 		JobType:    "tx",
-		Broker:     "Fidelity",
+		Broker:     "FIDELITY",
 		Source:     "Fidelity:web:fidelity-csv",
 		Filename:   "file2.csv",
 		PeriodFrom: from,

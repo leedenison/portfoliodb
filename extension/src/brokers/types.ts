@@ -34,8 +34,16 @@ export interface BrokerRecipe {
   /** Stable recipe id, e.g. "fidelity-uk". */
   id: string;
   broker: Broker;
-  /** Format component of the ingestion source string. */
-  formatId: string;
+  /**
+   * Format component of the ingestion source string.
+   *
+   * Pinned to whatever the web client already sends for this broker, even when
+   * the extension reads a different payload. Source is the instrument-resolution
+   * cache key and the domain of BROKER_DESCRIPTION identifiers, so a new value
+   * would resolve descriptions afresh -- forking existing instruments and paying
+   * for identification calls that have already been made.
+   */
+  sourceFormatId: string;
   /** Match patterns for the host permissions this recipe needs. */
   origins: string[];
   /** Opened when no tab on the broker's site is available to run the export in. */

@@ -10,8 +10,10 @@ describe("recipe registry", () => {
     expect(listRecipes()).toHaveLength(1);
   });
 
-  it("builds the ingestion source string from the format id", () => {
-    expect(sourceFor(getRecipe("fidelity-uk")!, "Fidelity")).toBe("Fidelity:web:fidelity-json");
+  it("reuses the web client's source string rather than minting a new one", () => {
+    // Source is the instrument-resolution cache key, so it stays pinned to what
+    // manual Fidelity uploads already use even though this recipe reads JSON.
+    expect(sourceFor(getRecipe("fidelity-uk")!, "Fidelity")).toBe("Fidelity:web:fidelity-csv");
   });
 });
 

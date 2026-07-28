@@ -35,6 +35,13 @@ export interface BrokerRecipe {
   id: string;
   broker: Broker;
   /**
+   * Broker component of the ingestion source string, matching what the web
+   * client sends. Held on the recipe rather than in a broker-keyed table
+   * elsewhere, so everything that composes a source string for a broker lives in
+   * one place.
+   */
+  sourcePrefix: string;
+  /**
    * Format component of the ingestion source string.
    *
    * Pinned to whatever the web client already sends for this broker, even when

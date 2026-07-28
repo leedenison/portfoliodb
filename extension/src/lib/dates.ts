@@ -17,6 +17,17 @@ export function formatDate(date: Date, pattern: string): string {
     .replace(/dd/g, pad(date.getDate()));
 }
 
+/**
+ * Parses "yyyy-MM-dd" to local midnight, as date inputs and stored settings spell
+ * dates. Returns null if malformed -- deliberately strict, so a date in another
+ * format is rejected rather than reinterpreted.
+ */
+export function parseIsoDate(value: string): Date | null {
+  const m = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return parseSlashDate(`${m[3]}/${m[2]}/${m[1]}`);
+}
+
 /** Parses "dd/MM/yyyy" to local midnight. Returns null if malformed. */
 export function parseSlashDate(value: string): Date | null {
   const m = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);

@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Automate broker transaction import with a browser extension
 milestone: M13
 ---

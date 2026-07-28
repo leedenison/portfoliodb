@@ -29,7 +29,24 @@ export interface DryRunRequest {
   to: string;
 }
 
-export type Message = SessionBootstrapped | ConnectRequest | StatusRequest | DryRunRequest;
+/** Popup asks for a full sync: work out the window, fetch, convert and upload. */
+export interface SyncRequest {
+  type: "sync";
+  recipeId: string;
+}
+
+/** Popup asks for the recorded runs. */
+export interface RunsRequest {
+  type: "runs";
+}
+
+export type Message =
+  | SessionBootstrapped
+  | ConnectRequest
+  | StatusRequest
+  | DryRunRequest
+  | SyncRequest
+  | RunsRequest;
 
 /** Reply to dry-run: what the export produced, with nothing sent to the server. */
 export interface DryRunResult {
@@ -42,7 +59,7 @@ export interface DryRunResult {
   txCount?: number;
   /** Distinct broker transaction types the converter did not recognise. */
   droppedTypes?: string[];
-  droppedRows?: number;
+  droppedCount?: number;
   /** First lines of the payload, to eyeball when conversion fails outright. */
   preview?: string;
 }

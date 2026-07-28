@@ -11,7 +11,8 @@
 - **M09** - Portfolio filtering UI.
 - **M10** - Allow per-user fixed points to define initial holdings.
 - **M11** - Allow users to set a display currency.
-- **M12** - Automated broker transaction import via a browser extension.
+- **M12** - Move transactions to grouped double-entry postings with exact decimal amounts and an enforced balance constraint.
+- **M13** - Automated broker transaction import via a browser extension.
 
 ## Unscheduled
 

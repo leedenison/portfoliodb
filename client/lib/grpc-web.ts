@@ -64,12 +64,25 @@ function throwFromTrailersFrame(buf: Uint8Array): void {
   }
 }
 
+/**
+ * Per-call transport options.
+ *
+ * headers are merged over the gRPC-Web defaults. The browser app authenticates
+ * by cookie and needs none; a non-browser client whose request is cross-site
+ * (so the SameSite session cookie is not attached) passes the session id as
+ * `Authorization: Bearer <session_id>` instead.
+ */
+export interface FetchOptions {
+  credentials?: RequestCredentials;
+  headers?: Record<string, string>;
+}
+
 /** Send gRPC-Web unary request and return response message bytes. */
 export async function unaryFetch(
   baseUrl: string,
   serviceMethod: string,
   requestBytes: Uint8Array,
-  options: { credentials?: RequestCredentials } = {}
+  options: FetchOptions = {}
 ): Promise<Uint8Array> {
   const body = new Uint8Array(5 + requestBytes.length);
   body[0] = GRPC_WEB;
@@ -81,6 +94,7 @@ export async function unaryFetch(
     headers: {
       "Content-Type": "application/grpc-web",
       "X-Grpc-Web": "1",
+      ...options.headers,
     },
     body,
     credentials: options.credentials ?? "include",
@@ -108,7 +122,7 @@ export async function* streamingFetch(
   baseUrl: string,
   serviceMethod: string,
   requestBytes: Uint8Array,
-  options: { credentials?: RequestCredentials } = {}
+  options: FetchOptions = {}
 ): AsyncGenerator<Uint8Array> {
   const body = new Uint8Array(5 + requestBytes.length);
   body[0] = GRPC_WEB;
@@ -120,6 +134,7 @@ export async function* streamingFetch(
     headers: {
       "Content-Type": "application/grpc-web",
       "X-Grpc-Web": "1",
+      ...options.headers,
     },
     body,
     credentials: options.credentials ?? "include",

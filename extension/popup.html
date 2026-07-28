@@ -16,12 +16,24 @@
       <h2>Sync</h2>
       <div class="actions">
         <button id="sync" type="button" disabled>Sync Fidelity</button>
-        <button id="dry-run" type="button" class="secondary" disabled>Dry run</button>
       </div>
       <p class="placeholder">
-        Not implemented yet. Sync will fetch the missing period from the broker and
-        upload it; dry run will stop before uploading and show what it captured.
+        Not implemented yet. Sync will work out the missing period itself, fetch it
+        and upload it.
       </p>
+    </section>
+
+    <section>
+      <h2>Dry run</h2>
+      <p class="hint">
+        Fetches and converts the window below without uploading anything.
+      </p>
+      <label for="dry-from">From</label>
+      <input id="dry-from" type="date" />
+      <label for="dry-to">To</label>
+      <input id="dry-to" type="date" />
+      <button id="dry-run" type="button">Run</button>
+      <pre id="dry-run-output" class="output" hidden></pre>
     </section>
 
     <section>

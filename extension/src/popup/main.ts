@@ -1,13 +1,29 @@
 /**
  * Popup entry point.
  *
- * Only the settings form is wired up; the sync controls and the run log are
- * placeholders until the sync orchestration lands.
+ * Settings, session connect and dry run are wired up; the sync button and the
+ * run log are placeholders until the sync orchestration lands.
  */
 
 import { loadConfig, missingRequired, saveConfig, type Config } from "../config";
-import type { SessionStatus } from "../lib/messages";
-import { requestOriginPermission } from "../lib/permissions";
+import { formatDate } from "../lib/dates";
+import type { DryRunResult, SessionStatus } from "../lib/messages";
+import { requestOriginPermission, requestPatternPermission } from "../lib/permissions";
+import { getRecipe } from "../brokers";
+
+const RECIPE_ID = "fidelity-uk";
+
+function describeDryRun(r: DryRunResult): string {
+  const lines: string[] = [];
+  if (r.requested) lines.push(`window     ${r.requested.from} to ${r.requested.to}`);
+  if (r.rowCount !== undefined) lines.push(`rows       ${r.rowCount}`);
+  if (r.txCount !== undefined) lines.push(`converted  ${r.txCount}`);
+  if (r.droppedRows) lines.push(`dropped    ${r.droppedRows}`);
+  if (r.droppedTypes?.length) lines.push(`unknown    ${r.droppedTypes.join(", ")}`);
+  if (r.error) lines.push(`error      ${r.error}`);
+  if (r.preview) lines.push(`preview    ${r.preview}`);
+  return lines.join("\n");
+}
 
 function field(name: string): HTMLInputElement {
   const el = document.getElementById(name);
@@ -78,6 +94,41 @@ async function main(): Promise<void> {
       }
       renderSession({ connected: false, error: "connecting..." });
       renderSession(await chrome.runtime.sendMessage({ type: "connect" }));
+    });
+  });
+
+  // Default the dry-run window to the last 30 days, ending yesterday: a
+  // transaction dated today may not have completed.
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const monthBefore = new Date(yesterday);
+  monthBefore.setDate(monthBefore.getDate() - 30);
+  const asInput = (d: Date) => formatDate(d, "yyyy-MM-dd");
+  field("dry-from").value = asInput(monthBefore);
+  field("dry-to").value = asInput(yesterday);
+
+  const output = document.getElementById("dry-run-output");
+  document.getElementById("dry-run")?.addEventListener("click", () => {
+    const recipe = getRecipe(RECIPE_ID);
+    if (!recipe) return;
+    const from = field("dry-from").value;
+    const to = field("dry-to").value;
+    // Requested in the gesture, as permissions.request requires.
+    void requestPatternPermission(recipe.origins).then(async (granted) => {
+      if (!output) return;
+      output.hidden = false;
+      if (!granted) {
+        output.textContent = `access to ${recipe.origins.join(", ")} was declined`;
+        return;
+      }
+      output.textContent = "running...";
+      const result: DryRunResult = await chrome.runtime.sendMessage({
+        type: "dry-run",
+        recipeId: RECIPE_ID,
+        from,
+        to,
+      });
+      output.textContent = describeDryRun(result);
     });
   });
 

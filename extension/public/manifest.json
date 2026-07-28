@@ -3,7 +3,7 @@
   "name": "PortfolioDB Import",
   "version": "0.1.0",
   "description": "Automates broker transaction import into PortfolioDB.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting", "tabs"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js",

@@ -13,6 +13,11 @@ export default defineConfig({
   resolve: {
     // Mirrors the "@/*" path mapping in tsconfig.json; both must be updated together.
     alias: { "@": clientDir },
+    // Client sources resolve these from client/node_modules and extension sources
+    // from extension/node_modules. Without dedupe both copies land in the bundle,
+    // and two protobuf runtimes means registries that do not recognise each
+    // other's descriptors. See the version pinning note in package.json.
+    dedupe: ["@bufbuild/protobuf", "papaparse"],
   },
   build: {
     outDir: "dist",

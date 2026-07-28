@@ -1,11 +1,65 @@
 /**
  * Service worker entry point.
  *
- * Sync orchestration, the API clients and the session bootstrap arrive in later
- * changes; this exists so the manifest has a background entry to load and so the
- * build emits it.
+ * Owns the session: runs the bootstrap on request, stores the id, and answers
+ * status queries from the popup. Sync orchestration arrives in a later change.
  */
 
-chrome.runtime.onInstalled.addListener(() => {
-  console.info("PortfolioDB Import installed");
+import { bootstrapSession } from "./bootstrap";
+import { loadConfig } from "../config";
+import { getSession } from "../lib/api";
+import type { Message, SessionStatus } from "../lib/messages";
+import { clearSessionId, getSessionId, setSessionId } from "../lib/session";
+import { registerSessionLostHandler } from "@/lib/session-lost";
+
+// The shared transport calls this whenever a response comes back UNAUTHENTICATED,
+// so an expired session is dropped at the point it is detected rather than being
+// retried with a dead id.
+registerSessionLostHandler(() => {
+  void clearSessionId();
+});
+
+/** Confirms the stored session works from the service worker's own bearer path. */
+async function status(): Promise<SessionStatus> {
+  const sessionId = await getSessionId();
+  if (!sessionId) return { connected: false };
+  const { portfoliodbOrigin } = await loadConfig();
+  if (!portfoliodbOrigin) return { connected: false, error: "No PortfolioDB origin configured" };
+  try {
+    const res = await getSession(portfoliodbOrigin, sessionId);
+    return { connected: true, email: res.user?.email };
+  } catch (e) {
+    await clearSessionId();
+    return { connected: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+async function connect(): Promise<SessionStatus> {
+  try {
+    const result = await bootstrapSession();
+    if (!result.sessionId) {
+      return {
+        connected: false,
+        error: result.needsSignIn
+          ? "Sign in to PortfolioDB in the tab that just opened, then connect again"
+          : (result.error ?? "Bootstrap failed"),
+      };
+    }
+    await setSessionId(result.sessionId);
+    return await status();
+  } catch (e) {
+    return { connected: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
+  if (msg?.type === "status") {
+    void status().then(sendResponse);
+    return true; // response is async
+  }
+  if (msg?.type === "connect") {
+    void connect().then(sendResponse);
+    return true;
+  }
+  return false;
 });

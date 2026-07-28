@@ -17,6 +17,12 @@
     // Resolves the client's React-free modules (CSV converters, the gRPC-Web
     // transport) and its generated protobuf types, so parsing and wire format
     // are not reimplemented here. Kept in step with vite.config.ts.
+    //
+    // Because the generated types under client/gen are typed against the client's
+    // own @bufbuild/protobuf, this project pins that dependency to the exact
+    // version client/package-lock.json resolves. A different version makes the
+    // two copies' descriptor types mutually unassignable and every call through
+    // the shared transport fails to typecheck.
     "paths": {
       "@/*": ["../client/*"]
     }

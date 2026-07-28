@@ -8,9 +8,12 @@ Single reference for where each component of the PortfolioDB monorepo lives. The
 | --------- | ------- |
 | **proto/** | API definitions (protobuf). Shared contract between server and client; no runtime code. |
 | **client/** | Web front end. Next.js (TypeScript) SPA; consumes gRPC/HTTP API and displays portfolio UI. |
+| **extension/** | Chrome MV3 browser extension. Automates broker transaction import; consumes the gRPC-Web API and reuses the client's CSV converters. |
 | **server/** | Back end. Go services, DB layer, plugins, and migrations. |
+| **cli/** | Go command line tools that drive the server gRPC interface (data import/export, price loading). |
 | **docs/** | Project documentation: spec, plan, UI specs, and this layout. Language style and testing guidance live in `.claude/skills/`. |
 | **docker/** | Dockerfiles and compose (or scripts) for local dev and QA (e.g. Postgres + PortfolioDB service). |
+| **e2e/** | Playwright end-to-end suites run against the full Docker stack. Governed by the `e2e-testing` skill. |
 
 ---
 
@@ -33,6 +36,27 @@ Generated bindings are produced by buf/protoc: Go code under **proto/** (e.g. `p
   Next.js application (TypeScript, Tailwind). Single place for all web UI and API calls to the backend.
 - **client/gen/**  
   Generated TypeScript/JavaScript from protobuf (gRPC client stubs, message types). Do not edit; do not commit.
+
+---
+
+## extension/
+
+Chrome MV3 extension (TypeScript, Vite, Vitest) that automates transaction import from broker websites. Behaviour is specified in `docs/spec/broker-import-extension.md`.
+
+It is a client of the same gRPC-Web API the SPA uses, and imports the client's CSV converters and generated protobuf types through a tsconfig path alias rather than duplicating them -- so converters under **client/lib/csv/converters/** must not depend on React.
+
+- **extension/src/background/**  
+  Service worker: sync orchestration, API clients, storage, and the run log.
+- **extension/src/content/**  
+  Content scripts. One on the PortfolioDB origin for session bootstrap; one on the broker origin that interprets recipes.
+- **extension/src/brokers/**  
+  Per-broker recipes: the site-specific data (selectors, export request, date format) executed by a generic interpreter. Repairing a broken broker integration should be an edit here, not to logic.
+- **extension/src/popup/**  
+  Popup UI: Sync, dry run, configuration, and the run log.
+- **extension/dist/**  
+  Build output, loaded unpacked in Chrome. Do not commit.
+
+Built with `make extension` (and `make extension-dev`, `make extension-test`), which reuse the client container.
 
 ---
 

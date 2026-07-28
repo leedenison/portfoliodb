@@ -174,7 +174,7 @@ func TestTxIgnored(t *testing.T) {
 		{
 			name:   "Fidelity tx is not ignored (no rules)",
 			tx:     &apiv1.Tx{Type: apiv1.TxType_CASHFLOW, Account: "ACC-1"},
-			broker: "Fidelity",
+			broker: "FIDELITY",
 			want:   false,
 		},
 	}

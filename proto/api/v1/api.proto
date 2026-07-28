@@ -170,7 +170,7 @@ service ApiService {
   rpc SetPortfolioFilters(SetPortfolioFiltersRequest) returns (SetPortfolioFiltersResponse);
   rpc ListBrokersAndAccounts(ListBrokersAndAccountsRequest) returns (ListBrokersAndAccountsResponse);
 
-  // Transactions and holdings: by portfolio view (portfolio_id set) or all user data (portfolio_id empty). Filtering is via portfolios only.
+  // Transactions and holdings: by portfolio view (portfolio_id set) or all user data (portfolio_id empty). Portfolios are the general filtering mechanism; ListTxs additionally accepts a broker filter and sort direction so a client can fetch the most recent transaction for one broker in a single request (see adr/0015-listtxs-broker-filter.md).
   rpc ListTxs(ListTxsRequest) returns (ListTxsResponse);
   rpc GetHoldings(GetHoldingsRequest) returns (GetHoldingsResponse);
 
@@ -371,6 +371,11 @@ message ListTxsRequest {
   google.protobuf.Timestamp period_to = 3;
   int32 page_size = 4;
   string page_token = 5;
+  // Restrict to one broker. BROKER_UNSPECIFIED = all brokers. Applies to both
+  // the portfolio view and the all-transactions listing.
+  Broker broker = 6 [(buf.validate.field).enum = {defined_only: true}];
+  // Order by timestamp descending (newest first). Default is ascending.
+  bool descending = 7;
 }
 
 message ListTxsResponse {

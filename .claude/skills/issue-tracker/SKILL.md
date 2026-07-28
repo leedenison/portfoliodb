@@ -10,6 +10,14 @@ single `docs/issues/milestones.md` holding the milestone labels. There is no
 external tracker; these files are the source of truth. Keep them terse -- an
 issue body is usually a sentence or two.
 
+# Creating Issues
+
+Create issues for coarse grained, feature level issues (eg. "Enable transaction
+CSV upload for browser extensions").  Do not create fine grained implementation
+issues.
+
+Users will create issues for bugs which may be fine grained.
+
 ## Files and numbering
 
 - Issues are `docs/issues/NNNN-slug.md` -- a 4-digit zero-padded number and a

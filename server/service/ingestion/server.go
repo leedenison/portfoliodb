@@ -111,15 +111,14 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 	return &ingestionv1.IngestionResponse{JobId: jobID}, nil
 }
 
+// brokerToString returns the stored form of a broker: its enum name.
 func brokerToString(b apiv1.Broker) (string, error) {
-	switch b {
-	case apiv1.Broker_IBKR:
-		return "IBKR", nil
-	case apiv1.Broker_SCHB:
-		return "SCHB", nil
-	case apiv1.Broker_FIDELITY:
-		return "Fidelity", nil
-	default:
+	if b == apiv1.Broker_BROKER_UNSPECIFIED {
+		return "", fmt.Errorf("broker unspecified")
+	}
+	s, ok := apiv1.Broker_name[int32(b)]
+	if !ok {
 		return "", fmt.Errorf("unknown broker")
 	}
+	return s, nil
 }

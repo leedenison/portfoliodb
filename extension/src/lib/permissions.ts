@@ -26,3 +26,17 @@ export function hasOriginPermission(origin: string): Promise<boolean> {
 export function requestOriginPermission(origin: string): Promise<boolean> {
   return chrome.permissions.request({ origins: [originPattern(origin)] });
 }
+
+/**
+ * Variants taking match patterns directly, for recipes: a recipe declares the
+ * patterns it needs, which may cover more than the single origin its home page
+ * sits on.
+ */
+export function hasPatternPermission(patterns: string[]): Promise<boolean> {
+  return chrome.permissions.contains({ origins: patterns });
+}
+
+/** Must be called from a user gesture; see requestOriginPermission. */
+export function requestPatternPermission(patterns: string[]): Promise<boolean> {
+  return chrome.permissions.request({ origins: patterns });
+}

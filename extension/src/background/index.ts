@@ -6,6 +6,7 @@
  */
 
 import { bootstrapSession } from "./bootstrap";
+import { dryRun } from "./dry-run";
 import { loadConfig } from "../config";
 import { getSession } from "../lib/api";
 import type { Message, SessionStatus } from "../lib/messages";
@@ -59,6 +60,10 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   }
   if (msg?.type === "connect") {
     void connect().then(sendResponse);
+    return true;
+  }
+  if (msg?.type === "dry-run") {
+    void dryRun(msg).then(sendResponse);
     return true;
   }
   return false;

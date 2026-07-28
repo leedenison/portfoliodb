@@ -7,9 +7,9 @@
 import { loadConfig } from "../config";
 import type { SessionBootstrapped } from "../lib/messages";
 import { hasOriginPermission, originPattern } from "../lib/permissions";
+import { getHostTab, TAB_TIMEOUT_MS as BOOTSTRAP_TIMEOUT_MS } from "./tabs";
 
 const CONTENT_SCRIPT = "content/portfoliodb.js";
-const BOOTSTRAP_TIMEOUT_MS = 15_000;
 
 /** Resolves with the next session-bootstrapped message, or rejects on timeout. */
 function awaitSession(timeoutMs = BOOTSTRAP_TIMEOUT_MS): Promise<SessionBootstrapped> {
@@ -27,23 +27,6 @@ function awaitSession(timeoutMs = BOOTSTRAP_TIMEOUT_MS): Promise<SessionBootstra
       resolve(msg as SessionBootstrapped);
     };
     chrome.runtime.onMessage.addListener(listener);
-  });
-}
-
-function awaitTabComplete(tabId: number, timeoutMs = BOOTSTRAP_TIMEOUT_MS): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      reject(new Error("timed out loading the PortfolioDB tab"));
-    }, timeoutMs);
-
-    const listener = (id: number, info: chrome.tabs.TabChangeInfo): void => {
-      if (id !== tabId || info.status !== "complete") return;
-      clearTimeout(timer);
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve();
-    };
-    chrome.tabs.onUpdated.addListener(listener);
   });
 }
 
@@ -72,18 +55,7 @@ export async function bootstrapSession(): Promise<BootstrapResult> {
     throw new Error(`Permission to access ${portfoliodbOrigin} has not been granted`);
   }
 
-  const existing = await chrome.tabs.query({ url: pattern });
-  const reusedTab = existing.find((t) => t.id !== undefined);
-  let tabId = reusedTab?.id;
-  let opened = false;
-
-  if (tabId === undefined) {
-    const tab = await chrome.tabs.create({ url: portfoliodbOrigin, active: false });
-    if (tab.id === undefined) throw new Error("could not open a PortfolioDB tab");
-    tabId = tab.id;
-    opened = true;
-    await awaitTabComplete(tabId);
-  }
+  const { tabId, opened } = await getHostTab(pattern, portfoliodbOrigin);
 
   const settled = awaitSession();
   await chrome.scripting.executeScript({ target: { tabId }, files: [CONTENT_SCRIPT] });

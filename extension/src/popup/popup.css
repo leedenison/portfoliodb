@@ -97,3 +97,15 @@ button.secondary {
 .status-error {
   color: #b3261e;
 }
+
+.output {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  font: 11px/1.4 ui-monospace, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 14rem;
+  overflow-y: auto;
+}

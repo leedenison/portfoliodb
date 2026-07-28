@@ -61,7 +61,7 @@ export const FIDELITY_TYPE_TO_OFX: Record<string, TxType> = {
   "Cash Out For Buy From Transfer": TxType.JRNLFUND,
 };
 
-function isCashTxType(type: TxType): boolean {
+export function isCashTxType(type: TxType): boolean {
   return (
     type === TxType.INCOME ||
     type === TxType.INVEXPENSE ||
@@ -77,7 +77,7 @@ function isCashTxType(type: TxType): boolean {
  * quantity is the money that moved. JRNLFUND is included here but not in
  * isCashTxType, which governs the currency hint rather than the quantity.
  */
-function isCashMovement(type: TxType): boolean {
+export function isCashMovement(type: TxType): boolean {
   return isCashTxType(type) || type === TxType.JRNLFUND;
 }
 

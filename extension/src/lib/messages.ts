@@ -18,7 +18,34 @@ export interface StatusRequest {
   type: "status";
 }
 
-export type Message = SessionBootstrapped | ConnectRequest | StatusRequest;
+/**
+ * Popup asks for an export to be captured and converted, without uploading.
+ * Dates are "yyyy-MM-dd" as the date inputs produce them.
+ */
+export interface DryRunRequest {
+  type: "dry-run";
+  recipeId: string;
+  from: string;
+  to: string;
+}
+
+export type Message = SessionBootstrapped | ConnectRequest | StatusRequest | DryRunRequest;
+
+/** Reply to dry-run: what the export produced, with nothing sent to the server. */
+export interface DryRunResult {
+  ok: boolean;
+  error?: string;
+  /** The window actually requested, in the broker's own date format. */
+  requested?: { from: string; to: string };
+  /** Rows in the captured payload, before conversion. */
+  rowCount?: number;
+  txCount?: number;
+  /** Distinct broker transaction types the converter did not recognise. */
+  droppedTypes?: string[];
+  droppedRows?: number;
+  /** First lines of the payload, to eyeball when conversion fails outright. */
+  preview?: string;
+}
 
 /** Reply to connect and status. */
 export interface SessionStatus {

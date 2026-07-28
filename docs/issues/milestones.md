@@ -12,6 +12,7 @@
 - **M10** - Allow per-user fixed points to define initial holdings.
 - **M11** - Allow users to set a display currency.
 - **M12** - Move transactions to grouped double-entry postings with exact decimal amounts and an enforced balance constraint.
+- **M13** - Automated broker transaction import via a browser extension.
 
 ## Unscheduled
 
@@ -22,6 +23,7 @@
 - Portfolio sharing between users and aggregates that combine portfolios (including shared portfolios).
 - Transaction importer for IBKR.
 - Transaction importer for SCHB.
+- Browser extension recipes for further brokers.
 - Exchange and listing currency: identify and store per transaction/instrument (and support multiple listings per instrument if needed).
 - Modular ingestion workflow with distinct tasks and explicit dependency modelling.
 - User override of instrument identity (user-owned data); admin correction of shared instrument identity.

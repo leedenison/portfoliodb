@@ -16,6 +16,11 @@ This project is pre-release.  Datamodels, APIs, protobuf definitions, plugin API
 * Tailwind CSS
 * Recharts (charting)
 
+### Browser Extension
+
+* Chrome MV3 (Typescript)
+* Vite (build), Vitest (unit tests)
+
 ### Back End
 
 * APIs will be implemented using Protobuf and gRPC over HTTP/1.1.  
@@ -28,6 +33,8 @@ This project is pre-release.  Datamodels, APIs, protobuf definitions, plugin API
 Directory layout and which component lives where are described in **docs/layout.md**. In short: Next.js front end in **client/**; Go backend in **server/** (service, DB abstraction layer, plugins); shared API definitions in **proto/**; protobuf-generated code under **proto/** (Go) and **client/gen** (TypeScript); migrations in **server/migrations**; docs in **docs/**.
 
 The PortfolioDB service implements a database abstraction layer (in **server/db**): all SQL is confined there so that other server code can be unit tested with mocks. Identity, price-fetcher, and corporate-event plugins are Go libraries under **server/plugins/** compiled into the service binary.
+
+A Chrome MV3 extension in **extension/** automates transaction import from broker websites. It is a client of the same gRPC-Web API as the SPA and imports the client's CSV converters and generated protobuf types through a tsconfig path alias, so converters under **client/lib/csv/converters/** must stay free of React. Build with `make extension`; behaviour is specified in docs/spec/broker-import-extension.md.
 
 ## Development Setup
 
@@ -81,6 +88,8 @@ Whenever you begin work in a new worktree you should:
 The informantion architecture of the user interface is described in docs/spec/information-architecture.md.  It describes key concepts for users (and admin users), how they relate to each other, the relative importance they carry for the user and gives the example of how the information architecture should impact global navigation.
 
 The CSV format specification for transaction uploads is documented in docs/spec/csv-format.md.
+
+Automated transaction import via the browser extension is specified in docs/spec/broker-import-extension.md.
 
 Use text placeholders for unimplemented functionality as development progresses.  It should always be possible to see where UI elements will be displayed even if they are not yet implemented.
 

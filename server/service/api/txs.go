@@ -10,7 +10,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// ListTxs lists transactions: by portfolio view (if portfolio_id set) or all user transactions. Filtering is via portfolios only.
+// ListTxs lists transactions: by portfolio view (if portfolio_id set) or all user transactions.
+// Portfolios are the general filtering mechanism; the broker filter and sort direction exist so a
+// client can fetch the most recent transaction for one broker in a single request.
 func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1.ListTxsResponse, error) {
 	u, authErr := auth.RequireUser(ctx)
 	if authErr != nil {
@@ -23,20 +25,25 @@ func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1
 	if pageSize > 100 {
 		pageSize = 100
 	}
+	var broker *apiv1.Broker
+	if b := req.GetBroker(); b != apiv1.Broker_BROKER_UNSPECIFIED {
+		broker = &b
+	}
 	var txs []*apiv1.PortfolioTx
 	var nextToken string
 	var err error
 	if req.GetPortfolioId() != "" {
-		ok, err := s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
+		var ok bool
+		ok, err = s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 		if !ok {
 			return nil, status.Error(codes.NotFound, "portfolio not found")
 		}
-		txs, nextToken, err = s.db.ListTxsByPortfolio(ctx, req.GetPortfolioId(), req.PeriodFrom, req.PeriodTo, pageSize, req.GetPageToken())
+		txs, nextToken, err = s.db.ListTxsByPortfolio(ctx, req.GetPortfolioId(), broker, req.PeriodFrom, req.PeriodTo, req.GetDescending(), pageSize, req.GetPageToken())
 	} else {
-		txs, nextToken, err = s.db.ListTxs(ctx, u.ID, nil, "", req.PeriodFrom, req.PeriodTo, pageSize, req.GetPageToken())
+		txs, nextToken, err = s.db.ListTxs(ctx, u.ID, broker, "", req.PeriodFrom, req.PeriodTo, req.GetDescending(), pageSize, req.GetPageToken())
 	}
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())

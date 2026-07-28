@@ -7,6 +7,9 @@
 
 import { bootstrapSession } from "./bootstrap";
 import { dryRun } from "./dry-run";
+import { sync } from "./sync";
+import { getRecipe } from "../brokers";
+import { listRuns } from "../lib/run-log";
 import { loadConfig } from "../config";
 import { getSession } from "../lib/api";
 import type { Message, SessionStatus } from "../lib/messages";
@@ -64,6 +67,19 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   }
   if (msg?.type === "dry-run") {
     void dryRun(msg).then(sendResponse);
+    return true;
+  }
+  if (msg?.type === "sync") {
+    const recipe = getRecipe(msg.recipeId);
+    if (!recipe) {
+      sendResponse({ entry: { startedAt: new Date().toISOString(), recipeId: msg.recipeId, status: "failed", error: `no recipe named ${msg.recipeId}` } });
+      return false;
+    }
+    void sync({ broker: recipe.broker }).then(sendResponse);
+    return true;
+  }
+  if (msg?.type === "runs") {
+    void listRuns().then(sendResponse);
     return true;
   }
   return false;

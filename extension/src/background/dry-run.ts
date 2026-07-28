@@ -7,16 +7,9 @@
 
 import { getRecipe } from "../brokers";
 import { loadConfig } from "../config";
-import { formatDate, parseSlashDate } from "../lib/dates";
+import { formatDate, parseIsoDate } from "../lib/dates";
 import type { DryRunRequest, DryRunResult } from "../lib/messages";
 import { captureExport } from "./export";
-
-/** Parses "yyyy-MM-dd" from a date input to local midnight. */
-function parseInputDate(value: string): Date | null {
-  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  return parseSlashDate(`${m[3]}/${m[2]}/${m[1]}`);
-}
 
 /**
  * Counts rows and the transaction types the converter rejected. The type name is
@@ -36,8 +29,8 @@ export async function dryRun(req: DryRunRequest): Promise<DryRunResult> {
   const recipe = getRecipe(req.recipeId);
   if (!recipe) return { ok: false, error: `no recipe named ${req.recipeId}` };
 
-  const from = parseInputDate(req.from);
-  const to = parseInputDate(req.to);
+  const from = parseIsoDate(req.from);
+  const to = parseIsoDate(req.to);
   if (!from || !to) return { ok: false, error: "enter both dates" };
   if (from > to) return { ok: false, error: "from is after to" };
 

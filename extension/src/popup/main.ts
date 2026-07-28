@@ -8,6 +8,7 @@
 import { loadConfig, missingRequired, saveConfig, type Config } from "../config";
 import { formatDate } from "../lib/dates";
 import type { DryRunResult, SessionStatus } from "../lib/messages";
+import type { RunLogEntry } from "../lib/run-log";
 import { requestOriginPermission, requestPatternPermission } from "../lib/permissions";
 import { getRecipe } from "../brokers";
 
@@ -23,6 +24,32 @@ function describeDryRun(r: DryRunResult): string {
   if (r.error) lines.push(`error      ${r.error}`);
   if (r.preview) lines.push(`preview    ${r.preview}`);
   return lines.join("\n");
+}
+
+/** One run as a compact block; the newest is shown expanded at the top. */
+function describeRun(r: RunLogEntry): string {
+  const when = r.startedAt.replace("T", " ").slice(0, 16);
+  const parts = [`${when}  ${r.status.toUpperCase()}`];
+  if (r.window) parts.push(`  window ${r.window.from} to ${r.window.to}`);
+  if (r.txCount !== undefined) {
+    parts.push(`  ${r.txCount} of ${r.rowCount ?? "?"} rows uploaded`);
+  }
+  if (r.droppedRows) {
+    // Dropped rows are the thing a reader must not miss: the replace deleted
+    // whatever they previously stored.
+    parts.push(`  DROPPED ${r.droppedRows} row(s)`);
+    if (r.droppedTypes?.length) parts.push(`  unrecognised: ${r.droppedTypes.join(", ")}`);
+  }
+  if (r.jobErrors?.length) parts.push(...r.jobErrors.map((e) => `  job: ${e}`));
+  if (r.error) parts.push(`  ${r.error}`);
+  return parts.join("\n");
+}
+
+async function renderRuns(): Promise<void> {
+  const el = document.getElementById("run-log");
+  if (!el) return;
+  const runs: RunLogEntry[] = await chrome.runtime.sendMessage({ type: "runs" });
+  el.textContent = runs.length === 0 ? "No runs yet." : runs.map(describeRun).join("\n\n");
 }
 
 function field(name: string): HTMLInputElement {
@@ -129,6 +156,32 @@ async function main(): Promise<void> {
         to,
       });
       output.textContent = describeDryRun(result);
+    });
+  });
+
+  void renderRuns();
+
+  const syncStatus = document.getElementById("sync-status");
+  document.getElementById("sync")?.addEventListener("click", () => {
+    const recipe = getRecipe(RECIPE_ID);
+    if (!recipe || !syncStatus) return;
+    // Requested in the gesture: the worker cannot prompt for permission itself.
+    void requestPatternPermission(recipe.origins).then(async (granted) => {
+      if (!granted) {
+        syncStatus.textContent = `access to ${recipe.origins.join(", ")} was declined`;
+        syncStatus.className = "status status-error";
+        return;
+      }
+      syncStatus.textContent = "syncing...";
+      syncStatus.className = "status status-unknown";
+      const { entry } = await chrome.runtime.sendMessage({ type: "sync", recipeId: RECIPE_ID });
+      const ok = entry.status === "success" || entry.status === "up-to-date";
+      syncStatus.textContent =
+        entry.status === "warning"
+          ? `Uploaded, but ${entry.droppedRows} row(s) were dropped -- see the run log`
+          : (entry.error ?? `${entry.status}: ${entry.txCount ?? 0} transactions uploaded`);
+      syncStatus.className = `status ${ok ? "status-ok" : "status-error"}`;
+      await renderRuns();
     });
   });
 

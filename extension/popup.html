@@ -15,12 +15,13 @@
     <section>
       <h2>Sync</h2>
       <div class="actions">
-        <button id="sync" type="button" disabled>Sync Fidelity</button>
+        <button id="sync" type="button">Sync Fidelity</button>
       </div>
-      <p class="placeholder">
-        Not implemented yet. Sync will work out the missing period itself, fetch it
-        and upload it.
+      <p class="hint">
+        Works out the missing period from what PortfolioDB already holds, fetches
+        it and uploads it.
       </p>
+      <p id="sync-status" class="status" role="status"></p>
     </section>
 
     <section>
@@ -66,7 +67,7 @@
 
     <section>
       <h2>Run log</h2>
-      <p id="run-log" class="placeholder">No runs yet.</p>
+      <pre id="run-log" class="output">No runs yet.</pre>
     </section>
 
     <script type="module" src="./src/popup/main.ts"></script>

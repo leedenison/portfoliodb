@@ -7,7 +7,7 @@
  */
 
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { Broker, JobStatus } from "@/gen/api/v1/api_pb";
+import { JobStatus, type Broker } from "@/gen/api/v1/api_pb";
 import { getRecipeForBroker, sourceFor } from "../brokers";
 import type { BrokerRecipe } from "../brokers/types";
 import { loadConfig } from "../config";
@@ -22,12 +22,6 @@ import { captureExport } from "./export";
 /** Ingestion is asynchronous; a bulk upload of a year takes a little while. */
 const JOB_POLL_INTERVAL_MS = 1_500;
 const JOB_TIMEOUT_MS = 120_000;
-
-/** Source prefix per broker, matching what the web client sends. */
-const SOURCE_PREFIX: Partial<Record<Broker, string>> = {
-  [Broker.FIDELITY]: "Fidelity",
-  [Broker.IBKR]: "IBKR",
-};
 
 export interface SyncResult {
   entry: RunLogEntry;
@@ -137,7 +131,8 @@ export async function sync(opts: SyncOptions): Promise<SyncResult> {
     ...withWindow,
     rowCount: rowCount(payload),
     txCount: parsed.txs.length,
-    droppedRows: parsed.errors.length,
+    droppedCount: parsed.errors.length,
+    ...(parsed.errors.length > 0 ? { droppedRows: parsed.errors } : {}),
     ...(dropped.length > 0 ? { droppedTypes: dropped } : {}),
   };
 
@@ -157,7 +152,7 @@ export async function sync(opts: SyncOptions): Promise<SyncResult> {
   try {
     const res = await upsertTxs(config.portfoliodbOrigin, sessionId, {
       broker: opts.broker,
-      source: sourceFor(recipe, SOURCE_PREFIX[opts.broker] ?? "unknown"),
+      source: sourceFor(recipe),
       // The window that was requested, not the range of the rows that came back:
       // that is what lets the replace delete transactions the broker cancelled.
       periodFrom: timestampFromDate(win.from),
@@ -176,7 +171,7 @@ export async function sync(opts: SyncOptions): Promise<SyncResult> {
   }
   // Dropped rows are not fatal, but they are not a clean run either: the replace
   // deleted whatever those rows previously stored.
-  return finish({ ...counted, jobId, status: dropped.length > 0 || counted.droppedRows ? "warning" : "success" });
+  return finish({ ...counted, jobId, status: counted.droppedCount ? "warning" : "success" });
 }
 
 function message(e: unknown): string {

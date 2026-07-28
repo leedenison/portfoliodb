@@ -13,7 +13,7 @@ describe("recipe registry", () => {
   it("reuses the web client's source string rather than minting a new one", () => {
     // Source is the instrument-resolution cache key, so it stays pinned to what
     // manual Fidelity uploads already use even though this recipe reads JSON.
-    expect(sourceFor(getRecipe("fidelity-uk")!, "Fidelity")).toBe("Fidelity:web:fidelity-csv");
+    expect(sourceFor(getRecipe("fidelity-uk")!)).toBe("Fidelity:web:fidelity-csv");
   });
 });
 

@@ -14,12 +14,15 @@ import { getRecipe } from "../brokers";
 
 const RECIPE_ID = "fidelity-uk";
 
+/** Rows listed per run before the log is truncated; the full set is stored. */
+const MAX_DROPPED_SHOWN = 10;
+
 function describeDryRun(r: DryRunResult): string {
   const lines: string[] = [];
   if (r.requested) lines.push(`window     ${r.requested.from} to ${r.requested.to}`);
   if (r.rowCount !== undefined) lines.push(`rows       ${r.rowCount}`);
   if (r.txCount !== undefined) lines.push(`converted  ${r.txCount}`);
-  if (r.droppedRows) lines.push(`dropped    ${r.droppedRows}`);
+  if (r.droppedCount) lines.push(`dropped    ${r.droppedCount}`);
   if (r.droppedTypes?.length) lines.push(`unknown    ${r.droppedTypes.join(", ")}`);
   if (r.error) lines.push(`error      ${r.error}`);
   if (r.preview) lines.push(`preview    ${r.preview}`);
@@ -34,11 +37,18 @@ function describeRun(r: RunLogEntry): string {
   if (r.txCount !== undefined) {
     parts.push(`  ${r.txCount} of ${r.rowCount ?? "?"} rows uploaded`);
   }
-  if (r.droppedRows) {
+  if (r.droppedCount) {
     // Dropped rows are the thing a reader must not miss: the replace deleted
     // whatever they previously stored.
-    parts.push(`  DROPPED ${r.droppedRows} row(s)`);
+    parts.push(`  DROPPED ${r.droppedCount} row(s)`);
     if (r.droppedTypes?.length) parts.push(`  unrecognised: ${r.droppedTypes.join(", ")}`);
+    // Listed individually because a row dropped for something other than an
+    // unrecognised type is invisible in the summary above.
+    for (const e of (r.droppedRows ?? []).slice(0, MAX_DROPPED_SHOWN)) {
+      parts.push(`    row ${e.rowIndex} ${e.field}: ${e.message}`);
+    }
+    const hidden = (r.droppedRows?.length ?? 0) - MAX_DROPPED_SHOWN;
+    if (hidden > 0) parts.push(`    ... and ${hidden} more`);
   }
   if (r.jobErrors?.length) parts.push(...r.jobErrors.map((e) => `  job: ${e}`));
   if (r.error) parts.push(`  ${r.error}`);
@@ -178,7 +188,7 @@ async function main(): Promise<void> {
       const ok = entry.status === "success" || entry.status === "up-to-date";
       syncStatus.textContent =
         entry.status === "warning"
-          ? `Uploaded, but ${entry.droppedRows} row(s) were dropped -- see the run log`
+          ? `Uploaded, but ${entry.droppedCount} row(s) were dropped -- see the run log`
           : (entry.error ?? `${entry.status}: ${entry.txCount ?? 0} transactions uploaded`);
       syncStatus.className = `status ${ok ? "status-ok" : "status-error"}`;
       await renderRuns();

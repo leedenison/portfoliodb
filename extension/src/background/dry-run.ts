@@ -9,21 +9,8 @@ import { getRecipe } from "../brokers";
 import { loadConfig } from "../config";
 import { formatDate, parseIsoDate } from "../lib/dates";
 import type { DryRunRequest, DryRunResult } from "../lib/messages";
+import { droppedTypes } from "../lib/dropped";
 import { captureExport } from "./export";
-
-/**
- * Counts rows and the transaction types the converter rejected. The type name is
- * pulled from the parse error rather than the payload so the two cannot disagree
- * about which rows were dropped.
- */
-function summariseDropped(errors: { field: string; message: string }[]): string[] {
-  const types = new Set<string>();
-  for (const e of errors) {
-    const m = e.field === "type" ? e.message.match(/Unknown transaction type: (.+)$/) : null;
-    if (m?.[1]) types.add(m[1]);
-  }
-  return [...types].sort();
-}
 
 export async function dryRun(req: DryRunRequest): Promise<DryRunResult> {
   const recipe = getRecipe(req.recipeId);
@@ -57,8 +44,8 @@ export async function dryRun(req: DryRunRequest): Promise<DryRunResult> {
       requested,
       ...(rowCount !== undefined ? { rowCount } : {}),
       txCount: parsed.txs.length,
-      droppedRows: parsed.errors.length,
-      droppedTypes: summariseDropped(parsed.errors),
+      droppedCount: parsed.errors.length,
+      droppedTypes: droppedTypes(parsed.errors),
       ...(parsed.txs.length === 0
         ? {
             error: parsed.errors[0]?.message ?? "the export contained no transactions",

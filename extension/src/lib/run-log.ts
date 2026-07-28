@@ -6,6 +6,8 @@
  * dropped rows names the broker transaction types it did not recognise.
  */
 
+import type { ParseError } from "@/lib/csv/standard";
+
 const STORAGE_KEY = "runLog";
 const MAX_ENTRIES = 20;
 
@@ -22,7 +24,17 @@ export interface RunLogEntry {
   resumedFrom?: string | null;
   rowCount?: number;
   txCount?: number;
-  droppedRows?: number;
+  droppedCount?: number;
+  /**
+   * Every row the converter refused, with its index in the payload and why.
+   *
+   * Kept in full rather than summarised: a row dropped for a reason other than an
+   * unrecognised type -- a malformed date, say -- contributes nothing to
+   * droppedTypes, and a bare count gives no way to find it. A replace deletes
+   * whatever those rows previously stored, so the run has to be able to say
+   * exactly what was lost.
+   */
+  droppedRows?: ParseError[];
   /** Distinct broker transaction types the converter did not recognise. */
   droppedTypes?: string[];
   jobId?: string;

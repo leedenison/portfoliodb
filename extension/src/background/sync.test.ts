@@ -119,10 +119,33 @@ describe("sync", () => {
 
     expect(upsertTxs).toHaveBeenCalled();
     expect(entry.status).toBe("warning");
-    expect(entry.droppedRows).toBe(1);
+    expect(entry.droppedCount).toBe(1);
     expect(entry.droppedTypes).toEqual(["Corporate Action Reinvestment"]);
     expect(entry.txCount).toBe(1);
     expect(entry.rowCount).toBe(2);
+    // The row itself, not just a count: a replace deleted whatever it stored, so
+    // the run has to be able to say which row and why.
+    expect(entry.droppedRows).toEqual([
+      { rowIndex: 2, field: "type", message: "Unknown transaction type: Corporate Action Reinvestment" },
+    ]);
+  });
+
+  it("records a row dropped for a reason that names no type", async () => {
+    // A malformed date contributes nothing to droppedTypes, so without the
+    // per-row detail the run would show a bare count and no way to find it.
+    captureExport.mockResolvedValue({
+      status: 200,
+      body: JSON.stringify([row(), row({ dealDate: "not a date", settlementDate: null })]),
+    });
+
+    const { entry } = await run();
+
+    expect(entry.status).toBe("warning");
+    expect(entry.droppedCount).toBe(1);
+    expect(entry.droppedTypes).toBeUndefined();
+    expect(entry.droppedRows).toEqual([
+      { rowIndex: 2, field: "date", message: "Invalid or missing date" },
+    ]);
   });
 
   it("refuses to upload when nothing converted", async () => {

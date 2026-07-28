@@ -59,7 +59,7 @@ export interface DryRunResult {
   txCount?: number;
   /** Distinct broker transaction types the converter did not recognise. */
   droppedTypes?: string[];
-  droppedRows?: number;
+  droppedCount?: number;
   /** First lines of the payload, to eyeball when conversion fails outright. */
   preview?: string;
 }

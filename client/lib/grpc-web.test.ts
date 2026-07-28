@@ -48,6 +48,23 @@ describe("grpc-web", () => {
       expect(body.subarray(5)).toEqual(new Uint8Array([1, 2, 3]));
     });
 
+    it("merges headers from options over the gRPC-Web defaults", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(new Uint8Array([0, 0, 0, 0, 0]).buffer)
+      );
+
+      await unaryFetch("https://api.example.com", "S/M", new Uint8Array(0), {
+        headers: { Authorization: "Bearer session-abc" },
+      });
+
+      const [, init] = fetchSpy.mock.calls[0];
+      expect(init?.headers).toEqual({
+        "Content-Type": "application/grpc-web",
+        "X-Grpc-Web": "1",
+        Authorization: "Bearer session-abc",
+      });
+    });
+
     it("uses credentials from options", async () => {
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
         new Response(new Uint8Array([0, 0, 0, 0, 0]).buffer)

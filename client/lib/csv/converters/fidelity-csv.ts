@@ -56,7 +56,9 @@ export const FIDELITY_TYPE_TO_OFX: Record<string, TxType> = {
   "Cash In": TxType.JRNLFUND,
   "Cash In Lump Sum": TxType.JRNLFUND,
   "Cash In From Sell": TxType.JRNLFUND,
+  "Cash In For Transfer": TxType.JRNLFUND,
   "Cash Out For Buy": TxType.JRNLFUND,
+  "Cash Out For Buy From Transfer": TxType.JRNLFUND,
 };
 
 function isCashTxType(type: TxType): boolean {
@@ -68,6 +70,15 @@ function isCashTxType(type: TxType): boolean {
     type === TxType.MARGININTEREST ||
     type === TxType.RETOFCAP
   );
+}
+
+/**
+ * Types whose transacted item is cash rather than a security, so the transaction
+ * quantity is the money that moved. JRNLFUND is included here but not in
+ * isCashTxType, which governs the currency hint rather than the quantity.
+ */
+function isCashMovement(type: TxType): boolean {
+  return isCashTxType(type) || type === TxType.JRNLFUND;
 }
 
 export function convertFidelityToStandard(
@@ -126,6 +137,7 @@ export function convertFidelityToStandard(
   const investmentsCol = col("investments");
   const accountCol = col("account_number");
   const qtyCol = col("quantity");
+  const amountCol = col("amount");
   const priceCol = col("price_per_unit");
 
   if (orderDateCol < 0 || txTypeCol < 0 || investmentsCol < 0) {
@@ -165,9 +177,19 @@ export function convertFidelityToStandard(
     const instrumentDescription = get(investmentsCol) || "Cash";
     const account = accountCol >= 0 ? get(accountCol) : "";
     const qtyStr = get(qtyCol);
+    const amountStr = amountCol >= 0 ? get(amountCol) : "";
+    const amount = amountStr ? parseFloat(amountStr) : NaN;
+
     let quantity = parseFloat(qtyStr);
     if (Number.isNaN(quantity)) quantity = 0;
-    if (ofxType === TxType.SELLSTOCK || ofxType === TxType.SELLMF || ofxType === TxType.SELLDEBT || ofxType === TxType.SELLOPT || ofxType === TxType.SELLOTHER) {
+    if (isCashMovement(ofxType) && !Number.isNaN(amount)) {
+      // Quantity is an unsigned magnitude: a fee and the interest that paid for
+      // it both report a positive number, and the direction survives only in the
+      // sign of Amount. Quantity is also 0 on some rows where money did move
+      // (Tax On Interest reports 0 against an Amount of -0.20), so for cash the
+      // transacted value is Amount itself rather than a sign-corrected Quantity.
+      quantity = amount;
+    } else if (ofxType === TxType.SELLSTOCK || ofxType === TxType.SELLMF || ofxType === TxType.SELLDEBT || ofxType === TxType.SELLOPT || ofxType === TxType.SELLOTHER) {
       quantity = -Math.abs(quantity);
     }
     const priceStr = priceCol >= 0 ? get(priceCol) : "";

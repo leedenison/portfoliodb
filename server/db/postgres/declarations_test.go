@@ -135,7 +135,7 @@ func TestGetPortfolioStartDate(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SD1", Canonical: false}}, "", nil, nil, nil)
 	ts := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
 	tx := &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "SD1", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "acct1"}
-	p.CreateTx(ctx, userID, "IBKR", "acct1", tx, instID)
+	p.CreateTx(ctx, userID, "IBKR", "acct1", tx, instID, nil)
 
 	startDate, err = p.GetPortfolioStartDate(ctx, userID)
 	if err != nil {
@@ -157,8 +157,8 @@ func TestComputeRunningBalance(t *testing.T) {
 
 	ts1 := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
 	ts2 := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
-	p.CreateTx(ctx, userID, "IBKR", "acct1", &apiv1.Tx{Timestamp: timestamppb.New(ts1), InstrumentDescription: "RB1", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "acct1"}, instID)
-	p.CreateTx(ctx, userID, "IBKR", "acct1", &apiv1.Tx{Timestamp: timestamppb.New(ts2), InstrumentDescription: "RB1", Type: apiv1.TxType_SELLSTOCK, Quantity: -30, Account: "acct1"}, instID)
+	p.CreateTx(ctx, userID, "IBKR", "acct1", &apiv1.Tx{Timestamp: timestamppb.New(ts1), InstrumentDescription: "RB1", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "acct1"}, instID, nil)
+	p.CreateTx(ctx, userID, "IBKR", "acct1", &apiv1.Tx{Timestamp: timestamppb.New(ts2), InstrumentDescription: "RB1", Type: apiv1.TxType_SELLSTOCK, Quantity: -30, Account: "acct1"}, instID, nil)
 
 	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC)

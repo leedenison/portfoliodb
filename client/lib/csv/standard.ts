@@ -20,11 +20,31 @@ export interface ParseError {
   message: string;
 }
 
+/** Comment line carrying the share count basis, e.g. "# share_count_basis=2026-07-29". */
+const SHARE_COUNT_BASIS_PREFIX = "# share_count_basis=";
+
 export interface StandardParseResult {
   txs: Tx[];
   periodFrom: Date;
   periodTo: Date;
   errors: ParseError[];
+  /**
+   * The share count the quantities and unit prices are denominated in, as
+   * "YYYY-MM-DD".
+   *
+   * Omit for an as-traded source: each row reflects the splits that happened
+   * before its own transaction date and nothing after it, which is what
+   * brokers normally supply and what the server assumes. Set it only when the
+   * source has post-adjusted historical rows for splits that happened *after*
+   * the transaction -- then this is the date those quantities are current as
+   * of, and the server will not apply those splits a second time.
+   *
+   * The converter declares the convention rather than undoing the arithmetic:
+   * reversing it here would need the split table, which lives server-side, and
+   * would store numbers the broker never printed. See
+   * docs/spec/bitemporality.md.
+   */
+  shareCountBasis?: string;
 }
 
 const TX_TYPE_BY_NAME = new Map<string, TxType>(
@@ -72,7 +92,24 @@ export function parseCSVLine(line: string): string[] {
  */
 export function parseStandardCSV(csvText: string): StandardParseResult {
   const errors: ParseError[] = [];
-  const lines = csvText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  // Metadata rides on comment lines, matching the price CSV's exported_at.
+  let shareCountBasis: string | undefined;
+  const lines: string[] = [];
+  for (const raw of csvText.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.length === 0) continue;
+    if (line.startsWith(SHARE_COUNT_BASIS_PREFIX)) {
+      const value = line.slice(SHARE_COUNT_BASIS_PREFIX.length).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        shareCountBasis = value;
+      } else {
+        errors.push({ rowIndex: 0, field: "share_count_basis", message: `Invalid date "${value}": expected YYYY-MM-DD` });
+      }
+      continue;
+    }
+    if (line.startsWith("#")) continue;
+    lines.push(line);
+  }
   if (lines.length === 0) {
     return { txs: [], periodFrom: new Date(0), periodTo: new Date(0), errors: [{ rowIndex: 0, field: "file", message: "File is empty or has no header" }] };
   }
@@ -215,5 +252,5 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
   const periodFrom = minTime === Infinity ? new Date(0) : new Date(minTime);
   const periodTo = maxTime === -Infinity ? new Date(0) : new Date(maxTime);
 
-  return { txs, periodFrom, periodTo, errors };
+  return { txs, periodFrom, periodTo, errors, shareCountBasis };
 }

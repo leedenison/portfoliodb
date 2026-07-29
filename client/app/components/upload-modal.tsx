@@ -89,6 +89,7 @@ export function UploadModal() {
         periodTo: timestampFromDate(parseResult.periodTo),
         txs: parseResult.txs,
         filename: file?.name,
+        shareCountBasis: parseResult.shareCountBasis,
       });
       setJobId(res.jobId);
     } catch (e) {

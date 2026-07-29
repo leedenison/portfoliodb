@@ -68,7 +68,7 @@ The window bounds are then materialised as local start-of-day and local end-of-d
 | `period_from`, `period_to` | The **requested** window from step 3 -- not the minimum and maximum of the parsed rows. |
 | `txs` | The converted transactions. |
 | `filename` | A synthetic name identifying the run, e.g. `fidelity-ext-2026-07-27.csv`. |
-| `share_count_basis` | Empty for an as-traded broker; the run date when the recipe sets `restatesHistoricalQuantities` (see Share count below). |
+| `share_count_basis` | Whatever the converter declared; empty for an as-traded broker (see Share count below). |
 
 Two of these need care.
 
@@ -80,7 +80,7 @@ Two of these need care.
 
 The extension reads the broker's live web UI, which is the one import path where a broker could present historical rows restated into post-split terms.
 
-The default is as-traded: quantities and unit prices are denominated in the share count current on the row's own transaction date, and no recipe found so far violates that. A recipe for a broker that does restate sets `restatesHistoricalQuantities`, which makes the upload declare `share_count_basis` as the run date so the server does not apply splits the broker has already applied. The flag belongs to the recipe rather than the run because it is a property of the broker. Getting it wrong in either direction scales historical quantities by the split factor; see [bitemporality.md](bitemporality.md#share-count-basis).
+The default is as-traded: quantities and unit prices are denominated in the share count current on the row's own transaction date, and no broker found so far violates that. A converter for a broker that does restate sets `shareCountBasis` on its parse result, and the extension forwards it. The declaration sits on the converter rather than the recipe or the run because it is a property of how the broker reports, and because the converter is shared with the web upload path -- so both routes get it from one place. See [bitemporality.md](bitemporality.md#share-count-basis).
 
 ### Account scope
 

@@ -54,6 +54,10 @@ message CreateTxRequest {
   string source = 2 [(buf.validate.field).string.min_len = 1];
   // The transaction (must include account).
   portfoliodb.api.v1.Tx tx = 3 [(buf.validate.field).required = true];
+  // The share count the quantity and unit price are denominated in, as
+  // "YYYY-MM-DD". Optional; when empty the row falls back to its own
+  // transaction date, the as-traded assumption. See UpsertTxsRequest.
+  string share_count_basis = 4;
 }
 
 // IngestionResponse returned by UpsertTxs and CreateTx. Job status and

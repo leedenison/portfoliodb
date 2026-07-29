@@ -100,7 +100,7 @@ describe("sync", () => {
     expect(req.source).toBe("Fidelity:web:fidelity-csv");
   });
 
-  it("leaves the share count undeclared for an as-traded broker", async () => {
+  it("leaves the share count undeclared when the converter does not declare one", async () => {
     await run();
     const req = upsertTxs.mock.calls[0]![2] as { shareCountBasis: string };
     // Declaring a basis on an as-traded export would tell the server the

@@ -51,6 +51,26 @@ date and fails the run when it does not reconcile.
 - Re-verify after any ingestion or recompute that could change historical
   quantities, including split recompute.
 
+## Which share count a declaration is in
+
+`declared_qty` has no stated denomination. The spec says only "the number of
+units the user held at `as_of_date`", while the computed side of the comparison
+is `SUM(t.split_adjusted_quantity)` -- today's share count. For any instrument
+that has split since `as_of_date` the two are in different units, so a correct
+portfolio fails the assertion by the split factor.
+
+That has to be settled before the verification pass is worth building, or it
+fires on every split and buries the errors it exists to find. A user reading
+"500 shares on 2021-01-01" off an old statement means the share count current
+then; a user reading today's holdings screen means today's. Both are
+reasonable, so the declaration needs to say which -- a `share_count_basis`
+alongside `as_of_date`, defaulting to `as_of_date`, the same question answered
+for txs and prices in docs/spec/bitemporality.md.
+
+Once denominated consistently, the assertion is the only thing in the system
+that detects a transaction stored on the wrong share count basis: a
+double-adjusted holding is wrong by exactly the split factor.
+
 The API, recalc and UI plumbing already exist in
 server/service/api/declarations.go and server/service/api/recalc.go.
 

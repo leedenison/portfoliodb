@@ -159,11 +159,10 @@ export async function sync(opts: SyncOptions): Promise<SyncResult> {
       periodTo: timestampFromDate(win.to),
       txs: parsed.txs,
       filename: `${recipe.id}-${formatDate(win.to, "yyyy-MM-dd")}.json`,
-      // Only declared when the broker restates: an as-traded export is
-      // denominated per row, which is what the server assumes by default.
-      shareCountBasis: recipe.restatesHistoricalQuantities
-        ? formatDate(new Date(startedAt), "yyyy-MM-dd")
-        : "",
+      // Declared by the converter, which knows its broker's convention. Empty
+      // for an as-traded export, which is denominated per row and is what the
+      // server assumes by default.
+      shareCountBasis: parsed.shareCountBasis ?? "",
     });
     jobId = res.jobId;
   } catch (e) {

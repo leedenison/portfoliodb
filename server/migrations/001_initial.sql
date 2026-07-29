@@ -146,9 +146,16 @@ CREATE TABLE instruments (
   -- Deliverable multiplier: 1 = standard (100 shares/contract). Non-standard
   -- splits (e.g. 3:2) may set this to 1.5 meaning 150 shares/contract.
   contract_multiplier NUMERIC NOT NULL DEFAULT 1,
-  -- Updated on every EnsureInstrument call. Compared to stock_splits.first_known_at
-  -- to determine if retroactive option split adjustment is needed.
-  identified_at TIMESTAMPTZ,
+  -- The point in market time the stored identity reflects: the state the OCC
+  -- symbol, strike and contract terms were derived from. Moves only on genuine
+  -- re-derivation -- plugin identification, or a retroactive option split
+  -- adjustment -- never on an incidental EnsureInstrument touch. Compared
+  -- against stock_splits.ex_date to decide whether an option still needs
+  -- retroactive adjustment: providers list the pre-split OCC symbol until the
+  -- ex_date, so an identity derived before then does not reflect the split.
+  -- NULL means the identity predates every split. See docs/spec/bitemporality.md
+  -- and docs/adr/0017-option-identity-reflects-ex-date.md.
+  identity_as_of TIMESTAMPTZ,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT chk_underlying_required CHECK (
     (asset_class IN ('OPTION','FUTURE') AND underlying_id IS NOT NULL)
@@ -392,8 +399,9 @@ CREATE TABLE stock_splits (
   data_provider  TEXT        NOT NULL,
   -- When we first learned of this split. It only ever moves backwards: revising
   -- the ratio leaves it alone, and an import supplying an earlier stamp restores
-  -- that one. It is compared against instruments.identified_at to decide whether
-  -- an option still needs retroactive adjustment.
+  -- that one. It is preserved across corporate-event export and import; option
+  -- adjustment keys off ex_date rather than this column, because what matters
+  -- there is when the split took effect, not when we heard about it.
   first_known_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, ex_date)
 );

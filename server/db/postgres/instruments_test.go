@@ -247,6 +247,85 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 	}
 }
 
+// TestEnsureInstrument_LeavesIdentityAsOfAlone pins the write discipline behind
+// issue 0055: EnsureInstrument must never move identity_as_of, on create or on
+// match. Bumping it on an incidental touch is what used to make an option look
+// already-adjusted and permanently skip an adjustment it needed. Only genuine
+// re-derivation -- plugin identification, or ApplyOptionSplit -- advances it.
+func TestEnsureInstrument_LeavesIdentityAsOfAlone(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	idns := []db.IdentifierInput{{Type: "ISIN", Value: "US4581401001", Canonical: true}}
+	id, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Intel", "", "", idns, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+
+	// Creating the row must not claim the identity reflects any market state.
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.IdentityAsOf != nil {
+		t.Errorf("identity_as_of after create = %v, want nil", row.IdentityAsOf)
+	}
+
+	// A genuine re-derivation stamps it.
+	if err := p.UpdateIdentityAsOf(ctx, id); err != nil {
+		t.Fatalf("UpdateIdentityAsOf: %v", err)
+	}
+	row, err = p.GetInstrument(ctx, id)
+	if err != nil || row == nil || row.IdentityAsOf == nil {
+		t.Fatalf("identity_as_of not stamped: %v", err)
+	}
+	stamped := *row.IdentityAsOf
+
+	// A later incidental EnsureInstrument matching the same identifier must
+	// leave the stamp exactly where it was.
+	again, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Intel", "", "", idns, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("re-ensure: %v", err)
+	}
+	if again != id {
+		t.Fatalf("re-ensure returned %q, want %q", again, id)
+	}
+	row, err = p.GetInstrument(ctx, id)
+	if err != nil || row == nil || row.IdentityAsOf == nil {
+		t.Fatalf("GetInstrument after re-ensure: %v", err)
+	}
+	if !row.IdentityAsOf.Equal(stamped) {
+		t.Errorf("identity_as_of moved on incidental touch: got %v, want %v", *row.IdentityAsOf, stamped)
+	}
+}
+
+// TestSetIdentityAsOf_RoundTrip covers the instrument-import path: an exported
+// identity_as_of must be restorable, or a round trip would leave an
+// already-adjusted option looking unadjusted.
+func TestSetIdentityAsOf_RoundTrip(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	id, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Cisco", "", "", []db.IdentifierInput{
+		{Type: "ISIN", Value: "US17275R1023", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+
+	want := time.Date(2024, 6, 10, 12, 0, 0, 0, time.UTC)
+	if err := p.SetIdentityAsOf(ctx, id, want); err != nil {
+		t.Fatalf("SetIdentityAsOf: %v", err)
+	}
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil || row.IdentityAsOf == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if !row.IdentityAsOf.Equal(want) {
+		t.Errorf("identity_as_of = %v, want %v", *row.IdentityAsOf, want)
+	}
+}
+
 func TestEnsureInstrument_OptionWithoutUnderlying_Rejected(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

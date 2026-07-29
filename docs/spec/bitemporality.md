@@ -15,7 +15,7 @@ adr/0016-bitemporal-time-model.md.
 | Clock | Answers | Column naming |
 | --- | --- | --- |
 | **Valid time** | When was this true in the world? | `*_date`, `timestamp`, `valid_from` / `valid_to` |
-| **Knowledge time** | When did PortfolioDB learn it? | `first_known_at`, `last_fetched_at`, `identified_at`, `created_at` |
+| **Knowledge time** | When did PortfolioDB learn it? | `first_known_at`, `last_fetched_at`, `created_at` |
 | **Share count basis** | Which share count is this quantity or per-share price denominated in? | `share_count_basis` |
 
 Valid time and knowledge time are the conventional bitemporal pair. Share count
@@ -40,6 +40,7 @@ clock every read API means by "as of".
 | `cash_dividends` | `ex_date`, `pay_date`, `record_date`, `declaration_date` | Four distinct points in the dividend's life. `declaration_date` is when the issuer announced it -- the world's knowledge time, but PortfolioDB's valid time, because what we know is that the announcement happened on that date. |
 | `holding_declarations` | `as_of_date` | The date the user's declaration refers to. |
 | `instruments` | `valid_from`, `valid_to`, `expiry` | When the instrument was tradeable. Descriptive only for `valid_from` / `valid_to` -- see [Instrument identity](#instrument-identity) below. |
+| `instruments` | `identity_as_of` | The point in market time the stored identity reflects -- see [Instrument identity](#instrument-identity) below. |
 | `corporate_event_coverage` | `covered_from`, `covered_to` | The valid-time interval a plugin was asked about. |
 | `inflation_indices` | `month` | The month the index value describes. |
 | `ingestion_jobs` | `period_from`, `period_to` | The valid-time window a bulk upload replaces. |
@@ -58,6 +59,16 @@ that held it on the transaction's date, and ticker reuse is not representable.
 tradeable and no query filters on them. A merge deletes the loser outright,
 leaving no record of what was believed before
 (see adr/0004-instrument-resolution-and-merge.md).
+
+`identity_as_of` is the one exception, and it is valid time rather than knowledge
+time: it records the point in **market** time the stored identity reflects, which
+is what an option's OCC symbol and strike are a function of. It is stamped at
+derivation, because identity is only ever derived from current market data, and
+it moves only on genuine re-derivation -- a plugin identification, or a
+retroactive option split adjustment. An incidental `EnsureInstrument` match must
+leave it alone. NULL means the identity predates every split. It is compared
+against `stock_splits.ex_date`, never against a knowledge time
+(see adr/0017-option-identity-reflects-ex-date.md).
 
 ## Knowledge time
 
@@ -82,14 +93,13 @@ a revision occurred, which follows from rule 8 below
 
 | Table | Column | Kind |
 | --- | --- | --- |
-| `stock_splits` | `first_known_at` | First known. Compared against `instruments.identified_at` to decide whether an option's OCC symbol still needs retroactive adjustment. |
+| `stock_splits` | `first_known_at` | First known. Preserved across corporate-event export and import; not read by option adjustment, which keys off `ex_date` (see adr/0017-option-identity-reflects-ex-date.md). |
 | `cash_dividends` | `first_known_at` | First known. |
 | `eod_prices` | `last_fetched_at` | Staleness only. It carries no semantics about the price itself -- that is what `share_count_basis` is for. |
 | `corporate_event_coverage` | `last_fetched_at` | When the span was last confirmed. Merging spans keeps the oldest constituent's, since a union is only as freshly confirmed as its stalest part. |
 | `inflation_indices` | `last_fetched_at` | Staleness only. |
 | `price_fetch_blocks` | `first_blocked_at` | First known. |
 | `corporate_event_fetch_blocks` | `first_blocked_at` | First known. |
-| `instruments` | `identified_at` | When identification last ran for this instrument. |
 | `txs`, `users`, `portfolios`, `instruments`, `ingestion_jobs`, `unhandled_corporate_events`, `holding_declarations`, `service_accounts` | `created_at` | Row audit. Not queried. |
 | `holding_declarations` | `updated_at` | Row audit. |
 
@@ -173,7 +183,7 @@ passed. It is normal, not exceptional.
 | Trigger | Restates | Recompute |
 | --- | --- | --- |
 | A new split arrives, or a stored split's `ex_date` crosses today | `split_adjusted_*` on every price and tx for the instrument | `RecomputeSplitAdjustments` per instrument, plus a daily blanket pass for crossings -- see [corporate-events.md](corporate-events.md#daily-scheduler-planned) |
-| A split arrives for an option's underlying | The option's OCC symbol, strike and contract terms | `ProcessOptionSplits`, gated on `first_known_at` vs `identified_at` |
+| A split arrives for an option's underlying | The option's OCC symbol, strike and contract terms | `ProcessOptionSplits`, gated on `identity_as_of` vs `ex_date` |
 | A bulk upload replaces a period | Every transaction in that broker and period | Holdings and valuation follow from the transaction set; nothing is materialised |
 | A transaction earlier than the current earliest arrives, or history between the start date and a declaration changes | The derived INITIALIZE transaction | See [fixed-point.md](fixed-point.md) |
 | Instrument identity changes or two instruments merge | Which transactions roll up to which instrument | Holdings and valuation follow; the prior identity is not retained -- see [identifiers.md](identifiers.md) |
@@ -189,7 +199,7 @@ The model above is normative. These parts of the system do not yet comply:
 | Divergence | Issue |
 | --- | --- |
 | No daily scheduler fires the blanket recompute, so a stored future-dated split never activates when its `ex_date` crosses | 0050 |
-| `identified_at` is bumped by every `EnsureInstrument` call, not only by split-aware re-identification, which can disarm the retroactive option-split guard | 0055 |
+| The option-split adjustment pass runs only when a split landed in the same fetch cycle, so a transient failure is never retried | 0055 |
 | Date intervals are half-open in some API messages and closed in others | 0056 |
 | Holding declarations permit one assertion per holding, so a corrected declaration destroys the prior one | 0043 |
 | Corporate actions adjust totals rather than lots | 0044 |

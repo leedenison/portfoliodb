@@ -541,6 +541,14 @@ func ResolveWithPlugins(
 		if err != nil {
 			return ResolveResult{}, err
 		}
+		// A plugin has just identified this instrument from current market data,
+		// so the stored identity now reflects every split effective today. This
+		// is the only resolution path that stamps: the broker-description-only
+		// fallback below derives nothing from the market and must leave the
+		// column alone, or it would disarm the option-split guard.
+		if err := database.UpdateIdentityAsOf(ctx, id); err != nil {
+			l.WarnContext(ctx, "update identity_as_of failed", "instrument_id", id, "err", err)
+		}
 		if len(providerIDs) > 0 {
 			if err := database.SaveProviderIdentifiers(ctx, id, providerIDs); err != nil {
 				l.WarnContext(ctx, "save provider identifiers failed", "instrument_id", id, "err", err)

@@ -17,9 +17,9 @@ import (
 
 // ProcessOptionSplits adjusts options on the given underlying after new stock
 // splits land. For each option and each applicable split:
-//   - If identified_at >= split.first_known_at: skip (case 3 -- already correct)
+//   - If identity_as_of >= split.ex_date: skip (the identity already reflects it)
 //   - If factor is not a whole forward split: insert unhandled event, skip
-//   - Otherwise: update OCC identifier, update strike, insert derived split row
+//   - Otherwise: update OCC identifier and strike
 //
 // Splits are processed in chronological order. timer may be nil (uses
 // time.Now).
@@ -67,8 +67,12 @@ func ProcessOptionSplits(ctx context.Context, database db.DB, underlyingID strin
 }
 
 func processOneOptionSplit(ctx context.Context, database db.DB, opt *db.InstrumentRow, split db.StockSplit, factor float64, log *slog.Logger) {
-	// Case 3: identified after we knew about the split -- already correct.
-	if opt.IdentifiedAt != nil && !opt.IdentifiedAt.Before(split.FirstKnownAt) {
+	// Already correct: the identity was derived on or after the split took
+	// effect. Providers list the pre-split OCC symbol until the ex_date, so an
+	// identity derived before then does not reflect the split however long we
+	// had known it was coming. A NULL identity_as_of predates every split.
+	// See docs/adr/0017-option-identity-reflects-ex-date.md.
+	if opt.IdentityAsOf != nil && !opt.IdentityAsOf.Before(split.ExDate) {
 		return
 	}
 

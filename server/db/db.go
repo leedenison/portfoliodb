@@ -83,16 +83,23 @@ type HeldRangesOpts struct {
 
 // EODPrice is a single end-of-day price row for UpsertPrices.
 type EODPrice struct {
-	InstrumentID  string
-	PriceDate     time.Time
-	Open          *float64
-	High          *float64
-	Low           *float64
-	Close         float64
-	Volume        *int64
-	DataProvider  string
+	InstrumentID string
+	PriceDate    time.Time
+	Open         *float64
+	High         *float64
+	Low          *float64
+	Close        float64
+	Volume       *int64
+	DataProvider string
+	// AdjustedClose is the provider's own adjusted close, on the provider's
+	// basis and typically including dividend adjustment. Stored for cross-checking
+	// only; never an input to valuation. nil when the provider does not supply it.
+	AdjustedClose *float64
 	Synthetic     bool       // true for forward-filled non-trading day prices
 	LastFetchedAt *time.Time // when this row was fetched; nil defaults to now()
+	// ShareCountBasis is the date at which the share count these raw values are
+	// denominated in was current. nil defaults to PriceDate (as-traded).
+	ShareCountBasis *time.Time
 }
 
 // PriceCacheDB provides price cache management.
@@ -342,6 +349,7 @@ type EODPriceRow struct {
 	DataProvider          string
 	Synthetic             bool
 	LastFetchedAt         time.Time
+	ShareCountBasis       time.Time
 }
 
 // ExportPriceRow is a single price row with the best instrument identifier for export.

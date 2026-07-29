@@ -140,6 +140,9 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 
 // processGaps iterates instrument gaps and fetches prices from matching plugins.
 func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gaps []db.InstrumentDateRanges, instByID map[string]*db.InstrumentRow, blocked map[string]map[string]bool, log *slog.Logger) {
+	// One fetch time for the whole cycle, so every row a back-adjusting plugin
+	// returns shares the same share count basis.
+	now := time.Now()
 	for _, ig := range gaps {
 		if ctx.Err() != nil {
 			return
@@ -214,7 +217,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 					break
 				}
 
-				prices := barsToEODPrices(ig.InstrumentID, pe.id, result.Bars)
+				prices := barsToEODPrices(ig.InstrumentID, pe.id, result.Bars, result.ShareCountBasis, now)
 				if err := database.UpsertPricesWithFill(ctx, ig.InstrumentID, pe.id, prices, gap.From, gap.To, nil); err != nil {
 					if log != nil {
 						log.ErrorContext(ctx, "price fetch: upsert", "instrument", ig.InstrumentID, "err", err)
@@ -251,18 +254,28 @@ func toPricefetcherIDs(ids []db.IdentifierInput) []Identifier {
 	return out
 }
 
-func barsToEODPrices(instrumentID, provider string, bars []DailyBar) []db.EODPrice {
+// barsToEODPrices converts plugin bars to price rows, resolving the plugin's
+// declared denomination to a per-row share count basis. An as-traded bar is
+// denominated in the share count current on its own date; a back-adjusted
+// series is denominated in the share count current when we fetched it.
+func barsToEODPrices(instrumentID, provider string, bars []DailyBar, basis ShareCountBasis, fetchedAt time.Time) []db.EODPrice {
 	out := make([]db.EODPrice, len(bars))
 	for i, b := range bars {
+		scb := b.Date
+		if basis == AsOfFetch {
+			scb = fetchedAt
+		}
 		out[i] = db.EODPrice{
-			InstrumentID: instrumentID,
-			PriceDate:    b.Date,
-			Open:         b.Open,
-			High:         b.High,
-			Low:          b.Low,
-			Close:        b.Close,
-			Volume:       b.Volume,
-			DataProvider: provider,
+			InstrumentID:    instrumentID,
+			PriceDate:       b.Date,
+			Open:            b.Open,
+			High:            b.High,
+			Low:             b.Low,
+			Close:           b.Close,
+			Volume:          b.Volume,
+			AdjustedClose:   b.AdjustedClose,
+			DataProvider:    provider,
+			ShareCountBasis: &scb,
 		}
 	}
 	return out

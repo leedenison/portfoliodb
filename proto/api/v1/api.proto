@@ -603,7 +603,8 @@ message PriceFetchBlock {
   string instrument_id = 1;
   string plugin_id = 2;
   string reason = 3;
-  google.protobuf.Timestamp created_at = 4;
+  // Knowledge time: when the pair was first blocked. Never overwritten.
+  google.protobuf.Timestamp first_blocked_at = 4;
   string plugin_display_name = 5;
   string instrument_display_name = 6;
 }
@@ -636,15 +637,21 @@ message ListTelemetryCountersResponse {
 message EODPriceProto {
   string instrument_id = 1;
   string instrument_display_name = 2;
+  // Valid time: the trading date this bar describes.
   string price_date = 3;               // "YYYY-MM-DD"
   optional double open = 4;
   optional double high = 5;
   optional double low = 6;
   double close = 7;
+  // The provider's own adjusted close, on the provider's basis and typically
+  // including dividend adjustment. Never an input to valuation; see
+  // docs/spec/bitemporality.md.
   optional double adjusted_close = 8;
   optional int64 volume = 9;
   string data_provider = 10;
-  google.protobuf.Timestamp fetched_at = 11;
+  // Knowledge time: when this row was last fetched. Staleness only -- it says
+  // nothing about the prices themselves.
+  google.protobuf.Timestamp last_fetched_at = 11;
   bool synthetic = 12;
 }
 

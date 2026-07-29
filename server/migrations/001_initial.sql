@@ -136,7 +136,7 @@ CREATE TABLE instruments (
   -- Deliverable multiplier: 1 = standard (100 shares/contract). Non-standard
   -- splits (e.g. 3:2) may set this to 1.5 meaning 150 shares/contract.
   contract_multiplier NUMERIC NOT NULL DEFAULT 1,
-  -- Updated on every EnsureInstrument call. Compared to stock_splits.fetched_at
+  -- Updated on every EnsureInstrument call. Compared to stock_splits.first_known_at
   -- to determine if retroactive option split adjustment is needed.
   identified_at TIMESTAMPTZ,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -259,11 +259,13 @@ CREATE TABLE plugin_config (
 );
 
 -- Blocked (instrument, plugin) pairs that should not be retried.
+-- first_blocked_at is when the pair was first blocked and is never overwritten;
+-- re-blocking updates only the reason. See docs/spec/bitemporality.md.
 CREATE TABLE price_fetch_blocks (
-  instrument_id UUID NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
-  plugin_id     TEXT NOT NULL,
-  reason        TEXT NOT NULL,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  instrument_id   UUID NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
+  plugin_id       TEXT NOT NULL,
+  reason          TEXT NOT NULL,
+  first_blocked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, plugin_id)
 );
 
@@ -276,7 +278,9 @@ CREATE TABLE inflation_indices (
   index_value   NUMERIC     NOT NULL,              -- relative to base_year July=100
   base_year     INT         NOT NULL,              -- year where July = 100
   data_provider TEXT        NOT NULL,              -- plugin ID
-  fetched_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Staleness only: overwritten on every refresh. A revised index value
+  -- replaces the previous one and the prior vintage is not retained.
+  last_fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (currency, month)
 );
 
@@ -323,7 +327,7 @@ WHERE
 -- days (weekends, holidays). They are generated at write time by the price
 -- fetcher worker so that the valuation query can use a simple join.
 -- The split_adjusted_* columns hold OHLCV after applying every stock split with
--- ex_date > fetched_at::date for this instrument. They equal the raw values when
+-- ex_date > last_fetched_at::date for this instrument. They equal the raw values when
 -- no later split exists. close (NOT NULL) implies split_adjusted_close (NOT NULL);
 -- the others are NULL iff their raw counterpart is NULL. Volume is adjusted in
 -- the opposite direction (more shares trade in adjusted-share terms).
@@ -346,7 +350,9 @@ CREATE TABLE eod_prices (
   split_adjusted_volume  BIGINT,
   data_provider          TEXT        NOT NULL,
   synthetic              BOOLEAN     NOT NULL DEFAULT false,
-  fetched_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Staleness only: when this row was last fetched. It carries no meaning about
+  -- the prices themselves. See docs/spec/bitemporality.md.
+  last_fetched_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, price_date)
 );
 
@@ -363,7 +369,10 @@ CREATE TABLE stock_splits (
   split_from     NUMERIC     NOT NULL CHECK (split_from > 0),
   split_to       NUMERIC     NOT NULL CHECK (split_to   > 0),
   data_provider  TEXT        NOT NULL,
-  fetched_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- When we first learned of this split. Never overwritten, including when the
+  -- ratio is revised: it is compared against instruments.identified_at to decide
+  -- whether an option still needs retroactive adjustment.
+  first_known_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, ex_date)
 );
 
@@ -383,7 +392,9 @@ CREATE TABLE cash_dividends (
   frequency        TEXT,
   type             TEXT        NOT NULL DEFAULT 'CD',
   data_provider    TEXT        NOT NULL,
-  fetched_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- When we first learned of this dividend. Never overwritten, including when
+  -- the amount is revised.
+  first_known_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, ex_date)
 );
 
@@ -401,7 +412,9 @@ CREATE TABLE corporate_event_coverage (
   plugin_id      TEXT        NOT NULL,
   covered_from   DATE        NOT NULL,
   covered_to     DATE        NOT NULL CHECK (covered_to >= covered_from),
-  fetched_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Staleness only: when this span was last confirmed. Merging spans collapses
+  -- it to the merge time.
+  last_fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, plugin_id, covered_from)
 );
 
@@ -410,11 +423,12 @@ CREATE INDEX idx_corporate_event_coverage_instrument ON corporate_event_coverage
 -- Blocked (instrument, plugin) pairs for corporate-event fetches. Mirrors
 -- price_fetch_blocks: an entry here means the plugin returned a permanent
 -- error (404, 403, ...) for this instrument and should not be retried.
+-- first_blocked_at is never overwritten; re-blocking updates only the reason.
 CREATE TABLE corporate_event_fetch_blocks (
-  instrument_id UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
-  plugin_id     TEXT        NOT NULL,
-  reason        TEXT        NOT NULL,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  instrument_id    UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  plugin_id        TEXT        NOT NULL,
+  reason           TEXT        NOT NULL,
+  first_blocked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, plugin_id)
 );
 

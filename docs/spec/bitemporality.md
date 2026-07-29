@@ -161,7 +161,7 @@ The model above is normative. These parts of the system do not yet comply:
 
 | Divergence | Issue |
 | --- | --- |
-| The knowledge-time columns are still named `fetched_at` / `created_at`, and `share_count_basis` does not exist yet -- prices are adjusted against `last_fetched_at` and txs against `timestamp`, and `cash_dividends` and both fetch-block tables overwrite a timestamp they should preserve | in flight |
+| `share_count_basis` does not exist yet: prices are adjusted against `last_fetched_at` and txs against `timestamp`, so a source's denomination is assumed rather than declared | in flight |
 | Valuation pairs raw quantity with raw close while `TX_TYPE=SPLIT` rows are dropped at ingestion, so a forward split shows as a discontinuity | in flight |
 | No daily scheduler fires the blanket recompute, so a stored future-dated split never activates when its `ex_date` crosses | 0050 |
 | Corporate event export and import carry no knowledge time, so a re-import cannot reproduce the original adjustment state; `corporate_event_coverage` collapses every span's `last_fetched_at` on merge | 0051 |

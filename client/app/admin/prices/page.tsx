@@ -401,8 +401,8 @@ function PriceFetchBlocksTab() {
                       {block.reason}
                     </td>
                     <td className="py-2 pr-4 text-text-muted">
-                      {block.createdAt
-                        ? timestampDate(block.createdAt).toLocaleDateString()
+                      {block.firstBlockedAt
+                        ? timestampDate(block.firstBlockedAt).toLocaleDateString()
                         : ""}
                     </td>
                     <td className="py-2 text-right">

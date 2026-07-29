@@ -37,7 +37,7 @@ func (p *Postgres) UpsertInflationIndices(ctx context.Context, indices []db.Infl
 	}
 
 	var b strings.Builder
-	b.WriteString(`INSERT INTO inflation_indices (currency, month, index_value, base_year, data_provider, fetched_at)
+	b.WriteString(`INSERT INTO inflation_indices (currency, month, index_value, base_year, data_provider, last_fetched_at)
 		VALUES `)
 	args := make([]interface{}, 0, len(indices)*5)
 	for i, idx := range indices {
@@ -52,7 +52,7 @@ func (p *Postgres) UpsertInflationIndices(ctx context.Context, indices []db.Infl
 		index_value = EXCLUDED.index_value,
 		base_year = EXCLUDED.base_year,
 		data_provider = EXCLUDED.data_provider,
-		fetched_at = now()`)
+		last_fetched_at = now()`)
 
 	if _, err := p.q.ExecContext(ctx, b.String(), args...); err != nil {
 		return fmt.Errorf("upsert inflation indices: %w", err)

@@ -31,7 +31,7 @@ func (p *Postgres) UpsertStockSplits(ctx context.Context, splits []db.StockSplit
 		providers[i] = s.DataProvider
 	}
 	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO stock_splits (instrument_id, ex_date, split_from, split_to, data_provider, fetched_at)
+		INSERT INTO stock_splits (instrument_id, ex_date, split_from, split_to, data_provider, first_known_at)
 		SELECT unnest($1::uuid[]), unnest($2::date[]),
 			unnest($3::numeric[]), unnest($4::numeric[]),
 			unnest($5::text[]), now()
@@ -53,7 +53,7 @@ func (p *Postgres) ListStockSplits(ctx context.Context, instrumentID string) ([]
 		return nil, fmt.Errorf("list stock splits: invalid instrument id %q: %w", instrumentID, err)
 	}
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT instrument_id, ex_date, split_from::text, split_to::text, data_provider, fetched_at
+		SELECT instrument_id, ex_date, split_from::text, split_to::text, data_provider, first_known_at
 		FROM stock_splits
 		WHERE instrument_id = $1
 		ORDER BY ex_date
@@ -66,7 +66,7 @@ func (p *Postgres) ListStockSplits(ctx context.Context, instrumentID string) ([]
 	for rows.Next() {
 		var s db.StockSplit
 		var instUUID uuid.UUID
-		if err := rows.Scan(&instUUID, &s.ExDate, &s.SplitFrom, &s.SplitTo, &s.DataProvider, &s.FetchedAt); err != nil {
+		if err := rows.Scan(&instUUID, &s.ExDate, &s.SplitFrom, &s.SplitTo, &s.DataProvider, &s.FirstKnownAt); err != nil {
 			return nil, fmt.Errorf("list stock splits scan: %w", err)
 		}
 		s.InstrumentID = instUUID.String()
@@ -121,7 +121,7 @@ func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashD
 	_, err := p.q.ExecContext(ctx, `
 		INSERT INTO cash_dividends (
 			instrument_id, ex_date, pay_date, record_date, declaration_date,
-			amount, currency, frequency, type, data_provider, fetched_at
+			amount, currency, frequency, type, data_provider, first_known_at
 		)
 		SELECT unnest($1::uuid[]), unnest($2::date[]),
 			unnest($3::date[]), unnest($4::date[]), unnest($5::date[]),
@@ -135,8 +135,7 @@ func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashD
 			currency         = EXCLUDED.currency,
 			frequency        = EXCLUDED.frequency,
 			type             = EXCLUDED.type,
-			data_provider    = EXCLUDED.data_provider,
-			fetched_at       = EXCLUDED.fetched_at
+			data_provider    = EXCLUDED.data_provider
 	`, pq.Array(instIDs), pq.Array(exDates),
 		pq.Array(payDates), pq.Array(recordDates), pq.Array(declDates),
 		pq.Array(amounts), pq.Array(currencies), pq.Array(frequencies),
@@ -155,7 +154,7 @@ func (p *Postgres) ListCashDividends(ctx context.Context, instrumentID string) (
 	}
 	rows, err := p.q.QueryContext(ctx, `
 		SELECT instrument_id, ex_date, pay_date, record_date, declaration_date,
-			amount::text, currency, frequency, type, data_provider, fetched_at
+			amount::text, currency, frequency, type, data_provider, first_known_at
 		FROM cash_dividends
 		WHERE instrument_id = $1
 		ORDER BY ex_date
@@ -171,7 +170,7 @@ func (p *Postgres) ListCashDividends(ctx context.Context, instrumentID string) (
 		var pay, record, decl sql.NullTime
 		var freq sql.NullString
 		if err := rows.Scan(&instUUID, &d.ExDate, &pay, &record, &decl,
-			&d.Amount, &d.Currency, &freq, &d.Type, &d.DataProvider, &d.FetchedAt); err != nil {
+			&d.Amount, &d.Currency, &freq, &d.Type, &d.DataProvider, &d.FirstKnownAt); err != nil {
 			return nil, fmt.Errorf("list cash dividends scan: %w", err)
 		}
 		d.InstrumentID = instUUID.String()
@@ -251,7 +250,7 @@ func (p *Postgres) UpsertCorporateEventCoverage(ctx context.Context, instrumentI
 			return fmt.Errorf("upsert corporate event coverage: delete overlapping: %w", err)
 		}
 		if _, err := exec.ExecContext(ctx, `
-			INSERT INTO corporate_event_coverage (instrument_id, plugin_id, covered_from, covered_to, fetched_at)
+			INSERT INTO corporate_event_coverage (instrument_id, plugin_id, covered_from, covered_to, last_fetched_at)
 			VALUES ($1, $2, $3, $4, now())
 		`, id, pluginID, newFrom, newTo); err != nil {
 			return fmt.Errorf("upsert corporate event coverage: insert merged: %w", err)
@@ -268,7 +267,7 @@ func (p *Postgres) ListCorporateEventCoverage(ctx context.Context, instrumentIDs
 	)
 	if len(instrumentIDs) == 0 {
 		rows, err = p.q.QueryContext(ctx, `
-			SELECT instrument_id, plugin_id, covered_from, covered_to, fetched_at
+			SELECT instrument_id, plugin_id, covered_from, covered_to, last_fetched_at
 			FROM corporate_event_coverage
 			ORDER BY instrument_id, plugin_id, covered_from
 		`)
@@ -282,7 +281,7 @@ func (p *Postgres) ListCorporateEventCoverage(ctx context.Context, instrumentIDs
 			uuids = append(uuids, u)
 		}
 		rows, err = p.q.QueryContext(ctx, `
-			SELECT instrument_id, plugin_id, covered_from, covered_to, fetched_at
+			SELECT instrument_id, plugin_id, covered_from, covered_to, last_fetched_at
 			FROM corporate_event_coverage
 			WHERE instrument_id = ANY($1::uuid[])
 			ORDER BY instrument_id, plugin_id, covered_from
@@ -296,7 +295,7 @@ func (p *Postgres) ListCorporateEventCoverage(ctx context.Context, instrumentIDs
 	for rows.Next() {
 		var c db.CorporateEventCoverage
 		var instUUID uuid.UUID
-		if err := rows.Scan(&instUUID, &c.PluginID, &c.CoveredFrom, &c.CoveredTo, &c.FetchedAt); err != nil {
+		if err := rows.Scan(&instUUID, &c.PluginID, &c.CoveredFrom, &c.CoveredTo, &c.LastFetchedAt); err != nil {
 			return nil, fmt.Errorf("list corporate event coverage scan: %w", err)
 		}
 		c.InstrumentID = instUUID.String()
@@ -311,7 +310,7 @@ func (p *Postgres) CreateCorporateEventFetchBlock(ctx context.Context, instrumen
 		INSERT INTO corporate_event_fetch_blocks (instrument_id, plugin_id, reason)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (instrument_id, plugin_id)
-		DO UPDATE SET reason = EXCLUDED.reason, created_at = now()
+		DO UPDATE SET reason = EXCLUDED.reason
 	`, instrumentID, pluginID, reason)
 	if err != nil {
 		return fmt.Errorf("create corporate event fetch block: %w", err)
@@ -333,8 +332,8 @@ func (p *Postgres) DeleteCorporateEventFetchBlock(ctx context.Context, instrumen
 // ListCorporateEventFetchBlocks implements db.CorporateEventDB.
 func (p *Postgres) ListCorporateEventFetchBlocks(ctx context.Context) ([]db.CorporateEventFetchBlock, error) {
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT instrument_id, plugin_id, reason, created_at
-		FROM corporate_event_fetch_blocks ORDER BY created_at DESC
+		SELECT instrument_id, plugin_id, reason, first_blocked_at
+		FROM corporate_event_fetch_blocks ORDER BY first_blocked_at DESC
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list corporate event fetch blocks: %w", err)
@@ -343,7 +342,7 @@ func (p *Postgres) ListCorporateEventFetchBlocks(ctx context.Context) ([]db.Corp
 	var out []db.CorporateEventFetchBlock
 	for rows.Next() {
 		var b db.CorporateEventFetchBlock
-		if err := rows.Scan(&b.InstrumentID, &b.PluginID, &b.Reason, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.InstrumentID, &b.PluginID, &b.Reason, &b.FirstBlockedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, b)
@@ -477,7 +476,7 @@ func (p *Postgres) HeldEventBearingInstruments(ctx context.Context) ([]db.HeldIn
 // SplitsByUnderlyingTicker implements db.CorporateEventDB.
 func (p *Postgres) SplitsByUnderlyingTicker(ctx context.Context, ticker string) ([]db.StockSplit, error) {
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT ss.instrument_id, ss.ex_date, ss.split_from, ss.split_to, ss.data_provider, ss.fetched_at
+		SELECT ss.instrument_id, ss.ex_date, ss.split_from, ss.split_to, ss.data_provider, ss.first_known_at
 		FROM stock_splits ss
 		JOIN instrument_identifiers ii ON ii.instrument_id = ss.instrument_id
 		WHERE ii.identifier_type = 'MIC_TICKER' AND ii.value = $1
@@ -491,7 +490,7 @@ func (p *Postgres) SplitsByUnderlyingTicker(ctx context.Context, ticker string) 
 	for rows.Next() {
 		var s db.StockSplit
 		var instUUID uuid.UUID
-		if err := rows.Scan(&instUUID, &s.ExDate, &s.SplitFrom, &s.SplitTo, &s.DataProvider, &s.FetchedAt); err != nil {
+		if err := rows.Scan(&instUUID, &s.ExDate, &s.SplitFrom, &s.SplitTo, &s.DataProvider, &s.FirstKnownAt); err != nil {
 			return nil, fmt.Errorf("splits by underlying ticker scan: %w", err)
 		}
 		s.InstrumentID = instUUID.String()
@@ -601,7 +600,7 @@ func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitPa
 // RecomputeSplitAdjustments implements db.CorporateEventDB. Two UPDATEs (one
 // for eod_prices, one for txs) recompute the split_adjusted_* columns from raw
 // values multiplied by the cumulative split factor for splits with ex_date
-// strictly after the row's reference date (fetched_at::date for prices,
+// strictly after the row's reference date (last_fetched_at::date for prices,
 // timestamp::date for txs). Idempotent: factor is recomputed from scratch
 // each call. When instrumentID is empty, every instrument with at least one
 // stock_splits row is recomputed in the same transaction.
@@ -637,13 +636,13 @@ func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID s
 				split_adjusted_volume  = CASE WHEN ep.volume IS NULL THEN NULL
 					ELSE round(ep.volume::numeric * f.factor::numeric)::bigint END
 			FROM (
-				SELECT instrument_id, fetched_at,
-					split_factor_at(instrument_id, fetched_at::date) AS factor
+				SELECT instrument_id, last_fetched_at,
+					split_factor_at(instrument_id, last_fetched_at::date) AS factor
 				FROM eod_prices
 				WHERE instrument_id %s
 			) f
 			WHERE ep.instrument_id = f.instrument_id
-			  AND ep.fetched_at = f.fetched_at
+			  AND ep.last_fetched_at = f.last_fetched_at
 		`, instFilter)
 		if _, err := exec.ExecContext(ctx, priceSQL, args...); err != nil {
 			return fmt.Errorf("recompute split adjustments (prices): %w", err)

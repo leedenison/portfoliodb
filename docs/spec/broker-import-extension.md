@@ -45,7 +45,7 @@ The window deliberately starts before the last known transaction rather than the
 
 A broker row that is still Pending at export time carries no completion date, so the Fidelity converter dates it by its order date. When the transaction later completes, the same row is re-dated to its completion date, which is **later**. If the replace window began after the last known transaction, the previously stored row (at its order date) would fall outside the window and survive the delete, while the newly exported row (at its completion date) would be inserted inside it -- producing a duplicate.
 
-The overlap therefore exists to prevent duplication, not to close a gap. This gives the sizing rule:
+This is a valid-time correction by the source: the broker changes its mind about *when* a transaction happened, after the fact. The overlap therefore exists to prevent duplication, not to close a gap. This gives the sizing rule:
 
 > `lookbackDays` must exceed the longest plausible lag between a transaction's order date and its completion date.
 
@@ -74,6 +74,10 @@ Two of these need care.
 **The period must be the requested window.** Ingestion replaces every transaction for the user and broker within `[period_from, period_to]`. Sending the parsed row range instead would shrink the window to the transactions that still exist, so a transaction cancelled by the broker since the last sync would never be deleted -- which is the main reason to re-fetch an overlapping period at all.
 
 **The source string is reused, not invented.** `source` is the cache key for instrument resolution. A new source string for extension uploads would miss the cache and force fresh calls to paid identification plugins for descriptions that have already been resolved. `filename` is the field that distinguishes extension runs from manual uploads in the job list.
+
+### Share count
+
+The extension reads the broker's live web UI, which is the one import path where a broker could present historical rows restated into post-split terms. Ingestion currently assumes every row is as-traded -- quantities and prices denominated in the share count current on the row's own transaction date -- and no broker recipe has been found to violate that. A recipe for a broker that does restate must declare it rather than rely on the default; see [bitemporality.md](bitemporality.md#share-count-basis).
 
 ### Account scope
 

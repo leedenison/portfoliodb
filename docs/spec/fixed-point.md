@@ -90,6 +90,8 @@ When a user deletes a declaration, delete both the declaration record and the as
 
 INITIALIZE transactions are derived data. They must be recalculated when the inputs to their calculation change. There are two categories of change that require recalculation.
 
+Both are retroactive restatement -- a change to what the system says about a date that has already passed. See [bitemporality.md](bitemporality.md#retroactive-restatement) for the other triggers that restate historical figures.
+
 #### Trigger 1: Portfolio Start Date Changes
 
 The portfolio start date changes when:

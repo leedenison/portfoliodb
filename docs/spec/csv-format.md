@@ -70,7 +70,7 @@ A separate CSV is used to import stock splits and cash dividends via the `Import
 | `identifier_value` | Yes | Identifier value (e.g. `AAPL`, `US0378331005`). |
 | `identifier_domain` | No | Domain for the identifier (MIC for `MIC_TICKER`, exchange code for `OPENFIGI_TICKER`). |
 | `asset_class` | No | `STOCK` or `ETF`. Used as the security type hint when the instrument is unknown and identifier plugins must resolve it. |
-| `ex_date` | Yes | `YYYY-MM-DD`. Effective/execution date for splits, ex-dividend date for dividends. |
+| `ex_date` | Yes | `YYYY-MM-DD`. Effective/execution date for splits, ex-dividend date for dividends. This is valid time -- when the event took effect, not when it was announced or learned of (see [bitemporality.md](bitemporality.md)). |
 | `split_from` | Splits only | Decimal numerator of the pre-split ratio (e.g. `1` for a 2:1 split). |
 | `split_to` | Splits only | Decimal numerator of the post-split ratio (e.g. `2` for a 2:1 split). The factor is `split_to / split_from`. |
 | `amount` | Dividends only | Cash amount per share, denominated in `currency`. |

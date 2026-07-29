@@ -1055,3 +1055,60 @@ func assertBasis(t *testing.T, p *Postgres, instID string, priceDate, want time.
 			got.Format("2006-01-02"), want.Format("2006-01-02"))
 	}
 }
+
+// TestRecomputeSplitAdjustments_TxsUseDeclaredBasis covers the two transaction
+// sources. A broker log line is as-traded -- it accounts only for events prior
+// to the trade -- so a pre-split buy is adjusted. A source that restates its
+// history into current share terms declares that, and must not be adjusted
+// again.
+func TestRecomputeSplitAdjustments_TxsUseDeclaredBasis(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+	instID := setupInstrument(t, p, "AAPL")
+
+	asTraded := insertTxWithBasis(t, p, userID, instID, d(2020, 8, 28), 100, nil)
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	restated := insertTxWithBasis(t, p, userID, instID, d(2020, 8, 28), 400, &today)
+
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+		{InstrumentID: instID, ExDate: d(2020, 8, 31), SplitFrom: "1", SplitTo: "4", DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert splits: %v", err)
+	}
+	if err := p.RecomputeSplitAdjustments(ctx, instID); err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+
+	if got := adjustedQty(t, p, asTraded); !approxEq(got, 400) {
+		t.Errorf("as-traded tx: got %v want %v", got, 400.0)
+	}
+	if got := adjustedQty(t, p, restated); !approxEq(got, 400) {
+		t.Errorf("restated tx adjusted a second time: got %v want %v", got, 400.0)
+	}
+}
+
+func insertTxWithBasis(t *testing.T, p *Postgres, userID, instID string, ts time.Time, qty float64, basis *time.Time) string {
+	t.Helper()
+	var id string
+	err := p.q.QueryRowContext(context.Background(), `
+		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+			tx_type, quantity, instrument_id, share_count_basis)
+		VALUES ($1::uuid, 'IBKR', '', $2, 'AAPL', 'BUYSTOCK', $3, $4::uuid, $5::date)
+		RETURNING id
+	`, userID, ts, qty, instID, basis).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert tx: %v", err)
+	}
+	return id
+}
+
+func adjustedQty(t *testing.T, p *Postgres, txID string) float64 {
+	t.Helper()
+	var v float64
+	if err := p.q.QueryRowContext(context.Background(),
+		`SELECT split_adjusted_quantity FROM txs WHERE id = $1::uuid`, txID).Scan(&v); err != nil {
+		t.Fatalf("read split_adjusted_quantity: %v", err)
+	}
+	return v
+}

@@ -3,6 +3,7 @@ package ingestion
 import (
 	"context"
 	"testing"
+	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
@@ -93,7 +94,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 		ListInstrumentsByIDs(gomock.Any(), []string{"broker-only-id"}).
 		Return([]*db.InstrumentRow{{ID: "broker-only-id"}}, nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"broker-only-id"}).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"broker-only-id"}, gomock.Any()).
 		Return(nil)
 	database.EXPECT().
 		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
@@ -155,7 +156,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		ListInstrumentsByIDs(gomock.Any(), []string{"cached-inst-id"}).
 		Return([]*db.InstrumentRow{{ID: "cached-inst-id"}}, nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"cached-inst-id", "cached-inst-id"}).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"cached-inst-id", "cached-inst-id"}, gomock.Any()).
 		Return(nil)
 	database.EXPECT().
 		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
@@ -217,8 +218,8 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		ListInstrumentsByIDs(gomock.Any(), []string{"aapl-id"}).
 		Return([]*db.InstrumentRow{{ID: "aapl-id"}}, nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Len(1), []string{"aapl-id"}).
-		DoAndReturn(func(_ context.Context, _, _ string, _, _ *timestamppb.Timestamp, storedTxs []*apiv1.Tx, ids []string) error {
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Len(1), []string{"aapl-id"}, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, _, _ *timestamppb.Timestamp, storedTxs []*apiv1.Tx, ids []string, _ *time.Time) error {
 			if len(storedTxs) != 1 || storedTxs[0].InstrumentDescription != "AAPL" || storedTxs[0].Type != apiv1.TxType_BUYSTOCK {
 				t.Errorf("ReplaceTxsInPeriod called with %d txs, expected 1 (AAPL BUYSTOCK)", len(storedTxs))
 			}
@@ -357,7 +358,7 @@ func TestProcessBulk_StockEtfEquivalence(t *testing.T) {
 		ListInstrumentsByIDs(gomock.Any(), []string{"spy-etf-id"}).
 		Return([]*db.InstrumentRow{{ID: "spy-etf-id", AssetClass: strPtr(db.AssetClassETF)}}, nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"spy-etf-id"}).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"spy-etf-id"}, gomock.Any()).
 		Return(nil)
 	database.EXPECT().
 		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
@@ -531,7 +532,7 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 		ListInstrumentsByIDs(gomock.Any(), []string{"msft-id"}).
 		Return([]*db.InstrumentRow{{ID: "msft-id", AssetClass: strPtr(db.AssetClassStock)}}, nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"msft-id"}).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", gomock.Any(), gomock.Any(), gomock.Any(), []string{"msft-id"}, gomock.Any()).
 		Return(nil)
 	database.EXPECT().
 		InstrumentsWithSplits(gomock.Any(), gomock.Any()).

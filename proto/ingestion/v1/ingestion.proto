@@ -37,6 +37,13 @@ message UpsertTxsRequest {
   repeated portfoliodb.api.v1.Tx txs = 5;
   // Original filename of the uploaded CSV file.
   string filename = 6;
+  // The share count the quantities and unit prices in this upload are
+  // denominated in, as "YYYY-MM-DD". Optional; when empty each row falls back
+  // to its own transaction date, the as-traded assumption. Set it only for a
+  // source that restates historical rows into current share terms, such as a
+  // broker web UI that shows post-split quantities on pre-split trades.
+  // See docs/spec/bitemporality.md.
+  string share_count_basis = 7;
 }
 
 // CreateTxRequest appends one transaction.

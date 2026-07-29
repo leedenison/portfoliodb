@@ -600,9 +600,8 @@ func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitPa
 // RecomputeSplitAdjustments implements db.CorporateEventDB. Two UPDATEs (one
 // for eod_prices, one for txs) recompute the split_adjusted_* columns from raw
 // values multiplied by the cumulative split factor for splits with ex_date
-// strictly after the row's reference date (share_count_basis for prices,
-// timestamp::date for txs). Idempotent: factor is recomputed from scratch
-// each call. When instrumentID is empty, every instrument with at least one
+// strictly after the row's share_count_basis. Idempotent: factor is recomputed
+// from scratch each call. When instrumentID is empty, every instrument with at least one
 // stock_splits row is recomputed in the same transaction.
 func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID string) error {
 	var (
@@ -655,7 +654,7 @@ func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID s
 				split_adjusted_unit_price = CASE WHEN t.unit_price IS NULL THEN NULL
 					ELSE t.unit_price / f.factor END
 			FROM (
-				SELECT id, split_factor_at(instrument_id, timestamp::date) AS factor
+				SELECT id, split_factor_at(instrument_id, share_count_basis) AS factor
 				FROM txs
 				WHERE instrument_id IS NOT NULL
 				  AND instrument_id %s

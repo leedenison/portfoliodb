@@ -27,6 +27,12 @@ export interface UpsertTxsParams {
   periodTo?: Timestamp;
   txs: Tx[];
   filename?: string;
+  /**
+   * The share count the uploaded quantities and unit prices are denominated
+   * in, as "YYYY-MM-DD". Omit for an as-traded source, which is every CSV
+   * export the client handles. See docs/spec/bitemporality.md.
+   */
+  shareCountBasis?: string;
 }
 
 export async function upsertTxs(params: UpsertTxsParams): Promise<IngestionResponse> {
@@ -38,6 +44,7 @@ export async function upsertTxs(params: UpsertTxsParams): Promise<IngestionRespo
     periodTo: params.periodTo,
     txs: params.txs,
     filename: params.filename ?? "",
+    shareCountBasis: params.shareCountBasis ?? "",
   });
   const resBytes = await unaryFetch(
     base,

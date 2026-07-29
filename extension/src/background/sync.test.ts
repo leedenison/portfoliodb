@@ -100,6 +100,15 @@ describe("sync", () => {
     expect(req.source).toBe("Fidelity:web:fidelity-csv");
   });
 
+  it("leaves the share count undeclared for an as-traded broker", async () => {
+    await run();
+    const req = upsertTxs.mock.calls[0]![2] as { shareCountBasis: string };
+    // Declaring a basis on an as-traded export would tell the server the
+    // quantities are already post-split, and historical rows spanning a split
+    // would be left unadjusted.
+    expect(req.shareCountBasis).toBe("");
+  });
+
   it("asks only for the most recent transaction of that broker", async () => {
     await run();
     expect(listTxs.mock.calls[0]![2]).toMatchObject({

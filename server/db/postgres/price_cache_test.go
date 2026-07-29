@@ -53,7 +53,7 @@ func insertTxs(t *testing.T, p *Postgres, userID, instID string, txs []*apiv1.Tx
 	}
 	from := timestamppb.New(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
 	to := timestamppb.New(time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "TEST", from, to, txs, ids); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "TEST", from, to, txs, ids, nil); err != nil {
 		t.Fatalf("insert txs: %v", err)
 	}
 }

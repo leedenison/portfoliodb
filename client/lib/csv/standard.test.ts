@@ -321,4 +321,38 @@ not-a-date,FOO,BUYSTOCK,5
     expect(result.txs).toHaveLength(1);
     expect(result.txs[0].identifierHints).toHaveLength(0);
   });
+
+describe("share count basis", () => {
+  const rows = `date,instrument_description,type,quantity
+2024-01-01,AAPL,BUYSTOCK,10`;
+
+  it("is undeclared for an ordinary as-traded file", () => {
+    const result = parseStandardCSV(rows);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.shareCountBasis).toBeUndefined();
+  });
+
+  it("reads the basis from a comment line", () => {
+    const result = parseStandardCSV(`# share_count_basis=2026-07-29\n${rows}`);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs).toHaveLength(1);
+    expect(result.shareCountBasis).toBe("2026-07-29");
+  });
+
+  it("rejects a basis that is not a plain date", () => {
+    const result = parseStandardCSV(`# share_count_basis=29/07/2026\n${rows}`);
+
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].field).toBe("share_count_basis");
+  });
+
+  it("ignores other comment lines rather than parsing them as rows", () => {
+    const result = parseStandardCSV(`# exported from somewhere\n${rows}`);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs).toHaveLength(1);
+  });
+});
 });

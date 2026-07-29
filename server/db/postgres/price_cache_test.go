@@ -239,12 +239,12 @@ func TestHeldRanges_MultipleInstruments(t *testing.T) {
 	// Insert txs for inst2 using CreateTx to avoid ReplaceTxsInPeriod conflict with same broker/period.
 	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
 		Timestamp: ts(2024, 3, 1), InstrumentDescription: "INST2", Type: apiv1.TxType_BUYSTOCK, Quantity: 20, Account: "A",
-	}, inst2); err != nil {
+	}, inst2, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
 		Timestamp: ts(2024, 4, 1), InstrumentDescription: "INST2", Type: apiv1.TxType_SELLSTOCK, Quantity: -20, Account: "A",
-	}, inst2); err != nil {
+	}, inst2, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 
@@ -279,12 +279,12 @@ func TestHeldRanges_MultipleUsers(t *testing.T) {
 	// User 2 holds Mar-Apr (separate broker to avoid replace conflict).
 	if err := p.CreateTx(ctx, user2, "TEST2", "B", &apiv1.Tx{
 		Timestamp: ts(2024, 3, 1), InstrumentDescription: "SHARED", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "B",
-	}, instID); err != nil {
+	}, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := p.CreateTx(ctx, user2, "TEST2", "B", &apiv1.Tx{
 		Timestamp: ts(2024, 4, 1), InstrumentDescription: "SHARED", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: "B",
-	}, instID); err != nil {
+	}, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 
@@ -925,22 +925,22 @@ func TestFXGaps_MixedCurrencies(t *testing.T) {
 	})
 	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
 		Timestamp: ts(2024, 1, 10), InstrumentDescription: "HSBC", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "A",
-	}, gbpInst); err != nil {
+	}, gbpInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
 		Timestamp: ts(2024, 2, 10), InstrumentDescription: "HSBC", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: "A",
-	}, gbpInst); err != nil {
+	}, gbpInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := p.CreateTx(ctx, userID, "TEST3", "A", &apiv1.Tx{
 		Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-FX", Type: apiv1.TxType_BUYSTOCK, Quantity: 20, Account: "A",
-	}, usdInst); err != nil {
+	}, usdInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := p.CreateTx(ctx, userID, "TEST3", "A", &apiv1.Tx{
 		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-FX", Type: apiv1.TxType_SELLSTOCK, Quantity: -20, Account: "A",
-	}, usdInst); err != nil {
+	}, usdInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 
@@ -1028,12 +1028,12 @@ func TestFXGaps_MultipleInstrumentsSameCurrency(t *testing.T) {
 	})
 	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
 		Timestamp: ts(2024, 1, 15), InstrumentDescription: "BMW-M1", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "A",
-	}, eurInst2); err != nil {
+	}, eurInst2, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
 		Timestamp: ts(2024, 1, 30), InstrumentDescription: "BMW-M1", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: "A",
-	}, eurInst2); err != nil {
+	}, eurInst2, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 
@@ -1130,12 +1130,12 @@ func TestFXGaps_DisplayCurrency_MixedHoldings(t *testing.T) {
 	})
 	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
 		Timestamp: ts(2024, 2, 1), InstrumentDescription: "AAPL-DC2", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A",
-	}, usdInst); err != nil {
+	}, usdInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := p.CreateTx(ctx, userID, "TEST2", "A", &apiv1.Tx{
 		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC2", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A",
-	}, usdInst); err != nil {
+	}, usdInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 

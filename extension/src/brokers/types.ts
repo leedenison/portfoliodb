@@ -60,19 +60,6 @@ export interface BrokerRecipe {
   /** Token pattern for {{from}} and {{to}}; see formatDate. */
   dateFormat: string;
   export: ExportRequest;
-  /**
-   * True when the broker restates historical rows into current share terms --
-   * showing post-split quantities on pre-split trades. The extension reads the
-   * broker's live web UI, so this is the one import path where it can happen.
-   *
-   * Defaults to false, the as-traded assumption: a broker log line accounts
-   * only for events prior to the trade. Setting it makes the upload declare
-   * that its quantities are denominated as of the run, so the server does not
-   * apply splits that the broker has already applied. Getting it wrong in
-   * either direction scales historical quantities by the split factor.
-   * See docs/spec/bitemporality.md.
-   */
-  restatesHistoricalQuantities?: boolean;
   /** Turns the captured payload into standard transactions. */
   convert: (payload: string, options?: Record<string, unknown>) => StandardParseResult;
 }

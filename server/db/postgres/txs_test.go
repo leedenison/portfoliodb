@@ -134,10 +134,10 @@ func TestCreateTx_AppendOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
-	if err := p.CreateTx(ctx, userID, "IBKR", "", tx1, instID); err != nil {
+	if err := p.CreateTx(ctx, userID, "IBKR", "", tx1, instID, nil); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	if err := p.CreateTx(ctx, userID, "IBKR", "", tx2, instID); err != nil {
+	if err := p.CreateTx(ctx, userID, "IBKR", "", tx2, instID, nil); err != nil {
 		t.Fatalf("second create: %v", err)
 	}
 	holdings, _, _ := p.ComputeHoldings(ctx, userID, nil, "", nil)
@@ -175,7 +175,7 @@ func TestListTxs_BrokerFilterAndOrder(t *testing.T) {
 			t.Fatalf("broker to str: %v", err)
 		}
 		tx := &apiv1.Tx{Timestamp: timestamppb.New(now.Add(s.offset)), InstrumentDescription: "ORD", Type: apiv1.TxType_BUYSTOCK, Quantity: s.qty}
-		if err := p.CreateTx(ctx, userID, brokerStr, "", tx, instID); err != nil {
+		if err := p.CreateTx(ctx, userID, brokerStr, "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx: %v", err)
 		}
 	}
@@ -245,7 +245,7 @@ func TestListTxs_TiedTimestampsPageBoundary(t *testing.T) {
 	const total = 6
 	for i := 0; i < total; i++ {
 		tx := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "TIE", Type: apiv1.TxType_BUYSTOCK, Quantity: float64(i + 1)}
-		if err := p.CreateTx(ctx, userID, "IBKR", "", tx, instID); err != nil {
+		if err := p.CreateTx(ctx, userID, "IBKR", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx %d: %v", i, err)
 		}
 	}
@@ -378,15 +378,15 @@ func TestListTxsByPortfolio_ANDBetweenCategories(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	// Tx1: IBKR, account "B" -> matches broker but NOT account -> excluded
-	if err := p.CreateTx(ctx, userID, "IBKR", "B", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 1, Account: "B"}, instID); err != nil {
+	if err := p.CreateTx(ctx, userID, "IBKR", "B", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 1, Account: "B"}, instID, nil); err != nil {
 		t.Fatalf("create tx1: %v", err)
 	}
 	// Tx2: SCHB, account "A" -> matches account but NOT broker -> excluded
-	if err := p.CreateTx(ctx, userID, "SCHB", "A", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 2, Account: "A"}, instID); err != nil {
+	if err := p.CreateTx(ctx, userID, "SCHB", "A", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 2, Account: "A"}, instID, nil); err != nil {
 		t.Fatalf("create tx2: %v", err)
 	}
 	// Tx3: IBKR, account "A" -> matches both -> included
-	if err := p.CreateTx(ctx, userID, "IBKR", "A", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 3, Account: "A"}, instID); err != nil {
+	if err := p.CreateTx(ctx, userID, "IBKR", "A", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 3, Account: "A"}, instID, nil); err != nil {
 		t.Fatalf("create tx3: %v", err)
 	}
 	txs, _, err := p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, nil, false, 50, "")

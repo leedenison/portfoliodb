@@ -85,9 +85,10 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 	// Wrap single tx in UpsertTxsRequest for uniform payload format.
 	brokerStr, _ := brokerToString(req.Broker)
 	wrapped := &ingestionv1.UpsertTxsRequest{
-		Broker:   req.Broker,
-		Source:   req.GetSource(),
-		Txs:     []*apiv1.Tx{req.Tx},
+		Broker:          req.Broker,
+		Source:          req.GetSource(),
+		Txs:             []*apiv1.Tx{req.Tx},
+		ShareCountBasis: req.GetShareCountBasis(),
 	}
 	payload, err := proto.Marshal(wrapped)
 	if err != nil {

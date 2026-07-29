@@ -57,6 +57,14 @@ date,instrument_description,type,quantity,trading_currency,unit_price,account,sy
 
 Any extra columns are ignored. Empty optional fields can be omitted or left blank.
 
+## Comment lines
+
+Lines beginning with `#` are metadata or commentary and are not parsed as rows. One key is recognised:
+
+    # share_count_basis=2026-07-29
+
+It declares the share count the file's quantities and unit prices are denominated in. Omit it for an ordinary export, where each row reflects the splits that happened before its own transaction date and nothing after -- the as-traded convention the server assumes. Set it only when the source has post-adjusted historical rows for splits that happened *after* the transaction, in which case it is the date those quantities are current as of. See [bitemporality.md](bitemporality.md#share-count-basis).
+
 # Corporate event CSV format
 
 A separate CSV is used to import stock splits and cash dividends via the `ImportCorporateEvents` API. Splits and dividends share one file; the `event` column distinguishes them.

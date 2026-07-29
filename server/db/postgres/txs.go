@@ -71,7 +71,7 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string
 }
 
 // CreateTx implements db.TxDB.
-func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account string, tx *apiv1.Tx, instrumentID string) error {
+func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -89,9 +89,9 @@ func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account string,
 		return err
 	}
 	_, err = p.q.ExecContext(ctx, `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, settlement_currency, unit_price, instrument_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-	`, userUUID, broker, account, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity, nullStr(tx.TradingCurrency), nullStr(tx.SettlementCurrency), nullFloat(tx.UnitPrice), instUUID)
+		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, settlement_currency, unit_price, instrument_id, share_count_basis)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date)
+	`, userUUID, broker, account, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity, nullStr(tx.TradingCurrency), nullStr(tx.SettlementCurrency), nullFloat(tx.UnitPrice), instUUID, shareCountBasis)
 	if err != nil {
 		return fmt.Errorf("create tx: %w", err)
 	}

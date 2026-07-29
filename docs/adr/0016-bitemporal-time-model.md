@@ -65,6 +65,10 @@ revisions that mostly do not change the answer, is not worth the schema.
 - A revised inflation index silently replaces its predecessor. There is no record
   that a revision happened, and no way to reproduce a real return computed from
   the earlier value.
+- Instrument identity is current state for the same reason, decided in
+  0004-instrument-resolution-and-merge.md: a reused identifier rewrites how every
+  transaction that resolved through it is interpreted, and a merge leaves no
+  record of the loser.
 - Valuation must pair split-adjusted quantity with split-adjusted close. Pairing
   raw quantity with raw close is only correct if the split transaction itself is
   stored, and 0005 deliberately drops `TX_TYPE=SPLIT` rows.

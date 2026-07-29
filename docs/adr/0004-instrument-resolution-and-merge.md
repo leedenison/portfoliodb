@@ -21,3 +21,28 @@ later back a periodic sweep. Because the identifier set an instrument can have i
 open-ended (some instruments have no CUSIP, plugin coverage varies), the system
 does **not** treat "only one standard identifier known" as an error — merge-on-
 conflict is what reconciles instruments once a shared identifier appears.
+
+## Identity is current state, not a time-varying fact
+
+Resolution answers "which instrument holds this identifier now", never "which
+instrument held it on the transaction date", and the merge keeps no record of
+the loser. Giving identity a valid-time dimension was considered and rejected
+(see 0053).
+
+No identifier plugin returns instrument validity dates, so
+`instruments.valid_from` / `valid_to` are NULL for everything the system
+resolves for itself and a resolution filter on them would filter on nothing.
+Making ticker reuse representable means a validity interval on
+`instrument_identifiers`, which replaces the uniqueness indexes with a GiST
+exclusion constraint, gives the name-denormalising trigger a vintage to choose,
+and threads an as-of date through every identifier lookup and both batch
+resolution caches — the whole of the hottest path in ingestion, for data no
+source supplies. Nothing reads the merge history either: holdings and valuation
+follow from the current instrument set, and the only consumer is the deferred
+knowledge-time as-of query (0054, and see 0016-bitemporal-time-model.md).
+
+The accepted consequence is that a reused ticker or CUSIP silently rewrites how
+every historical transaction that resolved through it is interpreted, and that a
+merge destroys the loser's canonical fields along with its cascaded prices,
+splits, dividends and coverage rows. Those derive from external sources and come
+back on re-fetch; the identity judgement does not.

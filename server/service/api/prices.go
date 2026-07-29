@@ -44,6 +44,7 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 			Close:                 r.Close,
 			DataProvider:          r.DataProvider,
 			LastFetchedAt:         timestamppb.New(r.LastFetchedAt),
+			ShareCountBasis:       r.ShareCountBasis.Format("2006-01-02"),
 			Synthetic:             r.Synthetic,
 		}
 		if r.Open != nil {

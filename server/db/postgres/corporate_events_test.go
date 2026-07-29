@@ -847,3 +847,87 @@ func TestInsertUnhandledCorporateEvent_Dedup(t *testing.T) {
 	}
 }
 
+
+// backdate rewrites a knowledge timestamp to a fixed past value so that a
+// subsequent write either preserves it or is caught clobbering it. Tests run
+// inside one transaction, where now() is frozen at transaction start, so
+// comparing two now() values would never detect a clobber.
+func backdate(t *testing.T, p *Postgres, query string, args ...any) time.Time {
+	t.Helper()
+	past := time.Date(2020, time.March, 1, 12, 0, 0, 0, time.UTC)
+	args = append([]any{past}, args...)
+	if _, err := p.q.ExecContext(context.Background(), query, args...); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	return past
+}
+
+func TestUpsertCashDividends_PreservesKnowledgeTime(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	div := db.CashDividend{
+		InstrumentID: instID, ExDate: d(2024, 2, 9),
+		Amount: "0.24", Currency: "USD", DataProvider: "massive",
+	}
+	if err := p.UpsertCashDividends(ctx, []db.CashDividend{div}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	past := backdate(t, p,
+		`UPDATE cash_dividends SET fetched_at = $1 WHERE instrument_id = $2`, instID)
+
+	// The provider revises the amount. When we first learned of the dividend
+	// does not change just because its amount did.
+	div.Amount = "0.25"
+	div.DataProvider = "eodhd"
+	if err := p.UpsertCashDividends(ctx, []db.CashDividend{div}); err != nil {
+		t.Fatalf("re-upsert: %v", err)
+	}
+
+	got, err := p.ListCashDividends(ctx, instID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 dividend, got %d", len(got))
+	}
+	if got[0].Amount != "0.25" {
+		t.Errorf("amount not revised: %q", got[0].Amount)
+	}
+	if !got[0].FetchedAt.Equal(past) {
+		t.Errorf("knowledge time moved on revision: want %s, got %s", past, got[0].FetchedAt)
+	}
+}
+
+func TestCreateCorporateEventFetchBlock_PreservesFirstBlockedAt(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	if err := p.CreateCorporateEventFetchBlock(ctx, instID, "massive", "404"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	past := backdate(t, p,
+		`UPDATE corporate_event_fetch_blocks SET created_at = $1 WHERE instrument_id = $2`, instID)
+
+	// Blocking again records a newer reason, not a newer first-blocked-at.
+	if err := p.CreateCorporateEventFetchBlock(ctx, instID, "massive", "subscription limit"); err != nil {
+		t.Fatalf("re-create: %v", err)
+	}
+
+	blocks, err := p.ListCorporateEventFetchBlocks(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	if blocks[0].Reason != "subscription limit" {
+		t.Errorf("reason not updated: %q", blocks[0].Reason)
+	}
+	if !blocks[0].CreatedAt.Equal(past) {
+		t.Errorf("first blocked at moved on re-block: want %s, got %s", past, blocks[0].CreatedAt)
+	}
+}

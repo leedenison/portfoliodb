@@ -9,7 +9,7 @@ Daily portfolio values are computed server-side in a single SQL query using five
 CTEs:
 
 1. **portfolio_txs** -- portfolio-matched transactions grouped by
-   (instrument, date) with net daily quantity.
+   (instrument, date) with net daily split-adjusted quantity.
 2. **cumulative** -- window function producing running position per instrument.
 3. **date_series** -- `generate_series` for every calendar date in the range.
 4. **daily_holdings** -- LATERAL subquery forward-filling the last known
@@ -18,7 +18,8 @@ CTEs:
    to forward-fill closing prices across weekends and holidays.
 
 The final SELECT joins holdings with prices and aggregates
-`SUM(qty * close)` per date.
+`SUM(qty * close)` per date, where both sides are split-adjusted (see
+[Share count](#share-count) below).
 
 ## TimescaleDB usage
 
@@ -96,8 +97,16 @@ adr/0007-calendar-day-valuation.md).
 
 ## Share count
 
-Quantities and prices are paired on the same share count: the valuation
-multiplies split-adjusted quantity by split-adjusted close, never one of each.
+Quantities and prices are paired on the same share count: the valuation reads
+`split_adjusted_quantity` and `split_adjusted_close`, never one of each. Raw
+quantity would not work, because `TX_TYPE=SPLIT` rows are dropped at ingestion
+(see adr/0005-corporate-events-design.md) so the raw position never steps up at
+a split, while the as-traded price does step down. Pairing them puts a cliff in
+the chart at every forward split.
+
+FX rates are the exception and are read raw: an exchange rate is not
+denominated in a share count, so it has no basis to adjust.
+
 Because split adjustment is bounded by today's date, the whole series is as-of
 now -- the same request on a later day may return different values if a split
 has become effective in between. See [bitemporality.md](bitemporality.md).

@@ -920,3 +920,56 @@ func valueOn(t *testing.T, points []db.ValuationPoint, want time.Time) float64 {
 	t.Fatalf("no valuation point for %s", want.Format("2006-01-02"))
 	return 0
 }
+
+// TestGetUserValuation_FXUnaffectedByASplit guards the FX leg against the
+// share-count change. An exchange rate is not denominated in a share count, so
+// the split must reach the holding and the price and leave the rate alone.
+func TestGetUserValuation_FXUnaffectedByASplit(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|fxsplit", "U", "u@fxsplit.com")
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "", "EUR", "SAP", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SAP FXSplit", Canonical: false},
+	}, "", nil, nil, nil)
+
+	buyDate := time.Date(2020, 8, 3, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "SAP FXSplit", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "main"},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR",
+		timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)),
+		txs, []string{instID}, nil); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	eurFX := lookupFXInstrumentVal(t, p, "EUR")
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: d(2020, 8, 28), Close: 500, DataProvider: "test"},
+		{InstrumentID: instID, PriceDate: d(2020, 8, 31), Close: 125, DataProvider: "test"},
+		// A flat rate across both days: any movement in the result is the split.
+		{InstrumentID: eurFX, PriceDate: d(2020, 8, 28), Close: 1.2, DataProvider: "test"},
+		{InstrumentID: eurFX, PriceDate: d(2020, 8, 31), Close: 1.2, DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+		{InstrumentID: instID, ExDate: d(2020, 8, 31), SplitFrom: "1", SplitTo: "4", DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert splits: %v", err)
+	}
+	if err := p.RecomputeSplitAdjustments(ctx, instID); err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+
+	points, err := p.GetUserValuation(ctx, userID, d(2020, 8, 28), d(2020, 8, 31), "USD")
+	if err != nil {
+		t.Fatalf("valuation: %v", err)
+	}
+	// 100 shares * 500 EUR * 1.2 USD/EUR = 60000 USD, on both days.
+	for _, day := range []time.Time{d(2020, 8, 28), d(2020, 8, 31)} {
+		if got := valueOn(t, points, day); !approxEq(got, 60_000) {
+			t.Errorf("value on %s: got %v want %v", day.Format("2006-01-02"), got, 60_000.0)
+		}
+	}
+}

@@ -38,8 +38,9 @@ exclusion constraint, gives the name-denormalising trigger a vintage to choose,
 and threads an as-of date through every identifier lookup and both batch
 resolution caches — the whole of the hottest path in ingestion, for data no
 source supplies. Nothing reads the merge history either: holdings and valuation
-follow from the current instrument set, and the only consumer is the deferred
-knowledge-time as-of query (0054, and see 0016-bitemporal-time-model.md).
+follow from the current instrument set, and the only consumer would have been the
+knowledge-time as-of query, itself declined (0054, and see
+0016-bitemporal-time-model.md).
 
 The accepted consequence is that a reused ticker or CUSIP silently rewrites how
 every historical transaction that resolved through it is interpreted, and that a

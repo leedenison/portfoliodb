@@ -40,8 +40,7 @@ provides.
 
 Nothing reads the history a merge record would keep. Holdings and valuation
 follow from the current instrument set and no API reports what an instrument
-used to be. The one consumer is 0054, deferred for the same reason in
-adr/0016-bitemporal-time-model.md.
+used to be. The one consumer was 0054, itself since closed for the same reason.
 
 Merge stays lossy, and that is accepted: transactions and identifiers move to
 the survivor, but the loser's canonical fields and its cascaded prices, splits,

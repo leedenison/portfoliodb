@@ -189,7 +189,6 @@ The model above is normative. These parts of the system do not yet comply:
 | Divergence | Issue |
 | --- | --- |
 | No daily scheduler fires the blanket recompute, so a stored future-dated split never activates when its `ex_date` crosses | 0050 |
-| There is no knowledge-time as-of query, so a past valuation cannot be reproduced | 0054 |
 | `identified_at` is bumped by every `EnsureInstrument` call, not only by split-aware re-identification, which can disarm the retroactive option-split guard | 0055 |
 | Date intervals are half-open in some API messages and closed in others | 0056 |
 | Holding declarations permit one assertion per holding, so a corrected declaration destroys the prior one | 0043 |

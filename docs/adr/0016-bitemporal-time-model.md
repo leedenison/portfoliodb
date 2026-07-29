@@ -39,14 +39,23 @@ the name is a claim the write path must honour.
 
 ## No knowledge-time as-of queries
 
-There is no way to ask "what did we believe on 2024-01-01?", and adding one is
-deferred. Answering it needs versioned history on prices, splits and
-transactions -- a large, invasive cost for a benefit only audit and
-reproducibility need, and transaction ingestion is already knowledge-lossy by
-replacement (see 0002-transaction-ingestion-model.md). Recording the three clocks
-correctly is the prerequisite for that work and is worth doing on its own; the
-consequence, accepted here, is that every derived value is as-of now and two
-identical valuation requests may legitimately differ across days.
+There is no way to ask "what did we believe on 2024-01-01?", and there will not
+be. Answering it needs versioned history on prices, splits and transactions -- a
+large, invasive cost for a benefit only audit and reproducibility need, and
+transaction ingestion is already knowledge-lossy by replacement (see
+0002-transaction-ingestion-model.md). Recording the three clocks correctly is
+worth doing on its own; the consequence, accepted here, is that every derived
+value is as-of now and two identical valuation requests may legitimately differ
+across days.
+
+This started as a deferral and was settled when the prerequisites were declined
+one by one -- inflation index vintages (0052) and the identity time dimension
+(0053) -- leaving a single large piece of work justified only by a query for
+figures PortfolioDB does not report to anyone. The issue tracking it, 0054, is
+closed. Should a figure ever need defending, the cheaper starting point is to
+stamp each valuation response with its compute time and the split state it
+reflects, which makes a difference between two runs explainable without making it
+reproducible.
 
 Inflation indices looked like the cheapest place to pilot versioned history --
 the valid time is a fixed month while the value can legitimately change -- and
@@ -69,6 +78,9 @@ revisions that mostly do not change the answer, is not worth the schema.
   0004-instrument-resolution-and-merge.md: a reused identifier rewrites how every
   transaction that resolved through it is interpreted, and a merge leaves no
   record of the loser.
+- A figure PortfolioDB reported in the past cannot be reproduced, and no tracked
+  work will make it possible. A caller comparing two runs of the same request has
+  nothing in the response explaining a difference.
 - Valuation must pair split-adjusted quantity with split-adjusted close. Pairing
   raw quantity with raw close is only correct if the split transaction itself is
   stored, and 0005 deliberately drops `TX_TYPE=SPLIT` rows.

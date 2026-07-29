@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -197,7 +197,7 @@ func (s *Server) ListPriceFetchBlocks(ctx context.Context, req *apiv1.ListPriceF
 			InstrumentId:          b.InstrumentID,
 			PluginId:              b.PluginID,
 			Reason:                b.Reason,
-			CreatedAt:             timestamppb.New(b.CreatedAt),
+			FirstBlockedAt:        timestamppb.New(b.FirstBlockedAt),
 			PluginDisplayName:     pluginName,
 			InstrumentDisplayName: instName,
 		})

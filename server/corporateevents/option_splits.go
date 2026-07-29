@@ -17,7 +17,7 @@ import (
 
 // ProcessOptionSplits adjusts options on the given underlying after new stock
 // splits land. For each option and each applicable split:
-//   - If identified_at >= split.fetched_at: skip (case 3 -- already correct)
+//   - If identified_at >= split.first_known_at: skip (case 3 -- already correct)
 //   - If factor is not a whole forward split: insert unhandled event, skip
 //   - Otherwise: update OCC identifier, update strike, insert derived split row
 //
@@ -68,7 +68,7 @@ func ProcessOptionSplits(ctx context.Context, database db.DB, underlyingID strin
 
 func processOneOptionSplit(ctx context.Context, database db.DB, opt *db.InstrumentRow, split db.StockSplit, factor float64, log *slog.Logger) {
 	// Case 3: identified after we knew about the split -- already correct.
-	if opt.IdentifiedAt != nil && !opt.IdentifiedAt.Before(split.FetchedAt) {
+	if opt.IdentifiedAt != nil && !opt.IdentifiedAt.Before(split.FirstKnownAt) {
 		return
 	}
 

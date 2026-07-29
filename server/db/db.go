@@ -83,16 +83,16 @@ type HeldRangesOpts struct {
 
 // EODPrice is a single end-of-day price row for UpsertPrices.
 type EODPrice struct {
-	InstrumentID string
-	PriceDate    time.Time
-	Open         *float64
-	High         *float64
-	Low          *float64
-	Close        float64
-	Volume       *int64
-	DataProvider string
-	Synthetic    bool       // true for forward-filled non-trading day prices
-	FetchedAt    *time.Time // when the price data was current; nil defaults to now()
+	InstrumentID  string
+	PriceDate     time.Time
+	Open          *float64
+	High          *float64
+	Low           *float64
+	Close         float64
+	Volume        *int64
+	DataProvider  string
+	Synthetic     bool       // true for forward-filled non-trading day prices
+	LastFetchedAt *time.Time // when this row was fetched; nil defaults to now()
 }
 
 // PriceCacheDB provides price cache management.
@@ -324,7 +324,8 @@ type PriceFetchBlock struct {
 	InstrumentID string
 	PluginID     string
 	Reason       string
-	CreatedAt    time.Time
+	// FirstBlockedAt is when the pair was first blocked. Never overwritten.
+	FirstBlockedAt time.Time
 }
 
 // EODPriceRow is a single end-of-day price row for the admin price list.
@@ -340,7 +341,7 @@ type EODPriceRow struct {
 	Volume                *int64
 	DataProvider          string
 	Synthetic             bool
-	FetchedAt             time.Time
+	LastFetchedAt         time.Time
 }
 
 // ExportPriceRow is a single price row with the best instrument identifier for export.
@@ -668,7 +669,8 @@ type StockSplit struct {
 	SplitFrom    string // numeric, e.g. "1"
 	SplitTo      string // numeric, e.g. "2"
 	DataProvider string
-	FetchedAt    time.Time
+	// FirstKnownAt is when we first learned of this split. Never overwritten.
+	FirstKnownAt time.Time
 }
 
 // CashDividend is a single cash dividend row. Amount is per share in Currency.
@@ -686,18 +688,19 @@ type CashDividend struct {
 	Frequency       string // empty when unknown
 	Type            string // "CD" or "SC"; empty = "CD"
 	DataProvider    string
-	FetchedAt       time.Time
+	// FirstKnownAt is when we first learned of this dividend. Never overwritten.
+	FirstKnownAt time.Time
 }
 
 // CorporateEventCoverage is one coverage interval for a (instrument, plugin).
 // Adjacent or overlapping intervals for the same (InstrumentID, PluginID) are
 // merged on insert by UpsertCorporateEventCoverage.
 type CorporateEventCoverage struct {
-	InstrumentID string
-	PluginID     string
-	CoveredFrom  time.Time
-	CoveredTo    time.Time
-	FetchedAt    time.Time
+	InstrumentID  string
+	PluginID      string
+	CoveredFrom   time.Time
+	CoveredTo     time.Time
+	LastFetchedAt time.Time
 }
 
 // CorporateEventFetchBlock records a permanently blocked (instrument, plugin)
@@ -706,7 +709,8 @@ type CorporateEventFetchBlock struct {
 	InstrumentID string
 	PluginID     string
 	Reason       string
-	CreatedAt    time.Time
+	// FirstBlockedAt is when the pair was first blocked. Never overwritten.
+	FirstBlockedAt time.Time
 }
 
 // UnhandledCorporateEvent is a corporate event that cannot be automatically

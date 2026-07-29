@@ -11,8 +11,8 @@ import (
 // ListPriceFetchBlocks implements db.PriceFetchBlockDB.
 func (p *Postgres) ListPriceFetchBlocks(ctx context.Context) ([]db.PriceFetchBlock, error) {
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT instrument_id, plugin_id, reason, created_at
-		FROM price_fetch_blocks ORDER BY created_at DESC
+		SELECT instrument_id, plugin_id, reason, first_blocked_at
+		FROM price_fetch_blocks ORDER BY first_blocked_at DESC
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list price fetch blocks: %w", err)
@@ -21,7 +21,7 @@ func (p *Postgres) ListPriceFetchBlocks(ctx context.Context) ([]db.PriceFetchBlo
 	var out []db.PriceFetchBlock
 	for rows.Next() {
 		var b db.PriceFetchBlock
-		if err := rows.Scan(&b.InstrumentID, &b.PluginID, &b.Reason, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.InstrumentID, &b.PluginID, &b.Reason, &b.FirstBlockedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, b)
@@ -62,7 +62,7 @@ func (p *Postgres) CreatePriceFetchBlock(ctx context.Context, instrumentID, plug
 		INSERT INTO price_fetch_blocks (instrument_id, plugin_id, reason)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (instrument_id, plugin_id)
-		DO UPDATE SET reason = EXCLUDED.reason, created_at = now()
+		DO UPDATE SET reason = EXCLUDED.reason
 	`, instrumentID, pluginID, reason)
 	if err != nil {
 		return fmt.Errorf("create price fetch block: %w", err)

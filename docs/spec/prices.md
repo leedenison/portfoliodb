@@ -25,7 +25,7 @@ The price cache.
 | `adjusted_close` | `numeric` | The **provider's own** adjusted close (nullable) |
 | `volume` | `bigint` | Trading volume (nullable) |
 | `data_provider` | `text` NOT NULL | Which provider supplied this row |
-| `fetched_at` | `timestamptz` NOT NULL DEFAULT now() | When the row was last fetched |
+| `last_fetched_at` | `timestamptz` NOT NULL DEFAULT now() | When the row was last fetched. Staleness only; see [bitemporality.md](bitemporality.md#knowledge-time) |
 
 **Primary key:** `(instrument_id, price_date)`
 
@@ -37,7 +37,7 @@ The table carries three closing prices and they are not interchangeable:
 - `split_adjusted_close` is derived by PortfolioDB from `close` and the known stock splits, denominated in today's share count. This is the value performance math uses. See [corporate-events.md](corporate-events.md#adjustment).
 - `adjusted_close` is the provider's own adjusted figure, on the provider's basis and typically including dividend adjustment as well as splits. It is never an input to valuation -- it exists to cross-check the value PortfolioDB derives.
 
-Which share count `close` is denominated in is declared by its source, not inferred from `fetched_at`. See [bitemporality.md](bitemporality.md#share-count-basis).
+Which share count `close` is denominated in is declared by its source, not inferred from `last_fetched_at`. See [bitemporality.md](bitemporality.md#share-count-basis).
 
 ---
 

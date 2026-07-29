@@ -6,13 +6,13 @@ This document covers the design and operating model of the corporate event subsy
 
 Two event tables in PostgreSQL, both keyed by `(instrument_id, ex_date)`:
 
-- **`stock_splits`** — `split_from`, `split_to` (decimal NUMERIC), `data_provider`, `fetched_at`. The factor is `split_to / split_from`.
-- **`cash_dividends`** — `amount` (per share), `currency`, optional `pay_date` / `record_date` / `declaration_date`, optional `frequency`, `data_provider`, `fetched_at`.
+- **`stock_splits`** — `split_from`, `split_to` (decimal NUMERIC), `data_provider`, `first_known_at`. The factor is `split_to / split_from`.
+- **`cash_dividends`** — `amount` (per share), `currency`, optional `pay_date` / `record_date` / `declaration_date`, optional `frequency`, `data_provider`, `first_known_at`.
 
 Plus two auxiliary tables:
 
 - **`corporate_event_coverage`** — per `(instrument_id, plugin_id)`, the closed date intervals that have been queried successfully. Adjacent and overlapping intervals merge on insert. Coverage is the source of truth for "which date ranges have we already asked this plugin about" — see [Fetch model](#fetch-model) below.
-- **`corporate_event_fetch_blocks`** — `(instrument_id, plugin_id, reason)`. A plugin returning a permanent error (404, 403, subscription limit) for an instrument lands here so the fetcher does not retry indefinitely.
+- **`corporate_event_fetch_blocks`** — `(instrument_id, plugin_id, reason, first_blocked_at)`. A plugin returning a permanent error (404, 403, subscription limit) for an instrument lands here so the fetcher does not retry indefinitely.
 
 The `eod_prices` and `txs` tables also gain `split_adjusted_*` columns alongside the raw OHLCV / quantity / unit_price values, so both views are debuggable side by side. See [Adjustment](#adjustment) below.
 

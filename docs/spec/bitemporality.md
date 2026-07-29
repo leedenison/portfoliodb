@@ -64,6 +64,11 @@ knowledge timestamp can be:
   overwritten on every refresh by design. It answers "how stale is this?", never
   "when did we learn it?"
 
+Inflation index values are the deliberate exception: they are not versioned. A
+revised `index_value` replaces its predecessor in place and leaves no record that
+a revision occurred, which follows from rule 8 below
+(see adr/0016-bitemporal-time-model.md).
+
 | Table | Column | Kind |
 | --- | --- | --- |
 | `stock_splits` | `first_known_at` | First known. Compared against `instruments.identified_at` to decide whether an option's OCC symbol still needs retroactive adjustment. |
@@ -117,7 +122,8 @@ basis to today's. See [corporate-events.md](corporate-events.md#adjustment).
 ## Rules
 
 1. **Every stored fact records its valid time.** Knowledge time is recorded
-   wherever the source can revise the fact.
+   wherever the source can revise the fact, except for inflation index values
+   (see [Knowledge time](#knowledge-time)).
 2. **A knowledge-time column is named for what it means** -- `first_known_at` or
    `last_fetched_at`, never the ambiguous `fetched_at`. A `first_known_at` never
    moves forward: revising the fact leaves it alone, and on conflict it takes
@@ -171,7 +177,6 @@ The model above is normative. These parts of the system do not yet comply:
 | Divergence | Issue |
 | --- | --- |
 | No daily scheduler fires the blanket recompute, so a stored future-dated split never activates when its `ex_date` crosses | 0050 |
-| A revised inflation index overwrites the prior value, so a previously published real-return figure cannot be reproduced | 0052 |
 | Instrument identity has no valid-time dimension: `instruments.valid_from` / `valid_to` are never queried, `instrument_identifiers` cannot express ticker reuse, and a merge leaves no record of what was believed before | 0053 |
 | There is no knowledge-time as-of query, so a past valuation cannot be reproduced | 0054 |
 | `identified_at` is bumped by every `EnsureInstrument` call, not only by split-aware re-identification, which can disarm the retroactive option-split guard | 0055 |

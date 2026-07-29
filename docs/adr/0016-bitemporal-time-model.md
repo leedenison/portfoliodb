@@ -48,11 +48,23 @@ correctly is the prerequisite for that work and is worth doing on its own; the
 consequence, accepted here, is that every derived value is as-of now and two
 identical valuation requests may legitimately differ across days.
 
+Inflation indices looked like the cheapest place to pilot versioned history --
+the valid time is a fixed month while the value can legitimately change -- and
+were rejected too. Nothing consumes them beyond gap detection and the admin
+listing, so the real-return figure whose reproducibility would justify the
+history does not yet exist. ONS, the only implemented provider, does not revise
+CPI or CPIH once published; it rebases, and a real return is a ratio of two index
+values, which a rebasing leaves unchanged. Storing vintages nobody reads, of
+revisions that mostly do not change the answer, is not worth the schema.
+
 ## Consequences
 
 - Constrains 0002 (ingestion by replacement), 0005 (corporate events) and 0014
   (extension import): each is a place where a source can restate, and each must
   now declare rather than assume.
+- A revised inflation index silently replaces its predecessor. There is no record
+  that a revision happened, and no way to reproduce a real return computed from
+  the earlier value.
 - Valuation must pair split-adjusted quantity with split-adjusted close. Pairing
   raw quantity with raw close is only correct if the split transaction itself is
   stored, and 0005 deliberately drops `TX_TYPE=SPLIT` rows.

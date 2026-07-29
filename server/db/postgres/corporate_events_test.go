@@ -978,3 +978,80 @@ func TestRecomputeSplitAdjustments_BackfilledPricesUseTheirOwnDate(t *testing.T)
 		t.Errorf("post-split bar should be unchanged: got %v want %v", got, want)
 	}
 }
+
+// TestRecomputeSplitAdjustments_BackAdjustedSourceDeclaresItsBasis is the
+// mirror of the as-traded case: a provider that restates its whole series to
+// the share count current when it answered has already applied the split, so
+// adjusting again would double-count it.
+func TestRecomputeSplitAdjustments_BackAdjustedSourceDeclaresItsBasis(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	// Same bar as the as-traded case, but already expressed post-split by the
+	// provider, which declares that its series is current as of today.
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	if err := p.UpsertPrices(ctx, []db.EODPrice{{
+		InstrumentID:    instID,
+		PriceDate:       d(2020, 8, 28),
+		Close:           124.75,
+		DataProvider:    "test",
+		ShareCountBasis: &today,
+	}}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+		{InstrumentID: instID, ExDate: d(2020, 8, 31), SplitFrom: "1", SplitTo: "4", DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert splits: %v", err)
+	}
+	if err := p.RecomputeSplitAdjustments(ctx, instID); err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+
+	if got := adjustedClose(t, p, instID, d(2020, 8, 28)); !approxEq(got, 124.75) {
+		t.Errorf("back-adjusted bar adjusted a second time: got %v want %v", got, 124.75)
+	}
+}
+
+// TestUpsertPrices_BasisTravelsWithTheRawValues covers a re-fetch replacing a
+// row: the basis must be restated together with the values it describes, or
+// the row is left claiming a denomination its numbers are not in.
+func TestUpsertPrices_BasisTravelsWithTheRawValues(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	row := db.EODPrice{
+		InstrumentID: instID, PriceDate: d(2020, 8, 28),
+		Close: 499, DataProvider: "test",
+	}
+	if err := p.UpsertPrices(ctx, []db.EODPrice{row}); err != nil {
+		t.Fatalf("upsert as-traded: %v", err)
+	}
+	assertBasis(t, p, instID, d(2020, 8, 28), d(2020, 8, 28))
+
+	// The same date re-fetched from a back-adjusting source.
+	row.Close = 124.75
+	row.ShareCountBasis = &today
+	if err := p.UpsertPrices(ctx, []db.EODPrice{row}); err != nil {
+		t.Fatalf("upsert back-adjusted: %v", err)
+	}
+	assertBasis(t, p, instID, d(2020, 8, 28), today)
+}
+
+func assertBasis(t *testing.T, p *Postgres, instID string, priceDate, want time.Time) {
+	t.Helper()
+	var got time.Time
+	if err := p.q.QueryRowContext(context.Background(), `
+		SELECT share_count_basis FROM eod_prices
+		WHERE instrument_id = $1::uuid AND price_date = $2
+	`, instID, priceDate).Scan(&got); err != nil {
+		t.Fatalf("read share_count_basis: %v", err)
+	}
+	if !got.Equal(want) {
+		t.Errorf("share_count_basis: got %s want %s",
+			got.Format("2006-01-02"), want.Format("2006-01-02"))
+	}
+}

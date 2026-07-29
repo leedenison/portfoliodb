@@ -26,6 +26,7 @@ The price cache.
 | `volume` | `bigint` | Trading volume (nullable) |
 | `data_provider` | `text` NOT NULL | Which provider supplied this row |
 | `last_fetched_at` | `timestamptz` NOT NULL DEFAULT now() | When the row was last fetched. Staleness only; see [bitemporality.md](bitemporality.md#knowledge-time) |
+| `share_count_basis` | `date` NOT NULL | The share count the raw OHLCV is denominated in. Defaults to `price_date` |
 
 **Primary key:** `(instrument_id, price_date)`
 
@@ -37,7 +38,14 @@ The table carries three closing prices and they are not interchangeable:
 - `split_adjusted_close` is derived by PortfolioDB from `close` and the known stock splits, denominated in today's share count. This is the value performance math uses. See [corporate-events.md](corporate-events.md#adjustment).
 - `adjusted_close` is the provider's own adjusted figure, on the provider's basis and typically including dividend adjustment as well as splits. It is never an input to valuation -- it exists to cross-check the value PortfolioDB derives.
 
-Which share count `close` is denominated in is declared by its source, not inferred from `last_fetched_at`. See [bitemporality.md](bitemporality.md#share-count-basis).
+Which share count `close` is denominated in is recorded in `share_count_basis` and declared by its source, never inferred from `last_fetched_at`. See [bitemporality.md](bitemporality.md#share-count-basis).
+
+A price plugin declares the denomination of the bars it returns on its `FetchResult`:
+
+- `AsTraded` -- each bar is denominated in the share count current on its own date. Both current plugins return this: massive sends `?adjusted=false`, and EODHD's `/api/eod` OHLC is as-traded.
+- `AsOfFetch` -- the provider back-adjusted the whole series to the share count current when it answered.
+
+A forward-filled synthetic row carries the value of the bar it copied, so it inherits that bar's basis rather than taking its own date. Import rows default to `price_date`, matching PortfolioDB's own export, and may declare `share_count_basis` when the file holds a back-adjusted series.
 
 ---
 

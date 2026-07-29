@@ -127,6 +127,7 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 		h := b.High
 		l := b.Low
 		v := b.Volume
+		ac := b.AdjClose
 		result[i] = pricefetcher.DailyBar{
 			Date:   d,
 			Open:   &o,
@@ -134,6 +135,9 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 			Low:    &l,
 			Close:  b.Close,
 			Volume: &v,
+			// EODHD's /api/eod OHLC is as-traded; adjusted_close is its own
+			// separate, provider-adjusted series.
+			AdjustedClose: &ac,
 		}
 	}
 	if fxDivisor != 1 {

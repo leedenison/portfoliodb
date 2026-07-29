@@ -111,11 +111,27 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		}
 
 		p := db.EODPrice{
-			InstrumentID: entry.result.InstrumentID,
-			PriceDate:    priceDate,
-			Close:        row.GetClose(),
-			DataProvider: "import",
+			InstrumentID:  entry.result.InstrumentID,
+			PriceDate:     priceDate,
+			Close:         row.GetClose(),
+			DataProvider:  "import",
 			LastFetchedAt: pricesAsOf,
+		}
+		// An undeclared basis means as-traded, which is what PortfolioDB's own
+		// export emits. exported_at is knowledge time and does not imply the
+		// file was back-adjusted.
+		if b := row.GetShareCountBasis(); b != "" {
+			basis, err := time.Parse("2006-01-02", b)
+			if err != nil {
+				valErrs = append(valErrs, &apiv1.ValidationError{
+					RowIndex: int32(i),
+					Field:    "share_count_basis",
+					Message:  fmt.Sprintf("invalid date %q: want YYYY-MM-DD", b),
+				})
+				_ = database.IncrJobProcessedCount(ctx, j.JobID)
+				continue
+			}
+			p.ShareCountBasis = &basis
 		}
 		if row.Open != nil {
 			p.Open = row.Open
@@ -128,6 +144,9 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		}
 		if row.Volume != nil {
 			p.Volume = row.Volume
+		}
+		if row.AdjustedClose != nil {
+			p.AdjustedClose = row.AdjustedClose
 		}
 		prices = append(prices, p)
 		_ = database.IncrJobProcessedCount(ctx, j.JobID)

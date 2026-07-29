@@ -653,6 +653,8 @@ message EODPriceProto {
   // nothing about the prices themselves.
   google.protobuf.Timestamp last_fetched_at = 11;
   bool synthetic = 12;
+  // The share count the raw values are denominated in, as "YYYY-MM-DD".
+  string share_count_basis = 13;
 }
 
 message ListPricesRequest {
@@ -706,6 +708,11 @@ message ImportPriceRow {
   optional int64 volume = 10;
   AssetClass asset_class = 11;   // optional; security type hint for plugin routing on unknown instruments
   string currency = 12;          // optional; ISO 4217 currency code used as hint for validation
+  // The share count these raw values are denominated in, as "YYYY-MM-DD".
+  // Optional; defaults to price_date, meaning the row is as-traded. Set it only
+  // when the file holds a back-adjusted series, in which case it is the date the
+  // provider adjusted to. See docs/spec/bitemporality.md.
+  string share_count_basis = 13;
 }
 
 message ImportPricesRequest {
@@ -714,10 +721,10 @@ message ImportPricesRequest {
   // UpsertPricesWithFill to generate synthetic LOCF prices for non-trading
   // days within each range. When absent, prices are upserted as-is.
   repeated ImportCoverage coverage = 2;
-  // When set, used as pricesAsOf: prices and identifiers in the file are
-  // assumed current as of this time. OCC symbols are split-adjusted during
-  // instrument resolution, and imported price rows use this as fetched_at
-  // so that splits with ex_date after this timestamp are applied.
+  // Knowledge time: when the supplied data was current. OCC symbols are
+  // split-adjusted to this point during instrument resolution, and imported
+  // rows record it as last_fetched_at. It does not determine which share count
+  // the prices are denominated in -- that is ImportPriceRow.share_count_basis.
   google.protobuf.Timestamp exported_at = 3;
 }
 

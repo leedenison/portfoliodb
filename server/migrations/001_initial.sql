@@ -326,14 +326,20 @@ WHERE
 -- Rows with synthetic = true are forward-filled (LOCF) prices for non-trading
 -- days (weekends, holidays). They are generated at write time by the price
 -- fetcher worker so that the valuation query can use a simple join.
+-- share_count_basis is the date at which the share count the raw OHLCV is
+-- denominated in was current. It is declared by whoever supplied the row -- as
+-- price_date for an as-traded series, or the fetch date for a provider that
+-- back-adjusts -- and is never inferred from last_fetched_at. It defaults to
+-- price_date, the as-traded assumption. See docs/spec/bitemporality.md.
 -- The split_adjusted_* columns hold OHLCV after applying every stock split with
--- ex_date > last_fetched_at::date for this instrument. They equal the raw values when
+-- ex_date > share_count_basis for this instrument. They equal the raw values when
 -- no later split exists. close (NOT NULL) implies split_adjusted_close (NOT NULL);
 -- the others are NULL iff their raw counterpart is NULL. Volume is adjusted in
 -- the opposite direction (more shares trade in adjusted-share terms).
--- adjusted_close is preserved as-supplied by the data provider (typically
--- includes both split and dividend adjustments) and is not used in performance
--- math; split_adjusted_close is the value PortfolioDB derives itself.
+-- adjusted_close is preserved as-supplied by the data provider on the provider's
+-- own basis (typically including dividend adjustment as well as splits). It is
+-- never an input to valuation and exists to cross-check split_adjusted_close,
+-- which is the value PortfolioDB derives itself.
 CREATE TABLE eod_prices (
   instrument_id          UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
   price_date             DATE        NOT NULL,
@@ -350,6 +356,7 @@ CREATE TABLE eod_prices (
   split_adjusted_volume  BIGINT,
   data_provider          TEXT        NOT NULL,
   synthetic              BOOLEAN     NOT NULL DEFAULT false,
+  share_count_basis      DATE        NOT NULL,
   -- Staleness only: when this row was last fetched. It carries no meaning about
   -- the prices themselves. See docs/spec/bitemporality.md.
   last_fetched_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -498,6 +505,11 @@ CREATE TRIGGER trg_default_split_adjusted_tx
 CREATE OR REPLACE FUNCTION default_split_adjusted_eod_price() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
+    -- As-traded is the default denomination: a bar with no declared basis is
+    -- assumed to be expressed in the share count current on its own date.
+    IF NEW.share_count_basis IS NULL THEN
+      NEW.share_count_basis := NEW.price_date;
+    END IF;
     IF NEW.split_adjusted_open IS NULL THEN
       NEW.split_adjusted_open := NEW.open;
     END IF;

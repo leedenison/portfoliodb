@@ -415,6 +415,8 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 	providers := make([]string, len(prices))
 	synthetics := make([]bool, len(prices))
 	fetchedAts := make([]time.Time, len(prices))
+	bases := make([]time.Time, len(prices))
+	adjCloses := make([]*float64, len(prices))
 	now := time.Now()
 
 	for i, pr := range prices {
@@ -427,20 +429,29 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 		volumes[i] = pr.Volume
 		providers[i] = pr.DataProvider
 		synthetics[i] = pr.Synthetic
+		adjCloses[i] = pr.AdjustedClose
 		if pr.LastFetchedAt != nil {
 			fetchedAts[i] = *pr.LastFetchedAt
 		} else {
 			fetchedAts[i] = now
 		}
+		// Undeclared basis means as-traded: denominated in the share count
+		// current on the bar's own date.
+		if pr.ShareCountBasis != nil {
+			bases[i] = *pr.ShareCountBasis
+		} else {
+			bases[i] = pr.PriceDate
+		}
 	}
 
 	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, last_fetched_at)
+		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, last_fetched_at, share_count_basis, adjusted_close)
 		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::double precision[]),
 			unnest($4::double precision[]), unnest($5::double precision[]),
 			unnest($6::double precision[]), unnest($7::bigint[]),
 			unnest($8::text[]), unnest($9::boolean[]),
-			unnest($10::timestamptz[])
+			unnest($10::timestamptz[]), unnest($11::date[]),
+			unnest($12::double precision[])
 		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
 			open = EXCLUDED.open,
 			high = EXCLUDED.high,
@@ -449,12 +460,16 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 			volume = EXCLUDED.volume,
 			data_provider = EXCLUDED.data_provider,
 			synthetic = EXCLUDED.synthetic,
-			last_fetched_at = EXCLUDED.last_fetched_at
+			last_fetched_at = EXCLUDED.last_fetched_at,
+			-- Basis travels with the raw values it describes; restating one
+			-- without the other would leave the row self-inconsistent.
+			share_count_basis = EXCLUDED.share_count_basis,
+			adjusted_close = EXCLUDED.adjusted_close
 		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
 	`, pq.Array(instIDs), pq.Array(dates), pq.Array(opens),
 		pq.Array(highs), pq.Array(lows), pq.Array(closes),
 		pq.Array(volumes), pq.Array(providers), pq.Array(synthetics),
-		pq.Array(fetchedAts))
+		pq.Array(fetchedAts), pq.Array(bases), pq.Array(adjCloses))
 	if err != nil {
 		return fmt.Errorf("upsert prices: %w", err)
 	}
@@ -497,6 +512,8 @@ func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provi
 	lows := make([]*float64, len(bars))
 	closes := make([]float64, len(bars))
 	volumes := make([]*int64, len(bars))
+	bases := make([]time.Time, len(bars))
+	adjCloses := make([]*float64, len(bars))
 	for i, b := range bars {
 		dates[i] = b.PriceDate
 		opens[i] = b.Open
@@ -504,12 +521,19 @@ func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provi
 		lows[i] = b.Low
 		closes[i] = b.Close
 		volumes[i] = b.Volume
+		adjCloses[i] = b.AdjustedClose
+		// Undeclared basis means as-traded.
+		if b.ShareCountBasis != nil {
+			bases[i] = *b.ShareCountBasis
+		} else {
+			bases[i] = b.PriceDate
+		}
 	}
 
 	_, err = p.q.ExecContext(ctx, `
 		WITH
 		seed AS (
-			SELECT close FROM eod_prices
+			SELECT close, share_count_basis FROM eod_prices
 			WHERE instrument_id = $1 AND price_date < $2::date AND NOT synthetic
 			ORDER BY price_date DESC LIMIT 1
 		),
@@ -519,18 +543,21 @@ func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provi
 				unnest($6::double precision[]) AS bhigh,
 				unnest($7::double precision[]) AS blow,
 				unnest($8::double precision[]) AS bclose,
-				unnest($9::bigint[]) AS bvolume
+				unnest($9::bigint[]) AS bvolume,
+				unnest($12::date[]) AS bbasis,
+				unnest($13::double precision[]) AS badjclose
 		),
 		all_points AS (
 			-- Virtual seed point before range start for LOCF initialization.
 			SELECT ($2::date - 1) AS price_date,
 				NULL::double precision AS bopen, NULL::double precision AS bhigh,
 				NULL::double precision AS blow, s.close AS bclose,
-				NULL::bigint AS bvolume
+				NULL::bigint AS bvolume, s.share_count_basis AS bbasis,
+				NULL::double precision AS badjclose
 			FROM seed s
 			UNION ALL
 			-- Every date in [from, to) with real bar if available.
-			SELECT d::date, nb.bopen, nb.bhigh, nb.blow, nb.bclose, nb.bvolume
+			SELECT d::date, nb.bopen, nb.bhigh, nb.blow, nb.bclose, nb.bvolume, nb.bbasis, nb.badjclose
 			FROM generate_series($2::date, $3::date - interval '1 day', '1 day') d
 			LEFT JOIN new_bars nb ON nb.price_date = d::date
 		),
@@ -544,21 +571,31 @@ func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provi
 				bopen AS open, bhigh AS high, blow AS low,
 				FIRST_VALUE(bclose) OVER (PARTITION BY grp ORDER BY price_date) AS close,
 				bvolume AS volume,
-				(bclose IS NULL) AS synthetic
+				badjclose AS adjusted_close,
+				(bclose IS NULL) AS synthetic,
+				-- A forward-filled row carries the value of the bar it copied, so
+				-- it is denominated in that bar's share count, not its own date's.
+				FIRST_VALUE(bbasis) OVER (PARTITION BY grp ORDER BY price_date) AS share_count_basis
 			FROM grouped
 		)
-		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, last_fetched_at)
-		SELECT $1::uuid, price_date, open, high, low, close, volume, $10::text, synthetic, $11::timestamptz
+		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, last_fetched_at, share_count_basis, adjusted_close)
+		SELECT $1::uuid, price_date, open, high, low, close, volume, $10::text, synthetic, $11::timestamptz,
+			COALESCE(share_count_basis, price_date), adjusted_close
 		FROM locf
 		WHERE price_date >= $2::date AND close IS NOT NULL
 		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
 			open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
 			close = EXCLUDED.close, volume = EXCLUDED.volume,
 			data_provider = EXCLUDED.data_provider, synthetic = EXCLUDED.synthetic,
-			last_fetched_at = EXCLUDED.last_fetched_at
+			last_fetched_at = EXCLUDED.last_fetched_at,
+			-- Basis travels with the raw values it describes; restating one
+			-- without the other would leave the row self-inconsistent.
+			share_count_basis = EXCLUDED.share_count_basis,
+			adjusted_close = EXCLUDED.adjusted_close
 		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
 	`, id, from, to, pq.Array(dates), pq.Array(opens), pq.Array(highs),
-		pq.Array(lows), pq.Array(closes), pq.Array(volumes), provider, fetchedAt)
+		pq.Array(lows), pq.Array(closes), pq.Array(volumes), provider, fetchedAt,
+		pq.Array(bases), pq.Array(adjCloses))
 	if err != nil {
 		return fmt.Errorf("upsert prices with fill: %w", err)
 	}

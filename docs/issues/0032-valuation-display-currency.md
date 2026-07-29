@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Update valuation queries to convert holdings to display currency
 milestone: M11
 dependencies: [0027, 0029]

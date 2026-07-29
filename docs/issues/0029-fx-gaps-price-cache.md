@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Implement FXGaps in the price cache DB layer
 milestone: M11
 dependencies: [0027]

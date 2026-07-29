@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Schema changes for display currency
 milestone: M11
 ---

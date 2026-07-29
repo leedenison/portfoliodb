@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Extend Massive price plugin for FX rate fetching
 milestone: M11
 dependencies: [0027]

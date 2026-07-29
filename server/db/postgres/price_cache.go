@@ -427,15 +427,15 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 		volumes[i] = pr.Volume
 		providers[i] = pr.DataProvider
 		synthetics[i] = pr.Synthetic
-		if pr.FetchedAt != nil {
-			fetchedAts[i] = *pr.FetchedAt
+		if pr.LastFetchedAt != nil {
+			fetchedAts[i] = *pr.LastFetchedAt
 		} else {
 			fetchedAts[i] = now
 		}
 	}
 
 	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, fetched_at)
+		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, last_fetched_at)
 		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::double precision[]),
 			unnest($4::double precision[]), unnest($5::double precision[]),
 			unnest($6::double precision[]), unnest($7::bigint[]),
@@ -449,7 +449,7 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 			volume = EXCLUDED.volume,
 			data_provider = EXCLUDED.data_provider,
 			synthetic = EXCLUDED.synthetic,
-			fetched_at = EXCLUDED.fetched_at
+			last_fetched_at = EXCLUDED.last_fetched_at
 		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
 	`, pq.Array(instIDs), pq.Array(dates), pq.Array(opens),
 		pq.Array(highs), pq.Array(lows), pq.Array(closes),
@@ -547,7 +547,7 @@ func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provi
 				(bclose IS NULL) AS synthetic
 			FROM grouped
 		)
-		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, fetched_at)
+		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, last_fetched_at)
 		SELECT $1::uuid, price_date, open, high, low, close, volume, $10::text, synthetic, $11::timestamptz
 		FROM locf
 		WHERE price_date >= $2::date AND close IS NOT NULL
@@ -555,7 +555,7 @@ func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provi
 			open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
 			close = EXCLUDED.close, volume = EXCLUDED.volume,
 			data_provider = EXCLUDED.data_provider, synthetic = EXCLUDED.synthetic,
-			fetched_at = EXCLUDED.fetched_at
+			last_fetched_at = EXCLUDED.last_fetched_at
 		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
 	`, id, from, to, pq.Array(dates), pq.Array(opens), pq.Array(highs),
 		pq.Array(lows), pq.Array(closes), pq.Array(volumes), provider, fetchedAt)

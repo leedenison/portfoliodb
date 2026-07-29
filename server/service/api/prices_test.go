@@ -39,7 +39,7 @@ func TestListPrices_Success(t *testing.T) {
 			Close:                 105.0,
 			Volume:                &vol,
 			DataProvider:          "test",
-			FetchedAt:             time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC),
+			LastFetchedAt:         time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC),
 		},
 	}
 	db.EXPECT().

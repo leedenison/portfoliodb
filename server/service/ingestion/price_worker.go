@@ -115,7 +115,7 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 			PriceDate:    priceDate,
 			Close:        row.GetClose(),
 			DataProvider: "import",
-			FetchedAt:    pricesAsOf,
+			LastFetchedAt: pricesAsOf,
 		}
 		if row.Open != nil {
 			p.Open = row.Open
@@ -216,7 +216,7 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 			}
 			var fetchedAt *time.Time
 			if len(inRange) > 0 {
-				fetchedAt = inRange[0].FetchedAt
+				fetchedAt = inRange[0].LastFetchedAt
 			}
 			if err := database.UpsertPricesWithFill(ctx, instID, provider, inRange, r.from, r.to, fetchedAt); err != nil {
 				return err

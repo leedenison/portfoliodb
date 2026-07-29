@@ -60,7 +60,7 @@ func TestProcessOptionSplits_TxBeforeSplit(t *testing.T) {
 		SplitFrom:    "1",
 		SplitTo:      "2",
 		DataProvider: "eodhd",
-		FetchedAt:    date(2025, 2, 1),
+		FirstKnownAt: date(2025, 2, 1),
 	}
 
 	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
@@ -106,7 +106,7 @@ func TestProcessOptionSplits_SplitBeforeTx(t *testing.T) {
 		SplitFrom:    "1",
 		SplitTo:      "2",
 		DataProvider: "eodhd",
-		FetchedAt:    date(2025, 2, 1),
+		FirstKnownAt: date(2025, 2, 1),
 	}
 
 	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
@@ -136,7 +136,7 @@ func TestProcessOptionSplits_FutureSplitSkipped(t *testing.T) {
 		SplitFrom:    "1",
 		SplitTo:      "4",
 		DataProvider: "eodhd",
-		FetchedAt:    date(2025, 1, 5),
+		FirstKnownAt: date(2025, 1, 5),
 	}
 
 	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
@@ -164,7 +164,7 @@ func TestProcessOptionSplits_FutureThenAdvance(t *testing.T) {
 		SplitFrom:    "1",
 		SplitTo:      "4",
 		DataProvider: "eodhd",
-		FetchedAt:    date(2025, 1, 5),
+		FirstKnownAt: date(2025, 1, 5),
 	}
 
 	// First call: future-dated, skip. Second call: time advanced, apply.
@@ -215,7 +215,7 @@ func TestProcessOptionSplits_NonWholeForwardSplit(t *testing.T) {
 				SplitFrom:    tt.from,
 				SplitTo:      tt.to,
 				DataProvider: "eodhd",
-				FetchedAt:    date(2025, 2, 1),
+				FirstKnownAt: date(2025, 2, 1),
 			}
 
 			mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
@@ -261,7 +261,7 @@ func TestProcessOptionSplits_NoOCC(t *testing.T) {
 		SplitFrom:    "1",
 		SplitTo:      "2",
 		DataProvider: "eodhd",
-		FetchedAt:    date(2025, 2, 1),
+		FirstKnownAt: date(2025, 2, 1),
 	}
 
 	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
@@ -297,7 +297,7 @@ func TestProcessOptionSplits_UnparseableOCC(t *testing.T) {
 		SplitFrom:    "1",
 		SplitTo:      "2",
 		DataProvider: "eodhd",
-		FetchedAt:    date(2025, 2, 1),
+		FirstKnownAt: date(2025, 2, 1),
 	}
 
 	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
@@ -327,7 +327,7 @@ func TestProcessOptionSplits_NoOptions(t *testing.T) {
 		SplitFrom:    "1",
 		SplitTo:      "2",
 		DataProvider: "eodhd",
-		FetchedAt:    date(2025, 2, 1),
+		FirstKnownAt: date(2025, 2, 1),
 	}
 
 	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return(nil, nil)

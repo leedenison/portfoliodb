@@ -271,7 +271,7 @@ func TestCorporateEventFetchBlocks(t *testing.T) {
 
 // TestRecomputeSplitAdjustments_Prices verifies that a sequence of splits
 // (forward + reverse) is applied correctly to historical price rows whose
-// fetched_at predates the split ex_date.
+// last_fetched_at predates the split ex_date.
 func TestRecomputeSplitAdjustments_Prices(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -279,11 +279,11 @@ func TestRecomputeSplitAdjustments_Prices(t *testing.T) {
 
 	// Insert prices fetched in 2010 (before any splits).
 	insertPriceFull(t, p, instID, d(2005, 1, 3), 80, 82, 79, 81, 1_000_000, "test")
-	// Backdate fetched_at to 2010-01-01 so future-dated splits apply.
+	// Backdate last_fetched_at to 2010-01-01 so future-dated splits apply.
 	if _, err := p.q.ExecContext(ctx, `
-		UPDATE eod_prices SET fetched_at = $1 WHERE instrument_id = $2::uuid
+		UPDATE eod_prices SET last_fetched_at = $1 WHERE instrument_id = $2::uuid
 	`, d(2010, 1, 1), instID); err != nil {
-		t.Fatalf("backdate fetched_at: %v", err)
+		t.Fatalf("backdate last_fetched_at: %v", err)
 	}
 
 	// Two forward splits and one reverse split.
@@ -419,14 +419,14 @@ func TestRecomputeSplitAdjustments_FutureSplitNotApplied(t *testing.T) {
 	instID := setupInstrument(t, p, "AAPL")
 
 	insertPriceFull(t, p, instID, d(2024, 1, 15), 180, 182, 178, 181, 1000, "test")
-	// Backdate fetched_at to 2024-01-15 so the recompute considers the
+	// Backdate last_fetched_at to 2024-01-15 so the recompute considers the
 	// past split (whose ex_date is later in 2024) as "after fetch" and
-	// applies it. Without backdating, the price's fetched_at would be
+	// applies it. Without backdating, the price's last_fetched_at would be
 	// today and the 2024 past split would be excluded as "before fetch".
 	if _, err := p.q.ExecContext(ctx, `
-		UPDATE eod_prices SET fetched_at = $1 WHERE instrument_id = $2::uuid
+		UPDATE eod_prices SET last_fetched_at = $1 WHERE instrument_id = $2::uuid
 	`, d(2024, 1, 15), instID); err != nil {
-		t.Fatalf("backdate fetched_at: %v", err)
+		t.Fatalf("backdate last_fetched_at: %v", err)
 	}
 
 	// Insert a split with ex_date in the future. The key assertion is
@@ -456,7 +456,7 @@ func TestRecomputeSplitAdjustments_FutureSplitNotApplied(t *testing.T) {
 	}
 
 	// Sanity check: a second split with ex_date in the past (and after
-	// fetched_at) IS applied. This proves the recompute is functional and
+	// last_fetched_at) IS applied. This proves the recompute is functional and
 	// the previous result is specifically because of the future guard,
 	// not because the recompute is silently broken.
 	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
@@ -847,3 +847,87 @@ func TestInsertUnhandledCorporateEvent_Dedup(t *testing.T) {
 	}
 }
 
+
+// backdate rewrites a knowledge timestamp to a fixed past value so that a
+// subsequent write either preserves it or is caught clobbering it. Tests run
+// inside one transaction, where now() is frozen at transaction start, so
+// comparing two now() values would never detect a clobber.
+func backdate(t *testing.T, p *Postgres, query string, args ...any) time.Time {
+	t.Helper()
+	past := time.Date(2020, time.March, 1, 12, 0, 0, 0, time.UTC)
+	args = append([]any{past}, args...)
+	if _, err := p.q.ExecContext(context.Background(), query, args...); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	return past
+}
+
+func TestUpsertCashDividends_PreservesKnowledgeTime(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	div := db.CashDividend{
+		InstrumentID: instID, ExDate: d(2024, 2, 9),
+		Amount: "0.24", Currency: "USD", DataProvider: "massive",
+	}
+	if err := p.UpsertCashDividends(ctx, []db.CashDividend{div}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	past := backdate(t, p,
+		`UPDATE cash_dividends SET first_known_at = $1 WHERE instrument_id = $2`, instID)
+
+	// The provider revises the amount. When we first learned of the dividend
+	// does not change just because its amount did.
+	div.Amount = "0.25"
+	div.DataProvider = "eodhd"
+	if err := p.UpsertCashDividends(ctx, []db.CashDividend{div}); err != nil {
+		t.Fatalf("re-upsert: %v", err)
+	}
+
+	got, err := p.ListCashDividends(ctx, instID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 dividend, got %d", len(got))
+	}
+	if got[0].Amount != "0.25" {
+		t.Errorf("amount not revised: %q", got[0].Amount)
+	}
+	if !got[0].FirstKnownAt.Equal(past) {
+		t.Errorf("knowledge time moved on revision: want %s, got %s", past, got[0].FirstKnownAt)
+	}
+}
+
+func TestCreateCorporateEventFetchBlock_PreservesFirstBlockedAt(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	if err := p.CreateCorporateEventFetchBlock(ctx, instID, "massive", "404"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	past := backdate(t, p,
+		`UPDATE corporate_event_fetch_blocks SET first_blocked_at = $1 WHERE instrument_id = $2`, instID)
+
+	// Blocking again records a newer reason, not a newer first-blocked-at.
+	if err := p.CreateCorporateEventFetchBlock(ctx, instID, "massive", "subscription limit"); err != nil {
+		t.Fatalf("re-create: %v", err)
+	}
+
+	blocks, err := p.ListCorporateEventFetchBlocks(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	if blocks[0].Reason != "subscription limit" {
+		t.Errorf("reason not updated: %q", blocks[0].Reason)
+	}
+	if !blocks[0].FirstBlockedAt.Equal(past) {
+		t.Errorf("first blocked at moved on re-block: want %s, got %s", past, blocks[0].FirstBlockedAt)
+	}
+}

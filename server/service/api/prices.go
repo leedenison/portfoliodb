@@ -43,7 +43,7 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 			PriceDate:             r.PriceDate.Format("2006-01-02"),
 			Close:                 r.Close,
 			DataProvider:          r.DataProvider,
-			FetchedAt:             timestamppb.New(r.FetchedAt),
+			LastFetchedAt:         timestamppb.New(r.LastFetchedAt),
 			Synthetic:             r.Synthetic,
 		}
 		if r.Open != nil {
@@ -142,4 +142,3 @@ func (s *Server) ImportPrices(ctx context.Context, req *apiv1.ImportPricesReques
 	}
 	return &apiv1.ImportPricesResponse{JobId: jobID}, nil
 }
-

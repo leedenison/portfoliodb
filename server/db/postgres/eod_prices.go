@@ -49,7 +49,7 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 	q, args, err := psql.Select(
 		"ep.instrument_id", "i.name AS display_name",
 		"ep.price_date", "ep.open", "ep.high", "ep.low", "ep.close", "ep.adjusted_close",
-		"ep.volume", "ep.data_provider", "ep.synthetic", "ep.fetched_at",
+		"ep.volume", "ep.data_provider", "ep.synthetic", "ep.last_fetched_at",
 	).
 		From("eod_prices ep").
 		Join("instruments i ON i.id = ep.instrument_id").
@@ -75,7 +75,7 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 		if err := rows.Scan(
 			&r.InstrumentID, &r.InstrumentDisplayName,
 			&r.PriceDate, &open, &high, &low, &r.Close, &adjClose,
-			&volume, &r.DataProvider, &r.Synthetic, &r.FetchedAt,
+			&volume, &r.DataProvider, &r.Synthetic, &r.LastFetchedAt,
 		); err != nil {
 			return nil, 0, "", err
 		}

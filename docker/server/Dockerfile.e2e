@@ -2,7 +2,8 @@ FROM golang:1.25-alpine AS builder
 WORKDIR /app
 RUN go install github.com/bufbuild/buf/cmd/buf@latest \
     && go install google.golang.org/protobuf/cmd/protoc-gen-go@latest \
-    && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+    && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest \
+    && go install github.com/grpc-ecosystem/grpc-health-probe@latest
 COPY go.mod go.sum ./
 RUN go mod download
 COPY proto/ proto/
@@ -15,6 +16,8 @@ RUN go build -tags e2e -ldflags "-X main.buildRevision=$BUILD_REV" -o /portfolio
 FROM alpine:3.19
 RUN apk --no-cache add ca-certificates
 COPY --from=builder /portfoliodb /portfoliodb
+# scripts/server-ready.sh probes gRPC health from inside this container.
+COPY --from=builder /go/bin/grpc-health-probe /usr/local/bin/grpc-health-probe
 COPY server/migrations /migrations
 EXPOSE 50051
 ENTRYPOINT ["/portfoliodb"]

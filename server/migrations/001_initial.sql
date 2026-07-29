@@ -39,8 +39,14 @@ CREATE INDEX idx_portfolio_filters_portfolio ON portfolio_filters (portfolio_id)
 
 -- Transactions. No natural key (broker statements often supply date only). Bulk idempotency
 -- by replace-by-period (user_id, broker, period). Single-tx ingestion is append-only.
+-- share_count_basis is the date at which the share count the raw quantity and
+-- unit_price are denominated in was current. It defaults to timestamp::date --
+-- the as-traded assumption, that a broker log line accounts only for events
+-- prior to the trade. A source that restates historical rows (a broker's live
+-- web UI showing post-split quantities) declares its own on the upload.
+-- See docs/spec/bitemporality.md.
 -- split_adjusted_quantity / split_adjusted_unit_price hold the values that result
--- from applying every stock split with ex_date > timestamp::date for the tx's
+-- from applying every stock split with ex_date > share_count_basis for the tx's
 -- instrument. They equal the raw quantity/unit_price when no later split exists.
 -- They are recomputed idempotently from the raw columns whenever splits change
 -- (see RecomputeTxSplitAdjustments).
@@ -58,6 +64,7 @@ CREATE TABLE txs (
   settlement_currency       TEXT,
   unit_price                DOUBLE PRECISION,
   split_adjusted_unit_price DOUBLE PRECISION,
+  share_count_basis         DATE NOT NULL,
   synthetic_purpose         TEXT CHECK (synthetic_purpose IS NULL OR synthetic_purpose = 'INITIALIZE'),
   created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -475,6 +482,11 @@ CREATE UNIQUE INDEX idx_unhandled_ce_dedup
 CREATE OR REPLACE FUNCTION default_split_adjusted_tx() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
+    -- As-traded is the default denomination: a row with no declared basis is
+    -- assumed to be expressed in the share count current on its own date.
+    IF NEW.share_count_basis IS NULL THEN
+      NEW.share_count_basis := NEW.timestamp::date;
+    END IF;
     IF NEW.split_adjusted_quantity IS NULL THEN
       NEW.split_adjusted_quantity := NEW.quantity;
     END IF;

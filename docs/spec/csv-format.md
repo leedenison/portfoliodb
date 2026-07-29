@@ -8,7 +8,7 @@ Header names are case-insensitive. Supported column names:
 
 | Column                   | Required | Description |
 | ------------------------ | -------- | ----------- |
-| `date` or `timestamp`    | Yes      | Transaction date/time. ISO 8601 (e.g. `2024-01-15` or `2024-01-15T14:30:00Z`) or `YYYY-MM-DD`. |
+| `date` or `timestamp`    | Yes      | Transaction date/time. ISO 8601 (e.g. `2024-01-15` or `2024-01-15T14:30:00Z`) or `YYYY-MM-DD`. Also the share count the row's quantity and unit price are denominated in, unless the upload declares otherwise (see [bitemporality.md](bitemporality.md#share-count-basis)). |
 | `instrument_description`| Yes      | Broker's instrument description (e.g. symbol, name, or broker-specific text). |
 | `type`                  | Yes      | OFX-style transaction type: see allowed values below. |
 | `quantity`              | Yes      | Signed number: positive for buys/adds, negative for sells/reductions. |

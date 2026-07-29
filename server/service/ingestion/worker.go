@@ -157,6 +157,21 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	broker, _ := brokerToStr(req.Broker)
 	bulk := req.PeriodFrom != nil && req.PeriodTo != nil
 
+	// The denomination of the whole upload. Absent means as-traded: each row is
+	// expressed in the share count current on its own transaction date.
+	var shareCountBasis *time.Time
+	if b := req.GetShareCountBasis(); b != "" {
+		parsed, err := time.Parse("2006-01-02", b)
+		if err != nil {
+			_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
+				{RowIndex: -1, Field: "share_count_basis", Message: fmt.Sprintf("invalid date %q: want YYYY-MM-DD", b)},
+			})
+			_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+			return false, ""
+		}
+		shareCountBasis = &parsed
+	}
+
 	// Validate.
 	errs := ValidateTxs(txs)
 	if len(errs) > 0 {
@@ -222,7 +237,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	// Store transactions.
 	var storeErr error
 	if bulk {
-		storeErr = database.ReplaceTxsInPeriod(ctx, userID, broker, req.PeriodFrom, req.PeriodTo, txsToProcess, instrumentIDs)
+		storeErr = database.ReplaceTxsInPeriod(ctx, userID, broker, req.PeriodFrom, req.PeriodTo, txsToProcess, instrumentIDs, shareCountBasis)
 	} else {
 		storeErr = database.CreateTx(ctx, userID, broker, txsToProcess[0].GetAccount(), txsToProcess[0], instrumentIDs[0])
 	}

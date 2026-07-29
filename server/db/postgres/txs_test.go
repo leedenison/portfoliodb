@@ -29,7 +29,7 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	instrumentIDs := []string{instID, instID}
-	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, instrumentIDs)
+	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, instrumentIDs, nil)
 	if err != nil {
 		t.Fatalf("replace: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 	oldTx := []*apiv1.Tx{
 		{Timestamp: timestamppb.New(now.Add(-80 * time.Minute)), InstrumentDescription: "MSFT", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: ""},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, oldTx, []string{instID}); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, oldTx, []string{instID}, nil); err != nil {
 		t.Fatalf("seed real tx: %v", err)
 	}
 
@@ -85,7 +85,7 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 		{Timestamp: timestamppb.New(now.Add(-60 * time.Minute)), InstrumentDescription: "MSFT", Type: apiv1.TxType_BUYSTOCK, Quantity: 7, Account: ""},
 		{Timestamp: timestamppb.New(now.Add(-20 * time.Minute)), InstrumentDescription: "MSFT", Type: apiv1.TxType_SELLSTOCK, Quantity: -2, Account: ""},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, newTxs, []string{instID, instID}); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, newTxs, []string{instID, instID}, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -326,7 +326,7 @@ func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txList, []string{instID, instID}); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txList, []string{instID, instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 	txs, tok, err = p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, nil, false, 50, "")

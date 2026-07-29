@@ -40,7 +40,11 @@ being computed separately.
   likely shape is stored lots plus a periodic re-derivation that asserts
   equality -- the same reconciliation pattern as 0043.
 - Corporate actions must adjust lots, not just totals: `split_factor_at` and
-  the `split_adjusted_*` recompute need a lot-aware equivalent.
+  the `split_adjusted_*` recompute need a lot-aware equivalent. A lot inherits
+  the `share_count_basis` of the acquisition that created it, so the lot-aware
+  factor reads that column rather than the disposal date or the query date --
+  see docs/spec/bitemporality.md. Note the word collision: "cost basis" in 0045
+  is a money quantity and is unrelated to share count basis.
 - Composes with 0036: with grouped postings, the disposal and the resulting
   gain are legs of one balanced group and the gain is implied by the zero-sum
   rule.

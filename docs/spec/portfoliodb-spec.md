@@ -140,6 +140,12 @@ Options and futures should be related to their underlying instrument.
 
 Stocks, Options and Futures should have valid from and to dates which specify when the instrument was available to trade on the exchange.
 
+## Time Model
+
+PortfolioDB records history that later changes: splits restate historical quantities, brokers re-date pending trades once they settle, statistical agencies revise published indices, and instrument identification improves over time.  The system therefore distinguishes when a fact was true in the world (valid time) from when PortfolioDB learned it (knowledge time), and records separately which share count a quantity or per-share price is denominated in.
+
+See [bitemporality.md](bitemporality.md) for the model, the rules that follow from it, and which column belongs to which clock.
+
 ## Corporate Events
 
 The system should support the ability to fetch data on stock splits, mergers, delistings, etc.  Actual API / datasource integrations should be implemented as plugins.  The system should support manual entry by admin users if no automatic data source is available.

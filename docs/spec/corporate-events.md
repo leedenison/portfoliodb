@@ -104,7 +104,11 @@ factor = product over splits where
   of (split.split_to / split.split_from)
 ```
 
-The reference date is `fetched_at::date` for prices and `timestamp::date` for txs. The `ex_date <= current_date` clause is the future-date guard described in [Why it's needed](#why-its-needed) above; without it a future-dated split would scale rows immediately on fetch.
+The reference date `R` is the row's **share count basis** -- the date at which the share count its raw values are denominated in was current. It is declared by whoever supplied the row and stored on the row itself, not inferred from when the row was fetched; see [bitemporality.md](bitemporality.md#share-count-basis).
+
+The `ex_date <= current_date` clause is the future-date guard: without it a future-dated split pulled in by the lookahead would scale every prior row the moment it was fetched, even though the user still holds pre-split shares trading at pre-split prices. Future-dated splits instead sit inert until their ex_date passes, at which point the next recompute picks them up -- see [Daily scheduler](#daily-scheduler-planned) and adr/0005-corporate-events-design.md.
+
+Because the guard is evaluated against the wall clock, the `split_adjusted_*` columns are as-of now rather than as-of any stored date. Arithmetic must never mix the two share counts: raw quantity multiplies raw price, split-adjusted quantity multiplies split-adjusted price. Mixing them across a split scales the result by the split factor.
 
 Adjustment math:
 

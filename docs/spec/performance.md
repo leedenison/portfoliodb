@@ -94,6 +94,14 @@ Periods (3M, 6M, 1Y, 2Y, 5Y) are calendar-based, computed relative to today.
 The server returns data for all calendar dates, not just trading days (see
 adr/0007-calendar-day-valuation.md).
 
+## Share count
+
+Quantities and prices are paired on the same share count: the valuation
+multiplies split-adjusted quantity by split-adjusted close, never one of each.
+Because split adjustment is bounded by today's date, the whole series is as-of
+now -- the same request on a later day may return different values if a split
+has become effective in between. See [bitemporality.md](bitemporality.md).
+
 ## Weekend and holiday treatment
 
 Holdings are forward-filled from the last transaction date via a LATERAL

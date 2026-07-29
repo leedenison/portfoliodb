@@ -83,6 +83,8 @@ Merge runs **eagerly** when such a conflict is detected during the resolution st
 
 PortfolioDB should periodically attempt to identify instruments in case datasources have been updated. Admin users can manually force a refresh for a given instrument or set of instruments.
 
+Re-identification and merge change shared reference data retroactively: which instrument a historical transaction rolls up to can differ from what it was last month, and holdings computed then may not reproduce. See [bitemporality.md](bitemporality.md#retroactive-restatement).
+
 ### User override
 
 A user may believe the system has mis-identified an instrument. It should be possible for a user to override the identity for their portfolio. They do this by ensuring that the client provides an external identifier hint for the transactions they want to override.  This will then be looked up directly rather than using identifiers extracted from the description.  Admin users can correct shared instrument identities in the admin UI.

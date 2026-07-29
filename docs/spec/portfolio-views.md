@@ -28,7 +28,7 @@ No `DISTINCT` is needed -- the view joins portfolios to txs without multiplying 
 ## APIs (Stage 3)
 
 - **ListTxs(portfolio_id)** returns transactions in that portfolio (AND-between-categories, user-scoped).
-- **GetHoldings(portfolio_id, as_of)** returns holdings computed from that transaction set.
+- **GetHoldings(portfolio_id, as_of)** returns holdings computed from that transaction set. `as_of` is **valid time**: it rewinds the world, not PortfolioDB's knowledge of it, so the result covers the transactions that had occurred by that date with quantities expressed in today's share count. A split discovered since `as_of` is reflected in the quantities returned. See [bitemporality.md](bitemporality.md).
 - **ListBrokersAndAccounts()** returns distinct broker/account pairs for the authenticated user, grouped by broker. Used by the filter editing UI to populate broker and account checkboxes.
 - Portfolio CRUD is extended with list/create/update/delete of filter rows (or a single "filters" structure in Create/Update).
 

@@ -285,8 +285,9 @@ CREATE TABLE inflation_indices (
   index_value   NUMERIC     NOT NULL,              -- relative to base_year July=100
   base_year     INT         NOT NULL,              -- year where July = 100
   data_provider TEXT        NOT NULL,              -- plugin ID
-  -- Staleness only: overwritten on every refresh. A revised index value
-  -- replaces the previous one and the prior vintage is not retained.
+  -- Staleness only: overwritten on every refresh. Index values are not
+  -- versioned by design: a revision replaces its predecessor in place and
+  -- leaves no record. See docs/spec/bitemporality.md.
   last_fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (currency, month)
 );

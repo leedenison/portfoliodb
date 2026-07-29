@@ -1,7 +1,7 @@
 ---
 status: open
 title: Knowledge-time as-of queries: reproduce a past valuation
-dependencies: [0051, 0052, 0053]
+dependencies: [0051, 0053]
 ---
 
 Allow a caller to ask what PortfolioDB believed on a given date, not only what
@@ -23,10 +23,11 @@ point "why did this change?" needs an answer.
 ## Design
 
 Needs versioned history on the facts that restate -- prices, splits, instrument
-identity, and transactions -- which is why it depends on 0051, 0052 and 0053.
-Transaction ingestion is knowledge-lossy by replacement
-(see adr/0002-transaction-ingestion-model.md), so that model has to be revisited
-too.
+identity, and transactions -- which is why it depends on 0051 and 0053.
+Inflation indices were deliberately left unversioned (see 0052), so versioning
+them would fall to this work. Transaction ingestion is knowledge-lossy by
+replacement (see adr/0002-transaction-ingestion-model.md), so that model has to
+be revisited too.
 
 A cheaper partial answer worth considering first: stamp each valuation response
 with the wall-clock time it was computed and the split state it reflects, so that

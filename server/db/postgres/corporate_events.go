@@ -23,23 +23,32 @@ func (p *Postgres) UpsertStockSplits(ctx context.Context, splits []db.StockSplit
 	froms := make([]string, len(splits))
 	tos := make([]string, len(splits))
 	providers := make([]string, len(splits))
+	knownAts := make([]*time.Time, len(splits))
 	for i, s := range splits {
 		instIDs[i] = s.InstrumentID
 		exDates[i] = s.ExDate
 		froms[i] = s.SplitFrom
 		tos[i] = s.SplitTo
 		providers[i] = s.DataProvider
+		if !s.FirstKnownAt.IsZero() {
+			t := s.FirstKnownAt
+			knownAts[i] = &t
+		}
 	}
 	_, err := p.q.ExecContext(ctx, `
 		INSERT INTO stock_splits (instrument_id, ex_date, split_from, split_to, data_provider, first_known_at)
-		SELECT unnest($1::uuid[]), unnest($2::date[]),
-			unnest($3::numeric[]), unnest($4::numeric[]),
-			unnest($5::text[]), now()
+		SELECT instrument_id, ex_date, split_from, split_to, data_provider,
+			COALESCE(first_known_at, now())
+		FROM unnest($1::uuid[], $2::date[], $3::numeric[], $4::numeric[],
+			$5::text[], $6::timestamptz[])
+			AS t(instrument_id, ex_date, split_from, split_to, data_provider, first_known_at)
 		ON CONFLICT (instrument_id, ex_date) DO UPDATE SET
-			split_from    = EXCLUDED.split_from,
-			split_to      = EXCLUDED.split_to,
-			data_provider = EXCLUDED.data_provider
-	`, pq.Array(instIDs), pq.Array(exDates), pq.Array(froms), pq.Array(tos), pq.Array(providers))
+			split_from     = EXCLUDED.split_from,
+			split_to       = EXCLUDED.split_to,
+			data_provider  = EXCLUDED.data_provider,
+			first_known_at = LEAST(stock_splits.first_known_at, EXCLUDED.first_known_at)
+	`, pq.Array(instIDs), pq.Array(exDates), pq.Array(froms), pq.Array(tos), pq.Array(providers),
+		pq.Array(knownAts))
 	if err != nil {
 		return fmt.Errorf("upsert stock splits: %w", err)
 	}
@@ -101,6 +110,7 @@ func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashD
 	frequencies := make([]sql.NullString, len(dividends))
 	types := make([]string, len(dividends))
 	providers := make([]string, len(dividends))
+	knownAts := make([]*time.Time, len(dividends))
 	for i, d := range dividends {
 		instIDs[i] = d.InstrumentID
 		exDates[i] = d.ExDate
@@ -117,16 +127,24 @@ func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashD
 			types[i] = "CD"
 		}
 		providers[i] = d.DataProvider
+		if !d.FirstKnownAt.IsZero() {
+			t := d.FirstKnownAt
+			knownAts[i] = &t
+		}
 	}
 	_, err := p.q.ExecContext(ctx, `
 		INSERT INTO cash_dividends (
 			instrument_id, ex_date, pay_date, record_date, declaration_date,
 			amount, currency, frequency, type, data_provider, first_known_at
 		)
-		SELECT unnest($1::uuid[]), unnest($2::date[]),
-			unnest($3::date[]), unnest($4::date[]), unnest($5::date[]),
-			unnest($6::numeric[]), unnest($7::text[]), unnest($8::text[]),
-			unnest($9::text[]), unnest($10::text[]), now()
+		SELECT instrument_id, ex_date, pay_date, record_date, declaration_date,
+			amount, currency, frequency, type, data_provider,
+			COALESCE(first_known_at, now())
+		FROM unnest($1::uuid[], $2::date[], $3::date[], $4::date[], $5::date[],
+			$6::numeric[], $7::text[], $8::text[], $9::text[], $10::text[],
+			$11::timestamptz[])
+			AS t(instrument_id, ex_date, pay_date, record_date, declaration_date,
+				amount, currency, frequency, type, data_provider, first_known_at)
 		ON CONFLICT (instrument_id, ex_date) DO UPDATE SET
 			pay_date         = EXCLUDED.pay_date,
 			record_date      = EXCLUDED.record_date,
@@ -135,11 +153,12 @@ func (p *Postgres) UpsertCashDividends(ctx context.Context, dividends []db.CashD
 			currency         = EXCLUDED.currency,
 			frequency        = EXCLUDED.frequency,
 			type             = EXCLUDED.type,
-			data_provider    = EXCLUDED.data_provider
+			data_provider    = EXCLUDED.data_provider,
+			first_known_at   = LEAST(cash_dividends.first_known_at, EXCLUDED.first_known_at)
 	`, pq.Array(instIDs), pq.Array(exDates),
 		pq.Array(payDates), pq.Array(recordDates), pq.Array(declDates),
 		pq.Array(amounts), pq.Array(currencies), pq.Array(frequencies),
-		pq.Array(types), pq.Array(providers))
+		pq.Array(types), pq.Array(providers), pq.Array(knownAts))
 	if err != nil {
 		return fmt.Errorf("upsert cash dividends: %w", err)
 	}
@@ -211,7 +230,11 @@ func (p *Postgres) DeleteCashDividend(ctx context.Context, instrumentID string, 
 // spanning the union. Two intervals are adjacent when one ends the day before
 // the other begins. The whole operation runs in a single transaction so
 // concurrent inserts cannot leave partial state.
-func (p *Postgres) UpsertCorporateEventCoverage(ctx context.Context, instrumentID, pluginID string, from, to time.Time) error {
+//
+// The merged row keeps the oldest constituent last_fetched_at, since the union
+// is only as freshly confirmed as its stalest part. lastFetchedAt is when the
+// supplied span was confirmed; nil means now.
+func (p *Postgres) UpsertCorporateEventCoverage(ctx context.Context, instrumentID, pluginID string, from, to time.Time, lastFetchedAt *time.Time) error {
 	if to.Before(from) {
 		return fmt.Errorf("upsert corporate event coverage: covered_to %s before covered_from %s", to, from)
 	}
@@ -226,17 +249,21 @@ func (p *Postgres) UpsertCorporateEventCoverage(ctx context.Context, instrumentI
 		// insert one merged row. CTE data-modifying statements share a
 		// snapshot in PostgreSQL so DELETE and INSERT cannot see one
 		// another -- run them as separate statements inside the transaction.
-		var newFrom, newTo time.Time
+		//
+		// LEAST ignores NULL, so with no touching rows the merged fetch time
+		// is just the supplied one (or now()).
+		var newFrom, newTo, newFetched time.Time
 		err := exec.QueryRowContext(ctx, `
 			SELECT
 				LEAST($3::date,  COALESCE(MIN(covered_from), $3::date)),
-				GREATEST($4::date, COALESCE(MAX(covered_to),   $4::date))
+				GREATEST($4::date, COALESCE(MAX(covered_to),   $4::date)),
+				LEAST(COALESCE($5::timestamptz, now()), MIN(last_fetched_at))
 			FROM corporate_event_coverage
 			WHERE instrument_id = $1
 			  AND plugin_id     = $2
 			  AND covered_from <= ($4::date + 1)
 			  AND covered_to   >= ($3::date - 1)
-		`, id, pluginID, from, to).Scan(&newFrom, &newTo)
+		`, id, pluginID, from, to, lastFetchedAt).Scan(&newFrom, &newTo, &newFetched)
 		if err != nil {
 			return fmt.Errorf("upsert corporate event coverage: compute merge: %w", err)
 		}
@@ -251,8 +278,8 @@ func (p *Postgres) UpsertCorporateEventCoverage(ctx context.Context, instrumentI
 		}
 		if _, err := exec.ExecContext(ctx, `
 			INSERT INTO corporate_event_coverage (instrument_id, plugin_id, covered_from, covered_to, last_fetched_at)
-			VALUES ($1, $2, $3, $4, now())
-		`, id, pluginID, newFrom, newTo); err != nil {
+			VALUES ($1, $2, $3, $4, $5)
+		`, id, pluginID, newFrom, newTo, newFetched); err != nil {
 			return fmt.Errorf("upsert corporate event coverage: insert merged: %w", err)
 		}
 		return nil
@@ -355,7 +382,8 @@ func (p *Postgres) ListStockSplitsForExport(ctx context.Context) ([]db.ExportSto
 	q := `
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
 			COALESCE(i.asset_class, '') AS asset_class,
-			s.data_provider, s.ex_date, s.split_from::text, s.split_to::text
+			s.data_provider, s.ex_date, s.split_from::text, s.split_to::text,
+			s.first_known_at
 		FROM stock_splits s
 		JOIN instruments i ON i.id = s.instrument_id
 		` + bestIdentifierJoin + `
@@ -370,7 +398,8 @@ func (p *Postgres) ListStockSplitsForExport(ctx context.Context) ([]db.ExportSto
 	for rows.Next() {
 		var r db.ExportStockSplit
 		if err := rows.Scan(&r.IdentifierType, &r.IdentifierValue, &r.IdentifierDomain,
-			&r.AssetClass, &r.DataProvider, &r.ExDate, &r.SplitFrom, &r.SplitTo); err != nil {
+			&r.AssetClass, &r.DataProvider, &r.ExDate, &r.SplitFrom, &r.SplitTo,
+			&r.FirstKnownAt); err != nil {
 			return nil, fmt.Errorf("list stock splits for export scan: %w", err)
 		}
 		out = append(out, r)
@@ -384,7 +413,7 @@ func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportC
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
 			COALESCE(i.asset_class, '') AS asset_class,
 			d.data_provider, d.ex_date, d.pay_date, d.record_date, d.declaration_date,
-			d.amount::text, d.currency, d.frequency, d.type
+			d.amount::text, d.currency, d.frequency, d.type, d.first_known_at
 		FROM cash_dividends d
 		JOIN instruments i ON i.id = d.instrument_id
 		` + bestIdentifierJoin + `
@@ -402,7 +431,7 @@ func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportC
 		var freq sql.NullString
 		if err := rows.Scan(&r.IdentifierType, &r.IdentifierValue, &r.IdentifierDomain,
 			&r.AssetClass, &r.DataProvider, &r.ExDate, &pay, &rec, &decl,
-			&r.Amount, &r.Currency, &freq, &r.Type); err != nil {
+			&r.Amount, &r.Currency, &freq, &r.Type, &r.FirstKnownAt); err != nil {
 			return nil, fmt.Errorf("list cash dividends for export scan: %w", err)
 		}
 		if pay.Valid {

@@ -84,6 +84,29 @@ func (e *exportPriceStreamMock) SendMsg(m interface{}) error {
 	return nil
 }
 
+// exportCorporateEventStreamMock provides a stream with configurable context
+// for ExportCorporateEvents tests.
+type exportCorporateEventStreamMock struct {
+	ctx  context.Context
+	sent []*apiv1.ExportCorporateEventRow
+}
+
+func (e *exportCorporateEventStreamMock) Context() context.Context   { return e.ctx }
+func (e *exportCorporateEventStreamMock) RecvMsg(m interface{}) error { return nil }
+func (e *exportCorporateEventStreamMock) Send(m *apiv1.ExportCorporateEventRow) error {
+	e.sent = append(e.sent, m)
+	return nil
+}
+func (e *exportCorporateEventStreamMock) SendHeader(m metadata.MD) error { return nil }
+func (e *exportCorporateEventStreamMock) SetHeader(m metadata.MD) error  { return nil }
+func (e *exportCorporateEventStreamMock) SetTrailer(m metadata.MD)       {}
+func (e *exportCorporateEventStreamMock) SendMsg(m interface{}) error {
+	if row, ok := m.(*apiv1.ExportCorporateEventRow); ok {
+		e.sent = append(e.sent, row)
+	}
+	return nil
+}
+
 func TestAPI_Unauthenticated(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
 	ctx := context.Background()

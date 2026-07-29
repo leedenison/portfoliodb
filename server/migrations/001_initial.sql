@@ -383,9 +383,10 @@ CREATE TABLE stock_splits (
   split_from     NUMERIC     NOT NULL CHECK (split_from > 0),
   split_to       NUMERIC     NOT NULL CHECK (split_to   > 0),
   data_provider  TEXT        NOT NULL,
-  -- When we first learned of this split. Never overwritten, including when the
-  -- ratio is revised: it is compared against instruments.identified_at to decide
-  -- whether an option still needs retroactive adjustment.
+  -- When we first learned of this split. It only ever moves backwards: revising
+  -- the ratio leaves it alone, and an import supplying an earlier stamp restores
+  -- that one. It is compared against instruments.identified_at to decide whether
+  -- an option still needs retroactive adjustment.
   first_known_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, ex_date)
 );
@@ -406,8 +407,8 @@ CREATE TABLE cash_dividends (
   frequency        TEXT,
   type             TEXT        NOT NULL DEFAULT 'CD',
   data_provider    TEXT        NOT NULL,
-  -- When we first learned of this dividend. Never overwritten, including when
-  -- the amount is revised.
+  -- When we first learned of this dividend. Only ever moves backwards, as for
+  -- stock_splits.first_known_at.
   first_known_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, ex_date)
 );
@@ -426,8 +427,9 @@ CREATE TABLE corporate_event_coverage (
   plugin_id      TEXT        NOT NULL,
   covered_from   DATE        NOT NULL,
   covered_to     DATE        NOT NULL CHECK (covered_to >= covered_from),
-  -- Staleness only: when this span was last confirmed. Merging spans collapses
-  -- it to the merge time.
+  -- Staleness only: when this span was last confirmed. A merged span keeps the
+  -- oldest constituent value, since a union is only as freshly confirmed as its
+  -- stalest part.
   last_fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (instrument_id, plugin_id, covered_from)
 );

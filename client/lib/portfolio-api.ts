@@ -668,6 +668,7 @@ export interface CorporateSplitImportRow {
   exDate: string;               // YYYY-MM-DD
   splitFrom: string;            // decimal numeric string
   splitTo: string;              // decimal numeric string
+  firstKnownAt?: Date;          // knowledge time; omitted means "stamp on arrival"
 }
 
 /**
@@ -689,6 +690,7 @@ export async function importCorporateEventSplits(rows: CorporateSplitImportRow[]
           exDate: r.exDate,
           splitFrom: r.splitFrom,
           splitTo: r.splitTo,
+          firstKnownAt: r.firstKnownAt ? timestampFromDate(r.firstKnownAt) : undefined,
         }),
       },
     }),

@@ -679,7 +679,10 @@ type StockSplit struct {
 	SplitFrom    string // numeric, e.g. "1"
 	SplitTo      string // numeric, e.g. "2"
 	DataProvider string
-	// FirstKnownAt is when we first learned of this split. Never overwritten.
+	// FirstKnownAt is when we first learned of this split. Honoured on insert
+	// when set; on conflict it only ever moves backwards, so a re-import of an
+	// older stamp restores it and a newer one is ignored. Zero means "stamp it
+	// with the current time".
 	FirstKnownAt time.Time
 }
 
@@ -698,7 +701,9 @@ type CashDividend struct {
 	Frequency       string // empty when unknown
 	Type            string // "CD" or "SC"; empty = "CD"
 	DataProvider    string
-	// FirstKnownAt is when we first learned of this dividend. Never overwritten.
+	// FirstKnownAt is when we first learned of this dividend. Honoured on
+	// insert when set; on conflict it only ever moves backwards. Zero means
+	// "stamp it with the current time".
 	FirstKnownAt time.Time
 }
 
@@ -752,7 +757,9 @@ type OptionSplitParams struct {
 // split_adjusted_* columns on eod_prices and txs from the raw values.
 type CorporateEventDB interface {
 	// UpsertStockSplits inserts or updates the supplied stock_splits rows.
-	// On conflict (instrument_id, ex_date), all non-key columns are overwritten.
+	// On conflict (instrument_id, ex_date), all non-key columns are overwritten
+	// except FirstKnownAt, which takes the earlier of the stored and supplied
+	// values. A zero FirstKnownAt is stamped with the current time on insert.
 	UpsertStockSplits(ctx context.Context, splits []StockSplit) error
 	// ListStockSplits returns every stock split for the given instrument
 	// ordered ascending by ex_date.
@@ -763,7 +770,9 @@ type CorporateEventDB interface {
 	DeleteStockSplit(ctx context.Context, instrumentID string, exDate time.Time) error
 
 	// UpsertCashDividends inserts or updates the supplied cash_dividends rows.
-	// On conflict (instrument_id, ex_date), all non-key columns are overwritten.
+	// On conflict (instrument_id, ex_date), all non-key columns are overwritten
+	// except FirstKnownAt, which takes the earlier of the stored and supplied
+	// values. A zero FirstKnownAt is stamped with the current time on insert.
 	UpsertCashDividends(ctx context.Context, dividends []CashDividend) error
 	// ListCashDividends returns every cash dividend for the given instrument
 	// ordered ascending by ex_date.
@@ -774,8 +783,10 @@ type CorporateEventDB interface {
 	// UpsertCorporateEventCoverage records that (instrumentID, pluginID) has
 	// been queried for the closed interval [from, to]. Existing rows for the
 	// same (instrument, plugin) that are adjacent or overlap with [from, to]
-	// are merged into a single row.
-	UpsertCorporateEventCoverage(ctx context.Context, instrumentID, pluginID string, from, to time.Time) error
+	// are merged into a single row, which keeps the oldest constituent
+	// LastFetchedAt. lastFetchedAt is when the supplied span was confirmed;
+	// nil means now.
+	UpsertCorporateEventCoverage(ctx context.Context, instrumentID, pluginID string, from, to time.Time, lastFetchedAt *time.Time) error
 	// ListCorporateEventCoverage returns coverage rows for the given
 	// instruments. When instrumentIDs is empty all coverage rows are returned.
 	// Rows are sorted by (instrument_id, plugin_id, covered_from).
@@ -862,6 +873,7 @@ type ExportStockSplit struct {
 	ExDate           time.Time
 	SplitFrom        string // numeric as decimal string
 	SplitTo          string
+	FirstKnownAt     time.Time
 }
 
 // ExportCashDividend is one cash dividend row with the best identifier for
@@ -880,4 +892,5 @@ type ExportCashDividend struct {
 	Currency         string
 	Frequency        string
 	Type             string
+	FirstKnownAt     time.Time
 }

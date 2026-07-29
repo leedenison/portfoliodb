@@ -998,6 +998,13 @@ message SplitRow {
   string ex_date = 1;     // YYYY-MM-DD effective/execution date
   string split_from = 2;  // decimal numeric string
   string split_to = 3;    // decimal numeric string
+  // Knowledge time: when the exporting instance first learned of this split.
+  // It gates retroactive adjustment of options on the underlying, so a
+  // round-trip that drops it re-adjusts symbols that were already correct.
+  // On import it is optional and falls back to the request's exported_at,
+  // then to the time the row is stored. A stored first_known_at only ever
+  // moves backwards. See docs/spec/bitemporality.md.
+  google.protobuf.Timestamp first_known_at = 4;
 }
 
 // CashDividendRow is one cash dividend row used by both export and import.
@@ -1011,6 +1018,12 @@ message CashDividendRow {
   string amount = 5;             // decimal numeric string per share
   string currency = 6;
   string frequency = 7;          // optional: "annual", "semi-annual", "quarterly", "monthly"
+  string type = 8;               // "CD" (regular) or "SC" (special cash); empty means "CD"
+  // Knowledge time: when the exporting instance first learned of this
+  // dividend. On import it is optional and falls back to the request's
+  // exported_at, then to the time the row is stored. A stored first_known_at
+  // only ever moves backwards. See docs/spec/bitemporality.md.
+  google.protobuf.Timestamp first_known_at = 9;
 }
 
 // ExportCorporateEventRow is one corporate event with its instrument
@@ -1060,6 +1073,12 @@ message ImportCorporateEventCoverage {
 message ImportCorporateEventsRequest {
   repeated ImportCorporateEventRow events = 1;
   repeated ImportCorporateEventCoverage coverage = 2;
+  // Knowledge time: when the supplied data was current. OCC symbols are
+  // split-adjusted to this point during instrument resolution, imported
+  // coverage records it as last_fetched_at, and events that do not carry
+  // their own first_known_at fall back to it. Mirrors
+  // ImportPricesRequest.exported_at.
+  google.protobuf.Timestamp exported_at = 3;
 }
 
 message ImportCorporateEventsResponse {

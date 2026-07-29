@@ -36,9 +36,10 @@ func (s *Server) ExportCorporateEvents(req *apiv1.ExportCorporateEventsRequest, 
 			DataProvider:     r.DataProvider,
 			Event: &apiv1.ExportCorporateEventRow_Split{
 				Split: &apiv1.SplitRow{
-					ExDate:    r.ExDate.Format("2006-01-02"),
-					SplitFrom: r.SplitFrom,
-					SplitTo:   r.SplitTo,
+					ExDate:       r.ExDate.Format("2006-01-02"),
+					SplitFrom:    r.SplitFrom,
+					SplitTo:      r.SplitTo,
+					FirstKnownAt: timestamppb.New(r.FirstKnownAt),
 				},
 			},
 		}
@@ -53,10 +54,12 @@ func (s *Server) ExportCorporateEvents(req *apiv1.ExportCorporateEventsRequest, 
 	}
 	for _, r := range dividends {
 		div := &apiv1.CashDividendRow{
-			ExDate:    r.ExDate.Format("2006-01-02"),
-			Amount:    r.Amount,
-			Currency:  r.Currency,
-			Frequency: r.Frequency,
+			ExDate:       r.ExDate.Format("2006-01-02"),
+			Amount:       r.Amount,
+			Currency:     r.Currency,
+			Frequency:    r.Frequency,
+			Type:         r.Type,
+			FirstKnownAt: timestamppb.New(r.FirstKnownAt),
 		}
 		if r.PayDate != nil {
 			div.PayDate = r.PayDate.Format("2006-01-02")

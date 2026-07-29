@@ -11,7 +11,7 @@ Two event tables in PostgreSQL, both keyed by `(instrument_id, ex_date)`:
 
 Plus two auxiliary tables:
 
-- **`corporate_event_coverage`** — per `(instrument_id, plugin_id)`, the closed date intervals that have been queried successfully. Adjacent and overlapping intervals merge on insert. Coverage is the source of truth for "which date ranges have we already asked this plugin about" — see [Fetch model](#fetch-model) below.
+- **`corporate_event_coverage`** — per `(instrument_id, plugin_id)`, the closed date intervals that have been queried successfully. Adjacent and overlapping intervals merge on insert; the merged row keeps the oldest constituent `last_fetched_at`, since a union is only as freshly confirmed as its stalest part. Coverage is the source of truth for "which date ranges have we already asked this plugin about" — see [Fetch model](#fetch-model) below.
 - **`corporate_event_fetch_blocks`** — `(instrument_id, plugin_id, reason, first_blocked_at)`. A plugin returning a permanent error (404, 403, subscription limit) for an instrument lands here so the fetcher does not retry indefinitely.
 
 The `eod_prices` and `txs` tables also gain `split_adjusted_*` columns alongside the raw OHLCV / quantity / unit_price values, so both views are debuggable side by side. See [Adjustment](#adjustment) below.
@@ -25,6 +25,12 @@ Three sources feed `stock_splits` and `cash_dividends`. All three write through 
 | External market data plugins | plugin id (e.g. `"massive"`, `"eodhd"`) | Background fetcher worker (`server/corporateevents`) |
 | Admin CSV / JSON import | `"import"` | `ImportCorporateEvents` admin RPC |
 | Broker statement parsers (planned) | `"import"` | Client-side per-broker parsers; submit through `ImportCorporateEvents` |
+
+### Export and import
+
+`ExportCorporateEvents` and `ImportCorporateEvents` are a lossless round trip, knowledge time included. `SplitRow` and `CashDividendRow` carry `first_known_at` in both directions, and an importing row resolves its knowledge time from the row, else `ImportCorporateEventsRequest.exported_at`, else the time it is stored. A stored `first_known_at` only ever moves backwards, so re-importing a split learned of years ago restores its original stamp rather than pushing it forward to import time. That matters because the stamp gates retroactive OCC adjustment of options on the underlying (see [Adjustment](#adjustment) and docs/spec/bitemporality.md): restamping a historical split makes every existing option look identified-before-we-knew and re-adjusts symbols that were already correct.
+
+`exported_at` also stamps imported `corporate_event_coverage` spans, so an imported span records when it was actually confirmed rather than when it was imported.
 
 The broker statement parsers are deferred follow-up work. They live entirely in client converters; broker tx logs that contain SPLIT entries should be parsed by the converter for the broker's specific format and submitted via `ImportCorporateEvents`. The server-side `TX_TYPE=SPLIT` filter in `server/service/ingestion/hints.go` continues to drop SPLIT txs at ingestion; corporate events are admin-only shared data, never derived from user txs (see adr/0005-corporate-events-design.md).
 

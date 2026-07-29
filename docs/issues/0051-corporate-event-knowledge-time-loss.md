@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Preserve knowledge time across corporate-event export, import and coverage merge
 ---
 

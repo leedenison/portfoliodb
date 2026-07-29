@@ -58,7 +58,7 @@ source can revise what it told us.
 knowledge timestamp can be:
 
 - **`first_known_at`** -- when we first learned this fact. Set on insert and
-  **never overwritten**, including when the fact itself is revised. This is the
+  **never moved forward**, including when the fact itself is revised. This is the
   column that answers "did we know about the split when we resolved that option?"
 - **`last_fetched_at`** -- when we last asked the source. Fetch bookkeeping;
   overwritten on every refresh by design. It answers "how stale is this?", never
@@ -69,7 +69,7 @@ knowledge timestamp can be:
 | `stock_splits` | `first_known_at` | First known. Compared against `instruments.identified_at` to decide whether an option's OCC symbol still needs retroactive adjustment. |
 | `cash_dividends` | `first_known_at` | First known. |
 | `eod_prices` | `last_fetched_at` | Staleness only. It carries no semantics about the price itself -- that is what `share_count_basis` is for. |
-| `corporate_event_coverage` | `last_fetched_at` | When the span was last confirmed. Collapsed to the merge time when spans merge. |
+| `corporate_event_coverage` | `last_fetched_at` | When the span was last confirmed. Merging spans keeps the oldest constituent's, since a union is only as freshly confirmed as its stalest part. |
 | `inflation_indices` | `last_fetched_at` | Staleness only. |
 | `price_fetch_blocks` | `first_blocked_at` | First known. |
 | `corporate_event_fetch_blocks` | `first_blocked_at` | First known. |
@@ -77,9 +77,16 @@ knowledge timestamp can be:
 | `txs`, `users`, `portfolios`, `instruments`, `ingestion_jobs`, `unhandled_corporate_events`, `holding_declarations`, `service_accounts` | `created_at` | Row audit. Not queried. |
 | `holding_declarations` | `updated_at` | Row audit. |
 
-On the wire, `ImportPricesRequest.exported_at` is a client-declared knowledge
-time: it states when the supplied data was current, and drives OCC split
-adjustment during instrument resolution. See [prices.md](prices.md).
+On the wire, `ImportPricesRequest.exported_at` and
+`ImportCorporateEventsRequest.exported_at` are client-declared knowledge times:
+they state when the supplied data was current, and drive OCC split adjustment
+during instrument resolution. See [prices.md](prices.md) and
+[corporate-events.md](corporate-events.md).
+
+Corporate events also carry knowledge time per row: `SplitRow.first_known_at`
+and `CashDividendRow.first_known_at` make an export/import round trip lossless.
+An importing row resolves its knowledge time from the row, else the request's
+`exported_at`, else the time it is stored.
 
 ## Share count basis
 
@@ -112,8 +119,10 @@ basis to today's. See [corporate-events.md](corporate-events.md#adjustment).
 1. **Every stored fact records its valid time.** Knowledge time is recorded
    wherever the source can revise the fact.
 2. **A knowledge-time column is named for what it means** -- `first_known_at` or
-   `last_fetched_at`, never the ambiguous `fetched_at`. A `first_known_at` is
-   never included in an `ON CONFLICT DO UPDATE` set.
+   `last_fetched_at`, never the ambiguous `fetched_at`. A `first_known_at` never
+   moves forward: revising the fact leaves it alone, and on conflict it takes
+   the earlier of the stored and supplied values. A stamp can only ever be at or
+   after the moment the world knew, so the earlier of two is the better one.
 3. **Share-denominated values record their share count basis, declared by the
    source.** Basis is never inferred from a knowledge timestamp and never
    assumed by the storage layer.
@@ -162,7 +171,6 @@ The model above is normative. These parts of the system do not yet comply:
 | Divergence | Issue |
 | --- | --- |
 | No daily scheduler fires the blanket recompute, so a stored future-dated split never activates when its `ex_date` crosses | 0050 |
-| Corporate event export and import carry no knowledge time, so a re-import cannot reproduce the original adjustment state; `corporate_event_coverage` collapses every span's `last_fetched_at` on merge | 0051 |
 | A revised inflation index overwrites the prior value, so a previously published real-return figure cannot be reproduced | 0052 |
 | Instrument identity has no valid-time dimension: `instruments.valid_from` / `valid_to` are never queried, `instrument_identifiers` cannot express ticker reuse, and a merge leaves no record of what was believed before | 0053 |
 | There is no knowledge-time as-of query, so a past valuation cannot be reproduced | 0054 |

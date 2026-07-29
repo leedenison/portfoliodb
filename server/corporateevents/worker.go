@@ -246,7 +246,7 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 					}
 				}
 			}
-			if err := database.UpsertCorporateEventCoverage(ctx, inst.ID, pe.id, gap.From, gap.To); err != nil {
+			if err := database.UpsertCorporateEventCoverage(ctx, inst.ID, pe.id, gap.From, gap.To, nil); err != nil {
 				if log != nil {
 					log.ErrorContext(ctx, "corporate event fetch: upsert coverage",
 						"plugin", pe.id, "instrument", inst.ID, "err", err)

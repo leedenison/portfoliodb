@@ -13,6 +13,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/service/identification"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // processCorporateEventImport loads a persisted ImportCorporateEventsRequest,
@@ -43,6 +44,16 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 	rows := req.GetEvents()
 	_ = database.SetJobTotalCount(ctx, j.JobID, int32(len(rows)))
 
+	// Knowledge time declared for the whole request: OCC symbols are
+	// split-adjusted to this point during resolution, events that carry no
+	// first_known_at of their own fall back to it, and imported coverage
+	// records it as last_fetched_at. Mirrors the price import path.
+	var eventsAsOf *time.Time
+	if ts := req.GetExportedAt(); ts != nil {
+		t := ts.AsTime()
+		eventsAsOf = &t
+	}
+
 	resolveCache := make(map[string]*resolveEntry)
 	var valErrs []*apiv1.ValidationError
 	var splits []db.StockSplit
@@ -61,7 +72,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 			continue
 		}
 
-		result, err := resolveCorporateEventRow(ctx, database, pluginRegistry, resolveCache, row)
+		result, err := resolveCorporateEventRow(ctx, database, pluginRegistry, resolveCache, row, eventsAsOf)
 		if err != nil {
 			valErrs = append(valErrs, &apiv1.ValidationError{
 				RowIndex: int32(i),
@@ -84,7 +95,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 
 		switch ev := row.GetEvent().(type) {
 		case *apiv1.ImportCorporateEventRow_Split:
-			s, vErr := buildSplit(instID, ev.Split, i)
+			s, vErr := buildSplit(instID, ev.Split, i, eventsAsOf)
 			if vErr != nil {
 				valErrs = append(valErrs, vErr)
 				_ = database.IncrJobProcessedCount(ctx, j.JobID)
@@ -93,7 +104,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 			splits = append(splits, s)
 			splitInstruments[instID] = true
 		case *apiv1.ImportCorporateEventRow_Dividend:
-			d, vErr := buildDividend(instID, ev.Dividend, i)
+			d, vErr := buildDividend(instID, ev.Dividend, i, eventsAsOf)
 			if vErr != nil {
 				valErrs = append(valErrs, vErr)
 				_ = database.IncrJobProcessedCount(ctx, j.JobID)
@@ -139,7 +150,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 	// accumulated alongside the per-event errors so the caller sees
 	// everything via AppendValidationErrors. A hard DB error from the
 	// coverage upsert still fails the job.
-	covCount, covErrs, err := writeImportCoverage(ctx, database, req.GetCoverage(), resolveCache, pluginRegistry)
+	covCount, covErrs, err := writeImportCoverage(ctx, database, req.GetCoverage(), resolveCache, pluginRegistry, eventsAsOf)
 	if err != nil {
 		if len(valErrs) > 0 || len(covErrs) > 0 {
 			_ = database.AppendValidationErrors(ctx, j.JobID, append(valErrs, covErrs...))
@@ -179,15 +190,16 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 // caching the result so a CSV with thousands of dividends for the same
 // ticker invokes the identifier plugins at most once. The asset class
 // passed to the resolver is the row's declared asset class -- the same
-// hint used by the price import path.
-func resolveCorporateEventRow(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, cache map[string]*resolveEntry, row *apiv1.ImportCorporateEventRow) (identification.ResolveResult, error) {
+// hint used by the price import path, as is asOf, which split-adjusts OCC
+// symbols to the request's declared knowledge time.
+func resolveCorporateEventRow(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, cache map[string]*resolveEntry, row *apiv1.ImportCorporateEventRow, asOf *time.Time) (identification.ResolveResult, error) {
 	key := row.GetIdentifierType() + "\x00" + row.GetIdentifierDomain() + "\x00" + row.GetIdentifierValue()
 	if entry, ok := cache[key]; ok {
 		return entry.result, entry.err
 	}
 	acStr := db.AssetClassToStr(row.GetAssetClass())
 	result, err := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
-		row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, "", nil)
+		row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, "", asOf)
 	cache[key] = &resolveEntry{result: result, err: err}
 	return result, err
 }
@@ -196,7 +208,11 @@ func resolveCorporateEventRow(ctx context.Context, database db.DB, pluginRegistr
 // required; split_from and split_to must parse as positive arbitrary-precision
 // decimals (the underlying NUMERIC column accepts any decimal). Validation
 // uses big.Rat so values like "0.000001" round-trip without precision loss.
-func buildSplit(instID string, s *apiv1.SplitRow, rowIndex int) (db.StockSplit, *apiv1.ValidationError) {
+//
+// Knowledge time comes from the row, else from the request's exported_at
+// (asOf), else stays zero for the DB to stamp. Preserving it matters because
+// it gates retroactive adjustment of options on the underlying.
+func buildSplit(instID string, s *apiv1.SplitRow, rowIndex int, asOf *time.Time) (db.StockSplit, *apiv1.ValidationError) {
 	if s == nil {
 		return db.StockSplit{}, &apiv1.ValidationError{RowIndex: int32(rowIndex), Field: "split", Message: "missing split payload"}
 	}
@@ -218,14 +234,29 @@ func buildSplit(instID string, s *apiv1.SplitRow, rowIndex int) (db.StockSplit, 
 		SplitFrom:    s.GetSplitFrom(),
 		SplitTo:      s.GetSplitTo(),
 		DataProvider: db.CorporateEventProviderImport,
+		FirstKnownAt: knowledgeTime(s.GetFirstKnownAt(), asOf),
 	}, nil
+}
+
+// knowledgeTime resolves a row's knowledge time: the row's own value, else
+// the request-level exported_at, else zero, which leaves the DB to stamp the
+// storage time.
+func knowledgeTime(rowTS *timestamppb.Timestamp, asOf *time.Time) time.Time {
+	if rowTS != nil {
+		return rowTS.AsTime()
+	}
+	if asOf != nil {
+		return *asOf
+	}
+	return time.Time{}
 }
 
 // buildDividend converts a proto CashDividendRow into a db.CashDividend.
 // ex_date, amount and currency are required; pay/record/declaration dates and
 // frequency pass through when supplied. Amount is validated as an arbitrary-
-// precision non-negative decimal via big.Rat.
-func buildDividend(instID string, d *apiv1.CashDividendRow, rowIndex int) (db.CashDividend, *apiv1.ValidationError) {
+// precision non-negative decimal via big.Rat. Knowledge time follows the same
+// row / request / storage-time fallback as buildSplit.
+func buildDividend(instID string, d *apiv1.CashDividendRow, rowIndex int, asOf *time.Time) (db.CashDividend, *apiv1.ValidationError) {
 	if d == nil {
 		return db.CashDividend{}, &apiv1.ValidationError{RowIndex: int32(rowIndex), Field: "dividend", Message: "missing dividend payload"}
 	}
@@ -246,7 +277,9 @@ func buildDividend(instID string, d *apiv1.CashDividendRow, rowIndex int) (db.Ca
 		Amount:       d.GetAmount(),
 		Currency:     d.GetCurrency(),
 		Frequency:    d.GetFrequency(),
+		Type:         d.GetType(),
 		DataProvider: db.CorporateEventProviderImport,
+		FirstKnownAt: knowledgeTime(d.GetFirstKnownAt(), asOf),
 	}
 	if t, err := time.Parse("2006-01-02", d.GetPayDate()); err == nil {
 		out.PayDate = &t
@@ -261,7 +294,9 @@ func buildDividend(instID string, d *apiv1.CashDividendRow, rowIndex int) (db.Ca
 }
 
 // writeImportCoverage records each coverage row tagged data_provider="import"
-// against the resolved instrument. Returns the number of coverage rows
+// against the resolved instrument, stamping the span with the request's
+// declared knowledge time (asOf) so an imported span does not claim to have
+// been confirmed at import time. Returns the number of coverage rows
 // successfully written, the per-row validation errors collected (bad dates,
 // unresolvable identifiers), and any hard DB error from the underlying
 // upsert. Per-row errors do not abort the loop; only a hard error does.
@@ -269,7 +304,7 @@ func buildDividend(instID string, d *apiv1.CashDividendRow, rowIndex int) (db.Ca
 // Coverage entries use RowIndex = -1 because the coverage list is separate
 // from the events list, so a per-row index would not be meaningful to the
 // caller; the Field name carries the location ("coverage.from" etc).
-func writeImportCoverage(ctx context.Context, database db.DB, coverage []*apiv1.ImportCorporateEventCoverage, cache map[string]*resolveEntry, pluginRegistry *identifier.Registry) (int, []*apiv1.ValidationError, error) {
+func writeImportCoverage(ctx context.Context, database db.DB, coverage []*apiv1.ImportCorporateEventCoverage, cache map[string]*resolveEntry, pluginRegistry *identifier.Registry, asOf *time.Time) (int, []*apiv1.ValidationError, error) {
 	var (
 		written int
 		errs    []*apiv1.ValidationError
@@ -301,7 +336,7 @@ func writeImportCoverage(ctx context.Context, database db.DB, coverage []*apiv1.
 			// plugin registry is passed through so the resolution rules
 			// match the per-event resolution above.
 			result, rerr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
-				c.GetIdentifierType(), c.GetIdentifierDomain(), c.GetIdentifierValue(), "", "", nil)
+				c.GetIdentifierType(), c.GetIdentifierDomain(), c.GetIdentifierValue(), "", "", asOf)
 			entry = &resolveEntry{result: result, err: rerr}
 			cache[key] = entry
 		}
@@ -325,7 +360,7 @@ func writeImportCoverage(ctx context.Context, database db.DB, coverage []*apiv1.
 			})
 			continue
 		}
-		if err := database.UpsertCorporateEventCoverage(ctx, entry.result.InstrumentID, db.CorporateEventProviderImport, from, to); err != nil {
+		if err := database.UpsertCorporateEventCoverage(ctx, entry.result.InstrumentID, db.CorporateEventProviderImport, from, to, asOf); err != nil {
 			return written, errs, err
 		}
 		written++

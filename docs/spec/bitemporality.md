@@ -161,7 +161,6 @@ The model above is normative. These parts of the system do not yet comply:
 
 | Divergence | Issue |
 | --- | --- |
-| Valuation pairs raw quantity with raw close while `TX_TYPE=SPLIT` rows are dropped at ingestion, so a forward split shows as a discontinuity | in flight |
 | No daily scheduler fires the blanket recompute, so a stored future-dated split never activates when its `ex_date` crosses | 0050 |
 | Corporate event export and import carry no knowledge time, so a re-import cannot reproduce the original adjustment state; `corporate_event_coverage` collapses every span's `last_fetched_at` on merge | 0051 |
 | A revised inflation index overwrites the prior value, so a previously published real-return figure cannot be reproduced | 0052 |

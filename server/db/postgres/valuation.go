@@ -36,7 +36,7 @@ WITH portfolio_txs AS (
         t.instrument_id,
         t.instrument_description,
         t.timestamp::date AS tx_date,
-        SUM(t.quantity) AS daily_qty` + txSource + `
+        SUM(t.split_adjusted_quantity) AS daily_qty` + txSource + `
     GROUP BY t.instrument_id, t.instrument_description, t.timestamp::date
 ),
 -- Merge transactions by instrument_id for identified instruments so that
@@ -91,7 +91,11 @@ daily_holdings AS (
     CROSS JOIN inst_list i
 ),
 prices AS (
-    SELECT instrument_id, price_date AS val_date, close
+    -- Adjusted quantity above pairs with adjusted close here: both are
+    -- denominated in today's share count. Mixing one of each would scale the
+    -- value by the split factor either side of an ex-date. See
+    -- docs/spec/bitemporality.md.
+    SELECT instrument_id, price_date AS val_date, split_adjusted_close AS close
     FROM eod_prices
     WHERE instrument_id = ANY(SELECT DISTINCT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL)
       AND price_date >= $2::date
@@ -111,6 +115,8 @@ fx_instruments AS (
       AND inst.currency != 'USD'
 ),
 -- FX rates for each base currency (BASE/USD close values).
+-- Raw close, not split_adjusted_close: an exchange rate is not denominated in
+-- a share count, so it has no basis to adjust and never carries splits.
 fx_rates AS (
     SELECT fi.base_currency, ep.price_date AS val_date, ep.close AS rate
     FROM fx_instruments fi

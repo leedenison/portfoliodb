@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Wait for portfoliodb gRPC server to report SERVING via grpc_health_probe. Exits 0 when ready, 1 after max tries.
 # Probes from inside the portfoliodb container so no host-side grpc tooling is required.
+# The server image must therefore ship grpc-health-probe -- see docker/server/Dockerfile.dev
+# and docker/server/Dockerfile.e2e.
 # Usage: scripts/server-ready.sh <compose-cmd> [max_tries]
 #   e.g. scripts/server-ready.sh "docker compose -p portfoliodb-dev -f docker/docker-compose.yml -f docker/docker-compose.dev.yml --env-file .env"
 set -e

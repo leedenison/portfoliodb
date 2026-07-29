@@ -12,6 +12,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // TestProcessCorporateEventImport_HappyPath verifies that a mixed split +
@@ -26,7 +27,13 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
 
+	// The split carries its own knowledge time; the dividend does not and so
+	// falls back to the request's exported_at.
+	splitKnownAt := time.Date(2015, 3, 4, 9, 30, 0, 0, time.UTC)
+	exportedAt := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+
 	req := &apiv1.ImportCorporateEventsRequest{
+		ExportedAt: timestamppb.New(exportedAt),
 		Events: []*apiv1.ImportCorporateEventRow{
 			{
 				IdentifierType:   "MIC_TICKER",
@@ -35,6 +42,7 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 				AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
 				Event: &apiv1.ImportCorporateEventRow_Split{Split: &apiv1.SplitRow{
 					ExDate: "2020-08-31", SplitFrom: "1", SplitTo: "4",
+					FirstKnownAt: timestamppb.New(splitKnownAt),
 				}},
 			},
 			{
@@ -48,6 +56,7 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 					Amount:    "0.24",
 					Currency:  "USD",
 					Frequency: "quarterly",
+					Type:      "SC",
 				}},
 			},
 		},
@@ -95,6 +104,10 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 			if splits[0].DataProvider != db.CorporateEventProviderImport {
 				t.Errorf("provider: %s", splits[0].DataProvider)
 			}
+			// The row's own knowledge time wins over the request's.
+			if !splits[0].FirstKnownAt.Equal(splitKnownAt) {
+				t.Errorf("first known at: want %s, got %s", splitKnownAt, splits[0].FirstKnownAt)
+			}
 			return nil
 		})
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -108,11 +121,20 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 			if divs[0].PayDate == nil || !divs[0].PayDate.Equal(time.Date(2024, 2, 15, 0, 0, 0, 0, time.UTC)) {
 				t.Errorf("pay date: %+v", divs[0].PayDate)
 			}
+			if divs[0].Type != "SC" {
+				t.Errorf("type: want SC, got %q", divs[0].Type)
+			}
+			// No row-level knowledge time, so the request's exported_at stands in.
+			if !divs[0].FirstKnownAt.Equal(exportedAt) {
+				t.Errorf("first known at: want %s, got %s", exportedAt, divs[0].FirstKnownAt)
+			}
 			return nil
 		})
+	// Imported coverage is stamped with the request's knowledge time rather
+	// than claiming to have been confirmed at import time.
 	database.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), "inst-aapl", db.CorporateEventProviderImport,
 		time.Date(2014, 1, 1, 0, 0, 0, 0, time.UTC),
-		time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC)).Return(nil)
+		time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC), &exportedAt).Return(nil)
 	database.EXPECT().RecomputeSplitAdjustments(gomock.Any(), "inst-aapl").Return(nil)
 	database.EXPECT().ListStockSplits(gomock.Any(), "inst-aapl").Return([]db.StockSplit{
 		{InstrumentID: "inst-aapl", ExDate: time.Date(2020, 8, 31, 0, 0, 0, 0, time.UTC), SplitFrom: "1", SplitTo: "4", DataProvider: "import"},
@@ -424,5 +446,33 @@ func TestProcessCorporateEventImport_RejectsHintDiff(t *testing.T) {
 	}
 	if !strings.Contains(capturedErrs[0].Message, "SecurityType") {
 		t.Errorf("expected message to mention SecurityType, got %s", capturedErrs[0].Message)
+	}
+}
+
+// A file with no knowledge time anywhere leaves FirstKnownAt zero, which the
+// db layer reads as "stamp it with the storage time" -- the behaviour before
+// knowledge time was on the wire.
+func TestBuildEvent_KnowledgeTimeFallsBackToStorageTime(t *testing.T) {
+	split, vErr := buildSplit("inst-aapl", &apiv1.SplitRow{
+		ExDate: "2020-08-31", SplitFrom: "1", SplitTo: "4",
+	}, 0, nil)
+	if vErr != nil {
+		t.Fatalf("buildSplit: %+v", vErr)
+	}
+	if !split.FirstKnownAt.IsZero() {
+		t.Errorf("split knowledge time: want zero, got %s", split.FirstKnownAt)
+	}
+
+	div, vErr := buildDividend("inst-aapl", &apiv1.CashDividendRow{
+		ExDate: "2024-02-09", Amount: "0.24", Currency: "USD",
+	}, 0, nil)
+	if vErr != nil {
+		t.Fatalf("buildDividend: %+v", vErr)
+	}
+	if !div.FirstKnownAt.IsZero() {
+		t.Errorf("dividend knowledge time: want zero, got %s", div.FirstKnownAt)
+	}
+	if div.Type != "" {
+		t.Errorf("type: want empty (db defaults to CD), got %q", div.Type)
 	}
 }

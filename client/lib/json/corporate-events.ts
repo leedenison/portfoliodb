@@ -3,6 +3,7 @@
  * Format: array of split objects with identifier context.
  */
 
+import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { AssetClass } from "@/gen/api/v1/api_pb";
 import type { ExportCorporateEventRow, SplitRow } from "@/gen/api/v1/api_pb";
 import type { CorporateSplitImportRow } from "@/lib/portfolio-api";
@@ -17,6 +18,9 @@ interface SerializedSplit {
   ex_date: string;
   split_from: string;
   split_to: string;
+  // Knowledge time as an ISO 8601 instant: when the exporting instance first
+  // learned of the split. Absent in files written before it was recorded.
+  first_known_at?: string;
 }
 
 /** Serialize split export rows to JSON string. */
@@ -35,6 +39,7 @@ export function splitsToJson(rows: ExportCorporateEventRow[]): string {
       if (r.identifierDomain) obj.identifier_domain = r.identifierDomain;
       const ac = assetClassToStr(r.assetClass);
       if (ac) obj.asset_class = ac;
+      if (split.firstKnownAt) obj.first_known_at = timestampDate(split.firstKnownAt).toISOString();
       return obj;
     });
   return JSON.stringify(serialized, null, 2) + "\n";
@@ -117,6 +122,18 @@ export function parseSplitsJson(json: string): SplitParseResult {
     if (domain) row.identifierDomain = domain;
     const ac = assetClassFromStr(String(obj.asset_class ?? ""));
     if (ac !== AssetClass.UNSPECIFIED) row.assetClass = ac;
+
+    // Knowledge time is optional: a file that omits it is imported with the
+    // server's fallback rather than rejected. An unparseable value is an
+    // error, since silently dropping it would restamp the split.
+    if (obj.first_known_at != null && obj.first_known_at !== "") {
+      const knownAt = new Date(String(obj.first_known_at));
+      if (Number.isNaN(knownAt.getTime())) {
+        errors.push({ rowIndex: i, field: "first_known_at", message: "Must be an ISO 8601 timestamp" });
+        continue;
+      }
+      row.firstKnownAt = knownAt;
+    }
 
     splits.push(row);
   }

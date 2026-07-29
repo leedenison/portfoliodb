@@ -8,6 +8,7 @@ import {
   ApiService,
   AssetClass,
   JobStatus,
+  type ExportCorporateEventRow,
   type GetJobResponse,
   type ImportCorporateEventRow,
 } from "../gen/api/v1/api_pb";
@@ -80,6 +81,18 @@ export async function importCorporateEventsAndWait(
   throw new Error(
     `corporate event import job ${jobId} did not complete within ${timeoutMs}ms`,
   );
+}
+
+/** Drain the ExportCorporateEvents stream into an array. */
+export async function exportCorporateEvents(
+  sessionId: string,
+): Promise<ExportCorporateEventRow[]> {
+  const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
+  const rows: ExportCorporateEventRow[] = [];
+  for await (const row of client.exportCorporateEvents({}, { headers })) {
+    rows.push(row);
+  }
+  return rows;
 }
 
 /** Trigger the corporate event fetcher worker to run one cycle. */

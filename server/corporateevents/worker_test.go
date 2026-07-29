@@ -232,7 +232,7 @@ func TestRunCycle_EmptyResultRecordsCoverage(t *testing.T) {
 	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)
 
 	// Coverage MUST be recorded for the empty success.
-	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "high", gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "high", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 	// No upserts for splits/dividends (empty result).
 	// No call into the low-precedence plugin.
@@ -286,7 +286,7 @@ func TestRunCycle_SplitsLandTriggerRecompute(t *testing.T) {
 	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)
 
 	mockDB.EXPECT().UpsertStockSplits(gomock.Any(), gomock.Any()).Return(nil)
-	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "massive", gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "massive", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	mockDB.EXPECT().RecomputeSplitAdjustments(gomock.Any(), instID).Return(nil)
 	// After splits land, the worker lists splits and options for the underlying.
 	mockDB.EXPECT().ListStockSplits(gomock.Any(), instID).Return([]db.StockSplit{
@@ -344,7 +344,7 @@ func TestRunCycle_PermanentErrorCreatesBlock(t *testing.T) {
 	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)
 
 	mockDB.EXPECT().CreateCorporateEventFetchBlock(gomock.Any(), instID, "broken", "404 not found").Return(nil)
-	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "good", gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "good", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
@@ -412,7 +412,7 @@ func TestRunCycle_SpecialDividendRoutedToUnhandled(t *testing.T) {
 			}
 			return nil
 		})
-	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "massive", gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "massive", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 }

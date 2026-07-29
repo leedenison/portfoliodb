@@ -157,6 +157,136 @@ func TestUpsertCashDividends_TypeDefaultsToCD(t *testing.T) {
 	}
 }
 
+func TestUpsertStockSplits_PreservesKnowledgeTime(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	split := db.StockSplit{
+		InstrumentID: instID, ExDate: d(2020, 8, 31),
+		SplitFrom: "1", SplitTo: "4", DataProvider: "massive",
+	}
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{split}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	past := backdate(t, p,
+		`UPDATE stock_splits SET first_known_at = $1 WHERE instrument_id = $2`, instID)
+
+	// The provider revises the ratio. When we first learned of the split does
+	// not change just because the ratio did -- ProcessOptionSplits compares it
+	// against instruments.identified_at.
+	split.SplitTo = "5"
+	split.DataProvider = "eodhd"
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{split}); err != nil {
+		t.Fatalf("re-upsert: %v", err)
+	}
+
+	got, err := p.ListStockSplits(ctx, instID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 split, got %d", len(got))
+	}
+	if got[0].SplitTo != "5" {
+		t.Errorf("ratio not revised: %q", got[0].SplitTo)
+	}
+	if !got[0].FirstKnownAt.Equal(past) {
+		t.Errorf("knowledge time moved on revision: want %s, got %s", past, got[0].FirstKnownAt)
+	}
+}
+
+// A supplied knowledge time is honoured on insert, and on conflict it only
+// moves backwards. This is what makes an export/import round trip lossless:
+// re-importing a split we learned of years ago must not restamp it with the
+// import time, which would make every option look identified-before-we-knew.
+func TestUpsertStockSplits_KnowledgeTimeOnlyMovesBackwards(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	original := time.Date(2015, time.March, 4, 9, 30, 0, 0, time.UTC)
+	split := db.StockSplit{
+		InstrumentID: instID, ExDate: d(2020, 8, 31),
+		SplitFrom: "1", SplitTo: "4", DataProvider: "import",
+		FirstKnownAt: original,
+	}
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{split}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	got, err := p.ListStockSplits(ctx, instID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || !got[0].FirstKnownAt.Equal(original) {
+		t.Fatalf("supplied knowledge time not honoured on insert: %+v", got)
+	}
+
+	// A later stamp loses.
+	split.FirstKnownAt = time.Date(2026, time.July, 29, 0, 0, 0, 0, time.UTC)
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{split}); err != nil {
+		t.Fatalf("re-upsert later: %v", err)
+	}
+	got, _ = p.ListStockSplits(ctx, instID)
+	if !got[0].FirstKnownAt.Equal(original) {
+		t.Errorf("later stamp won: want %s, got %s", original, got[0].FirstKnownAt)
+	}
+
+	// An earlier stamp wins.
+	earlier := time.Date(2014, time.June, 9, 0, 0, 0, 0, time.UTC)
+	split.FirstKnownAt = earlier
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{split}); err != nil {
+		t.Fatalf("re-upsert earlier: %v", err)
+	}
+	got, _ = p.ListStockSplits(ctx, instID)
+	if !got[0].FirstKnownAt.Equal(earlier) {
+		t.Errorf("earlier stamp lost: want %s, got %s", earlier, got[0].FirstKnownAt)
+	}
+
+	// A zero stamp leaves the stored value alone rather than restamping now().
+	split.FirstKnownAt = time.Time{}
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{split}); err != nil {
+		t.Fatalf("re-upsert zero: %v", err)
+	}
+	got, _ = p.ListStockSplits(ctx, instID)
+	if !got[0].FirstKnownAt.Equal(earlier) {
+		t.Errorf("zero stamp overwrote stored value: want %s, got %s", earlier, got[0].FirstKnownAt)
+	}
+}
+
+func TestUpsertCashDividends_KnowledgeTimeOnlyMovesBackwards(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	original := time.Date(2015, time.March, 4, 9, 30, 0, 0, time.UTC)
+	div := db.CashDividend{
+		InstrumentID: instID, ExDate: d(2024, 2, 9),
+		Amount: "0.24", Currency: "USD", DataProvider: "import",
+		FirstKnownAt: original,
+	}
+	if err := p.UpsertCashDividends(ctx, []db.CashDividend{div}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	got, err := p.ListCashDividends(ctx, instID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || !got[0].FirstKnownAt.Equal(original) {
+		t.Fatalf("supplied knowledge time not honoured on insert: %+v", got)
+	}
+
+	div.FirstKnownAt = time.Date(2026, time.July, 29, 0, 0, 0, 0, time.UTC)
+	if err := p.UpsertCashDividends(ctx, []db.CashDividend{div}); err != nil {
+		t.Fatalf("re-upsert later: %v", err)
+	}
+	got, _ = p.ListCashDividends(ctx, instID)
+	if !got[0].FirstKnownAt.Equal(original) {
+		t.Errorf("later stamp won: want %s, got %s", original, got[0].FirstKnownAt)
+	}
+}
+
 func TestUpsertCorporateEventCoverage_MergeAdjacent(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -169,7 +299,7 @@ func TestUpsertCorporateEventCoverage_MergeAdjacent(t *testing.T) {
 		{d(2024, 1, 11), d(2024, 1, 20)},
 		{d(2024, 2, 1), d(2024, 2, 10)},
 	} {
-		if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", iv.from, iv.to); err != nil {
+		if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", iv.from, iv.to, nil); err != nil {
 			t.Fatalf("upsert coverage %v: %v", iv, err)
 		}
 	}
@@ -199,7 +329,7 @@ func TestUpsertCorporateEventCoverage_MergeOverlapping(t *testing.T) {
 		{d(2024, 1, 1), d(2024, 1, 15)},
 		{d(2024, 1, 10), d(2024, 1, 20)},
 	} {
-		if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", iv.from, iv.to); err != nil {
+		if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", iv.from, iv.to, nil); err != nil {
 			t.Fatalf("upsert: %v", err)
 		}
 	}
@@ -213,16 +343,48 @@ func TestUpsertCorporateEventCoverage_MergeOverlapping(t *testing.T) {
 	}
 }
 
+// Merging spans must not restamp the union as freshly confirmed. The fetcher
+// extends coverage by a day at a time at the trailing edge, so a span covering
+// years would otherwise claim to have been confirmed today on every cycle.
+func TestUpsertCorporateEventCoverage_MergeKeepsOldestFetchTime(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	old := time.Date(2020, time.March, 1, 12, 0, 0, 0, time.UTC)
+	if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", d(2015, 1, 1), d(2020, 2, 29), &old); err != nil {
+		t.Fatalf("upsert historical span: %v", err)
+	}
+	// A fresh trailing-edge fetch that abuts the historical span.
+	if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", d(2020, 3, 1), d(2020, 3, 1), nil); err != nil {
+		t.Fatalf("upsert trailing edge: %v", err)
+	}
+
+	got, err := p.ListCorporateEventCoverage(ctx, []string{instID})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 merged interval, got %d: %+v", len(got), got)
+	}
+	if !got[0].CoveredFrom.Equal(d(2015, 1, 1)) || !got[0].CoveredTo.Equal(d(2020, 3, 1)) {
+		t.Errorf("merged interval: %+v", got[0])
+	}
+	if !got[0].LastFetchedAt.Equal(old) {
+		t.Errorf("merge restamped the union: want %s, got %s", old, got[0].LastFetchedAt)
+	}
+}
+
 func TestUpsertCorporateEventCoverage_PerPlugin(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "AAPL")
 
 	// Different plugins should not be merged together.
-	if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", d(2024, 1, 1), d(2024, 1, 31)); err != nil {
+	if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", d(2024, 1, 1), d(2024, 1, 31), nil); err != nil {
 		t.Fatalf("upsert massive: %v", err)
 	}
-	if err := p.UpsertCorporateEventCoverage(ctx, instID, "eodhd", d(2024, 1, 15), d(2024, 2, 15)); err != nil {
+	if err := p.UpsertCorporateEventCoverage(ctx, instID, "eodhd", d(2024, 1, 15), d(2024, 2, 15), nil); err != nil {
 		t.Fatalf("upsert eodhd: %v", err)
 	}
 
@@ -521,8 +683,10 @@ func TestListStockSplitsForExport_BestIdentifier(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 
+	knownAt := time.Date(2015, time.March, 4, 9, 30, 0, 0, time.UTC)
 	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
-		{InstrumentID: instID, ExDate: d(2020, 8, 31), SplitFrom: "1", SplitTo: "4", DataProvider: "test"},
+		{InstrumentID: instID, ExDate: d(2020, 8, 31), SplitFrom: "1", SplitTo: "4", DataProvider: "test",
+			FirstKnownAt: knownAt},
 	}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -545,6 +709,10 @@ func TestListStockSplitsForExport_BestIdentifier(t *testing.T) {
 	}
 	if rows[0].SplitFrom != "1" || rows[0].SplitTo != "4" {
 		t.Errorf("split: %+v", rows[0])
+	}
+	// Knowledge time must reach the wire, or a round trip restamps the split.
+	if !rows[0].FirstKnownAt.Equal(knownAt) {
+		t.Errorf("first known at: want %s, got %s", knownAt, rows[0].FirstKnownAt)
 	}
 }
 
@@ -574,7 +742,9 @@ func TestListCashDividendsForExport_RoundTrip(t *testing.T) {
 			Amount:          "0.24",
 			Currency:        "USD",
 			Frequency:       "quarterly",
+			Type:            "SC",
 			DataProvider:    "test",
+			FirstKnownAt:    time.Date(2024, time.February, 2, 8, 0, 0, 0, time.UTC),
 		},
 	}); err != nil {
 		t.Fatalf("upsert: %v", err)
@@ -602,6 +772,15 @@ func TestListCashDividendsForExport_RoundTrip(t *testing.T) {
 	}
 	if r.DeclarationDate == nil || !r.DeclarationDate.Equal(decl) {
 		t.Errorf("declaration date: %+v", r.DeclarationDate)
+	}
+	// Type distinguishes a special cash dividend from a regular one, and is
+	// what routes special dividends to unhandled events on re-import.
+	if r.Type != "SC" {
+		t.Errorf("type: want SC, got %q", r.Type)
+	}
+	want := time.Date(2024, time.February, 2, 8, 0, 0, 0, time.UTC)
+	if !r.FirstKnownAt.Equal(want) {
+		t.Errorf("first known at: want %s, got %s", want, r.FirstKnownAt)
 	}
 }
 

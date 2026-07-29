@@ -132,6 +132,9 @@ CREATE TABLE instruments (
   name         TEXT,
   exchange     TEXT NOT NULL DEFAULT '',
   underlying_id UUID REFERENCES instruments (id),
+  -- When the instrument was tradeable. Descriptive only: no query filters on
+  -- these, and no identifier plugin supplies them. Identity is resolved as
+  -- current state. See docs/spec/bitemporality.md.
   valid_from   DATE,
   valid_to     DATE,
   cik          TEXT,
@@ -164,6 +167,9 @@ CREATE INDEX idx_instruments_underlying_id ON instruments (underlying_id);
 -- domain: optional; for BROKER_DESCRIPTION = source (e.g. 'Fidelity:web:fidelity-csv'); for TICKER = exchange code when present.
 -- canonical = false only for BROKER_DESCRIPTION identifiers; canonical = true for standard identifiers.
 -- Surrogate PK so domain can be NULL (PostgreSQL PK columns are NOT NULL).
+-- Identifiers carry no validity interval by design: the triple is unique for all
+-- time, so ticker reuse is not representable and a merge deletes the loser
+-- rather than closing its interval. See docs/adr/0004-instrument-resolution-and-merge.md.
 CREATE TABLE instrument_identifiers (
   id              UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   instrument_id   UUID NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,

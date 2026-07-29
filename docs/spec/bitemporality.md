@@ -39,7 +39,7 @@ clock every read API means by "as of".
 | `stock_splits` | `ex_date` | The effective / execution date. |
 | `cash_dividends` | `ex_date`, `pay_date`, `record_date`, `declaration_date` | Four distinct points in the dividend's life. `declaration_date` is when the issuer announced it -- the world's knowledge time, but PortfolioDB's valid time, because what we know is that the announcement happened on that date. |
 | `holding_declarations` | `as_of_date` | The date the user's declaration refers to. |
-| `instruments` | `valid_from`, `valid_to`, `expiry` | When the instrument was tradeable. |
+| `instruments` | `valid_from`, `valid_to`, `expiry` | When the instrument was tradeable. Descriptive only for `valid_from` / `valid_to` -- see [Instrument identity](#instrument-identity) below. |
 | `corporate_event_coverage` | `covered_from`, `covered_to` | The valid-time interval a plugin was asked about. |
 | `inflation_indices` | `month` | The month the index value describes. |
 | `ingestion_jobs` | `period_from`, `period_to` | The valid-time window a bulk upload replaces. |
@@ -47,6 +47,17 @@ clock every read API means by "as of".
 
 Date ranges are half-open `[from, to)` with midnight-UTC values, matching
 PostgreSQL's `daterange` default (see adr/0007-calendar-day-valuation.md).
+
+### Instrument identity
+
+Instrument identity is the deliberate exception: it is current state, not a
+time-varying fact. `instrument_identifiers` carries no validity interval, so an
+identifier resolves to whichever instrument holds it now rather than to the one
+that held it on the transaction's date, and ticker reuse is not representable.
+`instruments.valid_from` and `valid_to` describe when the instrument was
+tradeable and no query filters on them. A merge deletes the loser outright,
+leaving no record of what was believed before
+(see adr/0004-instrument-resolution-and-merge.md).
 
 ## Knowledge time
 
@@ -121,9 +132,10 @@ basis to today's. See [corporate-events.md](corporate-events.md#adjustment).
 
 ## Rules
 
-1. **Every stored fact records its valid time.** Knowledge time is recorded
-   wherever the source can revise the fact, except for inflation index values
-   (see [Knowledge time](#knowledge-time)).
+1. **Every stored fact records its valid time**, except instrument identity,
+   which is current state (see [Instrument identity](#instrument-identity)).
+   Knowledge time is recorded wherever the source can revise the fact, except
+   for inflation index values (see [Knowledge time](#knowledge-time)).
 2. **A knowledge-time column is named for what it means** -- `first_known_at` or
    `last_fetched_at`, never the ambiguous `fetched_at`. A `first_known_at` never
    moves forward: revising the fact leaves it alone, and on conflict it takes
@@ -164,7 +176,7 @@ passed. It is normal, not exceptional.
 | A split arrives for an option's underlying | The option's OCC symbol, strike and contract terms | `ProcessOptionSplits`, gated on `first_known_at` vs `identified_at` |
 | A bulk upload replaces a period | Every transaction in that broker and period | Holdings and valuation follow from the transaction set; nothing is materialised |
 | A transaction earlier than the current earliest arrives, or history between the start date and a declaration changes | The derived INITIALIZE transaction | See [fixed-point.md](fixed-point.md) |
-| Instrument identity changes or two instruments merge | Which transactions roll up to which instrument | Holdings and valuation follow; see [identifiers.md](identifiers.md) |
+| Instrument identity changes or two instruments merge | Which transactions roll up to which instrument | Holdings and valuation follow; the prior identity is not retained -- see [identifiers.md](identifiers.md) |
 
 Restatement of a user-visible quantity should be surfaced rather than applied
 silently -- see [fixed-point.md](fixed-point.md), which sets the same requirement
@@ -177,7 +189,6 @@ The model above is normative. These parts of the system do not yet comply:
 | Divergence | Issue |
 | --- | --- |
 | No daily scheduler fires the blanket recompute, so a stored future-dated split never activates when its `ex_date` crosses | 0050 |
-| Instrument identity has no valid-time dimension: `instruments.valid_from` / `valid_to` are never queried, `instrument_identifiers` cannot express ticker reuse, and a merge leaves no record of what was believed before | 0053 |
 | There is no knowledge-time as-of query, so a past valuation cannot be reproduced | 0054 |
 | `identified_at` is bumped by every `EnsureInstrument` call, not only by split-aware re-identification, which can disarm the retroactive option-split guard | 0055 |
 | Date intervals are half-open in some API messages and closed in others | 0056 |

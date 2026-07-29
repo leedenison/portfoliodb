@@ -85,6 +85,8 @@ PortfolioDB should periodically attempt to identify instruments in case datasour
 
 Re-identification and merge change shared reference data retroactively: which instrument a historical transaction rolls up to can differ from what it was last month, and holdings computed then may not reproduce. See [bitemporality.md](bitemporality.md#retroactive-restatement).
 
+**Identity is current state.** Identifiers carry no validity interval, so the (identifier_type, domain, value) triple is unique for all time and a reused ticker or CUSIP is not representable: resolution answers "which instrument holds this identifier now", never "which instrument held it on the transaction's date". `instruments.valid_from` and `valid_to` record when the instrument was tradeable and no query filters on them. A merge deletes the loser -- its canonical fields, and the prices, splits, dividends and coverage rows that cascade from it, are gone, and nothing records what was believed before. Those cascaded rows derive from external sources and return on re-fetch. See adr/0004-instrument-resolution-and-merge.md.
+
 ### User override
 
 A user may believe the system has mis-identified an instrument. It should be possible for a user to override the identity for their portfolio. They do this by ensuring that the client provides an external identifier hint for the transactions they want to override.  This will then be looked up directly rather than using identifiers extracted from the description.  Admin users can correct shared instrument identities in the admin UI.

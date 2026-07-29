@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Give instrument identity a time dimension
 ---
 
@@ -19,14 +19,38 @@ nothing records what was believed before:
   transaction with no audit trail, so holdings computed last month may not
   reproduce.
 
-## Design
+## Resolution
 
-- Query `valid_from` / `valid_to` during resolution so an identifier resolves to
-  the instrument that held it at the transaction's date, not merely to whatever
-  holds it now.
-- Give `instrument_identifiers` a validity interval so ticker reuse is
-  representable.
-- Record merges rather than deleting the loser outright.
+Closed without giving identity a time dimension. An identifier resolves to
+whichever instrument holds it now, and a merge still deletes the loser.
 
-See adr/0004-instrument-resolution-and-merge.md and
-docs/spec/bitemporality.md.
+Nothing supplies the valid time the design would query. No identifier plugin
+returns `valid_from` or `valid_to`; they are set only through the admin
+`ImportInstruments` payload and are NULL for every instrument the system
+resolves for itself. Filtering resolution on them would filter on nothing.
+
+The cost lands on the resolution path, which is the hottest code in ingestion. A
+validity interval on `instrument_identifiers` means replacing the four
+uniqueness indexes with a GiST exclusion constraint and a new `btree_gist`
+dependency, teaching the trigger that denormalises `instruments.name` to pick a
+vintage, adding an as-of argument to every identifier lookup and to
+`EnsureInstrument`, and adding the date to both batch resolution caches -- plus
+proto, import/export and admin UI. That is the whole path, for data no source
+provides.
+
+Nothing reads the history a merge record would keep. Holdings and valuation
+follow from the current instrument set and no API reports what an instrument
+used to be. The one consumer is 0054, deferred for the same reason in
+adr/0016-bitemporal-time-model.md.
+
+Merge stays lossy, and that is accepted: transactions and identifiers move to
+the survivor, but the loser's canonical fields and its cascaded prices, splits,
+dividends and coverage rows are deleted. Those derive from external sources and
+are recoverable by re-fetch.
+
+The knowledge-time defect on identity that does matter is tracked separately in
+0055: `identified_at` is bumped by every `EnsureInstrument` call, which can
+disarm the retroactive option-split guard.
+
+The reasoning is recorded in adr/0004-instrument-resolution-and-merge.md and the
+resulting behaviour in spec/identifiers.md and spec/bitemporality.md.

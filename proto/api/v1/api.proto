@@ -105,12 +105,10 @@ message Instrument {
   string name = 5;
   repeated InstrumentIdentifier identifiers = 6;
   string underlying_id = 7;   // UUID of underlying instrument when this is a derivative (OPTION/FUTURE).
-  // When the instrument was available to trade (optional). Deliberately outside
-  // the half-open [from, before) rule the rest of this API follows: providers
-  // supply valid_to as a last trading date, inclusive, and no query filters on
-  // either bound. See docs/spec/bitemporality.md.
-  google.protobuf.Timestamp valid_from = 8;
-  google.protobuf.Timestamp valid_to = 9;    // When the instrument ceased to be available (optional), inclusive.
+  // The half-open [valid_from, valid_before) interval the instrument was
+  // available to trade in. Both optional; an unset bound is open-ended.
+  google.protobuf.Timestamp valid_from = 8;   // inclusive
+  google.protobuf.Timestamp valid_before = 9; // exclusive: when it ceased to be available
   Instrument underlying = 10; // Populated in ListTxs/GetHoldings so clients need not fetch separately.
   Exchange exchange_info = 11; // Rich exchange data from exchanges table JOIN; populated when exchange_mic is set.
   string cik = 12;            // SEC Central Index Key (optional).

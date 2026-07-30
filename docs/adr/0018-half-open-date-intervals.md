@@ -21,11 +21,6 @@ and corporate-event provider plugins, the GOOGLEFINANCE formula builder, and the
 broker URL templates in the extension. Each converts on the last line before the
 outbound call and carries a comment naming the provider's convention.
 
-`instruments.valid_from` / `valid_to` are a deliberate exemption. Providers
-supply `valid_to` as an inclusive last trading date, no query filters on either
-bound, and restating them half-open would mean adding a day at every identity
-plugin boundary to no one's benefit.
-
 Human-facing UI keeps inclusive date pickers. The exclusive bound exists so
 machine intervals compose, not so users do arithmetic; the client converts once,
 at the request boundary.

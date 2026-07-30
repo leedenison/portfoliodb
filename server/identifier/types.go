@@ -26,9 +26,10 @@ type Instrument struct {
 	// Provider-specific identifiers returned by identifier plugins.
 	ProviderIdentifiers []ProviderIdentifier
 
-	// Optional: when the instrument was available to trade on the exchange.
-	ValidFrom *time.Time
-	ValidTo   *time.Time
+	// Optional: the half-open [ValidFrom, ValidBefore) interval the instrument
+	// was available to trade on the exchange in. No plugin supplies these yet.
+	ValidFrom   *time.Time
+	ValidBefore *time.Time
 }
 
 // Identifier is an opaque (type, domain, value) for an instrument (e.g. CUSIP, ISIN, MIC_TICKER+MIC, broker description).

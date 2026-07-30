@@ -225,7 +225,7 @@ type instrumentRow struct {
 	Exchange            string     `db:"exchange"`
 	UnderlyingID        *string    `db:"underlying_id"`
 	ValidFrom           *time.Time `db:"valid_from"`
-	ValidTo             *time.Time `db:"valid_to"`
+	ValidBefore         *time.Time `db:"valid_before"`
 	CIK                 *string    `db:"cik"`
 	SICCode             *string    `db:"sic_code"`
 	Strike              *float64   `db:"strike"`
@@ -248,7 +248,7 @@ func (r *instrumentRow) toDBRow() *db.InstrumentRow {
 		Exchange:            r.Exchange,
 		UnderlyingID:        r.UnderlyingID,
 		ValidFrom:           r.ValidFrom,
-		ValidTo:             r.ValidTo,
+		ValidBefore:         r.ValidBefore,
 		CIK:                 r.CIK,
 		SICCode:             r.SICCode,
 		Strike:              r.Strike,
@@ -288,29 +288,29 @@ func (r *holdingRow) toProto() *apiv1.Holding {
 
 // txRow is the sqlx-scannable shape for transaction rows.
 type txRow struct {
-	Broker               string   `db:"broker"`
-	Account              string   `db:"account"`
-	Timestamp            time.Time `db:"timestamp"`
-	InstDesc             string   `db:"instrument_description"`
-	TxType               string   `db:"tx_type"`
-	Quantity             float64  `db:"quantity"`
-	SplitAdjQty          float64  `db:"split_adjusted_quantity"`
-	TradingCcy           *string  `db:"trading_currency"`
-	SettleCcy            *string  `db:"settlement_currency"`
-	UnitPrice            *float64 `db:"unit_price"`
-	SplitAdjUnitPrice    *float64 `db:"split_adjusted_unit_price"`
-	InstID               *string  `db:"instrument_id"`
-	SyntheticPurpose     *string  `db:"synthetic_purpose"`
+	Broker            string    `db:"broker"`
+	Account           string    `db:"account"`
+	Timestamp         time.Time `db:"timestamp"`
+	InstDesc          string    `db:"instrument_description"`
+	TxType            string    `db:"tx_type"`
+	Quantity          float64   `db:"quantity"`
+	SplitAdjQty       float64   `db:"split_adjusted_quantity"`
+	TradingCcy        *string   `db:"trading_currency"`
+	SettleCcy         *string   `db:"settlement_currency"`
+	UnitPrice         *float64  `db:"unit_price"`
+	SplitAdjUnitPrice *float64  `db:"split_adjusted_unit_price"`
+	InstID            *string   `db:"instrument_id"`
+	SyntheticPurpose  *string   `db:"synthetic_purpose"`
 }
 
 func (r *txRow) toProto() *apiv1.PortfolioTx {
 	tx := &apiv1.Tx{
-		Timestamp:              timeToTs(r.Timestamp),
-		InstrumentDescription:  r.InstDesc,
-		Type:                   strToTxType(r.TxType),
-		Quantity:               r.Quantity,
-		SplitAdjustedQuantity:  r.SplitAdjQty,
-		Account:                r.Account,
+		Timestamp:             timeToTs(r.Timestamp),
+		InstrumentDescription: r.InstDesc,
+		Type:                  strToTxType(r.TxType),
+		Quantity:              r.Quantity,
+		SplitAdjustedQuantity: r.SplitAdjQty,
+		Account:               r.Account,
 	}
 	if r.TradingCcy != nil {
 		tx.TradingCurrency = *r.TradingCcy

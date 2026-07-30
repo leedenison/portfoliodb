@@ -216,11 +216,12 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 		t.Errorf("SICCode = %v, want %q", uRow.SICCode, "3571")
 	}
 	validFrom := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	validTo := time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC)
+	// Exclusive, so the option's last tradeable day is 17 January.
+	validBefore := time.Date(2025, 1, 18, 0, 0, 0, 0, time.UTC)
 	// Create option with underlying_id and valid dates (empty exchange -- SMART is not a MIC).
 	optionID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL Call", "", "", []db.IdentifierInput{
 		{Type: "IBKR", Value: "AAPL 20250117C200", Canonical: false},
-	}, underlyingID, &validFrom, &validTo, &db.OptionFields{Strike: 230, Expiry: time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), PutCall: "C"})
+	}, underlyingID, &validFrom, &validBefore, &db.OptionFields{Strike: 230, Expiry: time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), PutCall: "C"})
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}
@@ -234,8 +235,8 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 	if row.ValidFrom == nil || !row.ValidFrom.Equal(validFrom) {
 		t.Errorf("ValidFrom = %v, want %v", row.ValidFrom, validFrom)
 	}
-	if row.ValidTo == nil || !row.ValidTo.Equal(validTo) {
-		t.Errorf("ValidTo = %v, want %v", row.ValidTo, validTo)
+	if row.ValidBefore == nil || !row.ValidBefore.Equal(validBefore) {
+		t.Errorf("ValidBefore = %v, want %v", row.ValidBefore, validBefore)
 	}
 	// ListInstrumentsByIDs returns the option with same fields.
 	rows, err := p.ListInstrumentsByIDs(ctx, []string{optionID})

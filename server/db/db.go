@@ -66,7 +66,7 @@ type PriceFetchBlockDB interface {
 
 // DateRange is a half-open [From, Before) date range. Both values are midnight
 // UTC. Every date interval in this codebase is half-open and names its
-// exclusive bound Before; see docs/adr/0007-calendar-day-valuation.md.
+// exclusive bound Before; see docs/adr/0018-half-open-date-intervals.md.
 type DateRange struct {
 	From   time.Time // inclusive
 	Before time.Time // exclusive

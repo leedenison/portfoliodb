@@ -10,7 +10,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// GetPortfolioValuation returns daily portfolio values over a date range.
+// GetPortfolioValuation returns daily portfolio values over the half-open
+// [date_from, date_before) range. An empty range returns no points.
 func (s *Server) GetPortfolioValuation(ctx context.Context, req *apiv1.GetPortfolioValuationRequest) (*apiv1.GetPortfolioValuationResponse, error) {
 	u, authErr := auth.RequireUser(ctx)
 	if authErr != nil {
@@ -18,9 +19,9 @@ func (s *Server) GetPortfolioValuation(ctx context.Context, req *apiv1.GetPortfo
 	}
 
 	dateFrom := dateToTime(req.GetDateFrom())
-	dateTo := dateToTime(req.GetDateTo())
-	if dateTo.Before(dateFrom) {
-		return nil, status.Error(codes.InvalidArgument, "date_to must not be before date_from")
+	dateBefore := dateToTime(req.GetDateBefore())
+	if dateBefore.Before(dateFrom) {
+		return nil, status.Error(codes.InvalidArgument, "date_before must not be before date_from")
 	}
 
 	displayCurrency := req.GetDisplayCurrency()
@@ -41,13 +42,13 @@ func (s *Server) GetPortfolioValuation(ctx context.Context, req *apiv1.GetPortfo
 		if !ok {
 			return nil, status.Error(codes.NotFound, "portfolio not found")
 		}
-		points, err = s.db.GetPortfolioValuation(ctx, req.GetPortfolioId(), dateFrom, dateTo, displayCurrency)
+		points, err = s.db.GetPortfolioValuation(ctx, req.GetPortfolioId(), dateFrom, dateBefore, displayCurrency)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 	} else {
 		var err error
-		points, err = s.db.GetUserValuation(ctx, u.ID, dateFrom, dateTo, displayCurrency)
+		points, err = s.db.GetUserValuation(ctx, u.ID, dateFrom, dateBefore, displayCurrency)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}

@@ -233,8 +233,8 @@ type ValuationPoint struct {
 // displayCurrency is an ISO 4217 code (e.g. "USD"). When empty, the caller
 // should resolve it from the user's stored preference before calling.
 type ValuationDB interface {
-	GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateTo time.Time, displayCurrency string) ([]ValuationPoint, error)
-	GetUserValuation(ctx context.Context, userID string, dateFrom, dateTo time.Time, displayCurrency string) ([]ValuationPoint, error)
+	GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateBefore time.Time, displayCurrency string) ([]ValuationPoint, error)
+	GetUserValuation(ctx context.Context, userID string, dateFrom, dateBefore time.Time, displayCurrency string) ([]ValuationPoint, error)
 }
 
 // JobRow is a job summary for list views.

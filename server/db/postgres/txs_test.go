@@ -228,6 +228,43 @@ func TestListTxs_BrokerFilterAndOrder(t *testing.T) {
 	}
 }
 
+func TestListTxs_PeriodBeforeIsExclusive(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|period", "U", "u@period.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "PER", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	brokerStr, err := brokerToStr(apiv1.Broker_IBKR)
+	if err != nil {
+		t.Fatalf("broker to str: %v", err)
+	}
+	boundary := time.Date(2025, 3, 10, 0, 0, 0, 0, time.UTC)
+	// Quantity doubles as an identity marker.
+	for _, seed := range []struct {
+		at  time.Time
+		qty float64
+	}{
+		{boundary.Add(-time.Second), 1},
+		{boundary, 2},
+	} {
+		tx := &apiv1.Tx{Timestamp: timestamppb.New(seed.at), InstrumentDescription: "PER", Type: apiv1.TxType_BUYSTOCK, Quantity: seed.qty}
+		if err := p.CreateTx(ctx, userID, brokerStr, "", tx, instID, nil); err != nil {
+			t.Fatalf("create tx: %v", err)
+		}
+	}
+
+	// A tx exactly on periodBefore is out; the instant before it is in.
+	rows, _, err := p.ListTxs(ctx, userID, nil, "", nil, timestamppb.New(boundary), false, 50, "")
+	if err != nil {
+		t.Fatalf("list txs: %v", err)
+	}
+	if len(rows) != 1 || rows[0].GetTx().GetQuantity() != 1 {
+		t.Fatalf("want only the tx before the boundary, got %d rows", len(rows))
+	}
+}
+
 // Rows sharing a timestamp must not be skipped or repeated across a page
 // boundary. Ordering by timestamp alone is not a total order, so the id
 // tiebreaker is what makes offset paging stable.

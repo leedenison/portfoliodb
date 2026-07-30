@@ -375,8 +375,9 @@ message PortfolioTx {
 
 message ListTxsRequest {
   string portfolio_id = 1;  // if set, list txs in this portfolio view; otherwise all user transactions
-  google.protobuf.Timestamp period_from = 2;
-  google.protobuf.Timestamp period_to = 3;
+  // Half-open [period_from, period_before); unset bounds are open-ended.
+  google.protobuf.Timestamp period_from = 2;   // inclusive
+  google.protobuf.Timestamp period_before = 3; // exclusive
   int32 page_size = 4;
   string page_token = 5;
   // Restrict to one broker. BROKER_UNSPECIFIED = all brokers. Applies to both

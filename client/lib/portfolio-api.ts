@@ -258,7 +258,8 @@ export async function getHoldings(params?: GetHoldingsParams): Promise<GetHoldin
 export interface ListTxsParams {
   portfolioId?: string;
   periodFrom?: Date | null;
-  periodTo?: Date | null;
+  /** Exclusive: the first instant NOT wanted. */
+  periodBefore?: Date | null;
   pageToken?: string | null;
   /** Restrict to one broker. Omit for all brokers. */
   broker?: Broker;
@@ -276,7 +277,8 @@ export async function listTxs(params?: ListTxsParams): Promise<ListTxsResult> {
   const req = create(ListTxsRequestSchema, {
     portfolioId: params?.portfolioId ?? "",
     periodFrom: params?.periodFrom != null ? timestampFromDate(params.periodFrom) : undefined,
-    periodTo: params?.periodTo != null ? timestampFromDate(params.periodTo) : undefined,
+    periodBefore:
+      params?.periodBefore != null ? timestampFromDate(params.periodBefore) : undefined,
     pageSize: PAGE_SIZE,
     pageToken: params?.pageToken ?? "",
     broker: params?.broker,

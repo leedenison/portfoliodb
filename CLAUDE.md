@@ -61,7 +61,21 @@ Prefer smaller, focused PRs to reduce review burden:
 
 Smaller PRs are easier to review, less likely to introduce bugs, and create cleaner git history.
 
-When merging PRs always squash the commits and remove the feature branch.
+### Merging
+
+Always squash: `gh pr merge <n> --squash`. **Never pass `--delete-branch`.** The
+repository has `delete_branch_on_merge` enabled, so the branch is removed as part
+of the merge, and that merge-linked deletion is what retargets any PR based on
+the branch. An explicit ref deletion is a plain branch deletion instead, which
+**closes** dependent PRs rather than retargeting them.
+
+Merge a stack parent first, one at a time, and let each merge retarget the next.
+
+CI runs on `pull_request` against `main`, and a retarget is an `edited` event the
+workflow does not listen for. So when a merge retargets the next PR in the stack
+and it needs no conflict resolution, its required checks will not have run --
+push to the branch to start them. When the retarget does leave conflicts,
+resolving them produces a push and CI runs on its own.
 
 ### Branching Workflow
 

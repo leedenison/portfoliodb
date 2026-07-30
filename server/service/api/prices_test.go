@@ -95,14 +95,14 @@ func TestListPrices_DefaultPageSize(t *testing.T) {
 func TestListPrices_DateParsing(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	to := time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC)
 	db.EXPECT().
-		ListPrices(gomock.Any(), "", from, to, "", int32(30), "").
+		ListPrices(gomock.Any(), "", from, before, "", int32(30), "").
 		Return(nil, int32(0), "", nil)
 	ctx := adminCtx("user-1", "sub|1")
 	_, err := srv.ListPrices(ctx, &apiv1.ListPricesRequest{
-		DateFrom: &date.Date{Year: 2024, Month: 1, Day: 1},
-		DateTo:   &date.Date{Year: 2024, Month: 1, Day: 31},
+		DateFrom:   &date.Date{Year: 2024, Month: 1, Day: 1},
+		DateBefore: &date.Date{Year: 2024, Month: 1, Day: 31},
 	})
 	if err != nil {
 		t.Fatalf("ListPrices: %v", err)

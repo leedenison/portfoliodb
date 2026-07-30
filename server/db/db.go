@@ -374,9 +374,10 @@ type ExportPriceRow struct {
 
 // EODPriceListDB provides paginated listing of EOD prices for admin UI.
 type EODPriceListDB interface {
-	// ListPrices returns EOD prices with optional search, date range, and provider filters.
-	// Returns (rows, totalCount, nextPageToken, error).
-	ListPrices(ctx context.Context, search string, dateFrom, dateTo time.Time,
+	// ListPrices returns EOD prices with optional search, half-open
+	// [dateFrom, dateBefore) date range, and provider filters. A zero bound is
+	// open-ended. Returns (rows, totalCount, nextPageToken, error).
+	ListPrices(ctx context.Context, search string, dateFrom, dateBefore time.Time,
 		dataProvider string, pageSize int32, pageToken string) ([]EODPriceRow, int32, string, error)
 	// ListPricesForExport returns all EOD prices with the best identifier per instrument.
 	// Instruments with no identifiers are excluded.
@@ -664,9 +665,10 @@ type InflationIndexDB interface {
 	// On conflict (currency, month), overwrites with new data.
 	UpsertInflationIndices(ctx context.Context, indices []InflationIndex) error
 	// ListInflationIndices returns inflation data for admin UI listing with pagination.
-	// currency is an optional filter (empty = all). dateFrom/dateTo are optional date range filters.
-	// Returns (rows, nextPageToken, totalCount, error).
-	ListInflationIndices(ctx context.Context, currency string, dateFrom, dateTo *time.Time, pageSize int, pageToken string) ([]InflationIndex, string, int, error)
+	// currency is an optional filter (empty = all); the half-open
+	// [dateFrom, dateBefore) range filters on month, and a nil bound is
+	// open-ended. Returns (rows, nextPageToken, totalCount, error).
+	ListInflationIndices(ctx context.Context, currency string, dateFrom, dateBefore *time.Time, pageSize int, pageToken string) ([]InflationIndex, string, int, error)
 }
 
 // IgnoredAssetClassDB manages per-broker/account asset class ignore rules.

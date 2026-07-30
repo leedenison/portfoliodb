@@ -667,8 +667,9 @@ message EODPriceProto {
 
 message ListPricesRequest {
   string search = 1;                     // instrument name/ticker substring
+  // Half-open [date_from, date_before); unset bounds are open-ended.
   google.type.Date date_from = 2;        // inclusive
-  google.type.Date date_to = 3;          // inclusive
+  google.type.Date date_before = 3;      // exclusive
   string data_provider = 4;
   int32 page_size = 5;
   string page_token = 6;
@@ -930,8 +931,10 @@ message InflationIndexProto {
 
 message ListInflationIndicesRequest {
   string currency = 1;                   // optional filter
-  google.type.Date date_from = 2;
-  google.type.Date date_to = 3;
+  // Half-open [date_from, date_before) over InflationIndexProto.month; unset
+  // bounds are open-ended.
+  google.type.Date date_from = 2;        // inclusive
+  google.type.Date date_before = 3;      // exclusive
   int32 page_size = 4;
   string page_token = 5;
 }

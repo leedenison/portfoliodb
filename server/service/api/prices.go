@@ -28,9 +28,9 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 	}
 
 	dateFrom := dateToTime(req.GetDateFrom())
-	dateTo := dateToTime(req.GetDateTo())
+	dateBefore := dateToTime(req.GetDateBefore())
 
-	rows, totalCount, nextToken, err := s.db.ListPrices(ctx, req.GetSearch(), dateFrom, dateTo, req.GetDataProvider(), pageSize, req.GetPageToken())
+	rows, totalCount, nextToken, err := s.db.ListPrices(ctx, req.GetSearch(), dateFrom, dateBefore, req.GetDataProvider(), pageSize, req.GetPageToken())
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

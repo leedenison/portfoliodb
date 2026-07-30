@@ -131,6 +131,27 @@ func TestListPrices_DateRange(t *testing.T) {
 	}
 }
 
+func TestListPrices_DateRangeExcludesBefore(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "MSFT")
+
+	insertPriceWithProvider(t, p, instID, d(2024, 1, 19), 100, "test")
+	insertPriceWithProvider(t, p, instID, d(2024, 1, 20), 110, "test")
+
+	// The upper bound is exclusive: a row on it is out, the day before is in.
+	rows, total, _, err := p.ListPrices(ctx, "", d(2024, 1, 1), d(2024, 1, 20), "", 30, "")
+	if err != nil {
+		t.Fatalf("list prices: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected total=1, got %d", total)
+	}
+	if len(rows) != 1 || !rows[0].PriceDate.Equal(d(2024, 1, 19)) {
+		t.Fatalf("expected row for 2024-01-19, got %v", rows)
+	}
+}
+
 func TestListPrices_DataProviderFilter(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

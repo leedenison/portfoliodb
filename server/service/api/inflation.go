@@ -24,9 +24,9 @@ func (s *Server) ListInflationIndices(ctx context.Context, req *apiv1.ListInflat
 	}
 
 	dateFrom := dateToTimePtr(req.GetDateFrom())
-	dateTo := dateToTimePtr(req.GetDateTo())
+	dateBefore := dateToTimePtr(req.GetDateBefore())
 
-	rows, nextToken, totalCount, err := s.db.ListInflationIndices(ctx, req.GetCurrency(), dateFrom, dateTo, pageSize, req.GetPageToken())
+	rows, nextToken, totalCount, err := s.db.ListInflationIndices(ctx, req.GetCurrency(), dateFrom, dateBefore, pageSize, req.GetPageToken())
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

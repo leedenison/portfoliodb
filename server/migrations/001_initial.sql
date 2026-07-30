@@ -435,13 +435,13 @@ CREATE INDEX idx_cash_dividends_instrument ON cash_dividends (instrument_id);
 -- This table records, per (instrument, plugin), the date intervals for which
 -- the plugin has been queried successfully (including queries that returned
 -- empty results -- those are still authoritative coverage).
--- Adjacent or overlapping intervals for the same (instrument, plugin) are
--- merged on insert.
+-- The interval is half-open [covered_from, covered_before). Adjacent or
+-- overlapping intervals for the same (instrument, plugin) are merged on insert.
 CREATE TABLE corporate_event_coverage (
   instrument_id  UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
   plugin_id      TEXT        NOT NULL,
   covered_from   DATE        NOT NULL,
-  covered_to     DATE        NOT NULL CHECK (covered_to >= covered_from),
+  covered_before DATE        NOT NULL CHECK (covered_before > covered_from),
   -- Staleness only: when this span was last confirmed. A merged span keeps the
   -- oldest constituent value, since a union is only as freshly confirmed as its
   -- stalest part.

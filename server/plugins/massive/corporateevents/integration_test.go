@@ -39,7 +39,7 @@ func TestIntegration_Massive_FetchEvents(t *testing.T) {
 		ids          []corporateevents.Identifier
 		assetClass   string
 		from         time.Time
-		to           time.Time
+		before       time.Time
 		wantSplits   int
 		wantDividend bool
 	}{
@@ -49,7 +49,7 @@ func TestIntegration_Massive_FetchEvents(t *testing.T) {
 			ids:          []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 			assetClass:   db.AssetClassStock,
 			from:         time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC),
-			to:           time.Date(2025, 11, 30, 0, 0, 0, 0, time.UTC),
+			before:       time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC),
 			wantDividend: true,
 		},
 		{
@@ -64,7 +64,7 @@ func TestIntegration_Massive_FetchEvents(t *testing.T) {
 			ids:          []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 			assetClass:   db.AssetClassStock,
 			from:         time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC),
-			to:           time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+			before:       time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
 			wantSplits:   0,
 			wantDividend: true,
 		},
@@ -78,7 +78,7 @@ func TestIntegration_Massive_FetchEvents(t *testing.T) {
 			ids:        []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "NFLX"}},
 			assetClass: db.AssetClassStock,
 			from:       time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC),
-			to:         time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+			before:     time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
 			wantSplits: 1,
 		},
 	}
@@ -108,7 +108,7 @@ func TestIntegration_Massive_FetchEvents(t *testing.T) {
 				t.Fatalf("marshal config: %v", err)
 			}
 
-			got, err := p.FetchEvents(context.Background(), cfg, tc.ids, tc.assetClass, tc.from, tc.to)
+			got, err := p.FetchEvents(context.Background(), cfg, tc.ids, tc.assetClass, tc.from, tc.before)
 			if err != nil {
 				t.Fatalf("FetchEvents: %v", err)
 			}

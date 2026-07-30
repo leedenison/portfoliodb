@@ -18,40 +18,53 @@ func d(year int, month time.Month, day int) time.Time {
 func strPtr(s string) *string { return &s }
 
 func TestComputeMissingIntervals_NoCoverage(t *testing.T) {
-	gaps := computeMissingIntervals(d(2024, 1, 1), d(2024, 1, 31), nil)
+	gaps := computeMissingIntervals(d(2024, 1, 1), d(2024, 2, 1), nil)
 	if len(gaps) != 1 {
 		t.Fatalf("expected 1 gap, got %d", len(gaps))
 	}
-	if !gaps[0].From.Equal(d(2024, 1, 1)) || !gaps[0].Before.Equal(d(2024, 1, 31)) {
+	if !gaps[0].From.Equal(d(2024, 1, 1)) || !gaps[0].Before.Equal(d(2024, 2, 1)) {
 		t.Errorf("unexpected gap: %+v", gaps[0])
 	}
 }
 
 func TestComputeMissingIntervals_FullyCovered(t *testing.T) {
 	cov := []db.CorporateEventCoverage{
-		{CoveredFrom: d(2024, 1, 1), CoveredTo: d(2024, 1, 31)},
+		{CoveredFrom: d(2024, 1, 1), CoveredBefore: d(2024, 2, 1)},
 	}
-	gaps := computeMissingIntervals(d(2024, 1, 1), d(2024, 1, 31), cov)
+	gaps := computeMissingIntervals(d(2024, 1, 1), d(2024, 2, 1), cov)
 	if len(gaps) != 0 {
 		t.Fatalf("expected 0 gaps, got %+v", gaps)
 	}
 }
 
 func TestComputeMissingIntervals_PartialCoverage(t *testing.T) {
-	// Required: Jan 1 .. Jan 31. Covered: Jan 5 .. Jan 10. Expect two gaps:
-	// [Jan 1, Jan 4] and [Jan 11, Jan 31].
+	// Required: [Jan 1, Feb 1). Covered: [Jan 5, Jan 11). Expect two gaps:
+	// [Jan 1, Jan 5) and [Jan 11, Feb 1).
 	cov := []db.CorporateEventCoverage{
-		{CoveredFrom: d(2024, 1, 5), CoveredTo: d(2024, 1, 10)},
+		{CoveredFrom: d(2024, 1, 5), CoveredBefore: d(2024, 1, 11)},
 	}
-	gaps := computeMissingIntervals(d(2024, 1, 1), d(2024, 1, 31), cov)
+	gaps := computeMissingIntervals(d(2024, 1, 1), d(2024, 2, 1), cov)
 	if len(gaps) != 2 {
 		t.Fatalf("expected 2 gaps, got %+v", gaps)
 	}
-	if !gaps[0].From.Equal(d(2024, 1, 1)) || !gaps[0].Before.Equal(d(2024, 1, 4)) {
+	if !gaps[0].From.Equal(d(2024, 1, 1)) || !gaps[0].Before.Equal(d(2024, 1, 5)) {
 		t.Errorf("first gap: %+v", gaps[0])
 	}
-	if !gaps[1].From.Equal(d(2024, 1, 11)) || !gaps[1].Before.Equal(d(2024, 1, 31)) {
+	if !gaps[1].From.Equal(d(2024, 1, 11)) || !gaps[1].Before.Equal(d(2024, 2, 1)) {
 		t.Errorf("second gap: %+v", gaps[1])
+	}
+}
+
+// Coverage that abuts the required range leaves no seam: the exclusive bound of
+// one interval is the inclusive start of the next.
+func TestComputeMissingIntervals_AbuttingCoverageLeavesNoSeam(t *testing.T) {
+	cov := []db.CorporateEventCoverage{
+		{CoveredFrom: d(2024, 1, 1), CoveredBefore: d(2024, 1, 15)},
+		{CoveredFrom: d(2024, 1, 15), CoveredBefore: d(2024, 2, 1)},
+	}
+	gaps := computeMissingIntervals(d(2024, 1, 1), d(2024, 2, 1), cov)
+	if len(gaps) != 0 {
+		t.Fatalf("expected 0 gaps, got %+v", gaps)
 	}
 }
 

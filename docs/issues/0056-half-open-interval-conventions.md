@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Align date-interval conventions across the API on half-open ranges
 ---
 

@@ -310,45 +310,44 @@ func (p *Postgres) DeleteCashDividend(ctx context.Context, instrumentID string, 
 }
 
 // UpsertCorporateEventCoverage implements db.CorporateEventDB. The merge step
-// finds every existing row for (instrument, plugin) whose interval is adjacent
-// to or overlaps with [from, to], deletes them, and inserts a single row
-// spanning the union. Two intervals are adjacent when one ends the day before
-// the other begins. The whole operation runs in a single transaction so
-// concurrent inserts cannot leave partial state.
+// finds every existing row for (instrument, plugin) whose interval touches
+// [from, before), deletes them, and inserts a single row spanning the union.
+// The whole operation runs in a single transaction so concurrent inserts cannot
+// leave partial state.
 //
 // The merged row keeps the oldest constituent last_fetched_at, since the union
 // is only as freshly confirmed as its stalest part. lastFetchedAt is when the
 // supplied span was confirmed; nil means now.
-func (p *Postgres) UpsertCorporateEventCoverage(ctx context.Context, instrumentID, pluginID string, from, to time.Time, lastFetchedAt *time.Time) error {
-	if to.Before(from) {
-		return fmt.Errorf("upsert corporate event coverage: covered_to %s before covered_from %s", to, from)
+func (p *Postgres) UpsertCorporateEventCoverage(ctx context.Context, instrumentID, pluginID string, from, before time.Time, lastFetchedAt *time.Time) error {
+	if !before.After(from) {
+		return fmt.Errorf("upsert corporate event coverage: covered_before %s not after covered_from %s", before, from)
 	}
 	id, err := uuid.Parse(instrumentID)
 	if err != nil {
 		return fmt.Errorf("upsert corporate event coverage: invalid instrument id %q: %w", instrumentID, err)
 	}
 	return p.runInTx(ctx, func(exec queryable) error {
-		// Two intervals [a,b] and [c,d] are adjacent or overlap iff
-		// a <= d+1 AND c <= b+1. Find every existing row that touches
-		// [from, to] under that rule, compute the union, delete them, and
-		// insert one merged row. CTE data-modifying statements share a
-		// snapshot in PostgreSQL so DELETE and INSERT cannot see one
-		// another -- run them as separate statements inside the transaction.
+		// Half-open [a,b) and [c,d) touch or overlap iff a <= d AND c <= b, so
+		// abutting spans merge with no adjacency fudge. Find every existing row
+		// that touches [from, before), compute the union, delete them, and
+		// insert one merged row. CTE data-modifying statements share a snapshot
+		// in PostgreSQL so DELETE and INSERT cannot see one another -- run them
+		// as separate statements inside the transaction.
 		//
 		// LEAST ignores NULL, so with no touching rows the merged fetch time
 		// is just the supplied one (or now()).
-		var newFrom, newTo, newFetched time.Time
+		var newFrom, newBefore, newFetched time.Time
 		err := exec.QueryRowContext(ctx, `
 			SELECT
-				LEAST($3::date,  COALESCE(MIN(covered_from), $3::date)),
-				GREATEST($4::date, COALESCE(MAX(covered_to),   $4::date)),
+				LEAST($3::date,    COALESCE(MIN(covered_from),   $3::date)),
+				GREATEST($4::date, COALESCE(MAX(covered_before), $4::date)),
 				LEAST(COALESCE($5::timestamptz, now()), MIN(last_fetched_at))
 			FROM corporate_event_coverage
 			WHERE instrument_id = $1
 			  AND plugin_id     = $2
-			  AND covered_from <= ($4::date + 1)
-			  AND covered_to   >= ($3::date - 1)
-		`, id, pluginID, from, to, lastFetchedAt).Scan(&newFrom, &newTo, &newFetched)
+			  AND covered_from   <= $4::date
+			  AND covered_before >= $3::date
+		`, id, pluginID, from, before, lastFetchedAt).Scan(&newFrom, &newBefore, &newFetched)
 		if err != nil {
 			return fmt.Errorf("upsert corporate event coverage: compute merge: %w", err)
 		}
@@ -356,15 +355,15 @@ func (p *Postgres) UpsertCorporateEventCoverage(ctx context.Context, instrumentI
 			DELETE FROM corporate_event_coverage
 			WHERE instrument_id = $1
 			  AND plugin_id     = $2
-			  AND covered_from <= ($4::date + 1)
-			  AND covered_to   >= ($3::date - 1)
-		`, id, pluginID, from, to); err != nil {
+			  AND covered_from   <= $4::date
+			  AND covered_before >= $3::date
+		`, id, pluginID, from, before); err != nil {
 			return fmt.Errorf("upsert corporate event coverage: delete overlapping: %w", err)
 		}
 		if _, err := exec.ExecContext(ctx, `
-			INSERT INTO corporate_event_coverage (instrument_id, plugin_id, covered_from, covered_to, last_fetched_at)
+			INSERT INTO corporate_event_coverage (instrument_id, plugin_id, covered_from, covered_before, last_fetched_at)
 			VALUES ($1, $2, $3, $4, $5)
-		`, id, pluginID, newFrom, newTo, newFetched); err != nil {
+		`, id, pluginID, newFrom, newBefore, newFetched); err != nil {
 			return fmt.Errorf("upsert corporate event coverage: insert merged: %w", err)
 		}
 		return nil
@@ -379,7 +378,7 @@ func (p *Postgres) ListCorporateEventCoverage(ctx context.Context, instrumentIDs
 	)
 	if len(instrumentIDs) == 0 {
 		rows, err = p.q.QueryContext(ctx, `
-			SELECT instrument_id, plugin_id, covered_from, covered_to, last_fetched_at
+			SELECT instrument_id, plugin_id, covered_from, covered_before, last_fetched_at
 			FROM corporate_event_coverage
 			ORDER BY instrument_id, plugin_id, covered_from
 		`)
@@ -393,7 +392,7 @@ func (p *Postgres) ListCorporateEventCoverage(ctx context.Context, instrumentIDs
 			uuids = append(uuids, u)
 		}
 		rows, err = p.q.QueryContext(ctx, `
-			SELECT instrument_id, plugin_id, covered_from, covered_to, last_fetched_at
+			SELECT instrument_id, plugin_id, covered_from, covered_before, last_fetched_at
 			FROM corporate_event_coverage
 			WHERE instrument_id = ANY($1::uuid[])
 			ORDER BY instrument_id, plugin_id, covered_from
@@ -407,7 +406,7 @@ func (p *Postgres) ListCorporateEventCoverage(ctx context.Context, instrumentIDs
 	for rows.Next() {
 		var c db.CorporateEventCoverage
 		var instUUID uuid.UUID
-		if err := rows.Scan(&instUUID, &c.PluginID, &c.CoveredFrom, &c.CoveredTo, &c.LastFetchedAt); err != nil {
+		if err := rows.Scan(&instUUID, &c.PluginID, &c.CoveredFrom, &c.CoveredBefore, &c.LastFetchedAt); err != nil {
 			return nil, fmt.Errorf("list corporate event coverage scan: %w", err)
 		}
 		c.InstrumentID = instUUID.String()

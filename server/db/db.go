@@ -730,14 +730,15 @@ type CashDividend struct {
 	FirstKnownAt time.Time
 }
 
-// CorporateEventCoverage is one coverage interval for a (instrument, plugin).
-// Adjacent or overlapping intervals for the same (InstrumentID, PluginID) are
-// merged on insert by UpsertCorporateEventCoverage.
+// CorporateEventCoverage is one half-open [CoveredFrom, CoveredBefore) coverage
+// interval for a (instrument, plugin). Adjacent or overlapping intervals for the
+// same (InstrumentID, PluginID) are merged on insert by
+// UpsertCorporateEventCoverage.
 type CorporateEventCoverage struct {
 	InstrumentID  string
 	PluginID      string
 	CoveredFrom   time.Time
-	CoveredTo     time.Time
+	CoveredBefore time.Time
 	LastFetchedAt time.Time
 }
 
@@ -818,12 +819,12 @@ type CorporateEventDB interface {
 	DeleteCashDividend(ctx context.Context, instrumentID string, exDate time.Time) error
 
 	// UpsertCorporateEventCoverage records that (instrumentID, pluginID) has
-	// been queried for the closed interval [from, to]. Existing rows for the
-	// same (instrument, plugin) that are adjacent or overlap with [from, to]
-	// are merged into a single row, which keeps the oldest constituent
-	// LastFetchedAt. lastFetchedAt is when the supplied span was confirmed;
-	// nil means now.
-	UpsertCorporateEventCoverage(ctx context.Context, instrumentID, pluginID string, from, to time.Time, lastFetchedAt *time.Time) error
+	// been queried for the half-open interval [from, before), which must be
+	// non-empty. Existing rows for the same (instrument, plugin) that are
+	// adjacent or overlap with it are merged into a single row, which keeps the
+	// oldest constituent LastFetchedAt. lastFetchedAt is when the supplied span
+	// was confirmed; nil means now.
+	UpsertCorporateEventCoverage(ctx context.Context, instrumentID, pluginID string, from, before time.Time, lastFetchedAt *time.Time) error
 	// ListCorporateEventCoverage returns coverage rows for the given
 	// instruments. When instrumentIDs is empty all coverage rows are returned.
 	// Rows are sorted by (instrument_id, plugin_id, covered_from).

@@ -66,7 +66,7 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 				IdentifierDomain: "XNAS",
 				IdentifierValue:  "AAPL",
 				From:             "2014-01-01",
-				To:               "2024-12-31",
+				Before:           "2025-01-01",
 			},
 		},
 	}
@@ -134,7 +134,7 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 	// than claiming to have been confirmed at import time.
 	database.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), "inst-aapl", db.CorporateEventProviderImport,
 		time.Date(2014, 1, 1, 0, 0, 0, 0, time.UTC),
-		time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC), &exportedAt).Return(nil)
+		time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), &exportedAt).Return(nil)
 	database.EXPECT().RecomputeSplitAdjustments(gomock.Any(), "inst-aapl").Return(nil)
 	// The option pass runs once for the import, across all underlyings, and
 	// derives its own work rather than being handed this instrument's splits.
@@ -261,7 +261,7 @@ func TestProcessCorporateEventImport_RejectsBadCoverageDate(t *testing.T) {
 				IdentifierDomain: "XNAS",
 				IdentifierValue:  "AAPL",
 				From:             "2024-13-01", // invalid month
-				To:               "2024-12-31",
+				Before:           "2025-01-01",
 			},
 		},
 	}
@@ -292,6 +292,50 @@ func TestProcessCorporateEventImport_RejectsBadCoverageDate(t *testing.T) {
 	}
 	if capturedErrs[0].RowIndex != -1 {
 		t.Errorf("row index: got %d, want -1", capturedErrs[0].RowIndex)
+	}
+}
+
+// An empty coverage interval is reported per row rather than left to the DB,
+// where the error would abort the whole import.
+func TestProcessCorporateEventImport_EmptyCoverageInterval(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+
+	req := &apiv1.ImportCorporateEventsRequest{
+		Coverage: []*apiv1.ImportCorporateEventCoverage{
+			{
+				IdentifierType:   "MIC_TICKER",
+				IdentifierDomain: "XNAS",
+				IdentifierValue:  "AAPL",
+				From:             "2024-01-01",
+				Before:           "2024-01-01",
+			},
+		},
+	}
+	payload, _ := proto.Marshal(req)
+	j := &JobRequest{JobID: "job-ce-empty", JobType: db.JobTypeCorporateEvent}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-empty").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-empty").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-empty", int32(0)).Return(nil)
+
+	var capturedErrs []*apiv1.ValidationError
+	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-empty", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+			capturedErrs = errs
+			return nil
+		})
+	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-empty", apiv1.JobStatus_SUCCESS).Return(nil)
+
+	if processCorporateEventImport(context.Background(), database, registry, j) {
+		t.Error("expected persisted=false when the only coverage row was rejected")
+	}
+	if len(capturedErrs) != 1 {
+		t.Fatalf("expected 1 validation error, got %d", len(capturedErrs))
+	}
+	if capturedErrs[0].Field != "coverage.before" {
+		t.Errorf("field: got %q, want coverage.before", capturedErrs[0].Field)
 	}
 }
 

@@ -41,9 +41,9 @@ clock every read API means by "as of".
 | `holding_declarations` | `as_of_date` | The date the user's declaration refers to. |
 | `instruments` | `valid_from`, `valid_to`, `expiry` | When the instrument was tradeable. Descriptive only for `valid_from` / `valid_to` -- see [Instrument identity](#instrument-identity) below. |
 | `instruments` | `identity_as_of` | The point in market time the stored identity reflects -- see [Instrument identity](#instrument-identity) below. |
-| `corporate_event_coverage` | `covered_from`, `covered_to` | The valid-time interval a plugin was asked about. |
+| `corporate_event_coverage` | `covered_from`, `covered_before` | The valid-time interval a plugin was asked about. |
 | `inflation_indices` | `month` | The month the index value describes. |
-| `ingestion_jobs` | `period_from`, `period_to` | The valid-time window a bulk upload replaces. |
+| `ingestion_jobs` | `period_from`, `period_before` | The valid-time window a bulk upload replaces. |
 | `unhandled_corporate_events` | `ex_date` | The effective date of the event we could not handle. |
 
 Every date interval -- wire API, database column pair, or in-memory range -- is
@@ -208,6 +208,5 @@ The model above is normative. These parts of the system do not yet comply:
 | Divergence | Issue |
 | --- | --- |
 | No daily scheduler fires the blanket recompute, so a stored future-dated split never activates when its `ex_date` crosses | 0050 |
-| Date intervals are half-open in some API messages and closed in others | 0056 |
 | Holding declarations permit one assertion per holding, so a corrected declaration destroys the prior one | 0043 |
 | Corporate actions adjust totals rather than lots | 0044 |

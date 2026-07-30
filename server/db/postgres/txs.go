@@ -15,7 +15,7 @@ var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
 
 // ReplaceTxsInPeriod implements db.TxDB.
-func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error {
+func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -28,9 +28,9 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string
 		if err != nil {
 			return fmt.Errorf("period_from: %w", err)
 		}
-		toT, err := tsToTime(periodTo)
+		beforeT, err := tsToTime(periodBefore)
 		if err != nil {
-			return fmt.Errorf("period_to: %w", err)
+			return fmt.Errorf("period_before: %w", err)
 		}
 		// Synthetic txs (e.g. INITIALIZE rows backing holding declarations) are
 		// managed by the declaration / recalc machinery, not by ingestion. Skip
@@ -38,9 +38,9 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string
 		_, err = exec.ExecContext(ctx, `
 			DELETE FROM txs
 			WHERE user_id = $1 AND broker = $2
-			  AND timestamp >= $3 AND timestamp <= $4
+			  AND timestamp >= $3 AND timestamp < $4
 			  AND synthetic_purpose IS NULL
-		`, userUUID, broker, fromT, toT)
+		`, userUUID, broker, fromT, beforeT)
 		if err != nil {
 			return fmt.Errorf("delete txs in period: %w", err)
 		}

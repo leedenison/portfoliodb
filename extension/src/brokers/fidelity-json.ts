@@ -12,6 +12,7 @@
 
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { startOfNextDay } from "../lib/dates";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import { IdentifierType, InstrumentIdentifierSchema, TxSchema } from "@/gen/api/v1/api_pb";
 import {
@@ -70,7 +71,7 @@ function fail(message: string): StandardParseResult {
   return {
     txs: [],
     periodFrom: new Date(0),
-    periodTo: new Date(0),
+    periodBefore: new Date(0),
     errors: [{ rowIndex: 0, field: "file", message }],
   };
 }
@@ -170,7 +171,8 @@ export function convertFidelityJson(
   return {
     txs,
     periodFrom: minTime === Infinity ? new Date(0) : new Date(minTime),
-    periodTo: maxTime === -Infinity ? new Date(0) : new Date(maxTime),
+    periodBefore:
+      maxTime === -Infinity ? new Date(0) : startOfNextDay(new Date(maxTime)),
     errors,
   };
 }

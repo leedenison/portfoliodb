@@ -19,11 +19,13 @@ describe("recipe registry", () => {
 
 describe("renderExport", () => {
   const recipe = getRecipe("fidelity-uk")!;
-  const window = { from: new Date(2026, 6, 2), to: new Date(2026, 6, 27) };
+  // Half-open: covers 2 July through 27 July.
+  const window = { from: new Date(2026, 6, 2), before: new Date(2026, 6, 28) };
 
   it("substitutes the window in the site's own date format", () => {
     const req = renderExport(recipe, window);
     expect(req.url).toContain("fromDate=02/07/2026");
+    // The broker's toDate is inclusive, so it is the day before our bound.
     expect(req.url).toContain("toDate=27/07/2026");
     expect(req.method).toBe("GET");
   });

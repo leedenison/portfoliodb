@@ -7,7 +7,8 @@
  */
 
 import { create } from "@bufbuild/protobuf";
-import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { startOfNextDay } from "@/lib/dates";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import {
   IdentifierType,
@@ -200,7 +201,7 @@ export function parseOfxStatement(text: string): OfxParseResult {
     return {
       txs: [],
       periodFrom: new Date(0),
-      periodTo: new Date(0),
+      periodBefore: new Date(0),
       errors: [{ rowIndex: 0, field: "file", message: "No investment statement found in OFX file" }],
       secList: emptySecList,
     };
@@ -215,15 +216,19 @@ export function parseOfxStatement(text: string): OfxParseResult {
     return {
       txs: [],
       periodFrom: new Date(0),
-      periodTo: new Date(0),
+      periodBefore: new Date(0),
       errors: [{ rowIndex: 0, field: "file", message: "No transaction list found in OFX file" }],
       secList: emptySecList,
     };
   }
 
-  // Period from DTSTART/DTEND.
+  // Period from DTSTART/DTEND. DTEND is nominally exclusive -- it is the value
+  // a client sends as the next DTSTART -- but brokers are inconsistent about
+  // it, and a DTEND that stops short silently leaves the last day's rows
+  // outside the window they are meant to replace. Take whichever bound covers
+  // the transactions actually in the file.
   const periodFrom = parseOfxDate(str(tranList, "DTSTART")) ?? new Date(0);
-  const periodTo = parseOfxDate(str(tranList, "DTEND")) ?? new Date(0);
+  const dtEnd = parseOfxDate(str(tranList, "DTEND")) ?? new Date(0);
 
   const txs: Tx[] = [];
   let txIndex = 0;
@@ -349,5 +354,9 @@ export function parseOfxStatement(text: string): OfxParseResult {
     Number(a.timestamp?.seconds ?? 0) - Number(b.timestamp?.seconds ?? 0),
   );
 
-  return { txs, periodFrom, periodTo, errors, secList };
+  const lastTx = txs[txs.length - 1]?.timestamp;
+  const afterLastTx = lastTx ? startOfNextDay(timestampDate(lastTx)) : new Date(0);
+  const periodBefore = afterLastTx > dtEnd ? afterLastTx : dtEnd;
+
+  return { txs, periodFrom, periodBefore, errors, secList };
 }

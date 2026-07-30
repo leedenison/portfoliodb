@@ -52,6 +52,47 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 	}
 }
 
+func TestReplaceTxsInPeriod_PeriodBeforeIsExclusive(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|replace-bound", "U", "u@bound.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "BND", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	boundary := time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC)
+	// Quantity doubles as an identity marker. One row inside the window, one
+	// sitting exactly on the exclusive bound.
+	for _, seed := range []struct {
+		at  time.Time
+		qty float64
+	}{
+		{boundary.Add(-time.Hour), 1},
+		{boundary, 2},
+	} {
+		tx := &apiv1.Tx{Timestamp: timestamppb.New(seed.at), InstrumentDescription: "BND", Type: apiv1.TxType_BUYSTOCK, Quantity: seed.qty, Account: ""}
+		if err := p.CreateTx(ctx, userID, "IBKR", "", tx, instID, nil); err != nil {
+			t.Fatalf("create tx: %v", err)
+		}
+	}
+
+	// Replacing [March 1, April 1) with nothing must delete only the earlier row:
+	// a window abutting the next one must not reach into it.
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR",
+		timestamppb.New(time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)), timestamppb.New(boundary),
+		nil, nil, nil); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	rows, _, err := p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
+	if err != nil {
+		t.Fatalf("list txs: %v", err)
+	}
+	if len(rows) != 1 || rows[0].GetTx().GetQuantity() != 2 {
+		t.Fatalf("want only the tx on the bound to survive, got %d rows", len(rows))
+	}
+}
+
 func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

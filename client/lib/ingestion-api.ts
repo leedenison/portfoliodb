@@ -24,7 +24,8 @@ export interface UpsertTxsParams {
   broker: Broker;
   source: string;
   periodFrom?: Timestamp;
-  periodTo?: Timestamp;
+  /** Exclusive: the first instant NOT replaced. */
+  periodBefore?: Timestamp;
   txs: Tx[];
   filename?: string;
   /**
@@ -41,7 +42,7 @@ export async function upsertTxs(params: UpsertTxsParams): Promise<IngestionRespo
     broker: params.broker,
     source: params.source,
     periodFrom: params.periodFrom,
-    periodTo: params.periodTo,
+    periodBefore: params.periodBefore,
     txs: params.txs,
     filename: params.filename ?? "",
     shareCountBasis: params.shareCountBasis ?? "",

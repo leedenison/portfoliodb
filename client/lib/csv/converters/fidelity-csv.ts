@@ -8,6 +8,7 @@
 
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { startOfNextDay } from "@/lib/dates";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import { TxSchema, TxType } from "@/gen/api/v1/api_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/standard";
@@ -91,7 +92,7 @@ export function convertFidelityToStandard(
     return {
       txs: [],
       periodFrom: new Date(0),
-      periodTo: new Date(0),
+      periodBefore: new Date(0),
       errors: [{ rowIndex: 0, field: "options", message: "Currency is required" }],
     };
   }
@@ -101,7 +102,7 @@ export function convertFidelityToStandard(
     return {
       txs: [],
       periodFrom: new Date(0),
-      periodTo: new Date(0),
+      periodBefore: new Date(0),
       errors: [{ rowIndex: 0, field: "file", message: "File is empty" }],
     };
   }
@@ -121,7 +122,7 @@ export function convertFidelityToStandard(
     return {
       txs: [],
       periodFrom: new Date(0),
-      periodTo: new Date(0),
+      periodBefore: new Date(0),
       errors: [{ rowIndex: 0, field: "file", message: "Could not find Fidelity data header (Order date)" }],
     };
   }
@@ -144,7 +145,7 @@ export function convertFidelityToStandard(
     return {
       txs: [],
       periodFrom: new Date(0),
-      periodTo: new Date(0),
+      periodBefore: new Date(0),
       errors: [{ rowIndex: headerRowIndex + 1, field: "header", message: "Missing required Fidelity columns" }],
     };
   }
@@ -214,7 +215,8 @@ export function convertFidelityToStandard(
   }
 
   const periodFrom = minTime === Infinity ? new Date(0) : new Date(minTime);
-  const periodTo = maxTime === -Infinity ? new Date(0) : new Date(maxTime);
+  const periodBefore =
+    maxTime === -Infinity ? new Date(0) : startOfNextDay(new Date(maxTime));
 
-  return { txs, periodFrom, periodTo, errors };
+  return { txs, periodFrom, periodBefore, errors };
 }

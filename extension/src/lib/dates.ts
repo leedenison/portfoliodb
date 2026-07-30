@@ -44,3 +44,17 @@ export function parseSlashDate(value: string): Date | null {
   }
   return date;
 }
+
+/** Local midnight after the given day: the exclusive bound covering it. */
+export function startOfNextDay(at: Date): Date {
+  return new Date(at.getFullYear(), at.getMonth(), at.getDate() + 1);
+}
+
+/**
+ * The last day an exclusive bound covers. Brokers date their exports
+ * inclusively, so this is what goes into a request URL and into anything a
+ * person reads.
+ */
+export function lastCoveredDay(before: Date): Date {
+  return new Date(before.getFullYear(), before.getMonth(), before.getDate() - 1);
+}

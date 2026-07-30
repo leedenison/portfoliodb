@@ -148,9 +148,9 @@ type PluginConfigDB interface {
 
 // IdentificationError is stored per job for identification warnings (e.g. broker description only, plugin timeout).
 type IdentificationError struct {
-	RowIndex               int32
+	RowIndex              int32
 	InstrumentDescription string
-	Message                string
+	Message               string
 }
 
 // ServiceAccountRow is a service account returned from the DB.
@@ -210,7 +210,7 @@ type PortfolioDB interface {
 type TxDB interface {
 	// shareCountBasis is the date the uploaded quantities and unit prices are
 	// denominated in. nil means as-traded: each row uses its own timestamp.
-	ReplaceTxsInPeriod(ctx context.Context, userID, broker string, periodFrom, periodTo *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error
+	ReplaceTxsInPeriod(ctx context.Context, userID, broker string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error
 	CreateTx(ctx context.Context, userID, broker, account string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error
 	ListTxs(ctx context.Context, userID string, broker *apiv1.Broker, account string, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 	ListTxsByPortfolio(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
@@ -257,14 +257,14 @@ type PendingJob struct {
 
 // CreateJobParams holds the parameters for creating a new job.
 type CreateJobParams struct {
-	UserID     string
-	JobType    string // "tx" or "price"
-	Broker     string // tx only
-	Source     string // tx only
-	Filename   string
-	PeriodFrom *timestamppb.Timestamp
-	PeriodTo   *timestamppb.Timestamp
-	Payload    []byte // serialized protobuf request
+	UserID       string
+	JobType      string // "tx" or "price"
+	Broker       string // tx only
+	Source       string // tx only
+	Filename     string
+	PeriodFrom   *timestamppb.Timestamp
+	PeriodBefore *timestamppb.Timestamp
+	Payload      []byte // serialized protobuf request
 }
 
 // JobDB provides ingestion job operations.
@@ -290,7 +290,7 @@ type IdentifierInput struct {
 	Type      string
 	Domain    string // empty or NULL for no domain
 	Value     string
-	Canonical bool   // default true when not set for backward compat
+	Canonical bool // default true when not set for backward compat
 }
 
 // ProviderIdentifierInput is a provider-specific identifier for an instrument.
@@ -528,7 +528,7 @@ type InstrumentRow struct {
 	ExchangeMIC         *string
 	Currency            *string
 	Name                *string
-	Exchange            string  // denormalized; trigger-computed from acronym/identifier
+	Exchange            string // denormalized; trigger-computed from acronym/identifier
 	UnderlyingID        *string
 	ValidFrom           *time.Time
 	ValidTo             *time.Time

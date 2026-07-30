@@ -47,13 +47,13 @@ func ValidateSource(source string) *apiv1.ValidationError {
 }
 
 // ValidateBulkRequest validates UpsertTxsRequest (period and broker).
-func ValidateBulkRequest(periodFrom, periodTo *timestamppb.Timestamp) []*apiv1.ValidationError {
+func ValidateBulkRequest(periodFrom, periodBefore *timestamppb.Timestamp) []*apiv1.ValidationError {
 	var errs []*apiv1.ValidationError
 	if periodFrom == nil || !periodFrom.IsValid() {
 		errs = append(errs, &apiv1.ValidationError{RowIndex: -1, Field: "period_from", Message: "required"})
 	}
-	if periodTo == nil || !periodTo.IsValid() {
-		errs = append(errs, &apiv1.ValidationError{RowIndex: -1, Field: "period_to", Message: "required"})
+	if periodBefore == nil || !periodBefore.IsValid() {
+		errs = append(errs, &apiv1.ValidationError{RowIndex: -1, Field: "period_before", Message: "required"})
 	}
 	return errs
 }

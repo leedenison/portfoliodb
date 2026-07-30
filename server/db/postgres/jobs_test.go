@@ -14,16 +14,16 @@ func TestCreateJob_GetJob(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|j", "U", "u@u.com")
 	from := timestamppb.Now()
-	to := timestamppb.Now()
+	before := timestamppb.Now()
 	jobID, err := p.CreateJob(ctx, db.CreateJobParams{
-		UserID:     userID,
-		JobType:    "tx",
-		Broker:     "IBKR",
-		Source:     "IBKR:test:statement",
-		Filename:   "test.csv",
-		PeriodFrom: from,
-		PeriodTo:   to,
-		Payload:    []byte("test-payload"),
+		UserID:       userID,
+		JobType:      "tx",
+		Broker:       "IBKR",
+		Source:       "IBKR:test:statement",
+		Filename:     "test.csv",
+		PeriodFrom:   from,
+		PeriodBefore: before,
+		Payload:      []byte("test-payload"),
 	})
 	if err != nil {
 		t.Fatalf("create job: %v", err)
@@ -143,26 +143,26 @@ func TestListJobs(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|lj", "U", "u@lj.com")
 	from := timestamppb.Now()
-	to := timestamppb.Now()
+	before := timestamppb.Now()
 
 	// Create two jobs.
 	j1, _ := p.CreateJob(ctx, db.CreateJobParams{
-		UserID:     userID,
-		JobType:    "tx",
-		Broker:     "IBKR",
-		Source:     "IBKR:test:statement",
-		Filename:   "file1.csv",
-		PeriodFrom: from,
-		PeriodTo:   to,
+		UserID:       userID,
+		JobType:      "tx",
+		Broker:       "IBKR",
+		Source:       "IBKR:test:statement",
+		Filename:     "file1.csv",
+		PeriodFrom:   from,
+		PeriodBefore: before,
 	})
 	_, _ = p.CreateJob(ctx, db.CreateJobParams{
-		UserID:     userID,
-		JobType:    "tx",
-		Broker:     "FIDELITY",
-		Source:     "Fidelity:web:fidelity-csv",
-		Filename:   "file2.csv",
-		PeriodFrom: from,
-		PeriodTo:   to,
+		UserID:       userID,
+		JobType:      "tx",
+		Broker:       "FIDELITY",
+		Source:       "Fidelity:web:fidelity-csv",
+		Filename:     "file2.csv",
+		PeriodFrom:   from,
+		PeriodBefore: before,
 	})
 
 	// Add errors to j1.

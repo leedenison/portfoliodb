@@ -9,7 +9,7 @@ const base: WindowInputs = {
   now: new Date("2026-07-27T09:00:00Z"),
 };
 
-/** Narrows to the window case so tests can read from/to without repeating guards. */
+/** Narrows to the window case so tests can read the bounds without repeating guards. */
 function window(inputs: Partial<WindowInputs>) {
   const result = computeWindow({ ...base, ...inputs });
   if (result.kind !== "window") throw new Error(`expected a window, got ${result.kind}`);
@@ -17,10 +17,10 @@ function window(inputs: Partial<WindowInputs>) {
 }
 
 describe("computeWindow", () => {
-  it("ends at the end of yesterday", () => {
+  it("stops at the start of today, covering through yesterday", () => {
     // A transaction dated today may not have completed, so today is excluded.
-    const { to } = window({ latest: new Date(2026, 6, 20) });
-    expect(to).toEqual(new Date(2026, 6, 26, 23, 59, 59, 999));
+    const { before } = window({ latest: new Date(2026, 6, 20) });
+    expect(before).toEqual(new Date(2026, 6, 27, 0, 0, 0, 0));
   });
 
   it("starts a lookback before the last known transaction", () => {
@@ -67,6 +67,16 @@ describe("computeWindow", () => {
     expect(result.kind).toBe("up-to-date");
   });
 
+  it("covers the whole of yesterday when a run starts just after midnight", () => {
+    // The bound is a midnight, not 23:59:59.999, so nothing falls in the gap a
+    // sentinel end-of-day would leave.
+    const { before } = window({
+      latest: new Date(2026, 6, 20),
+      now: new Date("2026-07-27T00:00:30Z"),
+    });
+    expect(before).toEqual(new Date(2026, 6, 27, 0, 0, 0, 0));
+  });
+
   it("rejects a malformed history start date rather than guessing", () => {
     const result = computeWindow({ ...base, historyStartDate: "15/01/2024" });
     expect(result.kind).toBe("error");
@@ -80,34 +90,34 @@ describe("computeWindow", () => {
   describe("the configured zone selects the calendar day", () => {
     it("treats a UTC instant that is already tomorrow in the zone", () => {
       // 23:30 UTC on the 26th is 00:30 on the 27th in Auckland's summer, so
-      // yesterday there is the 26th, not the 25th.
-      const { to } = window({
+      // today there is the 27th, and the window covers through the 26th.
+      const { before } = window({
         latest: new Date(2026, 0, 1),
         timeZone: "Pacific/Auckland",
         now: new Date("2026-01-26T23:30:00Z"),
       });
-      expect(to.getDate()).toBe(26);
+      expect(before.getDate()).toBe(27);
     });
 
     it("treats a UTC instant that is still yesterday in the zone", () => {
-      // 00:30 UTC on the 27th is 19:30 on the 26th in New York, so yesterday
-      // there is the 25th.
-      const { to } = window({
+      // 00:30 UTC on the 27th is 19:30 on the 26th in New York, so today there
+      // is the 26th, and the window covers through the 25th.
+      const { before } = window({
         latest: new Date(2026, 0, 1),
         timeZone: "America/New_York",
         now: new Date("2026-01-27T00:30:00Z"),
       });
-      expect(to.getDate()).toBe(25);
+      expect(before.getDate()).toBe(26);
     });
   });
 
   it("builds bounds at local midnight, matching how converters date rows", () => {
     // Converters call new Date(y, m, d), so a bound built in another zone would
     // not bracket the rows it is meant to cover.
-    const { from, to } = window({ latest: new Date(2026, 6, 20) });
+    const { from, before } = window({ latest: new Date(2026, 6, 20) });
     expect(from.getHours()).toBe(0);
     expect(from.getMinutes()).toBe(0);
-    expect(to.getHours()).toBe(23);
-    expect(to.getMilliseconds()).toBe(999);
+    expect(before.getHours()).toBe(0);
+    expect(before.getMilliseconds()).toBe(0);
   });
 });

@@ -10,6 +10,7 @@ import { upsertTxs } from "@/lib/ingestion-api";
 import { parseStandardCSV } from "@/lib/csv/standard";
 import { Broker, JobStatus } from "@/gen/api/v1/api_pb";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { lastCoveredDay } from "@/lib/dates";
 import {
   getBrokerOptionsForUpload,
   getFormatsForBroker,
@@ -86,7 +87,7 @@ export function UploadModal() {
         broker,
         source,
         periodFrom: timestampFromDate(parseResult.periodFrom),
-        periodTo: timestampFromDate(parseResult.periodTo),
+        periodBefore: timestampFromDate(parseResult.periodBefore),
         txs: parseResult.txs,
         filename: file?.name,
         shareCountBasis: parseResult.shareCountBasis,
@@ -355,7 +356,7 @@ export function UploadModal() {
                     <div data-testid="upload-parse-preview" className="text-sm text-text-primary">
                       {parseResult.txs.length} transaction(s), from{" "}
                       {parseResult.periodFrom.toLocaleDateString()} to{" "}
-                      {parseResult.periodTo.toLocaleDateString()}.
+                      {lastCoveredDay(parseResult.periodBefore).toLocaleDateString()}.
                     </div>
                     <button
                       type="button"

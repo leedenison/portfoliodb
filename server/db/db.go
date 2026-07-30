@@ -64,10 +64,12 @@ type PriceFetchBlockDB interface {
 	DeletePriceFetchBlock(ctx context.Context, instrumentID, pluginID string) error
 }
 
-// DateRange is a half-open [From, To) date range. Both values are midnight UTC.
+// DateRange is a half-open [From, Before) date range. Both values are midnight
+// UTC. Every date interval in this codebase is half-open and names its
+// exclusive bound Before; see docs/adr/0007-calendar-day-valuation.md.
 type DateRange struct {
-	From time.Time // inclusive
-	To   time.Time // exclusive
+	From   time.Time // inclusive
+	Before time.Time // exclusive
 }
 
 // InstrumentDateRanges groups date ranges by instrument.
@@ -120,9 +122,9 @@ type PriceCacheDB interface {
 	// or the existing row is also synthetic.
 	UpsertPrices(ctx context.Context, prices []EODPrice) error
 	// UpsertPricesWithFill inserts real bars and generates synthetic LOCF prices
-	// for every date in [from, to) that has no real bar, all in a single SQL
+	// for every date in [from, before) that has no real bar, all in a single SQL
 	// statement. The last non-synthetic close before `from` seeds the forward-fill.
-	UpsertPricesWithFill(ctx context.Context, instrumentID, provider string, bars []EODPrice, from, to time.Time, fetchedAt *time.Time) error
+	UpsertPricesWithFill(ctx context.Context, instrumentID, provider string, bars []EODPrice, from, before time.Time, fetchedAt *time.Time) error
 }
 
 // PluginConfigDB provides unified plugin config CRUD for all categories.

@@ -59,12 +59,12 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 		if instID != curInst {
 			// Close open range for previous instrument.
 			if inRange {
-				to := today.Add(db.Day)
+				before := today.Add(db.Day)
 				if !opts.ExtendToToday {
 					// No extend: we don't know when position ended, use last tx date + 1.
-					to = rangeStart.Add(db.Day)
+					before = rangeStart.Add(db.Day)
 				}
-				ranges = append(ranges, db.DateRange{From: rangeStart, To: to})
+				ranges = append(ranges, db.DateRange{From: rangeStart, Before: before})
 				inRange = false
 			}
 			flush()
@@ -76,7 +76,7 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 			rangeStart = txDate
 			inRange = true
 		} else if qtyIsZero(eodPos) && inRange {
-			ranges = append(ranges, db.DateRange{From: rangeStart, To: txDate})
+			ranges = append(ranges, db.DateRange{From: rangeStart, Before: txDate})
 			inRange = false
 		}
 	}
@@ -86,11 +86,11 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 
 	// Close final open range.
 	if inRange {
-		to := today.Add(db.Day)
+		before := today.Add(db.Day)
 		if !opts.ExtendToToday {
-			to = rangeStart.Add(db.Day)
+			before = rangeStart.Add(db.Day)
 		}
-		ranges = append(ranges, db.DateRange{From: rangeStart, To: to})
+		ranges = append(ranges, db.DateRange{From: rangeStart, Before: before})
 	}
 	flush()
 
@@ -114,7 +114,7 @@ func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([
 	}
 
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT instrument_id, lower(r) AS range_from, upper(r) AS range_to
+		SELECT instrument_id, lower(r) AS range_from, upper(r) AS range_before
 		FROM (
 			SELECT instrument_id,
 				unnest(range_agg(daterange(price_date, price_date + 1))) AS r
@@ -133,8 +133,8 @@ func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([
 	var order []string
 	for rows.Next() {
 		var instID uuid.UUID
-		var from, to time.Time
-		if err := rows.Scan(&instID, &from, &to); err != nil {
+		var from, before time.Time
+		if err := rows.Scan(&instID, &from, &before); err != nil {
 			return nil, fmt.Errorf("price coverage scan: %w", err)
 		}
 		id := instID.String()
@@ -144,7 +144,7 @@ func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([
 			byInst[id] = entry
 			order = append(order, id)
 		}
-		entry.Ranges = append(entry.Ranges, db.DateRange{From: from, To: to})
+		entry.Ranges = append(entry.Ranges, db.DateRange{From: from, Before: before})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("price coverage rows: %w", err)
@@ -478,10 +478,10 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 
 // UpsertPricesWithFill implements db.PriceCacheDB.
 // It inserts real bars and generates synthetic LOCF prices for every date in
-// [from, to) that has no real bar, all in a single SQL round-trip. The last
+// [from, before) that has no real bar, all in a single SQL round-trip. The last
 // non-synthetic close price before `from` seeds the forward-fill for dates
 // preceding the first real bar.
-func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provider string, bars []db.EODPrice, from, to time.Time, fetchedAt *time.Time) error {
+func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provider string, bars []db.EODPrice, from, before time.Time, fetchedAt *time.Time) error {
 	id, err := uuid.Parse(instrumentID)
 	if err != nil {
 		return fmt.Errorf("upsert prices with fill: invalid id %q: %w", instrumentID, err)
@@ -556,7 +556,7 @@ func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provi
 				NULL::double precision AS badjclose
 			FROM seed s
 			UNION ALL
-			-- Every date in [from, to) with real bar if available.
+			-- Every date in [from, before) with real bar if available.
 			SELECT d::date, nb.bopen, nb.bhigh, nb.blow, nb.bclose, nb.bvolume, nb.bbasis, nb.badjclose
 			FROM generate_series($2::date, $3::date - interval '1 day', '1 day') d
 			LEFT JOIN new_bars nb ON nb.price_date = d::date
@@ -593,7 +593,7 @@ func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provi
 			share_count_basis = EXCLUDED.share_count_basis,
 			adjusted_close = EXCLUDED.adjusted_close
 		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
-	`, id, from, to, pq.Array(dates), pq.Array(opens), pq.Array(highs),
+	`, id, from, before, pq.Array(dates), pq.Array(opens), pq.Array(highs),
 		pq.Array(lows), pq.Array(closes), pq.Array(volumes), provider, fetchedAt,
 		pq.Array(bases), pq.Array(adjCloses))
 	if err != nil {

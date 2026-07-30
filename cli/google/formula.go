@@ -69,14 +69,14 @@ func gapToColumns(pg *apiv1.PriceGap) ([]sheetColumn, error) {
 		if err != nil {
 			continue
 		}
-		to, err := time.Parse("2006-01-02", gap.GetTo())
+		before, err := time.Parse("2006-01-02", gap.GetBefore())
 		if err != nil {
 			continue
 		}
-		for _, c := range chunkRange(from, to) {
+		for _, c := range chunkRange(from, before) {
 			cols = append(cols, sheetColumn{
 				Header:  header,
-				Formula: googleFinanceFormula(ticker, c.from, c.to),
+				Formula: googleFinanceFormula(ticker, c.from, c.before),
 			})
 		}
 	}
@@ -84,28 +84,28 @@ func gapToColumns(pg *apiv1.PriceGap) ([]sheetColumn, error) {
 }
 
 type dateChunk struct {
-	from, to time.Time
+	from, before time.Time
 }
 
-// chunkRange splits a [from, to) range into segments of at most maxChunkDays.
-func chunkRange(from, to time.Time) []dateChunk {
+// chunkRange splits a [from, before) range into segments of at most maxChunkDays.
+func chunkRange(from, before time.Time) []dateChunk {
 	var chunks []dateChunk
-	for from.Before(to) {
+	for from.Before(before) {
 		end := from.AddDate(0, 0, maxChunkDays)
-		if end.After(to) {
-			end = to
+		if end.After(before) {
+			end = before
 		}
-		chunks = append(chunks, dateChunk{from: from, to: end})
+		chunks = append(chunks, dateChunk{from: from, before: end})
 		from = end
 	}
 	return chunks
 }
 
 // googleFinanceFormula returns a GOOGLEFINANCE formula string.
-// to is exclusive; the formula end date is to-1 day.
-func googleFinanceFormula(ticker string, from, to time.Time) string {
-	// GOOGLEFINANCE end date is inclusive, so subtract 1 day from our exclusive 'to'.
-	end := to.AddDate(0, 0, -1)
+// before is exclusive; the formula end date is before-1 day.
+func googleFinanceFormula(ticker string, from, before time.Time) string {
+	// GOOGLEFINANCE end date is inclusive, so subtract 1 day from our exclusive bound.
+	end := before.AddDate(0, 0, -1)
 	return fmt.Sprintf(`=GOOGLEFINANCE("%s","close",DATE(%d,%d,%d),DATE(%d,%d,%d),"DAILY")`,
 		ticker,
 		from.Year(), from.Month(), from.Day(),

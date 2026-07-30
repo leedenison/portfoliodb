@@ -94,11 +94,11 @@ func assertInstrumentRanges(t *testing.T, got []db.InstrumentDateRanges, instID 
 			instID, len(found.Ranges), len(want), fmtRanges(found.Ranges), fmtRanges(want))
 	}
 	for i := range want {
-		if !found.Ranges[i].From.Equal(want[i].From) || !found.Ranges[i].To.Equal(want[i].To) {
+		if !found.Ranges[i].From.Equal(want[i].From) || !found.Ranges[i].Before.Equal(want[i].Before) {
 			t.Errorf("instrument %s range[%d]: got [%s, %s), want [%s, %s)",
 				instID, i,
-				found.Ranges[i].From.Format("2006-01-02"), found.Ranges[i].To.Format("2006-01-02"),
-				want[i].From.Format("2006-01-02"), want[i].To.Format("2006-01-02"))
+				found.Ranges[i].From.Format("2006-01-02"), found.Ranges[i].Before.Format("2006-01-02"),
+				want[i].From.Format("2006-01-02"), want[i].Before.Format("2006-01-02"))
 		}
 	}
 }
@@ -109,7 +109,7 @@ func fmtRanges(rs []db.DateRange) string {
 		if i > 0 {
 			s += ", "
 		}
-		s += "[" + r.From.Format("2006-01-02") + ", " + r.To.Format("2006-01-02") + ")"
+		s += "[" + r.From.Format("2006-01-02") + ", " + r.Before.Format("2006-01-02") + ")"
 	}
 	return s + "]"
 }
@@ -132,7 +132,7 @@ func TestHeldRanges_BuySell(t *testing.T) {
 		t.Fatalf("held ranges: %v", err)
 	}
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 10), To: d(2024, 3, 15)},
+		{From: d(2024, 1, 10), Before: d(2024, 3, 15)},
 	})
 }
 
@@ -153,7 +153,7 @@ func TestHeldRanges_OpenPosition(t *testing.T) {
 		t.Fatalf("held ranges: %v", err)
 	}
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 6, 1), To: today.Add(db.Day)},
+		{From: d(2024, 6, 1), Before: today.Add(db.Day)},
 	})
 }
 
@@ -173,7 +173,7 @@ func TestHeldRanges_OpenPositionNoExtend(t *testing.T) {
 	}
 	// Without extend, open position just gets +1 day from range start.
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 6, 1), To: d(2024, 6, 2)},
+		{From: d(2024, 6, 1), Before: d(2024, 6, 2)},
 	})
 }
 
@@ -195,8 +195,8 @@ func TestHeldRanges_CloseAndReopen(t *testing.T) {
 		t.Fatalf("held ranges: %v", err)
 	}
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 10), To: d(2024, 2, 15)},
-		{From: d(2024, 4, 1), To: d(2024, 5, 1)},
+		{From: d(2024, 1, 10), Before: d(2024, 2, 15)},
+		{From: d(2024, 4, 1), Before: d(2024, 5, 1)},
 	})
 }
 
@@ -256,10 +256,10 @@ func TestHeldRanges_MultipleInstruments(t *testing.T) {
 		t.Fatalf("expected 2 instruments, got %d", len(got))
 	}
 	assertInstrumentRanges(t, got, inst1, []db.DateRange{
-		{From: d(2024, 1, 1), To: d(2024, 2, 1)},
+		{From: d(2024, 1, 1), Before: d(2024, 2, 1)},
 	})
 	assertInstrumentRanges(t, got, inst2, []db.DateRange{
-		{From: d(2024, 3, 1), To: d(2024, 4, 1)},
+		{From: d(2024, 3, 1), Before: d(2024, 4, 1)},
 	})
 }
 
@@ -294,8 +294,8 @@ func TestHeldRanges_MultipleUsers(t *testing.T) {
 		t.Fatalf("held ranges: %v", err)
 	}
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 1), To: d(2024, 2, 1)},
-		{From: d(2024, 3, 1), To: d(2024, 4, 1)},
+		{From: d(2024, 1, 1), Before: d(2024, 2, 1)},
+		{From: d(2024, 3, 1), Before: d(2024, 4, 1)},
 	})
 }
 
@@ -329,7 +329,7 @@ func TestPriceCoverage_Contiguous(t *testing.T) {
 		t.Fatalf("price coverage: %v", err)
 	}
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 1), To: d(2024, 1, 6)},
+		{From: d(2024, 1, 1), Before: d(2024, 1, 6)},
 	})
 }
 
@@ -351,8 +351,8 @@ func TestPriceCoverage_WithGap(t *testing.T) {
 		t.Fatalf("price coverage: %v", err)
 	}
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 1), To: d(2024, 1, 4)},
-		{From: d(2024, 1, 10), To: d(2024, 1, 13)},
+		{From: d(2024, 1, 1), Before: d(2024, 1, 4)},
+		{From: d(2024, 1, 10), Before: d(2024, 1, 13)},
 	})
 }
 
@@ -373,8 +373,8 @@ func TestPriceCoverage_WeekendGapNotBridged(t *testing.T) {
 		t.Fatalf("price coverage: %v", err)
 	}
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 5), To: d(2024, 1, 6)},
-		{From: d(2024, 1, 8), To: d(2024, 1, 9)},
+		{From: d(2024, 1, 5), Before: d(2024, 1, 6)},
+		{From: d(2024, 1, 8), Before: d(2024, 1, 9)},
 	})
 }
 
@@ -396,7 +396,7 @@ func TestPriceCoverage_FilterByInstrument(t *testing.T) {
 		t.Fatalf("expected 1 instrument, got %d", len(got))
 	}
 	assertInstrumentRanges(t, got, inst1, []db.DateRange{
-		{From: d(2024, 1, 1), To: d(2024, 1, 2)},
+		{From: d(2024, 1, 1), Before: d(2024, 1, 2)},
 	})
 }
 
@@ -412,7 +412,7 @@ func TestPriceCoverage_SingleDay(t *testing.T) {
 		t.Fatalf("price coverage: %v", err)
 	}
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 6, 15), To: d(2024, 6, 16)},
+		{From: d(2024, 6, 15), Before: d(2024, 6, 16)},
 	})
 }
 
@@ -448,7 +448,7 @@ func TestPriceGaps_NoPrices(t *testing.T) {
 	}
 	// With no prices, gaps = entire held range.
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 10), To: d(2024, 2, 10)},
+		{From: d(2024, 1, 10), Before: d(2024, 2, 10)},
 	})
 }
 
@@ -497,8 +497,8 @@ func TestPriceGaps_PartialCoverage(t *testing.T) {
 		t.Fatalf("price gaps: %v", err)
 	}
 	assertInstrumentRanges(t, got, instID, []db.DateRange{
-		{From: d(2024, 1, 1), To: d(2024, 1, 3)},
-		{From: d(2024, 1, 6), To: d(2024, 1, 10)},
+		{From: d(2024, 1, 1), Before: d(2024, 1, 3)},
+		{From: d(2024, 1, 6), Before: d(2024, 1, 10)},
 	})
 }
 
@@ -548,7 +548,7 @@ func TestUpsertPrices_Insert(t *testing.T) {
 		t.Fatalf("coverage: %v", err)
 	}
 	assertInstrumentRanges(t, cov, instID, []db.DateRange{
-		{From: d(2024, 1, 1), To: d(2024, 1, 2)},
+		{From: d(2024, 1, 1), Before: d(2024, 1, 2)},
 	})
 }
 
@@ -954,10 +954,10 @@ func TestFXGaps_MixedCurrencies(t *testing.T) {
 	}
 
 	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
-		{From: d(2024, 1, 10), To: d(2024, 2, 10)},
+		{From: d(2024, 1, 10), Before: d(2024, 2, 10)},
 	})
 	assertInstrumentRanges(t, got, gbpFX, []db.DateRange{
-		{From: d(2024, 1, 10), To: d(2024, 2, 10)},
+		{From: d(2024, 1, 10), Before: d(2024, 2, 10)},
 	})
 	// USD instrument should NOT produce any FX gaps.
 	assertInstrumentRanges(t, got, usdInst, nil)
@@ -988,8 +988,8 @@ func TestFXGaps_PartialCoverage(t *testing.T) {
 
 	// Gaps should be [Jan 10, Jan 13) and [Jan 16, Jan 20).
 	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
-		{From: d(2024, 1, 10), To: d(2024, 1, 13)},
-		{From: d(2024, 1, 16), To: d(2024, 1, 20)},
+		{From: d(2024, 1, 10), Before: d(2024, 1, 13)},
+		{From: d(2024, 1, 16), Before: d(2024, 1, 20)},
 	})
 }
 
@@ -1046,7 +1046,7 @@ func TestFXGaps_MultipleInstrumentsSameCurrency(t *testing.T) {
 
 	// Should produce a single merged range for EUR/USD: [Jan 5, Jan 30).
 	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
-		{From: d(2024, 1, 5), To: d(2024, 1, 30)},
+		{From: d(2024, 1, 5), Before: d(2024, 1, 30)},
 	})
 }
 
@@ -1075,7 +1075,7 @@ func TestFXGaps_DisplayCurrency_USDHoldings(t *testing.T) {
 
 	// Even though all holdings are USD, we need EUR/USD rates because display=EUR.
 	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
-		{From: d(2024, 1, 10), To: d(2024, 2, 10)},
+		{From: d(2024, 1, 10), Before: d(2024, 2, 10)},
 	})
 }
 
@@ -1107,7 +1107,7 @@ func TestFXGaps_DisplayCurrency_SkipsSameCurrency(t *testing.T) {
 	// instrument currency == display currency.
 	// Source 1 produces [Jan 10, Feb 10) for EUR/USD. No extra from display.
 	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
-		{From: d(2024, 1, 10), To: d(2024, 2, 10)},
+		{From: d(2024, 1, 10), Before: d(2024, 2, 10)},
 	})
 }
 
@@ -1149,7 +1149,7 @@ func TestFXGaps_DisplayCurrency_MixedHoldings(t *testing.T) {
 
 	// GBP/USD needed from source 1 (held GBP instrument): [Jan 10, Jan 20).
 	assertInstrumentRanges(t, got, gbpFX, []db.DateRange{
-		{From: d(2024, 1, 10), To: d(2024, 1, 20)},
+		{From: d(2024, 1, 10), Before: d(2024, 1, 20)},
 	})
 
 	// EUR/USD needed from source 2 (display=EUR):
@@ -1157,8 +1157,8 @@ func TestFXGaps_DisplayCurrency_MixedHoldings(t *testing.T) {
 	// - USD instrument [Feb 1, Feb 10) has currency != EUR (USD, absent from heldToCurrency) → need EUR/USD
 	// Merged: [Jan 10, Jan 20) + [Feb 1, Feb 10)
 	assertInstrumentRanges(t, got, eurFX, []db.DateRange{
-		{From: d(2024, 1, 10), To: d(2024, 1, 20)},
-		{From: d(2024, 2, 1), To: d(2024, 2, 10)},
+		{From: d(2024, 1, 10), Before: d(2024, 1, 20)},
+		{From: d(2024, 2, 1), Before: d(2024, 2, 10)},
 	})
 }
 

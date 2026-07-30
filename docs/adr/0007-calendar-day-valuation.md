@@ -15,6 +15,6 @@ with no application-level fill logic. Both are core TimescaleDB functions (not t
 toolkit) and are available in the `timescale/timescaledb:latest-pg16` image the
 project already runs, so this adds no new dependency.
 
-Date ranges throughout the cache use the half-open `[From, To)` convention with
-midnight-UTC values, matching PostgreSQL's `daterange` default so range
-arithmetic composes cleanly with the database.
+Date ranges throughout the cache are half-open with midnight-UTC values so range
+arithmetic composes cleanly with the database (see
+adr/0018-half-open-date-intervals.md).

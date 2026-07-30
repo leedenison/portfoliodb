@@ -143,7 +143,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 	// PriceGaps returns empty, FXGaps returns a gap for an FX instrument.
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: fxInstID, Ranges: []db.DateRange{{From: from, To: to}}},
+		{InstrumentID: fxInstID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
@@ -175,12 +175,12 @@ type filterStub struct {
 	currencies   map[string]bool
 }
 
-func (s *filterStub) DisplayName() string                        { return "stub" }
-func (s *filterStub) SupportedIdentifierTypes() []string         { return nil }
-func (s *filterStub) AcceptableAssetClasses() map[string]bool    { return s.assetClasses }
-func (s *filterStub) AcceptableExchanges() map[string]bool       { return s.exchanges }
-func (s *filterStub) AcceptableCurrencies() map[string]bool      { return s.currencies }
-func (s *filterStub) DefaultConfig() []byte                      { return nil }
+func (s *filterStub) DisplayName() string                     { return "stub" }
+func (s *filterStub) SupportedIdentifierTypes() []string      { return nil }
+func (s *filterStub) AcceptableAssetClasses() map[string]bool { return s.assetClasses }
+func (s *filterStub) AcceptableExchanges() map[string]bool    { return s.exchanges }
+func (s *filterStub) AcceptableCurrencies() map[string]bool   { return s.currencies }
+func (s *filterStub) DefaultConfig() []byte                   { return nil }
 func (s *filterStub) FetchPrices(_ context.Context, _ []byte, _ []Identifier, _ string, _, _ time.Time) (*FetchResult, error) {
 	return nil, ErrNoData
 }
@@ -220,7 +220,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
+		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
@@ -265,7 +265,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
+		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
@@ -314,7 +314,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
+		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
@@ -361,7 +361,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
-		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, To: to}}},
+		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
 	}, nil)
 	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
@@ -445,4 +445,3 @@ func TestRunWorker_DebounceCollapsesTriggers(t *testing.T) {
 		t.Errorf("expected exactly 2 cycles (1 running + 1 buffered), got %d", cycles)
 	}
 }
-

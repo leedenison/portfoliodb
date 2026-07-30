@@ -10,44 +10,44 @@ import (
 
 func TestChunkRange(t *testing.T) {
 	tests := []struct {
-		name       string
-		from, to   time.Time
-		wantChunks int
+		name         string
+		from, before time.Time
+		wantChunks   int
 	}{
 		{
 			name:       "short range (30 days)",
 			from:       date(2024, 1, 1),
-			to:         date(2024, 1, 31),
+			before:     date(2024, 1, 31),
 			wantChunks: 1,
 		},
 		{
 			name:       "exactly 365 days (non-leap year)",
 			from:       date(2023, 1, 1),
-			to:         date(2024, 1, 1), // 365 days (2023 is not a leap year)
+			before:     date(2024, 1, 1), // 365 days (2023 is not a leap year)
 			wantChunks: 1,
 		},
 		{
 			name:       "over 365 days splits into 2",
 			from:       date(2023, 1, 1),
-			to:         date(2024, 1, 2),
+			before:     date(2024, 1, 2),
 			wantChunks: 2,
 		},
 		{
 			name:       "about 2 years",
 			from:       date(2023, 1, 1),
-			to:         date(2024, 12, 31),
+			before:     date(2024, 12, 31),
 			wantChunks: 2,
 		},
 		{
 			name:       "empty range",
 			from:       date(2024, 1, 1),
-			to:         date(2024, 1, 1),
+			before:     date(2024, 1, 1),
 			wantChunks: 0,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			chunks := chunkRange(tc.from, tc.to)
+			chunks := chunkRange(tc.from, tc.before)
 			if len(chunks) != tc.wantChunks {
 				t.Fatalf("want %d chunks, got %d", tc.wantChunks, len(chunks))
 			}
@@ -56,12 +56,12 @@ func TestChunkRange(t *testing.T) {
 				if !chunks[0].from.Equal(tc.from) {
 					t.Fatalf("first chunk starts at %s, want %s", chunks[0].from, tc.from)
 				}
-				if !chunks[len(chunks)-1].to.Equal(tc.to) {
-					t.Fatalf("last chunk ends at %s, want %s", chunks[len(chunks)-1].to, tc.to)
+				if !chunks[len(chunks)-1].before.Equal(tc.before) {
+					t.Fatalf("last chunk ends at %s, want %s", chunks[len(chunks)-1].before, tc.before)
 				}
 				for i := 1; i < len(chunks); i++ {
-					if !chunks[i].from.Equal(chunks[i-1].to) {
-						t.Fatalf("gap between chunk %d end (%s) and chunk %d start (%s)", i-1, chunks[i-1].to, i, chunks[i].from)
+					if !chunks[i].from.Equal(chunks[i-1].before) {
+						t.Fatalf("gap between chunk %d end (%s) and chunk %d start (%s)", i-1, chunks[i-1].before, i, chunks[i].from)
 					}
 				}
 			}
@@ -73,19 +73,19 @@ func TestGoogleFinanceFormula(t *testing.T) {
 	tests := []struct {
 		name         string
 		ticker       string
-		from, to     time.Time
+		from, before time.Time
 		wantContains []string
 	}{
 		{
 			name:   "stock",
 			ticker: "NASDAQ:AAPL",
 			from:   date(2024, 1, 1),
-			to:     date(2024, 7, 1),
+			before: date(2024, 7, 1),
 			wantContains: []string{
 				`=GOOGLEFINANCE("NASDAQ:AAPL"`,
 				`"close"`,
 				`DATE(2024,1,1)`,
-				`DATE(2024,6,30)`, // to is exclusive, so end date is June 30
+				`DATE(2024,6,30)`, // before is exclusive, so end date is June 30
 				`"DAILY"`,
 			},
 		},
@@ -93,7 +93,7 @@ func TestGoogleFinanceFormula(t *testing.T) {
 			name:   "FX pair",
 			ticker: "CURRENCY:GBPUSD",
 			from:   date(2024, 3, 15),
-			to:     date(2024, 4, 15),
+			before: date(2024, 4, 15),
 			wantContains: []string{
 				`"CURRENCY:GBPUSD"`,
 				`DATE(2024,3,15)`,
@@ -103,7 +103,7 @@ func TestGoogleFinanceFormula(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := googleFinanceFormula(tc.ticker, tc.from, tc.to)
+			got := googleFinanceFormula(tc.ticker, tc.from, tc.before)
 			for _, want := range tc.wantContains {
 				if !strings.Contains(got, want) {
 					t.Errorf("formula %q missing %q", got, want)
@@ -121,7 +121,7 @@ func TestGenerateFormulas_StockAndFX(t *testing.T) {
 			AssetClass:   apiv1.AssetClass_ASSET_CLASS_STOCK,
 			Name:         "Apple Inc",
 			Gaps: []*apiv1.DateRange{
-				{From: "2024-01-01", To: "2024-07-01"},
+				{From: "2024-01-01", Before: "2024-07-01"},
 			},
 		},
 	}
@@ -132,7 +132,7 @@ func TestGenerateFormulas_StockAndFX(t *testing.T) {
 			AssetClass:   apiv1.AssetClass_ASSET_CLASS_FX,
 			Name:         "GBPUSD",
 			Gaps: []*apiv1.DateRange{
-				{From: "2024-01-01", To: "2024-04-01"},
+				{From: "2024-01-01", Before: "2024-04-01"},
 			},
 		},
 	}
@@ -172,7 +172,7 @@ func TestGenerateFormulas_YearChunking(t *testing.T) {
 			AssetClass:   apiv1.AssetClass_ASSET_CLASS_STOCK,
 			Name:         "IBM",
 			Gaps: []*apiv1.DateRange{
-				{From: "2023-01-01", To: "2024-12-31"}, // ~2 years, fits in 2 chunks
+				{From: "2023-01-01", Before: "2024-12-31"}, // ~2 years, fits in 2 chunks
 			},
 		},
 	}
@@ -195,7 +195,7 @@ func TestGenerateFormulas_SkipsUnmappable(t *testing.T) {
 			AssetClass:   apiv1.AssetClass_ASSET_CLASS_STOCK,
 			Name:         "Apple ISIN",
 			Gaps: []*apiv1.DateRange{
-				{From: "2024-01-01", To: "2024-07-01"},
+				{From: "2024-01-01", Before: "2024-07-01"},
 			},
 		},
 	}
@@ -216,8 +216,8 @@ func TestGenerateFormulas_MultipleGapRanges(t *testing.T) {
 			Identifier:   &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_MIC_TICKER, Domain: "XNAS", Value: "TSLA"},
 			AssetClass:   apiv1.AssetClass_ASSET_CLASS_STOCK,
 			Gaps: []*apiv1.DateRange{
-				{From: "2024-01-01", To: "2024-03-01"},
-				{From: "2024-06-01", To: "2024-09-01"},
+				{From: "2024-01-01", Before: "2024-03-01"},
+				{From: "2024-06-01", Before: "2024-09-01"},
 			},
 		},
 	}
@@ -268,7 +268,7 @@ func TestGenerateFormulas_OpenfIGITickerWithExchange(t *testing.T) {
 			AssetClass:   apiv1.AssetClass_ASSET_CLASS_STOCK,
 			Exchange:     "XNAS",
 			Name:         "Microsoft",
-			Gaps:         []*apiv1.DateRange{{From: "2024-01-01", To: "2024-04-01"}},
+			Gaps:         []*apiv1.DateRange{{From: "2024-01-01", Before: "2024-04-01"}},
 		},
 	}
 

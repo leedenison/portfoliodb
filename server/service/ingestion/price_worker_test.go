@@ -146,7 +146,7 @@ func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
 				IdentifierValue:  "AAPL",
 				IdentifierDomain: "XNAS",
 				From:             "2024-01-01",
-				To:               "2024-04-01",
+				Before:           "2024-04-01",
 			},
 		},
 	}
@@ -202,7 +202,7 @@ func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(
 				IdentifierType:  "FX_PAIR",
 				IdentifierValue: "GBPUSD",
 				From:            "2024-01-01",
-				To:              "2024-04-01",
+				Before:          "2024-04-01",
 			},
 		},
 	}

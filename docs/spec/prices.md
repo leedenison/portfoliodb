@@ -53,15 +53,15 @@ A forward-filled synthetic row carries the value of the bar it copied, so it inh
 
 All components are implemented as Go functions in the database abstraction layer (`server/db`). The `PriceCacheDB` interface in `server/db/db.go` defines the contract; the Postgres implementation lives in `server/db/postgres/price_cache.go`.
 
-Date ranges use the half-open `[From, To)` convention with `time.Time` values at midnight UTC, matching PostgreSQL's `daterange` default (see adr/0007-calendar-day-valuation.md).
+Date ranges use the half-open `[From, Before)` convention with `time.Time` values at midnight UTC, matching PostgreSQL's `daterange` default (see adr/0018-half-open-date-intervals.md).
 
 ### Types
 
 ```go
-// DateRange is a half-open [From, To) date range. Both values are midnight UTC.
+// DateRange is a half-open [From, Before) date range. Both values are midnight UTC.
 type DateRange struct {
-    From time.Time // inclusive
-    To   time.Time // exclusive
+    From   time.Time // inclusive
+    Before time.Time // exclusive
 }
 
 // InstrumentDateRanges groups date ranges by instrument.
@@ -100,7 +100,7 @@ Compute the date ranges during which any user held a non-zero position in each i
 2. Compute the cumulative position per instrument using SQL window functions.
 3. In Go, iterate the daily positions and detect zero-crossings:
    - `held_from` = the date the position first becomes non-zero.
-   - `held_to` = the date the position returns to zero, OR today + 1 day (exclusive) if `ExtendToToday` is true and the position is still open.
+   - `held_before` = the date the position returns to zero, OR today + 1 day (exclusive) if `ExtendToToday` is true and the position is still open.
 4. Return the result as a slice of `InstrumentDateRanges`.
 
 ---
@@ -120,7 +120,7 @@ For each instrument present in the `eod_prices` table, return the date ranges fo
 ### SQL approach
 
 ```sql
-SELECT instrument_id, lower(r) AS range_from, upper(r) AS range_to
+SELECT instrument_id, lower(r) AS range_from, upper(r) AS range_before
 FROM (
     SELECT instrument_id,
         unnest(range_agg(daterange(price_date, price_date + 1))) AS r

@@ -69,7 +69,7 @@ func (p *Plugin) AcceptableExchanges() map[string]bool { return nil }
 
 func (p *Plugin) AcceptableCurrencies() map[string]bool { return nil }
 
-func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []pricefetcher.Identifier, assetClass string, from, to time.Time) (*pricefetcher.FetchResult, error) {
+func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []pricefetcher.Identifier, assetClass string, from, before time.Time) (*pricefetcher.FetchResult, error) {
 	symbol, fxDivisor := p.symbolForAssetClass(identifiers, assetClass)
 	if symbol == "" {
 		return nil, pricefetcher.ErrNoData
@@ -80,18 +80,18 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 		return nil, err
 	}
 
-	// to is exclusive in our convention; EODHD API is inclusive.
-	toInclusive := to.AddDate(0, 0, -1)
-	if toInclusive.Before(from) {
+	// Our upper bound is exclusive; the EODHD API is inclusive.
+	beforeInclusive := before.AddDate(0, 0, -1)
+	if beforeInclusive.Before(from) {
 		return nil, pricefetcher.ErrNoData
 	}
 
 	var allBars []client.EODBar
 	chunkStart := from
-	for chunkStart.Before(toInclusive) || chunkStart.Equal(toInclusive) {
+	for chunkStart.Before(beforeInclusive) || chunkStart.Equal(beforeInclusive) {
 		chunkEnd := chunkStart.AddDate(0, 0, maxChunkDays-1)
-		if chunkEnd.After(toInclusive) {
-			chunkEnd = toInclusive
+		if chunkEnd.After(beforeInclusive) {
+			chunkEnd = beforeInclusive
 		}
 		fromStr := chunkStart.Format("2006-01-02")
 		toStr := chunkEnd.Format("2006-01-02")

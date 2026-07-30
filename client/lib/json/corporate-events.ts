@@ -1,14 +1,21 @@
 /**
  * JSON serialization for corporate event (split) export/import.
- * Format: array of split objects with identifier context.
+ *
+ * The canonical import shape is an object with "events" -- split objects with
+ * identifier context -- and an optional "coverage". A bare array of events is
+ * still accepted, and is what the exporter writes until it has coverage to
+ * serialize. See docs/spec/csv-format.md.
  */
 
+import { create } from "@bufbuild/protobuf";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
-import { AssetClass } from "@/gen/api/v1/api_pb";
-import type { ExportCorporateEventRow, SplitRow } from "@/gen/api/v1/api_pb";
+import { AssetClass, ImportCorporateEventCoverageSchema } from "@/gen/api/v1/api_pb";
+import type { ExportCorporateEventRow, ImportCorporateEventCoverage, SplitRow } from "@/gen/api/v1/api_pb";
 import type { CorporateSplitImportRow } from "@/lib/portfolio-api";
 import { assetClassToStr, assetClassFromStr } from "@/lib/asset-class";
 import type { ParseError } from "@/lib/csv/standard";
+import { expandCoverage, validateCoverage } from "@/lib/coverage";
+import type { CoverageDecl, InstrumentRef } from "@/lib/coverage";
 
 interface SerializedSplit {
   identifier_type: string;
@@ -47,10 +54,57 @@ export function splitsToJson(rows: ExportCorporateEventRow[]): string {
 
 export interface SplitParseResult {
   splits: CorporateSplitImportRow[];
+  /** One entry per instrument per span, with any global already expanded. */
+  coverage: ImportCorporateEventCoverage[];
   errors: ParseError[];
 }
 
-/** Parse splits JSON back into importable rows. */
+/**
+ * Read the "coverage" array. Entries carrying no identifier keys are global and
+ * apply to every instrument in the file; see @/lib/coverage.
+ */
+function parseCoverageArray(raw: unknown, errors: ParseError[]): CoverageDecl[] {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) {
+    errors.push({ rowIndex: 0, field: "coverage", message: "Expected an array" });
+    return [];
+  }
+
+  const decls: CoverageDecl[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    if (typeof item !== "object" || item === null) {
+      errors.push({ rowIndex: i, field: "coverage", message: "Expected an object" });
+      continue;
+    }
+    const obj = item as Record<string, unknown>;
+    const decl: CoverageDecl = {
+      from: String(obj.from ?? ""),
+      before: String(obj.before ?? ""),
+      rowIndex: i,
+    };
+    // Absent and empty are the same thing here: either way the declaration
+    // names no instrument, which is what makes it global.
+    const type = String(obj.identifier_type ?? "");
+    const value = String(obj.identifier_value ?? "");
+    const domain = String(obj.identifier_domain ?? "");
+    if (type) decl.identifierType = type;
+    if (value) decl.identifierValue = value;
+    if (domain) decl.identifierDomain = domain;
+
+    const declErrors = validateCoverage(decl);
+    if (declErrors.length > 0) errors.push(...declErrors);
+    else decls.push(decl);
+  }
+  return decls;
+}
+
+/**
+ * Parse splits JSON back into importable rows.
+ *
+ * The canonical shape is an object with "events" and an optional "coverage".
+ * A bare array is accepted as events-only, which is what earlier exports wrote.
+ */
 export function parseSplitsJson(json: string): SplitParseResult {
   const errors: ParseError[] = [];
   let parsed: unknown;
@@ -60,21 +114,37 @@ export function parseSplitsJson(json: string): SplitParseResult {
   } catch (e) {
     return {
       splits: [],
+      coverage: [],
       errors: [{ rowIndex: 0, field: "file", message: `Invalid JSON: ${e instanceof Error ? e.message : String(e)}` }],
     };
   }
 
-  if (!Array.isArray(parsed)) {
+  let rawEvents: unknown;
+  let coverageDecls: CoverageDecl[] = [];
+  if (Array.isArray(parsed)) {
+    rawEvents = parsed;
+  } else if (typeof parsed === "object" && parsed !== null) {
+    const obj = parsed as Record<string, unknown>;
+    rawEvents = obj.events;
+    coverageDecls = parseCoverageArray(obj.coverage, errors);
+  }
+
+  if (!Array.isArray(rawEvents)) {
     return {
       splits: [],
-      errors: [{ rowIndex: 0, field: "file", message: "Expected a JSON array" }],
+      coverage: [],
+      errors: [
+        ...errors,
+        { rowIndex: 0, field: "file", message: 'Expected a JSON array, or an object with an "events" array' },
+      ],
     };
   }
+  const parsedEvents: unknown[] = rawEvents;
 
   const splits: CorporateSplitImportRow[] = [];
 
-  for (let i = 0; i < parsed.length; i++) {
-    const item = parsed[i];
+  for (let i = 0; i < parsedEvents.length; i++) {
+    const item = parsedEvents[i];
     if (typeof item !== "object" || item === null) {
       errors.push({ rowIndex: i, field: "item", message: "Expected an object" });
       continue;
@@ -138,5 +208,16 @@ export function parseSplitsJson(json: string): SplitParseResult {
     splits.push(row);
   }
 
-  return { splits, errors };
+  // Resolve declarations against the instruments the events actually name, so
+  // a global fans out to one wire entry each.
+  const instruments: InstrumentRef[] = splits.map((s) => ({
+    identifierType: s.identifierType,
+    identifierValue: s.identifierValue,
+    identifierDomain: s.identifierDomain ?? "",
+  }));
+  const expanded = expandCoverage(coverageDecls, instruments);
+  errors.push(...expanded.errors);
+  const coverage = expanded.resolved.map((c) => create(ImportCorporateEventCoverageSchema, c));
+
+  return { splits, coverage, errors };
 }

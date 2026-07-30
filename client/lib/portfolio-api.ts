@@ -119,6 +119,8 @@ import type {
   IdentificationError,
   IdentifierPluginConfig,
   ImportPriceRow,
+  ImportCoverage,
+  ImportCorporateEventCoverage,
   Instrument,
   PriceFetchBlock,
   PricePluginConfig,
@@ -651,10 +653,20 @@ export async function* exportPrices(): AsyncGenerator<ExportPriceRow> {
 }
 
 /** Import (upsert) prices (admin only). Returns a job ID for async processing. */
-export async function importPrices(prices: ImportPriceRow[], exportedAt?: Date): Promise<string> {
+/**
+ * Import EOD prices (admin only). Coverage entries name one instrument each --
+ * any global declaration in the source file is expanded by the parser -- and
+ * make the server fill non-trading days within the span by LOCF.
+ */
+export async function importPrices(
+  prices: ImportPriceRow[],
+  exportedAt?: Date,
+  coverage?: ImportCoverage[],
+): Promise<string> {
   const base = getBaseUrl();
   const req = create(ImportPricesRequestSchema, {
     prices,
+    coverage,
     exportedAt: exportedAt ? timestampFromDate(exportedAt) : undefined,
   });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "ImportPrices", toBinary(ImportPricesRequestSchema, req), { credentials: "include" });
@@ -679,7 +691,10 @@ export interface CorporateSplitImportRow {
  * the server is idempotent on (instrument_id, ex_date) so re-importing
  * the same split is safe. Returns a job ID for async processing.
  */
-export async function importCorporateEventSplits(rows: CorporateSplitImportRow[]): Promise<string> {
+export async function importCorporateEventSplits(
+  rows: CorporateSplitImportRow[],
+  coverage?: ImportCorporateEventCoverage[],
+): Promise<string> {
   const base = getBaseUrl();
   const events = rows.map((r) =>
     create(ImportCorporateEventRowSchema, {
@@ -698,7 +713,7 @@ export async function importCorporateEventSplits(rows: CorporateSplitImportRow[]
       },
     }),
   );
-  const req = create(ImportCorporateEventsRequestSchema, { events });
+  const req = create(ImportCorporateEventsRequestSchema, { events, coverage });
   const resBytes = await unaryFetch(
     base,
     ApiServicePrefix + "ImportCorporateEvents",

@@ -69,3 +69,66 @@ describe("parseSplitsJson", () => {
     expect(errors[0].field).toBe("first_known_at");
   });
 });
+
+describe("parseSplitsJson coverage", () => {
+  const events = [
+    { identifier_type: "MIC_TICKER", identifier_value: "AAPL", identifier_domain: "XNAS", ex_date: "2020-08-31", split_from: "1", split_to: "4" },
+    { identifier_type: "MIC_TICKER", identifier_value: "TSLA", identifier_domain: "XNAS", ex_date: "2022-08-25", split_from: "1", split_to: "3" },
+  ];
+
+  it("accepts a bare array as events with no coverage", () => {
+    const { splits, coverage, errors } = parseSplitsJson(JSON.stringify(events));
+    expect(errors).toEqual([]);
+    expect(splits).toHaveLength(2);
+    expect(coverage).toEqual([]);
+  });
+
+  it("accepts the object form without coverage", () => {
+    const { splits, coverage, errors } = parseSplitsJson(JSON.stringify({ events }));
+    expect(errors).toEqual([]);
+    expect(splits).toHaveLength(2);
+    expect(coverage).toEqual([]);
+  });
+
+  it("expands a global declaration over every instrument in the file", () => {
+    const json = JSON.stringify({
+      events,
+      coverage: [{ from: "2022-01-01", before: "2026-07-30" }],
+    });
+    const { coverage, errors } = parseSplitsJson(json);
+    expect(errors).toEqual([]);
+    expect(coverage.map((c) => c.identifierValue)).toEqual(["AAPL", "TSLA"]);
+    expect(coverage[0].before).toBe("2026-07-30");
+  });
+
+  it("lets a specific declaration override the global", () => {
+    const json = JSON.stringify({
+      events,
+      coverage: [
+        { from: "2022-01-01", before: "2026-07-30" },
+        { identifier_type: "MIC_TICKER", identifier_value: "TSLA", identifier_domain: "XNAS", from: "2022-06-01", before: "2023-01-01" },
+      ],
+    });
+    const { coverage, errors } = parseSplitsJson(json);
+    expect(errors).toEqual([]);
+    expect(coverage).toEqual([
+      expect.objectContaining({ identifierValue: "AAPL", from: "2022-01-01", before: "2026-07-30" }),
+      expect.objectContaining({ identifierValue: "TSLA", from: "2022-06-01", before: "2023-01-01" }),
+    ]);
+  });
+
+  it("reports a bad declaration without discarding the events", () => {
+    const json = JSON.stringify({ events, coverage: [{ from: "2022-01-01", before: "2021-01-01" }] });
+    const { splits, coverage, errors } = parseSplitsJson(json);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].field).toBe("before");
+    expect(splits).toHaveLength(2);
+    expect(coverage).toEqual([]);
+  });
+
+  it("rejects an object with no events array", () => {
+    const { errors } = parseSplitsJson(JSON.stringify({ coverage: [] }));
+    expect(errors).toHaveLength(1);
+    expect(errors[0].field).toBe("file");
+  });
+});

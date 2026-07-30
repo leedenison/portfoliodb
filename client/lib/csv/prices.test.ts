@@ -268,3 +268,91 @@ describe("csvToPrices", () => {
     expect(result.errors[0].rowIndex).toBe(3); // row 3 (1-based, header=1)
   });
 });
+
+describe("csvToPrices coverage headers", () => {
+  const HDR = "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume";
+  const ROWS = [
+    "MIC_TICKER,AAPL,XNAS,2024-01-15,,,,185.9,,",
+    "MIC_TICKER,MSFT,XNAS,2024-01-15,,,,400.1,,",
+  ];
+
+  it("yields no coverage when the file declares none", () => {
+    const result = csvToPrices([HDR, ...ROWS].join("\n"));
+    expect(result.errors).toEqual([]);
+    expect(result.coverage).toEqual([]);
+  });
+
+  it("expands a global declaration over every instrument in the file", () => {
+    const csv = ["# coverage=2024-01-01,2024-02-01", HDR, ...ROWS].join("\n");
+    const result = csvToPrices(csv);
+    expect(result.errors).toEqual([]);
+    expect(result.coverage).toHaveLength(2);
+    expect(result.coverage.map((c) => c.identifierValue)).toEqual(["AAPL", "MSFT"]);
+    expect(result.coverage[0].from).toBe("2024-01-01");
+    expect(result.coverage[0].before).toBe("2024-02-01");
+  });
+
+  it("lets a specific declaration override the global", () => {
+    const csv = [
+      "# coverage=2024-01-01,2024-02-01",
+      "# coverage=MIC_TICKER,MSFT,XNAS,2024-03-01,2024-04-01",
+      HDR,
+      ...ROWS,
+    ].join("\n");
+    const result = csvToPrices(csv);
+    expect(result.errors).toEqual([]);
+    expect(result.coverage).toEqual([
+      expect.objectContaining({ identifierValue: "AAPL", from: "2024-01-01", before: "2024-02-01" }),
+      expect.objectContaining({ identifierValue: "MSFT", from: "2024-03-01", before: "2024-04-01" }),
+    ]);
+  });
+
+  it("accepts an empty domain in the specific form", () => {
+    const csv = [
+      "# coverage=OCC,NVDA250620P00110000,,2024-06-11,2025-01-18",
+      HDR,
+      "OCC,NVDA250620P00110000,,2024-06-11,,,,14.45,,",
+    ].join("\n");
+    const result = csvToPrices(csv);
+    expect(result.errors).toEqual([]);
+    expect(result.coverage).toHaveLength(1);
+    expect(result.coverage[0].identifierDomain).toBe("");
+  });
+
+  it("coexists with exported_at and other comment lines", () => {
+    const csv = [
+      "# exported_at=2024-05-01T00:00:00.000Z",
+      "# just a note",
+      "# coverage=2024-01-01,2024-02-01",
+      HDR,
+      ...ROWS,
+    ].join("\n");
+    const result = csvToPrices(csv);
+    expect(result.errors).toEqual([]);
+    expect(result.exportedAt?.toISOString()).toBe("2024-05-01T00:00:00.000Z");
+    expect(result.coverage).toHaveLength(2);
+  });
+
+  it("reads declarations written below the data rows", () => {
+    const csv = [HDR, ...ROWS, "# coverage=2024-01-01,2024-02-01"].join("\n");
+    expect(csvToPrices(csv).coverage).toHaveLength(2);
+  });
+
+  it("rejects a field count matching neither form, naming the file line", () => {
+    const csv = [HDR, "# coverage=MIC_TICKER,AAPL,2024-01-01,2024-02-01", ...ROWS].join("\n");
+    const result = csvToPrices(csv);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].field).toBe("coverage");
+    expect(result.errors[0].rowIndex).toBe(2);
+    expect(result.coverage).toEqual([]);
+  });
+
+  it("reports a bad declaration without discarding the price rows", () => {
+    const csv = ["# coverage=2024-02-01,2024-01-01", HDR, ...ROWS].join("\n");
+    const result = csvToPrices(csv);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].field).toBe("before");
+    expect(result.prices).toHaveLength(2);
+    expect(result.coverage).toEqual([]);
+  });
+});

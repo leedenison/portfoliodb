@@ -4,19 +4,31 @@
 
 import Papa from "papaparse";
 import { create } from "@bufbuild/protobuf";
-import { ImportPriceRowSchema, IdentifierTypeSchema } from "@/gen/api/v1/api_pb";
-import type { ExportPriceRow, ImportPriceRow } from "@/gen/api/v1/api_pb";
+import { ImportPriceRowSchema, ImportCoverageSchema } from "@/gen/api/v1/api_pb";
+import type { ExportPriceRow, ImportPriceRow, ImportCoverage } from "@/gen/api/v1/api_pb";
 import type { ParseError } from "./standard";
 import { assetClassToStr, assetClassFromStr } from "@/lib/asset-class";
-
-/** Valid identifier type names from the proto IdentifierType enum (excluding UNSPECIFIED). */
-const VALID_IDENTIFIER_TYPES = new Set(
-  IdentifierTypeSchema.values
-    .filter((v) => v.number !== 0)
-    .map((v) => v.name),
-);
+import { VALID_IDENTIFIER_TYPES } from "@/lib/identifiers";
+import { expandCoverage, validateCoverage } from "@/lib/coverage";
+import type { CoverageDecl, InstrumentRef } from "@/lib/coverage";
 
 const HEADER = "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class,currency";
+
+/** Comment line carrying the export's knowledge time. */
+const EXPORTED_AT_PREFIX = "# exported_at=";
+
+/**
+ * Comment line declaring a half-open [from, before) coverage span, in one of
+ * two forms:
+ *
+ *     # coverage=<from>,<before>
+ *     # coverage=<identifier_type>,<identifier_value>,<identifier_domain>,<from>,<before>
+ *
+ * The first is global and applies to every instrument in the file; the second
+ * names one instrument and overrides the global for it. The five-field form's
+ * order matches the data columns.
+ */
+const COVERAGE_PREFIX = "# coverage=";
 
 const REQUIRED_COLUMNS = new Set(["identifier_type", "identifier_value", "price_date", "close"]);
 
@@ -46,15 +58,46 @@ export function pricesToCsv(rows: ExportPriceRow[], exportedAt?: Date): string {
   ]);
   const csv = Papa.unparse({ fields: HEADER.split(","), data }, { newline: "\n" }) + "\n";
   if (exportedAt) {
-    return `# exported_at=${exportedAt.toISOString()}\n${csv}`;
+    return `${EXPORTED_AT_PREFIX}${exportedAt.toISOString()}\n${csv}`;
   }
   return csv;
 }
 
 export interface PriceParseResult {
   prices: ImportPriceRow[];
+  /** One entry per instrument per span, with any global already expanded. */
+  coverage: ImportCoverage[];
   errors: ParseError[];
   exportedAt?: Date;
+}
+
+/**
+ * Parse one "# coverage=" line. Returns undefined and records an error when
+ * the field count matches neither accepted form.
+ */
+function parseCoverageLine(body: string, rowIndex: number, errors: ParseError[]): CoverageDecl | undefined {
+  const fields = body.split(",").map((f) => f.trim());
+  if (fields.length === 2) {
+    return { from: fields[0], before: fields[1], rowIndex };
+  }
+  if (fields.length === 5) {
+    return {
+      identifierType: fields[0],
+      identifierValue: fields[1],
+      identifierDomain: fields[2],
+      from: fields[3],
+      before: fields[4],
+      rowIndex,
+    };
+  }
+  errors.push({
+    rowIndex,
+    field: "coverage",
+    message:
+      `Expected "<from>,<before>" or ` +
+      `"<identifier_type>,<identifier_value>,<identifier_domain>,<from>,<before>", got ${fields.length} fields`,
+  });
+  return undefined;
 }
 
 /** Parse CSV text into ImportPriceRow[] with validation. */
@@ -62,18 +105,28 @@ export function csvToPrices(text: string): PriceParseResult {
   const prices: ImportPriceRow[] = [];
   const errors: ParseError[] = [];
 
-  // Extract metadata from comment lines and strip them before parsing.
+  // Extract metadata from comment lines and strip them before parsing. Errors
+  // on these lines carry the file line number, since they have no data row.
   let exportedAt: Date | undefined;
+  const coverageDecls: CoverageDecl[] = [];
   const dataLines: string[] = [];
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("# exported_at=")) {
-      const d = new Date(trimmed.slice("# exported_at=".length));
+  const fileLines = text.split("\n");
+  for (let i = 0; i < fileLines.length; i++) {
+    const trimmed = fileLines[i].trim();
+    if (trimmed.startsWith(EXPORTED_AT_PREFIX)) {
+      const d = new Date(trimmed.slice(EXPORTED_AT_PREFIX.length));
       if (!isNaN(d.getTime())) exportedAt = d;
+    } else if (trimmed.startsWith(COVERAGE_PREFIX)) {
+      const decl = parseCoverageLine(trimmed.slice(COVERAGE_PREFIX.length), i + 1, errors);
+      if (decl) {
+        const declErrors = validateCoverage(decl);
+        if (declErrors.length > 0) errors.push(...declErrors);
+        else coverageDecls.push(decl);
+      }
     } else if (trimmed.startsWith("#")) {
       continue;
     } else {
-      dataLines.push(line);
+      dataLines.push(fileLines[i]);
     }
   }
   const csvText = dataLines.join("\n");
@@ -81,7 +134,7 @@ export function csvToPrices(text: string): PriceParseResult {
   const parsed = Papa.parse<string[]>(csvText, { header: false, skipEmptyLines: true });
   const rows = parsed.data;
   if (rows.length === 0) {
-    return { prices, errors, exportedAt };
+    return { prices, coverage: [], errors, exportedAt };
   }
 
   const headerFields = rows[0].map((h) => h.trim().toLowerCase());
@@ -90,14 +143,17 @@ export function csvToPrices(text: string): PriceParseResult {
     colIdx.set(headerFields[i], i);
   }
 
-  // Validate required columns exist.
+  // Validate required columns exist. Only a missing column stops the parse --
+  // a bad comment line is reported without discarding the rows.
+  let missingColumns = false;
   for (const col of REQUIRED_COLUMNS) {
     if (!colIdx.has(col)) {
       errors.push({ rowIndex: 0, field: col, message: `missing required column: ${col}` });
+      missingColumns = true;
     }
   }
-  if (errors.length > 0) {
-    return { prices, errors, exportedAt };
+  if (missingColumns) {
+    return { prices, coverage: [], errors, exportedAt };
   }
 
   for (let i = 1; i < rows.length; i++) {
@@ -204,5 +260,16 @@ export function csvToPrices(text: string): PriceParseResult {
     prices.push(row);
   }
 
-  return { prices, errors, exportedAt };
+  // Resolve declarations against the instruments the rows actually name, so a
+  // global fans out to one wire entry each.
+  const instruments: InstrumentRef[] = prices.map((p) => ({
+    identifierType: p.identifierType,
+    identifierValue: p.identifierValue,
+    identifierDomain: p.identifierDomain,
+  }));
+  const expanded = expandCoverage(coverageDecls, instruments);
+  errors.push(...expanded.errors);
+  const coverage = expanded.resolved.map((c) => create(ImportCoverageSchema, c));
+
+  return { prices, coverage, errors, exportedAt };
 }

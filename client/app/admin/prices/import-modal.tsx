@@ -68,7 +68,7 @@ export function ImportPricesModal({
     setPhase("processing");
     setImportError(null);
     try {
-      const id = await importPrices(parseResult.prices, parseResult.exportedAt);
+      const id = await importPrices(parseResult.prices, parseResult.exportedAt, parseResult.coverage);
       setJobId(id);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
@@ -187,7 +187,15 @@ export function ImportPricesModal({
               <p className="text-sm text-text-primary">
                 Ready to import{" "}
                 <span className="font-semibold">{parseResult.prices.length}</span>{" "}
-                price{parseResult.prices.length !== 1 ? "s" : ""}.
+                price{parseResult.prices.length !== 1 ? "s" : ""}
+                {parseResult.coverage.length > 0 && (
+                  <>
+                    {" "}with{" "}
+                    <span className="font-semibold">{parseResult.coverage.length}</span>{" "}
+                    coverage span{parseResult.coverage.length !== 1 ? "s" : ""}
+                  </>
+                )}
+                .
               </p>
             )}
 

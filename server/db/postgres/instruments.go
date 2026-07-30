@@ -608,6 +608,22 @@ func (p *Postgres) DeleteInstrumentIdentifier(ctx context.Context, instrumentID,
 	return nil
 }
 
+// DeleteInstrumentIdentifiersByType implements db.InstrumentDB.
+func (p *Postgres) DeleteInstrumentIdentifiersByType(ctx context.Context, instrumentID, identifierType string) error {
+	uid, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("delete instrument identifiers by type: invalid id: %w", err)
+	}
+	_, err = p.q.ExecContext(ctx, `
+		DELETE FROM instrument_identifiers
+		WHERE instrument_id = $1 AND identifier_type = $2
+	`, uid, identifierType)
+	if err != nil {
+		return fmt.Errorf("delete instrument identifiers by type: %w", err)
+	}
+	return nil
+}
+
 // InsertInstrumentIdentifier implements db.InstrumentDB.
 func (p *Postgres) InsertInstrumentIdentifier(ctx context.Context, instrumentID string, input db.IdentifierInput) error {
 	uid, err := uuid.Parse(instrumentID)

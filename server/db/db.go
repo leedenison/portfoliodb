@@ -603,6 +603,12 @@ type InstrumentDB interface {
 	// DeleteInstrumentIdentifier removes a single identifier row by
 	// (instrument_id, identifier_type, value). Returns nil when no row exists.
 	DeleteInstrumentIdentifier(ctx context.Context, instrumentID, identifierType, value string) error
+	// DeleteInstrumentIdentifiersByType removes every identifier of the given
+	// type for an instrument, whatever its value or domain. Use it when a type
+	// is single-valued for the instrument and is being replaced, so the write
+	// does not depend on knowing the value currently stored. Returns nil when no
+	// row exists.
+	DeleteInstrumentIdentifiersByType(ctx context.Context, instrumentID, identifierType string) error
 	// InsertInstrumentIdentifier inserts a single identifier row.
 	InsertInstrumentIdentifier(ctx context.Context, instrumentID string, input IdentifierInput) error
 	// UpdateInstrumentStrike updates the strike on an existing option instrument.
@@ -759,10 +765,13 @@ type UnhandledCorporateEvent struct {
 // contract after a stock split on its underlying.
 type OptionSplitParams struct {
 	InstrumentID string
-	OldOCCValue  string
-	NewOCC       IdentifierInput
-	NewStrike    float64
-	NewName      string
+	// OldOCCValue is the symbol the caller read. It is reported, not acted on:
+	// every OCC identifier on the instrument is replaced regardless, so the write
+	// converges even if the stored symbol has moved on since the read.
+	OldOCCValue string
+	NewOCC      IdentifierInput
+	NewStrike   float64
+	NewName     string
 }
 
 // CorporateEventDB provides storage for stock splits, cash dividends, fetch

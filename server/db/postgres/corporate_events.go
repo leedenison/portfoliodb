@@ -680,15 +680,21 @@ func (p *Postgres) BlockedCorporateEventPluginsForInstruments(ctx context.Contex
 }
 
 // ApplyOptionSplit implements db.CorporateEventDB. All mutations run in a
-// single transaction: delete old OCC, insert new OCC, update strike,
+// single transaction: replace the OCC identifier, update strike,
 // recompute split-adjusted tx values, advance identity_as_of. The split_factor_at
 // SQL function looks up splits via the underlying_id FK, so no derived split
 // row is needed on the option instrument.
 func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitParams) error {
 	return p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}
-		if err := txp.DeleteInstrumentIdentifier(ctx, params.InstrumentID, "OCC", params.OldOCCValue); err != nil {
-			return fmt.Errorf("apply option split: delete old OCC: %w", err)
+		// Every OCC identifier goes, not just the value the caller read. An
+		// option has exactly one OCC, and deleting by value leaves a stale one
+		// behind when two runs of the pass overlap: the loser's delete matches
+		// nothing, its insert of a different adjusted symbol succeeds, and the
+		// option ends up resolving under both. Deleting by type makes the
+		// operation converge whatever the caller last saw.
+		if err := txp.DeleteInstrumentIdentifiersByType(ctx, params.InstrumentID, "OCC"); err != nil {
+			return fmt.Errorf("apply option split: delete OCC identifiers: %w", err)
 		}
 		if err := txp.InsertInstrumentIdentifier(ctx, params.InstrumentID, params.NewOCC); err != nil {
 			return fmt.Errorf("apply option split: insert new OCC: %w", err)

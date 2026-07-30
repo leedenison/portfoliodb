@@ -1517,4 +1517,68 @@ func TestListPendingOptionSplits_ClearedByApply(t *testing.T) {
 	}
 }
 
+// TestApplyOptionSplit_ConvergesOnStaleOldOCC covers two runs of the pass
+// overlapping on the same option. The pass is called from both the corporate
+// event fetch cycle and the corporate event import job, so a run can compute its
+// adjustment from a snapshot another run has already superseded.
+//
+// Run A sees only the 2:1 and plans 200 -> 100. The 4:1 then lands, so run B
+// sees both and plans 200 -> 25 from the same starting strike. A commits first.
+// B's OldOCCValue now names a symbol that no longer exists, and deleting by
+// value would match nothing while its insert of a different symbol succeeded --
+// leaving the option resolving under two OCCs, with nothing to clean it up since
+// identity_as_of has advanced. Replacing every OCC identifier makes the write
+// converge: whichever run commits last leaves one symbol, consistent with the
+// strike it wrote.
+func TestApplyOptionSplit_ConvergesOnStaleOldOCC(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID := setupInstrument(t, p, "RACE")
+	identity := d(2024, 1, 1)
+	optID := setupOption(t, p, underlyingID, "AAPL  250117C00200000", 200, &identity)
+
+	// Run A commits first: 2:1 only.
+	if err := p.ApplyOptionSplit(ctx, db.OptionSplitParams{
+		InstrumentID: optID,
+		OldOCCValue:  "AAPL  250117C00200000",
+		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00100000", Canonical: true},
+		NewStrike:    100,
+		NewName:      "AAPL250117C00100000",
+	}); err != nil {
+		t.Fatalf("run A: %v", err)
+	}
+
+	// Run B commits second, still carrying the pre-A symbol it read.
+	if err := p.ApplyOptionSplit(ctx, db.OptionSplitParams{
+		InstrumentID: optID,
+		OldOCCValue:  "AAPL  250117C00200000", // stale
+		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00025000", Canonical: true},
+		NewStrike:    25,
+		NewName:      "AAPL250117C00025000",
+	}); err != nil {
+		t.Fatalf("run B: %v", err)
+	}
+
+	inst, err := p.GetInstrument(ctx, optID)
+	if err != nil || inst == nil {
+		t.Fatalf("get instrument: %v", err)
+	}
+	var occs []string
+	for _, idn := range inst.Identifiers {
+		if idn.Type == "OCC" {
+			occs = append(occs, idn.Value)
+		}
+	}
+	if len(occs) != 1 {
+		t.Fatalf("OCC identifiers = %v, want exactly 1", occs)
+	}
+	if occs[0] != "AAPL250117C00025000" {
+		t.Errorf("OCC = %q, want the last writer's symbol", occs[0])
+	}
+	if inst.Strike == nil || *inst.Strike != 25 {
+		t.Errorf("strike = %v, want 25 to match the stored symbol", inst.Strike)
+	}
+}
+
 func timePtrCE(t time.Time) *time.Time { return &t }

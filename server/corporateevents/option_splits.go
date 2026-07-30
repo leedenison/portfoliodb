@@ -52,7 +52,11 @@ func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingI
 
 	var adjusted []*db.InstrumentRow
 	for _, p := range pending {
-		var factor float64 = 1
+		// Compound as exact rationals and convert once. Every ratio the
+		// IsWholeForwardSplit guard admits is a whole number, so float
+		// multiplication would happen to be exact today, but that stops holding
+		// the moment the guard admits a fractional ratio.
+		factorRat := new(big.Rat).SetInt64(1)
 		unhandled := false
 		for _, s := range p.Splits {
 			if !identification.IsWholeForwardSplit(s.SplitFrom, s.SplitTo) {
@@ -69,10 +73,9 @@ func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingI
 			}
 			from, _ := new(big.Rat).SetString(s.SplitFrom)
 			to, _ := new(big.Rat).SetString(s.SplitTo)
-			ratio := new(big.Rat).Quo(to, from)
-			f, _ := ratio.Float64()
-			factor *= f
+			factorRat.Mul(factorRat, new(big.Rat).Quo(to, from))
 		}
+		factor, _ := factorRat.Float64()
 		// A pending split we cannot apply blocks the whole option: adjusting
 		// only the splits either side of it would silently produce a strike
 		// that matches no real contract. Leaving identity_as_of untouched keeps

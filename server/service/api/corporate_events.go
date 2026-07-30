@@ -14,13 +14,25 @@ import (
 )
 
 // ExportCorporateEvents streams every stored stock split and cash dividend
-// with the best identifier per instrument. Splits stream first, then
-// dividends; within each block rows are ordered by (identifier_type,
-// identifier_value, ex_date). Admin only.
+// with the best identifier per instrument. Coverage spans come first, then
+// splits, then dividends; within each block rows are ordered by
+// (identifier_type, identifier_value, ex_date). Admin only.
 func (s *Server) ExportCorporateEvents(req *apiv1.ExportCorporateEventsRequest, stream apiv1.ApiService_ExportCorporateEventsServer) error {
 	ctx := stream.Context()
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return authErr
+	}
+
+	coverage, err := s.db.ListCorporateEventCoverageForExport(ctx)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	for _, c := range coverage {
+		if err := stream.Send(&apiv1.ExportCorporateEventsResponse{
+			Item: &apiv1.ExportCorporateEventsResponse_Coverage{Coverage: exportCoverage(c)},
+		}); err != nil {
+			return err
+		}
 	}
 
 	splits, err := s.db.ListStockSplitsForExport(ctx)
@@ -43,7 +55,9 @@ func (s *Server) ExportCorporateEvents(req *apiv1.ExportCorporateEventsRequest, 
 				},
 			},
 		}
-		if err := stream.Send(row); err != nil {
+		if err := stream.Send(&apiv1.ExportCorporateEventsResponse{
+			Item: &apiv1.ExportCorporateEventsResponse_Row{Row: row},
+		}); err != nil {
 			return err
 		}
 	}
@@ -78,7 +92,9 @@ func (s *Server) ExportCorporateEvents(req *apiv1.ExportCorporateEventsRequest, 
 			DataProvider:     r.DataProvider,
 			Event:            &apiv1.ExportCorporateEventRow_Dividend{Dividend: div},
 		}
-		if err := stream.Send(row); err != nil {
+		if err := stream.Send(&apiv1.ExportCorporateEventsResponse{
+			Item: &apiv1.ExportCorporateEventsResponse_Row{Row: row},
+		}); err != nil {
 			return err
 		}
 	}

@@ -26,6 +26,13 @@ func TestExportCorporateEvents_CarriesKnowledgeTimeAndDividendType(t *testing.T)
 	splitKnownAt := time.Date(2015, 3, 4, 9, 30, 0, 0, time.UTC)
 	divKnownAt := time.Date(2024, 2, 2, 8, 0, 0, 0, time.UTC)
 
+	db.EXPECT().ListCorporateEventCoverageForExport(gomock.Any()).Return([]dbpkg.ExportCoverageRow{{
+		IdentifierType:   "MIC_TICKER",
+		IdentifierValue:  "AAPL",
+		IdentifierDomain: "XNAS",
+		From:             time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		Before:           time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+	}}, nil)
 	db.EXPECT().ListStockSplitsForExport(gomock.Any()).Return([]dbpkg.ExportStockSplit{
 		{
 			IdentifierType:   "MIC_TICKER",
@@ -58,21 +65,30 @@ func TestExportCorporateEvents_CarriesKnowledgeTimeAndDividendType(t *testing.T)
 	if err := srv.ExportCorporateEvents(&apiv1.ExportCorporateEventsRequest{}, stream); err != nil {
 		t.Fatalf("ExportCorporateEvents: %v", err)
 	}
-	if len(stream.sent) != 2 {
-		t.Fatalf("expected 2 rows streamed, got %d", len(stream.sent))
+	if len(stream.coverage()) != 1 {
+		t.Fatalf("expected 1 coverage span streamed, got %d", len(stream.coverage()))
+	}
+	if cov := stream.coverage()[0]; cov.GetFrom() != "2020-01-01" || cov.GetBefore() != "2025-01-01" {
+		t.Fatalf("got span [%s, %s)", cov.GetFrom(), cov.GetBefore())
+	}
+	if stream.sent[0].GetCoverage() == nil {
+		t.Fatalf("expected coverage before the rows, got %+v", stream.sent[0])
+	}
+	if len(stream.rows()) != 2 {
+		t.Fatalf("expected 2 rows streamed, got %d", len(stream.rows()))
 	}
 
-	split := stream.sent[0].GetSplit()
+	split := stream.rows()[0].GetSplit()
 	if split == nil {
-		t.Fatalf("first row is not a split: %+v", stream.sent[0])
+		t.Fatalf("first row is not a split: %+v", stream.rows()[0])
 	}
 	if got := split.GetFirstKnownAt().AsTime(); !got.Equal(splitKnownAt) {
 		t.Errorf("split first_known_at: want %s, got %s", splitKnownAt, got)
 	}
 
-	div := stream.sent[1].GetDividend()
+	div := stream.rows()[1].GetDividend()
 	if div == nil {
-		t.Fatalf("second row is not a dividend: %+v", stream.sent[1])
+		t.Fatalf("second row is not a dividend: %+v", stream.rows()[1])
 	}
 	if div.GetType() != "SC" {
 		t.Errorf("dividend type: want SC, got %q", div.GetType())

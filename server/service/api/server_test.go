@@ -65,12 +65,12 @@ func (e *exportStreamMock) SendMsg(m interface{}) error {
 // exportPriceStreamMock provides a stream with configurable context for ExportPrices tests.
 type exportPriceStreamMock struct {
 	ctx  context.Context
-	sent []*apiv1.ExportPriceRow
+	sent []*apiv1.ExportPricesResponse
 }
 
 func (e *exportPriceStreamMock) Context() context.Context    { return e.ctx }
 func (e *exportPriceStreamMock) RecvMsg(m interface{}) error { return nil }
-func (e *exportPriceStreamMock) Send(m *apiv1.ExportPriceRow) error {
+func (e *exportPriceStreamMock) Send(m *apiv1.ExportPricesResponse) error {
 	e.sent = append(e.sent, m)
 	return nil
 }
@@ -78,22 +78,44 @@ func (e *exportPriceStreamMock) SendHeader(m metadata.MD) error { return nil }
 func (e *exportPriceStreamMock) SetHeader(m metadata.MD) error  { return nil }
 func (e *exportPriceStreamMock) SetTrailer(m metadata.MD)       {}
 func (e *exportPriceStreamMock) SendMsg(m interface{}) error {
-	if row, ok := m.(*apiv1.ExportPriceRow); ok {
+	if row, ok := m.(*apiv1.ExportPricesResponse); ok {
 		e.sent = append(e.sent, row)
 	}
 	return nil
+}
+
+// rows returns the price rows in send order, dropping coverage envelopes.
+func (e *exportPriceStreamMock) rows() []*apiv1.ExportPriceRow {
+	var out []*apiv1.ExportPriceRow
+	for _, m := range e.sent {
+		if r := m.GetRow(); r != nil {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// coverage returns the coverage spans in send order.
+func (e *exportPriceStreamMock) coverage() []*apiv1.ExportCoverage {
+	var out []*apiv1.ExportCoverage
+	for _, m := range e.sent {
+		if c := m.GetCoverage(); c != nil {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // exportCorporateEventStreamMock provides a stream with configurable context
 // for ExportCorporateEvents tests.
 type exportCorporateEventStreamMock struct {
 	ctx  context.Context
-	sent []*apiv1.ExportCorporateEventRow
+	sent []*apiv1.ExportCorporateEventsResponse
 }
 
 func (e *exportCorporateEventStreamMock) Context() context.Context    { return e.ctx }
 func (e *exportCorporateEventStreamMock) RecvMsg(m interface{}) error { return nil }
-func (e *exportCorporateEventStreamMock) Send(m *apiv1.ExportCorporateEventRow) error {
+func (e *exportCorporateEventStreamMock) Send(m *apiv1.ExportCorporateEventsResponse) error {
 	e.sent = append(e.sent, m)
 	return nil
 }
@@ -101,10 +123,32 @@ func (e *exportCorporateEventStreamMock) SendHeader(m metadata.MD) error { retur
 func (e *exportCorporateEventStreamMock) SetHeader(m metadata.MD) error  { return nil }
 func (e *exportCorporateEventStreamMock) SetTrailer(m metadata.MD)       {}
 func (e *exportCorporateEventStreamMock) SendMsg(m interface{}) error {
-	if row, ok := m.(*apiv1.ExportCorporateEventRow); ok {
+	if row, ok := m.(*apiv1.ExportCorporateEventsResponse); ok {
 		e.sent = append(e.sent, row)
 	}
 	return nil
+}
+
+// rows returns the event rows in send order, dropping coverage envelopes.
+func (e *exportCorporateEventStreamMock) rows() []*apiv1.ExportCorporateEventRow {
+	var out []*apiv1.ExportCorporateEventRow
+	for _, m := range e.sent {
+		if r := m.GetRow(); r != nil {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// coverage returns the coverage spans in send order.
+func (e *exportCorporateEventStreamMock) coverage() []*apiv1.ExportCoverage {
+	var out []*apiv1.ExportCoverage
+	for _, m := range e.sent {
+		if c := m.GetCoverage(); c != nil {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func TestAPI_Unauthenticated(t *testing.T) {

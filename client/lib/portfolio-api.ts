@@ -7,10 +7,10 @@ import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { DateSchema } from "@/gen/google/type/date_pb";
 import type { Date as ProtoDate } from "@/gen/google/type/date_pb";
 import {
-  ExportCorporateEventRowSchema,
+  ExportCorporateEventsResponseSchema,
   ExportCorporateEventsRequestSchema,
   ExportInstrumentsRequestSchema,
-  ExportPriceRowSchema,
+  ExportPricesResponseSchema,
   ExportPricesRequestSchema,
   GetPortfolioValuationRequestSchema,
   GetPortfolioValuationResponseSchema,
@@ -111,9 +111,12 @@ import type {
   DescriptionPluginConfig,
   EODPriceProto,
   ExportCorporateEventRow,
+  ExportCorporateEventsResponse,
+  ExportCoverage,
   InflationIndexProto,
   InflationPluginConfig,
   ExportPriceRow,
+  ExportPricesResponse,
   Holding,
   HoldingDeclaration,
   IdentificationError,
@@ -644,11 +647,11 @@ export async function importInstruments(instruments: Instrument[]): Promise<Impo
 }
 
 /** Stream all exported prices (admin only). */
-export async function* exportPrices(): AsyncGenerator<ExportPriceRow> {
+export async function* exportPrices(): AsyncGenerator<ExportPricesResponse> {
   const base = getBaseUrl();
   const req = create(ExportPricesRequestSchema, {});
   for await (const bytes of streamingFetch(base, ApiServicePrefix + "ExportPrices", toBinary(ExportPricesRequestSchema, req), { credentials: "include" })) {
-    yield fromBinary(ExportPriceRowSchema, bytes);
+    yield fromBinary(ExportPricesResponseSchema, bytes);
   }
 }
 
@@ -725,11 +728,11 @@ export async function importCorporateEventSplits(
 }
 
 /** Stream all exported corporate events (admin only). */
-export async function* exportCorporateEvents(): AsyncGenerator<ExportCorporateEventRow> {
+export async function* exportCorporateEvents(): AsyncGenerator<ExportCorporateEventsResponse> {
   const base = getBaseUrl();
   const req = create(ExportCorporateEventsRequestSchema, {});
   for await (const bytes of streamingFetch(base, ApiServicePrefix + "ExportCorporateEvents", toBinary(ExportCorporateEventsRequestSchema, req), { credentials: "include" })) {
-    yield fromBinary(ExportCorporateEventRowSchema, bytes);
+    yield fromBinary(ExportCorporateEventsResponseSchema, bytes);
   }
 }
 

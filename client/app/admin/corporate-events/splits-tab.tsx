@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { exportCorporateEvents } from "@/lib/portfolio-api";
 import { splitsToJson } from "@/lib/json/corporate-events";
-import type { ExportCorporateEventRow } from "@/gen/api/v1/api_pb";
+import type { ExportCorporateEventRow, ExportCoverage } from "@/gen/api/v1/api_pb";
 import { ImportSplitsModal } from "./import-splits-modal";
 
 interface SplitDisplay {
@@ -29,7 +29,9 @@ export function SplitsTab() {
     setError(null);
     try {
       const rows: SplitDisplay[] = [];
-      for await (const row of exportCorporateEvents()) {
+      for await (const item of exportCorporateEvents()) {
+        if (item.item.case !== "row") continue;
+        const row = item.item.value;
         if (row.event.case === "split") {
           rows.push({
             identifierType: row.identifierType,
@@ -60,10 +62,15 @@ export function SplitsTab() {
     setError(null);
     try {
       const rows: ExportCorporateEventRow[] = [];
-      for await (const row of exportCorporateEvents()) {
-        if (row.event.case === "split") rows.push(row);
+      const coverage: ExportCoverage[] = [];
+      for await (const item of exportCorporateEvents()) {
+        if (item.item.case === "coverage") {
+          coverage.push(item.item.value);
+        } else if (item.item.case === "row" && item.item.value.event.case === "split") {
+          rows.push(item.item.value);
+        }
       }
-      const json = splitsToJson(rows);
+      const json = splitsToJson(rows, coverage);
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

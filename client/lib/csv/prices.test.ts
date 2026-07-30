@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { AssetClass, ExportPriceRowSchema } from "@/gen/api/v1/api_pb";
+import { AssetClass, ExportCoverageSchema, ExportPriceRowSchema } from "@/gen/api/v1/api_pb";
 import type { ExportPriceRow } from "@/gen/api/v1/api_pb";
 import { pricesToCsv, csvToPrices } from "./prices";
 
@@ -354,5 +354,36 @@ describe("csvToPrices coverage headers", () => {
     expect(result.errors[0].field).toBe("before");
     expect(result.prices).toHaveLength(2);
     expect(result.coverage).toEqual([]);
+  });
+});
+
+describe("price CSV coverage round trip", () => {
+  it("carries coverage spans through serialize and parse", () => {
+    const coverage = [
+      create(ExportCoverageSchema, {
+        identifierType: "ISIN",
+        identifierValue: "US0378331005",
+        identifierDomain: "",
+        from: "2024-01-15",
+        before: "2024-02-01",
+      }),
+    ];
+    const csv = pricesToCsv([makeRow()], new Date("2026-07-30T00:00:00.000Z"), coverage);
+    const result = csvToPrices(csv);
+    expect(result.errors).toEqual([]);
+    expect(result.exportedAt?.toISOString()).toBe("2026-07-30T00:00:00.000Z");
+    expect(result.coverage).toEqual([
+      expect.objectContaining({
+        identifierType: "ISIN",
+        identifierValue: "US0378331005",
+        identifierDomain: "",
+        from: "2024-01-15",
+        before: "2024-02-01",
+      }),
+    ]);
+  });
+
+  it("writes no coverage header when the export supplied none", () => {
+    expect(pricesToCsv([makeRow()])).not.toContain("# coverage=");
   });
 });

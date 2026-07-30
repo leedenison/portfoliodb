@@ -14,7 +14,7 @@ import { pricesToCsv } from "@/lib/csv/prices";
 import { dayAfter } from "@/lib/dates";
 import { useDebounce } from "@/hooks/use-debounce";
 import { ImportPricesModal } from "./import-modal";
-import type { EODPriceProto, ExportPriceRow, PriceFetchBlock } from "@/gen/api/v1/api_pb";
+import type { EODPriceProto, ExportCoverage, ExportPriceRow, PriceFetchBlock } from "@/gen/api/v1/api_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 
 type Tab = "prices" | "blocks";
@@ -95,14 +95,21 @@ function PriceListTab() {
     setExportError(null);
     try {
       const rows: ExportPriceRow[] = [];
+      const coverage: ExportCoverage[] = [];
       let exportedAt: Date | undefined;
-      for await (const row of exportPrices()) {
+      for await (const item of exportPrices()) {
+        if (item.item.case === "coverage") {
+          coverage.push(item.item.value);
+          continue;
+        }
+        if (item.item.case !== "row") continue;
+        const row = item.item.value;
         if (!exportedAt && row.exportedAt) {
           exportedAt = timestampDate(row.exportedAt);
         }
         rows.push(row);
       }
-      const csv = pricesToCsv(rows, exportedAt);
+      const csv = pricesToCsv(rows, exportedAt, coverage);
       const blob = new Blob([csv], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

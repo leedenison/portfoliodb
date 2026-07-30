@@ -331,3 +331,89 @@ func TestListPrices_Pagination(t *testing.T) {
 		t.Fatalf("expected no next token on last page, got %q", nextToken3)
 	}
 }
+
+// setupTickerInstrument creates an instrument identified by MIC_TICKER, which
+// the export's identifier precedence prefers.
+func setupTickerInstrument(t *testing.T, p *Postgres, ticker string) string {
+	t.Helper()
+	id, err := p.EnsureInstrument(context.Background(), "STOCK", "XNAS", "USD", ticker, "", "", []db.IdentifierInput{
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: ticker, Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument %s: %v", ticker, err)
+	}
+	return id
+}
+
+// The export omits synthetic rows, so the coverage span is the only thing that
+// tells an import which days to regenerate. It must therefore span them.
+func TestListPriceCoverageForExport_SpansSyntheticRows(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	instID := setupTickerInstrument(t, p, "AAPL")
+	if err := p.UpsertPricesWithFill(ctx, instID, "test", []db.EODPrice{
+		{InstrumentID: instID, PriceDate: d(2024, 1, 15), Close: 100},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 18), Close: 110},
+	}, d(2024, 1, 15), d(2024, 1, 19), nil); err != nil {
+		t.Fatalf("upsert prices with fill: %v", err)
+	}
+
+	rows, err := p.ListPricesForExport(ctx)
+	if err != nil {
+		t.Fatalf("list prices for export: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected the 2 real rows, got %d", len(rows))
+	}
+
+	cov, err := p.ListPriceCoverageForExport(ctx)
+	if err != nil {
+		t.Fatalf("list price coverage for export: %v", err)
+	}
+	if len(cov) != 1 {
+		t.Fatalf("expected 1 merged span, got %d", len(cov))
+	}
+	if !cov[0].From.Equal(d(2024, 1, 15)) || !cov[0].Before.Equal(d(2024, 1, 19)) {
+		t.Errorf("expected [2024-01-15, 2024-01-19), got [%s, %s)",
+			cov[0].From.Format("2006-01-02"), cov[0].Before.Format("2006-01-02"))
+	}
+	if cov[0].IdentifierType != "MIC_TICKER" || cov[0].IdentifierValue != "AAPL" {
+		t.Errorf("got identifier %s %s", cov[0].IdentifierType, cov[0].IdentifierValue)
+	}
+}
+
+func TestListPriceCoverageForExport_SplitsOnGaps(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	instID := setupTickerInstrument(t, p, "AAPL")
+	insertPriceWithProvider(t, p, instID, d(2024, 1, 15), 100, "test")
+	insertPriceWithProvider(t, p, instID, d(2024, 1, 16), 101, "test")
+	insertPriceWithProvider(t, p, instID, d(2024, 2, 1), 110, "test")
+
+	cov, err := p.ListPriceCoverageForExport(ctx)
+	if err != nil {
+		t.Fatalf("list price coverage for export: %v", err)
+	}
+	if len(cov) != 2 {
+		t.Fatalf("expected 2 spans either side of the gap, got %d", len(cov))
+	}
+	if !cov[0].From.Equal(d(2024, 1, 15)) || !cov[0].Before.Equal(d(2024, 1, 17)) {
+		t.Errorf("first span [%s, %s)", cov[0].From.Format("2006-01-02"), cov[0].Before.Format("2006-01-02"))
+	}
+	if !cov[1].From.Equal(d(2024, 2, 1)) || !cov[1].Before.Equal(d(2024, 2, 2)) {
+		t.Errorf("second span [%s, %s)", cov[1].From.Format("2006-01-02"), cov[1].Before.Format("2006-01-02"))
+	}
+}
+
+func TestListPriceCoverageForExport_Empty(t *testing.T) {
+	p := testDBTx(t)
+	cov, err := p.ListPriceCoverageForExport(context.Background())
+	if err != nil {
+		t.Fatalf("list price coverage for export: %v", err)
+	}
+	if len(cov) != 0 {
+		t.Fatalf("expected no spans, got %d", len(cov))
+	}
+}

@@ -37,6 +37,15 @@ func TestExportPrices_Success(t *testing.T) {
 		},
 	}
 	db.EXPECT().
+		ListPriceCoverageForExport(gomock.Any()).
+		Return([]dbpkg.ExportCoverageRow{{
+			IdentifierType:   "MIC_TICKER",
+			IdentifierValue:  "AAPL",
+			IdentifierDomain: "US",
+			From:             time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Before:           time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC),
+		}}, nil)
+	db.EXPECT().
 		ListPricesForExport(gomock.Any()).
 		Return(rows, nil)
 	stream := &exportPriceStreamMock{ctx: adminCtx("user-1", "sub|1")}
@@ -44,10 +53,10 @@ func TestExportPrices_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExportPrices: %v", err)
 	}
-	if len(stream.sent) != 1 {
-		t.Fatalf("expected 1 row streamed, got %d", len(stream.sent))
+	if len(stream.rows()) != 1 {
+		t.Fatalf("expected 1 row streamed, got %d", len(stream.rows()))
 	}
-	row := stream.sent[0]
+	row := stream.rows()[0]
 	if row.GetIdentifierType() != "MIC_TICKER" || row.GetIdentifierValue() != "AAPL" {
 		t.Fatalf("got identifier %s %s", row.GetIdentifierType(), row.GetIdentifierValue())
 	}
@@ -74,6 +83,9 @@ func TestExportPrices_Success(t *testing.T) {
 func TestExportPrices_Empty(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
+		ListPriceCoverageForExport(gomock.Any()).
+		Return(nil, nil)
+	db.EXPECT().
 		ListPricesForExport(gomock.Any()).
 		Return(nil, nil)
 	stream := &exportPriceStreamMock{ctx: adminCtx("user-1", "sub|1")}
@@ -81,8 +93,54 @@ func TestExportPrices_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExportPrices: %v", err)
 	}
-	if len(stream.sent) != 0 {
-		t.Fatalf("expected 0 rows, got %d", len(stream.sent))
+	if len(stream.rows()) != 0 {
+		t.Fatalf("expected 0 rows, got %d", len(stream.rows()))
+	}
+	if len(stream.coverage()) != 0 {
+		t.Fatalf("expected 0 coverage spans, got %d", len(stream.coverage()))
+	}
+}
+
+// Only real bars are exported, so the coverage spans are what let an import
+// regenerate the synthetic days between them. They precede the rows.
+func TestExportPrices_SendsCoverageBeforeRows(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().
+		ListPriceCoverageForExport(gomock.Any()).
+		Return([]dbpkg.ExportCoverageRow{{
+			IdentifierType:   "MIC_TICKER",
+			IdentifierValue:  "AAPL",
+			IdentifierDomain: "US",
+			From:             time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Before:           time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC),
+		}}, nil)
+	db.EXPECT().
+		ListPricesForExport(gomock.Any()).
+		Return([]dbpkg.ExportPriceRow{{
+			IdentifierType:  "MIC_TICKER",
+			IdentifierValue: "AAPL",
+			PriceDate:       time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Close:           185.90,
+		}}, nil)
+	stream := &exportPriceStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportPrices(&apiv1.ExportPricesRequest{}, stream); err != nil {
+		t.Fatalf("ExportPrices: %v", err)
+	}
+	if len(stream.sent) != 2 {
+		t.Fatalf("expected 2 stream items, got %d", len(stream.sent))
+	}
+	cov := stream.sent[0].GetCoverage()
+	if cov == nil {
+		t.Fatalf("expected coverage first, got %+v", stream.sent[0])
+	}
+	if cov.GetFrom() != "2024-01-15" || cov.GetBefore() != "2024-02-01" {
+		t.Fatalf("got span [%s, %s)", cov.GetFrom(), cov.GetBefore())
+	}
+	if cov.GetIdentifierValue() != "AAPL" || cov.GetIdentifierDomain() != "US" {
+		t.Fatalf("got identifier %s %s", cov.GetIdentifierValue(), cov.GetIdentifierDomain())
+	}
+	if stream.sent[1].GetRow() == nil {
+		t.Fatalf("expected a row second, got %+v", stream.sent[1])
 	}
 }
 

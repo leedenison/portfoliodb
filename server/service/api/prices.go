@@ -72,11 +72,25 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 	}, nil
 }
 
-// ExportPrices streams all cached EOD prices with the best identifier per instrument. Admin only.
+// ExportPrices streams all cached EOD prices with the best identifier per
+// instrument. Coverage spans come first, then the rows: only real bars are
+// exported, so the spans are what let an import regenerate the synthetic days
+// between them. Admin only.
 func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiService_ExportPricesServer) error {
 	ctx := stream.Context()
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return authErr
+	}
+	coverage, err := s.db.ListPriceCoverageForExport(ctx)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	for _, c := range coverage {
+		if err := stream.Send(&apiv1.ExportPricesResponse{
+			Item: &apiv1.ExportPricesResponse_Coverage{Coverage: exportCoverage(c)},
+		}); err != nil {
+			return err
+		}
 	}
 	rows, err := s.db.ListPricesForExport(ctx)
 	if err != nil {
@@ -109,11 +123,24 @@ func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiSe
 		if r.Volume != nil {
 			row.Volume = r.Volume
 		}
-		if err := stream.Send(row); err != nil {
+		if err := stream.Send(&apiv1.ExportPricesResponse{
+			Item: &apiv1.ExportPricesResponse_Row{Row: row},
+		}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// exportCoverage converts a db coverage span to its wire form.
+func exportCoverage(c db.ExportCoverageRow) *apiv1.ExportCoverage {
+	return &apiv1.ExportCoverage{
+		IdentifierType:   c.IdentifierType,
+		IdentifierValue:  c.IdentifierValue,
+		IdentifierDomain: c.IdentifierDomain,
+		From:             c.From.Format("2006-01-02"),
+		Before:           c.Before.Format("2006-01-02"),
+	}
 }
 
 // ImportPrices creates an async job to upsert EOD prices. Admin only.

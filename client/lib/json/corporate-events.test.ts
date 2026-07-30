@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { AssetClass, ExportCorporateEventRowSchema, SplitRowSchema } from "@/gen/api/v1/api_pb";
+import { AssetClass, ExportCorporateEventRowSchema, ExportCoverageSchema, SplitRowSchema } from "@/gen/api/v1/api_pb";
 import type { ExportCorporateEventRow } from "@/gen/api/v1/api_pb";
 import { splitsToJson, parseSplitsJson } from "./corporate-events";
 
@@ -28,12 +28,12 @@ describe("splitsToJson", () => {
   it("serializes knowledge time as an ISO 8601 instant", () => {
     const knownAt = new Date("2015-03-04T09:30:00.000Z");
     const out = JSON.parse(splitsToJson([makeSplitRow(knownAt)]));
-    expect(out[0].first_known_at).toBe("2015-03-04T09:30:00.000Z");
+    expect(out.events[0].first_known_at).toBe("2015-03-04T09:30:00.000Z");
   });
 
   it("omits knowledge time when the row carries none", () => {
     const out = JSON.parse(splitsToJson([makeSplitRow()]));
-    expect(out[0]).not.toHaveProperty("first_known_at");
+    expect(out.events[0]).not.toHaveProperty("first_known_at");
   });
 });
 
@@ -130,5 +130,35 @@ describe("parseSplitsJson coverage", () => {
     const { errors } = parseSplitsJson(JSON.stringify({ coverage: [] }));
     expect(errors).toHaveLength(1);
     expect(errors[0].field).toBe("file");
+  });
+});
+
+describe("corporate event JSON coverage round trip", () => {
+  it("carries coverage spans through serialize and parse", () => {
+    const coverage = [
+      create(ExportCoverageSchema, {
+        identifierType: "MIC_TICKER",
+        identifierValue: "AAPL",
+        identifierDomain: "XNAS",
+        from: "2020-01-01",
+        before: "2025-01-01",
+      }),
+    ];
+    const json = splitsToJson([makeSplitRow()], coverage);
+    const result = parseSplitsJson(json);
+    expect(result.errors).toEqual([]);
+    expect(result.coverage).toEqual([
+      expect.objectContaining({
+        identifierType: "MIC_TICKER",
+        identifierValue: "AAPL",
+        identifierDomain: "XNAS",
+        from: "2020-01-01",
+        before: "2025-01-01",
+      }),
+    ]);
+  });
+
+  it("omits the coverage key when the export supplied none", () => {
+    expect(JSON.parse(splitsToJson([makeSplitRow()]))).not.toHaveProperty("coverage");
   });
 });

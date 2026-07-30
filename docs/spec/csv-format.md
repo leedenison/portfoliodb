@@ -73,6 +73,8 @@ It declares the share count the file's quantities and unit prices are denominate
 
 A CSV of EOD prices imported via the `ImportPrices` API, and the format `ExportPrices` writes.
 
+The export omits synthetic forward-filled rows, so a file holds only the days its source actually reported. Its [coverage declarations](#coverage-declarations) are what let a re-import regenerate the days between, which is what makes the round trip reproduce the exported state.
+
 ### Columns
 
 Header names are case-insensitive. Column order is not significant.
@@ -119,6 +121,8 @@ OCC,NVDA250620P00110000,,2024-06-11,,,,13.42,,,OPTION,USD
 ## Corporate event JSON
 
 Stock splits are imported via the `ImportCorporateEvents` API as JSON, and `ExportCorporateEvents` writes the same shape. Cash dividends are part of the API but are not yet carried by this file format.
+
+Coverage is stored per (instrument, plugin), but an import records every span as `data_provider = "import"`, so the export merges spans across plugins rather than preserving a distinction that cannot survive the round trip.
 
 The canonical shape is an object with an `events` array and an optional `coverage` array. A bare array is accepted as events-only.
 

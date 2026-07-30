@@ -44,10 +44,10 @@ function dateFromPeriod(period: Period): string {
   return d.toISOString().slice(0, 10);
 }
 
-function yesterdayStr(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
+// The exclusive bound is today, which is the same as through yesterday
+// inclusive: today's close does not exist yet.
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export default function PerformancePage() {
@@ -60,12 +60,12 @@ export default function PerformancePage() {
   const [displayCurrency, setDisplayCurrency] = useState<string>("USD");
 
   const dateRange = useMemo(
-    () => ({ dateFrom: dateFromPeriod(period), dateTo: yesterdayStr() }),
+    () => ({ dateFrom: dateFromPeriod(period), dateBefore: todayStr() }),
     [period]
   );
 
   const fetchData = useCallback(
-    async (portfolioId: string | undefined, from: string, to: string) => {
+    async (portfolioId: string | undefined, from: string, before: string) => {
       setLoading(true);
       setError(null);
       try {
@@ -74,7 +74,7 @@ export default function PerformancePage() {
         const res = await getPortfolioValuation({
           portfolioId,
           dateFrom: from,
-          dateTo: to,
+          dateBefore: before,
           displayCurrency: dc,
         });
         setPoints(res.points);
@@ -90,7 +90,7 @@ export default function PerformancePage() {
 
   useEffect(() => {
     if (state.status !== "authenticated") return;
-    fetchData(selectedPortfolio?.id, dateRange.dateFrom, dateRange.dateTo);
+    fetchData(selectedPortfolio?.id, dateRange.dateFrom, dateRange.dateBefore);
   }, [state.status, selectedPortfolio, dateRange, fetchData]);
 
   // Compute percentage change.

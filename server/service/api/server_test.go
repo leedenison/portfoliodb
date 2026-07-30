@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/testutil"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/genproto/googleapis/type/date"
 	"google.golang.org/grpc/codes"
@@ -53,7 +53,7 @@ func (e *exportStreamMock) Send(m *apiv1.Instrument) error {
 	return nil
 }
 func (e *exportStreamMock) SendHeader(m metadata.MD) error { return nil }
-func (e *exportStreamMock) SetHeader(m metadata.MD) error { return nil }
+func (e *exportStreamMock) SetHeader(m metadata.MD) error  { return nil }
 func (e *exportStreamMock) SetTrailer(m metadata.MD)       {}
 func (e *exportStreamMock) SendMsg(m interface{}) error {
 	if inst, ok := m.(*apiv1.Instrument); ok {
@@ -69,7 +69,7 @@ type exportPriceStreamMock struct {
 }
 
 func (e *exportPriceStreamMock) Context() context.Context    { return e.ctx }
-func (e *exportPriceStreamMock) RecvMsg(m interface{}) error  { return nil }
+func (e *exportPriceStreamMock) RecvMsg(m interface{}) error { return nil }
 func (e *exportPriceStreamMock) Send(m *apiv1.ExportPriceRow) error {
 	e.sent = append(e.sent, m)
 	return nil
@@ -91,7 +91,7 @@ type exportCorporateEventStreamMock struct {
 	sent []*apiv1.ExportCorporateEventRow
 }
 
-func (e *exportCorporateEventStreamMock) Context() context.Context   { return e.ctx }
+func (e *exportCorporateEventStreamMock) Context() context.Context    { return e.ctx }
 func (e *exportCorporateEventStreamMock) RecvMsg(m interface{}) error { return nil }
 func (e *exportCorporateEventStreamMock) Send(m *apiv1.ExportCorporateEventRow) error {
 	e.sent = append(e.sent, m)
@@ -115,14 +115,29 @@ func TestAPI_Unauthenticated(t *testing.T) {
 		call func() error
 	}{
 		{"ListPortfolios", func() error { _, err := srv.ListPortfolios(ctx, &apiv1.ListPortfoliosRequest{}); return err }},
-		{"GetPortfolio", func() error { _, err := srv.GetPortfolio(ctx, &apiv1.GetPortfolioRequest{PortfolioId: "any"}); return err }},
+		{"GetPortfolio", func() error {
+			_, err := srv.GetPortfolio(ctx, &apiv1.GetPortfolioRequest{PortfolioId: "any"})
+			return err
+		}},
 		{"CreatePortfolio", func() error { _, err := srv.CreatePortfolio(ctx, &apiv1.CreatePortfolioRequest{Name: "x"}); return err }},
-		{"UpdatePortfolio", func() error { _, err := srv.UpdatePortfolio(ctx, &apiv1.UpdatePortfolioRequest{PortfolioId: "p", Name: "x"}); return err }},
-		{"DeletePortfolio", func() error { _, err := srv.DeletePortfolio(ctx, &apiv1.DeletePortfolioRequest{PortfolioId: "p"}); return err }},
+		{"UpdatePortfolio", func() error {
+			_, err := srv.UpdatePortfolio(ctx, &apiv1.UpdatePortfolioRequest{PortfolioId: "p", Name: "x"})
+			return err
+		}},
+		{"DeletePortfolio", func() error {
+			_, err := srv.DeletePortfolio(ctx, &apiv1.DeletePortfolioRequest{PortfolioId: "p"})
+			return err
+		}},
 		{"ListTxs", func() error { _, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{}); return err }},
 		{"GetHoldings", func() error { _, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{}); return err }},
-		{"GetPortfolioFilters", func() error { _, err := srv.GetPortfolioFilters(ctx, &apiv1.GetPortfolioFiltersRequest{PortfolioId: "p"}); return err }},
-		{"SetPortfolioFilters", func() error { _, err := srv.SetPortfolioFilters(ctx, &apiv1.SetPortfolioFiltersRequest{PortfolioId: "p"}); return err }},
+		{"GetPortfolioFilters", func() error {
+			_, err := srv.GetPortfolioFilters(ctx, &apiv1.GetPortfolioFiltersRequest{PortfolioId: "p"})
+			return err
+		}},
+		{"SetPortfolioFilters", func() error {
+			_, err := srv.SetPortfolioFilters(ctx, &apiv1.SetPortfolioFiltersRequest{PortfolioId: "p"})
+			return err
+		}},
 		{"GetJob", func() error { _, err := srv.GetJob(ctx, &apiv1.GetJobRequest{JobId: "job-1"}); return err }},
 		{"ExportInstruments", func() error {
 			stream := &exportStreamMock{ctx: context.Background()}
@@ -138,11 +153,14 @@ func TestAPI_Unauthenticated(t *testing.T) {
 		}},
 		{"ImportPrices", func() error { _, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{}); return err }},
 		{"GetPortfolioValuation", func() error {
-			_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{PortfolioId: "p", DateFrom: &date.Date{Year: 2025, Month: 1, Day: 1}, DateTo: &date.Date{Year: 2025, Month: 1, Day: 3}})
+			_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{PortfolioId: "p", DateFrom: &date.Date{Year: 2025, Month: 1, Day: 1}, DateBefore: &date.Date{Year: 2025, Month: 1, Day: 3}})
 			return err
 		}},
 		{"ListPriceGaps", func() error { _, err := srv.ListPriceGaps(ctx, &apiv1.ListPriceGapsRequest{}); return err }},
-		{"ListHoldingDeclarations", func() error { _, err := srv.ListHoldingDeclarations(ctx, &apiv1.ListHoldingDeclarationsRequest{}); return err }},
+		{"ListHoldingDeclarations", func() error {
+			_, err := srv.ListHoldingDeclarations(ctx, &apiv1.ListHoldingDeclarationsRequest{})
+			return err
+		}},
 		{"CreateHoldingDeclaration", func() error {
 			_, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{Broker: "IBKR", InstrumentId: "i", DeclaredQty: "1", AsOfDate: &date.Date{Year: 2025, Month: 1, Day: 1}})
 			return err
@@ -151,9 +169,15 @@ func TestAPI_Unauthenticated(t *testing.T) {
 			_, err := srv.UpdateHoldingDeclaration(ctx, &apiv1.UpdateHoldingDeclarationRequest{Id: "d", DeclaredQty: "1", AsOfDate: &date.Date{Year: 2025, Month: 1, Day: 1}})
 			return err
 		}},
-		{"DeleteHoldingDeclaration", func() error { _, err := srv.DeleteHoldingDeclaration(ctx, &apiv1.DeleteHoldingDeclarationRequest{Id: "d"}); return err }},
+		{"DeleteHoldingDeclaration", func() error {
+			_, err := srv.DeleteHoldingDeclaration(ctx, &apiv1.DeleteHoldingDeclarationRequest{Id: "d"})
+			return err
+		}},
 		{"GetDisplayCurrency", func() error { _, err := srv.GetDisplayCurrency(ctx, &apiv1.GetDisplayCurrencyRequest{}); return err }},
-		{"SetDisplayCurrency", func() error { _, err := srv.SetDisplayCurrency(ctx, &apiv1.SetDisplayCurrencyRequest{DisplayCurrency: "EUR"}); return err }},
+		{"SetDisplayCurrency", func() error {
+			_, err := srv.SetDisplayCurrency(ctx, &apiv1.SetDisplayCurrencyRequest{DisplayCurrency: "EUR"})
+			return err
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

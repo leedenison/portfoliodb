@@ -49,8 +49,8 @@ func TestGetPortfolioValuation_Basic(t *testing.T) {
 
 	// Query valuation for Jan 2-3.
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo, "USD")
+	dateBefore := time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateBefore, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -92,8 +92,8 @@ func TestGetPortfolioValuation_UnpricedInstruments(t *testing.T) {
 	}
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo, "USD")
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateBefore, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -156,8 +156,8 @@ func TestGetPortfolioValuation_DifferentDescriptionsNetToZero(t *testing.T) {
 
 	// Query range spanning the sell date — after Jan 5, position is zero.
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 6, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo, "USD")
+	dateBefore := time.Date(2025, 1, 7, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateBefore, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -213,8 +213,8 @@ func TestGetPortfolioValuation_UnpricedDeduplication(t *testing.T) {
 	}
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo, "USD")
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateBefore, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -268,8 +268,8 @@ func TestGetPortfolioValuation_MultipleInstruments(t *testing.T) {
 	}
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo, "USD")
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateBefore, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -318,8 +318,8 @@ func TestGetUserValuation_Basic(t *testing.T) {
 
 	// Query user valuation (no portfolio) for Jan 2-3.
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "USD")
+	dateBefore := time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateBefore, "USD")
 	if err != nil {
 		t.Fatalf("get user valuation: %v", err)
 	}
@@ -351,13 +351,95 @@ func TestGetPortfolioValuation_EmptyRange(t *testing.T) {
 
 	// No txs at all.
 	dateFrom := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateTo, "USD")
+	dateBefore := time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateBefore, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
 	if len(points) != 0 {
 		t.Errorf("expected 0 points for empty portfolio, got %d", len(points))
+	}
+}
+
+func TestGetPortfolioValuation_ExcludesDateBefore(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val5", "U", "u@val5.com")
+	port, _ := p.CreatePortfolio(ctx, userID, "ValPort5")
+	_ = p.SetPortfolioFilters(ctx, port.Id, []db.PortfolioFilter{{FilterType: "broker", FilterValue: "IBKR"}})
+
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL Corp", Canonical: false},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Corp", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)), txs, []string{instID}, nil); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+	prices := []db.EODPrice{
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 150.0, DataProvider: "test"},
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: 155.0, DataProvider: "test"},
+	}
+	if err := p.UpsertPrices(ctx, prices); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	// The upper bound is exclusive, so Jan 3 is not valued.
+	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, dateFrom, dateBefore, "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	if !points[0].Date.Equal(dateFrom) {
+		t.Errorf("point dated %v, want %v", points[0].Date, dateFrom)
+	}
+}
+
+func TestGetPortfolioValuation_FromEqualsBeforeReturnsNothing(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val6", "U", "u@val6.com")
+	port, _ := p.CreatePortfolio(ctx, userID, "ValPort6")
+	_ = p.SetPortfolioFilters(ctx, port.Id, []db.PortfolioFilter{{FilterType: "broker", FilterValue: "IBKR"}})
+
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL Corp", Canonical: false},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Corp", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)), txs, []string{instID}, nil); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 150.0, DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	day := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetPortfolioValuation(ctx, port.Id, day, day, "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	if len(points) != 0 {
+		t.Errorf("empty range should value nothing, got %d points", len(points))
 	}
 }
 
@@ -412,8 +494,8 @@ func TestGetUserValuation_FXConversion_DisplayUSD(t *testing.T) {
 	}
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "USD")
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateBefore, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -469,9 +551,9 @@ func TestGetUserValuation_FXConversion_CrossRate(t *testing.T) {
 	}
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
 	// Display in EUR: value = 5 * 100 GBP * (1.27 GBPUSD / 1.08 EURUSD) = 587.96 EUR
-	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "EUR")
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateBefore, "EUR")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -513,8 +595,8 @@ func TestGetUserValuation_FXConversion_MissingRate(t *testing.T) {
 	}
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "USD")
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateBefore, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -572,10 +654,10 @@ func TestGetUserValuation_FXConversion_USDDisplayNonUSD(t *testing.T) {
 	}
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
 	// Display EUR: USD instrument => fx_rate = 1.0 / 1.08 = 0.9259...
 	// value = 10 * 150 * (1.0 / 1.08) = 1388.89 EUR
-	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "EUR")
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateBefore, "EUR")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -626,8 +708,8 @@ func TestGetUserValuation_FXConversion_MissingBaseRate(t *testing.T) {
 	}
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "EUR")
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateBefore, "EUR")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -675,8 +757,8 @@ func TestGetUserValuation_CashInDisplayCurrency(t *testing.T) {
 	}
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "USD")
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateBefore, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -727,8 +809,8 @@ func TestGetUserValuation_CashInForeignCurrency(t *testing.T) {
 	}
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "USD")
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateBefore, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -768,8 +850,8 @@ func TestGetUserValuation_CashForeignMissingFXRate(t *testing.T) {
 	}
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "USD")
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateBefore, "USD")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -829,9 +911,9 @@ func TestGetUserValuation_CashForeignCurrency_NonUSDDisplay(t *testing.T) {
 	}
 
 	dateFrom := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
 	// Display in GBP: value = 1000 EUR * (EURUSD / GBPUSD) = 1000 * 1.08 / 1.27
-	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateTo, "GBP")
+	points, err := p.GetUserValuation(ctx, userID, dateFrom, dateBefore, "GBP")
 	if err != nil {
 		t.Fatalf("get valuation: %v", err)
 	}
@@ -896,7 +978,7 @@ func TestGetUserValuation_ContinuousAcrossSplit(t *testing.T) {
 		t.Fatalf("recompute: %v", err)
 	}
 
-	points, err := p.GetUserValuation(ctx, userID, d(2020, 8, 28), d(2020, 8, 31), "USD")
+	points, err := p.GetUserValuation(ctx, userID, d(2020, 8, 28), d(2020, 9, 1), "USD")
 	if err != nil {
 		t.Fatalf("valuation: %v", err)
 	}
@@ -962,7 +1044,7 @@ func TestGetUserValuation_FXUnaffectedByASplit(t *testing.T) {
 		t.Fatalf("recompute: %v", err)
 	}
 
-	points, err := p.GetUserValuation(ctx, userID, d(2020, 8, 28), d(2020, 8, 31), "USD")
+	points, err := p.GetUserValuation(ctx, userID, d(2020, 8, 28), d(2020, 9, 1), "USD")
 	if err != nil {
 		t.Fatalf("valuation: %v", err)
 	}

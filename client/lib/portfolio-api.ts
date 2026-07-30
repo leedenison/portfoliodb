@@ -730,14 +730,15 @@ export interface GetPortfolioValuationResult {
 export async function getPortfolioValuation(params: {
   portfolioId?: string;
   dateFrom: string;
-  dateTo: string;
+  /** Exclusive: the first day NOT valued. See lib/dates.ts. */
+  dateBefore: string;
   displayCurrency?: string;
 }): Promise<GetPortfolioValuationResult> {
   const base = getBaseUrl();
   const req = create(GetPortfolioValuationRequestSchema, {
     portfolioId: params.portfolioId ?? "",
     dateFrom: strToProtoDate(params.dateFrom),
-    dateTo: strToProtoDate(params.dateTo),
+    dateBefore: strToProtoDate(params.dateBefore),
     displayCurrency: params.displayCurrency ?? "",
   });
   const resBytes = await unaryFetch(

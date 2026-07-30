@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/testutil"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/genproto/googleapis/type/date"
 	"google.golang.org/grpc/codes"
@@ -25,25 +25,25 @@ func TestGetPortfolioValuation_Success(t *testing.T) {
 		Return(true, nil)
 
 	dateFrom := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	// Half-open: the series ends the day before dateBefore.
 	mdb.EXPECT().
-		GetPortfolioValuation(gomock.Any(), "port-1", dateFrom, dateTo, "USD").
+		GetPortfolioValuation(gomock.Any(), "port-1", dateFrom, dateBefore, "USD").
 		Return([]db.ValuationPoint{
 			{Date: dateFrom, TotalValue: 1000.0, UnpricedInstruments: nil},
 			{Date: dateFrom.AddDate(0, 0, 1), TotalValue: 1050.0, UnpricedInstruments: []string{"UNKNOWN CORP"}},
-			{Date: dateTo, TotalValue: 1100.0, UnpricedInstruments: nil},
 		}, nil)
 
 	resp, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{
 		PortfolioId: "port-1",
 		DateFrom:    &date.Date{Year: 2025, Month: 1, Day: 1},
-		DateTo:      &date.Date{Year: 2025, Month: 1, Day: 3},
+		DateBefore:  &date.Date{Year: 2025, Month: 1, Day: 3},
 	})
 	if err != nil {
 		t.Fatalf("GetPortfolioValuation: %v", err)
 	}
-	if len(resp.GetPoints()) != 3 {
-		t.Fatalf("expected 3 points, got %d", len(resp.GetPoints()))
+	if len(resp.GetPoints()) != 2 {
+		t.Fatalf("expected 2 points, got %d", len(resp.GetPoints()))
 	}
 	if resp.Points[0].Date != "2025-01-01" || resp.Points[0].TotalValue != 1000.0 {
 		t.Fatalf("unexpected first point: %+v", resp.Points[0])
@@ -66,7 +66,7 @@ func TestGetPortfolioValuation_PortfolioNotFound(t *testing.T) {
 	_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{
 		PortfolioId: "port-1",
 		DateFrom:    &date.Date{Year: 2025, Month: 1, Day: 1},
-		DateTo:      &date.Date{Year: 2025, Month: 1, Day: 3},
+		DateBefore:  &date.Date{Year: 2025, Month: 1, Day: 3},
 	})
 	testutil.RequireGRPCCode(t, err, codes.NotFound)
 }
@@ -79,8 +79,8 @@ func TestGetPortfolioValuation_InvalidArgument(t *testing.T) {
 		name string
 		req  *apiv1.GetPortfolioValuationRequest
 	}{
-		{"date_to_before_date_from", &apiv1.GetPortfolioValuationRequest{
-			PortfolioId: "port-1", DateFrom: &date.Date{Year: 2025, Month: 1, Day: 3}, DateTo: &date.Date{Year: 2025, Month: 1, Day: 1},
+		{"date_before_precedes_date_from", &apiv1.GetPortfolioValuationRequest{
+			PortfolioId: "port-1", DateFrom: &date.Date{Year: 2025, Month: 1, Day: 3}, DateBefore: &date.Date{Year: 2025, Month: 1, Day: 1},
 		}},
 	}
 	for _, tc := range tests {
@@ -108,7 +108,7 @@ func TestGetPortfolioValuation_DBError(t *testing.T) {
 	_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{
 		PortfolioId: "port-1",
 		DateFrom:    &date.Date{Year: 2025, Month: 1, Day: 1},
-		DateTo:      &date.Date{Year: 2025, Month: 1, Day: 3},
+		DateBefore:  &date.Date{Year: 2025, Month: 1, Day: 3},
 	})
 	testutil.RequireGRPCCode(t, err, codes.Internal)
 }
@@ -122,17 +122,17 @@ func TestGetUserValuation_Success(t *testing.T) {
 		Return("USD", nil)
 
 	dateFrom := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	dateTo := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	dateBefore := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
 	mdb.EXPECT().
-		GetUserValuation(gomock.Any(), "user-1", dateFrom, dateTo, "USD").
+		GetUserValuation(gomock.Any(), "user-1", dateFrom, dateBefore, "USD").
 		Return([]db.ValuationPoint{
 			{Date: dateFrom, TotalValue: 2000.0, UnpricedInstruments: nil},
-			{Date: dateTo, TotalValue: 2100.0, UnpricedInstruments: nil},
+			{Date: dateBefore.AddDate(0, 0, -1), TotalValue: 2100.0, UnpricedInstruments: nil},
 		}, nil)
 
 	resp, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{
-		DateFrom: &date.Date{Year: 2025, Month: 1, Day: 1},
-		DateTo:   &date.Date{Year: 2025, Month: 1, Day: 3},
+		DateFrom:   &date.Date{Year: 2025, Month: 1, Day: 1},
+		DateBefore: &date.Date{Year: 2025, Month: 1, Day: 3},
 	})
 	if err != nil {
 		t.Fatalf("GetPortfolioValuation (user): %v", err)
@@ -157,8 +157,8 @@ func TestGetUserValuation_DBError(t *testing.T) {
 		Return(nil, fmt.Errorf("db boom"))
 
 	_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{
-		DateFrom: &date.Date{Year: 2025, Month: 1, Day: 1},
-		DateTo:   &date.Date{Year: 2025, Month: 1, Day: 3},
+		DateFrom:   &date.Date{Year: 2025, Month: 1, Day: 1},
+		DateBefore: &date.Date{Year: 2025, Month: 1, Day: 3},
 	})
 	testutil.RequireGRPCCode(t, err, codes.Internal)
 }

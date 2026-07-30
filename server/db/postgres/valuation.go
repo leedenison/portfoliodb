@@ -13,9 +13,10 @@ import (
 // valuationQuery returns the full SQL for portfolio valuation with FX conversion.
 // portfolioFilter is the WHERE clause fragment that scopes transactions:
 //   - Portfolio mode: "INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1"
-//   - User mode:      "WHERE t.user_id = $1 AND t.timestamp::date <= $3"
+//   - User mode:      "WHERE t.user_id = $1 AND t.timestamp::date < $3"
 //
-// The query uses $1 for the scope ID (portfolio or user), $2/$3 for date range,
+// The query uses $1 for the scope ID (portfolio or user), $2/$3 for the
+// half-open [from, before) date range,
 // and $4 for displayCurrency.
 func valuationQuery(portfolioMode bool) string {
 	var txSource string
@@ -23,11 +24,11 @@ func valuationQuery(portfolioMode bool) string {
 		txSource = `
     FROM txs t
     INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
-    WHERE t.timestamp::date <= $3`
+    WHERE t.timestamp::date < $3`
 	} else {
 		txSource = `
     FROM txs t
-    WHERE t.user_id = $1 AND t.timestamp::date <= $3`
+    WHERE t.user_id = $1 AND t.timestamp::date < $3`
 	}
 
 	return `
@@ -67,7 +68,7 @@ cumulative AS (
 ),
 date_series AS (
     SELECT d::date AS val_date
-    FROM generate_series($2::date, $3::date, '1 day'::interval) d
+    FROM generate_series($2::date, $3::date - 1, '1 day'::interval) d
 ),
 inst_list AS (
     SELECT DISTINCT instrument_id, instrument_description
@@ -99,7 +100,7 @@ prices AS (
     FROM eod_prices
     WHERE instrument_id = ANY(SELECT DISTINCT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL)
       AND price_date >= $2::date
-      AND price_date <= $3::date
+      AND price_date < $3::date
 ),
 -- Map held instruments to their FX pair instrument IDs (for currencies != display).
 fx_instruments AS (
@@ -122,7 +123,7 @@ fx_rates AS (
     FROM fx_instruments fi
     JOIN eod_prices ep ON ep.instrument_id = fi.fx_instrument_id
     WHERE ep.price_date >= $2::date
-      AND ep.price_date <= $3::date
+      AND ep.price_date < $3::date
 ),
 -- Rate for the display currency (DISPLAY/USD), only when display != USD.
 display_fx_rate AS (
@@ -134,7 +135,7 @@ display_fx_rate AS (
         AND ii.value = $4 || 'USD'
     WHERE $4 != 'USD'
       AND ep.price_date >= $2::date
-      AND ep.price_date <= $3::date
+      AND ep.price_date < $3::date
 ),
 -- Compute fx_rate per holding: converts from instrument currency to display currency.
 valued AS (
@@ -230,30 +231,32 @@ ORDER BY val_date
 `
 }
 
-// GetPortfolioValuation computes daily portfolio values over [dateFrom, dateTo].
+// GetPortfolioValuation computes daily portfolio values over the half-open
+// [dateFrom, dateBefore) range.
 // Prices (including synthetic LOCF rows for non-trading days) are joined
 // directly from eod_prices. Holdings are forward-filled from the last
 // transaction date. Holdings are converted to displayCurrency via FX rates.
-func (p *Postgres) GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateTo time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
+func (p *Postgres) GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateBefore time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
 	portUUID, err := uuid.Parse(portfolioID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid portfolio id: %w", err)
 	}
-	return p.queryValuation(ctx, valuationQuery(true), portUUID, dateFrom, dateTo, displayCurrency)
+	return p.queryValuation(ctx, valuationQuery(true), portUUID, dateFrom, dateBefore, displayCurrency)
 }
 
-// GetUserValuation computes daily portfolio values over [dateFrom, dateTo]
+// GetUserValuation computes daily portfolio values over the half-open
+// [dateFrom, dateBefore) range
 // for all of a user's transactions (no portfolio filter).
-func (p *Postgres) GetUserValuation(ctx context.Context, userID string, dateFrom, dateTo time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
+func (p *Postgres) GetUserValuation(ctx context.Context, userID string, dateFrom, dateBefore time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid user id: %w", err)
 	}
-	return p.queryValuation(ctx, valuationQuery(false), userUUID, dateFrom, dateTo, displayCurrency)
+	return p.queryValuation(ctx, valuationQuery(false), userUUID, dateFrom, dateBefore, displayCurrency)
 }
 
-func (p *Postgres) queryValuation(ctx context.Context, q string, scopeID uuid.UUID, dateFrom, dateTo time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
-	rows, err := p.q.QueryxContext(ctx, q, scopeID, dateFrom, dateTo, displayCurrency)
+func (p *Postgres) queryValuation(ctx context.Context, q string, scopeID uuid.UUID, dateFrom, dateBefore time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
+	rows, err := p.q.QueryxContext(ctx, q, scopeID, dateFrom, dateBefore, displayCurrency)
 	if err != nil {
 		return nil, fmt.Errorf("valuation query: %w", err)
 	}

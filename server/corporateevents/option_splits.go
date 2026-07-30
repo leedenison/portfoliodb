@@ -6,81 +6,108 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
-	"sort"
 	"time"
 
-	"github.com/leedenison/portfoliodb/server/clock"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/service/identification"
 )
 
-// ProcessOptionSplits adjusts options on the given underlying after new stock
-// splits land. For each option and each applicable split:
-//   - If identity_as_of >= split.ex_date: skip (the identity already reflects it)
-//   - If factor is not a whole forward split: insert unhandled event, skip
-//   - Otherwise: update OCC identifier and strike
+// ProcessPendingOptionSplits adjusts every option whose stored identity predates
+// an effective split on its underlying. underlyingID == "" sweeps every option;
+// a non-empty value restricts the sweep to one underlying.
 //
-// Splits are processed in chronological order. timer may be nil (uses
-// time.Now).
-func ProcessOptionSplits(ctx context.Context, database db.DB, underlyingID string, splits []db.StockSplit, log *slog.Logger, timer *clock.Timer) []*db.InstrumentRow {
-	options, err := database.ListOptionsByUnderlying(ctx, underlyingID)
+// The work list comes from the database, not from the caller: which splits an
+// option still needs is a function of its identity_as_of against each split's
+// ex_date, not of which splits happened to arrive in this fetch cycle. That
+// makes the pass idempotent, safe to run on every cycle, and self-retrying --
+// an option whose adjustment failed is simply still pending next time.
+//
+// Each option is adjusted once, by the cumulative factor of all its pending
+// splits, in a single transaction. Applying them one at a time against a row
+// read before the first write would compound the wrong strike and leave the
+// option carrying an OCC identifier per split.
+//
+// There is no clock parameter: the future-dated split cutoff is applied by the
+// query against CURRENT_DATE, so a split fetched by the lookahead is simply not
+// pending until it takes effect.
+func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingID string, log *slog.Logger) []*db.InstrumentRow {
+	pending, err := database.ListPendingOptionSplits(ctx, underlyingID)
 	if err != nil {
 		if log != nil {
-			log.ErrorContext(ctx, "option splits: list options", "underlying", underlyingID, "err", err)
+			log.ErrorContext(ctx, "option splits: list pending", "underlying", underlyingID, "err", err)
 		}
 		return nil
 	}
-	if len(options) == 0 {
-		return nil
+
+	// Non-whole splits are reported once per (underlying, ex_date) listing every
+	// option they block, matching the shape of the event this pass has always
+	// raised.
+	type blockedSplit struct {
+		split   db.StockSplit
+		options []*db.InstrumentRow
 	}
+	blocked := make(map[string]*blockedSplit)
+	var blockedOrder []string
 
-	// Sort splits chronologically.
-	sorted := make([]db.StockSplit, len(splits))
-	copy(sorted, splits)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ExDate.Before(sorted[j].ExDate) })
-
-	today := timer.Now().UTC().Truncate(24 * time.Hour)
-
-	for _, split := range sorted {
-		if split.ExDate.After(today) {
-			continue // Don't process future-dated splits.
+	var adjusted []*db.InstrumentRow
+	for _, p := range pending {
+		// Compound as exact rationals and convert once. Every ratio the
+		// IsWholeForwardSplit guard admits is a whole number, so float
+		// multiplication would happen to be exact today, but that stops holding
+		// the moment the guard admits a fractional ratio.
+		factorRat := new(big.Rat).SetInt64(1)
+		unhandled := false
+		for _, s := range p.Splits {
+			if !identification.IsWholeForwardSplit(s.SplitFrom, s.SplitTo) {
+				key := s.InstrumentID + "\x00" + s.ExDate.Format(time.RFC3339)
+				b, ok := blocked[key]
+				if !ok {
+					b = &blockedSplit{split: s}
+					blocked[key] = b
+					blockedOrder = append(blockedOrder, key)
+				}
+				b.options = append(b.options, p.Option)
+				unhandled = true
+				continue
+			}
+			from, _ := new(big.Rat).SetString(s.SplitFrom)
+			to, _ := new(big.Rat).SetString(s.SplitTo)
+			factorRat.Mul(factorRat, new(big.Rat).Quo(to, from))
 		}
-
-		if !identification.IsWholeForwardSplit(split.SplitFrom, split.SplitTo) {
-			// Route non-standard splits to a single unhandled event on the
-			// underlying, listing all affected option IDs in the data field.
-			insertUnhandledUnderlyingSplit(ctx, database, underlyingID, options, split, "non-standard split ratio", log)
+		factor, _ := factorRat.Float64()
+		// A pending split we cannot apply blocks the whole option: adjusting
+		// only the splits either side of it would silently produce a strike
+		// that matches no real contract. Leaving identity_as_of untouched keeps
+		// the option pending, so it is picked up again once the event is
+		// resolved.
+		if unhandled {
 			continue
 		}
-
-		from, _ := new(big.Rat).SetString(split.SplitFrom)
-		to, _ := new(big.Rat).SetString(split.SplitTo)
-		ratio := new(big.Rat).Quo(to, from)
-		factor, _ := ratio.Float64()
-
-		for _, opt := range options {
-			processOneOptionSplit(ctx, database, opt, split, factor, log)
+		if applyOptionSplits(ctx, database, p.Option, p.Splits, factor, log) {
+			adjusted = append(adjusted, p.Option)
 		}
 	}
-	return options
+
+	for _, key := range blockedOrder {
+		b := blocked[key]
+		insertUnhandledUnderlyingSplit(ctx, database, b.split.InstrumentID, b.options, b.split, "non-standard split ratio", log)
+	}
+	return adjusted
 }
 
-func processOneOptionSplit(ctx context.Context, database db.DB, opt *db.InstrumentRow, split db.StockSplit, factor float64, log *slog.Logger) {
-	// Already correct: the identity was derived on or after the split took
-	// effect. Providers list the pre-split OCC symbol until the ex_date, so an
-	// identity derived before then does not reflect the split however long we
-	// had known it was coming. A NULL identity_as_of predates every split.
-	// See docs/adr/0017-option-identity-reflects-ex-date.md.
-	if opt.IdentityAsOf != nil && !opt.IdentityAsOf.Before(split.ExDate) {
-		return
-	}
+// applyOptionSplits rewrites one option's OCC symbol and strike for the
+// cumulative factor of its pending splits. Returns true when the adjustment was
+// applied. splits is used only for reporting; factor already accounts for all of
+// them.
+func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRow, splits []db.StockSplit, factor float64, log *slog.Logger) bool {
+	split := splits[len(splits)-1] // most recent, for unhandled-event context
 
 	if opt.Strike == nil || opt.Expiry == nil || opt.PutCall == nil {
 		if log != nil {
 			log.WarnContext(ctx, "option splits: missing option fields", "option", opt.ID)
 		}
-		return
+		return false
 	}
 
 	// Find the current OCC identifier.
@@ -95,7 +122,7 @@ func processOneOptionSplit(ctx context.Context, database db.DB, opt *db.Instrume
 		if log != nil {
 			log.WarnContext(ctx, "option splits: no OCC identifier", "option", opt.ID)
 		}
-		return
+		return false
 	}
 
 	newStrike := *opt.Strike / factor
@@ -104,17 +131,20 @@ func processOneOptionSplit(ctx context.Context, database db.DB, opt *db.Instrume
 	parsed, ok := derivative.ParseOptionTicker(currentOCC)
 	if !ok {
 		insertUnhandledOptionSplit(ctx, database, opt, split, fmt.Sprintf("unparseable OCC identifier %q", currentOCC), log)
-		return
+		return false
 	}
 
 	newOCC, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, newStrike)
 	if !ok {
 		insertUnhandledOptionSplit(ctx, database, opt, split, fmt.Sprintf("cannot build OCC with adjusted strike %.4f", newStrike), log)
-		return
+		return false
 	}
 
 	// All mutations run in a single transaction via ApplyOptionSplit so
-	// partial failure cannot leave the option in an inconsistent state.
+	// partial failure cannot leave the option in an inconsistent state. That
+	// transaction also advances identity_as_of, which is what removes the option
+	// from the pending set. A failure here leaves it pending, so the next cycle
+	// retries it.
 	params := db.OptionSplitParams{
 		InstrumentID: opt.ID,
 		OldOCCValue:  currentOCC,
@@ -126,15 +156,16 @@ func processOneOptionSplit(ctx context.Context, database db.DB, opt *db.Instrume
 		if log != nil {
 			log.ErrorContext(ctx, "option splits: apply", "option", opt.ID, "err", err)
 		}
-		return
+		return false
 	}
 
 	if log != nil {
 		log.InfoContext(ctx, "option splits: adjusted",
 			"option", opt.ID, "old_occ", currentOCC, "new_occ", newOCC,
 			"old_strike", *opt.Strike, "new_strike", newStrike,
-			"split", fmt.Sprintf("%s:%s", split.SplitFrom, split.SplitTo))
+			"splits", len(splits), "factor", factor)
 	}
+	return true
 }
 
 // insertUnhandledUnderlyingSplit inserts a single unhandled event on the

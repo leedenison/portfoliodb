@@ -64,6 +64,25 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		}
 	}()
 
+	// Adjust every option whose identity predates an effective split on its
+	// underlying. Deferred so it runs at the end of the cycle -- after any fetch,
+	// so it sees splits that just landed -- but also on the early returns below,
+	// because it needs neither a plugin nor a held instrument: splits can arrive
+	// through ImportCorporateEvents, and an adjustment that failed then would
+	// otherwise never be retried on an installation with no fetch plugins
+	// enabled.
+	//
+	// It is deliberately not gated on whether a split landed in this cycle.
+	// Coverage is written as soon as events are persisted, so a pass that failed
+	// after that point would never see the plugin called again. Driving it off
+	// the stored identity instead makes it retry on its own, and picks up a
+	// future-dated split once its ex_date passes.
+	defer func() {
+		if ctx.Err() == nil {
+			ProcessPendingOptionSplits(ctx, database, "", log)
+		}
+	}()
+
 	held, err := database.HeldEventBearingInstruments(ctx)
 	if err != nil {
 		if log != nil {
@@ -259,33 +278,14 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 		_ = filled
 	}
 
+	// Options on this underlying are handled by the once-per-cycle pass in
+	// runCycle, which finds its own work and so does not depend on a split
+	// having landed in this cycle.
 	if splitsLanded {
 		if err := database.RecomputeSplitAdjustments(ctx, inst.ID); err != nil {
 			if log != nil {
 				log.ErrorContext(ctx, "corporate event fetch: recompute split adjustments",
 					"instrument", inst.ID, "err", err)
-			}
-		}
-
-		// Process option contracts on this underlying.
-		allSplits, err := database.ListStockSplits(ctx, inst.ID)
-		if err != nil {
-			if log != nil {
-				log.ErrorContext(ctx, "corporate event fetch: list splits for options",
-					"instrument", inst.ID, "err", err)
-			}
-		} else {
-			options := ProcessOptionSplits(ctx, database, inst.ID, allSplits, log, nil)
-			// Recompute split-adjusted values for options on this underlying.
-			// split_factor_at looks up splits via underlying_id, so option txs
-			// need recomputing whenever the underlying's splits change.
-			for _, opt := range options {
-				if rerr := database.RecomputeSplitAdjustments(ctx, opt.ID); rerr != nil {
-					if log != nil {
-						log.ErrorContext(ctx, "corporate event fetch: recompute option adjustments",
-							"option", opt.ID, "err", rerr)
-					}
-				}
 			}
 		}
 	}

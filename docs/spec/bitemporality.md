@@ -183,7 +183,7 @@ passed. It is normal, not exceptional.
 | Trigger | Restates | Recompute |
 | --- | --- | --- |
 | A new split arrives, or a stored split's `ex_date` crosses today | `split_adjusted_*` on every price and tx for the instrument | `RecomputeSplitAdjustments` per instrument, plus a daily blanket pass for crossings -- see [corporate-events.md](corporate-events.md#daily-scheduler-planned) |
-| A split arrives for an option's underlying | The option's OCC symbol, strike and contract terms | `ProcessOptionSplits`, gated on `identity_as_of` vs `ex_date` |
+| A split arrives for an option's underlying, or a stored one's `ex_date` crosses today | The option's OCC symbol, strike and contract terms | `ProcessPendingOptionSplits`, driven by `identity_as_of` vs `ex_date` |
 | A bulk upload replaces a period | Every transaction in that broker and period | Holdings and valuation follow from the transaction set; nothing is materialised |
 | A transaction earlier than the current earliest arrives, or history between the start date and a declaration changes | The derived INITIALIZE transaction | See [fixed-point.md](fixed-point.md) |
 | Instrument identity changes or two instruments merge | Which transactions roll up to which instrument | Holdings and valuation follow; the prior identity is not retained -- see [identifiers.md](identifiers.md) |
@@ -199,7 +199,6 @@ The model above is normative. These parts of the system do not yet comply:
 | Divergence | Issue |
 | --- | --- |
 | No daily scheduler fires the blanket recompute, so a stored future-dated split never activates when its `ex_date` crosses | 0050 |
-| The option-split adjustment pass runs only when a split landed in the same fetch cycle, so a transient failure is never retried | 0055 |
 | Date intervals are half-open in some API messages and closed in others | 0056 |
 | Holding declarations permit one assertion per holding, so a corrected declaration destroys the prior one | 0043 |
 | Corporate actions adjust totals rather than lots | 0044 |

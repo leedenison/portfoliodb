@@ -188,6 +188,45 @@ func TestRegistry_RegisterAndGet(t *testing.T) {
 // TestRunCycle_EmptyResultRecordsCoverage verifies that a successful fetch
 // returning zero events still records coverage and stops the precedence walk.
 // This is the key behavioural difference vs the price worker.
+// TestRunCycle_OptionPassRunsWithNoPluginsEnabled verifies the pass survives the
+// cycle's early returns. Splits can arrive through ImportCorporateEvents without
+// any fetch plugin, so an adjustment that failed then must still be retried on
+// an installation that has none enabled.
+func TestRunCycle_OptionPassRunsWithNoPluginsEnabled(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	instID := "44444444-4444-4444-4444-444444444444"
+	mockDB.EXPECT().HeldEventBearingInstruments(gomock.Any()).Return([]db.HeldInstrument{
+		{InstrumentID: instID, EarliestTxDate: d(2014, 1, 1)},
+	}, nil)
+	// No corporate event plugins configured: the fetch half returns early.
+	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCorporateEvent).Return(nil, nil)
+
+	opt := makeOption("opt-no-plugins", "AAPL  250117C00200000", 200.0, date(2025, 1, 1))
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return([]db.PendingOptionSplits{{
+		Option: opt,
+		Splits: []db.StockSplit{split(instID, date(2025, 1, 15), "1", "2")},
+	}}, nil)
+	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).Return(nil)
+
+	runCycle(ctx, mockDB, NewRegistry(), nil, nil, nil)
+}
+
+// TestRunCycle_OptionPassRunsWithNothingHeld verifies the same for the other
+// early return: a pending option need not currently be held.
+func TestRunCycle_OptionPassRunsWithNothingHeld(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	mockDB.EXPECT().HeldEventBearingInstruments(gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
+
+	runCycle(ctx, mockDB, NewRegistry(), nil, nil, nil)
+}
+
 func TestRunCycle_EmptyResultRecordsCoverage(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDB := mock.NewMockDB(ctrl)
@@ -224,8 +263,8 @@ func TestRunCycle_EmptyResultRecordsCoverage(t *testing.T) {
 	mockDB.EXPECT().BlockedCorporateEventPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
-			ID:         instID,
-			AssetClass: strPtr("STOCK"),
+			ID:          instID,
+			AssetClass:  strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}},
 		},
 	}, nil)
@@ -237,6 +276,9 @@ func TestRunCycle_EmptyResultRecordsCoverage(t *testing.T) {
 	// No upserts for splits/dividends (empty result).
 	// No call into the low-precedence plugin.
 	// No recompute (no splits landed).
+
+	// The option pass runs once per cycle regardless of what landed.
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
@@ -278,8 +320,8 @@ func TestRunCycle_SplitsLandTriggerRecompute(t *testing.T) {
 	mockDB.EXPECT().BlockedCorporateEventPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
-			ID:         instID,
-			AssetClass: strPtr("STOCK"),
+			ID:          instID,
+			AssetClass:  strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}},
 		},
 	}, nil)
@@ -288,17 +330,65 @@ func TestRunCycle_SplitsLandTriggerRecompute(t *testing.T) {
 	mockDB.EXPECT().UpsertStockSplits(gomock.Any(), gomock.Any()).Return(nil)
 	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "massive", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	mockDB.EXPECT().RecomputeSplitAdjustments(gomock.Any(), instID).Return(nil)
-	// After splits land, the worker lists splits and options for the underlying.
-	mockDB.EXPECT().ListStockSplits(gomock.Any(), instID).Return([]db.StockSplit{
-		{InstrumentID: instID, ExDate: d(2024, 6, 9), SplitFrom: "1", SplitTo: "7"},
-	}, nil)
-	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), instID).Return(nil, nil)
+	// The option pass runs once for the cycle, across all underlyings.
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
 	if plugin.calls != 1 {
 		t.Errorf("expected 1 call, got %d", plugin.calls)
 	}
+}
+
+// TestRunCycle_OptionPassRunsWithoutSplitsLanding is the retry half of issue
+// 0055. The pass used to sit inside "if splitsLanded", so an option whose
+// adjustment failed after coverage was written was never revisited: the next
+// cycle saw no gap, never called the plugin, and never set the flag. It now runs
+// every cycle and finds its own work.
+func TestRunCycle_OptionPassRunsWithoutSplitsLanding(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	instID := "33333333-3333-3333-3333-333333333333"
+
+	// A plugin that returns nothing: no splits land this cycle.
+	plugin := &stubPlugin{
+		name:         "massive",
+		idTypes:      []string{"MIC_TICKER"},
+		assetClasses: map[string]bool{"STOCK": true, "ETF": true},
+		result:       &Events{},
+	}
+	reg := NewRegistry()
+	reg.Register("massive", plugin)
+
+	mockDB.EXPECT().HeldEventBearingInstruments(gomock.Any()).Return([]db.HeldInstrument{
+		{InstrumentID: instID, EarliestTxDate: d(2014, 1, 1)},
+	}, nil)
+	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryCorporateEvent).Return([]db.PluginConfigRow{
+		{PluginID: "massive", Precedence: 10, Config: []byte("{}")},
+	}, nil)
+	mockDB.EXPECT().BlockedCorporateEventPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
+		{
+			ID:          instID,
+			AssetClass:  strPtr("STOCK"),
+			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}},
+		},
+	}, nil)
+	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "massive", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	// No UpsertStockSplits and no RecomputeSplitAdjustments: nothing landed.
+
+	// The assertion: the option pass still runs, and picks up work left over
+	// from an earlier cycle.
+	opt := makeOption("opt-left-over", "AAPL  250117C00200000", 200.0, date(2025, 1, 1))
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return([]db.PendingOptionSplits{{
+		Option: opt,
+		Splits: []db.StockSplit{split(instID, date(2025, 1, 15), "1", "2")},
+	}}, nil)
+	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).Return(nil)
+	runCycle(ctx, mockDB, reg, nil, nil, nil)
 }
 
 // TestRunCycle_PermanentErrorCreatesBlock verifies that ErrPermanent results
@@ -336,8 +426,8 @@ func TestRunCycle_PermanentErrorCreatesBlock(t *testing.T) {
 	mockDB.EXPECT().BlockedCorporateEventPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
-			ID:         instID,
-			AssetClass: strPtr("STOCK"),
+			ID:          instID,
+			AssetClass:  strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}},
 		},
 	}, nil)
@@ -345,6 +435,9 @@ func TestRunCycle_PermanentErrorCreatesBlock(t *testing.T) {
 
 	mockDB.EXPECT().CreateCorporateEventFetchBlock(gomock.Any(), instID, "broken", "404 not found").Return(nil)
 	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "good", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+	// The option pass runs once per cycle regardless of what landed.
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
@@ -386,8 +479,8 @@ func TestRunCycle_SpecialDividendRoutedToUnhandled(t *testing.T) {
 	mockDB.EXPECT().BlockedCorporateEventPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
-			ID:         instID,
-			AssetClass: strPtr("STOCK"),
+			ID:          instID,
+			AssetClass:  strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}},
 		},
 	}, nil)
@@ -413,6 +506,9 @@ func TestRunCycle_SpecialDividendRoutedToUnhandled(t *testing.T) {
 			return nil
 		})
 	mockDB.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), instID, "massive", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+	// The option pass runs once per cycle regardless of what landed.
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 }
@@ -444,12 +540,15 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 		map[string]map[string]bool{instID: {"blocked": true}}, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
-			ID:         instID,
-			AssetClass: strPtr("STOCK"),
+			ID:          instID,
+			AssetClass:  strPtr("STOCK"),
 			Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}},
 		},
 	}, nil)
 	mockDB.EXPECT().ListCorporateEventCoverage(gomock.Any(), []string{instID}).Return(nil, nil)
+
+	// The option pass runs once per cycle regardless of what landed.
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 

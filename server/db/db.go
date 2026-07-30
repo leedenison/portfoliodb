@@ -600,12 +600,15 @@ type InstrumentDB interface {
 	// ListInstruments returns instruments sorted alphabetically by display name (ticker, then name, then broker description). If search is non-empty, only instruments with at least one identifier value matching (case-insensitive substring) are returned. If assetClasses is non-empty, only instruments with matching asset_class are returned. Returns (rows, totalCount, nextPageToken, error).
 	ListInstruments(ctx context.Context, search string, assetClasses []string, pageSize int32, pageToken string) ([]*InstrumentRow, int32, string, error)
 
-	// ListOptionsByUnderlying returns all OPTION instruments with the given
-	// underlying_id, including their identifiers.
-	ListOptionsByUnderlying(ctx context.Context, underlyingID string) ([]*InstrumentRow, error)
 	// DeleteInstrumentIdentifier removes a single identifier row by
 	// (instrument_id, identifier_type, value). Returns nil when no row exists.
 	DeleteInstrumentIdentifier(ctx context.Context, instrumentID, identifierType, value string) error
+	// DeleteInstrumentIdentifiersByType removes every identifier of the given
+	// type for an instrument, whatever its value or domain. Use it when a type
+	// is single-valued for the instrument and is being replaced, so the write
+	// does not depend on knowing the value currently stored. Returns nil when no
+	// row exists.
+	DeleteInstrumentIdentifiersByType(ctx context.Context, instrumentID, identifierType string) error
 	// InsertInstrumentIdentifier inserts a single identifier row.
 	InsertInstrumentIdentifier(ctx context.Context, instrumentID string, input IdentifierInput) error
 	// UpdateInstrumentStrike updates the strike on an existing option instrument.
@@ -681,6 +684,14 @@ type IgnoredAssetClassDB interface {
 // halves of the split ratio (factor = SplitTo / SplitFrom). They are stored as
 // strings so that NUMERIC values from the database round-trip without loss of
 // precision; conversion to float happens at the math boundary.
+// PendingOptionSplits is one option contract together with the splits on its
+// underlying that its stored identity does not yet reflect, ordered ascending by
+// ex_date. Splits is never empty.
+type PendingOptionSplits struct {
+	Option *InstrumentRow
+	Splits []StockSplit
+}
+
 type StockSplit struct {
 	InstrumentID string
 	ExDate       time.Time
@@ -754,10 +765,13 @@ type UnhandledCorporateEvent struct {
 // contract after a stock split on its underlying.
 type OptionSplitParams struct {
 	InstrumentID string
-	OldOCCValue  string
-	NewOCC       IdentifierInput
-	NewStrike    float64
-	NewName      string
+	// OldOCCValue is the symbol the caller read. It is reported, not acted on:
+	// every OCC identifier on the instrument is replaced regardless, so the write
+	// converges even if the stored symbol has moved on since the read.
+	OldOCCValue string
+	NewOCC      IdentifierInput
+	NewStrike   float64
+	NewName     string
 }
 
 // CorporateEventDB provides storage for stock splits, cash dividends, fetch
@@ -776,6 +790,17 @@ type CorporateEventDB interface {
 	// nil even when no row exists; callers that need an "exists" signal should
 	// check ListStockSplits first.
 	DeleteStockSplit(ctx context.Context, instrumentID string, exDate time.Time) error
+
+	// ListPendingOptionSplits returns every option whose stored identity
+	// predates an effective split on its underlying, with the splits that still
+	// need applying, ordered ascending by ex_date. underlyingID == "" covers
+	// every option; a non-empty value restricts the sweep to one underlying.
+	//
+	// This is the work list for the retroactive option split pass. It is derived
+	// from identity_as_of against ex_date rather than from which splits happened
+	// to arrive in the current fetch cycle, so the pass is idempotent, safe to
+	// run every cycle, and retries anything a previous run failed to apply.
+	ListPendingOptionSplits(ctx context.Context, underlyingID string) ([]PendingOptionSplits, error)
 
 	// UpsertCashDividends inserts or updates the supplied cash_dividends rows.
 	// On conflict (instrument_id, ex_date), all non-key columns are overwritten

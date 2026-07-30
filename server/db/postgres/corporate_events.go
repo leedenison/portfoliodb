@@ -84,6 +84,91 @@ func (p *Postgres) ListStockSplits(ctx context.Context, instrumentID string) ([]
 	return out, rows.Err()
 }
 
+// ListPendingOptionSplits implements db.CorporateEventDB.
+//
+// The predicate is the whole of the pass's state. ex_date <= CURRENT_DATE is the
+// future-date guard: a split fetched by the lookahead sits inert until it takes
+// effect, and is picked up by the first run after it does. identity_as_of <
+// ex_date is the correctness guard: the stored OCC symbol reflects a split only
+// if it was derived on or after the split took effect, and a NULL predates every
+// split. Together they make the work list self-describing, so the pass needs no
+// record of which cycle a split arrived in and re-running it is a no-op.
+func (p *Postgres) ListPendingOptionSplits(ctx context.Context, underlyingID string) ([]db.PendingOptionSplits, error) {
+	var (
+		filter string
+		args   []any
+	)
+	if underlyingID != "" {
+		id, err := uuid.Parse(underlyingID)
+		if err != nil {
+			return nil, fmt.Errorf("list pending option splits: invalid underlying id %q: %w", underlyingID, err)
+		}
+		filter = "AND o.underlying_id = $1"
+		args = append(args, id)
+	}
+	rows, err := p.q.QueryContext(ctx, fmt.Sprintf(`
+		SELECT o.id, s.instrument_id, s.ex_date, s.split_from::text, s.split_to::text,
+		       s.data_provider, s.first_known_at
+		FROM instruments o
+		JOIN stock_splits s ON s.instrument_id = o.underlying_id
+		WHERE o.asset_class = 'OPTION'
+		  AND s.ex_date <= CURRENT_DATE
+		  AND (o.identity_as_of IS NULL OR o.identity_as_of < s.ex_date)
+		  %s
+		ORDER BY o.id, s.ex_date
+	`, filter), args...)
+	if err != nil {
+		return nil, fmt.Errorf("list pending option splits: %w", err)
+	}
+	defer rows.Close()
+
+	splitsByOption := make(map[uuid.UUID][]db.StockSplit)
+	var order []uuid.UUID
+	for rows.Next() {
+		var optID, underlying uuid.UUID
+		var s db.StockSplit
+		if err := rows.Scan(&optID, &underlying, &s.ExDate, &s.SplitFrom, &s.SplitTo, &s.DataProvider, &s.FirstKnownAt); err != nil {
+			return nil, fmt.Errorf("list pending option splits scan: %w", err)
+		}
+		s.InstrumentID = underlying.String()
+		if _, seen := splitsByOption[optID]; !seen {
+			order = append(order, optID)
+		}
+		splitsByOption[optID] = append(splitsByOption[optID], s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(order) == 0 {
+		return nil, nil
+	}
+
+	// Hydrate the option rows separately: the pass needs their identifiers to
+	// find the OCC symbol, and ListInstrumentsByIDs already loads those.
+	ids := make([]string, len(order))
+	for i, id := range order {
+		ids[i] = id.String()
+	}
+	instRows, err := p.ListInstrumentsByIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list pending option splits: load options: %w", err)
+	}
+	byID := make(map[string]*db.InstrumentRow, len(instRows))
+	for _, r := range instRows {
+		byID[r.ID] = r
+	}
+
+	out := make([]db.PendingOptionSplits, 0, len(order))
+	for _, id := range order {
+		opt, ok := byID[id.String()]
+		if !ok {
+			continue
+		}
+		out = append(out, db.PendingOptionSplits{Option: opt, Splits: splitsByOption[id]})
+	}
+	return out, nil
+}
+
 // DeleteStockSplit implements db.CorporateEventDB.
 func (p *Postgres) DeleteStockSplit(ctx context.Context, instrumentID string, exDate time.Time) error {
 	_, err := p.q.ExecContext(ctx, `
@@ -595,15 +680,21 @@ func (p *Postgres) BlockedCorporateEventPluginsForInstruments(ctx context.Contex
 }
 
 // ApplyOptionSplit implements db.CorporateEventDB. All mutations run in a
-// single transaction: delete old OCC, insert new OCC, update strike,
+// single transaction: replace the OCC identifier, update strike,
 // recompute split-adjusted tx values, advance identity_as_of. The split_factor_at
 // SQL function looks up splits via the underlying_id FK, so no derived split
 // row is needed on the option instrument.
 func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitParams) error {
 	return p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}
-		if err := txp.DeleteInstrumentIdentifier(ctx, params.InstrumentID, "OCC", params.OldOCCValue); err != nil {
-			return fmt.Errorf("apply option split: delete old OCC: %w", err)
+		// Every OCC identifier goes, not just the value the caller read. An
+		// option has exactly one OCC, and deleting by value leaves a stale one
+		// behind when two runs of the pass overlap: the loser's delete matches
+		// nothing, its insert of a different adjusted symbol succeeds, and the
+		// option ends up resolving under both. Deleting by type makes the
+		// operation converge whatever the caller last saw.
+		if err := txp.DeleteInstrumentIdentifiersByType(ctx, params.InstrumentID, "OCC"); err != nil {
+			return fmt.Errorf("apply option split: delete OCC identifiers: %w", err)
 		}
 		if err := txp.InsertInstrumentIdentifier(ctx, params.InstrumentID, params.NewOCC); err != nil {
 			return fmt.Errorf("apply option split: insert new OCC: %w", err)

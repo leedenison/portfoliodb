@@ -171,15 +171,14 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 		if err := database.RecomputeSplitAdjustments(ctx, instID); err != nil {
 			log.Printf("corporate event import job %s: recompute %s: %v", j.JobID, instID, err)
 		}
-		allSplits, err := database.ListStockSplits(ctx, instID)
-		if err != nil {
-			log.Printf("corporate event import job %s: list splits %s: %v", j.JobID, instID, err)
-		} else {
-			options := corporateevents.ProcessOptionSplits(ctx, database, instID, allSplits, ingestionLog, nil)
-			for _, opt := range options {
-				_ = database.RecomputeSplitAdjustments(ctx, opt.ID)
-			}
-		}
+	}
+	// Adjust options whose identity predates an effective split, once for the
+	// whole import rather than per instrument. The pass derives its own work
+	// from the stored identity, so it also picks up anything an earlier run
+	// failed to apply. ApplyOptionSplit recomputes each adjusted option's
+	// split-adjusted values inside its own transaction.
+	if len(splitInstruments) > 0 {
+		corporateevents.ProcessPendingOptionSplits(ctx, database, "", ingestionLog)
 	}
 
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)

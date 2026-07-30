@@ -594,7 +594,7 @@ func TestRecomputeSplitAdjustments_FutureSplitNotApplied(t *testing.T) {
 	// Insert a split with ex_date in the future. The key assertion is
 	// that this row sits in stock_splits but does NOT scale the price,
 	// because split_factor_at filters splits with ex_date > current_date.
-	future := time.Now().UTC().Truncate(24 * time.Hour).AddDate(1, 0, 0)
+	future := time.Now().UTC().Truncate(24*time.Hour).AddDate(1, 0, 0)
 	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
 		{InstrumentID: instID, ExDate: future, SplitFrom: "1", SplitTo: "2", DataProvider: "test"},
 	}); err != nil {
@@ -1027,7 +1027,6 @@ func TestInsertUnhandledCorporateEvent_Dedup(t *testing.T) {
 	}
 }
 
-
 // backdate rewrites a knowledge timestamp to a fixed past value so that a
 // subsequent write either preserves it or is caught clobbering it. Tests run
 // inside one transaction, where now() is frozen at transaction start, so
@@ -1292,3 +1291,294 @@ func adjustedQty(t *testing.T, p *Postgres, txID string) float64 {
 	}
 	return v
 }
+
+// setupOption creates an option on the given underlying with an OCC identifier
+// and option fields. identityAsOf nil leaves identity_as_of NULL.
+func setupOption(t *testing.T, p *Postgres, underlyingID, occ string, strike float64, identityAsOf *time.Time) string {
+	t.Helper()
+	ctx := context.Background()
+	optFields := &db.OptionFields{Strike: strike, Expiry: d(2025, 1, 17), PutCall: "C"}
+	id, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", occ, "", "", []db.IdentifierInput{
+		{Type: "OCC", Value: occ, Canonical: true},
+	}, underlyingID, nil, nil, optFields)
+	if err != nil {
+		t.Fatalf("ensure option %s: %v", occ, err)
+	}
+	if identityAsOf != nil {
+		if err := p.SetIdentityAsOf(ctx, id, *identityAsOf); err != nil {
+			t.Fatalf("set identity_as_of: %v", err)
+		}
+	}
+	return id
+}
+
+// TestListPendingOptionSplits_Predicate covers the rule that decides whether an
+// option still needs adjusting. The comparison is identity_as_of against
+// ex_date, never against a knowledge time: providers list the pre-split OCC
+// symbol until the ex_date, so an identity derived before then does not reflect
+// the split however long the split had been known. See
+// docs/adr/0017-option-identity-reflects-ex-date.md.
+func TestListPendingOptionSplits_Predicate(t *testing.T) {
+	past := d(2024, 6, 1)
+	tests := []struct {
+		name         string
+		identityAsOf *time.Time
+		exDate       time.Time
+		wantPending  bool
+	}{
+		{
+			name:         "identity predates ex_date",
+			identityAsOf: timePtrCE(d(2024, 1, 1)),
+			exDate:       past,
+			wantPending:  true,
+		},
+		{
+			name:         "identity after ex_date",
+			identityAsOf: timePtrCE(d(2024, 12, 1)),
+			exDate:       past,
+			wantPending:  false,
+		},
+		{
+			name:         "identity on ex_date is already adjusted",
+			identityAsOf: timePtrCE(past),
+			exDate:       past,
+			wantPending:  false,
+		},
+		{
+			name:         "null identity predates every split",
+			identityAsOf: nil,
+			exDate:       past,
+			wantPending:  true,
+		},
+		{
+			name:         "future-dated split is not yet effective",
+			identityAsOf: timePtrCE(d(2024, 1, 1)),
+			exDate:       time.Now().UTC().AddDate(1, 0, 0).Truncate(24 * time.Hour),
+			wantPending:  false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := testDBTx(t)
+			ctx := context.Background()
+
+			underlyingID := setupInstrument(t, p, "PRED-UNDERLYING")
+			optID := setupOption(t, p, underlyingID, "AAPL  250117C00200000", 200, tc.identityAsOf)
+			if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+				{InstrumentID: underlyingID, ExDate: tc.exDate, SplitFrom: "1", SplitTo: "2", DataProvider: "massive"},
+			}); err != nil {
+				t.Fatalf("upsert split: %v", err)
+			}
+
+			pending, err := p.ListPendingOptionSplits(ctx, "")
+			if err != nil {
+				t.Fatalf("ListPendingOptionSplits: %v", err)
+			}
+			found := false
+			for _, pd := range pending {
+				if pd.Option.ID == optID {
+					found = true
+				}
+			}
+			if found != tc.wantPending {
+				t.Errorf("pending = %v, want %v", found, tc.wantPending)
+			}
+		})
+	}
+}
+
+// TestListPendingOptionSplits_KnownBeforeButNotYetEffective is the regression
+// test for issue 0055 at the query level. The split was known long before the
+// option was identified, but did not take effect until afterwards, so the stored
+// OCC is the pre-split one and the option is still pending. The old guard
+// compared first_known_at and skipped it permanently.
+func TestListPendingOptionSplits_KnownBeforeButNotYetEffective(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID := setupInstrument(t, p, "KNOWN-EARLY")
+	identity := d(2024, 3, 1)
+	optID := setupOption(t, p, underlyingID, "AAPL  250117C00200000", 200, &identity)
+
+	// Learned in January, effective in June, identity derived in March.
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{{
+		InstrumentID: underlyingID,
+		ExDate:       d(2024, 6, 1),
+		SplitFrom:    "1",
+		SplitTo:      "2",
+		DataProvider: "massive",
+		FirstKnownAt: d(2024, 1, 5),
+	}}); err != nil {
+		t.Fatalf("upsert split: %v", err)
+	}
+
+	pending, err := p.ListPendingOptionSplits(ctx, "")
+	if err != nil {
+		t.Fatalf("ListPendingOptionSplits: %v", err)
+	}
+	if len(pending) != 1 || pending[0].Option.ID != optID {
+		t.Fatalf("pending = %v, want the option to still need adjusting", pending)
+	}
+}
+
+// TestListPendingOptionSplits_MultipleAndFilter covers grouping, ordering, and
+// the underlying filter. Splits come back oldest first so the pass can compound
+// them, and the option arrives with its identifiers loaded so the pass can find
+// the OCC symbol.
+func TestListPendingOptionSplits_MultipleAndFilter(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	undA := setupInstrument(t, p, "MULTI-A")
+	undB := setupInstrument(t, p, "MULTI-B")
+	optA := setupOption(t, p, undA, "AAPL  250117C00400000", 400, nil)
+	setupOption(t, p, undB, "MSFT  250117C00300000", 300, nil)
+
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+		{InstrumentID: undA, ExDate: d(2024, 9, 1), SplitFrom: "1", SplitTo: "4", DataProvider: "massive"},
+		{InstrumentID: undA, ExDate: d(2024, 6, 1), SplitFrom: "1", SplitTo: "2", DataProvider: "massive"},
+		{InstrumentID: undB, ExDate: d(2024, 7, 1), SplitFrom: "1", SplitTo: "3", DataProvider: "massive"},
+	}); err != nil {
+		t.Fatalf("upsert splits: %v", err)
+	}
+
+	all, err := p.ListPendingOptionSplits(ctx, "")
+	if err != nil {
+		t.Fatalf("ListPendingOptionSplits: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("pending options = %d, want 2", len(all))
+	}
+
+	filtered, err := p.ListPendingOptionSplits(ctx, undA)
+	if err != nil {
+		t.Fatalf("ListPendingOptionSplits filtered: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].Option.ID != optA {
+		t.Fatalf("filtered = %v, want just the option on undA", filtered)
+	}
+	if len(filtered[0].Splits) != 2 {
+		t.Fatalf("splits = %d, want 2", len(filtered[0].Splits))
+	}
+	if !filtered[0].Splits[0].ExDate.Equal(d(2024, 6, 1)) {
+		t.Errorf("splits not ordered by ex_date ascending: %v", filtered[0].Splits[0].ExDate)
+	}
+	if filtered[0].Splits[0].InstrumentID != undA {
+		t.Errorf("split instrument = %q, want the underlying %q", filtered[0].Splits[0].InstrumentID, undA)
+	}
+	var hasOCC bool
+	for _, idn := range filtered[0].Option.Identifiers {
+		if idn.Type == "OCC" {
+			hasOCC = true
+		}
+	}
+	if !hasOCC {
+		t.Error("option identifiers not loaded; the pass needs the OCC symbol")
+	}
+}
+
+// TestListPendingOptionSplits_ClearedByApply verifies the pass is idempotent:
+// ApplyOptionSplit advances identity_as_of, which is what removes the option
+// from the work list, so a second run finds nothing.
+func TestListPendingOptionSplits_ClearedByApply(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID := setupInstrument(t, p, "IDEMPOTENT")
+	identity := d(2024, 1, 1)
+	optID := setupOption(t, p, underlyingID, "AAPL  250117C00200000", 200, &identity)
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+		{InstrumentID: underlyingID, ExDate: d(2024, 6, 1), SplitFrom: "1", SplitTo: "2", DataProvider: "massive"},
+	}); err != nil {
+		t.Fatalf("upsert split: %v", err)
+	}
+
+	pending, err := p.ListPendingOptionSplits(ctx, "")
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("first run: pending = %v, err = %v", pending, err)
+	}
+
+	if err := p.ApplyOptionSplit(ctx, db.OptionSplitParams{
+		InstrumentID: optID,
+		OldOCCValue:  "AAPL  250117C00200000",
+		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00100000", Canonical: true},
+		NewStrike:    100,
+		NewName:      "AAPL250117C00100000",
+	}); err != nil {
+		t.Fatalf("ApplyOptionSplit: %v", err)
+	}
+
+	pending, err = p.ListPendingOptionSplits(ctx, "")
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Errorf("pending after apply = %d, want 0", len(pending))
+	}
+}
+
+// TestApplyOptionSplit_ConvergesOnStaleOldOCC covers two runs of the pass
+// overlapping on the same option. The pass is called from both the corporate
+// event fetch cycle and the corporate event import job, so a run can compute its
+// adjustment from a snapshot another run has already superseded.
+//
+// Run A sees only the 2:1 and plans 200 -> 100. The 4:1 then lands, so run B
+// sees both and plans 200 -> 25 from the same starting strike. A commits first.
+// B's OldOCCValue now names a symbol that no longer exists, and deleting by
+// value would match nothing while its insert of a different symbol succeeded --
+// leaving the option resolving under two OCCs, with nothing to clean it up since
+// identity_as_of has advanced. Replacing every OCC identifier makes the write
+// converge: whichever run commits last leaves one symbol, consistent with the
+// strike it wrote.
+func TestApplyOptionSplit_ConvergesOnStaleOldOCC(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID := setupInstrument(t, p, "RACE")
+	identity := d(2024, 1, 1)
+	optID := setupOption(t, p, underlyingID, "AAPL  250117C00200000", 200, &identity)
+
+	// Run A commits first: 2:1 only.
+	if err := p.ApplyOptionSplit(ctx, db.OptionSplitParams{
+		InstrumentID: optID,
+		OldOCCValue:  "AAPL  250117C00200000",
+		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00100000", Canonical: true},
+		NewStrike:    100,
+		NewName:      "AAPL250117C00100000",
+	}); err != nil {
+		t.Fatalf("run A: %v", err)
+	}
+
+	// Run B commits second, still carrying the pre-A symbol it read.
+	if err := p.ApplyOptionSplit(ctx, db.OptionSplitParams{
+		InstrumentID: optID,
+		OldOCCValue:  "AAPL  250117C00200000", // stale
+		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00025000", Canonical: true},
+		NewStrike:    25,
+		NewName:      "AAPL250117C00025000",
+	}); err != nil {
+		t.Fatalf("run B: %v", err)
+	}
+
+	inst, err := p.GetInstrument(ctx, optID)
+	if err != nil || inst == nil {
+		t.Fatalf("get instrument: %v", err)
+	}
+	var occs []string
+	for _, idn := range inst.Identifiers {
+		if idn.Type == "OCC" {
+			occs = append(occs, idn.Value)
+		}
+	}
+	if len(occs) != 1 {
+		t.Fatalf("OCC identifiers = %v, want exactly 1", occs)
+	}
+	if occs[0] != "AAPL250117C00025000" {
+		t.Errorf("OCC = %q, want the last writer's symbol", occs[0])
+	}
+	if inst.Strike == nil || *inst.Strike != 25 {
+		t.Errorf("strike = %v, want 25 to match the stored symbol", inst.Strike)
+	}
+}
+
+func timePtrCE(t time.Time) *time.Time { return &t }

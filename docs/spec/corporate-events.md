@@ -127,11 +127,15 @@ The cost-basis invariant `qty × price == split_adjusted_quantity × split_adjus
 
 ### Option contracts
 
-A split on an option's underlying restates the option itself: OCC adjusts the contract on the ex_date, so its symbol and strike change. `ProcessOptionSplits` applies that adjustment retroactively to stored options, replacing the OCC identifier and strike and recomputing the option's `split_adjusted_*` values.
+A split on an option's underlying restates the option itself: OCC adjusts the contract on the ex_date, so its symbol and strike change. `ProcessPendingOptionSplits` applies that adjustment retroactively to stored options, replacing the OCC identifier and strike and recomputing the option's `split_adjusted_*` values.
 
 Whether an option still needs adjusting is decided by comparing `instruments.identity_as_of` -- the point in market time its stored identity reflects -- against the split's `ex_date`. An identity derived on or after the ex_date already carries the adjusted symbol and is left alone; one derived before it does not, however long the split had been known, because providers list the pre-split symbol until the ex_date. Knowledge time is not consulted. See adr/0017-option-identity-reflects-ex-date.md.
 
-Non-whole-forward splits (reverse splits, fractional ratios) are not applied: they are routed to `unhandled_corporate_events` for manual review. `contract_multiplier` is never adjusted automatically.
+The pass derives its work list from that comparison rather than from which splits arrived in the current fetch cycle, and runs once per cycle regardless of whether any did. That makes it idempotent and self-retrying: applying the adjustment advances `identity_as_of` in the same transaction, which is what removes the option from the list, so an adjustment that failed is simply still pending next time. A future-dated split is not pending until its `ex_date` passes, at which point the next run picks it up.
+
+An option is adjusted once, by the cumulative factor of all its pending splits, so a backfill landing several historical splits together compounds them correctly instead of repeatedly dividing the original strike.
+
+Non-whole-forward splits (reverse splits, fractional ratios) are not applied: they are routed to `unhandled_corporate_events` for manual review, and they block their option entirely rather than being skipped over, since adjusting only the splits either side would produce a strike matching no real contract. The option stays pending so it is picked up once the event is resolved. `contract_multiplier` is never adjusted automatically.
 
 The instruments fetched each cycle come from `HeldEventBearingInstruments`: direct STOCK and ETF holdings, plus the underlyings of held OPTION and FUTURE positions.
 

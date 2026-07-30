@@ -27,9 +27,9 @@ var PluginRetryBackoff = 2 * time.Second
 // ResolveResult holds the outcome of plugin-based instrument resolution.
 type ResolveResult struct {
 	InstrumentID string
-	HadTimeout   bool // at least one plugin timed out
-	HadError     bool // at least one plugin returned a non-ErrNotIdentified error
-	Identified   bool // a plugin successfully identified the instrument
+	HadTimeout   bool                  // at least one plugin timed out
+	HadError     bool                  // at least one plugin returned a non-ErrNotIdentified error
+	Identified   bool                  // a plugin successfully identified the instrument
 	HintDiffs    []identifier.HintDiff // differences between supplied hints and resolved instrument
 }
 
@@ -511,12 +511,12 @@ func ResolveWithPlugins(
 		}
 		inst := winner.inst
 		var underlyingID string
-		var validFrom, validTo *time.Time
+		var validFrom, validBefore *time.Time
 		if inst.ValidFrom != nil {
 			validFrom = inst.ValidFrom
 		}
-		if inst.ValidTo != nil {
-			validTo = inst.ValidTo
+		if inst.ValidBefore != nil {
+			validBefore = inst.ValidBefore
 		}
 		if len(inst.UnderlyingIdentifiers) > 0 && depth < MaxResolveDepth {
 			uHints := identifier.Hints{
@@ -537,7 +537,7 @@ func ResolveWithPlugins(
 			optFields = optionFieldsFromIdentifiers(mergedIds)
 		}
 		diffs := CompareHints(ctx, hints, identifierHints, inst, mergedIds, normMIC)
-		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validTo, optFields)
+		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validBefore, optFields)
 		if err != nil {
 			return ResolveResult{}, err
 		}

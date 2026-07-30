@@ -132,11 +132,12 @@ CREATE TABLE instruments (
   name         TEXT,
   exchange     TEXT NOT NULL DEFAULT '',
   underlying_id UUID REFERENCES instruments (id),
-  -- When the instrument was tradeable. Descriptive only: no query filters on
-  -- these, and no identifier plugin supplies them. Identity is resolved as
-  -- current state. See docs/spec/bitemporality.md.
+  -- The half-open [valid_from, valid_before) interval the instrument was
+  -- tradeable in. Descriptive only: no query filters on these, and no
+  -- identifier plugin supplies them yet. Identity is resolved as current
+  -- state. See docs/spec/bitemporality.md.
   valid_from   DATE,
-  valid_to     DATE,
+  valid_before DATE,
   cik          TEXT,
   sic_code     TEXT,
   -- Denormalized from the OCC identifier for options. NULL for non-options.

@@ -3,6 +3,7 @@ package api
 import (
 	"time"
 
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -10,9 +11,8 @@ import (
 	"github.com/leedenison/portfoliodb/server/inflationfetcher"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/worker"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // JobEnqueuer enqueues a job for async processing. Returns an error if the queue is full.
@@ -21,46 +21,46 @@ type JobEnqueuer func(jobID, jobType string) error
 // Server implements ApiService.
 type Server struct {
 	apiv1.UnimplementedApiServiceServer
-	db             db.DB
-	rdb            *redis.Client
-	counterPrefix  string
-	pluginRegistry *identifier.Registry
-	descRegistry   *description.Registry
-	priceRegistry     *pricefetcher.Registry
-	priceTrigger      chan<- struct{}
-	inflationRegistry *inflationfetcher.Registry
-	inflationTrigger  chan<- struct{}
+	db                     db.DB
+	rdb                    *redis.Client
+	counterPrefix          string
+	pluginRegistry         *identifier.Registry
+	descRegistry           *description.Registry
+	priceRegistry          *pricefetcher.Registry
+	priceTrigger           chan<- struct{}
+	inflationRegistry      *inflationfetcher.Registry
+	inflationTrigger       chan<- struct{}
 	corporateEventRegistry *corporateevents.Registry
 	corporateEventTrigger  chan<- struct{}
-	workerRegistry    *worker.Registry
-	enqueueJob     JobEnqueuer
+	workerRegistry         *worker.Registry
+	enqueueJob             JobEnqueuer
 }
 
 // ServerConfig configures the API server.
 type ServerConfig struct {
-	DB             db.DB
-	Redis          *redis.Client
-	CounterPrefix  string
-	PluginRegistry *identifier.Registry     // optional; enables display_name in identifier plugin list
-	DescRegistry   *description.Registry    // optional; enables display_name in description plugin list
-	PriceRegistry     *pricefetcher.Registry     // optional; enables display_name in price plugin list
-	PriceTrigger      chan<- struct{}             // optional; when set, TriggerPriceFetch sends on it
-	InflationRegistry *inflationfetcher.Registry  // optional; enables display_name in inflation plugin list
-	InflationTrigger  chan<- struct{}             // optional; when set, TriggerInflationFetch sends on it
-	CorporateEventRegistry *corporateevents.Registry // optional; enables display_name in corporate event plugin list
+	DB                     db.DB
+	Redis                  *redis.Client
+	CounterPrefix          string
+	PluginRegistry         *identifier.Registry       // optional; enables display_name in identifier plugin list
+	DescRegistry           *description.Registry      // optional; enables display_name in description plugin list
+	PriceRegistry          *pricefetcher.Registry     // optional; enables display_name in price plugin list
+	PriceTrigger           chan<- struct{}            // optional; when set, TriggerPriceFetch sends on it
+	InflationRegistry      *inflationfetcher.Registry // optional; enables display_name in inflation plugin list
+	InflationTrigger       chan<- struct{}            // optional; when set, TriggerInflationFetch sends on it
+	CorporateEventRegistry *corporateevents.Registry  // optional; enables display_name in corporate event plugin list
 	CorporateEventTrigger  chan<- struct{}            // optional; when set, TriggerCorporateEventFetch sends on it
-	WorkerRegistry    *worker.Registry           // optional; when set, ListWorkers returns worker status
-	EnqueueJob     JobEnqueuer              // optional; when set, ImportPrices enqueues async jobs
+	WorkerRegistry         *worker.Registry           // optional; when set, ListWorkers returns worker status
+	EnqueueJob             JobEnqueuer                // optional; when set, ImportPrices enqueues async jobs
 }
 
 // NewServer returns a new API server.
 func NewServer(cfg ServerConfig) *Server {
 	return &Server{
-		db:                cfg.DB,
-		rdb:               cfg.Redis,
-		counterPrefix:     cfg.CounterPrefix,
-		pluginRegistry:    cfg.PluginRegistry,
-		descRegistry:      cfg.DescRegistry,
+		db:                     cfg.DB,
+		rdb:                    cfg.Redis,
+		counterPrefix:          cfg.CounterPrefix,
+		pluginRegistry:         cfg.PluginRegistry,
+		descRegistry:           cfg.DescRegistry,
 		priceRegistry:          cfg.PriceRegistry,
 		priceTrigger:           cfg.PriceTrigger,
 		inflationRegistry:      cfg.InflationRegistry,
@@ -116,8 +116,8 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	if row.ValidFrom != nil {
 		out.ValidFrom = timestamppb.New(*row.ValidFrom)
 	}
-	if row.ValidTo != nil {
-		out.ValidTo = timestamppb.New(*row.ValidTo)
+	if row.ValidBefore != nil {
+		out.ValidBefore = timestamppb.New(*row.ValidBefore)
 	}
 	if row.IdentityAsOf != nil {
 		out.IdentityAsOf = timestamppb.New(*row.IdentityAsOf)
@@ -150,8 +150,8 @@ func protoValidFrom(ts *timestamppb.Timestamp) *time.Time {
 	return &t
 }
 
-// protoValidTo converts optional proto timestamp to *time.Time for DB.
-func protoValidTo(ts *timestamppb.Timestamp) *time.Time {
+// protoValidBefore converts optional proto timestamp to *time.Time for DB.
+func protoValidBefore(ts *timestamppb.Timestamp) *time.Time {
 	return protoValidFrom(ts)
 }
 

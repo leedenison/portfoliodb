@@ -14,7 +14,7 @@ adr/0016-bitemporal-time-model.md.
 
 | Clock | Answers | Column naming |
 | --- | --- | --- |
-| **Valid time** | When was this true in the world? | `*_date`, `timestamp`, `valid_from` / `valid_to` |
+| **Valid time** | When was this true in the world? | `*_date`, `timestamp`, `valid_from` / `valid_before` |
 | **Knowledge time** | When did PortfolioDB learn it? | `first_known_at`, `last_fetched_at`, `created_at` |
 | **Share count basis** | Which share count is this quantity or per-share price denominated in? | `share_count_basis` |
 
@@ -39,7 +39,7 @@ clock every read API means by "as of".
 | `stock_splits` | `ex_date` | The effective / execution date. |
 | `cash_dividends` | `ex_date`, `pay_date`, `record_date`, `declaration_date` | Four distinct points in the dividend's life. `declaration_date` is when the issuer announced it -- the world's knowledge time, but PortfolioDB's valid time, because what we know is that the announcement happened on that date. |
 | `holding_declarations` | `as_of_date` | The date the user's declaration refers to. |
-| `instruments` | `valid_from`, `valid_to`, `expiry` | When the instrument was tradeable. Descriptive only for `valid_from` / `valid_to` -- see [Instrument identity](#instrument-identity) below. |
+| `instruments` | `valid_from`, `valid_before`, `expiry` | When the instrument was tradeable. Descriptive only for `valid_from` / `valid_before` -- see [Instrument identity](#instrument-identity) below. |
 | `instruments` | `identity_as_of` | The point in market time the stored identity reflects -- see [Instrument identity](#instrument-identity) below. |
 | `corporate_event_coverage` | `covered_from`, `covered_before` | The valid-time interval a plugin was asked about. |
 | `inflation_indices` | `month` | The month the index value describes. |
@@ -54,17 +54,13 @@ consult a comment to know which end is included; the closed form survives only
 inside adapters for external providers that demand it
 (see adr/0018-half-open-date-intervals.md).
 
-`instruments.valid_from` / `valid_to` are the one exemption: providers supply
-`valid_to` as an inclusive last trading date and no query filters on either
-bound, so they stay closed and keep their names.
-
 ### Instrument identity
 
 Instrument identity is the deliberate exception: it is current state, not a
 time-varying fact. `instrument_identifiers` carries no validity interval, so an
 identifier resolves to whichever instrument holds it now rather than to the one
 that held it on the transaction's date, and ticker reuse is not representable.
-`instruments.valid_from` and `valid_to` describe when the instrument was
+`instruments.valid_from` and `valid_before` describe when the instrument was
 tradeable and no query filters on them. A merge deletes the loser outright,
 leaving no record of what was believed before
 (see adr/0004-instrument-resolution-and-merge.md).

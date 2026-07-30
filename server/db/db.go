@@ -531,7 +531,7 @@ type InstrumentRow struct {
 	Exchange            string // denormalized; trigger-computed from acronym/identifier
 	UnderlyingID        *string
 	ValidFrom           *time.Time
-	ValidTo             *time.Time
+	ValidBefore         *time.Time
 	CIK                 *string
 	SICCode             *string
 	Strike              *float64   // denormalized from OCC; NULL for non-options
@@ -583,7 +583,7 @@ type HoldingDeclarationDB interface {
 // InstrumentDB provides instrument resolution and plugin config.
 type InstrumentDB interface {
 	// EnsureInstrument finds an instrument by any of the given identifiers, or creates one with the given canonical fields and identifiers. Returns instrument ID. On unique violation (identifier already exists for another instrument), merges and returns the existing instrument ID. When assetClass is OPTION or FUTURE, underlyingID must be non-empty. exchangeMIC is the ISO 10383 MIC code (nullable). optionFields is non-nil only for OPTION instruments and supplies denormalized OCC components.
-	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, underlyingID string, validFrom, validTo *time.Time, optionFields *OptionFields) (string, error)
+	EnsureInstrument(ctx context.Context, assetClass, exchangeMIC, currency, name, cik, sicCode string, identifiers []IdentifierInput, underlyingID string, validFrom, validBefore *time.Time, optionFields *OptionFields) (string, error)
 	// FindInstrumentByIdentifier looks up instrument_id by (identifier_type, domain, value). Returns "" if not found. Use empty domain for no domain.
 	FindInstrumentByIdentifier(ctx context.Context, identifierType, domain, value string) (string, error)
 	// FindInstrumentWithMetaByIdentifier is like FindInstrumentByIdentifier but also returns asset_class, exchange_mic (ISO 10383 MIC code), and currency from the instruments table in one query.

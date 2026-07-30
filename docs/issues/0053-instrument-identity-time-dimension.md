@@ -47,9 +47,10 @@ the survivor, but the loser's canonical fields and its cascaded prices, splits,
 dividends and coverage rows are deleted. Those derive from external sources and
 are recoverable by re-fetch.
 
-The knowledge-time defect on identity that does matter is tracked separately in
-0055: `identified_at` is bumped by every `EnsureInstrument` call, which can
-disarm the retroactive option-split guard.
+The one time dimension identity does carry is `identity_as_of`, the point in
+market time the stored identity reflects, which gates retroactive option split
+adjustment. That is a single timestamp on the current identity, not a history of
+it; see 0055 and adr/0017-option-identity-reflects-ex-date.md.
 
 The reasoning is recorded in adr/0004-instrument-resolution-and-merge.md and the
 resulting behaviour in spec/identifiers.md and spec/bitemporality.md.

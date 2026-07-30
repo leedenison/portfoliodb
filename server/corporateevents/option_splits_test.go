@@ -2,24 +2,21 @@ package corporateevents
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/leedenison/portfoliodb/server/clock"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"go.uber.org/mock/gomock"
 )
 
-func floatPtr(f float64) *float64 { return &f }
+func floatPtr(f float64) *float64    { return &f }
 func timePtr(t time.Time) *time.Time { return &t }
 
 func date(year int, month time.Month, day int) time.Time {
 	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
-}
-
-func fixedTimer(t time.Time) *clock.Timer {
-	return &clock.Timer{NowFunc: func() time.Time { return t }}
 }
 
 // makeOption builds an InstrumentRow for an option with the given OCC, strike,
@@ -46,35 +43,39 @@ func makeOptionUnidentified(id, occ string, strike float64) *db.InstrumentRow {
 	}
 }
 
-// TestProcessOptionSplits_IdentityPredatesExDate verifies the identity was
-// derived before the split took effect, so the stored OCC is the pre-split one
-// and the adjustment must be applied.
-func TestProcessOptionSplits_IdentityPredatesExDate(t *testing.T) {
+func split(underlyingID string, exDate time.Time, from, to string) db.StockSplit {
+	return db.StockSplit{
+		InstrumentID: underlyingID,
+		ExDate:       exDate,
+		SplitFrom:    from,
+		SplitTo:      to,
+		DataProvider: "eodhd",
+		FirstKnownAt: exDate,
+	}
+}
+
+// Which splits are pending for an option is decided by the SQL predicate in
+// ListPendingOptionSplits, not by this package -- see the integration tests in
+// server/db/postgres for identity_as_of against ex_date. These tests cover what
+// the pass does with the work list it is handed.
+
+func TestProcessPendingOptionSplits_SingleSplit(t *testing.T) {
 	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 	mockDB := mock.NewMockDB(ctrl)
 	ctx := context.Background()
 
-	optID := "opt-1111"
-	underlyingID := "und-2222"
-
-	// Identity as of Jan 1, split effective Jan 15 → identity predates it → apply.
-	opt := makeOption(optID, "AAPL  250117C00200000", 200.0, date(2025, 1, 1))
-
-	split := db.StockSplit{
-		InstrumentID: underlyingID,
-		ExDate:       date(2025, 1, 15),
-		SplitFrom:    "1",
-		SplitTo:      "2",
-		DataProvider: "eodhd",
-		FirstKnownAt: date(2025, 2, 1),
-	}
-
-	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
+	opt := makeOption("opt-1111", "AAPL  250117C00200000", 200.0, date(2025, 1, 1))
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "und-2222").Return(
+		[]db.PendingOptionSplits{{
+			Option: opt,
+			Splits: []db.StockSplit{split("und-2222", date(2025, 1, 15), "1", "2")},
+		}}, nil)
 
 	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, p db.OptionSplitParams) error {
-			if p.InstrumentID != optID {
-				t.Errorf("instrument id = %q, want %q", p.InstrumentID, optID)
+			if p.InstrumentID != "opt-1111" {
+				t.Errorf("instrument id = %q, want opt-1111", p.InstrumentID)
 			}
 			if p.OldOCCValue != "AAPL  250117C00200000" {
 				t.Errorf("old OCC = %q", p.OldOCCValue)
@@ -88,344 +89,251 @@ func TestProcessOptionSplits_IdentityPredatesExDate(t *testing.T) {
 			return nil
 		})
 
-	timer := fixedTimer(date(2025, 3, 1)) // after ex_date
-	ProcessOptionSplits(ctx, mockDB, underlyingID, []db.StockSplit{split}, nil, timer)
+	adjusted := ProcessPendingOptionSplits(ctx, mockDB, "und-2222", nil)
+	if len(adjusted) != 1 {
+		t.Fatalf("adjusted = %d options, want 1", len(adjusted))
+	}
 }
 
-// TestProcessOptionSplits_IdentityAfterExDate verifies the identity was derived
-// after the split took effect, so the stored OCC is already the post-split one
-// and must be left alone.
-func TestProcessOptionSplits_IdentityAfterExDate(t *testing.T) {
+// TestProcessPendingOptionSplits_CompoundsMultipleSplits covers the bug the
+// per-split loop had: the option row is read once, so applying two splits in
+// sequence divided the ORIGINAL strike twice and inserted an OCC identifier per
+// split, leaving the option carrying both. Adjusting once by the cumulative
+// factor is correct by construction.
+func TestProcessPendingOptionSplits_CompoundsMultipleSplits(t *testing.T) {
 	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 	mockDB := mock.NewMockDB(ctrl)
 	ctx := context.Background()
 
-	optID := "opt-3333"
-	underlyingID := "und-4444"
+	opt := makeOption("opt-multi", "AAPL  250117C00400000", 400.0, date(2024, 1, 1))
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(
+		[]db.PendingOptionSplits{{
+			Option: opt,
+			Splits: []db.StockSplit{
+				split("und-multi", date(2024, 6, 1), "1", "2"), // 2:1
+				split("und-multi", date(2024, 9, 1), "1", "4"), // 4:1
+			},
+		}}, nil)
 
-	// Identity as of Mar 1, split effective Jan 15 → already reflects it → skip.
-	opt := makeOption(optID, "AAPL250117C00100000", 100.0, date(2025, 3, 1))
-
-	split := db.StockSplit{
-		InstrumentID: underlyingID,
-		ExDate:       date(2025, 1, 15),
-		SplitFrom:    "1",
-		SplitTo:      "2",
-		DataProvider: "eodhd",
-		FirstKnownAt: date(2025, 2, 1),
-	}
-
-	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
-	// ApplyOptionSplit must NOT be called.
-
-	timer := fixedTimer(date(2025, 3, 1))
-	ProcessOptionSplits(ctx, mockDB, underlyingID, []db.StockSplit{split}, nil, timer)
-}
-
-// TestProcessOptionSplits_IdentityOnExDate pins the inclusive boundary: an
-// identity derived on the ex_date itself sees the adjusted contract, because the
-// new terms apply from the open that day.
-func TestProcessOptionSplits_IdentityOnExDate(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockDB := mock.NewMockDB(ctrl)
-	ctx := context.Background()
-
-	underlyingID := "und-boundary"
-	opt := makeOption("opt-boundary", "AAPL250117C00100000", 100.0, date(2025, 1, 15))
-
-	split := db.StockSplit{
-		InstrumentID: underlyingID,
-		ExDate:       date(2025, 1, 15),
-		SplitFrom:    "1",
-		SplitTo:      "2",
-		DataProvider: "eodhd",
-		FirstKnownAt: date(2025, 1, 5),
-	}
-
-	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
-	// ApplyOptionSplit must NOT be called.
-
-	ProcessOptionSplits(ctx, mockDB, underlyingID, []db.StockSplit{split}, nil, fixedTimer(date(2025, 3, 1)))
-}
-
-// TestProcessOptionSplits_KnownBeforeButNotYetEffective is the regression test
-// for issue 0055. The split was known on Jan 5 and the option was identified on
-// Mar 1 -- so under the old first_known_at guard it looked already-correct and
-// was skipped forever. But the split does not take effect until Jun 1, so the
-// identity derived in March carries the PRE-split OCC and does need adjusting.
-func TestProcessOptionSplits_KnownBeforeButNotYetEffective(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockDB := mock.NewMockDB(ctrl)
-	ctx := context.Background()
-
-	optID := "opt-0055"
-	underlyingID := "und-0055"
-
-	opt := makeOption(optID, "AAPL  250117C00200000", 200.0, date(2025, 3, 1))
-
-	split := db.StockSplit{
-		InstrumentID: underlyingID,
-		ExDate:       date(2025, 6, 1),
-		SplitFrom:    "1",
-		SplitTo:      "2",
-		DataProvider: "eodhd",
-		FirstKnownAt: date(2025, 1, 5), // known well before the identity was derived
-	}
-
-	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
+	// Exactly one call: strike 400 / (2 * 4) = 50.
 	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, p db.OptionSplitParams) error {
-			if p.NewStrike != 100.0 {
-				t.Errorf("new strike = %f, want 100", p.NewStrike)
+			if p.NewStrike != 50.0 {
+				t.Errorf("new strike = %f, want 50 (400 / (2*4))", p.NewStrike)
+			}
+			if p.NewOCC.Value != "AAPL250117C00050000" {
+				t.Errorf("new OCC = %q, want AAPL250117C00050000", p.NewOCC.Value)
+			}
+			if p.OldOCCValue != "AAPL  250117C00400000" {
+				t.Errorf("old OCC = %q, want the original", p.OldOCCValue)
 			}
 			return nil
-		})
+		}).Times(1)
 
-	// Now past the ex_date.
-	ProcessOptionSplits(ctx, mockDB, underlyingID, []db.StockSplit{split}, nil, fixedTimer(date(2025, 7, 1)))
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 1 {
+		t.Fatalf("adjusted = %d options, want 1", len(adjusted))
+	}
 }
 
-// TestProcessOptionSplits_NilIdentityAsOf verifies a NULL identity_as_of is
-// treated as predating every split, so the adjustment applies.
-func TestProcessOptionSplits_NilIdentityAsOf(t *testing.T) {
+// TestProcessPendingOptionSplits_ApplyFailureNotReported verifies a failed
+// adjustment is not counted as done. identity_as_of is advanced inside
+// ApplyOptionSplit's transaction, so a failure leaves the option pending and the
+// next cycle retries it -- the retry half of issue 0055.
+func TestProcessPendingOptionSplits_ApplyFailureNotReported(t *testing.T) {
 	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 	mockDB := mock.NewMockDB(ctrl)
 	ctx := context.Background()
 
-	underlyingID := "und-nil"
-	opt := makeOptionUnidentified("opt-nil", "AAPL  250117C00200000", 200.0)
+	opt := makeOption("opt-fail", "AAPL  250117C00200000", 200.0, date(2025, 1, 1))
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(
+		[]db.PendingOptionSplits{{
+			Option: opt,
+			Splits: []db.StockSplit{split("und-fail", date(2025, 1, 15), "1", "2")},
+		}}, nil)
+	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).Return(errors.New("deadlock"))
 
-	split := db.StockSplit{
-		InstrumentID: underlyingID,
-		ExDate:       date(2025, 1, 15),
-		SplitFrom:    "1",
-		SplitTo:      "2",
-		DataProvider: "eodhd",
-		FirstKnownAt: date(2025, 2, 1),
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 0 {
+		t.Errorf("adjusted = %d options, want 0 after a failed apply", len(adjusted))
 	}
-
-	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
-	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).Return(nil)
-
-	ProcessOptionSplits(ctx, mockDB, underlyingID, []db.StockSplit{split}, nil, fixedTimer(date(2025, 3, 1)))
 }
 
-// TestProcessOptionSplits_FutureSplitSkipped verifies case 3: the split
-// ex_date is in the future. The split should be skipped. After advancing
-// time past the ex_date, the split should be applied.
-func TestProcessOptionSplits_FutureSplitSkipped(t *testing.T) {
+// TestProcessPendingOptionSplits_OneFailureDoesNotBlockOthers verifies the pass
+// keeps going after a per-option failure.
+func TestProcessPendingOptionSplits_OneFailureDoesNotBlockOthers(t *testing.T) {
 	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 	mockDB := mock.NewMockDB(ctrl)
 	ctx := context.Background()
 
-	optID := "opt-5555"
-	underlyingID := "und-6666"
+	bad := makeOption("opt-bad", "AAPL  250117C00200000", 200.0, date(2025, 1, 1))
+	good := makeOption("opt-good", "AAPL  250117C00300000", 300.0, date(2025, 1, 1))
+	s := []db.StockSplit{split("und-x", date(2025, 1, 15), "1", "2")}
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(
+		[]db.PendingOptionSplits{{Option: bad, Splits: s}, {Option: good, Splits: s}}, nil)
 
-	// Identity as of Jan 1, split effective Jun 1 (identity predates it).
-	opt := makeOption(optID, "AAPL  250117C00400000", 400.0, date(2025, 1, 1))
-
-	split := db.StockSplit{
-		InstrumentID: underlyingID,
-		ExDate:       date(2025, 6, 1), // future
-		SplitFrom:    "1",
-		SplitTo:      "4",
-		DataProvider: "eodhd",
-		FirstKnownAt: date(2025, 1, 5),
-	}
-
-	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
-	// No ApplyOptionSplit expected: split is future-dated.
-
-	timer := fixedTimer(date(2025, 3, 1)) // before ex_date
-	ProcessOptionSplits(ctx, mockDB, underlyingID, []db.StockSplit{split}, nil, timer)
-}
-
-// TestProcessOptionSplits_FutureThenAdvance verifies that after time
-// advances past the ex_date, a previously future-dated split is applied.
-func TestProcessOptionSplits_FutureThenAdvance(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockDB := mock.NewMockDB(ctrl)
-	ctx := context.Background()
-
-	optID := "opt-7777"
-	underlyingID := "und-8888"
-
-	opt := makeOption(optID, "AAPL  250117C00400000", 400.0, date(2025, 1, 1))
-
-	split := db.StockSplit{
-		InstrumentID: underlyingID,
-		ExDate:       date(2025, 6, 1),
-		SplitFrom:    "1",
-		SplitTo:      "4",
-		DataProvider: "eodhd",
-		FirstKnownAt: date(2025, 1, 5),
-	}
-
-	// First call: future-dated, skip. Second call: time advanced, apply.
-	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil).Times(2)
 	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, p db.OptionSplitParams) error {
-			if p.NewOCC.Value != "AAPL250117C00100000" {
-				t.Errorf("new OCC = %q, want AAPL250117C00100000", p.NewOCC.Value)
-			}
-			if p.NewStrike != 100.0 {
-				t.Errorf("new strike = %f, want 100", p.NewStrike)
+			if p.InstrumentID == "opt-bad" {
+				return errors.New("deadlock")
 			}
 			return nil
-		})
+		}).Times(2)
 
-	// Phase 1: before ex_date — no processing.
-	timer := fixedTimer(date(2025, 3, 1))
-	ProcessOptionSplits(ctx, mockDB, underlyingID, []db.StockSplit{split}, nil, timer)
-
-	// Phase 2: after ex_date — split applied.
-	timer = fixedTimer(date(2025, 7, 1))
-	ProcessOptionSplits(ctx, mockDB, underlyingID, []db.StockSplit{split}, nil, timer)
+	adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil)
+	if len(adjusted) != 1 || adjusted[0].ID != "opt-good" {
+		t.Errorf("adjusted = %v, want just opt-good", adjusted)
+	}
 }
 
-// TestProcessOptionSplits_NonWholeForwardSplit verifies that non-standard
-// splits (reverse or fractional) are routed to unhandled_corporate_events.
-func TestProcessOptionSplits_NonWholeForwardSplit(t *testing.T) {
+// TestProcessPendingOptionSplits_NonWholeSplitBlocksOption verifies a split we
+// cannot apply stops the whole option rather than being skipped over. Applying
+// the splits either side of it would produce a strike matching no real contract,
+// and leaving identity_as_of untouched keeps the option pending for a later run.
+func TestProcessPendingOptionSplits_NonWholeSplitBlocksOption(t *testing.T) {
 	tests := []struct {
 		name      string
 		from, to  string
-		wantType  string
+		eventType string
 	}{
 		{"reverse split", "2", "1", "REVERSE_SPLIT"},
 		{"fractional split", "2", "3", "NON_WHOLE_SPLIT"},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 			mockDB := mock.NewMockDB(ctrl)
 			ctx := context.Background()
 
-			underlyingID := "und-9999"
-			opt := makeOption("opt-aaaa", "AAPL  250117C00200000", 200.0, date(2025, 1, 1))
+			opt := makeOption("opt-nw", "AAPL  250117C00200000", 200.0, date(2025, 1, 1))
+			mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(
+				[]db.PendingOptionSplits{{
+					Option: opt,
+					Splits: []db.StockSplit{
+						split("und-nw", date(2025, 1, 15), tc.from, tc.to),
+						// A whole split alongside it must NOT be applied either.
+						split("und-nw", date(2025, 2, 1), "1", "2"),
+					},
+				}}, nil)
 
-			split := db.StockSplit{
-				InstrumentID: underlyingID,
-				ExDate:       date(2025, 1, 15),
-				SplitFrom:    tt.from,
-				SplitTo:      tt.to,
-				DataProvider: "eodhd",
-				FirstKnownAt: date(2025, 2, 1),
-			}
-
-			mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
+			// No ApplyOptionSplit: the option is blocked.
 			mockDB.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).DoAndReturn(
-				func(_ context.Context, ev db.UnhandledCorporateEvent) error {
-					if ev.EventType != tt.wantType {
-						t.Errorf("event type = %q, want %q", ev.EventType, tt.wantType)
+				func(_ context.Context, e db.UnhandledCorporateEvent) error {
+					if e.InstrumentID != "und-nw" {
+						t.Errorf("event instrument = %q, want the underlying und-nw", e.InstrumentID)
 					}
-					if ev.InstrumentID != underlyingID {
-						t.Errorf("instrument = %q, want %q", ev.InstrumentID, underlyingID)
+					if e.EventType != tc.eventType {
+						t.Errorf("event type = %q, want %q", e.EventType, tc.eventType)
 					}
 					return nil
 				})
 
-			timer := fixedTimer(date(2025, 3, 1))
-			ProcessOptionSplits(ctx, mockDB, underlyingID, []db.StockSplit{split}, nil, timer)
+			if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 0 {
+				t.Errorf("adjusted = %d options, want 0", len(adjusted))
+			}
 		})
 	}
 }
 
-// TestProcessOptionSplits_NoOCC verifies that options without an OCC
-// identifier are skipped gracefully (no panic, no ApplyOptionSplit call).
-func TestProcessOptionSplits_NoOCC(t *testing.T) {
+// TestProcessPendingOptionSplits_NonWholeSplitReportedOncePerSplit verifies the
+// unhandled event is raised once for the underlying, listing every option it
+// blocks, rather than once per option.
+func TestProcessPendingOptionSplits_NonWholeSplitReportedOncePerSplit(t *testing.T) {
 	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 	mockDB := mock.NewMockDB(ctrl)
 	ctx := context.Background()
 
-	underlyingID := "und-bbbb"
-	expiry := date(2025, 1, 17)
-	putCall := "C"
-	opt := &db.InstrumentRow{
-		ID:           "opt-cccc",
-		Strike:       floatPtr(200.0),
-		Expiry:       &expiry,
-		PutCall:      &putCall,
-		IdentityAsOf: timePtr(date(2025, 1, 1)),
-		Identifiers:  []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}}, // no OCC
-	}
+	s := []db.StockSplit{split("und-shared", date(2025, 1, 15), "2", "3")}
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(
+		[]db.PendingOptionSplits{
+			{Option: makeOption("opt-a", "AAPL  250117C00200000", 200.0, date(2025, 1, 1)), Splits: s},
+			{Option: makeOption("opt-b", "AAPL  250117C00300000", 300.0, date(2025, 1, 1)), Splits: s},
+		}, nil)
 
-	split := db.StockSplit{
-		InstrumentID: underlyingID,
-		ExDate:       date(2025, 1, 15),
-		SplitFrom:    "1",
-		SplitTo:      "2",
-		DataProvider: "eodhd",
-		FirstKnownAt: date(2025, 2, 1),
-	}
+	mockDB.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, e db.UnhandledCorporateEvent) error {
+			if !strings.Contains(string(e.Data), "opt-a") || !strings.Contains(string(e.Data), "opt-b") {
+				t.Errorf("event data %s should list both blocked options", e.Data)
+			}
+			return nil
+		}).Times(1)
 
-	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
-	// No ApplyOptionSplit or InsertUnhandledCorporateEvent expected.
-
-	timer := fixedTimer(date(2025, 3, 1))
-	ProcessOptionSplits(ctx, mockDB, underlyingID, []db.StockSplit{split}, nil, timer)
+	ProcessPendingOptionSplits(ctx, mockDB, "", nil)
 }
 
-// TestProcessOptionSplits_UnparseableOCC verifies that options with a
-// malformed OCC identifier produce an unhandled corporate event.
-func TestProcessOptionSplits_UnparseableOCC(t *testing.T) {
+func TestProcessPendingOptionSplits_NoOCC(t *testing.T) {
 	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 	mockDB := mock.NewMockDB(ctrl)
 	ctx := context.Background()
 
-	underlyingID := "und-dddd"
-	optID := "opt-eeee"
-	expiry := date(2025, 1, 17)
-	putCall := "C"
-	opt := &db.InstrumentRow{
-		ID:           optID,
-		Strike:       floatPtr(200.0),
-		Expiry:       &expiry,
-		PutCall:      &putCall,
-		IdentityAsOf: timePtr(date(2025, 1, 1)),
-		Identifiers:  []db.IdentifierInput{{Type: "OCC", Value: "NOTAVALIDOCC", Canonical: true}},
-	}
+	opt := makeOption("opt-noocc", "", 200.0, date(2025, 1, 1))
+	opt.Identifiers = []db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}}
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(
+		[]db.PendingOptionSplits{{
+			Option: opt,
+			Splits: []db.StockSplit{split("und-noocc", date(2025, 1, 15), "1", "2")},
+		}}, nil)
+	// No ApplyOptionSplit and no unhandled event: nothing to rewrite.
 
-	split := db.StockSplit{
-		InstrumentID: underlyingID,
-		ExDate:       date(2025, 1, 15),
-		SplitFrom:    "1",
-		SplitTo:      "2",
-		DataProvider: "eodhd",
-		FirstKnownAt: date(2025, 2, 1),
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 0 {
+		t.Errorf("adjusted = %d options, want 0", len(adjusted))
 	}
+}
 
-	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return([]*db.InstrumentRow{opt}, nil)
+func TestProcessPendingOptionSplits_UnparseableOCC(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	opt := makeOption("opt-bad-occ", "NOTAVALIDOCC", 200.0, date(2025, 1, 1))
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(
+		[]db.PendingOptionSplits{{
+			Option: opt,
+			Splits: []db.StockSplit{split("und-bad", date(2025, 1, 15), "1", "2")},
+		}}, nil)
+
 	mockDB.EXPECT().InsertUnhandledCorporateEvent(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, ev db.UnhandledCorporateEvent) error {
-			if ev.InstrumentID != optID {
-				t.Errorf("instrument = %q, want %q", ev.InstrumentID, optID)
+		func(_ context.Context, e db.UnhandledCorporateEvent) error {
+			if e.InstrumentID != "opt-bad-occ" {
+				t.Errorf("event instrument = %q, want the option", e.InstrumentID)
 			}
 			return nil
 		})
 
-	timer := fixedTimer(date(2025, 3, 1))
-	ProcessOptionSplits(ctx, mockDB, underlyingID, []db.StockSplit{split}, nil, timer)
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 0 {
+		t.Errorf("adjusted = %d options, want 0", len(adjusted))
+	}
 }
 
-// TestProcessOptionSplits_NoOptions verifies that when no options exist
-// on the underlying, the function returns cleanly with no DB calls.
-func TestProcessOptionSplits_NoOptions(t *testing.T) {
+// TestProcessPendingOptionSplits_NothingPending is the steady state: running the
+// pass on every cycle when there is no work must touch nothing.
+func TestProcessPendingOptionSplits_NothingPending(t *testing.T) {
 	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 	mockDB := mock.NewMockDB(ctrl)
 	ctx := context.Background()
 
-	underlyingID := "und-ffff"
-	split := db.StockSplit{
-		InstrumentID: underlyingID,
-		ExDate:       date(2025, 1, 15),
-		SplitFrom:    "1",
-		SplitTo:      "2",
-		DataProvider: "eodhd",
-		FirstKnownAt: date(2025, 2, 1),
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
+
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 0 {
+		t.Errorf("adjusted = %d options, want 0", len(adjusted))
 	}
+}
 
-	mockDB.EXPECT().ListOptionsByUnderlying(gomock.Any(), underlyingID).Return(nil, nil)
+func TestProcessPendingOptionSplits_ListError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
 
-	timer := fixedTimer(date(2025, 3, 1))
-	ProcessOptionSplits(ctx, mockDB, underlyingID, []db.StockSplit{split}, nil, timer)
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, errors.New("connection refused"))
+
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); adjusted != nil {
+		t.Errorf("adjusted = %v, want nil on a query error", adjusted)
+	}
 }

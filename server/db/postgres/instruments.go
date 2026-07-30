@@ -10,8 +10,8 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
-	"github.com/lib/pq"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/lib/pq"
 )
 
 // errIdentifierExists is returned when EnsureInstrument hits a unique violation (identifier already for another instrument).
@@ -31,7 +31,10 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 		return fmt.Errorf("list identifiers: %w", err)
 	}
 	defer rows.Close()
-	var toInsert []struct{ idType, domain, value string; canonical bool }
+	var toInsert []struct {
+		idType, domain, value string
+		canonical             bool
+	}
 	for rows.Next() {
 		var idType, val string
 		var domain sql.NullString
@@ -43,7 +46,10 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 		if domain.Valid {
 			d = domain.String
 		}
-		toInsert = append(toInsert, struct{ idType, domain, value string; canonical bool }{idType, d, val, canonical})
+		toInsert = append(toInsert, struct {
+			idType, domain, value string
+			canonical             bool
+		}{idType, d, val, canonical})
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -584,41 +590,6 @@ func (p *Postgres) ValidateMIC(ctx context.Context, mic string) (bool, error) {
 		return false, fmt.Errorf("validate mic: %w", err)
 	}
 	return true, nil
-}
-
-// ListOptionsByUnderlying implements db.InstrumentDB.
-func (p *Postgres) ListOptionsByUnderlying(ctx context.Context, underlyingID string) ([]*db.InstrumentRow, error) {
-	uid, err := uuid.Parse(underlyingID)
-	if err != nil {
-		return nil, fmt.Errorf("list options by underlying: invalid id: %w", err)
-	}
-	var irows []instrumentRow
-	err = p.q.SelectContext(ctx, &irows, `
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_to,
-		       i.cik, i.sic_code,
-		       i.strike, i.expiry, i.put_call, i.contract_multiplier, i.identity_as_of,
-		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
-		FROM instruments i
-		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
-		WHERE i.underlying_id = $1 AND i.asset_class = 'OPTION'
-		ORDER BY i.id
-	`, uid)
-	if err != nil {
-		return nil, fmt.Errorf("list options by underlying: %w", err)
-	}
-	results := make([]*db.InstrumentRow, len(irows))
-	ids := make([]uuid.UUID, len(irows))
-	for i := range irows {
-		results[i] = irows[i].toDBRow()
-		ids[i] = irows[i].ID
-	}
-	if err := loadIdentifiers(ctx, p.q, ids, results); err != nil {
-		return nil, fmt.Errorf("list options by underlying identifiers: %w", err)
-	}
-	if err := loadProviderIdentifiers(ctx, p.q, ids, results); err != nil {
-		return nil, fmt.Errorf("list options by underlying provider identifiers: %w", err)
-	}
-	return results, nil
 }
 
 // DeleteInstrumentIdentifier implements db.InstrumentDB.

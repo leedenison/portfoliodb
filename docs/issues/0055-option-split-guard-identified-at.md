@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Harden the retroactive option-split guard against identified_at churn
 ---
 
@@ -23,11 +23,37 @@ The guard is fragile in both directions:
 - The adjustment pass only runs when splits landed in that same cycle, so a
   transient failure is never retried.
 
-## Design
+## Resolution
 
-Separate "when we last ran identification" from "the knowledge state the stored
-identity reflects" -- the latter is what the guard needs and it should only move
-when the identity is actually re-derived against known splits. Make the
-adjustment pass idempotent and retryable rather than tied to one cycle.
+Fixed, and the comparison turned out to be on the wrong clock as well.
 
-See docs/spec/bitemporality.md.
+`identified_at` is now `instruments.identity_as_of` -- the point in market time
+the stored identity reflects -- and the guard compares it against the split's
+`ex_date` rather than its `first_known_at`. OCC adjusts a contract on the
+effective date, and providers list the pre-split symbol until then, so an
+identity derived before the ex_date does not reflect the split however long we
+had known it was coming. The old comparison marked such an identity
+already-correct and skipped the adjustment permanently. It also put the guard on
+the same clock as `AdjustOCCForKnownSplits`, which had always filtered purely on
+`ex_date`. The reasoning is in adr/0017-option-identity-reflects-ex-date.md.
+
+The column now moves only when the identity is genuinely re-derived: a plugin
+identification, or the adjustment itself. `EnsureInstrument` never writes it, on
+create or on match, because it cannot know the provenance of the identifiers it
+was handed; each caller stamps what it knows, and the column only ever moves
+forward so a stale file cannot drag it backwards.
+
+The pass is now query-driven. `ListPendingOptionSplits` returns every option
+whose identity predates an effective split on its underlying, so the work list is
+a function of stored state rather than of which splits happened to arrive in the
+current cycle. It runs once per cycle, unconditionally: a failed adjustment
+leaves the option pending and the next cycle retries it, where previously
+coverage had already been written and the pass was never reached again. A
+future-dated split is simply not pending until its ex_date passes.
+
+Each option is adjusted once by the cumulative factor of all its pending splits.
+The previous per-split loop read the option row once and never refreshed it, so
+two splits divided the original strike twice and left the option carrying an OCC
+identifier per split -- reachable whenever a backfill landed two historical
+splits together. A split that cannot be applied blocks its option rather than
+being skipped over, and leaves it pending for a later run.

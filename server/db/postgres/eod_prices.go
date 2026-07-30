@@ -11,7 +11,7 @@ import (
 )
 
 // ListPrices implements db.EODPriceListDB.
-func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, dateTo time.Time, dataProvider string, pageSize int32, pageToken string) ([]db.EODPriceRow, int32, string, error) {
+func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, dateBefore time.Time, dataProvider string, pageSize int32, pageToken string) ([]db.EODPriceRow, int32, string, error) {
 	offset := decodePageToken(pageToken)
 
 	// Build shared WHERE conditions for count and data queries.
@@ -22,8 +22,8 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 	if !dateFrom.IsZero() {
 		where = append(where, sq.GtOrEq{"ep.price_date": dateFrom})
 	}
-	if !dateTo.IsZero() {
-		where = append(where, sq.LtOrEq{"ep.price_date": dateTo})
+	if !dateBefore.IsZero() {
+		where = append(where, sq.Lt{"ep.price_date": dateBefore})
 	}
 	if dataProvider != "" {
 		where = append(where, sq.Eq{"ep.data_provider": dataProvider})

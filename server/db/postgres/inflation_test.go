@@ -154,6 +154,16 @@ func TestListInflationIndices_Filters(t *testing.T) {
 		t.Fatalf("expected 1 GBP row from March+, got total=%d", total)
 	}
 
+	// The upper bound is exclusive: a month on it is out.
+	before := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	rows, _, total, err = p.ListInflationIndices(ctx, "GBP", nil, &before, 100, "")
+	if err != nil {
+		t.Fatalf("list before June: %v", err)
+	}
+	if total != 1 || !rows[0].Month.Equal(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("expected only the January row, got total=%d rows=%v", total, rows)
+	}
+
 	// No filter returns all.
 	rows, _, total, err = p.ListInflationIndices(ctx, "", nil, nil, 100, "")
 	if err != nil {

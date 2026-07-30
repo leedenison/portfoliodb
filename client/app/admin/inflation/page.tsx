@@ -6,6 +6,7 @@ import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
 import { useDebounce } from "@/hooks/use-debounce";
 import { listInflationIndices } from "@/lib/portfolio-api";
+import { dayAfter } from "@/lib/dates";
 import type { InflationIndexProto } from "@/gen/api/v1/api_pb";
 
 export default function AdminInflationPage() {
@@ -20,7 +21,8 @@ export default function AdminInflationPage() {
       const result = await listInflationIndices({
         currency: debouncedSearch || undefined,
         dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
+        // The picker is inclusive; the API bound is exclusive.
+        dateBefore: dayAfter(dateTo),
         pageToken,
       });
       return {

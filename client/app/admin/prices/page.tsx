@@ -11,6 +11,7 @@ import {
   exportPrices,
 } from "@/lib/portfolio-api";
 import { pricesToCsv } from "@/lib/csv/prices";
+import { dayAfter } from "@/lib/dates";
 import { useDebounce } from "@/hooks/use-debounce";
 import { ImportPricesModal } from "./import-modal";
 import type { EODPriceProto, ExportPriceRow, PriceFetchBlock } from "@/gen/api/v1/api_pb";
@@ -121,7 +122,8 @@ function PriceListTab() {
       const result = await listPrices({
         search: debouncedSearch,
         dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
+        // The picker is inclusive; the API bound is exclusive.
+        dateBefore: dayAfter(dateTo),
         pageToken,
       });
       return {

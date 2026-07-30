@@ -488,7 +488,8 @@ export interface ListPricesResult {
 export async function listPrices(params?: {
   search?: string;
   dateFrom?: string;
-  dateTo?: string;
+  /** Exclusive: the first day NOT wanted. See lib/dates.ts. */
+  dateBefore?: string;
   dataProvider?: string;
   pageToken?: string | null;
 }): Promise<ListPricesResult> {
@@ -496,7 +497,7 @@ export async function listPrices(params?: {
   const req = create(ListPricesRequestSchema, {
     search: params?.search ?? "",
     dateFrom: strToProtoDate(params?.dateFrom),
-    dateTo: strToProtoDate(params?.dateTo),
+    dateBefore: strToProtoDate(params?.dateBefore),
     dataProvider: params?.dataProvider ?? "",
     pageSize: PAGE_SIZE,
     pageToken: params?.pageToken ?? "",
@@ -933,14 +934,15 @@ export interface ListInflationIndicesResult {
 export async function listInflationIndices(params?: {
   currency?: string;
   dateFrom?: string;
-  dateTo?: string;
+  /** Exclusive: the first month NOT wanted. See lib/dates.ts. */
+  dateBefore?: string;
   pageToken?: string | null;
 }): Promise<ListInflationIndicesResult> {
   const base = getBaseUrl();
   const req = create(ListInflationIndicesRequestSchema, {
     currency: params?.currency ?? "",
     dateFrom: strToProtoDate(params?.dateFrom),
-    dateTo: strToProtoDate(params?.dateTo),
+    dateBefore: strToProtoDate(params?.dateBefore),
     pageSize: PAGE_SIZE,
     pageToken: params?.pageToken ?? "",
   });

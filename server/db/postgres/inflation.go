@@ -61,7 +61,7 @@ func (p *Postgres) UpsertInflationIndices(ctx context.Context, indices []db.Infl
 }
 
 // ListInflationIndices implements db.InflationIndexDB.
-func (p *Postgres) ListInflationIndices(ctx context.Context, currency string, dateFrom, dateTo *time.Time, pageSize int, pageToken string) ([]db.InflationIndex, string, int, error) {
+func (p *Postgres) ListInflationIndices(ctx context.Context, currency string, dateFrom, dateBefore *time.Time, pageSize int, pageToken string) ([]db.InflationIndex, string, int, error) {
 	offset := decodePageToken(pageToken)
 
 	where := sq.And{}
@@ -71,8 +71,8 @@ func (p *Postgres) ListInflationIndices(ctx context.Context, currency string, da
 	if dateFrom != nil {
 		where = append(where, sq.GtOrEq{"month": *dateFrom})
 	}
-	if dateTo != nil {
-		where = append(where, sq.LtOrEq{"month": *dateTo})
+	if dateBefore != nil {
+		where = append(where, sq.Lt{"month": *dateBefore})
 	}
 
 	countQ, countArgs, err := psql.Select("COUNT(*)").From("inflation_indices").Where(where).ToSql()

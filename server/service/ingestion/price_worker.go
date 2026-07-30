@@ -186,14 +186,14 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 	}
 
 	// Build map: instrument ID -> []coverage ranges.
-	type dateRange struct{ from, to time.Time }
+	type dateRange struct{ from, before time.Time }
 	instCoverage := make(map[string][]dateRange)
 	for _, c := range coverage {
 		from, err := time.Parse("2006-01-02", c.GetFrom())
 		if err != nil {
 			continue
 		}
-		to, err := time.Parse("2006-01-02", c.GetTo())
+		before, err := time.Parse("2006-01-02", c.GetBefore())
 		if err != nil {
 			continue
 		}
@@ -202,7 +202,7 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 		if !ok || entry.err != nil || entry.result.InstrumentID == "" {
 			continue
 		}
-		instCoverage[entry.result.InstrumentID] = append(instCoverage[entry.result.InstrumentID], dateRange{from, to})
+		instCoverage[entry.result.InstrumentID] = append(instCoverage[entry.result.InstrumentID], dateRange{from, before})
 	}
 
 	// Group prices by instrument ID.
@@ -224,7 +224,7 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 			// Filter prices within this range.
 			var inRange []db.EODPrice
 			for i, p := range instPrices {
-				if !p.PriceDate.Before(r.from) && p.PriceDate.Before(r.to) {
+				if !p.PriceDate.Before(r.from) && p.PriceDate.Before(r.before) {
 					inRange = append(inRange, p)
 					covered[i] = true
 				}
@@ -237,7 +237,7 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 			if len(inRange) > 0 {
 				fetchedAt = inRange[0].LastFetchedAt
 			}
-			if err := database.UpsertPricesWithFill(ctx, instID, provider, inRange, r.from, r.to, fetchedAt); err != nil {
+			if err := database.UpsertPricesWithFill(ctx, instID, provider, inRange, r.from, r.before, fetchedAt); err != nil {
 				return err
 			}
 		}

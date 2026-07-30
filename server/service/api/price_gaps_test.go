@@ -53,7 +53,7 @@ func TestListPriceGaps_Success(t *testing.T) {
 		{
 			InstrumentID: "inst-1",
 			Ranges: []dbpkg.DateRange{
-				{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), To: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)},
+				{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)},
 			},
 		},
 	}
@@ -61,7 +61,7 @@ func TestListPriceGaps_Success(t *testing.T) {
 		{
 			InstrumentID: "inst-fx",
 			Ranges: []dbpkg.DateRange{
-				{From: time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC), To: time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)},
+				{From: time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)},
 			},
 		},
 	}
@@ -120,8 +120,8 @@ func TestListPriceGaps_Success(t *testing.T) {
 	if len(pg.GetGaps()) != 1 {
 		t.Fatalf("expected 1 gap range, got %d", len(pg.GetGaps()))
 	}
-	if pg.GetGaps()[0].GetFrom() != "2024-01-01" || pg.GetGaps()[0].GetTo() != "2024-06-01" {
-		t.Fatalf("unexpected gap range: %s - %s", pg.GetGaps()[0].GetFrom(), pg.GetGaps()[0].GetTo())
+	if pg.GetGaps()[0].GetFrom() != "2024-01-01" || pg.GetGaps()[0].GetBefore() != "2024-06-01" {
+		t.Fatalf("unexpected gap range: %s - %s", pg.GetGaps()[0].GetFrom(), pg.GetGaps()[0].GetBefore())
 	}
 
 	if len(resp.GetFxGaps()) != 1 {
@@ -152,8 +152,8 @@ func TestListPriceGaps_AssetClassFilter(t *testing.T) {
 		},
 	}
 	priceGaps := []dbpkg.InstrumentDateRanges{
-		{InstrumentID: "inst-stock", Ranges: []dbpkg.DateRange{{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), To: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)}}},
-		{InstrumentID: "inst-etf", Ranges: []dbpkg.DateRange{{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), To: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)}}},
+		{InstrumentID: "inst-stock", Ranges: []dbpkg.DateRange{{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)}}},
+		{InstrumentID: "inst-etf", Ranges: []dbpkg.DateRange{{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)}}},
 	}
 
 	db.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return(priceGaps, nil)
@@ -187,7 +187,7 @@ func TestListPriceGaps_SkipsInstrumentsWithoutUsableIdentifier(t *testing.T) {
 		},
 	}
 	priceGaps := []dbpkg.InstrumentDateRanges{
-		{InstrumentID: "inst-no-id", Ranges: []dbpkg.DateRange{{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), To: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)}}},
+		{InstrumentID: "inst-no-id", Ranges: []dbpkg.DateRange{{From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Before: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)}}},
 	}
 
 	db.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return(priceGaps, nil)

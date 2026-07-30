@@ -110,7 +110,7 @@ type Plugin interface {
 	// nil or empty = all. Instruments with a null currency always pass.
 	AcceptableCurrencies() map[string]bool
 
-	// FetchPrices fetches EOD bars for the given instrument over [from, to).
+	// FetchPrices fetches EOD bars for the given instrument over [from, before).
 	// identifiers contains only the types declared by SupportedIdentifierTypes.
 	// assetClass is the instrument's asset class so the plugin can adjust
 	// behavior (e.g. stock ticker vs option OCC symbol format).
@@ -120,7 +120,7 @@ type Plugin interface {
 	// providers (e.g. GBXUSD for British pence). Plugins must handle these
 	// by fetching the source pair and scaling the result. Use RewriteFXPair
 	// to detect derived pairs and ScaleBars to apply the conversion.
-	FetchPrices(ctx context.Context, config []byte, identifiers []Identifier, assetClass string, from, to time.Time) (*FetchResult, error)
+	FetchPrices(ctx context.Context, config []byte, identifiers []Identifier, assetClass string, from, before time.Time) (*FetchResult, error)
 
 	// DefaultConfig returns the plugin's default config JSON. Inserted on
 	// startup when no row exists so the admin can edit via the UI.

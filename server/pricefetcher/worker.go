@@ -181,7 +181,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 				gap := gap // copy for truncation
 				if pe.maxHistDays != nil && *pe.maxHistDays > 0 {
 					cutoff := time.Now().UTC().Truncate(db.Day).AddDate(0, 0, -*pe.maxHistDays)
-					if !gap.To.After(cutoff) {
+					if !gap.Before.After(cutoff) {
 						continue // entire gap older than history limit
 					}
 					if gap.From.Before(cutoff) {
@@ -193,7 +193,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 					assetClass = *inst.AssetClass
 				}
 					callCtx, callCancel := context.WithTimeout(ctx, pluginutil.TimeoutFromConfig(pe.config, DefaultPricePluginTimeout))
-				result, err := pe.plugin.FetchPrices(callCtx, pe.config, pfIDs, assetClass, gap.From, gap.To)
+				result, err := pe.plugin.FetchPrices(callCtx, pe.config, pfIDs, assetClass, gap.From, gap.Before)
 				callCancel()
 				if err != nil {
 					var permErr *ErrPermanent
@@ -218,7 +218,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 				}
 
 				prices := barsToEODPrices(ig.InstrumentID, pe.id, result.Bars, result.ShareCountBasis, now)
-				if err := database.UpsertPricesWithFill(ctx, ig.InstrumentID, pe.id, prices, gap.From, gap.To, nil); err != nil {
+				if err := database.UpsertPricesWithFill(ctx, ig.InstrumentID, pe.id, prices, gap.From, gap.Before, nil); err != nil {
 					if log != nil {
 						log.ErrorContext(ctx, "price fetch: upsert", "instrument", ig.InstrumentID, "err", err)
 					}

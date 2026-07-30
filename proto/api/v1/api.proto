@@ -105,8 +105,12 @@ message Instrument {
   string name = 5;
   repeated InstrumentIdentifier identifiers = 6;
   string underlying_id = 7;   // UUID of underlying instrument when this is a derivative (OPTION/FUTURE).
-  google.protobuf.Timestamp valid_from = 8;  // When the instrument was available to trade (optional).
-  google.protobuf.Timestamp valid_to = 9;    // When the instrument ceased to be available (optional).
+  // When the instrument was available to trade (optional). Deliberately outside
+  // the half-open [from, before) rule the rest of this API follows: providers
+  // supply valid_to as a last trading date, inclusive, and no query filters on
+  // either bound. See docs/spec/bitemporality.md.
+  google.protobuf.Timestamp valid_from = 8;
+  google.protobuf.Timestamp valid_to = 9;    // When the instrument ceased to be available (optional), inclusive.
   Instrument underlying = 10; // Populated in ListTxs/GetHoldings so clients need not fetch separately.
   Exchange exchange_info = 11; // Rich exchange data from exchanges table JOIN; populated when exchange_mic is set.
   string cik = 12;            // SEC Central Index Key (optional).
@@ -732,14 +736,15 @@ message ImportPricesRequest {
   google.protobuf.Timestamp exported_at = 3;
 }
 
-// ImportCoverage declares that the caller intends to cover a date range for
-// an instrument. The server fills gaps within this range with synthetic prices.
+// ImportCoverage declares that the caller intends to cover a half-open
+// [from, before) date range for an instrument. The server fills gaps within
+// this range with synthetic prices.
 message ImportCoverage {
   string identifier_type = 1;
   string identifier_value = 2;
   string identifier_domain = 3;
-  string from = 4; // YYYY-MM-DD, inclusive
-  string to = 5;   // YYYY-MM-DD, exclusive
+  string from = 4;   // YYYY-MM-DD, inclusive
+  string before = 5; // YYYY-MM-DD, exclusive
 }
 
 message ImportPricesResponse {
@@ -901,10 +906,12 @@ message PriceGap {
   repeated DateRange gaps = 7;
 }
 
-// DateRange is a half-open [from, to) date range.
+// DateRange is a half-open [from, before) date range. Every date interval in
+// this API is half-open and names its exclusive bound `before`; see
+// docs/adr/0007-calendar-day-valuation.md.
 message DateRange {
-  string from = 1; // YYYY-MM-DD, inclusive
-  string to = 2;   // YYYY-MM-DD, exclusive
+  string from = 1;   // YYYY-MM-DD, inclusive
+  string before = 2; // YYYY-MM-DD, exclusive
 }
 
 message ListPriceGapsResponse {

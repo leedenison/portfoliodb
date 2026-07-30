@@ -191,7 +191,7 @@ func buildCoverage(rpcCtx context.Context, apiClient apiv1.ApiServiceClient) []*
 					IdentifierValue:  ident.GetValue(),
 					IdentifierDomain: ident.GetDomain(),
 					From:             gap.GetFrom(),
-					To:               gap.GetTo(),
+					Before:           gap.GetBefore(),
 				})
 			}
 		}

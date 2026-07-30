@@ -22,7 +22,7 @@ func TestComputeMissingIntervals_NoCoverage(t *testing.T) {
 	if len(gaps) != 1 {
 		t.Fatalf("expected 1 gap, got %d", len(gaps))
 	}
-	if !gaps[0].From.Equal(d(2024, 1, 1)) || !gaps[0].To.Equal(d(2024, 1, 31)) {
+	if !gaps[0].From.Equal(d(2024, 1, 1)) || !gaps[0].Before.Equal(d(2024, 1, 31)) {
 		t.Errorf("unexpected gap: %+v", gaps[0])
 	}
 }
@@ -47,10 +47,10 @@ func TestComputeMissingIntervals_PartialCoverage(t *testing.T) {
 	if len(gaps) != 2 {
 		t.Fatalf("expected 2 gaps, got %+v", gaps)
 	}
-	if !gaps[0].From.Equal(d(2024, 1, 1)) || !gaps[0].To.Equal(d(2024, 1, 4)) {
+	if !gaps[0].From.Equal(d(2024, 1, 1)) || !gaps[0].Before.Equal(d(2024, 1, 4)) {
 		t.Errorf("first gap: %+v", gaps[0])
 	}
-	if !gaps[1].From.Equal(d(2024, 1, 11)) || !gaps[1].To.Equal(d(2024, 1, 31)) {
+	if !gaps[1].From.Equal(d(2024, 1, 11)) || !gaps[1].Before.Equal(d(2024, 1, 31)) {
 		t.Errorf("second gap: %+v", gaps[1])
 	}
 }

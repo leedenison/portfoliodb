@@ -184,11 +184,11 @@ func assertRangesEqual(t *testing.T, want, got []DateRange) {
 		t.Fatalf("got %d ranges, want %d\ngot:  %v\nwant: %v", len(got), len(want), fmtRanges(got), fmtRanges(want))
 	}
 	for i := range want {
-		if !want[i].From.Equal(got[i].From) || !want[i].To.Equal(got[i].To) {
+		if !want[i].From.Equal(got[i].From) || !want[i].Before.Equal(got[i].Before) {
 			t.Errorf("range[%d]: got [%s, %s), want [%s, %s)",
 				i,
-				got[i].From.Format("2006-01-02"), got[i].To.Format("2006-01-02"),
-				want[i].From.Format("2006-01-02"), want[i].To.Format("2006-01-02"))
+				got[i].From.Format("2006-01-02"), got[i].Before.Format("2006-01-02"),
+				want[i].From.Format("2006-01-02"), want[i].Before.Format("2006-01-02"))
 		}
 	}
 }
@@ -199,7 +199,7 @@ func fmtRanges(rs []DateRange) string {
 		if i > 0 {
 			s += ", "
 		}
-		s += "[" + r.From.Format("2006-01-02") + ", " + r.To.Format("2006-01-02") + ")"
+		s += "[" + r.From.Format("2006-01-02") + ", " + r.Before.Format("2006-01-02") + ")"
 	}
 	return s + "]"
 }

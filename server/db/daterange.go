@@ -8,7 +8,7 @@ import (
 // Day is a convenience for adding calendar days to a time.Time.
 const Day = 24 * time.Hour
 
-// MergeRanges merges overlapping or adjacent half-open [From, To) ranges.
+// MergeRanges merges overlapping or adjacent half-open [From, Before) ranges.
 // Input need not be sorted. Returns a sorted, non-overlapping slice.
 func MergeRanges(ranges []DateRange) []DateRange {
 	if len(ranges) <= 1 {
@@ -22,9 +22,9 @@ func MergeRanges(ranges []DateRange) []DateRange {
 	merged := []DateRange{sorted[0]}
 	for _, r := range sorted[1:] {
 		last := &merged[len(merged)-1]
-		if !r.From.After(last.To) {
-			if r.To.After(last.To) {
-				last.To = r.To
+		if !r.From.After(last.Before) {
+			if r.Before.After(last.Before) {
+				last.Before = r.Before
 			}
 		} else {
 			merged = append(merged, r)
@@ -45,24 +45,24 @@ func SubtractRanges(needed, cached []DateRange) []DateRange {
 	ci := 0
 	for _, n := range needed {
 		cur := n.From
-		for ci < len(cached) && cached[ci].To.Before(n.From) || ci < len(cached) && cached[ci].To.Equal(n.From) {
+		for ci < len(cached) && !cached[ci].Before.After(n.From) {
 			ci++
 		}
-		for j := ci; j < len(cached) && cached[j].From.Before(n.To); j++ {
+		for j := ci; j < len(cached) && cached[j].From.Before(n.Before); j++ {
 			c := cached[j]
 			if c.From.After(cur) {
-				end := n.To
+				end := n.Before
 				if c.From.Before(end) {
 					end = c.From
 				}
-				gaps = append(gaps, DateRange{From: cur, To: end})
+				gaps = append(gaps, DateRange{From: cur, Before: end})
 			}
-			if c.To.After(cur) {
-				cur = c.To
+			if c.Before.After(cur) {
+				cur = c.Before
 			}
 		}
-		if cur.Before(n.To) {
-			gaps = append(gaps, DateRange{From: cur, To: n.To})
+		if cur.Before(n.Before) {
+			gaps = append(gaps, DateRange{From: cur, Before: n.Before})
 		}
 	}
 	return gaps

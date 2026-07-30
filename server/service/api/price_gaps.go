@@ -90,16 +90,16 @@ func toPriceGapProtos(gaps []db.InstrumentDateRanges, instrMap map[string]*db.In
 		}
 		dateRanges := make([]*apiv1.DateRange, 0, len(g.Ranges))
 		for _, r := range g.Ranges {
-			to := r.To
-			if to.After(today) {
-				to = today
+			before := r.Before
+			if before.After(today) {
+				before = today
 			}
-			if !r.From.Before(to) {
+			if !r.From.Before(before) {
 				continue // empty range after clamping
 			}
 			dateRanges = append(dateRanges, &apiv1.DateRange{
-				From: r.From.Format("2006-01-02"),
-				To:   to.Format("2006-01-02"),
+				From:   r.From.Format("2006-01-02"),
+				Before: before.Format("2006-01-02"),
 			})
 		}
 		if len(dateRanges) == 0 {

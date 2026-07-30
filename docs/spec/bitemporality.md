@@ -46,8 +46,17 @@ clock every read API means by "as of".
 | `ingestion_jobs` | `period_from`, `period_to` | The valid-time window a bulk upload replaces. |
 | `unhandled_corporate_events` | `ex_date` | The effective date of the event we could not handle. |
 
-Date ranges are half-open `[from, to)` with midnight-UTC values, matching
-PostgreSQL's `daterange` default (see adr/0007-calendar-day-valuation.md).
+Every date interval -- wire API, database column pair, or in-memory range -- is
+half-open `[from, before)` with midnight-UTC values, matching PostgreSQL's
+`daterange` default. The exclusive bound is always named `before`
+(`date_before`, `period_before`, `covered_before`, `Before`) so no caller has to
+consult a comment to know which end is included; the closed form survives only
+inside adapters for external providers that demand it
+(see adr/0018-half-open-date-intervals.md).
+
+`instruments.valid_from` / `valid_to` are the one exemption: providers supply
+`valid_to` as an inclusive last trading date and no query filters on either
+bound, so they stay closed and keep their names.
 
 ### Instrument identity
 

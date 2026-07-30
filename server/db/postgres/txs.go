@@ -112,7 +112,7 @@ func txOrderBy(prefix string, descending bool) []string {
 }
 
 // ListTxs implements db.TxDB.
-func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Broker, account string, periodFrom, periodTo *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
+func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Broker, account string, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid user id: %w", err)
@@ -142,12 +142,12 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 		}
 		qb = qb.Where(sq.GtOrEq{"timestamp": fromT})
 	}
-	if periodTo != nil {
-		toT, err := tsToTime(periodTo)
+	if periodBefore != nil {
+		beforeT, err := tsToTime(periodBefore)
 		if err != nil {
-			return nil, "", fmt.Errorf("period_to: %w", err)
+			return nil, "", fmt.Errorf("period_before: %w", err)
 		}
-		qb = qb.Where(sq.LtOrEq{"timestamp": toT})
+		qb = qb.Where(sq.Lt{"timestamp": beforeT})
 	}
 	offset := decodePageToken(pageToken)
 	qb = qb.Limit(uint64(limit + 1)).Offset(uint64(offset))
@@ -172,7 +172,7 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 }
 
 // ListTxsByPortfolio implements db.TxDB. Returns txs that match any of the portfolio's filters (OR), deduped.
-func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodTo *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
+func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
 	portUUID, err := uuid.Parse(portfolioID)
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid portfolio id: %w", err)
@@ -199,12 +199,12 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, b
 		}
 		qb = qb.Where(sq.GtOrEq{"t.timestamp": fromT})
 	}
-	if periodTo != nil {
-		toT, err := tsToTime(periodTo)
+	if periodBefore != nil {
+		beforeT, err := tsToTime(periodBefore)
 		if err != nil {
-			return nil, "", fmt.Errorf("period_to: %w", err)
+			return nil, "", fmt.Errorf("period_before: %w", err)
 		}
-		qb = qb.Where(sq.LtOrEq{"t.timestamp": toT})
+		qb = qb.Where(sq.Lt{"t.timestamp": beforeT})
 	}
 	offset := decodePageToken(pageToken)
 	qb = qb.Limit(uint64(limit + 1)).Offset(uint64(offset))

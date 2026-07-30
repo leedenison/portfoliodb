@@ -41,9 +41,9 @@ func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1
 		if !ok {
 			return nil, status.Error(codes.NotFound, "portfolio not found")
 		}
-		txs, nextToken, err = s.db.ListTxsByPortfolio(ctx, req.GetPortfolioId(), broker, req.PeriodFrom, req.PeriodTo, req.GetDescending(), pageSize, req.GetPageToken())
+		txs, nextToken, err = s.db.ListTxsByPortfolio(ctx, req.GetPortfolioId(), broker, req.PeriodFrom, req.PeriodBefore, req.GetDescending(), pageSize, req.GetPageToken())
 	} else {
-		txs, nextToken, err = s.db.ListTxs(ctx, u.ID, broker, "", req.PeriodFrom, req.PeriodTo, req.GetDescending(), pageSize, req.GetPageToken())
+		txs, nextToken, err = s.db.ListTxs(ctx, u.ID, broker, "", req.PeriodFrom, req.PeriodBefore, req.GetDescending(), pageSize, req.GetPageToken())
 	}
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())

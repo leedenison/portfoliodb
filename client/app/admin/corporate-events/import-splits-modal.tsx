@@ -67,7 +67,7 @@ export function ImportSplitsModal({
     setPhase("processing");
     setImportError(null);
     try {
-      const id = await importCorporateEventSplits(parseResult.splits);
+      const id = await importCorporateEventSplits(parseResult.splits, parseResult.coverage);
       setJobId(id);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
@@ -186,7 +186,15 @@ export function ImportSplitsModal({
               <p className="text-sm text-text-primary">
                 Ready to import{" "}
                 <span className="font-semibold">{parseResult.splits.length}</span>{" "}
-                split{parseResult.splits.length !== 1 ? "s" : ""}.
+                split{parseResult.splits.length !== 1 ? "s" : ""}
+                {parseResult.coverage.length > 0 && (
+                  <>
+                    {" "}with{" "}
+                    <span className="font-semibold">{parseResult.coverage.length}</span>{" "}
+                    coverage span{parseResult.coverage.length !== 1 ? "s" : ""}
+                  </>
+                )}
+                .
               </p>
             )}
 

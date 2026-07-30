@@ -1,8 +1,12 @@
-# Standard CSV format
+# Import formats
+
+Three file formats feed the import APIs: a transaction CSV, a price CSV, and a corporate event JSON. They share the conventions for comment metadata and for [coverage declarations](#coverage-declarations).
+
+## Standard transaction CSV
 
 The **Standard** format is a CSV that directly represents the transaction fields expected by the API. Users can produce this CSV manually or use a broker-specific converter (when available) that outputs Standard format.
 
-## Columns
+### Columns
 
 Header names are case-insensitive. Supported column names:
 
@@ -21,7 +25,7 @@ Header names are case-insensitive. Supported column names:
 | `exchange_type`          | No       | Exchange code system: `MIC` (ISO 10383) or `OPENFIGI` (Bloomberg exchange code). Required when `exchange` is present. |
 | `exchange`               | No       | Exchange code value (e.g. "XNAS" for MIC, "US" for OPENFIGI). Populates the domain field on the identifier hint. Required when `exchange_type` is present. |
 
-## Transaction types (type column)
+### Transaction types (type column)
 
 Allowed values for `type` (OFX-style):
 `BUYDEBT`, `BUYFUTURE`, `BUYMF`, `BUYOPT`, `BUYOTHER`, `BUYSTOCK`,
@@ -29,7 +33,7 @@ Allowed values for `type` (OFX-style):
 `INCOME`, `INVEXPENSE`, `REINVEST`, `RETOFCAP`, `SPLIT`, `TRANSFER`,
 `JRNLFUND`, `JRNLSEC`, `MARGININTEREST`, `CLOSUREOPT`, `CASHFLOW`.
 
-## Identifier hints
+### Identifier hints
 
 Each row carries at most one identifier hint via `symbol_type` and `symbol`. Commonly used symbol types:
 
@@ -47,7 +51,7 @@ All IdentifierType enum values are accepted: `ISIN`, `CUSIP`, `SEDOL`, `CINS`, `
 
 The optional `exchange_type` and `exchange` columns provide a domain for resolution. They must both be present or both absent. For options, when no `symbol_type`/`symbol` hint is supplied, the system may extract an OCC symbol from the instrument description so that option contracts can be resolved via OpenFIGI OCC_SYMBOL.
 
-## Example
+### Example
 
 ```csv
 date,instrument_description,type,quantity,trading_currency,unit_price,account,symbol_type,symbol,exchange_type,exchange
@@ -57,7 +61,7 @@ date,instrument_description,type,quantity,trading_currency,unit_price,account,sy
 
 Any extra columns are ignored. Empty optional fields can be omitted or left blank.
 
-## Comment lines
+### Comment lines
 
 Lines beginning with `#` are metadata or commentary and are not parsed as rows. One key is recognised:
 
@@ -65,48 +69,135 @@ Lines beginning with `#` are metadata or commentary and are not parsed as rows. 
 
 It declares the share count the file's quantities and unit prices are denominated in. Omit it for an ordinary export, where each row reflects the splits that happened before its own transaction date and nothing after -- the as-traded convention the server assumes. Set it only when the source has post-adjusted historical rows for splits that happened *after* the transaction, in which case it is the date those quantities are current as of. See [bitemporality.md](bitemporality.md#share-count-basis).
 
-# Corporate event CSV format
+## Price CSV
 
-A separate CSV is used to import stock splits and cash dividends via the `ImportCorporateEvents` API. Splits and dividends share one file; the `event` column distinguishes them.
+A CSV of EOD prices imported via the `ImportPrices` API, and the format `ExportPrices` writes.
 
-## Columns
+### Columns
+
+Header names are case-insensitive. Column order is not significant.
 
 | Column | Required | Description |
 | ------ | -------- | ----------- |
-| `event` | Yes | `split` or `dividend`. Determines which event-specific columns are read. |
+| `identifier_type` | Yes | Identifier type used to resolve the instrument. Any IdentifierType enum value. |
+| `identifier_value` | Yes | Identifier value (e.g. `AAPL`, `NVDA250620P00110000`). |
+| `identifier_domain` | No | Domain for the identifier: MIC for `MIC_TICKER`, exchange code for `OPENFIGI_TICKER`, source for `BROKER_DESCRIPTION`, empty otherwise. |
+| `price_date` | Yes | `YYYY-MM-DD` trading date. |
+| `open` | No | Opening price. |
+| `high` | No | High price. |
+| `low` | No | Low price. |
+| `close` | Yes | Closing price, as the source supplied it. |
+| `adjusted_close` | No | The provider's own adjusted close. Never an input to valuation; it exists to cross-check the value PortfolioDB derives. See [prices.md](prices.md). |
+| `volume` | No | Integer trading volume. |
+| `asset_class` | No | Security type hint used to route identifier plugins when the instrument is unknown. |
+| `currency` | No | ISO 4217 currency code, used as a validation hint. |
+
+Prices are stored as supplied. `split_adjusted_close` is derived by PortfolioDB from `close` and the known splits, and is what performance math uses.
+
+### Comment lines
+
+Lines beginning with `#` are metadata or commentary and are not parsed as rows. Two keys are recognised:
+
+    # exported_at=2024-05-01T00:00:00.000Z
+    # coverage=2022-01-01,2025-07-07
+
+`exported_at` is knowledge time: when the supplied data was current. OCC symbols are split-adjusted to this point during instrument resolution, and imported rows record it as `last_fetched_at`. It does **not** say which share count the prices are denominated in. See [bitemporality.md](bitemporality.md#knowledge-time).
+
+`coverage` is described under [Coverage declarations](#coverage-declarations).
+
+### Example
+
+```csv
+# exported_at=2026-07-30T00:00:00.000Z
+# coverage=2022-01-01,2025-07-07
+# coverage=MIC_TICKER,ATVI,XNAS,2021-12-31,2023-10-14
+identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class,currency
+MIC_TICKER,AAPL,XNAS,2024-01-15,,,,185.9,,,STOCK,USD
+OCC,NVDA250620P00110000,,2024-06-11,,,,13.42,,,OPTION,USD
+```
+
+## Corporate event JSON
+
+Stock splits are imported via the `ImportCorporateEvents` API as JSON, and `ExportCorporateEvents` writes the same shape. Cash dividends are part of the API but are not yet carried by this file format.
+
+The canonical shape is an object with an `events` array and an optional `coverage` array. A bare array is accepted as events-only.
+
+### Event objects
+
+| Key | Required | Description |
+| --- | -------- | ----------- |
 | `identifier_type` | Yes | Identifier type used to resolve the instrument (`MIC_TICKER`, `OPENFIGI_TICKER`, `ISIN`, etc.). |
 | `identifier_value` | Yes | Identifier value (e.g. `AAPL`, `US0378331005`). |
 | `identifier_domain` | No | Domain for the identifier (MIC for `MIC_TICKER`, exchange code for `OPENFIGI_TICKER`). |
 | `asset_class` | No | `STOCK` or `ETF`. Used as the security type hint when the instrument is unknown and identifier plugins must resolve it. |
-| `ex_date` | Yes | `YYYY-MM-DD`. Effective/execution date for splits, ex-dividend date for dividends. This is valid time -- when the event took effect, not when it was announced or learned of (see [bitemporality.md](bitemporality.md)). |
-| `split_from` | Splits only | Decimal numerator of the pre-split ratio (e.g. `1` for a 2:1 split). |
-| `split_to` | Splits only | Decimal numerator of the post-split ratio (e.g. `2` for a 2:1 split). The factor is `split_to / split_from`. |
-| `amount` | Dividends only | Cash amount per share, denominated in `currency`. |
-| `currency` | Dividends only | ISO 4217 currency of the cash dividend. |
-| `pay_date` | No | `YYYY-MM-DD` payment date (dividends). |
-| `record_date` | No | `YYYY-MM-DD` record date (dividends). |
-| `declaration_date` | No | `YYYY-MM-DD` declaration date (dividends). |
-| `frequency` | No | `annual`, `semi-annual`, `quarterly`, `monthly`, or empty (dividends). |
-
-## Coverage rows
-
-The importer also accepts coverage declarations in a separate CSV (or section). Each row records that the caller has authoritative coverage for the half-open `[from, before)` interval; the server stores a `corporate_event_coverage` row tagged `data_provider = "import"` so the background fetcher does not refetch the same range from a plugin.
-
-| Column | Required | Description |
-| ------ | -------- | ----------- |
-| `identifier_type` | Yes | As above. |
-| `identifier_value` | Yes | As above. |
-| `identifier_domain` | No | As above. |
-| `from` | Yes | `YYYY-MM-DD` inclusive. |
-| `before` | Yes | `YYYY-MM-DD` exclusive; must be after `from`. To cover through 31 December 2024, send `2025-01-01`. |
-
-## Example
-
-```csv
-event,identifier_type,identifier_domain,identifier_value,asset_class,ex_date,split_from,split_to,amount,currency,pay_date,record_date,declaration_date,frequency
-split,MIC_TICKER,XNAS,AAPL,STOCK,2020-08-31,1,4,,,,,,
-split,MIC_TICKER,XNAS,AAPL,STOCK,2014-06-09,1,7,,,,,,
-dividend,MIC_TICKER,XNAS,AAPL,STOCK,2024-02-09,,,0.24,USD,2024-02-15,2024-02-12,2024-02-01,quarterly
-```
+| `ex_date` | Yes | `YYYY-MM-DD`. Effective/execution date. This is valid time -- when the split took effect, not when it was announced or learned of (see [bitemporality.md](bitemporality.md)). |
+| `split_from` | Yes | Decimal numerator of the pre-split ratio (e.g. `1` for a 2:1 split). |
+| `split_to` | Yes | Decimal numerator of the post-split ratio (e.g. `2` for a 2:1 split). The factor is `split_to / split_from`. |
+| `first_known_at` | No | ISO 8601 instant: when the exporting instance first learned of the split. Omit and the server falls back to the request's `exported_at`, then to storage time. A stored value only ever moves backwards. |
 
 When the importer sees an unknown `(identifier_type, identifier_domain, identifier_value)` triple, it routes through the same identifier plugin flow used by price imports: the supplied `asset_class` becomes the security-type hint and the resolved instrument is created with the supplied identifier as canonical.
+
+### Example
+
+```json
+{
+  "events": [
+    { "identifier_type": "MIC_TICKER", "identifier_domain": "XNAS", "identifier_value": "AAPL",
+      "asset_class": "STOCK", "ex_date": "2020-08-31", "split_from": "1", "split_to": "4" },
+    { "identifier_type": "MIC_TICKER", "identifier_domain": "XNAS", "identifier_value": "TSLA",
+      "asset_class": "STOCK", "ex_date": "2022-08-25", "split_from": "1", "split_to": "3" }
+  ],
+  "coverage": [
+    { "from": "2022-01-01", "before": "2026-07-30" }
+  ]
+}
+```
+
+## Coverage declarations
+
+A coverage declaration records that the caller has authoritative coverage of a date interval. Both the price CSV and the corporate event JSON accept them, with the same semantics and the same fields; only the syntax differs.
+
+What the server does with one depends on the import:
+
+- **Prices** -- non-trading days within the interval are filled with synthetic last-observation-carried-forward rows, so a file can carry only the days its source actually moved on. Without a declaration, rows are stored exactly as supplied and any gap stays a gap: valuation matches prices by exact date and has no read-time carry-forward.
+- **Corporate events** -- a `corporate_event_coverage` row is stored tagged `data_provider = "import"`, so the background fetcher does not re-query the same interval from a plugin and cannot overwrite hand-curated events with provider data.
+
+### Fields
+
+| Field | Required | Description |
+| ----- | -------- | ----------- |
+| `identifier_type` | No | Identifier type. Present together with `identifier_value` to name one instrument; absent to declare a file-wide default. |
+| `identifier_value` | No | Identifier value. See above. |
+| `identifier_domain` | No | Domain for the identifier. Only meaningful alongside the other two. |
+| `from` | Yes | `YYYY-MM-DD`, inclusive. |
+| `before` | Yes | `YYYY-MM-DD`, exclusive; must be after `from`. To cover through 31 December 2024, write `2025-01-01`. |
+
+The interval is half-open `[from, before)`, matching every other date interval on the wire (see [bitemporality.md](bitemporality.md) and adr/0018-half-open-date-intervals.md).
+
+### Global and specific declarations
+
+A declaration carrying no identifier at all is **global**: it applies to every instrument the file names. A declaration carrying one is **specific** to that instrument.
+
+- At most one global declaration per file.
+- A specific declaration **overrides** the global for its instrument rather than adding to it. An instrument with any specific declaration takes none of the global.
+- Several specific declarations for one instrument are all applied, so an instrument can carry more than one interval.
+- A partly-written identifier -- a type with no value, or a domain alone -- is an error rather than a global declaration.
+
+Most files need one global and a handful of exceptions: instruments that started or stopped trading partway through the period the file covers.
+
+### Syntax
+
+In the **price CSV**, a comment line in one of two forms, told apart by field count. The five-field form's order matches the data columns.
+
+    # coverage=<from>,<before>
+    # coverage=<identifier_type>,<identifier_value>,<identifier_domain>,<from>,<before>
+
+In the **corporate event JSON**, an entry in the top-level `coverage` array. Identifier keys are omitted or empty for a global declaration.
+
+```json
+"coverage": [
+  { "from": "2022-01-01", "before": "2026-07-30" },
+  { "identifier_type": "MIC_TICKER", "identifier_value": "ATVI",
+    "identifier_domain": "XNAS", "from": "2021-12-31", "before": "2023-10-14" }
+]
+```

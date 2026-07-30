@@ -19,13 +19,49 @@ identity reflects. This also puts the guard on the same clock as
 `AdjustOCCForKnownSplits`, which already filters purely on `ex_date` and ignores
 `first_known_at` when re-basing an OCC hint during resolution.
 
-`identity_as_of` moves only when the identity is genuinely re-derived: a plugin
-identification, or a retroactive adjustment. It is deliberately **not** touched
-by `EnsureInstrument`, which fires on every incidental match -- the
-broker-description-only fallback, price import, instrument import. Bumping it
-there is what allowed an unrelated import to disarm the guard permanently
-(see 0055). It is carried on instrument export and restored on import, so a round
-trip cannot make an already-adjusted option look unadjusted.
+## The caller stamps, not the storage layer
+
+`EnsureInstrument` is find-or-create by identifier. It cannot know where the
+identifiers came from -- a plugin lookup of current market data, a broker CSV
+description, a price file exported months ago -- and `identity_as_of` is a claim
+about exactly that provenance. So it never writes the column, on create or on
+match, and each caller stamps what it actually knows:
+
+| Caller | Stamps | Because |
+| --- | --- | --- |
+| Plugin resolution (`ResolveWithPlugins`, winner path) | `now()` | The plugin just read current market data. |
+| `ApplyOptionSplit` | `now()` | The identity has just been re-derived against a split effective today. |
+| Price import fallback (`ensureWithSuppliedIdentifier`) | the request's `exported_at`, else `now()` | The OCC is stored exactly as supplied, so it reflects the market as of the file's vintage. |
+| `ImportInstruments` | the payload's `identity_as_of`, if present | The exported value is the only evidence of vintage available. |
+| Broker-description-only fallbacks | nothing | They store no market-derived identifier at all. |
+
+Bumping the column on an incidental match is what allowed an unrelated import to
+disarm the guard permanently (see 0055). Leaving it NULL on a create whose
+identity *did* come from somewhere is the opposite error: the pass would then
+re-apply splits already baked into the stored symbol. Neither default is safe in
+general, which is why the decision sits with the caller.
+
+The column only ever moves **forward**. A caller supplying a vintage cannot tell
+whether `EnsureInstrument` created the row or matched an existing one, so
+`SetIdentityAsOf` ignores a value older than the stored one -- otherwise a stale
+price file could drag the stamp backwards and re-expose an already-adjusted
+option to the pass.
+
+`identity_as_of` is carried on instrument export and restored on import, so a
+round trip cannot make an already-adjusted option look unadjusted.
+
+## Accepted gaps
+
+An instrument import whose payload carries no `identity_as_of` -- a hand-written
+file, or an export predating the field -- leaves the column NULL on a newly
+created row, so an option in it would be adjusted for splits its OCC may already
+reflect. Defaulting to `now()` instead would stamp on match as well as on create,
+which is the churn this ADR exists to remove, so the NULL is accepted. Supplying
+`identity_as_of` in the payload is the fix for anyone who hits it.
+
+Broker-description-only instruments never carry an OCC identifier and have no
+asset class, so `ListOptionsByUnderlying` does not return them and the NULL is
+inert.
 
 ## Consequences
 

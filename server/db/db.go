@@ -616,8 +616,11 @@ type InstrumentDB interface {
 	// Call only when the identity has genuinely been re-derived from current
 	// market data; an incidental touch must leave the column alone.
 	UpdateIdentityAsOf(ctx context.Context, instrumentID string) error
-	// SetIdentityAsOf sets identity_as_of to an explicit time, for restoring the
-	// value carried by an instrument import.
+	// SetIdentityAsOf advances identity_as_of to an explicit time, for a caller
+	// that knows the vintage of the identity it supplied -- an instrument import
+	// restoring an exported value, or a price import declaring exported_at. The
+	// column only ever moves forward: a lower value is ignored, so a stale file
+	// cannot re-expose an already-adjusted option to the split pass.
 	SetIdentityAsOf(ctx context.Context, instrumentID string, t time.Time) error
 	// SaveProviderIdentifiers inserts provider-specific identifiers for an instrument.
 	// Duplicates (same instrument, provider, type, domain, value) are silently ignored.

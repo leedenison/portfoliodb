@@ -696,12 +696,17 @@ func (p *Postgres) UpdateIdentityAsOf(ctx context.Context, instrumentID string) 
 }
 
 // SetIdentityAsOf implements db.InstrumentDB.
+// The column only ever moves forward. A caller supplying a vintage cannot know
+// whether EnsureInstrument created the row or matched an existing one, and
+// dragging the stamp backwards onto an already-adjusted option would re-expose
+// it to the retroactive split pass. GREATEST ignores a NULL left-hand side, so
+// an unstamped row takes the supplied value.
 func (p *Postgres) SetIdentityAsOf(ctx context.Context, instrumentID string, t time.Time) error {
 	uid, err := uuid.Parse(instrumentID)
 	if err != nil {
 		return fmt.Errorf("set identity_as_of: invalid id: %w", err)
 	}
-	_, err = p.q.ExecContext(ctx, `UPDATE instruments SET identity_as_of = $2 WHERE id = $1`, uid, t)
+	_, err = p.q.ExecContext(ctx, `UPDATE instruments SET identity_as_of = GREATEST(identity_as_of, $2) WHERE id = $1`, uid, t)
 	if err != nil {
 		return fmt.Errorf("set identity_as_of: %w", err)
 	}

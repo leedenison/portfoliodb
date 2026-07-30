@@ -324,6 +324,33 @@ func TestSetIdentityAsOf_RoundTrip(t *testing.T) {
 	if !row.IdentityAsOf.Equal(want) {
 		t.Errorf("identity_as_of = %v, want %v", *row.IdentityAsOf, want)
 	}
+
+	// The column only moves forward. A stale file must not drag the stamp back
+	// and re-expose an already-adjusted option to the split pass.
+	older := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := p.SetIdentityAsOf(ctx, id, older); err != nil {
+		t.Fatalf("SetIdentityAsOf older: %v", err)
+	}
+	row, err = p.GetInstrument(ctx, id)
+	if err != nil || row == nil || row.IdentityAsOf == nil {
+		t.Fatalf("GetInstrument after older: %v", err)
+	}
+	if !row.IdentityAsOf.Equal(want) {
+		t.Errorf("identity_as_of regressed to %v, want %v", *row.IdentityAsOf, want)
+	}
+
+	// A newer vintage does advance it.
+	newer := time.Date(2025, 3, 4, 0, 0, 0, 0, time.UTC)
+	if err := p.SetIdentityAsOf(ctx, id, newer); err != nil {
+		t.Fatalf("SetIdentityAsOf newer: %v", err)
+	}
+	row, err = p.GetInstrument(ctx, id)
+	if err != nil || row == nil || row.IdentityAsOf == nil {
+		t.Fatalf("GetInstrument after newer: %v", err)
+	}
+	if !row.IdentityAsOf.Equal(newer) {
+		t.Errorf("identity_as_of = %v, want %v", *row.IdentityAsOf, newer)
+	}
 }
 
 func TestEnsureInstrument_OptionWithoutUnderlying_Rejected(t *testing.T) {

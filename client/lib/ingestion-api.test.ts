@@ -46,7 +46,7 @@ describe("ingestion-api", () => {
         broker: Broker.IBKR,
         source: "IBKR:web:standard",
         periodFrom: timestampFromDate(new Date("2024-01-01")),
-        periodTo: timestampFromDate(new Date("2024-01-31")),
+        periodBefore: timestampFromDate(new Date("2024-02-01")),
         txs: [tx],
       });
 

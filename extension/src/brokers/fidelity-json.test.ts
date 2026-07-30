@@ -149,7 +149,8 @@ describe("convertFidelityJson", () => {
   it("reports a period spanning the rows it parsed", () => {
     const result = convertFidelityJson(json(BUY, SERVICE_FEE));
     expect(result.periodFrom).toEqual(new Date(2026, 5, 4));
-    expect(result.periodTo).toEqual(new Date(2026, 6, 8));
+    // Exclusive: the day after the last row, so the last row is inside it.
+    expect(result.periodBefore).toEqual(new Date(2026, 6, 9));
   });
 
   it("rejects a payload that is not a JSON array", () => {

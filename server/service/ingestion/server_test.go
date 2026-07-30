@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/testutil"
-	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -31,33 +31,33 @@ func newIngestionServerWithMock(t *testing.T, queue chan<- *JobRequest) (*Server
 func TestUpsertTxs(t *testing.T) {
 	now := timestamppb.Now()
 	tests := []struct {
-		name          string
-		ctx           context.Context
-		req           *ingestionv1.UpsertTxsRequest
-		wantCode      codes.Code
+		name     string
+		ctx      context.Context
+		req      *ingestionv1.UpsertTxsRequest
+		wantCode codes.Code
 	}{
 		{"Unauthenticated", context.Background(), &ingestionv1.UpsertTxsRequest{
-			Broker:     apiv1.Broker_IBKR,
-			Source:     "IBKR:test:statement",
-			PeriodFrom: now,
-			PeriodTo:   now,
+			Broker:       apiv1.Broker_IBKR,
+			Source:       "IBKR:test:statement",
+			PeriodFrom:   now,
+			PeriodBefore: now,
 		}, codes.Unauthenticated},
 		{"InvalidArgument_broker", authCtx("user-1"), &ingestionv1.UpsertTxsRequest{
-			Broker:      apiv1.Broker_BROKER_UNSPECIFIED,
-			Source:      "IBKR:test:statement",
-			PeriodFrom:  now,
-			PeriodTo:    now,
+			Broker:       apiv1.Broker_BROKER_UNSPECIFIED,
+			Source:       "IBKR:test:statement",
+			PeriodFrom:   now,
+			PeriodBefore: now,
 		}, codes.InvalidArgument},
 		{"InvalidArgument_source", authCtx("user-1"), &ingestionv1.UpsertTxsRequest{
-			Broker:     apiv1.Broker_IBKR,
-			Source:     "",
-			PeriodFrom: now,
-			PeriodTo:   now,
+			Broker:       apiv1.Broker_IBKR,
+			Source:       "",
+			PeriodFrom:   now,
+			PeriodBefore: now,
 		}, codes.InvalidArgument},
 		{"InvalidArgument_period", authCtx("user-1"), &ingestionv1.UpsertTxsRequest{
-			Broker:   apiv1.Broker_IBKR,
-			Source:   "IBKR:test:statement",
-			PeriodTo: now,
+			Broker:       apiv1.Broker_IBKR,
+			Source:       "IBKR:test:statement",
+			PeriodBefore: now,
 		}, codes.InvalidArgument},
 	}
 	for _, tc := range tests {
@@ -73,7 +73,7 @@ func TestUpsertTxs(t *testing.T) {
 
 func TestUpsertTxs_Success(t *testing.T) {
 	periodFrom := timestamppb.Now()
-	periodTo := timestamppb.Now()
+	periodBefore := timestamppb.Now()
 	queue := make(chan *JobRequest, 1)
 	defer close(queue)
 	srv, mockDB := newIngestionServerWithMock(t, queue)
@@ -90,11 +90,11 @@ func TestUpsertTxs_Success(t *testing.T) {
 		})
 	ctx := authCtx("user-1")
 	resp, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
-		Broker:     apiv1.Broker_IBKR,
-		Source:     "IBKR:test:statement",
-		PeriodFrom: periodFrom,
-		PeriodTo:   periodTo,
-		Txs:        []*apiv1.Tx{},
+		Broker:       apiv1.Broker_IBKR,
+		Source:       "IBKR:test:statement",
+		PeriodFrom:   periodFrom,
+		PeriodBefore: periodBefore,
+		Txs:          []*apiv1.Tx{},
 	})
 	if err != nil {
 		t.Fatalf("UpsertTxs: %v", err)

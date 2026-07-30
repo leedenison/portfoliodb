@@ -84,13 +84,14 @@ describe("sync", () => {
     const { entry } = await run();
 
     expect(entry.status).toBe("success");
-    const req = upsertTxs.mock.calls[0]![2] as { periodFrom: { seconds: bigint }; periodTo: { seconds: bigint } };
-    // Window is 14 days before the last known transaction (20 Jul) to end of
-    // yesterday (26 Jul) -- wider than the single 21 Jul row that came back,
-    // which is what lets the replace delete anything the broker cancelled.
+    const req = upsertTxs.mock.calls[0]![2] as { periodFrom: { seconds: bigint }; periodBefore: { seconds: bigint } };
+    // Window is 14 days before the last known transaction (20 Jul) up to the
+    // start of today (27 Jul) -- wider than the single 21 Jul row that came
+    // back, which is what lets the replace delete anything the broker
+    // cancelled.
     expect(Number(req.periodFrom.seconds)).toBe(Math.floor(new Date(2026, 6, 6).getTime() / 1000));
-    expect(Number(req.periodTo.seconds)).toBe(
-      Math.floor(new Date(2026, 6, 26, 23, 59, 59, 999).getTime() / 1000)
+    expect(Number(req.periodBefore.seconds)).toBe(
+      Math.floor(new Date(2026, 6, 27).getTime() / 1000)
     );
   });
 

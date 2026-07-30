@@ -18,7 +18,7 @@ A sync run performs these steps in order. Any step failing aborts the run and re
 
 1. **Session.** Obtain a session id (see Session below). On `UNAUTHENTICATED`, open a PortfolioDB tab to re-bootstrap and abort the run.
 2. **Latest transaction.** `ListTxs` with `broker` set to the target broker, `descending` true and `page_size` 1.
-3. **Window.** Compute `[from, to]` (see Date window below). If `from > to` there is nothing to fetch: report "already up to date" and stop.
+3. **Window.** Compute the half-open `[from, before)` (see Date window below). If `from >= before` there is nothing to fetch: report "already up to date" and stop.
 4. **Export.** Run the broker recipe (see Recipes below) to capture the payload for the window.
 5. **Convert.** Run the registered converter for the broker and format.
 6. **Report dropped rows.** If the converter reported errors, record them and continue (see Unparseable rows below).
@@ -31,13 +31,13 @@ A sync run performs these steps in order. Any step failing aborts the run and re
 The window is:
 
 ```
-to   = end of day, yesterday
-from = max(historyStartDate, latestBrokerTx - lookbackDays)
+before = start of day, today
+from   = max(historyStartDate, latestBrokerTx - lookbackDays)
 ```
 
 where `latestBrokerTx` is the timestamp from step 2, or, when the user has no transactions for this broker at all, `historyStartDate` from configuration. If there is no latest transaction and `historyStartDate` is not configured, the run fails with an explicit message; it does not guess a start date.
 
-`to` is yesterday rather than today because a transaction dated today may still be incomplete at the time of export.
+`before` is the start of today, so the window covers through the end of yesterday: a transaction dated today may still be incomplete at the time of export.
 
 ### Why the window overlaps
 
@@ -55,7 +55,7 @@ The default is 14 days. Overlap is otherwise free, because ingestion is idempote
 
 The configured timezone (default `Europe/London`) determines only **which calendar day** is "yesterday" and which calendar day a lookback lands on.
 
-The window bounds are then materialised as local start-of-day and local end-of-day in the runtime's own timezone, because the converters construct transaction timestamps the same way. Constructing the bounds in a different timezone from the rows they are meant to bracket would shift the inclusive boundary by up to a day.
+The window bounds are then materialised as local midnights in the runtime's own timezone, because the converters construct transaction timestamps the same way. Constructing the bounds in a different timezone from the rows they are meant to bracket would shift the boundary by up to a day.
 
 ## Upload
 
@@ -65,14 +65,14 @@ The window bounds are then materialised as local start-of-day and local end-of-d
 | ----- | ----- |
 | `broker` | The target broker enum. |
 | `source` | The same source string the web UI produces for this broker and format, e.g. `Fidelity:web:fidelity-csv`. |
-| `period_from`, `period_to` | The **requested** window from step 3 -- not the minimum and maximum of the parsed rows. |
+| `period_from`, `period_before` | The **requested** window from step 3 -- not the minimum and maximum of the parsed rows. |
 | `txs` | The converted transactions. |
 | `filename` | A synthetic name identifying the run, e.g. `fidelity-ext-2026-07-27.csv`. |
 | `share_count_basis` | Whatever the converter declared; empty for an as-traded broker (see Share count below). |
 
 Two of these need care.
 
-**The period must be the requested window.** Ingestion replaces every transaction for the user and broker within `[period_from, period_to]`. Sending the parsed row range instead would shrink the window to the transactions that still exist, so a transaction cancelled by the broker since the last sync would never be deleted -- which is the main reason to re-fetch an overlapping period at all.
+**The period must be the requested window.** Ingestion replaces every transaction for the user and broker within `[period_from, period_before)`. Sending the parsed row range instead would shrink the window to the transactions that still exist, so a transaction cancelled by the broker since the last sync would never be deleted -- which is the main reason to re-fetch an overlapping period at all.
 
 **The source string is reused, not invented.** `source` is the cache key for instrument resolution. A new source string for extension uploads would miss the cache and force fresh calls to paid identification plugins for descriptions that have already been resolved. `filename` is the field that distinguishes extension runs from manual uploads in the job list.
 
@@ -122,7 +122,7 @@ A recipe declares:
 
 - The broker enum and the converter format id, which together produce the source string.
 - The origins the extension needs access to.
-- The date format and timezone the site expects for the window bounds.
+- The date format and timezone the site expects for the window bounds. Broker date parameters are inclusive, so the recipe's `{{to}}` is filled with the day before the exclusive bound.
 - How to obtain the payload.
 - Probes: selectors that indicate whether the user is logged in and whether the export is ready.
 

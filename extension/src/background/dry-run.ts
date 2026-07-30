@@ -7,7 +7,7 @@
 
 import { getRecipe } from "../brokers";
 import { loadConfig } from "../config";
-import { formatDate, parseIsoDate } from "../lib/dates";
+import { formatDate, parseIsoDate, startOfNextDay } from "../lib/dates";
 import type { DryRunRequest, DryRunResult } from "../lib/messages";
 import { droppedTypes } from "../lib/dropped";
 import { captureExport } from "./export";
@@ -27,7 +27,8 @@ export async function dryRun(req: DryRunRequest): Promise<DryRunResult> {
   };
 
   try {
-    const captured = await captureExport(recipe, { from, to });
+    // The dry-run form takes the inclusive last day a person would type.
+    const captured = await captureExport(recipe, { from, before: startOfNextDay(to) });
     const { currency } = await loadConfig();
     const parsed = recipe.convert(captured.body, { currency });
 

@@ -66,19 +66,19 @@ func containsMessage(errs []*apiv1.ValidationError, msg string) bool {
 func TestValidateBulkRequest(t *testing.T) {
 	validTs := timestamppb.Now()
 	tests := []struct {
-		name       string
-		periodFrom *timestamppb.Timestamp
-		periodTo   *timestamppb.Timestamp
-		wantCount  int
+		name         string
+		periodFrom   *timestamppb.Timestamp
+		periodBefore *timestamppb.Timestamp
+		wantCount    int
 	}{
 		{"both nil", nil, nil, 2},
 		{"periodFrom nil", nil, validTs, 1},
-		{"periodTo nil", validTs, nil, 1},
+		{"periodBefore nil", validTs, nil, 1},
 		{"both valid", validTs, validTs, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := ValidateBulkRequest(tc.periodFrom, tc.periodTo)
+			got := ValidateBulkRequest(tc.periodFrom, tc.periodBefore)
 			if len(got) != tc.wantCount {
 				t.Fatalf("ValidateBulkRequest() returned %d errors, want %d", len(got), tc.wantCount)
 			}

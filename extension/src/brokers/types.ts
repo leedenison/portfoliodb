@@ -15,7 +15,10 @@
 import type { Broker } from "@/gen/api/v1/api_pb";
 import type { StandardParseResult } from "@/lib/csv/standard";
 
-/** A request to replay against the broker, with {{from}} and {{to}} substituted. */
+/**
+ * A request to replay against the broker, with {{from}} and {{to}} substituted.
+ * {{to}} is the broker's own inclusive convention, not our exclusive bound.
+ */
 export interface ExportRequest {
   method: "GET" | "POST";
   /**
@@ -64,7 +67,8 @@ export interface BrokerRecipe {
   convert: (payload: string, options?: Record<string, unknown>) => StandardParseResult;
 }
 
+/** Half-open [from, before): local midnights, `before` exclusive. */
 export interface DateWindow {
   from: Date;
-  to: Date;
+  before: Date;
 }

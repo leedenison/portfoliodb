@@ -155,7 +155,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	}
 	source := req.GetSource()
 	broker, _ := brokerToStr(req.Broker)
-	bulk := req.PeriodFrom != nil && req.PeriodTo != nil
+	bulk := req.PeriodFrom != nil && req.PeriodBefore != nil
 
 	// The denomination of the whole upload. Absent means as-traded: each row is
 	// expressed in the share count current on its own transaction date.
@@ -237,7 +237,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	// Store transactions.
 	var storeErr error
 	if bulk {
-		storeErr = database.ReplaceTxsInPeriod(ctx, userID, broker, req.PeriodFrom, req.PeriodTo, txsToProcess, instrumentIDs, shareCountBasis)
+		storeErr = database.ReplaceTxsInPeriod(ctx, userID, broker, req.PeriodFrom, req.PeriodBefore, txsToProcess, instrumentIDs, shareCountBasis)
 	} else {
 		storeErr = database.CreateTx(ctx, userID, broker, txsToProcess[0].GetAccount(), txsToProcess[0], instrumentIDs[0], shareCountBasis)
 	}

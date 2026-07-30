@@ -6,6 +6,7 @@
 import Papa from "papaparse";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { startOfNextDay } from "@/lib/dates";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import {
   IdentifierType,
@@ -26,7 +27,8 @@ const SHARE_COUNT_BASIS_PREFIX = "# share_count_basis=";
 export interface StandardParseResult {
   txs: Tx[];
   periodFrom: Date;
-  periodTo: Date;
+  /** Exclusive: local midnight after the last transaction's day. */
+  periodBefore: Date;
   errors: ParseError[];
   /**
    * The share count the quantities and unit prices are denominated in, as
@@ -111,7 +113,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
     lines.push(line);
   }
   if (lines.length === 0) {
-    return { txs: [], periodFrom: new Date(0), periodTo: new Date(0), errors: [{ rowIndex: 0, field: "file", message: "File is empty or has no header" }] };
+    return { txs: [], periodFrom: new Date(0), periodBefore: new Date(0), errors: [{ rowIndex: 0, field: "file", message: "File is empty or has no header" }] };
   }
 
   const headerRow = parseCSVLine(lines[0]);
@@ -141,7 +143,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
   if (descCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: instrument_description" });
   if (typeCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: type" });
   if (qtyCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: quantity" });
-  if (errors.length > 0) return { txs: [], periodFrom: new Date(0), periodTo: new Date(0), errors };
+  if (errors.length > 0) return { txs: [], periodFrom: new Date(0), periodBefore: new Date(0), errors };
 
   const txs: Tx[] = [];
   let minTime = Infinity;
@@ -250,7 +252,8 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
   }
 
   const periodFrom = minTime === Infinity ? new Date(0) : new Date(minTime);
-  const periodTo = maxTime === -Infinity ? new Date(0) : new Date(maxTime);
+  const periodBefore =
+    maxTime === -Infinity ? new Date(0) : startOfNextDay(new Date(maxTime));
 
-  return { txs, periodFrom, periodTo, errors, shareCountBasis };
+  return { txs, periodFrom, periodBefore, errors, shareCountBasis };
 }

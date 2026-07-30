@@ -10,9 +10,9 @@
  * must therefore exceed the broker's longest order-to-completion lag.
  *
  * The configured timezone decides only which calendar day counts as "yesterday".
- * The bounds are then built as local start- and end-of-day, because that is how
- * the converters build transaction timestamps; constructing them in a different
- * zone would shift the inclusive boundary by up to a day.
+ * The bounds are then built as local midnights, because that is how the
+ * converters build transaction timestamps; constructing them in a different
+ * zone would shift the boundary by up to a day.
  */
 
 import { parseIsoDate } from "./dates";
@@ -29,7 +29,8 @@ export interface WindowInputs {
 }
 
 export type WindowResult =
-  | { kind: "window"; from: Date; to: Date }
+  /** Half-open [from, before): local midnights, `before` exclusive. */
+  | { kind: "window"; from: Date; before: Date }
   | { kind: "up-to-date" }
   | { kind: "error"; message: string };
 
@@ -47,10 +48,6 @@ function calendarDay(at: Date, timeZone: string): [number, number, number] {
 
 function startOfDay(y: number, m: number, d: number): Date {
   return new Date(y, m - 1, d, 0, 0, 0, 0);
-}
-
-function endOfDay(y: number, m: number, d: number): Date {
-  return new Date(y, m - 1, d, 23, 59, 59, 999);
 }
 
 function minusDays(date: Date, days: number): Date {
@@ -71,10 +68,10 @@ export function computeWindow(inputs: WindowInputs): WindowResult {
   if (Number.isNaN(today[0])) {
     return { kind: "error", message: `Unknown time zone: ${timeZone}` };
   }
-  // "Yesterday" is derived from the calendar day in the configured zone, then
+  // The window runs up to but not including today: today's rows are still
+  // arriving. The calendar day comes from the configured zone, then is
   // materialised locally like every other bound here.
-  const yesterday = minusDays(startOfDay(...today), 1);
-  const to = endOfDay(yesterday.getFullYear(), yesterday.getMonth() + 1, yesterday.getDate());
+  const before = startOfDay(...today);
 
   const historyStart = historyStartDate ? parseIsoDate(historyStartDate) : null;
   if (historyStartDate && !historyStart) {
@@ -102,6 +99,6 @@ export function computeWindow(inputs: WindowInputs): WindowResult {
     };
   }
 
-  if (from > to) return { kind: "up-to-date" };
-  return { kind: "window", from, to };
+  if (from >= before) return { kind: "up-to-date" };
+  return { kind: "window", from, before };
 }

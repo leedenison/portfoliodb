@@ -12,7 +12,7 @@ import { getRecipeForBroker, sourceFor } from "../brokers";
 import type { BrokerRecipe } from "../brokers/types";
 import { loadConfig } from "../config";
 import { getJob, listTxs, upsertTxs } from "../lib/api";
-import { formatDate } from "../lib/dates";
+import { formatDate, lastCoveredDay } from "../lib/dates";
 import { droppedTypes } from "../lib/dropped";
 import { recordRun, type RunLogEntry } from "../lib/run-log";
 import { getSessionId } from "../lib/session";
@@ -112,15 +112,17 @@ export async function sync(opts: SyncOptions): Promise<SyncResult> {
     return finish({ ...base, status: "up-to-date", resumedFrom });
   }
 
+  // Shown and logged the way the broker was asked, which is inclusive.
+  const lastDay = lastCoveredDay(win.before);
   const requested = {
     from: formatDate(win.from, recipe.dateFormat),
-    to: formatDate(win.to, recipe.dateFormat),
+    to: formatDate(lastDay, recipe.dateFormat),
   };
   const withWindow: RunLogEntry = { ...base, resumedFrom, window: requested };
 
   let payload: string;
   try {
-    payload = (await captureExport(recipe, { from: win.from, to: win.to })).body;
+    payload = (await captureExport(recipe, { from: win.from, before: win.before })).body;
   } catch (e) {
     return finish({ ...withWindow, error: `Export failed: ${message(e)}` });
   }
@@ -156,9 +158,9 @@ export async function sync(opts: SyncOptions): Promise<SyncResult> {
       // The window that was requested, not the range of the rows that came back:
       // that is what lets the replace delete transactions the broker cancelled.
       periodFrom: timestampFromDate(win.from),
-      periodTo: timestampFromDate(win.to),
+      periodBefore: timestampFromDate(win.before),
       txs: parsed.txs,
-      filename: `${recipe.id}-${formatDate(win.to, "yyyy-MM-dd")}.json`,
+      filename: `${recipe.id}-${formatDate(lastDay, "yyyy-MM-dd")}.json`,
       // Declared by the converter, which knows its broker's convention. Empty
       // for an as-traded export, which is denominated per row and is what the
       // server assumes by default.

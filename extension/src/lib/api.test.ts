@@ -64,13 +64,13 @@ describe("api", () => {
   it("encodes the period and source on UpsertTxs", async () => {
     const spy = mockFetch(toBinary(IngestionResponseSchema, create(IngestionResponseSchema, { jobId: "job-1" })));
     const from = new Date("2026-07-01T00:00:00Z");
-    const to = new Date("2026-07-26T23:59:59Z");
+    const before = new Date("2026-07-27T00:00:00Z");
 
     const res = await upsertTxs(ORIGIN, SESSION, {
       broker: Broker.FIDELITY,
       source: "Fidelity:web:fidelity-csv",
       periodFrom: timestampFromDate(from),
-      periodTo: timestampFromDate(to),
+      periodBefore: timestampFromDate(before),
       filename: "fidelity-ext-2026-07-27.csv",
       txs: [
         {
@@ -87,7 +87,7 @@ describe("api", () => {
     // The period is the window that was requested, not the range of the rows:
     // that is what makes the replace delete transactions the broker cancelled.
     expect(req.periodFrom?.seconds).toBe(BigInt(Math.floor(from.getTime() / 1000)));
-    expect(req.periodTo?.seconds).toBe(BigInt(Math.floor(to.getTime() / 1000)));
+    expect(req.periodBefore?.seconds).toBe(BigInt(Math.floor(before.getTime() / 1000)));
     expect(req.source).toBe("Fidelity:web:fidelity-csv");
     expect(req.txs).toHaveLength(1);
   });

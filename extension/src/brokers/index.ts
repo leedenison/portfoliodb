@@ -1,7 +1,7 @@
 /** Recipe registry and the generic interpreter that renders a recipe's request. */
 
 import type { Broker } from "@/gen/api/v1/api_pb";
-import { formatDate } from "../lib/dates";
+import { formatDate, lastCoveredDay } from "../lib/dates";
 import { fidelityUk } from "./fidelity-uk";
 import type { BrokerRecipe, DateWindow, ExportRequest } from "./types";
 
@@ -34,7 +34,8 @@ export function sourceFor(recipe: BrokerRecipe): string {
  */
 export function renderExport(recipe: BrokerRecipe, window: DateWindow): ExportRequest {
   const from = formatDate(window.from, recipe.dateFormat);
-  const to = formatDate(window.to, recipe.dateFormat);
+  // Broker date parameters are inclusive; our upper bound is exclusive.
+  const to = formatDate(lastCoveredDay(window.before), recipe.dateFormat);
   const fill = (s: string) => s.replaceAll("{{from}}", from).replaceAll("{{to}}", to);
   return {
     ...recipe.export,

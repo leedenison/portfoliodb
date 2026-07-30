@@ -16,12 +16,12 @@ func (p *Postgres) CreateJob(ctx context.Context, params db.CreateJobParams) (st
 	if err != nil {
 		return "", fmt.Errorf("invalid user id: %w", err)
 	}
-	var fromT, toT interface{}
+	var fromT, beforeT interface{}
 	if params.PeriodFrom != nil && params.PeriodFrom.IsValid() {
 		fromT = params.PeriodFrom.AsTime()
 	}
-	if params.PeriodTo != nil && params.PeriodTo.IsValid() {
-		toT = params.PeriodTo.AsTime()
+	if params.PeriodBefore != nil && params.PeriodBefore.IsValid() {
+		beforeT = params.PeriodBefore.AsTime()
 	}
 	var filenameVal, brokerVal, sourceVal interface{}
 	if params.Filename != "" {
@@ -43,10 +43,10 @@ func (p *Postgres) CreateJob(ctx context.Context, params db.CreateJobParams) (st
 	}
 	var id uuid.UUID
 	err = p.q.QueryRowContext(ctx, `
-		INSERT INTO ingestion_jobs (user_id, job_type, broker, source, filename, period_from, period_to, payload, status)
+		INSERT INTO ingestion_jobs (user_id, job_type, broker, source, filename, period_from, period_before, payload, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')
 		RETURNING id
-	`, userUUID, jobType, brokerVal, sourceVal, filenameVal, fromT, toT, payloadVal).Scan(&id)
+	`, userUUID, jobType, brokerVal, sourceVal, filenameVal, fromT, beforeT, payloadVal).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("create job: %w", err)
 	}

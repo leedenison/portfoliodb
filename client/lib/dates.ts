@@ -32,3 +32,21 @@ export function dayAfter(date?: string): string | undefined {
 export function dayBefore(date?: string): string | undefined {
   return shift(date, -1);
 }
+
+/**
+ * Local midnight after the given instant: the exclusive bound that covers the
+ * whole of its day. Local, because the converters build transaction timestamps
+ * from local calendar dates, and a bound built in another zone would not
+ * bracket the rows it is meant to cover.
+ */
+export function startOfNextDay(at: Date): Date {
+  return new Date(at.getFullYear(), at.getMonth(), at.getDate() + 1);
+}
+
+/**
+ * The last day an exclusive bound covers, for display: people read a window as
+ * a closed range of days, so the modal shows this rather than the bound itself.
+ */
+export function lastCoveredDay(before: Date): Date {
+  return new Date(before.getFullYear(), before.getMonth(), before.getDate() - 1);
+}

@@ -24,7 +24,12 @@ describe("parseStandardCSV", () => {
     expect(result.txs[1].quantity).toBe(-5);
 
     expect(result.periodFrom.getTime()).toBe(new Date("2024-01-10").getTime());
-    expect(result.periodTo.getTime()).toBe(new Date("2024-01-15").getTime());
+    // Exclusive: midnight after the last row's day, so the last row is inside.
+    const lastRow = new Date("2024-01-15");
+    expect(result.periodBefore.getTime()).toBeGreaterThan(lastRow.getTime());
+    expect(result.periodBefore).toEqual(
+      new Date(lastRow.getFullYear(), lastRow.getMonth(), lastRow.getDate() + 1)
+    );
   });
 
   it("accepts timestamp column instead of date", () => {
@@ -168,7 +173,8 @@ not-a-date,FOO,BUYSTOCK,5
     expect(result.errors[0].rowIndex).toBe(3);
     expect(result.errors[0].field).toBe("date");
     expect(result.periodFrom.getTime()).toBe(new Date("2024-01-01").getTime());
-    expect(result.periodTo.getTime()).toBe(new Date("2024-01-03").getTime());
+    const lastRow = new Date("2024-01-03");
+    expect(result.periodBefore.getTime()).toBeGreaterThan(lastRow.getTime());
   });
 
   it("parses account, trading_currency, settlement_currency", () => {

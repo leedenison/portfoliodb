@@ -351,7 +351,23 @@ VERSION:102
     });
     const result = parseOfxStatement(ofx);
     expect(result.periodFrom.getFullYear()).toBe(2026);
-    expect(result.periodTo.getFullYear()).toBe(2026);
-    expect(result.periodFrom.getMonth()).toBeLessThan(result.periodTo.getMonth());
+    expect(result.periodBefore.getFullYear()).toBe(2026);
+    expect(result.periodFrom.getMonth()).toBeLessThan(result.periodBefore.getMonth());
+  });
+
+  it("extends the period past DTEND when a transaction falls outside it", () => {
+    // Brokers are inconsistent about whether DTEND is exclusive. A DTEND that
+    // stops short would leave the last day's rows outside the window meant to
+    // replace them.
+    const ofx = buildOfx({
+      dtStart: "20260107202000.000[-5:EST]",
+      dtEnd: "20260107202000.000[-5:EST]",
+      transactions: buyStockTx(),
+    });
+    const result = parseOfxStatement(ofx);
+    const lastTx = result.txs[result.txs.length - 1]!.timestamp!;
+    expect(result.periodBefore.getTime()).toBeGreaterThan(
+      Number(lastTx.seconds) * 1000
+    );
   });
 });

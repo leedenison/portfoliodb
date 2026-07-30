@@ -1617,3 +1617,44 @@ func TestApplyOptionSplit_ConvergesOnStaleOldOCC(t *testing.T) {
 }
 
 func timePtrCE(t time.Time) *time.Time { return &t }
+
+// Coverage is stored per (instrument, plugin), but an import records every span
+// as data_provider = "import", so the export merges across plugins.
+func TestListCorporateEventCoverageForExport_MergesAcrossPlugins(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	instID := setupTickerInstrument(t, p, "AAPL")
+	if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", d(2020, 1, 1), d(2022, 1, 1), nil); err != nil {
+		t.Fatalf("upsert coverage massive: %v", err)
+	}
+	if err := p.UpsertCorporateEventCoverage(ctx, instID, "eodhd", d(2022, 1, 1), d(2024, 1, 1), nil); err != nil {
+		t.Fatalf("upsert coverage eodhd: %v", err)
+	}
+
+	cov, err := p.ListCorporateEventCoverageForExport(ctx)
+	if err != nil {
+		t.Fatalf("list corporate event coverage for export: %v", err)
+	}
+	if len(cov) != 1 {
+		t.Fatalf("expected the two adjacent spans merged into 1, got %d", len(cov))
+	}
+	if !cov[0].From.Equal(d(2020, 1, 1)) || !cov[0].Before.Equal(d(2024, 1, 1)) {
+		t.Errorf("expected [2020-01-01, 2024-01-01), got [%s, %s)",
+			cov[0].From.Format("2006-01-02"), cov[0].Before.Format("2006-01-02"))
+	}
+	if cov[0].IdentifierType != "MIC_TICKER" || cov[0].IdentifierValue != "AAPL" {
+		t.Errorf("got identifier %s %s", cov[0].IdentifierType, cov[0].IdentifierValue)
+	}
+}
+
+func TestListCorporateEventCoverageForExport_Empty(t *testing.T) {
+	p := testDBTx(t)
+	cov, err := p.ListCorporateEventCoverageForExport(context.Background())
+	if err != nil {
+		t.Fatalf("list corporate event coverage for export: %v", err)
+	}
+	if len(cov) != 0 {
+		t.Fatalf("expected no spans, got %d", len(cov))
+	}
+}

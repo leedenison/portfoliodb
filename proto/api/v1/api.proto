@@ -224,7 +224,7 @@ service ApiService {
   rpc ListPrices(ListPricesRequest) returns (ListPricesResponse);
 
   // Price export/import (admin-only). Export streams all cached EOD prices with best identifier per instrument; import upserts with data_provider = "import".
-  rpc ExportPrices(ExportPricesRequest) returns (stream ExportPriceRow);
+  rpc ExportPrices(ExportPricesRequest) returns (stream ExportPricesResponse);
   rpc ImportPrices(ImportPricesRequest) returns (ImportPricesResponse);
 
   // Telemetry counters (admin-only). Returns counters discovered from Redis (portfoliodb:counters:*).
@@ -270,7 +270,7 @@ service ApiService {
   // Corporate event import / export. Mirrors the price import/export RPCs:
   // import is async via the job queue, export streams every event with the
   // best identifier per instrument.
-  rpc ExportCorporateEvents(ExportCorporateEventsRequest) returns (stream ExportCorporateEventRow);
+  rpc ExportCorporateEvents(ExportCorporateEventsRequest) returns (stream ExportCorporateEventsResponse);
   rpc ImportCorporateEvents(ImportCorporateEventsRequest) returns (ImportCorporateEventsResponse);
 
   // Unhandled corporate events (reverse splits, non-whole splits, mergers, etc.)
@@ -683,6 +683,27 @@ message ListPricesResponse {
 // ExportPrices streams all cached EOD prices. Each row carries the best identifier for the instrument.
 message ExportPricesRequest {}
 
+// ExportCoverage is one half-open [from, before) coverage span for an
+// instrument, streamed alongside the rows it covers. Re-importing rows without
+// their coverage does not reproduce the exported state: only real bars are
+// exported, so the synthetic days between them are regenerated from coverage.
+message ExportCoverage {
+  string identifier_type = 1;
+  string identifier_value = 2;
+  string identifier_domain = 3;
+  string from = 4;   // YYYY-MM-DD, inclusive
+  string before = 5; // YYYY-MM-DD, exclusive
+}
+
+// ExportPricesResponse is one element of the export stream. Coverage spans are
+// sent before the rows they cover.
+message ExportPricesResponse {
+  oneof item {
+    ExportPriceRow row = 1;
+    ExportCoverage coverage = 2;
+  }
+}
+
 // ExportPriceRow is one price row with instrument identifier context.
 message ExportPriceRow {
   string identifier_type = 1;    // IdentifierType name (e.g. "ISIN", "MIC_TICKER", "OPENFIGI_TICKER")
@@ -1058,6 +1079,17 @@ message ExportCorporateEventRow {
 }
 
 message ExportCorporateEventsRequest {}
+
+// ExportCorporateEventsResponse is one element of the export stream. Coverage
+// spans are sent before the rows they cover, merged across plugins: an import
+// records them all as data_provider = "import", so the per-plugin split does
+// not survive a round trip anyway.
+message ExportCorporateEventsResponse {
+  oneof item {
+    ExportCorporateEventRow row = 1;
+    ExportCoverage coverage = 2;
+  }
+}
 
 // ImportCorporateEventRow is one corporate event row to import. When the
 // instrument is unknown, asset_class is used as the security type hint for

@@ -372,6 +372,16 @@ type ExportPriceRow struct {
 	Volume           *int64
 }
 
+// ExportCoverageRow is one half-open [From, Before) coverage span with the best
+// instrument identifier for export.
+type ExportCoverageRow struct {
+	IdentifierType   string
+	IdentifierValue  string
+	IdentifierDomain string
+	From             time.Time
+	Before           time.Time
+}
+
 // EODPriceListDB provides paginated listing of EOD prices for admin UI.
 type EODPriceListDB interface {
 	// ListPrices returns EOD prices with optional search, half-open
@@ -382,6 +392,11 @@ type EODPriceListDB interface {
 	// ListPricesForExport returns all EOD prices with the best identifier per instrument.
 	// Instruments with no identifiers are excluded.
 	ListPricesForExport(ctx context.Context) ([]ExportPriceRow, error)
+	// ListPriceCoverageForExport returns the merged date spans covered by
+	// eod_prices per instrument, with the best identifier. Synthetic rows count
+	// towards a span: ListPricesForExport omits them, so the span is what lets
+	// an import regenerate them.
+	ListPriceCoverageForExport(ctx context.Context) ([]ExportCoverageRow, error)
 }
 
 // Valid asset class values (controlled vocabulary).
@@ -829,6 +844,11 @@ type CorporateEventDB interface {
 	// instruments. When instrumentIDs is empty all coverage rows are returned.
 	// Rows are sorted by (instrument_id, plugin_id, covered_from).
 	ListCorporateEventCoverage(ctx context.Context, instrumentIDs []string) ([]CorporateEventCoverage, error)
+	// ListCorporateEventCoverageForExport returns coverage spans per instrument
+	// with the best identifier, merged across plugins. An import records every
+	// span as data_provider = "import", so the per-plugin split does not
+	// survive a round trip.
+	ListCorporateEventCoverageForExport(ctx context.Context) ([]ExportCoverageRow, error)
 
 	// CreateCorporateEventFetchBlock blocks (instrument, plugin) for future
 	// corporate-event fetch attempts. Idempotent on (instrument_id, plugin_id).

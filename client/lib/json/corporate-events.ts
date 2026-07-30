@@ -10,7 +10,7 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { AssetClass, ImportCorporateEventCoverageSchema } from "@/gen/api/v1/api_pb";
-import type { ExportCorporateEventRow, ImportCorporateEventCoverage, SplitRow } from "@/gen/api/v1/api_pb";
+import type { ExportCorporateEventRow, ExportCoverage, ImportCorporateEventCoverage, SplitRow } from "@/gen/api/v1/api_pb";
 import type { CorporateSplitImportRow } from "@/lib/portfolio-api";
 import { assetClassToStr, assetClassFromStr } from "@/lib/asset-class";
 import type { ParseError } from "@/lib/csv/standard";
@@ -30,8 +30,19 @@ interface SerializedSplit {
   first_known_at?: string;
 }
 
-/** Serialize split export rows to JSON string. */
-export function splitsToJson(rows: ExportCorporateEventRow[]): string {
+interface SerializedCoverage {
+  identifier_type: string;
+  identifier_value: string;
+  identifier_domain?: string;
+  from: string;
+  before: string;
+}
+
+/**
+ * Serialize split export rows to a JSON string in the canonical object form.
+ * Coverage is written in the specific form, one entry per instrument.
+ */
+export function splitsToJson(rows: ExportCorporateEventRow[], coverage?: ExportCoverage[]): string {
   const serialized: SerializedSplit[] = rows
     .filter((r) => r.event.case === "split")
     .map((r) => {
@@ -49,7 +60,20 @@ export function splitsToJson(rows: ExportCorporateEventRow[]): string {
       if (split.firstKnownAt) obj.first_known_at = timestampDate(split.firstKnownAt).toISOString();
       return obj;
     });
-  return JSON.stringify(serialized, null, 2) + "\n";
+  const out: { events: SerializedSplit[]; coverage?: SerializedCoverage[] } = { events: serialized };
+  if (coverage && coverage.length > 0) {
+    out.coverage = coverage.map((c) => {
+      const obj: SerializedCoverage = {
+        identifier_type: c.identifierType,
+        identifier_value: c.identifierValue,
+        from: c.from,
+        before: c.before,
+      };
+      if (c.identifierDomain) obj.identifier_domain = c.identifierDomain;
+      return obj;
+    });
+  }
+  return JSON.stringify(out, null, 2) + "\n";
 }
 
 export interface SplitParseResult {

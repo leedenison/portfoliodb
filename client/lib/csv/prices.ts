@@ -5,7 +5,7 @@
 import Papa from "papaparse";
 import { create } from "@bufbuild/protobuf";
 import { ImportPriceRowSchema, ImportCoverageSchema } from "@/gen/api/v1/api_pb";
-import type { ExportPriceRow, ImportPriceRow, ImportCoverage } from "@/gen/api/v1/api_pb";
+import type { ExportCoverage, ExportPriceRow, ImportPriceRow, ImportCoverage } from "@/gen/api/v1/api_pb";
 import type { ParseError } from "./standard";
 import { assetClassToStr, assetClassFromStr } from "@/lib/asset-class";
 import { VALID_IDENTIFIER_TYPES } from "@/lib/identifiers";
@@ -40,8 +40,14 @@ function fmtOptBigint(v: bigint | undefined): string {
   return v === undefined ? "" : String(v);
 }
 
-/** Serialize ExportPriceRow[] to CSV text. */
-export function pricesToCsv(rows: ExportPriceRow[], exportedAt?: Date): string {
+/**
+ * Serialize ExportPriceRow[] to CSV text.
+ *
+ * Coverage spans are written as "# coverage=" headers in the specific form.
+ * They matter: the export omits synthetic rows, so the spans are what let a
+ * re-import regenerate the filled days rather than leaving them as gaps.
+ */
+export function pricesToCsv(rows: ExportPriceRow[], exportedAt?: Date, coverage?: ExportCoverage[]): string {
   const data = rows.map((r) => [
     r.identifierType,
     r.identifierValue,
@@ -57,10 +63,14 @@ export function pricesToCsv(rows: ExportPriceRow[], exportedAt?: Date): string {
     r.currency,
   ]);
   const csv = Papa.unparse({ fields: HEADER.split(","), data }, { newline: "\n" }) + "\n";
-  if (exportedAt) {
-    return `${EXPORTED_AT_PREFIX}${exportedAt.toISOString()}\n${csv}`;
+  const headers: string[] = [];
+  if (exportedAt) headers.push(`${EXPORTED_AT_PREFIX}${exportedAt.toISOString()}`);
+  for (const c of coverage ?? []) {
+    headers.push(
+      `${COVERAGE_PREFIX}${c.identifierType},${c.identifierValue},${c.identifierDomain},${c.from},${c.before}`,
+    );
   }
-  return csv;
+  return headers.length > 0 ? `${headers.join("\n")}\n${csv}` : csv;
 }
 
 export interface PriceParseResult {

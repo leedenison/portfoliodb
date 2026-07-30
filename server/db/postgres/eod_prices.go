@@ -163,3 +163,52 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 	}
 	return out, nil
 }
+
+// exportCoverageRow is a sqlx-scannable version of db.ExportCoverageRow.
+type exportCoverageRow struct {
+	IdentifierType   string    `db:"identifier_type"`
+	IdentifierValue  string    `db:"value"`
+	IdentifierDomain string    `db:"domain"`
+	From             time.Time `db:"covered_from"`
+	Before           time.Time `db:"covered_before"`
+}
+
+func toExportCoverageRows(rows []exportCoverageRow) []db.ExportCoverageRow {
+	out := make([]db.ExportCoverageRow, len(rows))
+	for i, r := range rows {
+		out[i] = db.ExportCoverageRow{
+			IdentifierType:   r.IdentifierType,
+			IdentifierValue:  r.IdentifierValue,
+			IdentifierDomain: r.IdentifierDomain,
+			From:             r.From,
+			Before:           r.Before,
+		}
+	}
+	return out
+}
+
+// ListPriceCoverageForExport implements db.EODPriceListDB.
+//
+// Synthetic rows are included in the aggregation even though
+// ListPricesForExport omits them: the span is exactly what tells an import
+// which days to regenerate.
+func (p *Postgres) ListPriceCoverageForExport(ctx context.Context) ([]db.ExportCoverageRow, error) {
+	q := `
+		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
+			lower(sub.r) AS covered_from, upper(sub.r) AS covered_before
+		FROM (
+			SELECT instrument_id,
+				unnest(range_agg(daterange(price_date, price_date + 1))) AS r
+			FROM eod_prices
+			GROUP BY instrument_id
+		) sub
+		JOIN instruments i ON i.id = sub.instrument_id
+		` + bestIdentifierJoin + `
+		ORDER BY best_id.identifier_type, best_id.value, covered_from
+	`
+	var rows []exportCoverageRow
+	if err := p.q.SelectContext(ctx, &rows, q); err != nil {
+		return nil, fmt.Errorf("list price coverage for export: %w", err)
+	}
+	return toExportCoverageRows(rows), nil
+}

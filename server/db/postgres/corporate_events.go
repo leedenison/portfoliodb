@@ -596,7 +596,7 @@ func (p *Postgres) BlockedCorporateEventPluginsForInstruments(ctx context.Contex
 
 // ApplyOptionSplit implements db.CorporateEventDB. All mutations run in a
 // single transaction: delete old OCC, insert new OCC, update strike,
-// recompute split-adjusted tx values, update identified_at. The split_factor_at
+// recompute split-adjusted tx values, advance identity_as_of. The split_factor_at
 // SQL function looks up splits via the underlying_id FK, so no derived split
 // row is needed on the option instrument.
 func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitParams) error {
@@ -619,8 +619,8 @@ func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitPa
 		if err := txp.RecomputeSplitAdjustments(ctx, params.InstrumentID); err != nil {
 			return fmt.Errorf("apply option split: recompute adjustments: %w", err)
 		}
-		if err := txp.UpdateIdentifiedAt(ctx, params.InstrumentID); err != nil {
-			return fmt.Errorf("apply option split: update identified_at: %w", err)
+		if err := txp.UpdateIdentityAsOf(ctx, params.InstrumentID); err != nil {
+			return fmt.Errorf("apply option split: update identity_as_of: %w", err)
 		}
 		return nil
 	})

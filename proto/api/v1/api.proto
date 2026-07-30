@@ -116,6 +116,10 @@ message Instrument {
   string expiry = 15;             // YYYY-MM-DD expiry date; empty for non-options.
   string put_call = 16;           // "C" or "P"; empty for non-options.
   double contract_multiplier = 17; // Deliverable multiplier; 1 = standard.
+  // The point in market time this identity reflects. Carried on export and
+  // restored on import so a round trip does not make an already-adjusted option
+  // look unadjusted. Unset means the identity predates every split.
+  google.protobuf.Timestamp identity_as_of = 18;
 }
 
 // Exchange is ISO 10383 MIC reference data for an instrument's exchange.

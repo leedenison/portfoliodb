@@ -125,9 +125,15 @@ Adjustment math:
 
 The cost-basis invariant `qty × price == split_adjusted_quantity × split_adjusted_unit_price` is preserved by construction.
 
-### Scope: STOCK and ETF only
+### Option contracts
 
-The current adjustment pass only applies to instruments with `asset_class IN ('STOCK', 'ETF')`; the `HeldStockEtfInstruments` query filters to STOCK and ETF, and underlyings of held options are not currently fetched. Option adjustment is deferred (see adr/0005-corporate-events-design.md).
+A split on an option's underlying restates the option itself: OCC adjusts the contract on the ex_date, so its symbol and strike change. `ProcessOptionSplits` applies that adjustment retroactively to stored options, replacing the OCC identifier and strike and recomputing the option's `split_adjusted_*` values.
+
+Whether an option still needs adjusting is decided by comparing `instruments.identity_as_of` -- the point in market time its stored identity reflects -- against the split's `ex_date`. An identity derived on or after the ex_date already carries the adjusted symbol and is left alone; one derived before it does not, however long the split had been known, because providers list the pre-split symbol until the ex_date. Knowledge time is not consulted. See adr/0017-option-identity-reflects-ex-date.md.
+
+Non-whole-forward splits (reverse splits, fractional ratios) are not applied: they are routed to `unhandled_corporate_events` for manual review. `contract_multiplier` is never adjusted automatically.
+
+The instruments fetched each cycle come from `HeldEventBearingInstruments`: direct STOCK and ETF holdings, plus the underlyings of held OPTION and FUTURE positions.
 
 ### Dividends
 

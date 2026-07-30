@@ -10,6 +10,19 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// restoreIdentityAsOf carries an exported identity_as_of back onto an imported
+// instrument. Without it a round trip would leave the column NULL and an option
+// that had already been split-adjusted would look unadjusted to the retroactive
+// adjustment pass, which would adjust it a second time. A payload with no
+// identity_as_of leaves the stored value alone.
+func (s *Server) restoreIdentityAsOf(ctx context.Context, instrumentID string, inst *apiv1.Instrument) error {
+	ts := inst.GetIdentityAsOf()
+	if instrumentID == "" || ts == nil || !ts.IsValid() {
+		return nil
+	}
+	return s.db.SetIdentityAsOf(ctx, instrumentID, ts.AsTime())
+}
+
 // ListInstruments returns instruments sorted alphabetically with optional search. Any authenticated user.
 func (s *Server) ListInstruments(ctx context.Context, req *apiv1.ListInstrumentsRequest) (*apiv1.ListInstrumentsResponse, error) {
 	if _, authErr := auth.RequireUser(ctx); authErr != nil {
@@ -126,9 +139,13 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
 			idns = append(idns, db.IdentifierInput{Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
-		_, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, "", protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()), nil)
+		id, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, "", protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()), nil)
 		if err != nil {
 			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: err.Error()})
+			continue
+		}
+		if err := s.restoreIdentityAsOf(ctx, id, inst); err != nil {
+			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: "identity_as_of: " + err.Error()})
 			continue
 		}
 		ensuredCount++
@@ -154,6 +171,10 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 		underlyingID, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(u.GetAssetClass()), u.GetExchange(), u.GetCurrency(), u.GetName(), u.GetCik(), u.GetSicCode(), uIdns, "", protoValidFrom(u.GetValidFrom()), protoValidTo(u.GetValidTo()), nil)
 		if err != nil {
 			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: "underlying: " + err.Error()})
+			continue
+		}
+		if err := s.restoreIdentityAsOf(ctx, underlyingID, u); err != nil {
+			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: "underlying identity_as_of: " + err.Error()})
 			continue
 		}
 		underlyingIDByIndex[int32(i)] = underlyingID
@@ -192,9 +213,13 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
 			idns = append(idns, db.IdentifierInput{Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
-		_, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, underlyingID, protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()), nil)
+		id, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, underlyingID, protoValidFrom(inst.GetValidFrom()), protoValidTo(inst.GetValidTo()), nil)
 		if err != nil {
 			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: err.Error()})
+			continue
+		}
+		if err := s.restoreIdentityAsOf(ctx, id, inst); err != nil {
+			errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: "identity_as_of: " + err.Error()})
 			continue
 		}
 		ensuredCount++

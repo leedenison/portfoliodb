@@ -265,7 +265,7 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 
 	if assetClass != "" && pluginRegistry != nil {
 		fallback := func(ctx context.Context, database db.DB) (string, error) {
-			return ensureWithSuppliedIdentifier(ctx, database, assetClass, currency, idType, domain, value)
+			return ensureWithSuppliedIdentifier(ctx, database, assetClass, currency, idType, domain, value, hintsValidAt)
 		}
 		result, err := identification.ResolveWithPlugins(ctx, database, pluginRegistry,
 			"", "", "", hints,
@@ -294,14 +294,25 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		diffs := identification.CompareHints(ctx, hints, []identifier.Identifier{hint}, inst, nil, normMIC)
 		return identification.ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs}, nil
 	}
-	id, err := ensureWithSuppliedIdentifier(ctx, database, assetClass, currency, idType, domain, value)
+	id, err := ensureWithSuppliedIdentifier(ctx, database, assetClass, currency, idType, domain, value, hintsValidAt)
 	if err != nil {
 		return identification.ResolveResult{}, err
 	}
 	return identification.ResolveResult{InstrumentID: id}, nil
 }
 
-func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClass, currency, idType, domain, value string) (string, error) {
+// ensureWithSuppliedIdentifier creates an instrument from a price import row
+// whose identifier no plugin resolved. The row's identifier is stored exactly as
+// supplied -- in particular an OCC symbol is NOT split-adjusted here, because the
+// adjustment ResolveWithPlugins performs applies to its own hint list, not to the
+// value this fallback closes over. The identity therefore reflects the market as
+// of the request's declared exported_at, and identityAsOf records that. Leaving
+// it NULL would tell the retroactive option-split pass that the identity predates
+// every split, and it would re-apply splits already baked into the supplied OCC.
+// A request with no exported_at is being taken at face value as current (the
+// caller has already warned that OCC symbols will not be split-adjusted), so the
+// vintage is now.
+func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClass, currency, idType, domain, value string, identityAsOf *time.Time) (string, error) {
 	slog.Debug("creating instrument from price import with supplied identifier only",
 		"identifier_type", idType, "identifier_domain", domain, "identifier_value", value,
 		"asset_class", assetClass, "currency", currency)
@@ -326,7 +337,18 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 		}
 	}
 
-	return database.EnsureInstrument(ctx, assetClass, "", currency, "", "", "",
+	id, err := database.EnsureInstrument(ctx, assetClass, "", currency, "", "", "",
 		[]db.IdentifierInput{{Type: idType, Domain: domain, Value: value, Canonical: true}},
 		underlyingID, nil, nil, optFields)
+	if err != nil {
+		return "", err
+	}
+	if identityAsOf != nil {
+		if err := database.SetIdentityAsOf(ctx, id, *identityAsOf); err != nil {
+			return "", fmt.Errorf("set identity_as_of: %w", err)
+		}
+	} else if err := database.UpdateIdentityAsOf(ctx, id); err != nil {
+		return "", fmt.Errorf("update identity_as_of: %w", err)
+	}
+	return id, nil
 }

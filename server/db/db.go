@@ -535,7 +535,7 @@ type InstrumentRow struct {
 	Expiry              *time.Time // denormalized from OCC; NULL for non-options
 	PutCall             *string    // "C" or "P"; NULL for non-options
 	ContractMultiplier  float64    // deliverable multiplier; 1 = standard
-	IdentifiedAt        *time.Time // last identification timestamp
+	IdentityAsOf        *time.Time // point in market time the stored identity reflects; NULL predates every split
 	Identifiers         []IdentifierInput
 	ProviderIdentifiers []ProviderIdentifierInput // provider-specific identifiers
 	ExchangeName        *string                   // read-only; from exchanges JOIN
@@ -612,8 +612,16 @@ type InstrumentDB interface {
 	UpdateInstrumentStrike(ctx context.Context, instrumentID string, strike float64) error
 	// UpdateInstrumentName updates the name on an existing instrument.
 	UpdateInstrumentName(ctx context.Context, instrumentID, name string) error
-	// UpdateIdentifiedAt sets identified_at = now() on an existing instrument.
-	UpdateIdentifiedAt(ctx context.Context, instrumentID string) error
+	// UpdateIdentityAsOf sets identity_as_of = now() on an existing instrument.
+	// Call only when the identity has genuinely been re-derived from current
+	// market data; an incidental touch must leave the column alone.
+	UpdateIdentityAsOf(ctx context.Context, instrumentID string) error
+	// SetIdentityAsOf advances identity_as_of to an explicit time, for a caller
+	// that knows the vintage of the identity it supplied -- an instrument import
+	// restoring an exported value, or a price import declaring exported_at. The
+	// column only ever moves forward: a lower value is ignored, so a stale file
+	// cannot re-expose an already-adjusted option to the split pass.
+	SetIdentityAsOf(ctx context.Context, instrumentID string, t time.Time) error
 	// SaveProviderIdentifiers inserts provider-specific identifiers for an instrument.
 	// Duplicates (same instrument, provider, type, domain, value) are silently ignored.
 	SaveProviderIdentifiers(ctx context.Context, instrumentID string, ids []ProviderIdentifierInput) error
@@ -838,9 +846,11 @@ type CorporateEventDB interface {
 
 	// ApplyOptionSplit atomically adjusts an option contract for a stock
 	// split on its underlying: replaces the OCC identifier, updates the
-	// strike, inserts a derived split row, recomputes split-adjusted tx
-	// values, and updates identified_at. All mutations run in a single
-	// transaction so partial failure cannot leave the option inconsistent.
+	// strike and name, recomputes split-adjusted tx values, and advances
+	// identity_as_of. All mutations run in a single transaction so partial
+	// failure cannot leave the option inconsistent. No derived split row is
+	// written on the option -- split_factor_at resolves splits through the
+	// underlying_id FK.
 	ApplyOptionSplit(ctx context.Context, params OptionSplitParams) error
 
 	// InsertUnhandledCorporateEvent stores a corporate event that requires

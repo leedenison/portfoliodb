@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -11,6 +12,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestProcessPriceImport_RejectsUnknownIdentifierType(t *testing.T) {
@@ -197,10 +199,10 @@ func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(
 		Coverage: []*apiv1.ImportCoverage{
 			{
 				// Coverage for a different instrument.
-				IdentifierType:   "FX_PAIR",
-				IdentifierValue:  "GBPUSD",
-				From:             "2024-01-01",
-				To:               "2024-04-01",
+				IdentifierType:  "FX_PAIR",
+				IdentifierValue: "GBPUSD",
+				From:            "2024-01-01",
+				To:              "2024-04-01",
 			},
 		},
 	}
@@ -415,6 +417,8 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 			[]db.IdentifierInput{{Type: "FX_PAIR", Domain: "", Value: "EURGBP", Canonical: true}},
 			"", nil, nil, nil).
 		Return("inst-eurgbp", nil)
+	// No exported_at, so the vintage is now.
+	database.EXPECT().UpdateIdentityAsOf(gomock.Any(), "inst-eurgbp").Return(nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-fx").Return(nil)
 	database.EXPECT().
 		UpsertPrices(gomock.Any(), gomock.Any()).
@@ -486,6 +490,9 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 			[]db.IdentifierInput{{Type: "OCC", Domain: "", Value: "NVDA240315P00510000", Canonical: true}},
 			"inst-nvda", nil, nil, gomock.Not(gomock.Nil())).
 		Return("inst-opt", nil)
+	// No exported_at on the request, so the supplied OCC is taken at face value
+	// as current and the vintage is now.
+	database.EXPECT().UpdateIdentityAsOf(gomock.Any(), "inst-opt").Return(nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-opt").Return(nil)
 	database.EXPECT().
 		UpsertPrices(gomock.Any(), gomock.Any()).
@@ -493,6 +500,77 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-price-opt", apiv1.JobStatus_SUCCESS).
 		Return(nil)
+
+	if !processPriceImport(ctx, database, registry, j) {
+		t.Error("expected persisted=true after a successful upsert")
+	}
+}
+
+// TestProcessPriceImport_OptionFallbackStampsExportedAt is the regression test
+// for the price-import half of issue 0055. The fallback stores the supplied OCC
+// verbatim -- ResolveWithPlugins split-adjusts its own hint list, not the value
+// this path closes over -- so the identity reflects the market as of the
+// request's exported_at, and that is what must be stamped.
+//
+// Leaving identity_as_of NULL would tell the retroactive option-split pass that
+// the identity predates every split, and it would re-apply splits already baked
+// into the stored OCC, dividing the strike a second time.
+func TestProcessPriceImport_OptionFallbackStampsExportedAt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+
+	exportedAt := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	req := &apiv1.ImportPricesRequest{
+		ExportedAt: timestamppb.New(exportedAt),
+		Prices: []*apiv1.ImportPriceRow{
+			{
+				IdentifierType:  "OCC",
+				IdentifierValue: "NVDA240315P00510000",
+				PriceDate:       "2024-03-01",
+				Close:           12.50,
+				AssetClass:      apiv1.AssetClass_ASSET_CLASS_OPTION,
+				Currency:        "USD",
+			},
+		},
+	}
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	j := &JobRequest{JobID: "job-price-vintage", JobType: "price"}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-price-vintage").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-price-vintage").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-price-vintage", int32(1)).Return(nil)
+	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), "identifier").Return(nil, nil)
+	database.EXPECT().SplitsByUnderlyingTicker(gomock.Any(), "NVDA").Return(nil, nil).AnyTimes()
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", "NVDA240315P00510000").
+		Return("", "", "", "", nil)
+	database.EXPECT().
+		FindInstrumentByTypeAndValue(gomock.Any(), "OCC", "NVDA240315P00510000").
+		Return("", nil)
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "NVDA").
+		Return("inst-nvda", "STOCK", "XNAS", "USD", nil)
+	database.EXPECT().
+		EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "",
+			[]db.IdentifierInput{{Type: "OCC", Domain: "", Value: "NVDA240315P00510000", Canonical: true}},
+			"inst-nvda", nil, nil, gomock.Not(gomock.Nil())).
+		Return("inst-opt", nil)
+
+	// The assertion: the file's declared vintage, not now() and not NULL.
+	database.EXPECT().SetIdentityAsOf(gomock.Any(), "inst-opt", exportedAt).Return(nil)
+
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-vintage").Return(nil)
+	database.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil)
+	database.EXPECT().SetJobStatus(gomock.Any(), "job-price-vintage", apiv1.JobStatus_SUCCESS).Return(nil)
 
 	if !processPriceImport(ctx, database, registry, j) {
 		t.Error("expected persisted=true after a successful upsert")

@@ -174,8 +174,8 @@ func TestUpsertStockSplits_PreservesKnowledgeTime(t *testing.T) {
 		`UPDATE stock_splits SET first_known_at = $1 WHERE instrument_id = $2`, instID)
 
 	// The provider revises the ratio. When we first learned of the split does
-	// not change just because the ratio did -- ProcessOptionSplits compares it
-	// against instruments.identified_at.
+	// not change just because the ratio did -- it is carried across corporate
+	// event export and import.
 	split.SplitTo = "5"
 	split.DataProvider = "eodhd"
 	if err := p.UpsertStockSplits(ctx, []db.StockSplit{split}); err != nil {
@@ -963,9 +963,10 @@ func TestApplyOptionSplit(t *testing.T) {
 		t.Errorf("split_adjusted_unit_price: got %v, want 37.5", saPrice)
 	}
 
-	// Verify identified_at was updated.
-	if inst.IdentifiedAt == nil {
-		t.Error("identified_at not set")
+	// The adjustment advances identity_as_of: the stored identity now reflects
+	// the split, which is what stops the pass applying it a second time.
+	if inst.IdentityAsOf == nil {
+		t.Error("identity_as_of not set")
 	}
 }
 

@@ -1076,15 +1076,15 @@ message ImportCorporateEventRow {
 }
 
 // ImportCorporateEventCoverage declares that the caller intends to cover a
-// closed [from, to] date interval for an instrument. The server records a
-// corporate_event_coverage row tagged data_provider = "import" so the
+// half-open [from, before) date interval for an instrument. The server records
+// a corporate_event_coverage row tagged data_provider = "import" so the
 // background worker does not refetch the same range from a plugin.
 message ImportCorporateEventCoverage {
   string identifier_type = 1;
   string identifier_value = 2;
   string identifier_domain = 3;
-  string from = 4; // YYYY-MM-DD inclusive
-  string to = 5;   // YYYY-MM-DD inclusive
+  string from = 4;   // YYYY-MM-DD, inclusive
+  string before = 5; // YYYY-MM-DD, exclusive; must be after from
 }
 
 message ImportCorporateEventsRequest {

@@ -90,7 +90,7 @@ A separate CSV is used to import stock splits and cash dividends via the `Import
 
 ## Coverage rows
 
-The importer also accepts coverage declarations in a separate CSV (or section). Each row records that the caller has authoritative coverage for the closed `[from, to]` interval; the server stores a `corporate_event_coverage` row tagged `data_provider = "import"` so the background fetcher does not refetch the same range from a plugin.
+The importer also accepts coverage declarations in a separate CSV (or section). Each row records that the caller has authoritative coverage for the half-open `[from, before)` interval; the server stores a `corporate_event_coverage` row tagged `data_provider = "import"` so the background fetcher does not refetch the same range from a plugin.
 
 | Column | Required | Description |
 | ------ | -------- | ----------- |
@@ -98,7 +98,7 @@ The importer also accepts coverage declarations in a separate CSV (or section). 
 | `identifier_value` | Yes | As above. |
 | `identifier_domain` | No | As above. |
 | `from` | Yes | `YYYY-MM-DD` inclusive. |
-| `to` | Yes | `YYYY-MM-DD` inclusive. |
+| `before` | Yes | `YYYY-MM-DD` exclusive; must be after `from`. To cover through 31 December 2024, send `2025-01-01`. |
 
 ## Example
 

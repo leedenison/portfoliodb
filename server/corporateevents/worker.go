@@ -154,7 +154,8 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		coverageByInst[c.InstrumentID] = append(coverageByInst[c.InstrumentID], c)
 	}
 
-	endDate := time.Now().UTC().Truncate(db.Day).AddDate(0, 0, DefaultLookaheadDays)
+	// Exclusive, so the last day fetched is today + DefaultLookaheadDays.
+	endBefore := time.Now().UTC().Truncate(db.Day).AddDate(0, 0, DefaultLookaheadDays+1)
 	for _, h := range held {
 		if ctx.Err() != nil {
 			return
@@ -163,20 +164,20 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if inst == nil {
 			continue
 		}
-		processInstrument(ctx, database, plugins, inst, h.EarliestTxDate, endDate,
+		processInstrument(ctx, database, plugins, inst, h.EarliestTxDate, endBefore,
 			coverageByInst[h.InstrumentID], blocked[h.InstrumentID], log)
 	}
 }
 
 // processInstrument fills the missing date intervals for one instrument by
-// walking plugins in precedence order. The required range is the closed
-// interval [earliestTxDate, endDate]. Coverage rows for the instrument are
+// walking plugins in precedence order. The required range is the half-open
+// interval [earliestTxDate, endBefore). Coverage rows for the instrument are
 // subtracted to produce the missing intervals; each missing interval is
 // offered to plugins one at a time. The first plugin that returns a
 // successful response (including an empty result) records coverage and
 // claims that interval; lower-precedence plugins are not consulted for it.
-func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntry, inst *db.InstrumentRow, earliestTxDate, endDate time.Time, coverage []db.CorporateEventCoverage, blocked map[string]bool, log *slog.Logger) {
-	missing := computeMissingIntervals(earliestTxDate, endDate, coverage)
+func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntry, inst *db.InstrumentRow, earliestTxDate, endBefore time.Time, coverage []db.CorporateEventCoverage, blocked map[string]bool, log *slog.Logger) {
+	missing := computeMissingIntervals(earliestTxDate, endBefore, coverage)
 	if len(missing) == 0 {
 		return
 	}
@@ -291,32 +292,20 @@ func processInstrument(ctx context.Context, database db.DB, plugins []pluginEntr
 	}
 }
 
-// computeMissingIntervals returns the closed [from, to] date intervals that
-// are not covered by any of the supplied coverage rows. The required range
-// is [earliestTxDate, endDate]. Adjacent coverage intervals are not merged
-// here -- they are already merged in the DB by UpsertCorporateEventCoverage.
-//
-// Implementation: convert closed intervals to half-open [from, to+1day),
-// reuse db.SubtractRanges, then convert back to closed. The returned
-// db.DateRange therefore carries an inclusive value in Before, because
-// corporate event coverage is the one interval still stored closed.
-func computeMissingIntervals(earliestTxDate, endDate time.Time, coverage []db.CorporateEventCoverage) []db.DateRange {
-	if !earliestTxDate.Before(endDate) && !earliestTxDate.Equal(endDate) {
+// computeMissingIntervals returns the [earliestTxDate, endBefore) date
+// intervals that are not covered by any of the supplied coverage rows.
+// Adjacent coverage intervals are not merged here -- they are already merged in
+// the DB by UpsertCorporateEventCoverage.
+func computeMissingIntervals(earliestTxDate, endBefore time.Time, coverage []db.CorporateEventCoverage) []db.DateRange {
+	if !earliestTxDate.Before(endBefore) {
 		return nil
 	}
-	needed := []db.DateRange{{From: earliestTxDate, Before: endDate.Add(db.Day)}}
+	needed := []db.DateRange{{From: earliestTxDate, Before: endBefore}}
 	cached := make([]db.DateRange, 0, len(coverage))
 	for _, c := range coverage {
-		cached = append(cached, db.DateRange{From: c.CoveredFrom, Before: c.CoveredTo.Add(db.Day)})
+		cached = append(cached, db.DateRange{From: c.CoveredFrom, Before: c.CoveredBefore})
 	}
-	cached = db.MergeRanges(cached)
-	gaps := db.SubtractRanges(needed, cached)
-	out := make([]db.DateRange, 0, len(gaps))
-	for _, g := range gaps {
-		// Convert half-open back to closed.
-		out = append(out, db.DateRange{From: g.From, Before: g.Before.Add(-db.Day)})
-	}
-	return out
+	return db.SubtractRanges(needed, db.MergeRanges(cached))
 }
 
 

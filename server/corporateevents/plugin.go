@@ -44,7 +44,7 @@ type Plugin interface {
 	AcceptableCurrencies() map[string]bool
 
 	// FetchEvents fetches stock splits and cash dividends for the given
-	// instrument over the closed interval [from, to]. identifiers contains
+	// instrument over the half-open interval [from, before). identifiers contains
 	// only the types declared by SupportedIdentifierTypes. assetClass is the
 	// instrument's DB asset class string.
 	//
@@ -52,7 +52,7 @@ type Plugin interface {
 	// answer: the orchestrator records coverage and stops trying lower-
 	// precedence plugins. Use ErrPermanent or ErrTransient to signal failures
 	// instead of returning an empty result for a real error.
-	FetchEvents(ctx context.Context, config []byte, identifiers []Identifier, assetClass string, from, to time.Time) (*Events, error)
+	FetchEvents(ctx context.Context, config []byte, identifiers []Identifier, assetClass string, from, before time.Time) (*Events, error)
 
 	// DefaultConfig returns the plugin's default config JSON. Inserted on
 	// startup when no row exists so the admin can edit via the UI.

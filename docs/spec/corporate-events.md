@@ -11,7 +11,7 @@ Two event tables in PostgreSQL, both keyed by `(instrument_id, ex_date)`:
 
 Plus two auxiliary tables:
 
-- **`corporate_event_coverage`** — per `(instrument_id, plugin_id)`, the closed date intervals that have been queried successfully. Adjacent and overlapping intervals merge on insert; the merged row keeps the oldest constituent `last_fetched_at`, since a union is only as freshly confirmed as its stalest part. Coverage is the source of truth for "which date ranges have we already asked this plugin about" — see [Fetch model](#fetch-model) below.
+- **`corporate_event_coverage`** — per `(instrument_id, plugin_id)`, the half-open `[covered_from, covered_before)` date intervals that have been queried successfully. Adjacent and overlapping intervals merge on insert; the merged row keeps the oldest constituent `last_fetched_at`, since a union is only as freshly confirmed as its stalest part. Coverage is the source of truth for "which date ranges have we already asked this plugin about" — see [Fetch model](#fetch-model) below.
 - **`corporate_event_fetch_blocks`** — `(instrument_id, plugin_id, reason, first_blocked_at)`. A plugin returning a permanent error (404, 403, subscription limit) for an instrument lands here so the fetcher does not retry indefinitely.
 
 The `eod_prices` and `txs` tables also gain `split_adjusted_*` columns alongside the raw OHLCV / quantity / unit_price values, so both views are debuggable side by side. See [Adjustment](#adjustment) below.
@@ -38,7 +38,7 @@ The broker statement parsers are deferred follow-up work. They live entirely in 
 
 The corporate event fetcher worker (`server/corporateevents/worker.go`) is structurally identical to the price and inflation fetchers: it sits idle until a non-blocking signal arrives on a trigger channel, then runs one cycle. A cycle does the following per held instrument:
 
-1. Compute the required date range. Today this is `[earliest_tx_date, today + lookahead]` where the lookahead defaults to 30 days. The lookahead applies to cash dividends only, letting the database hold an upcoming-dividends calendar; the split recompute ignores future-dated rows (see [Adjustment](#adjustment) and adr/0005-corporate-events-design.md).
+1. Compute the required date range. Today this is `[earliest_tx_date, today + lookahead + 1 day)` where the lookahead defaults to 30 days, so the last day fetched is `today + lookahead`. The lookahead applies to cash dividends only, letting the database hold an upcoming-dividends calendar; the split recompute ignores future-dated rows (see [Adjustment](#adjustment) and adr/0005-corporate-events-design.md).
 2. Subtract `corporate_event_coverage` rows for the instrument (across all plugins) from the required range to compute missing intervals.
 3. For each missing interval, walk plugins in precedence order. The first plugin to return successfully (including an empty result) records a coverage row tagged with its plugin id and stops the precedence walk for that interval. An empty result is treated as authoritative coverage (see adr/0005-corporate-events-design.md).
 4. After upserting any new splits for the instrument, call `RecomputeSplitAdjustments` for that instrument so the `split_adjusted_*` columns reflect the new state.

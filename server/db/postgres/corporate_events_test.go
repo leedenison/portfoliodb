@@ -292,14 +292,14 @@ func TestUpsertCorporateEventCoverage_MergeAdjacent(t *testing.T) {
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "AAPL")
 
-	// Insert three intervals: [Jan1, Jan10], [Jan11, Jan20] (adjacent),
-	// [Feb1, Feb10] (separate).
-	for _, iv := range []struct{ from, to time.Time }{
-		{d(2024, 1, 1), d(2024, 1, 10)},
-		{d(2024, 1, 11), d(2024, 1, 20)},
-		{d(2024, 2, 1), d(2024, 2, 10)},
+	// Insert three intervals: [Jan1, Jan11) and [Jan11, Jan21) abut, so they
+	// merge with no adjacency arithmetic; [Feb1, Feb11) stays separate.
+	for _, iv := range []struct{ from, before time.Time }{
+		{d(2024, 1, 1), d(2024, 1, 11)},
+		{d(2024, 1, 11), d(2024, 1, 21)},
+		{d(2024, 2, 1), d(2024, 2, 11)},
 	} {
-		if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", iv.from, iv.to, nil); err != nil {
+		if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", iv.from, iv.before, nil); err != nil {
 			t.Fatalf("upsert coverage %v: %v", iv, err)
 		}
 	}
@@ -311,10 +311,10 @@ func TestUpsertCorporateEventCoverage_MergeAdjacent(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 merged intervals, got %d: %+v", len(got), got)
 	}
-	if !got[0].CoveredFrom.Equal(d(2024, 1, 1)) || !got[0].CoveredTo.Equal(d(2024, 1, 20)) {
+	if !got[0].CoveredFrom.Equal(d(2024, 1, 1)) || !got[0].CoveredBefore.Equal(d(2024, 1, 21)) {
 		t.Errorf("first merged interval: %+v", got[0])
 	}
-	if !got[1].CoveredFrom.Equal(d(2024, 2, 1)) || !got[1].CoveredTo.Equal(d(2024, 2, 10)) {
+	if !got[1].CoveredFrom.Equal(d(2024, 2, 1)) || !got[1].CoveredBefore.Equal(d(2024, 2, 11)) {
 		t.Errorf("second interval: %+v", got[1])
 	}
 }
@@ -324,12 +324,12 @@ func TestUpsertCorporateEventCoverage_MergeOverlapping(t *testing.T) {
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "AAPL")
 
-	// Insert two overlapping intervals: [Jan1, Jan15] and [Jan10, Jan20].
-	for _, iv := range []struct{ from, to time.Time }{
-		{d(2024, 1, 1), d(2024, 1, 15)},
-		{d(2024, 1, 10), d(2024, 1, 20)},
+	// Insert two overlapping intervals: [Jan1, Jan16) and [Jan10, Jan21).
+	for _, iv := range []struct{ from, before time.Time }{
+		{d(2024, 1, 1), d(2024, 1, 16)},
+		{d(2024, 1, 10), d(2024, 1, 21)},
 	} {
-		if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", iv.from, iv.to, nil); err != nil {
+		if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", iv.from, iv.before, nil); err != nil {
 			t.Fatalf("upsert: %v", err)
 		}
 	}
@@ -338,8 +338,43 @@ func TestUpsertCorporateEventCoverage_MergeOverlapping(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 merged interval, got %d: %+v", len(got), got)
 	}
-	if !got[0].CoveredFrom.Equal(d(2024, 1, 1)) || !got[0].CoveredTo.Equal(d(2024, 1, 20)) {
+	if !got[0].CoveredFrom.Equal(d(2024, 1, 1)) || !got[0].CoveredBefore.Equal(d(2024, 1, 21)) {
 		t.Errorf("merged interval: %+v", got[0])
+	}
+}
+
+// A one-day gap must not close itself: the fetcher would otherwise believe it
+// had asked about a date it never asked about.
+func TestUpsertCorporateEventCoverage_LeavesGapUnmerged(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	// [Jan1, Jan11) covers through Jan 10; [Jan12, Jan20) starts a day later,
+	// leaving Jan 11 uncovered.
+	for _, iv := range []struct{ from, before time.Time }{
+		{d(2024, 1, 1), d(2024, 1, 11)},
+		{d(2024, 1, 12), d(2024, 1, 20)},
+	} {
+		if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", iv.from, iv.before, nil); err != nil {
+			t.Fatalf("upsert: %v", err)
+		}
+	}
+
+	got, _ := p.ListCorporateEventCoverage(ctx, []string{instID})
+	if len(got) != 2 {
+		t.Fatalf("expected the gap to keep the intervals apart, got %d: %+v", len(got), got)
+	}
+}
+
+func TestUpsertCorporateEventCoverage_RejectsEmptyInterval(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "AAPL")
+
+	day := d(2024, 1, 1)
+	if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", day, day, nil); err == nil {
+		t.Fatal("expected an empty interval to be rejected")
 	}
 }
 
@@ -352,11 +387,11 @@ func TestUpsertCorporateEventCoverage_MergeKeepsOldestFetchTime(t *testing.T) {
 	instID := setupInstrument(t, p, "AAPL")
 
 	old := time.Date(2020, time.March, 1, 12, 0, 0, 0, time.UTC)
-	if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", d(2015, 1, 1), d(2020, 2, 29), &old); err != nil {
+	if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", d(2015, 1, 1), d(2020, 3, 1), &old); err != nil {
 		t.Fatalf("upsert historical span: %v", err)
 	}
-	// A fresh trailing-edge fetch that abuts the historical span.
-	if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", d(2020, 3, 1), d(2020, 3, 1), nil); err != nil {
+	// A fresh trailing-edge fetch of the single day that abuts the historical span.
+	if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", d(2020, 3, 1), d(2020, 3, 2), nil); err != nil {
 		t.Fatalf("upsert trailing edge: %v", err)
 	}
 
@@ -367,7 +402,7 @@ func TestUpsertCorporateEventCoverage_MergeKeepsOldestFetchTime(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 merged interval, got %d: %+v", len(got), got)
 	}
-	if !got[0].CoveredFrom.Equal(d(2015, 1, 1)) || !got[0].CoveredTo.Equal(d(2020, 3, 1)) {
+	if !got[0].CoveredFrom.Equal(d(2015, 1, 1)) || !got[0].CoveredBefore.Equal(d(2020, 3, 2)) {
 		t.Errorf("merged interval: %+v", got[0])
 	}
 	if !got[0].LastFetchedAt.Equal(old) {
@@ -381,10 +416,10 @@ func TestUpsertCorporateEventCoverage_PerPlugin(t *testing.T) {
 	instID := setupInstrument(t, p, "AAPL")
 
 	// Different plugins should not be merged together.
-	if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", d(2024, 1, 1), d(2024, 1, 31), nil); err != nil {
+	if err := p.UpsertCorporateEventCoverage(ctx, instID, "massive", d(2024, 1, 1), d(2024, 2, 1), nil); err != nil {
 		t.Fatalf("upsert massive: %v", err)
 	}
-	if err := p.UpsertCorporateEventCoverage(ctx, instID, "eodhd", d(2024, 1, 15), d(2024, 2, 15), nil); err != nil {
+	if err := p.UpsertCorporateEventCoverage(ctx, instID, "eodhd", d(2024, 1, 15), d(2024, 2, 16), nil); err != nil {
 		t.Fatalf("upsert eodhd: %v", err)
 	}
 

@@ -318,12 +318,23 @@ func writeImportCoverage(ctx context.Context, database db.DB, coverage []*apiv1.
 			})
 			continue
 		}
-		to, err := time.Parse("2006-01-02", c.GetTo())
+		before, err := time.Parse("2006-01-02", c.GetBefore())
 		if err != nil {
 			errs = append(errs, &apiv1.ValidationError{
 				RowIndex: -1,
-				Field:    "coverage.to",
-				Message:  fmt.Sprintf("invalid to %q for %s %q", c.GetTo(), c.GetIdentifierType(), c.GetIdentifierValue()),
+				Field:    "coverage.before",
+				Message:  fmt.Sprintf("invalid before %q for %s %q", c.GetBefore(), c.GetIdentifierType(), c.GetIdentifierValue()),
+			})
+			continue
+		}
+		// Caught here rather than left to the DB: an empty interval asserts
+		// nothing, and letting it through would fail the whole import on a
+		// single bad row.
+		if !before.After(from) {
+			errs = append(errs, &apiv1.ValidationError{
+				RowIndex: -1,
+				Field:    "coverage.before",
+				Message:  fmt.Sprintf("before %q must be after from %q for %s %q", c.GetBefore(), c.GetFrom(), c.GetIdentifierType(), c.GetIdentifierValue()),
 			})
 			continue
 		}
@@ -359,7 +370,7 @@ func writeImportCoverage(ctx context.Context, database db.DB, coverage []*apiv1.
 			})
 			continue
 		}
-		if err := database.UpsertCorporateEventCoverage(ctx, entry.result.InstrumentID, db.CorporateEventProviderImport, from, to, asOf); err != nil {
+		if err := database.UpsertCorporateEventCoverage(ctx, entry.result.InstrumentID, db.CorporateEventProviderImport, from, before, asOf); err != nil {
 			return written, errs, err
 		}
 		written++

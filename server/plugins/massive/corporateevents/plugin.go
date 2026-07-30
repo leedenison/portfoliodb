@@ -78,7 +78,7 @@ func (p *Plugin) AcceptableExchanges() map[string]bool { return nil }
 // matches the instrument currency is left to the caller / display layer.
 func (p *Plugin) AcceptableCurrencies() map[string]bool { return nil }
 
-func (p *Plugin) FetchEvents(ctx context.Context, config []byte, identifiers []corporateevents.Identifier, assetClass string, from, to time.Time) (*corporateevents.Events, error) {
+func (p *Plugin) FetchEvents(ctx context.Context, config []byte, identifiers []corporateevents.Identifier, assetClass string, from, before time.Time) (*corporateevents.Events, error) {
 	ticker := tickerFromIdentifiers(identifiers)
 	if ticker == "" {
 		return nil, corporateevents.ErrNoData
@@ -89,8 +89,13 @@ func (p *Plugin) FetchEvents(ctx context.Context, config []byte, identifiers []c
 		return nil, err
 	}
 
+	// Our upper bound is exclusive; the Massive API is inclusive.
+	beforeInclusive := before.AddDate(0, 0, -1)
+	if beforeInclusive.Before(from) {
+		return nil, corporateevents.ErrNoData
+	}
 	fromStr := from.Format("2006-01-02")
-	toStr := to.Format("2006-01-02")
+	toStr := beforeInclusive.Format("2006-01-02")
 
 	splits, err := c.Splits(ctx, ticker, fromStr, toStr)
 	p.reportOutcome(ctx, err)

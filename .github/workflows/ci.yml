@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [server-test, client-test, db-test, extension-test]
+        target: [fmt-check, vet, server-test, client-test, db-test, extension-test]
     steps:
       - uses: actions/checkout@v4
       - run: make ${{ matrix.target }}

@@ -18,17 +18,17 @@ A tree makes aggregation at any level free: all accounts at one broker, all
 ISAs across brokers, one account, or everything, are the same query with a
 different prefix.
 
-0037 introduces a reserved-prefix convention for non-asset accounts
-(`Equity.`, `Imbalance.`, `Transfers.`) as the deliberate minimum needed for
-double-entry, using dot-separated `ltree`-valid names so that those strings
-migrate here unchanged. This issue is the general case: broker accounts
-themselves become paths.
+0037 classifies non-asset postings with an `account_type` enum as the deliberate
+minimum needed for double-entry. This issue is the general case: broker accounts
+themselves become paths. The two compose -- the type becomes the root label of a
+path and the broker account hangs beneath it -- so nothing in 0037 has to be
+undone first.
 
 ## Scope of the benefit
 
 This is portfolio-definition ergonomics, not correctness. The cash flow
-boundary that MWR needs is satisfied by the reserved roots in 0037, since
-classification depends only on the root, not on broker accounts being
+boundary that MWR needs is satisfied by the account types in 0037, since
+classification depends only on the type, not on broker accounts being
 hierarchical. What a full tree adds is aggregation over account subtrees --
 "everything at IBKR", "all ISAs across brokers" -- without enumerating a filter
 row per account.
@@ -46,8 +46,8 @@ depth.
 - Migrate existing `broker` + `account` pairs into paths.
 - Replace the category matching in `portfolio_matched_txs` with prefix
   matching; `portfolio_filters` rows become path prefixes.
-- Reserved accounts from 0037 become real roots rather than a naming
-  convention.
+- Account types from 0037 become real roots in the path rather than a column on
+  the posting.
 
 ## Note: decide whether this is wanted at all
 

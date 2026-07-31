@@ -38,7 +38,7 @@ Measured against `local/masters/Lee-Fidelity-CWSY.csv`:
   every penny once.
 - `Transfer To Cash Management Account For Fees` and `Cash In Ring-fenced For Fees`
   are the two sides of a cross-account transfer and never share an account or date.
-  They are 0038's Transfers.InFlight case and are not paired at ingest.
+  They are 0038's `TRANSFER_CLEARING` case and are not paired at ingest.
 
 ## Scope
 

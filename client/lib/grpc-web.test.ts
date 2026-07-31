@@ -97,16 +97,8 @@ describe("grpc-web", () => {
       const responsePayload = new Uint8Array([10, 20, 30]);
       vi.spyOn(globalThis, "fetch").mockResolvedValue(
         new Response(
-          new Uint8Array([
-            0x00,
-            0,
-            0,
-            0,
-            3,
-            10,
-            20,
-            30,
-          ]).buffer
+          new Uint8Array([0x00, 0, 0, 0, responsePayload.length, ...responsePayload])
+            .buffer
         )
       );
 
@@ -116,7 +108,7 @@ describe("grpc-web", () => {
         new Uint8Array(0)
       );
 
-      expect(result).toEqual(new Uint8Array([10, 20, 30]));
+      expect(result).toEqual(responsePayload);
     });
 
     it("throws on HTTP error", async () => {

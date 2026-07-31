@@ -55,7 +55,20 @@ in `client/lib/grpc-web.ts` (`unaryFetch` / `streamingFetch`), and decode with
 
 ## Lint and format
 
-Lint with `next lint` (`eslint-config-next`); there is no standalone eslint config.
+Lint with `make lint-ts` (`make lint-ts-fix` to autofix) and typecheck with
+`make client-typecheck` / `make extension-typecheck`. All three gate CI.
+
+`eslint.config.mjs` sits at the repo root, not in either project, and covers
+`client/` and `extension/` together -- the extension imports client modules
+through a path alias, so the rules applying to shared source cannot be allowed
+to drift. Rules are typescript-eslint's non-type-aware `recommended` for both
+trees, plus react, react-hooks and `@next/next` core-web-vitals for the client
+only.
+
+`react-hooks/set-state-in-effect` and `react-hooks/refs` are off pending 0061.
+Do not write new fetch-in-effect data loading on the strength of that -- the
+issue is to remove the pattern, not to keep adding to it.
+
 There is no Prettier config -- follow the observed style: 2-space indent, double
 quotes, semicolons, and trailing commas.
 

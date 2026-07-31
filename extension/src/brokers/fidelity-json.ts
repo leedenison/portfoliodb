@@ -76,9 +76,10 @@ function fail(message: string): StandardParseResult {
   };
 }
 
+// options is unused here but is part of the BrokerConverter signature in types.ts.
 export function convertFidelityJson(
   payload: string,
-  options?: Record<string, unknown>
+  _options?: Record<string, unknown>
 ): StandardParseResult {
   let rows: unknown;
   try {

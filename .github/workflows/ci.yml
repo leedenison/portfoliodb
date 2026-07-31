@@ -18,6 +18,7 @@ jobs:
           [
             fmt-check,
             vet,
+            lint-ts,
             client-typecheck,
             extension-typecheck,
             server-test,

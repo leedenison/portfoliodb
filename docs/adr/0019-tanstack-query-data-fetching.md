@@ -23,7 +23,11 @@ before, because this backend's `INVALID_ARGUMENT` and `UNAUTHENTICATED` will not
 succeed on a second attempt, and because retries would make the e2e suites issue
 requests their VCR cassettes have no entry for; `refetchOnWindowFocus` and
 `refetchOnReconnect` off because background refetching is new behaviour nobody
-asked for.
+asked for; and `staleTime` 0, because price fetching, corporate event discovery
+and split adjustment all change data behind the client's back, so treating a
+cached read as fresh for any window risks showing a stale table just after a
+worker has run. Mounting still paints the cached value and revalidates behind
+it, so nothing returns to a blank loading state.
 
 We did not add request cancellation. The old `cancelled` flags did not abort the
 HTTP request either -- they suppressed the `setState` -- which is what the query

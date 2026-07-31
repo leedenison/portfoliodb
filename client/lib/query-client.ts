@@ -12,8 +12,13 @@ import { QueryClient } from "@tanstack/react-query";
  *     cassettes have no entry for.
  *   - refetchOnWindowFocus / refetchOnReconnect: both default to true and would
  *     be background refetches this app has never done.
- *   - staleTime: reactStrictMode double-mounts components in dev, so a non-zero
- *     staleTime makes the second mount a cache hit instead of a second request.
+ *   - staleTime 0: price fetching, corporate event discovery and split
+ *     adjustment all change data behind the client's back, so treating a cached
+ *     read as fresh for any window risks showing a stale table right after a
+ *     worker has run. Mounting still paints the cached value immediately and
+ *     revalidates behind it, so this is not a return to a blank loading state.
+ *
+ * gcTime is left at the library default and stated only for the record.
  */
 export function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -22,7 +27,7 @@ export function createQueryClient(): QueryClient {
         retry: 0,
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
-        staleTime: 30_000,
+        staleTime: 0,
         gcTime: 5 * 60_000,
       },
     },

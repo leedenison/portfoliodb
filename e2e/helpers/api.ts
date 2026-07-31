@@ -83,14 +83,20 @@ export async function importCorporateEventsAndWait(
   );
 }
 
-/** Drain the ExportCorporateEvents stream into an array. */
+/**
+ * Drain the ExportCorporateEvents stream into an array of event rows. The
+ * stream interleaves coverage spans with the rows they cover; those are
+ * dropped here.
+ */
 export async function exportCorporateEvents(
   sessionId: string,
 ): Promise<ExportCorporateEventRow[]> {
   const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
   const rows: ExportCorporateEventRow[] = [];
-  for await (const row of client.exportCorporateEvents({}, { headers })) {
-    rows.push(row);
+  for await (const resp of client.exportCorporateEvents({}, { headers })) {
+    if (resp.item.case === "row") {
+      rows.push(resp.item.value);
+    }
   }
   return rows;
 }

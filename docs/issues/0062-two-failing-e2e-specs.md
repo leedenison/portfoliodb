@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Two e2e specs fail on main
 ---
 
@@ -34,3 +34,26 @@ Neither is covered by CI today: the workflow runs the four test targets plus the
 checks, and `e2e-test` is not among them. Adding it is a separate decision --
 the suite needs the full stack and VCR cassettes -- but the failures should be
 fixed either way.
+
+## Resolution
+
+Two unrelated causes.
+
+The knowledge-time one was a test-helper bug, not a server one.
+`ExportCorporateEvents` streams `ExportCorporateEventsResponse`, whose `item`
+oneof interleaves coverage spans with the rows they cover, and
+`exportCorporateEvents` pushed the response straight into an
+`ExportCorporateEventRow[]`. The helper now unwraps `item` and drops coverage.
+
+The split one was a real regression from 0055. Its guard compares
+`identity_as_of` against `ex_date`, but plugin resolution stamped
+`identity_as_of = now()` on the premise that a plugin reads current market data.
+That is true of the answer only when it is true of the question: an OCC lookup is
+identity by value, so a hint carrying a pre-split symbol -- because the split was
+not yet known and `AdjustOCCForKnownSplits` had nothing to rebase against --
+gets an answer about the pre-split contract. Stamping `now()` marked that
+identity as already reflecting a split it predates, so the retroactive
+adjustment was skipped permanently for the ordinary case of importing broker
+history before corporate events. `AdjustOCCForKnownSplits` now reports the market
+time its returned hints reflect and the winner path stamps that; see
+adr/0017-option-identity-reflects-ex-date.md.

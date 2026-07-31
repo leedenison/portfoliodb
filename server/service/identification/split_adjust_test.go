@@ -144,7 +144,7 @@ func TestAdjustOCCForKnownSplits_SplitAfterHintsValidAt(t *testing.T) {
 	validAt := d(2025, 1, 1)           // before split
 	timer := fixedTimer(d(2025, 7, 1)) // after split
 
-	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+	adjusted, _ := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
 	// Option expires 2025-01-17, split is 2025-06-01 (after expiry).
 	// OCC_AT_EXPIRY should have original strike (no post-hintsValidAt
@@ -184,7 +184,7 @@ func TestAdjustOCCForKnownSplits_SplitBeforeHintsValidAt(t *testing.T) {
 	validAt := d(2025, 1, 1) // after split ex_date
 	timer := fixedTimer(d(2025, 7, 1))
 
-	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+	adjusted, _ := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
 	// No split adjustment (split before hintsValidAt), but OCC_AT_EXPIRY
 	// is still emitted for the expired option.
@@ -217,7 +217,7 @@ func TestAdjustOCCForKnownSplits_FutureSplit(t *testing.T) {
 	validAt := d(2025, 1, 1)
 	timer := fixedTimer(d(2025, 6, 1)) // before split ex_date
 
-	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+	adjusted, _ := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
 	// Option expired (Jan 17 < Jun 1), so OCC_AT_EXPIRY is emitted.
 	// Split is after now, so neither OCC nor OCC_AT_EXPIRY is adjusted.
@@ -245,7 +245,7 @@ func TestAdjustOCCForKnownSplits_NilHintsValidAt(t *testing.T) {
 		{Type: "OCC", Value: "AAPL250117C00200000"},
 	}
 
-	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, nil, nil)
+	adjusted, _ := AdjustOCCForKnownSplits(ctx, mockDB, hints, nil, nil)
 
 	if adjusted[0].Value != "AAPL250117C00200000" {
 		t.Errorf("OCC should not change when hintsValidAt nil, got %q", adjusted[0].Value)
@@ -265,10 +265,76 @@ func TestAdjustOCCForKnownSplits_NonOCCHintUnchanged(t *testing.T) {
 	}
 	validAt := d(2025, 1, 1)
 
-	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, nil)
+	adjusted, _ := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, nil)
 
 	if adjusted[0].Value != "AAPL" {
 		t.Errorf("non-OCC hint should not change, got %q", adjusted[0].Value)
+	}
+}
+
+// TestAdjustOCCForKnownSplits_Vintage covers the market time the returned
+// hints reflect, which is what the caller stamps as identity_as_of. A hint
+// rebased onto today reflects now; one left alone still reflects its own
+// vintage, and a split learned of later must find it that way or the
+// retroactive option adjustment is skipped for a symbol that never had it.
+func TestAdjustOCCForKnownSplits_Vintage(t *testing.T) {
+	validAt := d(2024, 6, 15)
+	occ := []identifier.Identifier{{Type: "OCC", Value: "AAPL250117C00760000"}}
+
+	tests := []struct {
+		name   string
+		hints  []identifier.Identifier
+		splits []db.StockSplit
+		ticker string
+		want   *time.Time
+	}{
+		{
+			name:   "rebased onto today reflects now",
+			hints:  occ,
+			ticker: "AAPL",
+			splits: []db.StockSplit{{ExDate: d(2024, 8, 1), SplitFrom: "1", SplitTo: "4"}},
+			want:   nil,
+		},
+		{
+			name:   "split unknown leaves the hint at its own vintage",
+			hints:  occ,
+			ticker: "AAPL",
+			splits: nil,
+			want:   &validAt,
+		},
+		{
+			name:   "split already reflected in the hint leaves its vintage",
+			hints:  occ,
+			ticker: "AAPL",
+			splits: []db.StockSplit{{ExDate: d(2024, 1, 2), SplitFrom: "1", SplitTo: "4"}},
+			want:   &validAt,
+		},
+		{
+			name:  "no OCC hint reflects now",
+			hints: []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
+			want:  nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockDB := mock.NewMockDB(ctrl)
+			if tc.ticker != "" {
+				mockDB.EXPECT().SplitsByUnderlyingTicker(gomock.Any(), tc.ticker).Return(tc.splits, nil)
+			}
+
+			_, got := AdjustOCCForKnownSplits(context.Background(), mockDB, tc.hints, &validAt, fixedTimer(d(2026, 7, 31)))
+
+			switch {
+			case tc.want == nil && got != nil:
+				t.Errorf("vintage = %v, want nil (reflects now)", got)
+			case tc.want != nil && got == nil:
+				t.Errorf("vintage = nil, want %v", *tc.want)
+			case tc.want != nil && !got.Equal(*tc.want):
+				t.Errorf("vintage = %v, want %v", *got, *tc.want)
+			}
+		})
 	}
 }
 
@@ -342,7 +408,7 @@ func TestAdjustOCC_OCCAtExpiry_PostExpirySplit(t *testing.T) {
 	validAt := d(2024, 6, 1)           // before split
 	timer := fixedTimer(d(2025, 7, 1)) // after split
 
-	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+	adjusted, _ := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
 	if len(adjusted) != 2 {
 		t.Fatalf("want 2 hints, got %d: %+v", len(adjusted), adjusted)
@@ -380,7 +446,7 @@ func TestAdjustOCC_OCCAtExpiry_PreExpirySplit(t *testing.T) {
 	validAt := d(2024, 6, 1)
 	timer := fixedTimer(d(2025, 7, 1))
 
-	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+	adjusted, _ := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
 	// Option hasn't expired (2026-01-17 > 2025-07-01), so no OCC_AT_EXPIRY.
 	if len(adjusted) != 1 {
@@ -416,7 +482,7 @@ func TestAdjustOCC_OCCAtExpiry_MultipleSplits(t *testing.T) {
 	validAt := d(2024, 6, 1)
 	timer := fixedTimer(d(2025, 12, 1))
 
-	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+	adjusted, _ := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
 	if len(adjusted) != 2 {
 		t.Fatalf("want 2 hints, got %d: %+v", len(adjusted), adjusted)
@@ -452,7 +518,7 @@ func TestAdjustOCC_OCCAtExpiry_NotExpired(t *testing.T) {
 	validAt := d(2024, 6, 1)
 	timer := fixedTimer(d(2025, 7, 1)) // option not expired yet
 
-	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
+	adjusted, _ := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
 
 	// No OCC_AT_EXPIRY for non-expired options.
 	if len(adjusted) != 1 {

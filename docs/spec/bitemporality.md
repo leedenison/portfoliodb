@@ -68,12 +68,18 @@ leaving no record of what was believed before
 `identity_as_of` is the one exception, and it is valid time rather than knowledge
 time: it records the point in **market** time the stored identity reflects, which
 is what an option's OCC symbol and strike are a function of. It is stamped at
-derivation, because identity is only ever derived from current market data, and
-it moves only on genuine re-derivation -- a plugin identification, or a
-retroactive option split adjustment. An incidental `EnsureInstrument` match must
-leave it alone. NULL means the identity predates every split. It is compared
+derivation and moves only on genuine re-derivation -- a plugin identification, or
+a retroactive option split adjustment. An incidental `EnsureInstrument` match
+must leave it alone. NULL means the identity predates every split. It is compared
 against `stock_splits.ex_date`, never against a knowledge time
 (see adr/0017-option-identity-reflects-ex-date.md).
+
+Derivation does not imply the present. A plugin answers about the contract it was
+named, so an identity resolved from an OCC hint is only as current as that hint:
+`now()` when the hint was rebased onto today for every known split, and the
+hint's own vintage when a split we had not yet learned of left it alone. Stamping
+`now()` regardless would mark such an identity as already reflecting a split its
+symbol was derived before.
 
 ## Knowledge time
 

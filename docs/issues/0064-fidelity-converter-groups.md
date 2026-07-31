@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Fidelity converter emits transaction groups
 milestone: M12
 dependencies: [0063]

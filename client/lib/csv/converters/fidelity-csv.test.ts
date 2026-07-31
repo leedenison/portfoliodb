@@ -201,3 +201,162 @@ describe("convertFidelityToStandard", () => {
     expect(result.txs[0]!.tradingCurrency).toBe(""); // Buy is not Cash type
   });
 });
+
+describe("transaction grouping", () => {
+  const HEAD =
+    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
+  const row = (
+    type: string,
+    investments: string,
+    account: string,
+    amount: string,
+    quantity: string,
+    price: string,
+    ref: string,
+    completion = "10 Feb 2022"
+  ) =>
+    `8 Feb 2022,${completion},${type},"${investments}",Investment Account,${account},,${amount},${quantity},${price},${ref},Completed`;
+
+  const convert = (rows: string[]) =>
+    convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
+
+  it("pairs a sell with the cash in of the same amount", () => {
+    const result = convert([
+      row("Sell", "WISE PLC (WISE)", "AG1", "-7266.49", "1242", "5.85", "563466569"),
+      row("Cash In From Sell", "Cash", "AG1", "7266.49", "7266.49", "1", "563466571"),
+    ]);
+
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs[0].groupRef).toBe("563466569");
+    expect(result.txs[1].groupRef).toBe("563466569");
+  });
+
+  it("pairs a buy with the cash out despite the fee gap", () => {
+    // The buy row's Amount includes a 10.00 dealing fee that Fidelity posts as its
+    // own row, so the cash out is 10.00 smaller.
+    const result = convert([
+      row("Cash Out For Buy", "Cash", "AG1", "-7380.19", "7380.19", "1", "563466631"),
+      row("Buy", "INVESCO EQQQ (EQQQ)", "AG1", "7390.19", "28", "263.58", "563466632"),
+    ]);
+
+    expect(result.txs[0].groupRef).toBe("563466632");
+    expect(result.txs[1].groupRef).toBe("563466632");
+  });
+
+  it("leaves separately reported charges ungrouped", () => {
+    const result = convert([
+      row("Sell", "WISE PLC (WISE)", "AG1", "-7266.49", "1242", "5.85", "563466569"),
+      row("Cash In From Sell", "Cash", "AG1", "7266.49", "7266.49", "1", "563466571"),
+      row("Dealing Fee", "Cash", "AG1", "-10", "0", "0", "563466600", "8 Feb 2022"),
+    ]);
+
+    expect(result.txs[2].groupRef).toBe("");
+  });
+
+  it("does not cross-pair two sells settling the same day in one account", () => {
+    const result = convert([
+      row("Sell", "WISE PLC (WISE)", "AG1", "-100.00", "10", "10", "1001"),
+      row("Sell", "BP PLC (BP)", "AG1", "-200.00", "20", "10", "1003"),
+      row("Cash In From Sell", "Cash", "AG1", "200.00", "200", "1", "1004"),
+      row("Cash In From Sell", "Cash", "AG1", "100.00", "100", "1", "1002"),
+    ]);
+
+    // Amount, not proximity, decides: the 100.00 cash belongs to the 100.00 sell
+    // even though a different cash row sits closer in the file.
+    expect(result.txs[0].groupRef).toBe("1001");
+    expect(result.txs[3].groupRef).toBe("1001");
+    expect(result.txs[1].groupRef).toBe("1003");
+    expect(result.txs[2].groupRef).toBe("1003");
+  });
+
+  it("does not let one buy strand another by claiming its cash row", () => {
+    // The 29939.31 buy sits one reference from the 36946.72 cash out, but a fee
+    // cannot be negative, so that cash row can only belong to the larger buy.
+    const result = convert([
+      row("Cash Out For Buy", "Cash", "AP1", "-29931.81", "29931.81", "1", "819092458"),
+      row("Buy", "VANGUARD S&P 500 (VUSA)", "AP1", "29939.31", "100", "299.39", "819092460"),
+      row("Cash Out For Buy", "Cash", "AP1", "-36946.72", "36946.72", "1", "819092461"),
+      row("Buy", "INVESCO EQQQ (EQQQ)", "AP1", "36954.22", "120", "307.95", "819092463"),
+    ]);
+
+    expect(result.txs[1].groupRef).toBe("819092460");
+    expect(result.txs[0].groupRef).toBe("819092460");
+    expect(result.txs[3].groupRef).toBe("819092463");
+    expect(result.txs[2].groupRef).toBe("819092463");
+  });
+
+  it("does not pair a sell across accounts or settlement dates", () => {
+    const result = convert([
+      row("Sell", "WISE PLC (WISE)", "AG1", "-100.00", "10", "10", "1001"),
+      row("Cash In From Sell", "Cash", "AS2", "100.00", "100", "1", "1002"),
+      row("Cash In From Sell", "Cash", "AG1", "100.00", "100", "1", "1003", "11 Feb 2022"),
+    ]);
+
+    for (const tx of result.txs) {
+      expect(tx.groupRef).toBe("");
+    }
+  });
+
+  it("does not pair a buy across accounts or settlement dates", () => {
+    // Both cash rows would satisfy the fee constraint and sit one reference away,
+    // so only the account and settlement date keep them apart.
+    const result = convert([
+      row("Buy", "INVESCO EQQQ (EQQQ)", "AG1", "107.50", "10", "10", "1002"),
+      row("Cash Out For Buy", "Cash", "AS2", "-100.00", "100", "1", "1001"),
+      row("Cash Out For Buy", "Cash", "AG1", "-100.00", "100", "1", "1003", "11 Feb 2022"),
+    ]);
+
+    for (const tx of result.txs) {
+      expect(tx.groupRef).toBe("");
+    }
+  });
+
+  it("rejects a cash row inconsistent with quantity times unit price", () => {
+    // Both cash rows satisfy the fee rule for both buys, and the wrong ones sit
+    // closer in reference order. Only quantity * unit price separates them: the
+    // 100-share buy at 300 cannot have cost 8,000.
+    const result = convert([
+      row("Cash Out For Buy", "Cash", "AP1", "-8000.00", "8000", "1", "2001"),
+      row("Buy", "VANGUARD S&P 500 (VUSA)", "AP1", "30007.50", "100", "300", "2002"),
+      row("Cash Out For Buy", "Cash", "AP1", "-30000.00", "30000", "1", "2003"),
+      row("Buy", "INVESCO EQQQ (EQQQ)", "AP1", "8007.50", "20", "400", "2004"),
+    ]);
+
+    expect(result.txs[1].groupRef).toBe("2002");
+    expect(result.txs[2].groupRef).toBe("2002");
+    expect(result.txs[3].groupRef).toBe("2004");
+    expect(result.txs[0].groupRef).toBe("2004");
+  });
+
+  it("tolerates the rounding in a quoted unit price", () => {
+    // 2676 * 7.67 is 20,524.92 while the broker settled 20,514.62 -- 0.05% out,
+    // because the export rounds the price. A tighter check would reject real trades.
+    const result = convert([
+      row("Sell", "ISHARES INRG (INRG)", "AG1", "-20514.62", "2676", "7.67", "3001"),
+      row("Cash In From Sell", "Cash", "AG1", "20514.62", "20514.62", "1", "3003"),
+    ]);
+
+    expect(result.txs[0].groupRef).toBe("3001");
+    expect(result.txs[1].groupRef).toBe("3001");
+  });
+
+  it("pairs on the totals alone when no unit price is quoted", () => {
+    const result = convert([
+      row("Sell", "WISE PLC (WISE)", "AG1", "-7266.49", "1242", "", "4001"),
+      row("Cash In From Sell", "Cash", "AG1", "7266.49", "7266.49", "1", "4002"),
+    ]);
+
+    expect(result.txs[0].groupRef).toBe("4001");
+    expect(result.txs[1].groupRef).toBe("4001");
+  });
+
+  it("leaves a cash row with no trade ungrouped rather than failing", () => {
+    const result = convert([
+      row("Cash Out For Buy", "Cash", "AG1", "-401", "401", "1", "730493547"),
+    ]);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs).toHaveLength(1);
+    expect(result.txs[0].groupRef).toBe("");
+  });
+});

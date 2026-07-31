@@ -82,6 +82,129 @@ export function isCashMovement(type: TxType): boolean {
   return isCashTxType(type) || type === TxType.JRNLFUND;
 }
 
+/**
+ * One row of a Fidelity export, reduced to what pairing needs. Shared by the CSV
+ * and JSON converters so the two cannot disagree about how a trade is grouped.
+ */
+export interface FidelityLeg {
+  /** Broker transaction type, verbatim (e.g. "Buy", "Cash In From Sell"). */
+  type: string;
+  account: string;
+  /** The date both legs of a trade settle on, as the source spells it. */
+  dateKey: string;
+  /** Cash total for the row. Sign is ignored; only the magnitude pairs. */
+  amount: number;
+  /**
+   * quantity * unit price for a trade row, or 0 when the source quoted neither.
+   * Independent of `amount`, which is the broker's own total, so the two
+   * disagreeing is evidence the legs do not belong together.
+   */
+  consideration: number;
+  /** Broker reference number. NaN when the source did not supply one. */
+  ref: number;
+}
+
+const AMOUNT_EPSILON = 0.005;
+
+/**
+ * Widest relative gap tolerated between a cash leg and its trade's
+ * quantity * unit price.
+ *
+ * The two never agree exactly: the export rounds the unit price, so the product's
+ * error grows with the quantity. Across the sample exports the worst correctly
+ * paired trade is 0.16% out, so 0.5% clears every real pairing while rejecting a
+ * swapped cash row, which is off by whole percentage points.
+ *
+ * This cannot replace the fee rule below. A fee gap is around 0.02% of a trade, far
+ * inside this band, so two similar trades settling the same day would both pass it.
+ */
+const CONSIDERATION_BAND = 0.005;
+
+/**
+ * Assigns a group_ref to each leg, returning refs parallel to the input. An empty
+ * string means the leg is its own single-posting group.
+ *
+ * Fidelity reports the cash side of a trade as a separate row, so the two legs are
+ * paired here rather than a cash leg being derived, which would post the money
+ * twice. Both rules are measured against the sample exports in local/masters: sells
+ * pair 91/91 and buys 78/78.
+ *
+ * Charges (dealing fee, PTM levy, stamp duty, FX charge) are never grouped with a
+ * trade. Fidelity dates them on the order date while the trade settles later, so
+ * folding them in would misdate them, and their money is already accounted for by
+ * their own rows.
+ */
+export function assignFidelityGroups(legs: FidelityLeg[]): string[] {
+  const refs = legs.map(() => "");
+  // NUL separator, written as an escape so this file stays plain text. A Fidelity
+  // date is "10 Feb 2022", so a separator a date could contain risks two different
+  // (account, date) pairs collapsing onto one key.
+  const bucket = (l: FidelityLeg) => `${l.account}\u0000${l.dateKey}`;
+  const indices = (type: string) =>
+    legs.map((l, i) => (l.type === type && Number.isFinite(l.ref) ? i : -1)).filter((i) => i >= 0);
+
+  const pair = (securityIdx: number, cashIdx: number) => {
+    const ref = String(legs[securityIdx].ref);
+    refs[securityIdx] = ref;
+    refs[cashIdx] = ref;
+  };
+
+  // Both rules below match one broker-supplied total against another, so neither
+  // notices a cash row that is internally consistent but belongs to a different
+  // trade. quantity * unit price is derived from different fields, which makes it an
+  // independent check: a swapped cash row misses it by percentage points.
+  const consistent = (security: FidelityLeg, cash: FidelityLeg) => {
+    const expected = Math.abs(security.consideration);
+    // Nothing quoted to check against. Absence is not evidence of a bad pairing.
+    if (expected === 0) return true;
+    return Math.abs(Math.abs(cash.amount) - expected) / expected <= CONSIDERATION_BAND;
+  };
+
+  // Sells: the cash in equals the proceeds exactly, so the amount identifies it.
+  const usedCash = new Set<number>();
+  const cashIn = indices("Cash In From Sell");
+  for (const s of indices("Sell")) {
+    const match = cashIn.find(
+      (c) =>
+        !usedCash.has(c) &&
+        bucket(legs[c]) === bucket(legs[s]) &&
+        Math.abs(Math.abs(legs[c].amount) - Math.abs(legs[s].amount)) < AMOUNT_EPSILON &&
+        consistent(legs[s], legs[c])
+    );
+    if (match !== undefined) {
+      usedCash.add(match);
+      pair(s, match);
+    }
+  }
+
+  // Buys: the cash out is the consideration while the buy row's amount adds the
+  // charges, so the amounts differ by a fee. A fee cannot be negative, which rules
+  // out the cash row of a larger trade in the same bucket; among what survives, the
+  // nearest reference number wins. Candidates are ranked globally rather than taken
+  // in row order so that one buy cannot strand another by claiming its cash row.
+  const buys = indices("Buy");
+  const cashOut = indices("Cash Out For Buy");
+  const candidates: Array<{ distance: number; buy: number; cash: number }> = [];
+  for (const b of buys) {
+    for (const c of cashOut) {
+      if (bucket(legs[c]) !== bucket(legs[b])) continue;
+      if (Math.abs(legs[b].amount) - Math.abs(legs[c].amount) < -AMOUNT_EPSILON) continue;
+      if (!consistent(legs[b], legs[c])) continue;
+      candidates.push({ distance: Math.abs(legs[b].ref - legs[c].ref), buy: b, cash: c });
+    }
+  }
+  candidates.sort((x, y) => x.distance - y.distance || x.buy - y.buy || x.cash - y.cash);
+  const usedBuy = new Set<number>();
+  for (const { buy, cash } of candidates) {
+    if (usedBuy.has(buy) || usedCash.has(cash)) continue;
+    usedBuy.add(buy);
+    usedCash.add(cash);
+    pair(buy, cash);
+  }
+
+  return refs;
+}
+
 export function convertFidelityToStandard(
   csvText: string,
   options?: Record<string, unknown>
@@ -140,6 +263,7 @@ export function convertFidelityToStandard(
   const qtyCol = col("quantity");
   const amountCol = col("amount");
   const priceCol = col("price_per_unit");
+  const refCol = col("reference_number");
 
   if (orderDateCol < 0 || txTypeCol < 0 || investmentsCol < 0) {
     return {
@@ -151,6 +275,7 @@ export function convertFidelityToStandard(
   }
 
   const txs: Tx[] = [];
+  const legs: FidelityLeg[] = [];
   let minTime = Infinity;
   let maxTime = -Infinity;
 
@@ -200,6 +325,22 @@ export function convertFidelityToStandard(
     if (ts < minTime) minTime = ts;
     if (ts > maxTime) maxTime = ts;
 
+    // dateStr, not the parsed date: both legs of a trade carry the same string,
+    // and pairing only needs them to agree.
+    // The raw quantity, not the sign-corrected one: cash rows overwrite it with
+    // their amount, which would make the check compare a total against itself.
+    const rawQty = parseFloat(qtyStr);
+    legs.push({
+      type: txTypeStr,
+      account,
+      dateKey: dateStr,
+      amount: Number.isNaN(amount) ? 0 : amount,
+      consideration:
+        !Number.isNaN(rawQty) && unitPrice !== undefined && !Number.isNaN(unitPrice)
+          ? Math.abs(rawQty * unitPrice)
+          : 0,
+      ref: refCol >= 0 ? parseInt(get(refCol), 10) : NaN,
+    });
     txs.push(
       create(TxSchema, {
         timestamp: timestampFromDate(date),
@@ -213,6 +354,10 @@ export function convertFidelityToStandard(
       })
     );
   }
+
+  assignFidelityGroups(legs).forEach((ref, i) => {
+    if (ref) txs[i].groupRef = ref;
+  });
 
   const periodFrom = minTime === Infinity ? new Date(0) : new Date(minTime);
   const periodBefore =

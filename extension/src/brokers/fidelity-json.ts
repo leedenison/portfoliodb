@@ -15,7 +15,9 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "../lib/dates";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import { IdentifierType, InstrumentIdentifierSchema, TxSchema } from "@/gen/api/v1/api_pb";
+import type { FidelityLeg } from "@/lib/csv/converters/fidelity-csv";
 import {
+  assignFidelityGroups,
   FIDELITY_TYPE_TO_OFX,
   isCashMovement,
   isCashTxType,
@@ -36,6 +38,8 @@ interface FidelityRow {
   currency?: string;
   status?: string;
   debitCreditIndicator?: string;
+  /** Broker reference number; the CSV export's "Reference Number". */
+  referenceId?: string;
   /** Order date. Always present. */
   dealDate?: string;
   /** Completion date. Absent while a transaction has not settled. */
@@ -93,6 +97,7 @@ export function convertFidelityJson(
 
   const errors: ParseError[] = [];
   const txs: Tx[] = [];
+  const legs: FidelityLeg[] = [];
   let minTime = Infinity;
   let maxTime = -Infinity;
 
@@ -154,6 +159,16 @@ export function convertFidelityJson(
     if (ts < minTime) minTime = ts;
     if (ts > maxTime) maxTime = ts;
 
+    // units, not the sign-corrected quantity: cash rows report their money as units,
+    // which would make the check compare a total against itself.
+    legs.push({
+      type: typeStr,
+      account: row.accountNumber ?? "",
+      dateKey: row.settlementDate || row.dealDate || "",
+      amount: row.valuation ?? 0,
+      consideration: Math.abs((row.units ?? 0) * (row.pricePerUnit ?? 0)),
+      ref: parseInt(row.referenceId ?? "", 10),
+    });
     txs.push(
       create(TxSchema, {
         timestamp: timestampFromDate(date),
@@ -167,6 +182,10 @@ export function convertFidelityJson(
         ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })
     );
+  });
+
+  assignFidelityGroups(legs).forEach((ref, i) => {
+    if (ref) txs[i].groupRef = ref;
   });
 
   return {

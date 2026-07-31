@@ -10,7 +10,7 @@ The rationale for uploading directly rather than driving the web UI, for the bea
 
 - The trigger is manual and attended: a Sync button in the extension popup. There is no scheduling and no background execution.
 - The extension is a client of the existing gRPC-Web API. It introduces no server-side state of its own.
-- Where the extension and the web UI consume the same payload, they share a converter rather than reimplementing parsing. Where the payloads differ, the parts that classify broker data -- the transaction type map, and which types are cash -- are still shared, so the two cannot disagree about what a broker type means.
+- Where the extension and the web UI consume the same payload, they share a converter rather than reimplementing parsing. Where the payloads differ, the parts that classify broker data -- the transaction type map, which types are cash, and how the legs of a trade are grouped (see [postings.md](postings.md)) -- are still shared, so the two cannot disagree about what a broker type means.
 
 ## Sync
 

@@ -55,7 +55,7 @@ func TestPlugin_ExtractBatch_EmptyCurrency_ReturnsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExtractBatch: %v", err)
 	}
-	if out != nil && len(out) > 0 {
+	if len(out) > 0 {
 		t.Errorf("expected nil or empty map when Currency empty, got %+v", out)
 	}
 }

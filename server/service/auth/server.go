@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -88,9 +89,9 @@ func (s *Server) AuthUser(ctx context.Context, req *authv1.AuthUserRequest) (*au
 	result, err := s.verifier.Verify(ctx, token)
 	if err != nil {
 		switch {
-		case err == google.ErrInvalidArgument:
+		case errors.Is(err, google.ErrInvalidArgument):
 			return nil, status.Error(codes.InvalidArgument, err.Error())
-		case err == google.ErrPermissionDenied:
+		case errors.Is(err, google.ErrPermissionDenied):
 			return nil, status.Error(codes.PermissionDenied, err.Error())
 		default:
 			return nil, status.Error(codes.Unauthenticated, err.Error())

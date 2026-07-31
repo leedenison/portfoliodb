@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Lint and typecheck Go and TypeScript in CI
 dependencies: [0059]
 ---

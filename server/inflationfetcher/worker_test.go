@@ -1,7 +1,6 @@
 package inflationfetcher
 
 import (
-	"context"
 	"testing"
 	"time"
 )
@@ -92,22 +91,6 @@ func TestTrigger(t *testing.T) {
 
 func TestTrigger_Nil(t *testing.T) {
 	Trigger(nil) // should not panic
-}
-
-// fetchPlugin records calls for testing.
-type fetchPlugin struct {
-	stubPlugin
-	calls    int
-	indices  []MonthlyIndex
-	fetchErr error
-}
-
-func (f *fetchPlugin) FetchInflation(_ context.Context, _ []byte, _ string, _, _ time.Time) (*FetchResult, error) {
-	f.calls++
-	if f.fetchErr != nil {
-		return nil, f.fetchErr
-	}
-	return &FetchResult{Indices: f.indices}, nil
 }
 
 func TestToDBIndices(t *testing.T) {

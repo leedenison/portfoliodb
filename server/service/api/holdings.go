@@ -21,7 +21,10 @@ func (s *Server) GetHoldings(ctx context.Context, req *apiv1.GetHoldingsRequest)
 	var asOf *timestamppb.Timestamp
 	var err error
 	if req.GetPortfolioId() != "" {
-		ok, err := s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
+		// Not `:=`: that would shadow err, and the ComputeHoldingsForPortfolio
+		// error below would never reach the check after the block.
+		var ok bool
+		ok, err = s.db.PortfolioBelongsToUser(ctx, req.GetPortfolioId(), u.ID)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}

@@ -140,8 +140,8 @@ func TestListInflationIndices_Filters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list GBP: %v", err)
 	}
-	if total != 2 {
-		t.Fatalf("expected 2, got %d", total)
+	if total != 2 || len(rows) != 2 {
+		t.Fatalf("expected 2, got total=%d rows=%d", total, len(rows))
 	}
 
 	// Filter by date range.
@@ -169,10 +169,9 @@ func TestListInflationIndices_Filters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list all: %v", err)
 	}
-	if total != 3 {
-		t.Fatalf("expected 3, got %d", total)
+	if total != 3 || len(rows) != 3 {
+		t.Fatalf("expected 3, got total=%d rows=%d", total, len(rows))
 	}
-	_ = rows
 }
 
 func TestListInflationIndices_Pagination(t *testing.T) {

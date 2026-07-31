@@ -1,7 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ErrorAlert } from "@/app/components/error-alert";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import { listTelemetryCounters, type TelemetryCounterRow } from "@/lib/portfolio-api";
 
 type CounterEntry = { label: string; value: number };
@@ -125,26 +128,17 @@ function titleCase(name: string): string {
 }
 
 export default function AdminTelemetryPage() {
-  const [counters, setCounters] = useState<TelemetryCounterRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const {
+    data: counters = [],
+    isFetching: loading,
+    error,
+  } = useAuthedQuery<TelemetryCounterRow[]>({
+    queryKey: qk.telemetryCounters(),
+    queryFn: listTelemetryCounters,
+  });
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const list = await listTelemetryCounters();
-      setCounters(list);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load counters");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const load = () => queryClient.invalidateQueries({ queryKey: qk.telemetryCounters() });
 
   if (loading && counters.length === 0) {
     return (
@@ -172,7 +166,7 @@ export default function AdminTelemetryPage() {
       </div>
       {error && (
         <div className="mt-2">
-          <ErrorAlert>{error}</ErrorAlert>
+          <ErrorAlert>{errorMessage(error, "Failed to load counters")}</ErrorAlert>
         </div>
       )}
       <p className="mt-1 text-sm text-text-muted">

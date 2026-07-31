@@ -32,7 +32,7 @@ Backend types come from generated protobuf-es v2 code (`@bufbuild/protobuf`) und
   metadata/layout only.
 - Shared state uses React hooks plus Context (`client/contexts/*`); each context
   exposes a `useX()` hook that throws when used outside its provider. There is no
-  Redux/Zustand and no React Query/SWR.
+  Redux/Zustand. Server state is TanStack Query, not context -- see Data fetching.
 - Styling is Tailwind (`^3.4`) with CSS-variable semantic tokens (`text-text-muted`,
   `bg-accent-soft/50`); `darkMode: 'media'`.
 - Component filenames are kebab-case (`app-shell.tsx`). Add `data-testid`
@@ -43,9 +43,23 @@ Backend types come from generated protobuf-es v2 code (`@bufbuild/protobuf`) und
 Call the backend through the `client/lib/*-api.ts` wrapper modules, which build
 requests with `create/toBinary`, send them via the hand-written gRPC-Web transport
 in `client/lib/grpc-web.ts` (`unaryFetch` / `streamingFetch`), and decode with
-`fromBinary`. Handle `GrpcError` / `SessionLostError`; a lost session triggers
-`notifySessionLost()`. Fetch in `useEffect` with manual loading/error state; use
-`client/hooks/use-pagination.ts` for token pagination.
+`fromBinary`. Those throw `GrpcError` / `SessionLostError`; a lost session
+triggers `notifySessionLost()` from inside the transport, so no call site handles
+it.
+
+Reads go through TanStack Query -- **never fetch in a `useEffect`** (see
+docs/adr/0019). Use `useAuthedQuery` from `client/hooks/use-authed-query.ts`,
+which gates on the session being resolved, and take keys from the `qk` factories
+in `client/lib/query-keys.ts`. Keys hold primitives only: they are compared
+structurally, so an object rebuilt with equal contents is a new key and silently
+refetches -- pass `portfolio.id`, not `portfolio`. Render errors with
+`errorMessage()` from `client/lib/errors.ts`.
+
+Refresh after a mutation with `queryClient.invalidateQueries({ queryKey })`,
+which prefix-matches. Poll with `refetchInterval`, not `setInterval`. Use
+`client/hooks/use-pagination.ts` for token pagination; it does not reset itself,
+so give the paginated child a `key` built from the filter values and let the
+remount clear the page.
 
 ## Strictness and idioms
 

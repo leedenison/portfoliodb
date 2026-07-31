@@ -1,10 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { IgnoredAssetClassEditor } from "@/app/components/ignored-asset-class-editor";
 import { useAuth } from "@/contexts/auth-context";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import { getDisplayCurrency, setDisplayCurrency } from "@/lib/portfolio-api";
 
 const CURRENCIES = [
@@ -15,36 +19,30 @@ const CURRENCIES = [
 
 export default function SettingsPage() {
   const { state } = useAuth();
-  const [currency, setCurrency] = useState<string>("");
+  const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const fetchCurrency = useCallback(async () => {
-    try {
-      const dc = await getDisplayCurrency();
-      setCurrency(dc);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, []);
-
-  useEffect(() => {
-    if (state.status !== "authenticated") return;
-    fetchCurrency();
-  }, [state.status, fetchCurrency]);
+  // Shared with the performance page, which needs the same value to label its
+  // chart -- one request between them rather than two.
+  const { data: currency = "", error: loadError } = useAuthedQuery<string>({
+    queryKey: qk.displayCurrency(),
+    queryFn: getDisplayCurrency,
+  });
+  const error = saveError ?? (loadError ? errorMessage(loadError) : null);
 
   const handleChange = async (newCurrency: string) => {
     setSaving(true);
-    setError(null);
+    setSaveError(null);
     setSaved(false);
     try {
       const result = await setDisplayCurrency(newCurrency);
-      setCurrency(result);
+      queryClient.setQueryData(qk.displayCurrency(), result);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setSaveError(errorMessage(e));
     } finally {
       setSaving(false);
     }
@@ -108,7 +106,7 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <IgnoredAssetClassEditor authStatus={state.status} />
+            <IgnoredAssetClassEditor />
           </div>
         )}
       </div>

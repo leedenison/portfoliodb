@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { useAuth } from "@/contexts/auth-context";
 import { usePortfolio } from "@/contexts/portfolio-context";
 import { ErrorAlert } from "@/app/components/error-alert";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import { getHoldings } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
 import { IdentifierType } from "@/gen/api/v1/api_pb";
@@ -15,29 +18,19 @@ type Tab = "holdings" | "opening-balances";
 export default function UserHoldingsPage() {
   const { state, authError } = useAuth();
   const { selected: selectedPortfolio } = usePortfolio();
-  const [holdings, setHoldings] = useState<Awaited<ReturnType<typeof getHoldings>> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("holdings");
+  const portfolioId = selectedPortfolio?.id;
 
-  const fetchData = useCallback(async (portfolioId?: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const h = await getHoldings({ portfolioId });
-      setHoldings(h);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setHoldings(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (state.status !== "authenticated") return;
-    fetchData(selectedPortfolio?.id);
-  }, [state.status, selectedPortfolio, fetchData]);
+  // Keyed on the id, not the portfolio object: renaming a portfolio replaces the
+  // object and would otherwise refetch holdings that have not changed.
+  const {
+    data: holdings,
+    isPending: loading,
+    error,
+  } = useAuthedQuery<Awaited<ReturnType<typeof getHoldings>>>({
+    queryKey: qk.holdings(portfolioId),
+    queryFn: () => getHoldings({ portfolioId }),
+  });
 
   return (
     <AppShell>
@@ -103,7 +96,7 @@ export default function UserHoldingsPage() {
                 {loading && (
                   <p className="text-text-muted">Loading holdings...</p>
                 )}
-                {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
+                {!loading && error && <ErrorAlert>{errorMessage(error)}</ErrorAlert>}
                 {!loading && !error && holdings && (
                   <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
                     <table data-testid="holdings-table" className="w-full min-w-[320px] border-collapse text-sm">

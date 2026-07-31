@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { PerformanceChart } from "@/app/components/performance-chart";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { useAuth } from "@/contexts/auth-context";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import { usePortfolio } from "@/contexts/portfolio-context";
 import {
   getPortfolioValuation,
@@ -54,44 +57,39 @@ export default function PerformancePage() {
   const { state, authError } = useAuth();
   const { selected: selectedPortfolio } = usePortfolio();
   const [period, setPeriod] = useState<Period>("1y");
-  const [points, setPoints] = useState<ValuationPointUI[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [displayCurrency, setDisplayCurrency] = useState<string>("USD");
+  const portfolioId = selectedPortfolio?.id;
+  const dateFrom = dateFromPeriod(period);
+  const dateBefore = todayStr();
 
-  const dateRange = useMemo(
-    () => ({ dateFrom: dateFromPeriod(period), dateBefore: todayStr() }),
-    [period]
-  );
+  // Shared with the settings page rather than fetched again here.
+  const { data: displayCurrency = "USD", error: currencyError } = useAuthedQuery<string>({
+    queryKey: qk.displayCurrency(),
+    queryFn: getDisplayCurrency,
+  });
 
-  const fetchData = useCallback(
-    async (portfolioId: string | undefined, from: string, before: string) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const dc = await getDisplayCurrency();
-        setDisplayCurrency(dc);
-        const res = await getPortfolioValuation({
-          portfolioId,
-          dateFrom: from,
-          dateBefore: before,
-          displayCurrency: dc,
-        });
-        setPoints(res.points);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        setPoints([]);
-      } finally {
-        setLoading(false);
-      }
+  // Dependent: the valuation is denominated in the display currency, so it waits
+  // for it rather than the two being sequenced inside one loader.
+  const {
+    data: points = [],
+    isPending: valuationPending,
+    error: valuationError,
+  } = useAuthedQuery<ValuationPointUI[]>({
+    queryKey: qk.valuation(portfolioId, dateFrom, dateBefore, displayCurrency),
+    queryFn: async () => {
+      const res = await getPortfolioValuation({
+        portfolioId,
+        dateFrom,
+        dateBefore,
+        displayCurrency,
+      });
+      return res.points;
     },
-    []
-  );
+    enabled: !!displayCurrency,
+  });
 
-  useEffect(() => {
-    if (state.status !== "authenticated") return;
-    fetchData(selectedPortfolio?.id, dateRange.dateFrom, dateRange.dateBefore);
-  }, [state.status, selectedPortfolio, dateRange, fetchData]);
+  const loading = valuationPending;
+  const loadError = currencyError ?? valuationError;
+  const error = loadError ? errorMessage(loadError) : null;
 
   // Compute percentage change.
   const pctChange = useMemo(() => {

@@ -1,7 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ErrorAlert } from "@/app/components/error-alert";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import {
   listHoldingDeclarations,
   deleteHoldingDeclaration,
@@ -13,47 +17,53 @@ import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
 import { DeclarationForm } from "./declaration-form";
 
 export function OpeningBalances() {
-  const [declarations, setDeclarations] = useState<HoldingDeclaration[]>([]);
-  const [hasBrokers, setHasBrokers] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingDecl, setEditingDecl] = useState<HoldingDeclaration | null>(null);
 
-  const fetchDeclarations = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [decls, brokers] = await Promise.all([
-        listHoldingDeclarations(),
-        listBrokersAndAccounts(),
-      ]);
-      setDeclarations(decls);
-      setHasBrokers(brokers.length > 0);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Two independent lists rather than the Promise.all they used to share: the
+  // broker list is also read by the declaration form, so keeping it separate
+  // means the two share a cache entry.
+  const {
+    data: declarations = [],
+    isPending: declLoading,
+    error: declError,
+  } = useAuthedQuery<HoldingDeclaration[]>({
+    queryKey: qk.holdingDeclarations(),
+    queryFn: listHoldingDeclarations,
+  });
+  const {
+    data: brokers = [],
+    isPending: brokersLoading,
+    error: brokersError,
+  } = useAuthedQuery<Awaited<ReturnType<typeof listBrokersAndAccounts>>>({
+    queryKey: qk.brokersAndAccounts(),
+    queryFn: listBrokersAndAccounts,
+  });
 
-  useEffect(() => {
-    fetchDeclarations();
-  }, [fetchDeclarations]);
+  const hasBrokers = brokers.length > 0;
+  const loading = declLoading || brokersLoading;
+  const loadError = declError ?? brokersError;
+  const error = deleteError ?? (loadError ? errorMessage(loadError) : null);
+
+  const refreshDeclarations = () =>
+    queryClient.invalidateQueries({ queryKey: qk.holdingDeclarations() });
 
   const handleDelete = async (id: string) => {
+    setDeleteError(null);
     try {
       await deleteHoldingDeclaration(id);
-      fetchDeclarations();
+      await refreshDeclarations();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setDeleteError(errorMessage(e));
     }
   };
 
   const handleFormDone = () => {
     setShowForm(false);
     setEditingDecl(null);
-    fetchDeclarations();
+    void refreshDeclarations();
   };
 
   if (showForm || editingDecl) {

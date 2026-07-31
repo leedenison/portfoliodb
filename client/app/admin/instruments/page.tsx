@@ -1,9 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import { exportInstruments, listInstruments } from "@/lib/portfolio-api";
 import { instrumentsToJson } from "@/lib/json/instruments";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -45,16 +48,10 @@ export default function AdminInstrumentsPage() {
   const [activeClasses, setActiveClasses] = useState<Set<AssetClass>>(
     () => new Set(DEFAULT_ASSET_CLASSES)
   );
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  // Collapse expanded row when search changes.
-  useEffect(() => {
-    setExpandedId(null);
-  }, [debouncedSearch]);
+  const queryClient = useQueryClient();
 
   const toggleClass = (cls: AssetClass) => {
     setActiveClasses((prev) => {
@@ -63,10 +60,9 @@ export default function AdminInstrumentsPage() {
       else next.add(cls);
       return next;
     });
-    setExpandedId(null);
   };
 
-  // Memoize the sorted array so the effect dep is stable when the set contents haven't changed.
+  // Sorted join so the key is stable when the set's contents have not changed.
   const assetClassesKey = useMemo(
     () => [...activeClasses].sort().join(","),
     [activeClasses]
@@ -98,35 +94,6 @@ export default function AdminInstrumentsPage() {
     }
   }
 
-  const fetchInstruments = useCallback(
-    async (pageToken: string | null) => {
-      const classes = assetClassesKey ? assetClassesKey.split(",").map(Number) as AssetClass[] : [];
-      const result = await listInstruments({
-        search: debouncedSearch,
-        assetClasses: classes.length < ALL_ASSET_CLASSES.length ? classes : [],
-        pageToken,
-      });
-      return {
-        items: result.instruments,
-        totalCount: result.totalCount,
-        nextPageToken: result.nextPageToken,
-      };
-    },
-    [debouncedSearch, assetClassesKey, refreshKey] // eslint-disable-line react-hooks/exhaustive-deps
-  );
-
-  const {
-    items: instruments,
-    totalCount,
-    loading,
-    error,
-    pageIndex,
-    hasPrev,
-    hasNext,
-    goNext,
-    goPrev,
-  } = usePagination(fetchInstruments);
-
   return (
     <div className="space-y-5">
       <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">
@@ -142,11 +109,6 @@ export default function AdminInstrumentsPage() {
           placeholder="Search by name or ticker..."
           className="w-full max-w-sm rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
         />
-        {!loading && (
-          <span className="font-mono text-xs text-text-muted">
-            {totalCount} total
-          </span>
-        )}
         <div className="ml-auto flex gap-2">
           <button
             type="button"
@@ -190,10 +152,70 @@ export default function AdminInstrumentsPage() {
         </div>
       </div>
 
+      {/* Keyed on the filters: a change remounts the list, which returns it to
+          page 1 and collapses any expanded row. */}
+      <InstrumentList
+        key={`${debouncedSearch}|${assetClassesKey}`}
+        search={debouncedSearch}
+        assetClassesKey={assetClassesKey}
+      />
+
+      <ImportInstrumentsModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onComplete={() => queryClient.invalidateQueries({ queryKey: qk.instruments() })}
+      />
+    </div>
+  );
+}
+
+function InstrumentList({
+  search,
+  assetClassesKey,
+}: {
+  search: string;
+  assetClassesKey: string;
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const {
+    items: instruments,
+    totalCount,
+    loading,
+    error,
+    pageIndex,
+    hasPrev,
+    hasNext,
+    goNext,
+    goPrev,
+  } = usePagination<Instrument>({
+    queryKey: qk.instruments(search, assetClassesKey),
+    queryFn: async (pageToken) => {
+      const classes = assetClassesKey
+        ? (assetClassesKey.split(",").map(Number) as AssetClass[])
+        : [];
+      const result = await listInstruments({
+        search,
+        assetClasses: classes.length < ALL_ASSET_CLASSES.length ? classes : [],
+        pageToken,
+      });
+      return {
+        items: result.instruments,
+        totalCount: result.totalCount,
+        nextPageToken: result.nextPageToken,
+      };
+    },
+  });
+
+  return (
+    <>
+      {!loading && (
+        <span className="block font-mono text-xs text-text-muted">{totalCount} total</span>
+      )}
       {loading && (
         <p className="text-text-muted">Loading instruments...</p>
       )}
-      {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
+      {!loading && error && <ErrorAlert>{errorMessage(error)}</ErrorAlert>}
       {!loading && !error && (
         <>
           <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
@@ -224,7 +246,7 @@ export default function AdminInstrumentsPage() {
                       colSpan={5}
                       className="px-4 py-8 text-center text-text-muted"
                     >
-                      {debouncedSearch
+                      {search
                         ? "No instruments match your search."
                         : "No instruments in the system yet."}
                     </td>
@@ -301,12 +323,7 @@ export default function AdminInstrumentsPage() {
         </>
       )}
 
-      <ImportInstrumentsModal
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
-        onComplete={() => setRefreshKey((k) => k + 1)}
-      />
-    </div>
+    </>
   );
 }
 

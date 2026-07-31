@@ -1,7 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ErrorAlert } from "@/app/components/error-alert";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import {
   getIgnoredAssetClasses,
   setIgnoredAssetClasses,
@@ -33,16 +37,61 @@ function keySetToRules(keys: Set<string>): IgnoredAssetClassRule[] {
   });
 }
 
-interface Props {
-  authStatus: string;
+/**
+ * Loads the data, then hands it to the form. The split exists so the form's
+ * draft state can initialise from the saved rules as ordinary initial state: it
+ * is keyed on them, so a save or a refetch remounts it with a fresh draft
+ * instead of an effect copying fetched data into state.
+ */
+export function IgnoredAssetClassEditor() {
+  const {
+    data,
+    isPending: loading,
+    error,
+  } = useAuthedQuery<{ brokerAccounts: BrokerAccounts[]; savedKeys: Set<string> }>({
+    queryKey: qk.ignoredAssetClasses(),
+    queryFn: async () => {
+      const [ba, rules] = await Promise.all([listBrokersAndAccounts(), getIgnoredAssetClasses()]);
+      return { brokerAccounts: ba, savedKeys: rulesToKeySet(rules) };
+    },
+  });
+
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-border bg-surface p-5">
+        <p className="text-sm text-text-muted">Loading...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-border bg-surface p-5">
+        <ErrorAlert>{errorMessage(error)}</ErrorAlert>
+      </div>
+    );
+  }
+
+  const savedKeys = data?.savedKeys ?? new Set<string>();
+  return (
+    <IgnoredAssetClassForm
+      key={[...savedKeys].sort().join("|")}
+      brokerAccounts={data?.brokerAccounts ?? []}
+      savedKeys={savedKeys}
+    />
+  );
 }
 
-export function IgnoredAssetClassEditor({ authStatus }: Props) {
-  const [brokerAccounts, setBrokerAccounts] = useState<BrokerAccounts[]>([]);
-  const [loading, setLoading] = useState(true);
+function IgnoredAssetClassForm({
+  brokerAccounts,
+  savedKeys,
+}: {
+  brokerAccounts: BrokerAccounts[];
+  savedKeys: Set<string>;
+}) {
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
-  const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
-  const [editKeys, setEditKeys] = useState<Set<string>>(new Set());
+  const [editKeys, setEditKeys] = useState<Set<string>>(() => new Set(savedKeys));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -52,30 +101,6 @@ export function IgnoredAssetClassEditor({ authStatus }: Props) {
   } | null>(null);
 
   const hasChanges = !setsEqual(savedKeys, editKeys);
-
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [ba, rules] = await Promise.all([
-        listBrokersAndAccounts(),
-        getIgnoredAssetClasses(),
-      ]);
-      setBrokerAccounts(ba);
-      const keys = rulesToKeySet(rules);
-      setSavedKeys(keys);
-      setEditKeys(new Set(keys));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (authStatus !== "authenticated") return;
-    loadData();
-  }, [authStatus, loadData]);
 
   // Check if a broker-level ignore is active for the given asset class.
   function isBrokerIgnored(broker: string, assetClass: AssetClass): boolean {
@@ -178,7 +203,7 @@ export function IgnoredAssetClassEditor({ authStatus }: Props) {
       }
       await doSave(rules);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
       setSaving(false);
     }
   }
@@ -188,13 +213,13 @@ export function IgnoredAssetClassEditor({ authStatus }: Props) {
     setError(null);
     try {
       await setIgnoredAssetClasses(rules);
-      const keys = rulesToKeySet(rules);
-      setSavedKeys(keys);
-      setEditKeys(new Set(keys));
+      // Refetching remounts this form under a new key, so the draft resets to
+      // what was just saved.
+      await queryClient.invalidateQueries({ queryKey: qk.ignoredAssetClasses() });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
     } finally {
       setSaving(false);
       setConfirmDialog(null);
@@ -203,14 +228,6 @@ export function IgnoredAssetClassEditor({ authStatus }: Props) {
 
   function handleCancel() {
     setEditKeys(new Set(savedKeys));
-  }
-
-  if (loading) {
-    return (
-      <div className="rounded-lg border border-border bg-surface p-5">
-        <p className="text-sm text-text-muted">Loading...</p>
-      </div>
-    );
   }
 
   return (

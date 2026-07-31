@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { exportCorporateEvents } from "@/lib/portfolio-api";
 import { splitsToJson } from "@/lib/json/corporate-events";
@@ -18,16 +22,20 @@ interface SplitDisplay {
 }
 
 export function SplitsTab() {
-  const [splits, setSplits] = useState<SplitDisplay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [exportLoading, setExportLoading] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
-  const loadSplits = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  // The export is a streaming generator, so the queryFn drains it and returns
+  // the accumulated rows. The generator itself is unchanged.
+  const {
+    data: splits = [],
+    isPending: loading,
+    error: loadError,
+  } = useAuthedQuery<SplitDisplay[]>({
+    queryKey: qk.corporateEventSplits(),
+    queryFn: async () => {
       const rows: SplitDisplay[] = [];
       for await (const item of exportCorporateEvents()) {
         if (item.item.case !== "row") continue;
@@ -45,21 +53,17 @@ export function SplitsTab() {
         }
       }
       rows.sort((a, b) => b.exDate.localeCompare(a.exDate));
-      setSplits(rows);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load splits");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return rows;
+    },
+  });
 
-  useEffect(() => {
-    loadSplits();
-  }, [loadSplits]);
+  const loadSplits = () => queryClient.invalidateQueries({ queryKey: qk.corporateEventSplits() });
+
+  const error = exportError ?? (loadError ? errorMessage(loadError, "Failed to load splits") : null);
 
   async function handleExport() {
     setExportLoading(true);
-    setError(null);
+    setExportError(null);
     try {
       const rows: ExportCorporateEventRow[] = [];
       const coverage: ExportCoverage[] = [];
@@ -79,7 +83,7 @@ export function SplitsTab() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Export failed");
+      setExportError(errorMessage(e, "Export failed"));
     } finally {
       setExportLoading(false);
     }

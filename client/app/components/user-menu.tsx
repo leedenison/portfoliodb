@@ -7,16 +7,21 @@ import { useAuth } from "@/contexts/auth-context";
 
 export function UserMenu({ inverted }: { inverted?: boolean }) {
   const { state, signOut } = useAuth();
-  const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
+
+  // The route the menu was opened on, rather than a boolean: navigating away
+  // closes it by derivation, so no effect has to reset anything.
+  const [openedAt, setOpenedAt] = useState<string | null>(null);
+  const open = openedAt === pathname;
+  const setOpen = (next: boolean) => setOpenedAt(next ? pathname : null);
 
   // Close on click outside.
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
+        setOpenedAt(null);
       }
     };
     document.addEventListener("mousedown", handler);
@@ -27,16 +32,11 @@ export function UserMenu({ inverted }: { inverted?: boolean }) {
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") setOpenedAt(null);
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [open]);
-
-  // Close when navigating.
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
 
   if (state.status !== "authenticated") return null;
 
@@ -46,7 +46,7 @@ export function UserMenu({ inverted }: { inverted?: boolean }) {
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(!open)}
         className={
           "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors " +
           (inverted

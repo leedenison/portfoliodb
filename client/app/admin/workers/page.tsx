@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { listWorkers, triggerPriceFetch, triggerInflationFetch, WorkerState, type WorkerRow } from "@/lib/portfolio-api";
 
@@ -27,22 +30,26 @@ function stateBadge(state: WorkerState): string {
 }
 
 export default function AdminWorkersPage() {
-  const [workers, setWorkers] = useState<WorkerRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [triggerError, setTriggerError] = useState<string | null>(null);
   const [triggering, setTriggering] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setWorkers(await listWorkers());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load workers");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // refetchInterval rather than a setInterval the effect has to tear down. The
+  // old version had no cancel flag either, so a response arriving after unmount
+  // called setState on a dead component.
+  const {
+    data: workers = [],
+    isPending: loading,
+    isFetching,
+    refetch,
+    error: loadError,
+  } = useAuthedQuery<WorkerRow[]>({
+    queryKey: qk.workers(),
+    queryFn: listWorkers,
+    refetchInterval: 2000,
+  });
+
+  const error =
+    triggerError ?? (loadError ? errorMessage(loadError, "Failed to load workers") : null);
 
   const triggerFns: Record<string, () => Promise<void>> = {
     price_fetcher: triggerPriceFetch,
@@ -51,21 +58,15 @@ export default function AdminWorkersPage() {
 
   async function handleTrigger(name: string, fn: () => Promise<void>) {
     setTriggering(name);
-    setError(null);
+    setTriggerError(null);
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : `Failed to trigger ${name}`);
+      setTriggerError(errorMessage(e, `Failed to trigger ${name}`));
     } finally {
       setTriggering(null);
     }
   }
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 2000);
-    return () => clearInterval(interval);
-  }, [load]);
 
   if (loading && workers.length === 0) {
     return (
@@ -82,11 +83,11 @@ export default function AdminWorkersPage() {
         <h1 className="font-display text-xl font-bold text-text-primary">Workers</h1>
         <button
           type="button"
-          onClick={load}
-          disabled={loading}
+          onClick={() => void refetch()}
+          disabled={isFetching}
           className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
         >
-          {loading ? "Refreshing..." : "Refresh"}
+          {isFetching ? "Refreshing..." : "Refresh"}
         </button>
       </div>
       {error && (

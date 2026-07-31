@@ -14,6 +14,7 @@ export default function AdminPricePluginsPage() {
     <PluginConfigEditor
       title="Price plugins"
       description="Enable or disable plugins that fetch end-of-day prices for identified instruments. Config JSON can include API keys and rate limits; only admins can view or edit."
+      category="price"
       listFn={listPricePlugins}
       updateFn={updatePricePlugin}
       reorderFn={(ids) => reorderPlugins("price", ids)}

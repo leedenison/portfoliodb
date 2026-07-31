@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 export type PaginatedResult<T> = {
   items: T[];
@@ -8,95 +9,75 @@ export type PaginatedResult<T> = {
   nextPageToken: string | null;
 };
 
+export type UsePaginationOptions<T> = {
+  /**
+   * Identifies the filter set. The page token is appended internally, so each
+   * page is its own cache entry and paging backwards is a cache hit.
+   */
+  queryKey: readonly unknown[];
+  queryFn: (pageToken: string | null) => Promise<PaginatedResult<T>>;
+  enabled?: boolean;
+};
+
 /**
- * Manages token-based pagination state. The caller provides a fetch function
- * that accepts a page token and returns a page of results. The hook tracks
- * page tokens, loading/error state, and exposes navigation helpers.
+ * Token-based (cursor) pagination over a TanStack Query cache.
  *
- * `fetchFn` should be wrapped in useCallback by the caller so that changes
- * to filter/search params naturally trigger a re-fetch via the dependency
- * array. When fetchFn identity changes the hook resets to page 0.
+ * `pageTokens[i]` holds the token that fetches page `i`; index 0 is null, and
+ * each fetched page writes the token for the page after it. That is what lets
+ * "Previous" work by index without re-deriving a token.
+ *
+ * The hook does not reset itself when the filters change, on purpose. Give the
+ * component that calls it a `key` built from the filter values so a change
+ * remounts it -- state resets by construction, which is both the idiomatic React
+ * answer and the one that avoids resetting state from an effect. Remounting
+ * costs no requests: the query cache outlives the unmount.
  */
-export function usePagination<T>(fetchFn: (pageToken: string | null) => Promise<PaginatedResult<T>>) {
-  const [items, setItems] = useState<T[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
-  const [pageTokens, setPageTokens] = useState<(string | null)[]>([null]);
+export function usePagination<T>({ queryKey, queryFn, enabled = true }: UsePaginationOptions<T>) {
+  const queryClient = useQueryClient();
   const [pageIndex, setPageIndex] = useState(0);
-  const refreshRef = useRef(0);
+  const [pageTokens, setPageTokens] = useState<(string | null)[]>([null]);
 
-  // Reset to page 0 when fetchFn identity changes (e.g. filters changed).
-  const fetchFnRef = useRef(fetchFn);
-  useEffect(() => {
-    if (fetchFnRef.current !== fetchFn) {
-      fetchFnRef.current = fetchFn;
-      setPageIndex(0);
-      setPageTokens([null]);
-    }
-  }, [fetchFn]);
+  const pageToken = pageTokens[pageIndex] ?? null;
 
-  const fetchPage = useCallback(
-    async (pageToken: string | null, forPageIndex: number) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await fetchFn(pageToken);
-        setItems(result.items);
-        setTotalCount(result.totalCount);
-        setNextPageToken(result.nextPageToken);
-        if (result.nextPageToken) {
-          setPageTokens((prev) => {
-            const next = [...prev];
-            next[forPageIndex + 1] = result.nextPageToken!;
-            return next;
-          });
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        setItems([]);
-        setTotalCount(0);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [fetchFn]
-  );
-
-  useEffect(() => {
-    const token = pageTokens[pageIndex] ?? null;
-    fetchPage(token, pageIndex);
-  }, [pageIndex, fetchPage, refreshRef.current]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { data, isPending, isFetching, error } = useQuery({
+    queryKey: [...queryKey, pageToken],
+    queryFn: () => queryFn(pageToken),
+    enabled,
+  });
 
   const goNext = useCallback(() => {
-    if (nextPageToken) setPageIndex((i) => i + 1);
-  }, [nextPageToken]);
+    const token = data?.nextPageToken;
+    if (!token) return;
+    setPageTokens((prev) => {
+      const next = [...prev];
+      next[pageIndex + 1] = token;
+      return next;
+    });
+    setPageIndex(pageIndex + 1);
+  }, [data?.nextPageToken, pageIndex]);
 
   const goPrev = useCallback(() => {
-    if (pageIndex > 0) setPageIndex((i) => i - 1);
-  }, [pageIndex]);
-
-  const reset = useCallback(() => {
-    setPageIndex(0);
-    setPageTokens([null]);
+    setPageIndex((i) => (i > 0 ? i - 1 : i));
   }, []);
 
-  const refresh = useCallback(() => {
-    refreshRef.current += 1;
-  }, []);
+  // Prefix match, so every cached page of this filter set is refetched. Not
+  // memoised: queryKey is a fresh array literal at every call site, so a
+  // useCallback over it would need either a stringified dep or a disable
+  // comment, and no caller memoises on refresh's identity.
+  const refresh = () => queryClient.invalidateQueries({ queryKey });
 
   return {
-    items,
-    totalCount,
-    loading,
-    error,
+    items: data?.items ?? [],
+    totalCount: data?.totalCount ?? 0,
+    // isPending covers the first load; isFetching keeps the indicator up while a
+    // refresh replaces an already-rendered page.
+    loading: isPending || isFetching,
+    error: error ?? null,
     pageIndex,
     hasPrev: pageIndex > 0,
-    hasNext: !!nextPageToken,
+    hasNext: !!data?.nextPageToken,
     goNext,
     goPrev,
-    reset,
     refresh,
   };
 }

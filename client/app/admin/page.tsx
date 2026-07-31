@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { qk } from "@/lib/query-keys";
 import Link from "next/link";
 import {
   listIdentifierPlugins,
@@ -89,40 +90,36 @@ const dashboardCards: {
 ];
 
 export default function AdminOverviewPage() {
-  const [identifierPlugins, setIdentifierPlugins] = useState<
-    { displayName: string }[]
-  >([]);
-  const [descriptionPlugins, setDescriptionPlugins] = useState<
-    { displayName: string }[]
-  >([]);
-  const [pricePlugins, setPricePlugins] = useState<
-    { displayName: string }[]
-  >([]);
-  const [workers, setWorkers] = useState<WorkerRow[]>([]);
-  const [unhandledEventCount, setUnhandledEventCount] = useState<number>(0);
+  // Five separate queries rather than one Promise.all whose catch swallowed
+  // everything: a card whose summary fails now blanks on its own instead of
+  // taking the other four with it. The plugin lists share their keys with the
+  // plugin pages, so navigating there is a cache hit.
+  const names = (list: { displayName: string; pluginId: string }[]) =>
+    list.map((p) => ({ displayName: p.displayName || p.pluginId }));
 
-  const load = useCallback(async () => {
-    try {
-      const [idList, descList, priceList, workerList, eventCount] = await Promise.all([
-        listIdentifierPlugins(),
-        listDescriptionPlugins(),
-        listPricePlugins(),
-        listWorkers(),
-        countUnhandledCorporateEvents(),
-      ]);
-      setIdentifierPlugins(idList.map((p) => ({ displayName: p.displayName || p.pluginId })));
-      setDescriptionPlugins(descList.map((p) => ({ displayName: p.displayName || p.pluginId })));
-      setPricePlugins(priceList.map((p) => ({ displayName: p.displayName || p.pluginId })));
-      setWorkers(workerList);
-      setUnhandledEventCount(eventCount);
-    } catch {
-      // Non-blocking: cards still work without the summary
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data: identifierPlugins = [] } = useAuthedQuery({
+    queryKey: qk.plugins("identifier"),
+    queryFn: listIdentifierPlugins,
+    select: names,
+  });
+  const { data: descriptionPlugins = [] } = useAuthedQuery({
+    queryKey: qk.plugins("description"),
+    queryFn: listDescriptionPlugins,
+    select: names,
+  });
+  const { data: pricePlugins = [] } = useAuthedQuery({
+    queryKey: qk.plugins("price"),
+    queryFn: listPricePlugins,
+    select: names,
+  });
+  const { data: workers = [] } = useAuthedQuery<WorkerRow[]>({
+    queryKey: qk.workers(),
+    queryFn: listWorkers,
+  });
+  const { data: unhandledEventCount = 0 } = useAuthedQuery<number>({
+    queryKey: qk.unhandledCorporateEventCount(),
+    queryFn: countUnhandledCorporateEvents,
+  });
 
   function pluginSummary(
     id: string

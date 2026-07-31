@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/app/components/app-shell";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
@@ -8,6 +8,8 @@ import { useAuth } from "@/contexts/auth-context";
 import { usePortfolio } from "@/contexts/portfolio-context";
 import { useUploadModal } from "@/contexts/upload-modal-context";
 import { usePagination } from "@/hooks/use-pagination";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import { listTxs } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
 import { TxType, IdentifierType } from "@/gen/api/v1/api_pb";
@@ -42,33 +44,8 @@ export default function TxsPage() {
   const { state, authError } = useAuth();
   const { selected: selectedPortfolio } = usePortfolio();
   const { openUploadModal } = useUploadModal();
-
-  const fetchTxs = useCallback(
-    async (pageToken: string | null) => {
-      const result = await listTxs({
-        portfolioId: selectedPortfolio?.id,
-        pageToken,
-      });
-      return {
-        items: result.txs,
-        totalCount: 0,
-        nextPageToken: result.nextPageToken,
-      };
-    },
-    [selectedPortfolio?.id]
-  );
-
-  const {
-    items: txs,
-    loading,
-    error,
-    pageIndex,
-    hasPrev,
-    hasNext,
-    goNext,
-    goPrev,
-    refresh,
-  } = usePagination(fetchTxs);
+  const queryClient = useQueryClient();
+  const portfolioId = selectedPortfolio?.id;
 
   if (state.status === "loading") {
     return (
@@ -108,17 +85,55 @@ export default function TxsPage() {
             </h2>
             <button
               type="button"
-              onClick={() => openUploadModal(() => refresh())}
+              onClick={() =>
+                openUploadModal(() =>
+                  queryClient.invalidateQueries({ queryKey: qk.txs(portfolioId) })
+                )
+              }
               className="ml-auto rounded-md bg-accent px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark"
             >
               Upload transactions
             </button>
           </div>
 
-          {loading && <p className="text-text-muted">Loading transactions...</p>}
-          {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
-          {!loading && !error && (
-            <>
+          {/* Keyed on the portfolio: switching it remounts the list, which
+              returns it to page 1. */}
+          <TxList key={portfolioId ?? "all"} portfolioId={portfolioId} />
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
+function TxList({ portfolioId }: { portfolioId: string | undefined }) {
+  const {
+    items: txs,
+    loading,
+    error,
+    pageIndex,
+    hasPrev,
+    hasNext,
+    goNext,
+    goPrev,
+  } = usePagination<PortfolioTx>({
+    queryKey: qk.txs(portfolioId),
+    queryFn: async (pageToken) => {
+      const result = await listTxs({ portfolioId, pageToken });
+      return {
+        items: result.txs,
+        // ListTxs returns no count.
+        totalCount: 0,
+        nextPageToken: result.nextPageToken,
+      };
+    },
+  });
+
+  return (
+    <>
+      {loading && <p className="text-text-muted">Loading transactions...</p>}
+      {!loading && error && <ErrorAlert>{errorMessage(error)}</ErrorAlert>}
+      {!loading && !error && (
+        <>
               <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
                 <table data-testid="transactions-table" className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
@@ -181,11 +196,9 @@ export default function TxsPage() {
                 onPrev={goPrev}
                 onNext={goNext}
               />
-            </>
-          )}
-        </div>
-      </div>
-    </AppShell>
+        </>
+      )}
+    </>
   );
 }
 

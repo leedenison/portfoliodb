@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import {
   DndContext,
   closestCenter,
@@ -201,6 +205,7 @@ function SortablePluginCard<T extends PluginConfig>({
 export function PluginConfigEditor<T extends PluginConfig>({
   title,
   description,
+  category,
   listFn,
   updateFn,
   reorderFn,
@@ -208,6 +213,8 @@ export function PluginConfigEditor<T extends PluginConfig>({
 }: {
   title: string;
   description: string;
+  /** Query key discriminator: listFn is a stable module reference but cannot be a key. */
+  category: "identifier" | "description" | "price" | "inflation";
   listFn: () => Promise<T[]>;
   updateFn: (
     pluginId: string,
@@ -216,8 +223,7 @@ export function PluginConfigEditor<T extends PluginConfig>({
   reorderFn?: (pluginIds: string[]) => Promise<void>;
   renderExtra?: (plugin: T, opts: { saving: boolean; onUpdate: (updated: T) => void }) => React.ReactNode;
 }) {
-  const [plugins, setPlugins] = useState<T[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editConfig, setEditConfig] = useState("");
@@ -228,22 +234,19 @@ export function PluginConfigEditor<T extends PluginConfig>({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const list = await listFn();
-      setPlugins(list);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load plugins");
-    } finally {
-      setLoading(false);
-    }
-  }, [listFn]);
+  const queryKey = qk.plugins(category);
+  const {
+    data: plugins = [],
+    isPending: loading,
+    error: loadError,
+  } = useAuthedQuery<T[]>({ queryKey, queryFn: listFn });
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Writes the list straight into the cache. The handlers below already knew the
+  // updated plugin, so refetching to learn what they were just told would be a
+  // round trip for nothing -- and the drag reorder needs to roll back to a
+  // previous value, which only works if it owns the write.
+  const setPlugins = (update: (prev: T[]) => T[]) =>
+    queryClient.setQueryData<T[]>(queryKey, (prev) => update(prev ?? []));
 
   async function handleToggleEnabled(plugin: T) {
     setSaving(true);
@@ -256,7 +259,7 @@ export function PluginConfigEditor<T extends PluginConfig>({
         prev.map((p) => (p.pluginId === updated.pluginId ? updated : p))
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to update");
+      setError(errorMessage(e, "Failed to update"));
     } finally {
       setSaving(false);
     }
@@ -285,7 +288,7 @@ export function PluginConfigEditor<T extends PluginConfig>({
       );
       cancelEdit();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save config");
+      setError(errorMessage(e, "Failed to save config"));
     } finally {
       setSaving(false);
     }
@@ -297,14 +300,15 @@ export function PluginConfigEditor<T extends PluginConfig>({
     const oldIdx = plugins.findIndex((p) => p.pluginId === active.id);
     const newIdx = plugins.findIndex((p) => p.pluginId === over.id);
     const reordered = arrayMove(plugins, oldIdx, newIdx);
-    const prev = plugins;
-    setPlugins(reordered);
+    const previous = plugins;
+    setPlugins(() => reordered);
     setError(null);
     try {
       await reorderFn(reordered.map((p) => p.pluginId));
     } catch (e) {
-      setPlugins(prev);
-      setError(e instanceof Error ? e.message : "Failed to reorder");
+      // Roll the optimistic reorder back.
+      setPlugins(() => previous);
+      setError(errorMessage(e, "Failed to reorder"));
     }
   }
 
@@ -312,6 +316,10 @@ export function PluginConfigEditor<T extends PluginConfig>({
     return (
       <div className="text-text-muted">Loading plugin configs...</div>
     );
+  }
+
+  if (loadError && plugins.length === 0) {
+    return <ErrorAlert>{errorMessage(loadError, "Failed to load plugins")}</ErrorAlert>;
   }
 
   const pluginIds = plugins.map((p) => p.pluginId);

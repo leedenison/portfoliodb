@@ -1,25 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { GoogleLogin } from "@react-oauth/google";
 import { useAuth } from "@/contexts/auth-context";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { qk } from "@/lib/query-keys";
 import { getSession } from "@/lib/auth-api";
 
 export default function ToolsPage() {
   const { signIn, state } = useAuth();
   const [idToken, setIdToken] = useState<string | null>(null);
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (state.status !== "authenticated") {
-      setSessionToken(null);
-      return;
-    }
-    getSession()
-      .then((res) => setSessionToken(res.sessionId || null))
-      .catch(() => setSessionToken(null));
-  }, [state.status]);
+  // Same key as the session query behind useAuth, so this is deduped rather
+  // than a second GetSession call. Signing out disables it and the token clears.
+  const { data: sessionToken = null } = useAuthedQuery({
+    queryKey: qk.session(),
+    queryFn: getSession,
+    select: (res) => res.sessionId || null,
+  });
 
   return (
     <div className="space-y-4">

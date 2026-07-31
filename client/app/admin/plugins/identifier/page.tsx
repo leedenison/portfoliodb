@@ -12,6 +12,7 @@ export default function AdminIdentifierPluginsPage() {
     <PluginConfigEditor
       title="Identifier plugins"
       description="Enable or disable plugins and set precedence (higher runs first). Config JSON can include API keys (e.g. openfigi_api_key, openai_api_key); only admins can view or edit."
+      category="identifier"
       listFn={listIdentifierPlugins}
       updateFn={updateIdentifierPlugin}
       reorderFn={(ids) => reorderPlugins("identifier", ids)}

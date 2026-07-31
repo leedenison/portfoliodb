@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { AppShell } from "@/app/components/app-shell";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { useAuth } from "@/contexts/auth-context";
 import { useUploadModal } from "@/contexts/upload-modal-context";
 import { usePagination } from "@/hooks/use-pagination";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import { listJobs, getJob } from "@/lib/portfolio-api";
 import type { JobSummary, GetJobResult } from "@/lib/portfolio-api";
 import { JobStatus } from "@/gen/api/v1/api_pb";
@@ -29,21 +32,9 @@ export default function UploadsPage() {
   const { state, authError } = useAuth();
   const { openUploadModal } = useUploadModal();
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [expandedDetail, setExpandedDetail] = useState<GetJobResult | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
 
-  const fetchJobs = useCallback(
-    async (pageToken: string | null) => {
-      const result = await listJobs(pageToken);
-      return {
-        items: result.jobs,
-        totalCount: result.totalCount,
-        nextPageToken: result.nextPageToken,
-      };
-    },
-    []
-  );
-
+  // No filters here, so nothing ever changes the key and the list needs no
+  // key-prop reset -- unlike the other paginated pages.
   const {
     items: jobs,
     totalCount,
@@ -55,30 +46,26 @@ export default function UploadsPage() {
     goNext,
     goPrev,
     refresh,
-  } = usePagination(fetchJobs);
+  } = usePagination<JobSummary>({
+    queryKey: qk.jobs(),
+    queryFn: async (pageToken) => {
+      const result = await listJobs(pageToken);
+      return {
+        items: result.jobs,
+        totalCount: result.totalCount,
+        nextPageToken: result.nextPageToken,
+      };
+    },
+    enabled: state.status === "authenticated",
+  });
 
-  // Fetch error details when a row is expanded.
-  useEffect(() => {
-    if (!expandedId) {
-      setExpandedDetail(null);
-      return;
-    }
-    let cancelled = false;
-    setDetailLoading(true);
-    getJob(expandedId)
-      .then((result) => {
-        if (!cancelled) setExpandedDetail(result);
-      })
-      .catch(() => {
-        if (!cancelled) setExpandedDetail(null);
-      })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [expandedId]);
+  // Error details for the expanded row. Collapsing disables the query, so the
+  // detail falls back to null without anything having to clear it.
+  const { data: expandedDetail, isFetching: detailLoading } = useAuthedQuery<GetJobResult>({
+    queryKey: qk.job(expandedId ?? ""),
+    queryFn: () => getJob(expandedId!),
+    enabled: !!expandedId,
+  });
 
   if (state.status === "loading") {
     return (
@@ -134,7 +121,7 @@ export default function UploadsPage() {
           </div>
 
           {loading && <p className="text-text-muted">Loading uploads...</p>}
-          {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
+          {!loading && error && <ErrorAlert>{errorMessage(error)}</ErrorAlert>}
           {!loading && !error && (
             <>
               <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
@@ -180,7 +167,7 @@ export default function UploadsPage() {
                             job={job}
                             errorCount={errorCount}
                             expanded={expanded}
-                            detail={expanded ? expandedDetail : null}
+                            detail={expanded ? (expandedDetail ?? null) : null}
                             detailLoading={expanded && detailLoading}
                             onToggle={() =>
                               setExpandedId(expanded ? null : job.id)

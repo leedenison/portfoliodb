@@ -2,11 +2,23 @@
 # Use with: docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up
 # Ensure HOST_UID and HOST_GID are set (e.g. by Makefile run target).
 # Postgres uses a named volume so data (e.g. plugin config) persists across make stop / make run.
+#
+# Every service is capped on CPU, memory and PIDs. A runaway process in the dev
+# stack -- a rebuild loop, a request storm, a leak -- would otherwise take the
+# whole machine down with it, and under WSL2 that means the host becomes
+# unresponsive rather than just the container. The caps total well under the
+# host so the editor and shell keep running, and memswap_limit is pinned equal
+# to mem_limit so a leaking container is OOM-killed (a visible, diagnosable
+# event) instead of dragging everything into swap thrash.
 
 services:
   postgres:
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    cpus: 2
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 256
 
   portfoliodb:
     build:
@@ -25,10 +37,25 @@ services:
     volumes:
       - ..:/app
     command: [ "air" ]
+    # Headroom for a parallel go build on each Air rebuild.
+    cpus: 4
+    mem_limit: 4g
+    memswap_limit: 4g
+    pids_limit: 512
 
   envoy:
     volumes:
       - ./envoy.dev.yaml:/etc/envoy/envoy.yaml:ro
+    cpus: 1
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 256
+
+  redis:
+    cpus: 1
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 256
 
   client:
     build:
@@ -58,6 +85,11 @@ services:
         exec "$$@"
       - --
     command: [ "sh", "/app/client/scripts/dev-with-codegen.sh" ]
+    # Headroom for npm ci and a Next dev compile.
+    cpus: 4
+    mem_limit: 4g
+    memswap_limit: 4g
+    pids_limit: 512
 
 volumes:
   postgres_data:

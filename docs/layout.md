@@ -15,11 +15,16 @@ Single reference for where each component of the PortfolioDB monorepo lives. The
 | **docker/** | Dockerfiles and compose (or scripts) for local dev and QA (e.g. Postgres + PortfolioDB service). |
 | **e2e/** | Playwright end-to-end suites run against the full Docker stack. Governed by the `e2e-testing` skill. |
 
-`eslint.config.mjs` and its `package.json` sit at the root rather than in either
-TypeScript project. **client/** and **extension/** are separate npm projects,
-but the extension imports client modules through a path alias, so one config
-lints both trees and the rules that apply to shared source cannot drift apart.
-Run it with `make lint-ts`.
+**client/** and **extension/** are separate npm projects and each carries its own
+`eslint.config.mjs` and ESLint install. The client's uses `eslint-config-next`,
+which needs `next` resolvable and locates the app relative to the config, so it
+only works from inside the project. Nothing is linted twice: the client modules
+the extension imports through its path alias live in **client/** and are linted
+there. Run both with `make lint-ts`.
+
+No npm project sits at the repo root, deliberately. A root `package-lock.json`
+makes Next infer the repo root as its workspace root, which pointed Turbopack's
+module graph and file watching at the whole monorepo.
 
 ---
 

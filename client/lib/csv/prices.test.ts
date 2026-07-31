@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import type { MessageInitShape } from "@bufbuild/protobuf";
 import { AssetClass, ExportCoverageSchema, ExportPriceRowSchema } from "@/gen/api/v1/api_pb";
 import type { ExportPriceRow } from "@/gen/api/v1/api_pb";
 import { pricesToCsv, csvToPrices } from "./prices";
 
-function makeRow(overrides: Partial<ExportPriceRow> = {}): ExportPriceRow {
+// Overrides are typed against the init shape, not Partial<ExportPriceRow>: the
+// latter makes $typeName optional, which create() will not accept.
+function makeRow(
+  overrides: MessageInitShape<typeof ExportPriceRowSchema> = {},
+): ExportPriceRow {
   return create(ExportPriceRowSchema, {
     identifierType: "ISIN",
     identifierValue: "US0378331005",

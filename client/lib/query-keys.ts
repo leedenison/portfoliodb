@@ -15,4 +15,17 @@
  */
 export const qk = {
   telemetryCounters: () => ["telemetry-counters"] as const,
+  // Called with no arguments to invalidate every search/filter variant.
+  instruments: (search?: string, assetClasses?: string) =>
+    search === undefined ? (["instruments"] as const) : (["instruments", search, assetClasses ?? ""] as const),
+  // Called with no arguments to invalidate every filter variant.
+  prices: (search?: string, dateFrom?: string, dateTo?: string) =>
+    search === undefined
+      ? (["prices"] as const)
+      : (["prices", search, dateFrom ?? "", dateTo ?? ""] as const),
+  txs: (portfolioId?: string) => ["txs", portfolioId ?? null] as const,
+  jobs: () => ["jobs"] as const,
+  job: (jobId: string) => ["job", jobId] as const,
+  inflationIndices: (currency: string, dateFrom: string, dateTo: string) =>
+    ["inflation-indices", currency, dateFrom, dateTo] as const,
 };

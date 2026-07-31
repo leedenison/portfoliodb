@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import {
   listPrices,
   listPriceFetchBlocks,
@@ -88,7 +91,7 @@ function PriceListTab() {
   const [exportLoading, setExportLoading] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const queryClient = useQueryClient();
 
   async function handleExport() {
     setExportLoading(true);
@@ -124,37 +127,6 @@ function PriceListTab() {
     }
   }
 
-  const fetchPrices = useCallback(
-    async (pageToken: string | null) => {
-      const result = await listPrices({
-        search: debouncedSearch,
-        dateFrom: dateFrom || undefined,
-        // The picker is inclusive; the API bound is exclusive.
-        dateBefore: dayAfter(dateTo),
-        pageToken,
-      });
-      return {
-        items: result.prices,
-        totalCount: result.totalCount,
-        nextPageToken: result.nextPageToken,
-      };
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [debouncedSearch, dateFrom, dateTo, refreshKey]
-  );
-
-  const {
-    items: prices,
-    totalCount,
-    loading,
-    error,
-    pageIndex,
-    hasPrev,
-    hasNext,
-    goNext,
-    goPrev,
-  } = usePagination(fetchPrices);
-
   return (
     <div className="space-y-4">
       {/* Header with export/import buttons */}
@@ -184,11 +156,6 @@ function PriceListTab() {
             className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
           />
         </label>
-        {!loading && (
-          <span className="font-mono text-xs text-text-muted">
-            {totalCount} total
-          </span>
-        )}
         <div className="ml-auto flex gap-2">
           <button
             type="button"
@@ -209,8 +176,68 @@ function PriceListTab() {
       </div>
       {exportError && <ErrorAlert>{exportError}</ErrorAlert>}
 
+      {/* Keyed on the filters: a change remounts the list, which returns it to
+          page 1. */}
+      <PriceList
+        key={`${debouncedSearch}|${dateFrom}|${dateTo}`}
+        search={debouncedSearch}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+      />
+
+      <ImportPricesModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onComplete={() => queryClient.invalidateQueries({ queryKey: qk.prices() })}
+      />
+    </div>
+  );
+}
+
+function PriceList({
+  search,
+  dateFrom,
+  dateTo,
+}: {
+  search: string;
+  dateFrom: string;
+  dateTo: string;
+}) {
+  const {
+    items: prices,
+    totalCount,
+    loading,
+    error,
+    pageIndex,
+    hasPrev,
+    hasNext,
+    goNext,
+    goPrev,
+  } = usePagination<EODPriceProto>({
+    queryKey: qk.prices(search, dateFrom, dateTo),
+    queryFn: async (pageToken) => {
+      const result = await listPrices({
+        search,
+        dateFrom: dateFrom || undefined,
+        // The picker is inclusive; the API bound is exclusive.
+        dateBefore: dayAfter(dateTo),
+        pageToken,
+      });
+      return {
+        items: result.prices,
+        totalCount: result.totalCount,
+        nextPageToken: result.nextPageToken,
+      };
+    },
+  });
+
+  return (
+    <>
+      {!loading && (
+        <span className="block font-mono text-xs text-text-muted">{totalCount} total</span>
+      )}
       {loading && <p className="text-text-muted">Loading prices...</p>}
-      {!loading && error && <ErrorAlert>{error}</ErrorAlert>}
+      {!loading && error && <ErrorAlert>{errorMessage(error)}</ErrorAlert>}
       {!loading && !error && (
         <>
           <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
@@ -253,7 +280,7 @@ function PriceListTab() {
                       colSpan={9}
                       className="px-4 py-8 text-center text-text-muted"
                     >
-                      {debouncedSearch || dateFrom || dateTo
+                      {search || dateFrom || dateTo
                         ? "No prices match your filters."
                         : "No price data yet."}
                     </td>
@@ -277,12 +304,7 @@ function PriceListTab() {
         </>
       )}
 
-      <ImportPricesModal
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
-        onComplete={() => setRefreshKey((k) => k + 1)}
-      />
-    </div>
+    </>
   );
 }
 

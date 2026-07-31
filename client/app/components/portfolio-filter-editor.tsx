@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
 import { useDebounce } from "@/hooks/use-debounce";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import {
   getPortfolioFilters,
   setPortfolioFilters,
@@ -174,36 +176,6 @@ export function PortfolioFilterEditor({
     [activeClasses]
   );
 
-  const fetchInstruments = useCallback(
-    async (pageToken: string | null) => {
-      const classes = assetClassesKey ? assetClassesKey.split(",").map(Number) as AssetClass[] : [];
-      const result = await listInstruments({
-        search: debouncedSearch,
-        assetClasses:
-          classes.length < ALL_ASSET_CLASSES.length ? classes : [],
-        pageToken,
-      });
-      return {
-        items: result.instruments,
-        totalCount: result.totalCount,
-        nextPageToken: result.nextPageToken,
-      };
-    },
-    [debouncedSearch, assetClassesKey]
-  );
-
-  const {
-    items: instruments,
-    totalCount: instTotal,
-    loading: instLoading,
-    error: instError,
-    pageIndex,
-    hasPrev,
-    hasNext,
-    goNext,
-    goPrev,
-  } = usePagination(fetchInstruments);
-
   const handleSave = async () => {
     setSaving(true);
     setSaveError(null);
@@ -300,16 +272,8 @@ export function PortfolioFilterEditor({
             onSearchChange={setInstSearch}
             activeClasses={activeClasses}
             onToggleClass={toggleClass}
-            instruments={instruments}
-            instTotal={instTotal}
-            instLoading={instLoading}
-            instError={instError}
             debouncedSearch={debouncedSearch}
-            pageIndex={pageIndex}
-            hasPrev={hasPrev}
-            hasNext={hasNext}
-            goNext={goNext}
-            goPrev={goPrev}
+            assetClassesKey={assetClassesKey}
             onToggleInstrument={toggleInstrument}
             onRemoveInstrument={removeInstrument}
           />
@@ -411,16 +375,8 @@ function InstrumentsTab({
   onSearchChange,
   activeClasses,
   onToggleClass,
-  instruments,
-  instTotal,
-  instLoading,
-  instError,
   debouncedSearch,
-  pageIndex,
-  hasPrev,
-  hasNext,
-  goNext,
-  goPrev,
+  assetClassesKey,
   onToggleInstrument,
   onRemoveInstrument,
 }: {
@@ -429,16 +385,8 @@ function InstrumentsTab({
   onSearchChange: (v: string) => void;
   activeClasses: Set<AssetClass>;
   onToggleClass: (cls: AssetClass) => void;
-  instruments: Instrument[];
-  instTotal: number;
-  instLoading: boolean;
-  instError: string | null;
   debouncedSearch: string;
-  pageIndex: number;
-  hasPrev: boolean;
-  hasNext: boolean;
-  goNext: () => void;
-  goPrev: () => void;
+  assetClassesKey: string;
   onToggleInstrument: (inst: Instrument) => void;
   onRemoveInstrument: (id: string) => void;
 }) {
@@ -508,11 +456,66 @@ function InstrumentsTab({
         </div>
       </div>
 
+      {/* Keyed on the filters: a change remounts the results, returning them to
+          page 1. The search input above stays mounted so typing keeps focus. */}
+      <InstrumentResults
+        key={`${debouncedSearch}|${assetClassesKey}`}
+        debouncedSearch={debouncedSearch}
+        assetClassesKey={assetClassesKey}
+        selInstruments={selInstruments}
+        onToggleInstrument={onToggleInstrument}
+      />
+    </div>
+  );
+}
+
+function InstrumentResults({
+  debouncedSearch,
+  assetClassesKey,
+  selInstruments,
+  onToggleInstrument,
+}: {
+  debouncedSearch: string;
+  assetClassesKey: string;
+  selInstruments: Map<string, string>;
+  onToggleInstrument: (inst: Instrument) => void;
+}) {
+  const {
+    items: instruments,
+    totalCount: instTotal,
+    loading: instLoading,
+    error: instError,
+    pageIndex,
+    hasPrev,
+    hasNext,
+    goNext,
+    goPrev,
+  } = usePagination<Instrument>({
+    queryKey: qk.instruments(debouncedSearch, assetClassesKey),
+    queryFn: async (pageToken) => {
+      const classes = assetClassesKey
+        ? (assetClassesKey.split(",").map(Number) as AssetClass[])
+        : [];
+      const result = await listInstruments({
+        search: debouncedSearch,
+        assetClasses: classes.length < ALL_ASSET_CLASSES.length ? classes : [],
+        pageToken,
+      });
+      return {
+        items: result.instruments,
+        totalCount: result.totalCount,
+        nextPageToken: result.nextPageToken,
+      };
+    },
+  });
+
+  return (
+    <>
       {/* Instrument results */}
       {instLoading && (
         <p className="py-2 text-xs text-text-muted">Loading instruments...</p>
       )}
-      {!instLoading && instError && <ErrorAlert>{instError}</ErrorAlert>}
+      {!instLoading && instError && <ErrorAlert>{errorMessage(instError)}</ErrorAlert>}
       {!instLoading && !instError && (
         <div>
           {instruments.length === 0 ? (
@@ -562,6 +565,6 @@ function InstrumentsTab({
           )}
         </div>
       )}
-    </div>
+    </>
   );
 }

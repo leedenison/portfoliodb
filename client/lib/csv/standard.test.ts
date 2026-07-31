@@ -362,3 +362,31 @@ describe("share count basis", () => {
   });
 });
 });
+
+describe("group_ref", () => {
+  it("carries the grouping key onto each posting", () => {
+    const csv = `date,instrument_description,type,quantity,unit_price,account,group_ref
+2024-03-01,VOD - Vodafone,SELLSTOCK,-100,1.25,ACC1,563466569
+2024-03-01,Cash,CASHFLOW,125,1,ACC1,563466569
+2024-03-01,Dealing Fee,INVEXPENSE,-7.5,1,ACC1,`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs).toHaveLength(3);
+    expect(result.txs[0].groupRef).toBe("563466569");
+    expect(result.txs[1].groupRef).toBe("563466569");
+    // A separately-reported charge is its own event, so it names no group.
+    expect(result.txs[2].groupRef).toBe("");
+  });
+
+  it("defaults to empty when the column is absent", () => {
+    const csv = `date,instrument_description,type,quantity
+2024-03-01,AAPL,BUYSTOCK,10`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs[0].groupRef).toBe("");
+  });
+});

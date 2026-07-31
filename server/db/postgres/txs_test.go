@@ -264,6 +264,123 @@ func TestReplaceTxsInPeriod_CreatesGroupPerTx(t *testing.T) {
 	}
 }
 
+func TestReplaceTxsInPeriod_GroupsByGroupRef(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-ref", "U", "u@ref.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "VOD", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	base := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+	// A trade and its cash leg share a ref; a separately-reported fee names none.
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "VOD", Type: apiv1.TxType_SELLSTOCK, Quantity: -100, Account: "", GroupRef: "ref-1"},
+		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "VOD", Type: apiv1.TxType_CASHFLOW, Quantity: 125, Account: "", GroupRef: "ref-1"},
+		{Timestamp: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "VOD", Type: apiv1.TxType_INVEXPENSE, Quantity: -7.5, Account: ""},
+	}
+	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
+	ids := []string{instID, instID, instID}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, ids, nil); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	if got := countGroups(t, p, userID); got != 2 {
+		t.Fatalf("tx_groups: want 2 (one shared, one ungrouped fee), got %d", got)
+	}
+	// The group takes the timestamp of the first leg that named it, not the last.
+	var legs int
+	var groupTs time.Time
+	err = p.q.QueryRowContext(ctx, `
+		SELECT count(*), max(g.timestamp) FROM txs t JOIN tx_groups g ON g.id = t.group_id
+		WHERE t.user_id = $1
+		  AND t.group_id = (SELECT group_id FROM txs WHERE user_id = $1 AND quantity = -100)
+		GROUP BY t.group_id
+	`, userID).Scan(&legs, &groupTs)
+	if err != nil {
+		t.Fatalf("read shared group: %v", err)
+	}
+	if legs != 2 {
+		t.Errorf("postings in the shared group: want 2, got %d", legs)
+	}
+	if want := base.Add(time.Hour); !groupTs.Equal(want) {
+		t.Errorf("group timestamp: want the first leg's %v, got %v", want, groupTs)
+	}
+}
+
+func TestReplaceTxsInPeriod_GroupRefScopedToUpload(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-scope", "U", "u@scope.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "BP", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	base := time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC)
+	upload := func(period time.Time) {
+		t.Helper()
+		txs := []*apiv1.Tx{
+			{Timestamp: timestamppb.New(period.Add(time.Hour)), InstrumentDescription: "BP", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "", GroupRef: "same-ref"},
+			{Timestamp: timestamppb.New(period.Add(time.Hour)), InstrumentDescription: "BP", Type: apiv1.TxType_CASHFLOW, Quantity: -50, Account: "", GroupRef: "same-ref"},
+		}
+		from, to := timestamppb.New(period), timestamppb.New(period.Add(24*time.Hour))
+		if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil); err != nil {
+			t.Fatalf("replace: %v", err)
+		}
+	}
+	// The same ref in a second upload must not join the first upload's group: refs
+	// are scoped to one request and carry no meaning across them.
+	upload(base)
+	upload(base.Add(48 * time.Hour))
+
+	if got := countGroups(t, p, userID); got != 2 {
+		t.Errorf("tx_groups across two uploads: want 2, got %d", got)
+	}
+	var distinct int
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT count(DISTINCT group_id) FROM txs WHERE user_id = $1`, userID).Scan(&distinct); err != nil {
+		t.Fatalf("count distinct groups: %v", err)
+	}
+	if distinct != 2 {
+		t.Errorf("distinct groups referenced by postings: want 2, got %d", distinct)
+	}
+}
+
+func TestReplaceTxsInPeriod_DeletesWholeGroups(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-whole", "U", "u@whole.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GSK", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	base := time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC)
+	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
+	seed := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "", GroupRef: "r"},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", Type: apiv1.TxType_CASHFLOW, Quantity: -50, Account: "", GroupRef: "r"},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, seed, []string{instID, instID}, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, nil, nil, nil); err != nil {
+		t.Fatalf("replace with nothing: %v", err)
+	}
+
+	// Deleting by group must take every leg: a surviving orphan leg would be half
+	// an economic event.
+	rows, _, err := p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
+	if err != nil {
+		t.Fatalf("list txs: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("postings after replacing the group with nothing: want 0, got %d", len(rows))
+	}
+	if got := countGroups(t, p, userID); got != 0 {
+		t.Errorf("tx_groups after replace: want 0, got %d", got)
+	}
+}
+
 func TestReplaceTxsInPeriod_DeletesGroupsInPeriod(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

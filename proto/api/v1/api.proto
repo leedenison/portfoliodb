@@ -161,6 +161,13 @@ message Tx {
   double split_adjusted_quantity = 12;
   // Split-adjusted unit price (unit_price / cumulative split factor).
   double split_adjusted_unit_price = 13;
+  // Opaque grouping key, scoped to a single upload. Txs sharing a non-empty
+  // group_ref are postings of one economic event and are stored in one tx group.
+  // Empty means the tx is its own single-posting group. Set by the broker
+  // converter, which is the only thing that knows how a broker reports the legs
+  // of a trade. Not a durable identifier: it is not stored and carries no
+  // meaning across uploads.
+  string group_ref = 14;
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,

@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Group reference in the standard upload format
 milestone: M12
 dependencies: [0036]

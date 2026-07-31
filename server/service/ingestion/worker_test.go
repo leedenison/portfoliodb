@@ -183,8 +183,8 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: from, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: ""},
-		{Timestamp: from, InstrumentDescription: "SPLIT", Type: apiv1.TxType_SPLIT, Quantity: 1, Account: ""},
+		{Timestamp: from, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "", GroupRef: "ref-1"},
+		{Timestamp: from, InstrumentDescription: "SPLIT", Type: apiv1.TxType_SPLIT, Quantity: 1, Account: "", GroupRef: "ref-1"},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Broker:       apiv1.Broker_IBKR,
@@ -222,6 +222,10 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _, _, _ string, _, _ *timestamppb.Timestamp, storedTxs []*apiv1.Tx, ids []string, _ *time.Time) error {
 			if len(storedTxs) != 1 || storedTxs[0].InstrumentDescription != "AAPL" || storedTxs[0].Type != apiv1.TxType_BUYSTOCK {
 				t.Errorf("ReplaceTxsInPeriod called with %d txs, expected 1 (AAPL BUYSTOCK)", len(storedTxs))
+			}
+			// Dropping a leg must not lose the surviving legs' grouping.
+			if got := storedTxs[0].GetGroupRef(); got != "ref-1" {
+				t.Errorf("group_ref after dropping a leg: want ref-1, got %q", got)
 			}
 			return nil
 		})

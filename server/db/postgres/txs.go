@@ -27,7 +27,46 @@ const insertPostingSQL = `
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 instrument_id, share_count_basis, group_id)
 	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, g.id FROM g
+	RETURNING group_id
 `
+
+// insertPostingInGroupSQL inserts a tx as a posting of an existing tx group, for
+// the second and subsequent legs of one economic event.
+const insertPostingInGroupSQL = `
+	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
+	                 quantity, trading_currency, settlement_currency, unit_price,
+	                 instrument_id, share_count_basis, group_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13)
+`
+
+// groupResolver hands out the tx group for a tx's group_ref. An empty group_ref
+// means the tx is its own single-posting group; a repeated one returns the group
+// created for the first leg that used it. Refs are scoped to a single upload, so
+// the resolver lives no longer than one call.
+type groupResolver struct {
+	byRef map[string]uuid.UUID
+}
+
+func newGroupResolver() *groupResolver {
+	return &groupResolver{byRef: map[string]uuid.UUID{}}
+}
+
+// group returns the group id an already-created group should be reused for, and
+// false when the caller must create one (an empty ref, or the first leg of a ref).
+func (r *groupResolver) group(ref string) (uuid.UUID, bool) {
+	if ref == "" {
+		return uuid.UUID{}, false
+	}
+	id, ok := r.byRef[ref]
+	return id, ok
+}
+
+// record remembers the group created for a non-empty ref so later legs join it.
+func (r *groupResolver) record(ref string, id uuid.UUID) {
+	if ref != "" {
+		r.byRef[ref] = id
+	}
+}
 
 // ReplaceTxsInPeriod implements db.TxDB.
 func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error {
@@ -82,6 +121,7 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 		if err != nil {
 			return fmt.Errorf("delete ungrouped txs in period: %w", err)
 		}
+		resolver := newGroupResolver()
 		for i, t := range txs {
 			instUUID, err := uuid.Parse(instrumentIDs[i])
 			if err != nil {
@@ -96,19 +136,31 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 				return err
 			}
 			acc := t.GetAccount()
-			_, err = exec.ExecContext(ctx, insertPostingSQL,
+			args := []interface{}{
 				userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, t.Quantity,
 				nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullFloat(t.UnitPrice),
-				instUUID, shareCountBasis, jobUUID)
-			if err != nil {
+				instUUID, shareCountBasis,
+			}
+			ref := t.GetGroupRef()
+			if groupID, ok := resolver.group(ref); ok {
+				if _, err := exec.ExecContext(ctx, insertPostingInGroupSQL, append(args, groupID)...); err != nil {
+					return fmt.Errorf("insert tx: %w", err)
+				}
+				continue
+			}
+			// The group takes the timestamp of the first leg that names it.
+			var groupID uuid.UUID
+			if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID)...).Scan(&groupID); err != nil {
 				return fmt.Errorf("insert tx: %w", err)
 			}
+			resolver.record(ref, groupID)
 		}
 		return nil
 	})
 }
 
-// CreateTx implements db.TxDB.
+// CreateTx implements db.TxDB. group_ref is ignored: a single-tx upload has nothing
+// to group with.
 func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account, jobID string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {

@@ -23,7 +23,9 @@ balance means one side of a journal was imported and the other was not.
 
 - Admin-visible, following the existing patterns for surfacing data problems
   (`validation_errors`, `identification_errors`,
-  `unhandled_corporate_events`).
+  `unhandled_corporate_events`). If the alerting system (0066) lands first, a
+  per-broker imbalance above a threshold belongs there rather than in another
+  bespoke report.
 - Group by broker, account and currency; a per-broker total is the useful
   headline number.
 - Consider a time dimension so that a converter fix can be seen to work.

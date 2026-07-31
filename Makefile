@@ -14,6 +14,8 @@ COMPOSE_TEST = docker compose -p portfoliodb-test  -f docker/docker-compose.test
 COMPOSE_TOOLS        = HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV)  run --rm --no-deps -T portfoliodb
 # One-shot invocations of the client image for TS codegen (needs node + buf). -w /app overrides the /app/client working_dir.
 COMPOSE_TOOLS_CLIENT = HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV)  run --rm --no-deps -T -w /app client
+# The same image with the working dir left at the client npm project, for tools that must run inside it (ESLint).
+COMPOSE_TOOLS_CLIENT_PKG = HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV)  run --rm --no-deps -T -w /app/client client
 # The extension reuses the client image (node + the repo bind mount) with the working dir moved.
 # Its recipes run npm ci themselves: the client service entrypoint only bootstraps /app/client/node_modules.
 COMPOSE_TOOLS_EXT    = HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV)  run --rm --no-deps -T -w /app/extension client
@@ -103,15 +105,22 @@ extension-typecheck: $(STAMP_DIR)/generate
 lint-go: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS) golangci-lint run ./server/...
 
-# ESLint over both TypeScript trees. It lives in its own npm project at the repo
-# root rather than in client/ or extension/, so one config covers both; the
-# recipe runs npm ci itself, as the client entrypoint only bootstraps
-# /app/client/node_modules.
-lint-ts: $(STAMP_DIR)/generate
-	$(COMPOSE_TOOLS_CLIENT) sh -c 'npm ci && npm run lint'
+# ESLint over both TypeScript trees. Each tree carries its own ESLint install and
+# flat config, so this is two invocations rather than one: eslint-config-next
+# needs `next` resolvable and locates the app relative to the config, neither of
+# which holds from outside client/. The recipes run npm ci themselves, as the
+# client entrypoint only bootstraps /app/client/node_modules.
+lint-ts: lint-ts-client lint-ts-extension
+
+lint-ts-client: $(STAMP_DIR)/generate
+	$(COMPOSE_TOOLS_CLIENT_PKG) sh -c 'npm ci && npm run lint'
+
+lint-ts-extension: $(STAMP_DIR)/generate
+	$(COMPOSE_TOOLS_EXT) sh -c 'npm ci && npm run lint'
 
 lint-ts-fix: $(STAMP_DIR)/generate
-	$(COMPOSE_TOOLS_CLIENT) sh -c 'npm ci && npm run lint:fix'
+	$(COMPOSE_TOOLS_CLIENT_PKG) sh -c 'npm ci && npm run lint:fix'
+	$(COMPOSE_TOOLS_EXT) sh -c 'npm ci && npm run lint:fix'
 
 lint: lint-go lint-ts
 
@@ -251,4 +260,4 @@ help:
 	@echo ""
 	@echo "Dependencies are tracked automatically -- stale steps re-run as needed."
 
-.PHONY: generate build google-finance-cli fmt fmt-check vet lint lint-go lint-ts lint-ts-fix client-typecheck extension-typecheck check server-test db-test client-test integration-test integration-test-list integration-test-record extension extension-dev extension-test e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help
+.PHONY: generate build google-finance-cli fmt fmt-check vet lint lint-go lint-ts lint-ts-client lint-ts-extension lint-ts-fix client-typecheck extension-typecheck check server-test db-test client-test integration-test integration-test-list integration-test-record extension extension-dev extension-test e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help

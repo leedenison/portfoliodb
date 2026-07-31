@@ -33,7 +33,7 @@ export default function Home() {
       <AppHeader />
       <div className="bg-grid relative flex flex-1 flex-col items-center px-4 py-16 md:py-24">
         {/* Gradient fade over grid */}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-background via-background/80 to-background" />
+        <div className="pointer-events-none absolute inset-0 bg-linear-to-b from-background via-background/80 to-background" />
 
         {state.status === "loading" && (
           <p className="relative text-text-muted">Loading…</p>

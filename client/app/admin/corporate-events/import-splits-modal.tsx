@@ -159,7 +159,7 @@ export function ImportSplitsModal({
                 <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-surface">
                   <table className="w-full border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-border bg-primary-dark/[0.03]">
+                      <tr className="border-b border-border bg-primary-dark/3">
                         <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Row</th>
                         <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Field</th>
                         <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Error</th>
@@ -271,7 +271,7 @@ export function ImportSplitsModal({
                 <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-surface">
                   <table className="w-full border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-border bg-primary-dark/[0.03]">
+                      <tr className="border-b border-border bg-primary-dark/3">
                         <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Row</th>
                         <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Field</th>
                         <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Error</th>

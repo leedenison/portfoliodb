@@ -85,7 +85,7 @@ export default function AdminWorkersPage() {
           type="button"
           onClick={() => void refetch()}
           disabled={isFetching}
-          className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+          className="rounded-sm bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
         >
           {isFetching ? "Refreshing..." : "Refresh"}
         </button>
@@ -136,7 +136,7 @@ export default function AdminWorkersPage() {
                       type="button"
                       onClick={() => handleTrigger(w.name, triggerFns[w.name])}
                       disabled={triggering !== null}
-                      className="rounded border border-border px-3 py-1 text-xs hover:bg-background disabled:opacity-50"
+                      className="rounded-sm border border-border px-3 py-1 text-xs hover:bg-background disabled:opacity-50"
                     >
                       {triggering === w.name ? "Triggering..." : "Trigger"}
                     </button>

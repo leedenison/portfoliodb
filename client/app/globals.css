@@ -1,35 +1,189 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+/*
+  The palette lives in `--palette-*` variables defined in :root below, and the
+  theme keys here only point at them. Two reasons for the indirection rather
+  than colours written directly into @theme:
+
+  - The light and dark values are plain :root declarations, so a media query can
+    swap them. Theme keys themselves cannot be redeclared per media query.
+  - The names differ from the theme keys deliberately. Under v3 these were the
+    same name holding a bare `R G B` triple, which v4 cannot use: the theme key
+    would both collide with the :root declaration and refer to itself, and the
+    triple wins the cascade, leaving every utility with an invalid value like
+    `color: 90 107 122`.
+
+  `inline` then substitutes the value into each utility rather than emitting a
+  theme variable, so `.text-text-muted` becomes `color: var(--palette-text-muted)`.
+  That also keeps the `/50` opacity modifiers valid: v4 wraps the value in
+  `color-mix()`, and a complete colour survives that where a bare triple does not.
+
+  The font keys use the same mechanism for the variables Next's font loader puts
+  on <html>, which would otherwise collide with theme keys of the same name.
+*/
+@theme inline {
+  --font-display: var(--font-display), sans-serif;
+  --font-body: var(--font-body), sans-serif;
+  --font-mono: var(--font-mono), monospace;
+
+  --color-primary: var(--palette-primary);
+  --color-primary-dark: var(--palette-primary-dark);
+  --color-primary-light: var(--palette-primary-light);
+
+  --color-accent: var(--palette-accent);
+  --color-accent-dark: var(--palette-accent-dark);
+  --color-accent-soft: var(--palette-accent-soft);
+
+  --color-background: var(--palette-background);
+  --color-surface: var(--palette-surface);
+  --color-border: var(--palette-border);
+  --color-text-primary: var(--palette-text);
+  --color-text-muted: var(--palette-text-muted);
+
+  --animate-fade-in: fade-in 0.4s ease-out both;
+  --animate-fade-in-fast: fade-in-fast 0.25s ease-out both;
+  --animate-fade-in-d1: fade-in 0.4s ease-out 0.05s both;
+  --animate-fade-in-d2: fade-in 0.4s ease-out 0.1s both;
+  --animate-fade-in-d3: fade-in 0.4s ease-out 0.15s both;
+  --animate-fade-in-d4: fade-in 0.4s ease-out 0.2s both;
+  --animate-slide-in-left: slide-in-left 0.3s ease-out both;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes fade-in-fast {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes slide-in-left {
+    from {
+      opacity: 0;
+      transform: translateX(-12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@utility bg-grid {
+  /* Subtle geometric grid background */
+  background-image:
+    linear-gradient(to right, var(--palette-border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--palette-border) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: center center;
+}
+
+@utility bg-grid-dense {
+  background-image:
+    linear-gradient(to right, var(--palette-border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--palette-border) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+@utility accent-bar {
+  /* Diagonal geometric accent line */
+  position: relative;
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(
+      90deg,
+      var(--palette-accent) 0%,
+      var(--palette-primary) 100%
+    );
+  }
+}
+
+@utility header-geo {
+  /* Header geometric pattern overlay */
+  position: relative;
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0.06;
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 16px,
+      currentColor 16px,
+      currentColor 17px
+    );
+    pointer-events: none;
+  }
+}
 
 @layer base {
+  /*
+    Complete colours rather than the bare `R G B` triples these held under v3.
+    A triple is not a colour, so it cannot survive the `color-mix()` that v4
+    wraps around any utility carrying an opacity modifier.
+  */
   :root {
-    --color-primary: 62 107 138;
-    --color-primary-dark: 27 58 75;
-    --color-primary-light: 191 211 225;
-    --color-accent: 224 122 47;
-    --color-accent-dark: 184 94 29;
-    --color-accent-soft: 247 216 193;
-    --color-background: 244 246 249;
-    --color-surface: 255 255 255;
-    --color-border: 214 222 231;
-    --color-text: 15 23 32;
-    --color-text-muted: 90 107 122;
+    --palette-primary: rgb(62 107 138);
+    --palette-primary-dark: rgb(27 58 75);
+    --palette-primary-light: rgb(191 211 225);
+    --palette-accent: rgb(224 122 47);
+    --palette-accent-dark: rgb(184 94 29);
+    --palette-accent-soft: rgb(247 216 193);
+    --palette-background: rgb(244 246 249);
+    --palette-surface: rgb(255 255 255);
+    --palette-border: rgb(214 222 231);
+    --palette-text: rgb(15 23 32);
+    --palette-text-muted: rgb(90 107 122);
   }
 
   @media (prefers-color-scheme: dark) {
     :root {
-      --color-primary: 85 153 204;
-      --color-primary-dark: 26 48 72;
-      --color-primary-light: 30 61 90;
-      --color-accent: 224 122 47;
-      --color-accent-dark: 200 104 32;
-      --color-accent-soft: 45 24 5;
-      --color-background: 13 17 23;
-      --color-surface: 22 28 39;
-      --color-border: 37 47 62;
-      --color-text: 226 232 240;
-      --color-text-muted: 122 143 168;
+      --palette-primary: rgb(85 153 204);
+      --palette-primary-dark: rgb(26 48 72);
+      --palette-primary-light: rgb(30 61 90);
+      --palette-accent: rgb(224 122 47);
+      --palette-accent-dark: rgb(200 104 32);
+      --palette-accent-soft: rgb(45 24 5);
+      --palette-background: rgb(13 17 23);
+      --palette-surface: rgb(22 28 39);
+      --palette-border: rgb(37 47 62);
+      --palette-text: rgb(226 232 240);
+      --palette-text-muted: rgb(122 143 168);
     }
   }
 
@@ -48,57 +202,5 @@
     animation-duration: 0s !important;
     animation-delay: 0s !important;
     transition-duration: 0s !important;
-  }
-}
-
-@layer components {
-  /* Subtle geometric grid background */
-  .bg-grid {
-    background-image:
-      linear-gradient(to right, rgb(var(--color-border)) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(var(--color-border)) 1px, transparent 1px);
-    background-size: 48px 48px;
-    background-position: center center;
-  }
-
-  .bg-grid-dense {
-    background-image:
-      linear-gradient(to right, rgb(var(--color-border)) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(var(--color-border)) 1px, transparent 1px);
-    background-size: 24px 24px;
-  }
-
-  /* Diagonal geometric accent line */
-  .accent-bar {
-    position: relative;
-  }
-  .accent-bar::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, rgb(var(--color-accent)) 0%, rgb(var(--color-primary)) 100%);
-  }
-
-  /* Header geometric pattern overlay */
-  .header-geo {
-    position: relative;
-  }
-  .header-geo::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    opacity: 0.06;
-    background-image:
-      repeating-linear-gradient(
-        -45deg,
-        transparent,
-        transparent 16px,
-        currentColor 16px,
-        currentColor 17px
-      );
-    pointer-events: none;
   }
 }

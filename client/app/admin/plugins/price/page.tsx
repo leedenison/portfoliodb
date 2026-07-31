@@ -68,13 +68,13 @@ function MaxHistoryDaysField({
             min="0"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            className="w-24 rounded border border-border bg-background px-2 py-1 text-sm"
+            className="w-24 rounded-sm border border-border bg-background px-2 py-1 text-sm"
           />
           <button
             type="button"
             onClick={save}
             disabled={saving || localSaving}
-            className="rounded bg-primary px-2 py-1 text-xs font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+            className="rounded-sm bg-primary px-2 py-1 text-xs font-medium text-white hover:bg-primary-dark disabled:opacity-50"
           >
             Save
           </button>
@@ -82,7 +82,7 @@ function MaxHistoryDaysField({
             type="button"
             onClick={() => setEditing(false)}
             disabled={localSaving}
-            className="rounded border border-border px-2 py-1 text-xs hover:bg-background"
+            className="rounded-sm border border-border px-2 py-1 text-xs hover:bg-background"
           >
             Cancel
           </button>
@@ -98,7 +98,7 @@ function MaxHistoryDaysField({
               setValue(current?.toString() ?? "");
               setEditing(true);
             }}
-            className="rounded border border-border px-2 py-1 text-xs hover:bg-background"
+            className="rounded-sm border border-border px-2 py-1 text-xs hover:bg-background"
           >
             Edit
           </button>

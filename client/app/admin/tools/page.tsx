@@ -31,14 +31,14 @@ export default function ToolsPage() {
             <p className="text-text-muted">
               Session token for <span className="font-medium text-text-primary">{state.status === "authenticated" ? state.user?.name : ""}</span>.
               Use this as the{" "}
-              <code className="rounded bg-primary-dark/[0.06] px-1 py-0.5 font-mono text-xs">x-session-id</code>{" "}
+              <code className="rounded-sm bg-primary-dark/6 px-1 py-0.5 font-mono text-xs">x-session-id</code>{" "}
               header when calling backend APIs directly.
             </p>
             <textarea
               id="session-token-value"
               readOnly
               rows={3}
-              className="w-full rounded-md border border-border bg-primary-dark/[0.03] p-3 font-mono text-xs text-text-primary"
+              className="w-full rounded-md border border-border bg-primary-dark/3 p-3 font-mono text-xs text-text-primary"
               value={sessionToken}
             />
           </div>
@@ -56,7 +56,7 @@ export default function ToolsPage() {
           ID token you can send to the Auth endpoint to start a new session.
         </p>
 
-        <div className="flex flex-wrap items-center gap-3 [color-scheme:light]">
+        <div className="flex flex-wrap items-center gap-3 scheme-light">
           <GoogleLogin
             onSuccess={async (credentialResponse) => {
               const token = credentialResponse.credential ?? null;
@@ -94,7 +94,7 @@ export default function ToolsPage() {
               id="id-token-value"
               readOnly
               rows={6}
-              className="w-full rounded-md border border-border bg-primary-dark/[0.03] p-3 font-mono text-xs text-text-primary"
+              className="w-full rounded-md border border-border bg-primary-dark/3 p-3 font-mono text-xs text-text-primary"
               value={idToken}
             />
           </div>

@@ -114,7 +114,7 @@ export function DeclarationForm({
   };
 
   const inputClass =
-    "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent";
+    "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">

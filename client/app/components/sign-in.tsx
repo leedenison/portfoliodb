@@ -11,7 +11,7 @@ export function SignInButton() {
     return <span className="text-text-muted">Loading…</span>;
   }
   return (
-    <div className="[color-scheme:light]">
+    <div className="scheme-light">
       <GoogleLogin
         onSuccess={async (credentialResponse) => {
           const idToken = credentialResponse.credential;

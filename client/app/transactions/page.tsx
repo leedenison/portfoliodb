@@ -134,10 +134,10 @@ function TxList({ portfolioId }: { portfolioId: string | undefined }) {
       {!loading && error && <ErrorAlert>{errorMessage(error)}</ErrorAlert>}
       {!loading && !error && (
         <>
-              <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
+              <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-xs">
                 <table data-testid="transactions-table" className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
-                    <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/[0.03]">
+                    <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/3">
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                         Date
                       </th>
@@ -232,7 +232,7 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
       </td>
       <td className="px-4 py-3 text-text-muted">
         {isSynthetic ? (
-          <span className="inline-block rounded bg-primary-dark/10 px-1.5 py-0.5 text-xs font-medium text-primary-dark">
+          <span className="inline-block rounded-sm bg-primary-dark/10 px-1.5 py-0.5 text-xs font-medium text-primary-dark">
             {tx.syntheticPurpose}
           </span>
         ) : (

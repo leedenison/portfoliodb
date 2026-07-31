@@ -145,7 +145,7 @@ function PortfolioSelectorBody() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter portfolios..."
-          className="min-w-0 flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+          className="min-w-0 flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary/30"
           autoFocus
         />
         {!creating && (
@@ -167,7 +167,7 @@ function PortfolioSelectorBody() {
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Portfolio name"
-            className="min-w-0 flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+            className="min-w-0 flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary/30"
             autoFocus
           />
           <button type="submit" className="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-dark">
@@ -233,7 +233,7 @@ function PortfolioSelectorBody() {
                         type="text"
                         value={renameValue}
                         onChange={(e) => setRenameValue(e.target.value)}
-                        className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                        className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm text-text-primary focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary/30"
                         autoFocus
                       />
                       <button type="submit" className="rounded-md bg-primary px-2.5 py-1 text-sm font-semibold text-white hover:bg-primary-dark">

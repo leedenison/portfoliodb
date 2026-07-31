@@ -111,7 +111,7 @@ function SortablePluginCard<T extends PluginConfig>({
     <li
       ref={setNodeRef}
       style={style}
-      className="rounded-md border border-border bg-surface p-4 shadow-sm"
+      className="rounded-md border border-border bg-surface p-4 shadow-xs"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -147,7 +147,7 @@ function SortablePluginCard<T extends PluginConfig>({
                 type="button"
                 onClick={onSaveEdit}
                 disabled={saving}
-                className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark"
+                className="rounded-sm bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark"
               >
                 Save
               </button>
@@ -155,7 +155,7 @@ function SortablePluginCard<T extends PluginConfig>({
                 type="button"
                 onClick={onCancelEdit}
                 disabled={saving}
-                className="rounded border border-border px-3 py-1.5 text-sm hover:bg-background"
+                className="rounded-sm border border-border px-3 py-1.5 text-sm hover:bg-background"
               >
                 Cancel
               </button>
@@ -164,7 +164,7 @@ function SortablePluginCard<T extends PluginConfig>({
             <button
               type="button"
               onClick={() => onStartEdit(plugin)}
-              className="rounded border border-border px-3 py-1.5 text-sm hover:bg-background"
+              className="rounded-sm border border-border px-3 py-1.5 text-sm hover:bg-background"
             >
               Edit config
             </button>
@@ -193,7 +193,7 @@ function SortablePluginCard<T extends PluginConfig>({
             value={editConfig}
             onChange={(e) => onEditConfigChange(e.target.value)}
             rows={8}
-            className="mt-1 w-full rounded border border-border bg-background px-3 py-2 font-mono text-sm"
+            className="mt-1 w-full rounded-sm border border-border bg-background px-3 py-2 font-mono text-sm"
             spellCheck={false}
           />
         </div>

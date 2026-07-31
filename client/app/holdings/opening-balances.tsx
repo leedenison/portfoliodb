@@ -100,10 +100,10 @@ export function OpeningBalances() {
             Set checkpoints for known holding quantities at a point in time. The system will
             calculate an opening balance so that your records show this quantity on the date you specify.
           </p>
-          <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
+          <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-xs">
             <table className="w-full min-w-[480px] border-collapse text-sm">
               <thead>
-                <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/[0.03]">
+                <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/3">
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                     Broker
                   </th>

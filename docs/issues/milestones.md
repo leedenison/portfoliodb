@@ -26,7 +26,7 @@
 - Browser extension recipes for further brokers.
 - Exchange and listing currency: identify and store per transaction/instrument (and support multiple listings per instrument if needed).
 - Modular ingestion workflow with distinct tasks and explicit dependency modelling.
-- Alerting for data that needs human review, and checking transaction pairings against fetched prices.
+- Alerting for data that needs human review.
 - User override of instrument identity (user-owned data); admin correction of shared instrument identity.
 - Loading index instrument metadata and price data for performance comparison.
 - Portfolio performance metrics: time-weighted return (TWR) and money-weighted return (MWR).

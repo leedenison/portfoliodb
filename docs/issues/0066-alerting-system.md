@@ -13,7 +13,7 @@ Every data problem the system can detect but not fix has grown its own machinery
 `validation_errors` and `identification_errors` hang off an ingestion job and are
 surfaced on the uploads page; `unhandled_corporate_events` has its own table, its own
 `resolved` flag, its own count RPC and its own admin card. The imbalance report
-(0039) and the pairing sanity check (0067) each want the same thing again.
+(0039) wants the same thing again.
 
 Repeating it per problem means the resolution workflow, deduplication, and "is
 anything wrong?" summary are re-implemented every time and drift apart. It also
@@ -28,10 +28,9 @@ key user concepts and the key admin user concepts (docs/spec/information-archite
 - **Admin alerts** concern shared reference data and system health -- an unhandled
   corporate event, a price fetch failing repeatedly, a plugin erroring. Nobody but
   an admin can resolve these, and one alert covers all users.
-- **User alerts** concern a user's own data -- a suspicious transaction (0067), a
-  large `Imbalance` balance under one broker, an unmatched transfer. These are
-  per-user, and the user is the only one who can say whether the underlying data is
-  right.
+- **User alerts** concern a user's own data -- a large `Imbalance` balance under one
+  broker, an unmatched transfer. These are per-user, and the user is the only one
+  who can say whether the underlying data is right.
 
 A user must not see admin alerts, and an admin looking at system health must not
 have to wade through per-user data-quality noise.

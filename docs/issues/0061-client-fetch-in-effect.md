@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Stop loading client data with setState inside an effect
 dependencies: [0060]
 ---

@@ -55,13 +55,6 @@ export default defineConfig([
       // A Pages Router rule: the client is App Router only, so there is no
       // pages directory for it to check against.
       "@next/next/no-html-link-for-pages": "off",
-
-      // Off pending 0061. Both fire on the client's fetch-in-effect data
-      // loading, which every page and most components use; clearing them is a
-      // rework of how the client loads data, not a lint fix, and leaving them
-      // as errors would mean this config could not be turned on at all.
-      "react-hooks/set-state-in-effect": "off",
-      "react-hooks/refs": "off",
     },
   },
   {

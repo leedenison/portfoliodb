@@ -1,7 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ErrorAlert } from "@/app/components/error-alert";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import { Modal } from "@/app/components/modal";
 import { PortfolioFilterEditor } from "@/app/components/portfolio-filter-editor";
 import { usePortfolio } from "@/contexts/portfolio-context";
@@ -13,11 +17,20 @@ import {
   deletePortfolio,
 } from "@/lib/portfolio-api";
 
+/**
+ * Shell. The body mounts only while the modal is open, so the filter box and the
+ * create/rename/delete affordances all start clean on each open -- which is what
+ * the reset half of the old open-effect did.
+ */
 export function PortfolioSelectorModal() {
+  const { modalOpen } = usePortfolio();
+  return modalOpen ? <PortfolioSelectorBody /> : null;
+}
+
+function PortfolioSelectorBody() {
   const { selected, setSelected, modalOpen, closeModal } = usePortfolio();
-  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -26,10 +39,14 @@ export function PortfolioSelectorModal() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingFiltersId, setEditingFiltersId] = useState<string | null>(null);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  // The list is not paginated in the UI, so the queryFn drains every page.
+  const {
+    data: portfolios = [],
+    isPending: loading,
+    error: loadError,
+  } = useAuthedQuery<Portfolio[]>({
+    queryKey: qk.portfolios(),
+    queryFn: async () => {
       const all: Portfolio[] = [];
       let token: string | null = null;
       for (;;) {
@@ -38,25 +55,12 @@ export function PortfolioSelectorModal() {
         if (!result.nextPageToken) break;
         token = result.nextPageToken;
       }
-      setPortfolios(all);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return all;
+    },
+  });
 
-  useEffect(() => {
-    if (modalOpen) {
-      fetchAll();
-      setFilter("");
-      setCreating(false);
-      setNewName("");
-      setRenamingId(null);
-      setDeletingId(null);
-      setEditingFiltersId(null);
-    }
-  }, [modalOpen, fetchAll]);
+  const error = mutationError ?? (loadError ? errorMessage(loadError) : null);
+  const fetchAll = () => queryClient.invalidateQueries({ queryKey: qk.portfolios() });
 
   const handleSelect = (p: Portfolio | null) => {
     setSelected(p);
@@ -67,7 +71,7 @@ export function PortfolioSelectorModal() {
     e.preventDefault();
     const name = newName.trim();
     if (!name) return;
-    setError(null);
+    setMutationError(null);
     try {
       const created = await createPortfolio(name);
       setNewName("");
@@ -75,7 +79,7 @@ export function PortfolioSelectorModal() {
       await fetchAll();
       setEditingFiltersId(created.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setMutationError(errorMessage(e));
     }
   };
 
@@ -83,7 +87,7 @@ export function PortfolioSelectorModal() {
     e.preventDefault();
     const name = renameValue.trim();
     if (!name) return;
-    setError(null);
+    setMutationError(null);
     try {
       await updatePortfolio(id, name);
       setRenamingId(null);
@@ -93,12 +97,12 @@ export function PortfolioSelectorModal() {
       }
       await fetchAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setMutationError(errorMessage(e));
     }
   };
 
   const handleDelete = async (id: string) => {
-    setError(null);
+    setMutationError(null);
     try {
       await deletePortfolio(id);
       setDeletingId(null);
@@ -106,7 +110,7 @@ export function PortfolioSelectorModal() {
       if (selected?.id === id) setSelected(null);
       await fetchAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setMutationError(errorMessage(e));
     }
   };
 

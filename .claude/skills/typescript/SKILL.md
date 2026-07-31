@@ -61,6 +61,11 @@ which prefix-matches. Poll with `refetchInterval`, not `setInterval`. Use
 so give the paginated child a `key` built from the filter values and let the
 remount clear the page.
 
+The same `key` trick is how to reset any state when an input changes -- both
+`react-hooks/set-state-in-effect` and `set-state-in-render` are on at error, so
+neither an effect nor a guarded render-time `setState` is available. Derive
+during render where you can, remount where you cannot.
+
 ## Strictness and idioms
 
 - `tsconfig.json` sets `strict: true`, `moduleResolution: "bundler"`, and the `@/*`
@@ -78,10 +83,6 @@ through a path alias, so the rules applying to shared source cannot be allowed
 to drift. Rules are typescript-eslint's non-type-aware `recommended` for both
 trees, plus react, react-hooks and `@next/next` core-web-vitals for the client
 only.
-
-`react-hooks/set-state-in-effect` and `react-hooks/refs` are off pending 0061.
-Do not write new fetch-in-effect data loading on the strength of that -- the
-issue is to remove the pattern, not to keep adding to it.
 
 There is no Prettier config -- follow the observed style: 2-space indent, double
 quotes, semicolons, and trailing commas.

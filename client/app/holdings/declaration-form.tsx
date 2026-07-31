@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { qk } from "@/lib/query-keys";
 import { ErrorAlert } from "@/app/components/error-alert";
 import {
   listBrokersAndAccounts,
@@ -18,6 +20,14 @@ function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Ticker if the instrument has one, else its name, else the bare id. */
+function instrumentDisplayLabel(decl: HoldingDeclaration): string {
+  const ticker = decl.instrument?.identifiers?.find(
+    (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
+  )?.value;
+  return ticker || decl.instrument?.name || decl.instrumentId;
+}
+
 export function DeclarationForm({
   editing,
   onDone,
@@ -27,11 +37,12 @@ export function DeclarationForm({
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const [brokerAccounts, setBrokerAccounts] = useState<BrokerAccounts[]>([]);
   const [broker, setBroker] = useState(editing?.broker ?? "");
   const [account, setAccount] = useState(editing?.account ?? "");
-  const [instrumentId, setInstrumentId] = useState(editing?.instrumentId ?? "");
-  const [instrumentLabel, setInstrumentLabel] = useState("");
+  // The instrument the user picked, if any. Everything about the instrument is
+  // derived from this or from the `editing` prop, so no effect copies the prop
+  // into state.
+  const [picked, setPicked] = useState<{ id: string; label: string } | null>(null);
   const [declaredQty, setDeclaredQty] = useState(editing?.declaredQty ?? "");
   const [asOfDate, setAsOfDate] = useState(editing?.asOfDate ? protoDateToStr(editing.asOfDate) : todayStr());
   const [error, setError] = useState<string | null>(null);
@@ -40,39 +51,24 @@ export function DeclarationForm({
   // Instrument search
   const [instrumentSearch, setInstrumentSearch] = useState("");
   const debouncedInstrumentSearch = useDebounce(instrumentSearch);
-  const [searchResults, setSearchResults] = useState<Instrument[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
 
-  useEffect(() => {
-    listBrokersAndAccounts()
-      .then(setBrokerAccounts)
-      .catch(() => {});
-  }, []);
+  const { data: brokerAccounts = [] } = useAuthedQuery<BrokerAccounts[]>({
+    queryKey: qk.brokersAndAccounts(),
+    queryFn: listBrokersAndAccounts,
+  });
 
-  // Set initial instrument label for editing
-  useEffect(() => {
-    if (editing?.instrument) {
-      const ticker = editing.instrument.identifiers?.find(
-        (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
-      )?.value;
-      setInstrumentLabel(ticker || editing.instrument.name || editing.instrumentId);
-    }
-  }, [editing]);
+  // Each search term is its own cache entry, so a late reply cannot overwrite
+  // the results for a newer term -- which is what the cancelled flag was for.
+  const { data: searchResults = [], isFetching: searchLoading } = useAuthedQuery({
+    queryKey: qk.instruments(debouncedInstrumentSearch, ""),
+    queryFn: () => listInstruments({ search: debouncedInstrumentSearch }),
+    select: (res) => res.instruments,
+    enabled: debouncedInstrumentSearch.length >= 2,
+  });
 
-  // Instrument search
-  useEffect(() => {
-    if (debouncedInstrumentSearch.length < 2) {
-      setSearchResults([]);
-      return;
-    }
-    let cancelled = false;
-    setSearchLoading(true);
-    listInstruments({ search: debouncedInstrumentSearch })
-      .then((res) => { if (!cancelled) setSearchResults(res.instruments); })
-      .catch(() => { if (!cancelled) setSearchResults([]); })
-      .finally(() => { if (!cancelled) setSearchLoading(false); });
-    return () => { cancelled = true; };
-  }, [debouncedInstrumentSearch]);
+  const instrumentId = picked?.id ?? editing?.instrumentId ?? "";
+  const instrumentLabel =
+    picked?.label ?? (editing?.instrument ? instrumentDisplayLabel(editing) : "");
 
   const accounts = brokerAccounts.find((b) => b.broker === broker)?.accounts ?? [];
 
@@ -109,13 +105,12 @@ export function DeclarationForm({
   };
 
   const selectInstrument = (inst: Instrument) => {
-    setInstrumentId(inst.id);
     const ticker = inst.identifiers?.find(
       (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
     )?.value;
-    setInstrumentLabel(ticker || inst.name || inst.id);
+    setPicked({ id: inst.id, label: ticker || inst.name || inst.id });
+    // Clearing the term disables the search query, so the results go with it.
     setInstrumentSearch("");
-    setSearchResults([]);
   };
 
   const inputClass =
@@ -183,7 +178,7 @@ export function DeclarationForm({
                 <span className="text-sm font-medium text-text-primary">{instrumentLabel}</span>
                 <button
                   type="button"
-                  onClick={() => { setInstrumentId(""); setInstrumentLabel(""); }}
+                  onClick={() => setPicked({ id: "", label: "" })}
                   className="text-xs text-accent-dark hover:underline"
                 >
                   Change

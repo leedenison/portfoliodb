@@ -15,6 +15,7 @@
  */
 export const qk = {
   session: () => ["session"] as const,
+  portfolios: () => ["portfolios"] as const,
   plugins: (category: "identifier" | "description" | "price" | "inflation") =>
     ["plugins", category] as const,
   workers: () => ["workers"] as const,

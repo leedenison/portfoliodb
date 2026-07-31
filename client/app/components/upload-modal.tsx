@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { Modal } from "@/app/components/modal";
 import { useUploadModal } from "@/contexts/upload-modal-context";
-import { useAuth } from "@/contexts/auth-context";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import { getJob } from "@/lib/portfolio-api";
 import { upsertTxs } from "@/lib/ingestion-api";
 import { parseStandardCSV } from "@/lib/csv/standard";
@@ -20,18 +22,44 @@ import {
 const BROKER_OPTIONS = getBrokerOptionsForUpload();
 const DEFAULT_BROKER = BROKER_OPTIONS[0]?.value ?? Broker.FIDELITY;
 
+/**
+ * Shell. The body is mounted only while the modal is open, so every field it
+ * owns starts fresh on each open -- which is what the reset-on-open effect used
+ * to do. jobId stays here because the shell needs it to decide whether the
+ * modal can be dismissed.
+ */
 export function UploadModal() {
-  const { isOpen, closeUploadModal, onComplete } = useUploadModal();
-  const { state } = useAuth();
+  const { isOpen, closeUploadModal } = useUploadModal();
+  const [jobId, setJobId] = useState<string | null>(null);
+
+  return (
+    <Modal
+      open={isOpen}
+      onClose={closeUploadModal}
+      title="Upload transactions"
+      closable={!jobId}
+      data-testid="upload-modal"
+    >
+      {isOpen && <UploadModalBody jobId={jobId} onJobStarted={setJobId} />}
+    </Modal>
+  );
+}
+
+function UploadModalBody({
+  jobId,
+  onJobStarted,
+}: {
+  jobId: string | null;
+  onJobStarted: (id: string | null) => void;
+}) {
+  const { closeUploadModal, onComplete } = useUploadModal();
   const [step, setStep] = useState<1 | 2>(1);
   const [broker, setBroker] = useState<Broker>(DEFAULT_BROKER);
   const [formatId, setFormatId] = useState<string>("standard");
   const [converterOptions, setConverterOptions] = useState<Record<string, unknown>>({});
   const [file, setFile] = useState<File | null>(null);
-  const [parseResult, setParseResult] = useState<ReturnType<typeof parseStandardCSV> | null>(null);
+  const [fileText, setFileText] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [jobStatus, setJobStatus] = useState<Awaited<ReturnType<typeof getJob>> | null>(null);
   const [fileInputActive, setFileInputActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -41,41 +69,28 @@ export function UploadModal() {
     selectedFormat?.OptionsComponent == null ||
     (converterOptions?.currency != null && converterOptions?.currency !== "");
 
-  // Reset state when modal opens.
-  useEffect(() => {
-    if (isOpen) {
-      setStep(1);
-      setBroker(DEFAULT_BROKER);
-      setFormatId("standard");
-      setConverterOptions({});
-      setFile(null);
-      setParseResult(null);
-      setSubmitError(null);
-      setJobId(null);
-      setJobStatus(null);
-    }
-  }, [isOpen]);
+  // Reading the file is the event; parsing it is derivation. Holding the text
+  // rather than the parsed rows means a format or option change re-parses
+  // without re-reading, and without an effect to clear the stale result.
+  const parseResult = useMemo(() => {
+    if (fileText == null || !optionsValid) return null;
+    return selectedFormat?.convert
+      ? selectedFormat.convert(fileText, converterOptions)
+      : parseStandardCSV(fileText);
+  }, [fileText, selectedFormat, converterOptions, optionsValid]);
 
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const f = e.target.files?.[0];
-      setFile(f ?? null);
-      setParseResult(null);
-      setSubmitError(null);
-      if (!f) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const text = typeof reader.result === "string" ? reader.result : "";
-        if (selectedFormat?.convert) {
-          setParseResult(selectedFormat.convert(text, converterOptions));
-        } else {
-          setParseResult(parseStandardCSV(text));
-        }
-      };
-      reader.readAsText(f);
-    },
-    [selectedFormat, converterOptions]
-  );
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    setFile(f ?? null);
+    setFileText(null);
+    setSubmitError(null);
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFileText(typeof reader.result === "string" ? reader.result : "");
+    };
+    reader.readAsText(f);
+  }, []);
 
   const handleUpload = useCallback(async () => {
     if (!parseResult || parseResult.errors.length > 0 || parseResult.txs.length === 0) return;
@@ -92,62 +107,31 @@ export function UploadModal() {
         filename: file?.name,
         shareCountBasis: parseResult.shareCountBasis,
       });
-      setJobId(res.jobId);
+      onJobStarted(res.jobId);
     } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : String(e));
+      setSubmitError(errorMessage(e));
     }
-  }, [broker, formatId, parseResult, file]);
+  }, [broker, formatId, parseResult, file, onJobStarted]);
 
-  // Clear parse result when broker/format/options change.
-  useEffect(() => {
-    setParseResult(null);
-  }, [broker, formatId, converterOptions]);
+  // Poll until the job reaches a terminal status, then stop.
+  const { data: jobStatus } = useAuthedQuery<Awaited<ReturnType<typeof getJob>>>({
+    queryKey: qk.job(jobId ?? ""),
+    queryFn: () => getJob(jobId!),
+    enabled: !!jobId,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === JobStatus.SUCCESS || status === JobStatus.FAILED ? false : 2000;
+    },
+  });
 
-  // Re-parse when format or converter options change and we already have a file.
+  // Closing on success is a genuine side effect -- telling the caller to refresh
+  // and dismissing the modal -- so it belongs in an effect, not in render.
+  const succeeded = jobStatus?.status === JobStatus.SUCCESS;
   useEffect(() => {
-    if (!file || !selectedFormat || !optionsValid) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = typeof reader.result === "string" ? reader.result : "";
-      if (selectedFormat.convert) {
-        setParseResult(selectedFormat.convert(text, converterOptions));
-      } else {
-        setParseResult(parseStandardCSV(text));
-      }
-    };
-    reader.readAsText(file);
-  }, [file, formatId, selectedFormat, converterOptions, optionsValid]);
-
-  // Poll job status; auto-close on success.
-  useEffect(() => {
-    if (!jobId || state.status !== "authenticated") return;
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const result = await getJob(jobId);
-        if (cancelled) return false;
-        setJobStatus(result);
-        if (result.status === JobStatus.SUCCESS) {
-          onComplete?.();
-          closeUploadModal();
-          return true;
-        }
-        return result.status === JobStatus.FAILED;
-      } catch {
-        return false;
-      }
-    };
-    poll();
-    const t = setInterval(() => {
-      poll().then((done) => {
-        if (done) clearInterval(t);
-      });
-    }, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, [jobId, state.status, onComplete, closeUploadModal]);
+    if (!succeeded) return;
+    onComplete?.();
+    closeUploadModal();
+  }, [succeeded, onComplete, closeUploadModal]);
 
   const canUpload =
     parseResult &&
@@ -157,13 +141,7 @@ export function UploadModal() {
     !jobId;
 
   return (
-    <Modal
-      open={isOpen}
-      onClose={closeUploadModal}
-      title="Upload transactions"
-      closable={!jobId}
-      data-testid="upload-modal"
-    >
+    <>
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         {jobId && jobStatus?.status === JobStatus.FAILED ? (
@@ -384,6 +362,6 @@ export function UploadModal() {
           </div>
         )}
       </div>
-    </Modal>
+    </>
   );
 }

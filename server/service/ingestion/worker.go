@@ -237,9 +237,9 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	// Store transactions.
 	var storeErr error
 	if bulk {
-		storeErr = database.ReplaceTxsInPeriod(ctx, userID, broker, req.PeriodFrom, req.PeriodBefore, txsToProcess, instrumentIDs, shareCountBasis)
+		storeErr = database.ReplaceTxsInPeriod(ctx, userID, broker, j.JobID, req.PeriodFrom, req.PeriodBefore, txsToProcess, instrumentIDs, shareCountBasis)
 	} else {
-		storeErr = database.CreateTx(ctx, userID, broker, txsToProcess[0].GetAccount(), txsToProcess[0], instrumentIDs[0], shareCountBasis)
+		storeErr = database.CreateTx(ctx, userID, broker, txsToProcess[0].GetAccount(), j.JobID, txsToProcess[0], instrumentIDs[0], shareCountBasis)
 	}
 	if storeErr != nil {
 		log.Printf("ingestion job %s: %v", j.JobID, storeErr)

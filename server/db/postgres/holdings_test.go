@@ -39,7 +39,7 @@ func TestComputeHoldings_instrumentNameOverTxDescription(t *testing.T) {
 	txs := []*apiv1.Tx{
 		{Timestamp: ts, InstrumentDescription: "MSFT MICROSOFT CORP", Type: apiv1.TxType_INCOME, Quantity: 137.08, Account: ""},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{cashID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{cashID}, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -75,7 +75,7 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
-	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}, nil)
+	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil)
 	if err != nil {
 		t.Fatalf("replace: %v", err)
 	}

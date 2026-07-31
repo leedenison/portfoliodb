@@ -36,6 +36,8 @@ Transactions do not have a reliable natural key and the system does not enforce 
 
 Each transaction has a **broker** (required) and an **account** (may be empty); an empty account string is valid and represents the default/only account for that broker. See adr/0002-transaction-ingestion-model.md.
 
+A transaction is a **posting**: a signed amount of one commodity in one account. The postings of a single economic event belong to a **transaction group** and are required to sum to zero. See [postings.md](postings.md) and adr/0020-double-entry-postings.md.
+
 ## Upload Formats
 
 The client supports uploading transactions in several formats:

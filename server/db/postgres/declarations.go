@@ -182,16 +182,53 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 	if err != nil {
 		return fmt.Errorf("invalid instrument id: %w", err)
 	}
-	_, err = p.q.ExecContext(ctx, `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, instrument_id, synthetic_purpose)
-		VALUES ($1, $2, $3, $4, 'INITIALIZE', $7, $5, $6, 'INITIALIZE')
-		ON CONFLICT (user_id, broker, account, instrument_id) WHERE synthetic_purpose = 'INITIALIZE'
-		DO UPDATE SET timestamp = EXCLUDED.timestamp, quantity = EXCLUDED.quantity, tx_type = EXCLUDED.tx_type
-	`, userUUID, broker, account, timestamp, quantity, instUUID, txType)
-	if err != nil {
-		return fmt.Errorf("upsert initialize tx: %w", err)
-	}
-	return nil
+	// The INITIALIZE posting and its group are updated in place rather than
+	// re-inserted, so that recalculating a declaration does not orphan a group.
+	// The group has no job: it is derived from the declaration, not ingested.
+	return p.runInTx(ctx, func(exec queryable) error {
+		var groupID uuid.NullUUID
+		err := exec.QueryRowContext(ctx, `
+			SELECT group_id FROM txs
+			WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
+			  AND synthetic_purpose = 'INITIALIZE'
+		`, userUUID, broker, account, instUUID).Scan(&groupID)
+		switch {
+		case err == sql.ErrNoRows:
+			var newGroupID uuid.UUID
+			if err := exec.QueryRowContext(ctx, `
+				INSERT INTO tx_groups (user_id, timestamp) VALUES ($1, $2) RETURNING id
+			`, userUUID, timestamp).Scan(&newGroupID); err != nil {
+				return fmt.Errorf("insert initialize tx group: %w", err)
+			}
+			_, err := exec.ExecContext(ctx, `
+				INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, instrument_id, synthetic_purpose, group_id)
+				VALUES ($1, $2, $3, $4, 'INITIALIZE', $7, $5, $6, 'INITIALIZE', $8)
+			`, userUUID, broker, account, timestamp, quantity, instUUID, txType, newGroupID)
+			if err != nil {
+				return fmt.Errorf("insert initialize tx: %w", err)
+			}
+			return nil
+		case err != nil:
+			return fmt.Errorf("find initialize tx: %w", err)
+		}
+		_, err = exec.ExecContext(ctx, `
+			UPDATE txs SET timestamp = $5, quantity = $6, tx_type = $7
+			WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
+			  AND synthetic_purpose = 'INITIALIZE'
+		`, userUUID, broker, account, instUUID, timestamp, quantity, txType)
+		if err != nil {
+			return fmt.Errorf("update initialize tx: %w", err)
+		}
+		if !groupID.Valid {
+			return nil
+		}
+		if _, err := exec.ExecContext(ctx, `
+			UPDATE tx_groups SET timestamp = $2 WHERE id = $1
+		`, groupID.UUID, timestamp); err != nil {
+			return fmt.Errorf("update initialize tx group: %w", err)
+		}
+		return nil
+	})
 }
 
 // DeleteInitializeTx implements db.HoldingDeclarationDB.
@@ -204,15 +241,33 @@ func (p *Postgres) DeleteInitializeTx(ctx context.Context, userID, broker, accou
 	if err != nil {
 		return fmt.Errorf("invalid instrument id: %w", err)
 	}
-	_, err = p.q.ExecContext(ctx, `
-		DELETE FROM txs
-		WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
-		  AND synthetic_purpose = 'INITIALIZE'
-	`, userUUID, broker, account, instUUID)
-	if err != nil {
-		return fmt.Errorf("delete initialize tx: %w", err)
-	}
-	return nil
+	// Delete the group and let the FK cascade take the posting, so no empty group
+	// is left behind. Postings written without a group are cleared directly.
+	return p.runInTx(ctx, func(exec queryable) error {
+		_, err := exec.ExecContext(ctx, `
+			DELETE FROM tx_groups g
+			WHERE g.user_id = $1
+			  AND EXISTS (
+			    SELECT 1 FROM txs t
+			    WHERE t.group_id = g.id
+			      AND t.broker = $2 AND t.account = $3 AND t.instrument_id = $4
+			      AND t.synthetic_purpose = 'INITIALIZE'
+			  )
+		`, userUUID, broker, account, instUUID)
+		if err != nil {
+			return fmt.Errorf("delete initialize tx group: %w", err)
+		}
+		_, err = exec.ExecContext(ctx, `
+			DELETE FROM txs
+			WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
+			  AND synthetic_purpose = 'INITIALIZE'
+			  AND group_id IS NULL
+		`, userUUID, broker, account, instUUID)
+		if err != nil {
+			return fmt.Errorf("delete initialize tx: %w", err)
+		}
+		return nil
+	})
 }
 
 // CreateDeclarationWithInitializeTx implements db.HoldingDeclarationDB.

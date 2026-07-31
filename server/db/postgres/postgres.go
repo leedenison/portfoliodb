@@ -167,6 +167,19 @@ func nullUUID(u *uuid.UUID) interface{} {
 	return *u
 }
 
+// parseNullUUID parses an optional UUID column value, treating the empty string as
+// NULL rather than as a parse error.
+func parseNullUUID(s string) (interface{}, error) {
+	if s == "" {
+		return nil, nil
+	}
+	u, err := uuid.Parse(s)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
 func nullTime(t *time.Time) interface{} {
 	if t == nil {
 		return nil

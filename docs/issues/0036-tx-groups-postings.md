@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Group transaction legs with tx_groups
 milestone: M12
 ---

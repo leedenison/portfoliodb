@@ -40,7 +40,7 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 		{Timestamp: ts1, InstrumentDescription: "StockA", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: ""},
 		{Timestamp: ts2, InstrumentDescription: "StockB", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: ""},
 	}
-	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{idA, idB}, nil)
+	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, nil)
 	if err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}

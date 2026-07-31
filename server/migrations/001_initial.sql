@@ -37,8 +37,31 @@ CREATE TABLE portfolio_filters (
 
 CREATE INDEX idx_portfolio_filters_portfolio ON portfolio_filters (portfolio_id);
 
+-- A tx_group is one economic event; the txs referencing it are its postings.
+-- timestamp is the event date; the postings carry the amounts and accounts.
+-- job_id is the ingestion job that created the group, and is NULL for
+-- system-generated groups such as the one backing an INITIALIZE posting.
+-- It is deliberately not a foreign key: a group must outlive its job, and if job
+-- rows are ever pruned by age the id still distinguishes one creation from another
+-- and still groups everything written by the same upload.
+-- Groups hold a single posting until ingestion emits grouped legs, at which point
+-- the postings of a group are required to sum to zero.
+-- See docs/spec/postings.md.
+CREATE TABLE tx_groups (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  timestamp  TIMESTAMPTZ NOT NULL,
+  job_id     UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_tx_groups_user_time ON tx_groups (user_id, timestamp);
+CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
+
 -- Transactions. No natural key (broker statements often supply date only). Bulk idempotency
 -- by replace-by-period (user_id, broker, period). Single-tx ingestion is append-only.
+-- group_id is the economic event this row is a posting of. Deleting a group deletes
+-- its postings, which makes the group the unit of deletion for replace-by-period.
 -- share_count_basis is the date at which the share count the raw quantity and
 -- unit_price are denominated in was current. It defaults to timestamp::date --
 -- the as-traded assumption, that a broker log line accounts only for events
@@ -66,10 +89,12 @@ CREATE TABLE txs (
   split_adjusted_unit_price DOUBLE PRECISION,
   share_count_basis         DATE NOT NULL,
   synthetic_purpose         TEXT CHECK (synthetic_purpose IS NULL OR synthetic_purpose = 'INITIALIZE'),
+  group_id                  UUID REFERENCES tx_groups (id) ON DELETE CASCADE,
   created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, timestamp);
+CREATE INDEX idx_txs_group_id ON txs (group_id);
 
 -- Async ingestion jobs. status and validation_errors surfaced via front-end API.
 -- job_type distinguishes tx uploads from price imports; broker/source are tx-specific.

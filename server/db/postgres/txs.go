@@ -13,11 +13,31 @@ import (
 
 var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
+// insertPostingSQL inserts a tx as the single posting of a new tx group. The group
+// is created in the same statement so that grouping costs no extra round trip.
+// split_adjusted_quantity / split_adjusted_unit_price are omitted deliberately:
+// default_split_adjusted_tx() seeds them from the raw columns.
+const insertPostingSQL = `
+	WITH g AS (
+		INSERT INTO tx_groups (user_id, timestamp, job_id)
+		VALUES ($1, $4, $13)
+		RETURNING id
+	)
+	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
+	                 quantity, trading_currency, settlement_currency, unit_price,
+	                 instrument_id, share_count_basis, group_id)
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, g.id FROM g
+`
+
 // ReplaceTxsInPeriod implements db.TxDB.
-func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error {
+func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
+	}
+	jobUUID, err := parseNullUUID(jobID)
+	if err != nil {
+		return fmt.Errorf("invalid job id: %w", err)
 	}
 	if len(instrumentIDs) != len(txs) {
 		return fmt.Errorf("instrumentIDs length %d != txs length %d", len(instrumentIDs), len(txs))
@@ -31,17 +51,36 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string
 		if err != nil {
 			return fmt.Errorf("period_before: %w", err)
 		}
+		// Delete whole groups and let the FK cascade take their postings, so that a
+		// replace can never leave half an economic event behind.
 		// Synthetic txs (e.g. INITIALIZE rows backing holding declarations) are
-		// managed by the declaration / recalc machinery, not by ingestion. Skip
-		// them here so a bulk replace cannot collaterally delete them.
+		// managed by the declaration / recalc machinery, not by ingestion. Their
+		// groups never match here, so a bulk replace cannot collaterally delete them.
+		_, err = exec.ExecContext(ctx, `
+			DELETE FROM tx_groups g
+			WHERE g.user_id = $1
+			  AND EXISTS (
+			    SELECT 1 FROM txs t
+			    WHERE t.group_id = g.id
+			      AND t.broker = $2
+			      AND t.timestamp >= $3 AND t.timestamp < $4
+			      AND t.synthetic_purpose IS NULL
+			  )
+		`, userUUID, broker, fromT, beforeT)
+		if err != nil {
+			return fmt.Errorf("delete tx groups in period: %w", err)
+		}
+		// Postings written without a group (raw-SQL test fixtures) have no group to
+		// cascade from and are cleared directly.
 		_, err = exec.ExecContext(ctx, `
 			DELETE FROM txs
 			WHERE user_id = $1 AND broker = $2
 			  AND timestamp >= $3 AND timestamp < $4
 			  AND synthetic_purpose IS NULL
+			  AND group_id IS NULL
 		`, userUUID, broker, fromT, beforeT)
 		if err != nil {
-			return fmt.Errorf("delete txs in period: %w", err)
+			return fmt.Errorf("delete ungrouped txs in period: %w", err)
 		}
 		for i, t := range txs {
 			instUUID, err := uuid.Parse(instrumentIDs[i])
@@ -57,10 +96,10 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string
 				return err
 			}
 			acc := t.GetAccount()
-			_, err = exec.ExecContext(ctx, `
-				INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, settlement_currency, unit_price, instrument_id, share_count_basis)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date)
-			`, userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, t.Quantity, nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullFloat(t.UnitPrice), instUUID, shareCountBasis)
+			_, err = exec.ExecContext(ctx, insertPostingSQL,
+				userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, t.Quantity,
+				nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullFloat(t.UnitPrice),
+				instUUID, shareCountBasis, jobUUID)
 			if err != nil {
 				return fmt.Errorf("insert tx: %w", err)
 			}
@@ -70,7 +109,7 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string
 }
 
 // CreateTx implements db.TxDB.
-func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error {
+func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account, jobID string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -78,6 +117,10 @@ func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account string,
 	instUUID, err := uuid.Parse(instrumentID)
 	if err != nil {
 		return fmt.Errorf("invalid instrument id: %w", err)
+	}
+	jobUUID, err := parseNullUUID(jobID)
+	if err != nil {
+		return fmt.Errorf("invalid job id: %w", err)
 	}
 	ts, err := tsToTime(tx.Timestamp)
 	if err != nil {
@@ -87,10 +130,10 @@ func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account string,
 	if err != nil {
 		return err
 	}
-	_, err = p.q.ExecContext(ctx, `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, settlement_currency, unit_price, instrument_id, share_count_basis)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date)
-	`, userUUID, broker, account, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity, nullStr(tx.TradingCurrency), nullStr(tx.SettlementCurrency), nullFloat(tx.UnitPrice), instUUID, shareCountBasis)
+	_, err = p.q.ExecContext(ctx, insertPostingSQL,
+		userUUID, broker, account, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity,
+		nullStr(tx.TradingCurrency), nullStr(tx.SettlementCurrency), nullFloat(tx.UnitPrice),
+		instUUID, shareCountBasis, jobUUID)
 	if err != nil {
 		return fmt.Errorf("create tx: %w", err)
 	}

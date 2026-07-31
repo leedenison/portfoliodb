@@ -18,12 +18,25 @@ import (
 // compact OCC is returned. Returns the original hints unmodified when
 // hintsValidAt is nil, no splits found, underlying not in DB, or not an OCC
 // hint. timer may be nil (uses time.Now).
-func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, hints []identifier.Identifier, hintsValidAt *time.Time, timer *clock.Timer) []identifier.Identifier {
+//
+// The second return value is the market time the returned OCC hints reflect,
+// and it is nil for "now". An OCC lookup is identity-by-value: the provider
+// answers about the contract it was named, so an identity derived from these
+// hints is only as current as the hints themselves. Rebasing carries a hint to
+// now, but only across splits already stored -- a split we have not yet learned
+// of leaves the hint at its original vintage, which is what this reports so the
+// caller can stamp identity_as_of honestly. See
+// adr/0017-option-identity-reflects-ex-date.md.
+func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, hints []identifier.Identifier, hintsValidAt *time.Time, timer *clock.Timer) ([]identifier.Identifier, *time.Time) {
 	if hintsValidAt == nil {
-		return hints
+		return hints, nil
 	}
 	now := timer.Now().Truncate(24 * time.Hour)
 	var adjusted []identifier.Identifier
+	// Set by any OCC hint left at its original vintage. Hints that were rebased
+	// reflect now and do not constrain the stamp; the pessimistic case wins
+	// because a single stale OCC is enough to make the identity stale.
+	var vintage *time.Time
 
 	for _, h := range hints {
 		if h.Type != "OCC" {
@@ -33,17 +46,20 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 		compact, ok := derivative.OCCCompact(h.Value)
 		if !ok {
 			adjusted = append(adjusted, h)
+			vintage = hintsValidAt
 			continue
 		}
 		parsed, ok := derivative.ParseOptionTicker(compact)
 		if !ok || parsed.Symbol == "" || parsed.Strike <= 0 {
 			adjusted = append(adjusted, h)
+			vintage = hintsValidAt
 			continue
 		}
 
 		splits, err := database.SplitsByUnderlyingTicker(ctx, parsed.Symbol)
 		if err != nil || len(splits) == 0 {
 			adjusted = append(adjusted, h)
+			vintage = hintsValidAt
 			continue
 		}
 
@@ -69,8 +85,9 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 			}
 		}
 		adjusted = append(adjusted, h)
+		vintage = hintsValidAt
 	}
-	return adjusted
+	return adjusted, vintage
 }
 
 // splitFactorSince computes the cumulative split factor for splits that

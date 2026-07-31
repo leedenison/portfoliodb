@@ -29,7 +29,7 @@ match, and each caller stamps what it actually knows:
 
 | Caller | Stamps | Because |
 | --- | --- | --- |
-| Plugin resolution (`ResolveWithPlugins`, winner path) | `now()` | The plugin just read current market data. |
+| Plugin resolution (`ResolveWithPlugins`, winner path) | the vintage of the OCC hint it was given, else `now()` | The plugin answers the question it was asked -- see below. |
 | `ApplyOptionSplit` | `now()` | The identity has just been re-derived against a split effective today. |
 | Price import fallback (`ensureWithSuppliedIdentifier`) | the request's `exported_at`, else `now()` | The OCC is stored exactly as supplied, so it reflects the market as of the file's vintage. |
 | `ImportInstruments` | the payload's `identity_as_of`, if present | The exported value is the only evidence of vintage available. |
@@ -40,6 +40,33 @@ disarm the guard permanently (see 0055). Leaving it NULL on a create whose
 identity *did* come from somewhere is the opposite error: the pass would then
 re-apply splits already baked into the stored symbol. Neither default is safe in
 general, which is why the decision sits with the caller.
+
+## A plugin answer is only as current as the question
+
+A plugin lookup does not by itself make the resulting identity current. An OCC
+lookup is identity **by value**: the provider answers about the contract it was
+named, not the contract the caller meant. That name comes from a broker file at
+the transaction's vintage, and `AdjustOCCForKnownSplits` is what carries it
+forward to today -- but only across splits already stored. A split we have not
+yet learned of leaves the hint at its original vintage, the provider answers
+about the pre-split contract under the pre-split symbol, and the identity we
+store is that of a contract as it stood before the split.
+
+So `AdjustOCCForKnownSplits` reports the market time its returned hints reflect,
+and the winner path stamps that rather than `now()`: `now()` when every OCC hint
+was rebased onto today (or there was no OCC hint at all), and the hint's own
+vintage when one was left alone. Stamping `now()` unconditionally was the
+original form of this decision, and it silently disarmed the guard for exactly
+the case the retroactive pass exists to cover -- historical broker transactions
+imported before the underlying's splits are known, which is the ordinary
+ordering for a new user. The identity looked derived after the ex_date, so the
+option was never adjusted and kept a symbol and strike that no longer described
+any listed contract.
+
+This is the same rule as the price-import row of the table above, and for the
+same reason: when the stored OCC is the one that was supplied, the identity
+carries the supplier's vintage. That a plugin was consulted in between does not
+change it.
 
 The column only ever moves **forward**. A caller supplying a vintage cannot tell
 whether `EnsureInstrument` created the row or matched an existing one, so

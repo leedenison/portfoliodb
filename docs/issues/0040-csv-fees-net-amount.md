@@ -41,3 +41,26 @@ should not carry migrations or back-compat.
 Prioritise converter updates using the imbalance report from 0039 -- fix the
 broker with the largest residual first. The Fidelity converter (0013) is the
 existing worked example.
+
+## Manual test data
+
+The broker CSVs under `local/standard-format` predate these columns, so they
+carry no fee or cash total and every one of their derived cash legs will land in
+`Imbalance` until they are regenerated. Doing that is part of this work: the
+scripts that produce them live in `local/scripts` and have to populate the new
+columns alongside the client converters.
+
+Whether the source data supports it varies by broker, so check before assuming a
+regeneration is mechanical. The IBKR master (`local/masters/Lee-IBKR-CWSY.csv`)
+has no commission column at all -- only `Amount`, the cash total with commission
+already in it. Two ways round that:
+
+- Take fees from the OFX/QFX export of the same account, which does carry
+  `<COMMISSION>` per transaction alongside `UNITPRICE` and `TOTAL`.
+- Derive them as `|Amount| - quantity * multiplier * unit_price`, which is what
+  the residual is once the price is in the instrument's currency.
+
+That currency qualifier matters. The IBKR export quotes `Price` in the account's
+base currency while `Amount` is in the instrument's, so the conversion has to
+happen before any fee is derived from the difference. `convert-ibkr.py` already
+does it and documents why.

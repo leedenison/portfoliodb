@@ -92,6 +92,17 @@ fmt-check: $(STAMP_DIR)/generate
 vet: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS) go vet ./server/...
 
+client-typecheck: $(STAMP_DIR)/generate
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm run typecheck
+
+# The extension imports client modules across two npm projects via a path alias,
+# and a broken alias only shows up in the type checker.
+extension-typecheck: $(STAMP_DIR)/generate
+	$(COMPOSE_TOOLS_EXT) sh -c 'npm ci && npm run typecheck'
+
+# Everything CI gates that is not a test.
+check: fmt-check vet client-typecheck extension-typecheck
+
 server-test: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS) go test ./server/...
 
@@ -104,10 +115,8 @@ db-test: $(STAMP_DIR)/generate
 integration-test: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS) go test -tags integration -v ./server/plugins/...
 
-# Typecheck as well as test: the extension imports client modules across two npm
-# projects via a path alias, and a broken alias only shows up in the type checker.
 extension-test: $(STAMP_DIR)/generate
-	$(COMPOSE_TOOLS_EXT) sh -c 'npm ci && npm run typecheck && npm run test:run'
+	$(COMPOSE_TOOLS_EXT) sh -c 'npm ci && npm run test:run'
 
 integration-test-list:
 	@find server/plugins -name 'integration_test.go' | xargs -I{} dirname {} | sed 's|^server/plugins/||' | sort
@@ -196,9 +205,12 @@ help:
 	@echo "  make google-finance-cli   Build Google Finance CLI (bin/google-finance-cli)"
 	@echo ""
 	@echo "Checks:"
+	@echo "  make check              Run every non-test check"
 	@echo "  make fmt                Format the Go tree with gofmt"
 	@echo "  make fmt-check          Fail if the Go tree is not gofmt-clean"
 	@echo "  make vet                Run go vet over the server tree"
+	@echo "  make client-typecheck   Typecheck the Next.js client"
+	@echo "  make extension-typecheck Typecheck the browser extension"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test               Run all tests (server, client, db, integration)"
@@ -220,4 +232,4 @@ help:
 	@echo ""
 	@echo "Dependencies are tracked automatically -- stale steps re-run as needed."
 
-.PHONY: generate build google-finance-cli fmt fmt-check vet server-test db-test client-test integration-test integration-test-list integration-test-record extension extension-dev extension-test e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help
+.PHONY: generate build google-finance-cli fmt fmt-check vet client-typecheck extension-typecheck check server-test db-test client-test integration-test integration-test-list integration-test-record extension extension-dev extension-test e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help

@@ -3,9 +3,9 @@ package api
 import (
 	"testing"
 
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/testutil"
 	"github.com/leedenison/portfoliodb/server/worker"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/grpc/codes"
 )
 

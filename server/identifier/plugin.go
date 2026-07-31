@@ -40,6 +40,6 @@ type Plugin interface {
 type PluginConfig struct {
 	PluginID   string
 	Enabled    bool
-	Precedence int   // required, unique; higher = wins on conflict
+	Precedence int    // required, unique; higher = wins on conflict
 	Config     []byte // plugin-specific JSON; may be nil
 }

@@ -14,11 +14,11 @@ type APIResponse[T any] struct {
 // SplitResult is one stock split row from
 // GET /v3/reference/splits.
 type SplitResult struct {
-	Ticker         string  `json:"ticker"`
-	ExecutionDate  string  `json:"execution_date"` // YYYY-MM-DD
-	SplitFrom      float64 `json:"split_from"`
-	SplitTo        float64 `json:"split_to"`
-	ID             string  `json:"id,omitempty"`
+	Ticker        string  `json:"ticker"`
+	ExecutionDate string  `json:"execution_date"` // YYYY-MM-DD
+	SplitFrom     float64 `json:"split_from"`
+	SplitTo       float64 `json:"split_to"`
+	ID            string  `json:"id,omitempty"`
 }
 
 // DividendResult is one cash dividend row from
@@ -73,9 +73,9 @@ type AggBar struct {
 type OptionsContractResult struct {
 	Ticker            string  `json:"ticker"`
 	UnderlyingTicker  string  `json:"underlying_ticker"`
-	ContractType      string  `json:"contract_type"`      // "call", "put", "other"
-	ExerciseStyle     string  `json:"exercise_style"`     // "american", "european", "bermudan"
-	ExpirationDate    string  `json:"expiration_date"`    // YYYY-MM-DD
+	ContractType      string  `json:"contract_type"`   // "call", "put", "other"
+	ExerciseStyle     string  `json:"exercise_style"`  // "american", "european", "bermudan"
+	ExpirationDate    string  `json:"expiration_date"` // YYYY-MM-DD
 	StrikePrice       float64 `json:"strike_price"`
 	SharesPerContract int     `json:"shares_per_contract"`
 	PrimaryExchange   string  `json:"primary_exchange"` // MIC code

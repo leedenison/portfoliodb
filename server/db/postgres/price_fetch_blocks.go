@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/lib/pq"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/lib/pq"
 )
 
 // ListPriceFetchBlocks implements db.PriceFetchBlockDB.

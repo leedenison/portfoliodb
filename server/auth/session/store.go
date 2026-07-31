@@ -12,7 +12,7 @@ const (
 
 // Data holds the session payload.
 type Data struct {
-	Kind      string // SessionKindUser or SessionKindServiceAccount
+	Kind string // SessionKindUser or SessionKindServiceAccount
 	// User session fields (Kind == SessionKindUser):
 	UserID    string
 	Email     string

@@ -13,7 +13,6 @@ import (
 
 var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
-
 // ReplaceTxsInPeriod implements db.TxDB.
 func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error {
 	userUUID, err := uuid.Parse(userID)

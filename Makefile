@@ -78,6 +78,20 @@ logs:
 stop:
 	$(COMPOSE_DEV) down
 
+# Both depend on the generate stamp: vet needs the generated code to compile,
+# and fmt-check covers the generated mocks under server/ alongside hand-written
+# code.
+fmt: $(STAMP_DIR)/generate
+	$(COMPOSE_TOOLS) gofmt -w ./server
+
+# `gofmt -l` reports unformatted files on stdout and still exits 0, so the check
+# has to turn non-empty output into a failure itself.
+fmt-check: $(STAMP_DIR)/generate
+	@$(COMPOSE_TOOLS) sh -c 'out=$$(gofmt -l ./server); [ -z "$$out" ] && exit 0; echo "$$out"; echo "gofmt: the files above are not formatted -- run make fmt"; exit 1'
+
+vet: $(STAMP_DIR)/generate
+	$(COMPOSE_TOOLS) go vet ./server/...
+
 server-test: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS) go test ./server/...
 
@@ -181,6 +195,11 @@ help:
 	@echo "  make build              Build server binary"
 	@echo "  make google-finance-cli   Build Google Finance CLI (bin/google-finance-cli)"
 	@echo ""
+	@echo "Checks:"
+	@echo "  make fmt                Format the Go tree with gofmt"
+	@echo "  make fmt-check          Fail if the Go tree is not gofmt-clean"
+	@echo "  make vet                Run go vet over the server tree"
+	@echo ""
 	@echo "Testing:"
 	@echo "  make test               Run all tests (server, client, db, integration)"
 	@echo "  make server-test        Go unit tests"
@@ -201,4 +220,4 @@ help:
 	@echo ""
 	@echo "Dependencies are tracked automatically -- stale steps re-run as needed."
 
-.PHONY: generate build google-finance-cli server-test db-test client-test integration-test integration-test-list integration-test-record extension extension-dev extension-test e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help
+.PHONY: generate build google-finance-cli fmt fmt-check vet server-test db-test client-test integration-test integration-test-list integration-test-record extension extension-dev extension-test e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help

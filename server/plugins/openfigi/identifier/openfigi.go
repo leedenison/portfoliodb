@@ -52,7 +52,7 @@ type MappingJob struct {
 // MappingResponseItem is one element in the mapping response array (per job).
 type MappingResponseItem struct {
 	Data    []OpenFIGIResult `json:"data,omitempty"`
-	Error  string           `json:"error,omitempty"`
+	Error   string           `json:"error,omitempty"`
 	Warning string           `json:"warning,omitempty"`
 }
 
@@ -72,16 +72,16 @@ type OpenFIGIResult struct {
 
 // SearchRequest is the body for POST /v3/search.
 type SearchRequest struct {
-	Query   string `json:"query,omitempty"`
-	Start   string `json:"start,omitempty"` // pagination
+	Query    string `json:"query,omitempty"`
+	Start    string `json:"start,omitempty"` // pagination
 	ExchCode string `json:"exchCode,omitempty"`
 }
 
 // SearchResponse is the response from POST /v3/search.
 type SearchResponse struct {
-	Data []OpenFIGIResult `json:"data,omitempty"`
-	Next string           `json:"next,omitempty"`
-	Error string          `json:"error,omitempty"`
+	Data  []OpenFIGIResult `json:"data,omitempty"`
+	Next  string           `json:"next,omitempty"`
+	Error string           `json:"error,omitempty"`
 }
 
 // Mapping calls POST /v3/mapping with one job. Returns results or error string from API.

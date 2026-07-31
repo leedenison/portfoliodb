@@ -3,8 +3,8 @@ package api
 import (
 	"context"
 
-	"github.com/leedenison/portfoliodb/server/auth"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/leedenison/portfoliodb/server/auth"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -39,9 +39,9 @@ func (s *Server) GetJob(ctx context.Context, req *apiv1.GetJobRequest) (*apiv1.G
 	idErrProtos := make([]*apiv1.IdentificationError, 0, len(idErrs))
 	for _, e := range idErrs {
 		idErrProtos = append(idErrProtos, &apiv1.IdentificationError{
-			RowIndex:               e.RowIndex,
+			RowIndex:              e.RowIndex,
 			InstrumentDescription: e.InstrumentDescription,
-			Message:                e.Message,
+			Message:               e.Message,
 		})
 	}
 	return &apiv1.GetJobResponse{Status: statusVal, ValidationErrors: errs, IdentificationErrors: idErrProtos, TotalCount: totalCount, ProcessedCount: processedCount}, nil

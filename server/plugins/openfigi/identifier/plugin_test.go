@@ -26,13 +26,13 @@ func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]MappingResponseItem{
 			{Data: []OpenFIGIResult{{
-				FIGI:         "BBG000BLNNH6",
-				Ticker:       "IBM",
-				Name:         "INTL BUSINESS MACHINES CORP",
-				ExchCode:     "US",
-				SecurityType: "Common Stock",
+				FIGI:          "BBG000BLNNH6",
+				Ticker:        "IBM",
+				Name:          "INTL BUSINESS MACHINES CORP",
+				ExchCode:      "US",
+				SecurityType:  "Common Stock",
 				SecurityType2: "Common Stock",
-				MarketSector: "Equity",
+				MarketSector:  "Equity",
 			}}},
 		})
 	}))

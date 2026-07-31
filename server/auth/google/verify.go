@@ -32,14 +32,14 @@ type Claims struct {
 
 // Verifier verifies Google ID tokens using cached JWKS.
 type Verifier struct {
-	clientIDs    []string
-	clockSkew    time.Duration
-	jwksURL      string
-	cacheTTL     time.Duration
-	httpClient   *http.Client
-	mu           sync.RWMutex
-	cachedKeys   map[string]*rsa.PublicKey
-	cacheExpiry  time.Time
+	clientIDs   []string
+	clockSkew   time.Duration
+	jwksURL     string
+	cacheTTL    time.Duration
+	httpClient  *http.Client
+	mu          sync.RWMutex
+	cachedKeys  map[string]*rsa.PublicKey
+	cacheExpiry time.Time
 }
 
 // VerifierOption configures a Verifier.

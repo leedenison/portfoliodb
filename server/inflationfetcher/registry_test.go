@@ -12,9 +12,9 @@ type stubPlugin struct {
 	currencies []string
 }
 
-func (s *stubPlugin) DisplayName() string            { return s.name }
-func (s *stubPlugin) SupportedCurrencies() []string   { return s.currencies }
-func (s *stubPlugin) DefaultConfig() []byte            { return []byte(`{}`) }
+func (s *stubPlugin) DisplayName() string           { return s.name }
+func (s *stubPlugin) SupportedCurrencies() []string { return s.currencies }
+func (s *stubPlugin) DefaultConfig() []byte         { return []byte(`{}`) }
 func (s *stubPlugin) FetchInflation(_ context.Context, _ []byte, _ string, _, _ time.Time) (*FetchResult, error) {
 	return nil, ErrNoData
 }

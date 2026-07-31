@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Format the Go tree with gofmt and keep it formatted
 ---
 

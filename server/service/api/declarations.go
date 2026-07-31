@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/leedenison/portfoliodb/server/auth"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/leedenison/portfoliodb/server/auth"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

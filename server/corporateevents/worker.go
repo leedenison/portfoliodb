@@ -308,7 +308,6 @@ func computeMissingIntervals(earliestTxDate, endBefore time.Time, coverage []db.
 	return db.SubtractRanges(needed, db.MergeRanges(cached))
 }
 
-
 func toPluginIdentifiers(ids []db.IdentifierInput) []Identifier {
 	out := make([]Identifier, len(ids))
 	for i, id := range ids {
@@ -416,4 +415,3 @@ func insertSpecialDividend(ctx context.Context, database db.CorporateEventDB, in
 		}
 	}
 }
-

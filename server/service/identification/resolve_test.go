@@ -582,8 +582,8 @@ func (p *retryPlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ id
 
 func (p *retryPlugin) AcceptableInstrumentKinds() map[string]bool { return nil }
 func (p *retryPlugin) AcceptableSecurityTypes() map[string]bool   { return nil }
-func (p *retryPlugin) DefaultConfig() []byte                    { return nil }
-func (p *retryPlugin) DisplayName() string                      { return "Retry" }
+func (p *retryPlugin) DefaultConfig() []byte                      { return nil }
+func (p *retryPlugin) DisplayName() string                        { return "Retry" }
 
 func TestCallPluginWithRetry_RetrySucceeds(t *testing.T) {
 	p := &retryPlugin{
@@ -635,8 +635,8 @@ func (p *cancelOnRetryPlugin) Identify(ctx context.Context, _ []byte, _, _, _ st
 
 func (p *cancelOnRetryPlugin) AcceptableInstrumentKinds() map[string]bool { return nil }
 func (p *cancelOnRetryPlugin) AcceptableSecurityTypes() map[string]bool   { return nil }
-func (p *cancelOnRetryPlugin) DefaultConfig() []byte                    { return nil }
-func (p *cancelOnRetryPlugin) DisplayName() string                      { return "CancelOnRetry" }
+func (p *cancelOnRetryPlugin) DefaultConfig() []byte                      { return nil }
+func (p *cancelOnRetryPlugin) DisplayName() string                        { return "CancelOnRetry" }
 
 // --- consistentWith tests ---
 

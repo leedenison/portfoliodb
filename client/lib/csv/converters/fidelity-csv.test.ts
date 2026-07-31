@@ -285,11 +285,25 @@ describe("transaction grouping", () => {
     expect(result.txs[2].groupRef).toBe("819092463");
   });
 
-  it("does not pair across accounts or settlement dates", () => {
+  it("does not pair a sell across accounts or settlement dates", () => {
     const result = convert([
       row("Sell", "WISE PLC (WISE)", "AG1", "-100.00", "10", "10", "1001"),
       row("Cash In From Sell", "Cash", "AS2", "100.00", "100", "1", "1002"),
       row("Cash In From Sell", "Cash", "AG1", "100.00", "100", "1", "1003", "11 Feb 2022"),
+    ]);
+
+    for (const tx of result.txs) {
+      expect(tx.groupRef).toBe("");
+    }
+  });
+
+  it("does not pair a buy across accounts or settlement dates", () => {
+    // Both cash rows would satisfy the fee constraint and sit one reference away,
+    // so only the account and settlement date keep them apart.
+    const result = convert([
+      row("Buy", "INVESCO EQQQ (EQQQ)", "AG1", "107.50", "10", "10", "1002"),
+      row("Cash Out For Buy", "Cash", "AS2", "-100.00", "100", "1", "1001"),
+      row("Cash Out For Buy", "Cash", "AG1", "-100.00", "100", "1", "1003", "11 Feb 2022"),
     ]);
 
     for (const tx of result.txs) {

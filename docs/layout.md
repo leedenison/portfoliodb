@@ -19,7 +19,7 @@ Single reference for where each component of the PortfolioDB monorepo lives. The
 TypeScript project. **client/** and **extension/** are separate npm projects,
 but the extension imports client modules through a path alias, so one config
 lints both trees and the rules that apply to shared source cannot drift apart.
-Run it with `make lint`.
+Run it with `make lint-ts`.
 
 ---
 

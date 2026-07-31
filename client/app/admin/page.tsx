@@ -159,7 +159,7 @@ export default function AdminOverviewPage() {
             return (
               <div
                 key={card.id}
-                className="block cursor-default rounded-md border border-border bg-surface p-5 opacity-40 shadow-sm"
+                className="block cursor-default rounded-md border border-border bg-surface p-5 opacity-40 shadow-xs"
               >
                 <h2 className="font-display font-semibold text-text-primary">{card.title}</h2>
                 <p className="mt-1.5 text-sm text-text-muted">{card.description}</p>
@@ -170,7 +170,7 @@ export default function AdminOverviewPage() {
             <Link
               key={card.id}
               href={card.href}
-              className="group block rounded-md border border-border bg-surface p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+              className="group block rounded-md border border-border bg-surface p-5 shadow-xs transition-all hover:border-primary/40 hover:shadow-md"
             >
               <h2 className="font-display font-semibold text-text-primary group-hover:text-primary-dark">{card.title}</h2>
               <p className="mt-1.5 text-sm text-text-muted">{card.description}</p>

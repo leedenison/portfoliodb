@@ -133,32 +133,32 @@ export function PerformanceChart({ points, displayCurrency }: Props) {
             <linearGradient id="valGradient" x1="0" y1="0" x2="0" y2="1">
               <stop
                 offset="5%"
-                stopColor="rgb(var(--color-primary))"
+                stopColor="var(--palette-primary)"
                 stopOpacity={0.3}
               />
               <stop
                 offset="95%"
-                stopColor="rgb(var(--color-primary))"
+                stopColor="var(--palette-primary)"
                 stopOpacity={0.02}
               />
             </linearGradient>
           </defs>
           <CartesianGrid
             strokeDasharray="3 3"
-            stroke="rgb(var(--color-border))"
+            stroke="var(--palette-border)"
             strokeOpacity={0.6}
           />
           <XAxis
             dataKey="date"
             tickFormatter={formatDate}
             ticks={ticks}
-            tick={{ fontSize: 11, fill: "rgb(var(--color-text-muted))" }}
-            axisLine={{ stroke: "rgb(var(--color-border))" }}
+            tick={{ fontSize: 11, fill: "var(--palette-text-muted)" }}
+            axisLine={{ stroke: "var(--palette-border)" }}
             tickLine={false}
           />
           <YAxis
             tickFormatter={(v: number) => formatCurrencyCompact(v, displayCurrency)}
-            tick={{ fontSize: 11, fill: "rgb(var(--color-text-muted))" }}
+            tick={{ fontSize: 11, fill: "var(--palette-text-muted)" }}
             axisLine={false}
             tickLine={false}
             width={72}
@@ -169,7 +169,7 @@ export function PerformanceChart({ points, displayCurrency }: Props) {
               key={i}
               x1={r.startDate}
               x2={r.endDate}
-              fill="rgb(var(--color-accent))"
+              fill="var(--palette-accent)"
               fillOpacity={0.12}
               stroke="none"
             />
@@ -177,11 +177,11 @@ export function PerformanceChart({ points, displayCurrency }: Props) {
           <Area
             type="monotone"
             dataKey="totalValue"
-            stroke="rgb(var(--color-primary))"
+            stroke="var(--palette-primary)"
             strokeWidth={2}
             fill="url(#valGradient)"
             dot={false}
-            activeDot={{ r: 4, fill: "rgb(var(--color-primary-dark))" }}
+            activeDot={{ r: 4, fill: "var(--palette-primary-dark)" }}
           />
         </AreaChart>
       </ResponsiveContainer>

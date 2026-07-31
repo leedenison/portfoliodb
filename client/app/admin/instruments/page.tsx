@@ -107,7 +107,7 @@ export default function AdminInstrumentsPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name or ticker..."
-          className="w-full max-w-sm rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+          className="w-full max-w-sm rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary/30"
         />
         <div className="ml-auto flex gap-2">
           <button
@@ -218,10 +218,10 @@ function InstrumentList({
       {!loading && error && <ErrorAlert>{errorMessage(error)}</ErrorAlert>}
       {!loading && !error && (
         <>
-          <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
+          <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-xs">
             <table className="w-full min-w-[480px] border-collapse text-sm">
               <thead>
-                <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/[0.03]">
+                <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/3">
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                     Name
                   </th>
@@ -292,7 +292,7 @@ function InstrumentList({
                             <td className="px-4 py-3">
                               <span
                                 className={
-                                  "inline-block rounded px-1.5 py-0.5 text-xs font-medium " +
+                                  "inline-block rounded-sm px-1.5 py-0.5 text-xs font-medium " +
                                   (identified
                                     ? "bg-primary-dark/10 text-primary-dark"
                                     : "bg-accent-soft/60 text-accent-dark")
@@ -342,7 +342,7 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
         </span>
         <span
           className={
-            "inline-block rounded px-1.5 py-0.5 text-xs font-medium " +
+            "inline-block rounded-sm px-1.5 py-0.5 text-xs font-medium " +
             (identified
               ? "bg-primary-dark/10 text-primary-dark"
               : "bg-accent-soft/60 text-accent-dark")
@@ -400,7 +400,7 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
                 key={`${id.type}-${id.value}`}
                 data-testid="instrument-identifier"
                 data-identifier-type={idLabel(id)}
-                className="inline-flex items-center gap-1 rounded bg-primary-dark/10 px-1.5 py-0.5 font-mono text-xs"
+                className="inline-flex items-center gap-1 rounded-sm bg-primary-dark/10 px-1.5 py-0.5 font-mono text-xs"
               >
                 <span className="font-semibold text-primary-dark">
                   {idLabel(id)}
@@ -425,7 +425,7 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
             {brokerDescs.map((id) => (
               <span
                 key={`${id.domain}-${id.value}`}
-                className="inline-flex items-center gap-1 rounded bg-accent-soft/30 px-1.5 py-0.5 font-mono text-xs"
+                className="inline-flex items-center gap-1 rounded-sm bg-accent-soft/30 px-1.5 py-0.5 font-mono text-xs"
               >
                 <span className="text-text-primary">{id.value}</span>
                 {id.domain && (

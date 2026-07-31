@@ -138,7 +138,7 @@ export default function AdminLayout({
                     href={link.href}
                     className={`relative block py-1 text-sm transition-colors ${
                       pathname === link.href
-                        ? "font-semibold text-primary-dark dark:text-primary before:absolute before:-left-[1px] before:top-0 before:bottom-0 before:w-[3px] before:rounded-full before:bg-accent"
+                        ? "font-semibold text-primary-dark dark:text-primary before:absolute before:-left-px before:top-0 before:bottom-0 before:w-[3px] before:rounded-full before:bg-accent"
                         : "text-text-muted hover:text-primary"
                     }`}
                   >
@@ -150,7 +150,7 @@ export default function AdminLayout({
           </ul>
         </nav>
         <div className="min-w-0 flex-1 animate-fade-in">
-          <div className="mx-auto max-w-[84rem]">{children}</div>
+          <div className="mx-auto max-w-336">{children}</div>
         </div>
       </div>
     </main>

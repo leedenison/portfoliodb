@@ -337,7 +337,7 @@ function AccountsTab({
                 type="checkbox"
                 checked={brokerChecked}
                 onChange={() => onToggleBroker(ba.broker)}
-                className="rounded border-border text-primary focus:ring-primary/30"
+                className="rounded-sm border-border text-primary focus:ring-primary/30"
               />
               <span className="text-sm font-semibold text-text-primary">
                 {ba.broker}
@@ -354,7 +354,7 @@ function AccountsTab({
                     type="checkbox"
                     checked={selAccounts.has(acct)}
                     onChange={() => onToggleAccount(acct)}
-                    className="rounded border-border text-primary focus:ring-primary/30"
+                    className="rounded-sm border-border text-primary focus:ring-primary/30"
                   />
                   <span className="text-sm text-text-primary">{acct}</span>
                 </label>
@@ -404,7 +404,7 @@ function InstrumentsTab({
               <button
                 type="button"
                 onClick={() => onRemoveInstrument(id)}
-                className="ml-0.5 rounded-sm hover:bg-primary-dark/20"
+                className="ml-0.5 rounded-xs hover:bg-primary-dark/20"
               >
                 <svg
                   className="h-3 w-3"
@@ -432,7 +432,7 @@ function InstrumentsTab({
           value={instSearch}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Search instruments..."
-          className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+          className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary/30"
         />
         <div className="flex flex-wrap gap-1">
           {ALL_ASSET_CLASSES.map((cls) => {
@@ -542,7 +542,7 @@ function InstrumentResults({
                         type="checkbox"
                         checked={checked}
                         readOnly
-                        className="rounded border-border text-primary focus:ring-primary/30"
+                        className="rounded-sm border-border text-primary focus:ring-primary/30"
                       />
                       <span className="flex-1 truncate text-text-primary">
                         {(inst.name || inst.id)}

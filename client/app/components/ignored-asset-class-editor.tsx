@@ -268,7 +268,7 @@ function IgnoredAssetClassForm({
             <button
               onClick={handleSave}
               disabled={saving || !hasChanges}
-              className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-primary-dark disabled:opacity-50"
+              className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white shadow-xs transition-colors hover:bg-primary-dark disabled:opacity-50"
             >
               {saving ? "Saving..." : "Save"}
             </button>
@@ -344,7 +344,7 @@ function BrokerSection({
                 type="checkbox"
                 checked={isBrokerIgnored(broker, ac)}
                 onChange={() => onToggleBroker(broker, ac)}
-                className="rounded border-border text-primary focus:ring-primary/30"
+                className="rounded-sm border-border text-primary focus:ring-primary/30"
               />
               <span className="text-xs text-text-primary">
                 {ASSET_CLASS_LABELS[ac]}
@@ -370,7 +370,7 @@ function BrokerSection({
                         type="checkbox"
                         checked={isEffectivelyIgnored(broker, acct, ac)}
                         onChange={() => onToggleAccount(broker, acct, ac)}
-                        className="rounded border-border text-primary focus:ring-primary/30"
+                        className="rounded-sm border-border text-primary focus:ring-primary/30"
                       />
                       <span className="text-xs text-text-primary">
                         {ASSET_CLASS_LABELS[ac]}
@@ -435,7 +435,7 @@ function ConfirmDialog({
           </button>
           <button
             onClick={onConfirm}
-            className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-red-700"
+            className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white shadow-xs transition-colors hover:bg-red-700"
           >
             Delete and Save
           </button>

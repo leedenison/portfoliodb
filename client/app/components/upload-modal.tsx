@@ -228,7 +228,7 @@ function UploadModalBody({
                   setFormatId("standard");
                   setConverterOptions({});
                 }}
-                className="block w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary focus:border-primary focus:outline-none"
+                className="block w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary focus:border-primary focus:outline-hidden"
               >
                 {BROKER_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -262,7 +262,7 @@ function UploadModalBody({
                 id="upload-format"
                 value={formatId}
                 onChange={(e) => setFormatId(e.target.value)}
-                className="block w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary focus:border-primary focus:outline-none"
+                className="block w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary focus:border-primary focus:outline-hidden"
               >
                 {formats.map((f) => (
                   <option key={f.id} value={f.id}>

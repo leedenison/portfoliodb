@@ -159,7 +159,7 @@ export default function AdminTelemetryPage() {
           type="button"
           onClick={load}
           disabled={loading}
-          className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+          className="rounded-sm bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
         >
           {loading ? "Refreshing..." : "Refresh"}
         </button>
@@ -227,7 +227,7 @@ function EntryList({ entries }: { entries: CounterEntry[] }) {
       {entries.map((entry) => (
         <li
           key={entry.label}
-          className="flex items-baseline justify-between gap-4 rounded px-2 py-0.5 transition-colors hover:bg-primary-light/10"
+          className="flex items-baseline justify-between gap-4 rounded-sm px-2 py-0.5 transition-colors hover:bg-primary-light/10"
         >
           <span className="font-mono text-sm text-text-primary">
             {entry.label}

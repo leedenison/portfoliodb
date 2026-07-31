@@ -30,7 +30,7 @@ export default function AdminInflationPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter by currency (e.g. GBP)..."
-            className="w-full max-w-xs rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+            className="w-full max-w-xs rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary/30"
           />
           <label className="flex flex-col gap-1 text-xs text-text-muted">
             From
@@ -38,7 +38,7 @@ export default function AdminInflationPage() {
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text-primary focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary/30"
             />
           </label>
           <label className="flex flex-col gap-1 text-xs text-text-muted">
@@ -47,7 +47,7 @@ export default function AdminInflationPage() {
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text-primary focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary/30"
             />
           </label>
         </div>
@@ -112,10 +112,10 @@ function InflationList({
       {!loading && error && <ErrorAlert>{errorMessage(error)}</ErrorAlert>}
       {!loading && !error && (
         <>
-          <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-sm">
+          <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-xs">
             <table className="w-full min-w-[500px] border-collapse text-sm">
               <thead>
-                <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/[0.03]">
+                <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/3">
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                     Currency
                   </th>

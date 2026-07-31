@@ -87,7 +87,7 @@ export default function SettingsPage() {
                   value={currency}
                   onChange={(e) => handleChange(e.target.value)}
                   disabled={saving}
-                  className="rounded-md border border-border bg-white px-3 py-2 text-sm text-text-primary shadow-sm transition-colors hover:border-primary-light focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary dark:bg-surface"
+                  className="rounded-md border border-border bg-white px-3 py-2 text-sm text-text-primary shadow-xs transition-colors hover:border-primary-light focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary dark:bg-surface"
                 >
                   {CURRENCIES.map((c) => (
                     <option key={c} value={c}>

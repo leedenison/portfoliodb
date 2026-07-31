@@ -148,7 +148,7 @@ export default function AdminCorporateEventsPage() {
                         type="button"
                         onClick={() => handleResolve(ev.id)}
                         disabled={resolving !== null}
-                        className="rounded border border-border px-3 py-1 text-xs hover:bg-background disabled:opacity-50"
+                        className="rounded-sm border border-border px-3 py-1 text-xs hover:bg-background disabled:opacity-50"
                       >
                         {resolving === ev.id ? "Resolving..." : "Resolve"}
                       </button>

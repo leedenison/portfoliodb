@@ -208,10 +208,12 @@ type PortfolioDB interface {
 
 // TxDB provides transaction write and list.
 type TxDB interface {
+	// Each tx is written as a posting of its own single-posting tx group, stamped
+	// with the ingestion job that created it.
 	// shareCountBasis is the date the uploaded quantities and unit prices are
 	// denominated in. nil means as-traded: each row uses its own timestamp.
-	ReplaceTxsInPeriod(ctx context.Context, userID, broker string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error
-	CreateTx(ctx context.Context, userID, broker, account string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error
+	ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error
+	CreateTx(ctx context.Context, userID, broker, account, jobID string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error
 	ListTxs(ctx context.Context, userID string, broker *apiv1.Broker, account string, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 	ListTxsByPortfolio(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 }

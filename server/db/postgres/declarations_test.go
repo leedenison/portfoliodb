@@ -139,7 +139,7 @@ func TestGetPortfolioStartDate(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SD1", Canonical: false}}, "", nil, nil, nil)
 	ts := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
 	tx := &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "SD1", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "acct1"}
-	if err := p.CreateTx(ctx, userID, "IBKR", "acct1", tx, instID, nil); err != nil {
+	if err := p.CreateTx(ctx, userID, "IBKR", "acct1", "", tx, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 
@@ -163,10 +163,10 @@ func TestComputeRunningBalance(t *testing.T) {
 
 	ts1 := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
 	ts2 := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
-	if err := p.CreateTx(ctx, userID, "IBKR", "acct1", &apiv1.Tx{Timestamp: timestamppb.New(ts1), InstrumentDescription: "RB1", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "acct1"}, instID, nil); err != nil {
+	if err := p.CreateTx(ctx, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts1), InstrumentDescription: "RB1", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create buy: %v", err)
 	}
-	if err := p.CreateTx(ctx, userID, "IBKR", "acct1", &apiv1.Tx{Timestamp: timestamppb.New(ts2), InstrumentDescription: "RB1", Type: apiv1.TxType_SELLSTOCK, Quantity: -30, Account: "acct1"}, instID, nil); err != nil {
+	if err := p.CreateTx(ctx, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts2), InstrumentDescription: "RB1", Type: apiv1.TxType_SELLSTOCK, Quantity: -30, Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create sell: %v", err)
 	}
 
@@ -240,5 +240,67 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 		if pt.GetTx().GetSyntheticPurpose() == "INITIALIZE" {
 			t.Fatal("INITIALIZE tx should have been deleted")
 		}
+	}
+}
+
+func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|init-grp", "U", "u@init.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "IG1", Canonical: false}}, "", nil, nil, nil)
+
+	at := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", at, 50); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	// A derived posting has no ingestion job, so its group carries a NULL job_id.
+	var groupID string
+	var jobID *string
+	var groupTs time.Time
+	err := p.q.QueryRowContext(ctx, `
+		SELECT g.id, g.job_id, g.timestamp FROM txs t JOIN tx_groups g ON g.id = t.group_id
+		WHERE t.user_id = $1 AND t.synthetic_purpose = 'INITIALIZE'
+	`, userID).Scan(&groupID, &jobID, &groupTs)
+	if err != nil {
+		t.Fatalf("read group: %v", err)
+	}
+	if jobID != nil {
+		t.Errorf("job_id: want NULL, got %v", *jobID)
+	}
+	if !groupTs.Equal(at) {
+		t.Errorf("group timestamp: want %v, got %v", at, groupTs)
+	}
+
+	// Recalculating a declaration must move the existing group rather than
+	// replacing it, or every recalc would orphan one.
+	moved := at.Add(48 * time.Hour)
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", moved, 75); err != nil {
+		t.Fatalf("re-upsert: %v", err)
+	}
+	var groupID2 string
+	var groupTs2 time.Time
+	err = p.q.QueryRowContext(ctx, `
+		SELECT g.id, g.timestamp FROM txs t JOIN tx_groups g ON g.id = t.group_id
+		WHERE t.user_id = $1 AND t.synthetic_purpose = 'INITIALIZE'
+	`, userID).Scan(&groupID2, &groupTs2)
+	if err != nil {
+		t.Fatalf("read group after update: %v", err)
+	}
+	if groupID2 != groupID {
+		t.Errorf("group id changed on update: %s -> %s", groupID, groupID2)
+	}
+	if !groupTs2.Equal(moved) {
+		t.Errorf("group timestamp after update: want %v, got %v", moved, groupTs2)
+	}
+	if got := countGroups(t, p, userID); got != 1 {
+		t.Errorf("tx_groups after re-upsert: want 1, got %d", got)
+	}
+
+	if err := p.DeleteInitializeTx(ctx, userID, "IBKR", "acct1", instID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if got := countGroups(t, p, userID); got != 0 {
+		t.Errorf("tx_groups after delete: want 0, got %d", got)
 	}
 }

@@ -1,40 +1,36 @@
 ---
 status: open
-title: Extend standard CSV with fees and net amount
+title: Emit fee and cash postings from brokers that net commission
 milestone: M12
-dependencies: [0039]
+dependencies: [0039, 0063]
 ---
 
-Add `fees` and `net_amount` columns to the standard CSV format and update the
-broker converters to populate them.
+Update the broker converters that report only a net total to split out the
+commission and emit it as its own posting.
+
+**Amended.** This issue originally added `fees` and `net_amount` columns to the
+standard CSV. It no longer does. A fee is a posting with `type=INVEXPENSE`, not a
+column: that is already how Fidelity's separately-reported charges arrive, and
+columns would express the same money twice. See
+adr/0021-converters-own-transaction-grouping.md. What remains is the converter-side
+work for brokers that do not report charges separately.
 
 ## Motivation
 
-The standard CSV cannot currently express a balanced transaction. It carries
-`quantity`, an optional `unit_price`, `trading_currency` and
-`settlement_currency`, but no fee and no cash total. `quantity * unit_price` is
-the gross consideration; the actual cash movement is gross plus commissions and
-charges. Without those, every derived cash leg is wrong by the fee and the
-difference lands in `Imbalance` (0038).
-
-This is a breaking change to the format, which is acceptable: the project is
-pre-release and CLAUDE.md states that data models and APIs are not stable and
-should not carry migrations or back-compat.
+Where a broker nets commission into a single cash total and reports no separate
+charge row, the fee is invisible: the cash posting is correct but the consideration
+and the expense are conflated, which matters for cost basis. The residual also lands
+in `Imbalance` (0038) whenever the price and the cash total disagree.
 
 ## Design
 
-- `net_amount` -- signed cash movement in `settlement_currency`. Authoritative
-  when present: use it directly for the cash leg rather than deriving.
-- `fees` -- total commissions and charges for the row, in
-  `settlement_currency`.
-- Precedence: `net_amount` when supplied; otherwise
-  `-(quantity * unit_price) - fees`; otherwise security leg only with the
-  balance falling to `Imbalance`.
-- Post `fees` to an expense account rather than folding it into the cash leg,
-  so that cost basis and expenses stay separable. This matters for the lot and
-  cost-basis work if that is taken up later.
-- Both columns optional, so existing hand-written CSVs keep working and only
-  contribute imbalance.
+- The converter derives the fee as `|Amount| - quantity * price` and emits it as an
+  `INVEXPENSE` posting in the same group as the trade.
+- Where a broker reports charges as their own rows on their own dates (Fidelity),
+  they stay separate single-posting groups. Do not fold them into the trade group;
+  they are separate cash events and grouping them would misdate them.
+- The currency qualifier matters. Derive the fee only after the price and the cash
+  total are in the same currency.
 
 ## Sequencing
 
@@ -44,11 +40,10 @@ existing worked example.
 
 ## Manual test data
 
-The broker CSVs under `local/standard-format` predate these columns, so they
-carry no fee or cash total and every one of their derived cash legs will land in
-`Imbalance` until they are regenerated. Doing that is part of this work: the
-scripts that produce them live in `local/scripts` and have to populate the new
-columns alongside the client converters.
+The broker CSVs under `local/standard-format` carry no fee postings, so every
+conflated fee shows up as `Imbalance` until they are regenerated. Doing that is part
+of this work: the scripts that produce them live in `local/scripts` and have to emit
+the fee postings alongside the client converters.
 
 Whether the source data supports it varies by broker, so check before assuming a
 regeneration is mechanical. The IBKR master (`local/masters/Lee-IBKR-CWSY.csv`)

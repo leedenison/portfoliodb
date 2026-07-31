@@ -34,7 +34,7 @@ func TestGetPortfolioValuation_Basic(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -139,7 +139,7 @@ func TestGetPortfolioValuation_DifferentDescriptionsNetToZero(t *testing.T) {
 	}
 	from := timestamppb.New(transferDate.Add(-1 * time.Hour))
 	to := timestamppb.New(sellDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID, instID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -208,7 +208,7 @@ func TestGetPortfolioValuation_UnpricedDeduplication(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID, instID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -255,7 +255,7 @@ func TestGetPortfolioValuation_MultipleInstruments(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instA, instB}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instA, instB}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -303,7 +303,7 @@ func TestGetUserValuation_Basic(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -380,7 +380,7 @@ func TestGetPortfolioValuation_ExcludesDateBefore(t *testing.T) {
 	txs := []*apiv1.Tx{
 		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Corp", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)), txs, []string{instID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)), txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 	prices := []db.EODPrice{
@@ -424,7 +424,7 @@ func TestGetPortfolioValuation_FromEqualsBeforeReturnsNothing(t *testing.T) {
 	txs := []*apiv1.Tx{
 		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Corp", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)), txs, []string{instID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)), txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 	if err := p.UpsertPrices(ctx, []db.EODPrice{
@@ -474,7 +474,7 @@ func TestGetUserValuation_FXConversion_DisplayUSD(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -529,7 +529,7 @@ func TestGetUserValuation_FXConversion_CrossRate(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -583,7 +583,7 @@ func TestGetUserValuation_FXConversion_MissingRate(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -635,7 +635,7 @@ func TestGetUserValuation_FXConversion_USDDisplayNonUSD(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -688,7 +688,7 @@ func TestGetUserValuation_FXConversion_MissingBaseRate(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{instID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -752,7 +752,7 @@ func TestGetUserValuation_CashInDisplayCurrency(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{usdInstID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{usdInstID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -804,7 +804,7 @@ func TestGetUserValuation_CashInForeignCurrency(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{gbpInstID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{gbpInstID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -845,7 +845,7 @@ func TestGetUserValuation_CashForeignMissingFXRate(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{gbpInstID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{gbpInstID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -906,7 +906,7 @@ func TestGetUserValuation_CashForeignCurrency_NonUSDDisplay(t *testing.T) {
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", from, to, txs, []string{eurInstID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{eurInstID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -957,7 +957,7 @@ func TestGetUserValuation_ContinuousAcrossSplit(t *testing.T) {
 		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Split", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "main"},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID,
-		"IBKR", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)),
+		"IBKR", "", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)),
 		txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
@@ -1019,7 +1019,7 @@ func TestGetUserValuation_FXUnaffectedByASplit(t *testing.T) {
 	txs := []*apiv1.Tx{
 		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "SAP FXSplit", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "main"},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR",
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "",
 		timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)),
 		txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)

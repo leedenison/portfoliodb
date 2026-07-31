@@ -16,8 +16,8 @@ import { useAuth } from "@/contexts/auth-context";
  * queries instead (see AuthProvider), so keys stay readable and a signed-out
  * cache holds nothing to leak.
  */
-export function useAuthedQuery<TData, TError = Error>(
-  options: UseQueryOptions<TData, TError> & { queryKey: readonly unknown[] }
+export function useAuthedQuery<TQueryFnData = unknown, TError = Error, TData = TQueryFnData>(
+  options: UseQueryOptions<TQueryFnData, TError, TData> & { queryKey: readonly unknown[] }
 ): UseQueryResult<TData, TError> {
   const { state } = useAuth();
   return useQuery({

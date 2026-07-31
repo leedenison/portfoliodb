@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
 import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import {
@@ -351,42 +352,37 @@ function PriceRow({ price: p }: { price: EODPriceProto }) {
 // --- Price Fetch Blocks Tab ---
 
 function PriceFetchBlocksTab() {
-  const [blocks, setBlocks] = useState<PriceFetchBlock[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [clearError, setClearError] = useState<string | null>(null);
   const [clearing, setClearing] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setBlocks(await listPriceFetchBlocks());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load blocks");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const {
+    data: blocks = [],
+    isPending: loading,
+    error: loadError,
+  } = useAuthedQuery<PriceFetchBlock[]>({
+    queryKey: qk.priceFetchBlocks(),
+    queryFn: listPriceFetchBlocks,
+  });
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const error =
+    clearError ?? (loadError ? errorMessage(loadError, "Failed to load blocks") : null);
 
   async function handleClear(block: PriceFetchBlock) {
     const key = `${block.instrumentId}:${block.pluginId}`;
     setClearing(key);
-    setError(null);
+    setClearError(null);
     try {
       await deletePriceFetchBlock(block.instrumentId, block.pluginId);
-      setBlocks((prev) =>
-        prev.filter(
-          (b) =>
-            b.instrumentId !== block.instrumentId ||
-            b.pluginId !== block.pluginId
+      // Drop the row from the cache rather than refetching: the delete already
+      // tells us it is gone.
+      queryClient.setQueryData<PriceFetchBlock[]>(qk.priceFetchBlocks(), (prev) =>
+        (prev ?? []).filter(
+          (b) => b.instrumentId !== block.instrumentId || b.pluginId !== block.pluginId
         )
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to clear block");
+      setClearError(errorMessage(e, "Failed to clear block"));
     } finally {
       setClearing(null);
     }

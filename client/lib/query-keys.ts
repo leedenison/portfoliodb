@@ -14,6 +14,14 @@
  * Grows as call sites are converted; there are no keys here without a consumer.
  */
 export const qk = {
+  session: () => ["session"] as const,
+  plugins: (category: "identifier" | "description" | "price" | "inflation") =>
+    ["plugins", category] as const,
+  workers: () => ["workers"] as const,
+  unhandledCorporateEvents: () => ["unhandled-corporate-events"] as const,
+  unhandledCorporateEventCount: () => ["unhandled-corporate-event-count"] as const,
+  corporateEventSplits: () => ["corporate-event-splits"] as const,
+  priceFetchBlocks: () => ["price-fetch-blocks"] as const,
   telemetryCounters: () => ["telemetry-counters"] as const,
   holdings: (portfolioId?: string) => ["holdings", portfolioId ?? null] as const,
   displayCurrency: () => ["display-currency"] as const,

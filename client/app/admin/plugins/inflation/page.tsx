@@ -12,6 +12,7 @@ export default function AdminInflationPluginsPage() {
     <PluginConfigEditor
       title="Inflation plugins"
       description="Enable or disable plugins that fetch monthly inflation index data. Config JSON can include API endpoints and rate limits; only admins can view or edit."
+      category="inflation"
       listFn={listInflationPlugins}
       updateFn={updateInflationPlugin}
       reorderFn={(ids) => reorderPlugins("inflation", ids)}

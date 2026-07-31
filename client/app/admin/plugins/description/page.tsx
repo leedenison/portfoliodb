@@ -12,6 +12,7 @@ export default function AdminDescriptionPluginsPage() {
     <PluginConfigEditor
       title="Description plugins"
       description="Enable or disable plugins that extract identifier hints from broker instrument descriptions. They run in series by precedence (higher runs first); the first that returns hints is used. Config JSON can include API keys; only admins can view or edit."
+      category="description"
       listFn={listDescriptionPlugins}
       updateFn={updateDescriptionPlugin}
       reorderFn={(ids) => reorderPlugins("description", ids)}

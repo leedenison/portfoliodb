@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { errorMessage } from "@/lib/errors";
+import { qk } from "@/lib/query-keys";
 import { ErrorAlert } from "@/app/components/error-alert";
 import {
   listUnhandledCorporateEvents,
@@ -51,40 +55,36 @@ function TabButton({
 
 export default function AdminCorporateEventsPage() {
   const [tab, setTab] = useState<Tab>("unhandled");
-  const [events, setEvents] = useState<UnhandledCorporateEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [resolveError, setResolveError] = useState<string | null>(null);
   const [resolving, setResolving] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await listUnhandledCorporateEvents();
-      setEvents(result.events);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load corporate events");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const {
+    data: events = [],
+    isPending: loading,
+    error: loadError,
+  } = useAuthedQuery<UnhandledCorporateEvent[]>({
+    queryKey: qk.unhandledCorporateEvents(),
+    queryFn: async () => (await listUnhandledCorporateEvents()).events,
+  });
+
+  const error =
+    resolveError ?? (loadError ? errorMessage(loadError, "Failed to load corporate events") : null);
 
   async function handleResolve(id: string) {
     setResolving(id);
-    setError(null);
+    setResolveError(null);
     try {
       await resolveUnhandledCorporateEvent(id);
-      await load();
+      await queryClient.invalidateQueries({ queryKey: qk.unhandledCorporateEvents() });
+      // The dashboard shows the same count.
+      await queryClient.invalidateQueries({ queryKey: qk.unhandledCorporateEventCount() });
     } catch (e) {
-      setError(e instanceof Error ? e.message : `Failed to resolve event ${id}`);
+      setResolveError(errorMessage(e, `Failed to resolve event ${id}`));
     } finally {
       setResolving(null);
     }
   }
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   return (
     <div data-testid="page-corporate-events">

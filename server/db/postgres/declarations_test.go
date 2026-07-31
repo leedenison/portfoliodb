@@ -105,8 +105,12 @@ func TestListHoldingDeclarations(t *testing.T) {
 	inst2, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "A2", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst1, "100", asOf)
-	p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst2, "200", asOf)
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst1, "100", asOf); err != nil {
+		t.Fatalf("create decl 1: %v", err)
+	}
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst2, "200", asOf); err != nil {
+		t.Fatalf("create decl 2: %v", err)
+	}
 
 	rows, err := p.ListHoldingDeclarations(ctx, userID)
 	if err != nil {
@@ -135,7 +139,9 @@ func TestGetPortfolioStartDate(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SD1", Canonical: false}}, "", nil, nil, nil)
 	ts := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
 	tx := &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "SD1", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "acct1"}
-	p.CreateTx(ctx, userID, "IBKR", "acct1", tx, instID, nil)
+	if err := p.CreateTx(ctx, userID, "IBKR", "acct1", tx, instID, nil); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
 
 	startDate, err = p.GetPortfolioStartDate(ctx, userID)
 	if err != nil {
@@ -157,8 +163,12 @@ func TestComputeRunningBalance(t *testing.T) {
 
 	ts1 := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
 	ts2 := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
-	p.CreateTx(ctx, userID, "IBKR", "acct1", &apiv1.Tx{Timestamp: timestamppb.New(ts1), InstrumentDescription: "RB1", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "acct1"}, instID, nil)
-	p.CreateTx(ctx, userID, "IBKR", "acct1", &apiv1.Tx{Timestamp: timestamppb.New(ts2), InstrumentDescription: "RB1", Type: apiv1.TxType_SELLSTOCK, Quantity: -30, Account: "acct1"}, instID, nil)
+	if err := p.CreateTx(ctx, userID, "IBKR", "acct1", &apiv1.Tx{Timestamp: timestamppb.New(ts1), InstrumentDescription: "RB1", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "acct1"}, instID, nil); err != nil {
+		t.Fatalf("create buy: %v", err)
+	}
+	if err := p.CreateTx(ctx, userID, "IBKR", "acct1", &apiv1.Tx{Timestamp: timestamppb.New(ts2), InstrumentDescription: "RB1", Type: apiv1.TxType_SELLSTOCK, Quantity: -30, Account: "acct1"}, instID, nil); err != nil {
+		t.Fatalf("create sell: %v", err)
+	}
 
 	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC)

@@ -100,6 +100,9 @@ client-typecheck: $(STAMP_DIR)/generate
 extension-typecheck: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS_EXT) sh -c 'npm ci && npm run typecheck'
 
+lint-go: $(STAMP_DIR)/generate
+	$(COMPOSE_TOOLS) golangci-lint run ./server/...
+
 # ESLint over both TypeScript trees. It lives in its own npm project at the repo
 # root rather than in client/ or extension/, so one config covers both; the
 # recipe runs npm ci itself, as the client entrypoint only bootstraps
@@ -110,8 +113,10 @@ lint-ts: $(STAMP_DIR)/generate
 lint-ts-fix: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS_CLIENT) sh -c 'npm ci && npm run lint:fix'
 
+lint: lint-go lint-ts
+
 # Everything CI gates that is not a test.
-check: fmt-check vet lint-ts client-typecheck extension-typecheck
+check: fmt-check vet lint client-typecheck extension-typecheck
 
 server-test: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS) go test ./server/...
@@ -219,6 +224,8 @@ help:
 	@echo "  make fmt                Format the Go tree with gofmt"
 	@echo "  make fmt-check          Fail if the Go tree is not gofmt-clean"
 	@echo "  make vet                Run go vet over the server tree"
+	@echo "  make lint               Lint both trees (lint-go + lint-ts)"
+	@echo "  make lint-go            golangci-lint over the server tree"
 	@echo "  make lint-ts            ESLint the client and extension trees"
 	@echo "  make lint-ts-fix        ESLint with --fix"
 	@echo "  make client-typecheck   Typecheck the Next.js client"
@@ -244,4 +251,4 @@ help:
 	@echo ""
 	@echo "Dependencies are tracked automatically -- stale steps re-run as needed."
 
-.PHONY: generate build google-finance-cli fmt fmt-check vet lint-ts lint-ts-fix client-typecheck extension-typecheck check server-test db-test client-test integration-test integration-test-list integration-test-record extension extension-dev extension-test e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help
+.PHONY: generate build google-finance-cli fmt fmt-check vet lint lint-go lint-ts lint-ts-fix client-typecheck extension-typecheck check server-test db-test client-test integration-test integration-test-list integration-test-record extension extension-dev extension-test e2e-test e2e-test-list e2e-test-record run init-db logs stop clean clean-generated clean-docker clean-next clean-stamps test help

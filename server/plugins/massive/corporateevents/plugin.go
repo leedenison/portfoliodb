@@ -252,16 +252,14 @@ func (p *Plugin) reportOutcome(ctx context.Context, err error) {
 	if p.counter == nil {
 		return
 	}
+	var rl *client.ErrRateLimit
 	switch {
 	case err == nil:
 		p.counter.Incr(ctx, counterSucceeded)
+	case errors.As(err, &rl):
+		p.counter.Incr(ctx, counterRateLimit)
 	default:
-		var rl *client.ErrRateLimit
-		if errors.As(err, &rl) {
-			p.counter.Incr(ctx, counterRateLimit)
-		} else {
-			p.counter.Incr(ctx, counterFailed)
-		}
+		p.counter.Incr(ctx, counterFailed)
 	}
 }
 

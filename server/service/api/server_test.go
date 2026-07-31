@@ -22,10 +22,6 @@ func authCtx(userID, authSub string) context.Context {
 	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: authSub})
 }
 
-func authCtxWithProfile(userID, authSub, name, email string) context.Context {
-	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: authSub, Name: name, Email: email})
-}
-
 // adminCtx returns a context with an admin user (for Export/Import RPCs).
 func adminCtx(userID, authSub string) context.Context {
 	return auth.WithUser(context.Background(), &auth.User{ID: userID, AuthSub: authSub, Role: "admin"})

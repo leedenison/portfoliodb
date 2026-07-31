@@ -10,8 +10,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func strPtr(s string) *string { return &s }
-
 // TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch verifies that when multiple identifiers
 // resolve to different instruments (e.g. A has ISIN 1, B has CUSIP 1), EnsureInstrument merges
 // them and returns the survivor; both identifiers end up on the survivor and txs are updated.

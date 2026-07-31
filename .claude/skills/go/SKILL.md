@@ -89,6 +89,15 @@ canonical gRPC assertion is `testutil.RequireGRPCCode(t, err, codes.X)`. See the
 
 ## Linting
 
-gofmt and `go vet` are the enforced baseline today. (golangci-lint is the intended
-linter but is not yet configured in the repo -- there is no `.golangci.yml` and no
-`make lint` target. Do not assume it runs in CI.)
+`make fmt-check`, `make vet` and `make lint-go` all gate CI. Run `make fmt` to
+format and `make lint-go` before pushing.
+
+golangci-lint is configured in `.golangci.yml` with its standard linter group
+(errcheck, ineffassign, staticcheck, unused), minus govet since `make vet`
+already covers the same tree. Two exclusions: the `std-error-handling` preset,
+and errcheck on `Encode`/`Write` in `_test.go`, where the stub HTTP handlers
+have no way to report a failed write.
+
+Do not silence a finding with `//nolint` without saying why on the same line.
+Prefer fixing it, or -- if the pattern will recur -- adding a scoped rule to
+`.golangci.yml` so the reason lives in one place.

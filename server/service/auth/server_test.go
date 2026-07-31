@@ -174,13 +174,9 @@ func newTestServer(t *testing.T, clientID string, svcAcctDB db.ServiceAccountDB,
 	srv := makeJWKSServer(t, &testRSAKey.PublicKey, "test-kid")
 	t.Cleanup(srv.Close)
 
-	verifier := google.NewVerifier(clientID,
-		google.WithHTTPClient(srv.Client()),
-		google.WithJWKSCacheTTL(time.Minute),
-	)
 	// Point the verifier at our stub JWKS server by overriding the URL via a custom HTTP transport.
 	// We need to redirect the JWKS URL fetch to our test server.
-	verifier = google.NewVerifier(clientID,
+	verifier := google.NewVerifier(clientID,
 		google.WithHTTPClient(newRedirectClient(srv.URL)),
 		google.WithJWKSCacheTTL(time.Minute),
 		google.WithClockSkew(time.Minute),

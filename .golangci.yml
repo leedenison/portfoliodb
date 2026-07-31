@@ -1,0 +1,27 @@
+version: "2"
+
+# Conservative starting set: golangci-lint's own standard group, minus govet,
+# which `make vet` already runs against the same tree.
+linters:
+  default: standard
+  disable:
+    - govet
+  exclusions:
+    presets:
+      # errcheck on deferred Close, Flush and the print family. Handling those
+      # errors is not what the code would do differently.
+      - std-error-handling
+    rules:
+      # Test HTTP handlers write a canned response body. There is nothing the
+      # test would do with a write error that the assertions do not already
+      # cover, and the stub handlers have no way to report one.
+      - path: _test\.go
+        linters:
+          - errcheck
+        text: "Error return value of `.*\\.(Encode|Write)` is not checked"
+
+# Defaults cap output at 50 per linter and 3 per repeated issue, which reads as
+# a clean-ish run when it is a truncated one.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -832,21 +832,27 @@ func TestUpsertPricesWithFill_NoSeedAtStart(t *testing.T) {
 
 	// Day 3 real, day 4 synthetic. Days 1-2 absent.
 	var count int
-	p.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM eod_prices WHERE instrument_id = $1::uuid`, instID).Scan(&count)
+	if err := p.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM eod_prices WHERE instrument_id = $1::uuid`, instID).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
 	if count != 2 {
 		t.Fatalf("expected 2 rows, got %d", count)
 	}
 
 	var synthetic bool
-	p.q.QueryRowContext(ctx,
+	if err := p.q.QueryRowContext(ctx,
 		`SELECT synthetic FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
-		instID, d(2024, 1, 3)).Scan(&synthetic)
+		instID, d(2024, 1, 3)).Scan(&synthetic); err != nil {
+		t.Fatalf("day 3: %v", err)
+	}
 	if synthetic {
 		t.Error("day 3: expected real")
 	}
-	p.q.QueryRowContext(ctx,
+	if err := p.q.QueryRowContext(ctx,
 		`SELECT synthetic FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
-		instID, d(2024, 1, 4)).Scan(&synthetic)
+		instID, d(2024, 1, 4)).Scan(&synthetic); err != nil {
+		t.Fatalf("day 4: %v", err)
+	}
 	if !synthetic {
 		t.Error("day 4: expected synthetic")
 	}
@@ -871,9 +877,11 @@ func TestUpsertPricesWithFill_DuplicateDates(t *testing.T) {
 	}
 
 	var close float64
-	p.q.QueryRowContext(ctx,
+	if err := p.q.QueryRowContext(ctx,
 		`SELECT close FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
-		instID, mon).Scan(&close)
+		instID, mon).Scan(&close); err != nil {
+		t.Fatalf("scan close: %v", err)
+	}
 	if close != 101.0 {
 		t.Errorf("duplicate date: close = %v, want 101.0 (last occurrence)", close)
 	}

@@ -143,7 +143,7 @@ func (p *Postgres) runInTx(ctx context.Context, f func(exec queryable) error) er
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		if err := f(tx); err != nil {
 			return err
 		}
@@ -179,13 +179,6 @@ func nullFloat(f float64) interface{} {
 		return nil
 	}
 	return f
-}
-
-func ptrStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }
 
 func decodePageToken(token string) int64 {

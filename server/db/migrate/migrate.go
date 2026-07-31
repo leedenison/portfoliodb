@@ -111,7 +111,7 @@ func applyMigration(ctx context.Context, db *sql.DB, migrations fs.FS, name, ver
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, string(body)); err != nil {
 		return err
 	}
@@ -141,5 +141,5 @@ func tryAdvisoryLock(ctx context.Context, db *sql.DB, timeout time.Duration, loc
 }
 
 func releaseAdvisoryLock(ctx context.Context, db *sql.DB, lockID int64) {
-	db.ExecContext(ctx, `SELECT pg_advisory_unlock($1)`, lockID)
+	_, _ = db.ExecContext(ctx, `SELECT pg_advisory_unlock($1)`, lockID)
 }

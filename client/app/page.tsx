@@ -2,7 +2,6 @@
 
 import { useEffect } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppHeader } from "./components/app-header";
 import { SignInButton } from "./components/sign-in";

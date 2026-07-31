@@ -15,6 +15,12 @@ Single reference for where each component of the PortfolioDB monorepo lives. The
 | **docker/** | Dockerfiles and compose (or scripts) for local dev and QA (e.g. Postgres + PortfolioDB service). |
 | **e2e/** | Playwright end-to-end suites run against the full Docker stack. Governed by the `e2e-testing` skill. |
 
+`eslint.config.mjs` and its `package.json` sit at the root rather than in either
+TypeScript project. **client/** and **extension/** are separate npm projects,
+but the extension imports client modules through a path alias, so one config
+lints both trees and the rules that apply to shared source cannot drift apart.
+Run it with `make lint`.
+
 ---
 
 ## proto/

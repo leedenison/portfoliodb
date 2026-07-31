@@ -1,0 +1,19 @@
+{
+  "name": "portfoliodb-lint",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Repo-level ESLint install. client/ and extension/ are separate npm projects, but the extension imports client modules through a path alias, so both trees are linted under one config rather than drifting apart.",
+  "scripts": {
+    "lint": "eslint --max-warnings 0 client extension",
+    "lint:fix": "eslint --fix client extension"
+  },
+  "devDependencies": {
+    "@next/eslint-plugin-next": "^16.1.6",
+    "eslint": "^9.39.0",
+    "eslint-plugin-react": "^7.37.0",
+    "eslint-plugin-react-hooks": "^7.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.46.0"
+  }
+}

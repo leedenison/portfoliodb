@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { ErrorAlert } from "@/app/components/error-alert";
 import {

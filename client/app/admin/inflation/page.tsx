@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
@@ -14,7 +14,6 @@ export default function AdminInflationPage() {
   const debouncedSearch = useDebounce(search);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [refreshKey, setRefreshKey] = useState(0);
 
   const fetchIndices = useCallback(
     async (pageToken: string | null) => {
@@ -31,8 +30,7 @@ export default function AdminInflationPage() {
         nextPageToken: result.nextPageToken,
       };
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [debouncedSearch, dateFrom, dateTo, refreshKey]
+    [debouncedSearch, dateFrom, dateTo]
   );
 
   const {

@@ -238,7 +238,6 @@ export function IgnoredAssetClassEditor({ authStatus }: Props) {
                 broker={ba.broker}
                 accounts={ba.accounts}
                 isBrokerIgnored={isBrokerIgnored}
-                isAccountIgnored={isAccountIgnored}
                 isEffectivelyIgnored={isEffectivelyIgnored}
                 onToggleBroker={toggleBrokerAssetClass}
                 onToggleAccount={toggleAccountAssetClass}
@@ -295,7 +294,6 @@ function BrokerSection({
   broker,
   accounts,
   isBrokerIgnored,
-  isAccountIgnored,
   isEffectivelyIgnored,
   onToggleBroker,
   onToggleAccount,
@@ -303,7 +301,6 @@ function BrokerSection({
   broker: string;
   accounts: string[];
   isBrokerIgnored: (broker: string, assetClass: AssetClass) => boolean;
-  isAccountIgnored: (broker: string, account: string, assetClass: AssetClass) => boolean;
   isEffectivelyIgnored: (broker: string, account: string, assetClass: AssetClass) => boolean;
   onToggleBroker: (broker: string, assetClass: AssetClass) => void;
   onToggleAccount: (broker: string, account: string, assetClass: AssetClass) => void;

@@ -62,4 +62,3 @@ func TxIgnored(tx *apiv1.Tx, broker string, ignored []db.IgnoredAssetClass) bool
 	}
 	return false
 }
-

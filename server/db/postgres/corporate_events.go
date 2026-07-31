@@ -894,7 +894,6 @@ func (p *Postgres) ResolveUnhandledCorporateEvent(ctx context.Context, id string
 	return nil
 }
 
-
 // ListCorporateEventCoverageForExport implements db.CorporateEventDB.
 func (p *Postgres) ListCorporateEventCoverageForExport(ctx context.Context) ([]db.ExportCoverageRow, error) {
 	q := `

@@ -25,9 +25,9 @@ const defaultExpiredDerivativeHorizon = 180
 
 type configJSON struct {
 	MassiveAPIKey            string `json:"massive_api_key"`
-	MassiveBaseURL           string `json:"massive_base_url"`            // for testing
-	CallsPerMin              *int   `json:"massive_calls_per_min"`       // nil or absent = unlimited
-	ExpiredDerivativeHorizon *int   `json:"expired_derivative_horizon"`  // days; nil = default (180)
+	MassiveBaseURL           string `json:"massive_base_url"`           // for testing
+	CallsPerMin              *int   `json:"massive_calls_per_min"`      // nil or absent = unlimited
+	ExpiredDerivativeHorizon *int   `json:"expired_derivative_horizon"` // days; nil = default (180)
 }
 
 // Plugin implements identifier.Plugin using the Massive REST API.

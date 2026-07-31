@@ -122,7 +122,7 @@ func (c *Client) NormalizeDescriptionsBatch(ctx context.Context, items []BatchIt
 				{"role": "user", "content": userContent},
 			},
 			"max_completion_tokens": c.maxCompletionTokens,
-			"temperature":            0,
+			"temperature":           0,
 		}
 		body, err := json.Marshal(reqBody)
 		if err != nil {

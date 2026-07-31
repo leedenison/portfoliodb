@@ -71,12 +71,12 @@ func TestIsWholeForwardSplit(t *testing.T) {
 		{"1", "2", true},
 		{"1", "10", true},
 		{"1", "4", true},
-		{"2", "1", false},  // reverse
-		{"2", "3", false},  // non-whole
-		{"1", "1", false},  // no change
-		{"0", "2", false},  // invalid
-		{"", "2", false},   // invalid
-		{"1", "", false},   // invalid
+		{"2", "1", false}, // reverse
+		{"2", "3", false}, // non-whole
+		{"1", "1", false}, // no change
+		{"0", "2", false}, // invalid
+		{"", "2", false},  // invalid
+		{"1", "", false},  // invalid
 	}
 	for _, tt := range tests {
 		t.Run(tt.from+":"+tt.to, func(t *testing.T) {
@@ -141,7 +141,7 @@ func TestAdjustOCCForKnownSplits_SplitAfterHintsValidAt(t *testing.T) {
 	hints := []identifier.Identifier{
 		{Type: "OCC", Value: "AAPL250117C00200000"}, // compact OCC, $200 strike
 	}
-	validAt := d(2025, 1, 1) // before split
+	validAt := d(2025, 1, 1)           // before split
 	timer := fixedTimer(d(2025, 7, 1)) // after split
 
 	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)
@@ -339,7 +339,7 @@ func TestAdjustOCC_OCCAtExpiry_PostExpirySplit(t *testing.T) {
 	hints := []identifier.Identifier{
 		{Type: "OCC", Value: "AAPL250117C00200000"}, // $200 strike
 	}
-	validAt := d(2024, 6, 1) // before split
+	validAt := d(2024, 6, 1)           // before split
 	timer := fixedTimer(d(2025, 7, 1)) // after split
 
 	adjusted := AdjustOCCForKnownSplits(ctx, mockDB, hints, &validAt, timer)

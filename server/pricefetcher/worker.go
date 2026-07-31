@@ -192,7 +192,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 				if inst.AssetClass != nil {
 					assetClass = *inst.AssetClass
 				}
-					callCtx, callCancel := context.WithTimeout(ctx, pluginutil.TimeoutFromConfig(pe.config, DefaultPricePluginTimeout))
+				callCtx, callCancel := context.WithTimeout(ctx, pluginutil.TimeoutFromConfig(pe.config, DefaultPricePluginTimeout))
 				result, err := pe.plugin.FetchPrices(callCtx, pe.config, pfIDs, assetClass, gap.From, gap.Before)
 				callCancel()
 				if err != nil {
@@ -245,7 +245,6 @@ func extractInstrumentIDs(gaps []db.InstrumentDateRanges) []string {
 	return out
 }
 
-
 func toPricefetcherIDs(ids []db.IdentifierInput) []Identifier {
 	out := make([]Identifier, len(ids))
 	for i, id := range ids {
@@ -280,4 +279,3 @@ func barsToEODPrices(instrumentID, provider string, bars []DailyBar, basis Share
 	}
 	return out
 }
-

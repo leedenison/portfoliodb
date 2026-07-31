@@ -29,11 +29,11 @@ const (
 
 // configJSON is the shape of the plugin's config from description_plugin_config.config.
 type configJSON struct {
-	OpenAIAPIKey         string `json:"openai_api_key"`
-	OpenAIModel          string `json:"openai_model"`
-	OpenAIBaseURL        string `json:"openai_base_url"` // for testing
-	BatchChunkSize       int    `json:"batch_chunk_size"`
-	MaxCompletionTokens  int    `json:"max_completion_tokens"`
+	OpenAIAPIKey        string `json:"openai_api_key"`
+	OpenAIModel         string `json:"openai_model"`
+	OpenAIBaseURL       string `json:"openai_base_url"` // for testing
+	BatchChunkSize      int    `json:"batch_chunk_size"`
+	MaxCompletionTokens int    `json:"max_completion_tokens"`
 }
 
 // Plugin implements description.Plugin using OpenAI to normalize broker descriptions to a specific identifier (ticker, ISIN, or CUSIP).
@@ -77,7 +77,7 @@ func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 		identifier.SecurityTypeHintStock:       true,
 		identifier.SecurityTypeHintFixedIncome: true,
 		identifier.SecurityTypeHintMutualFund:  true,
-		identifier.SecurityTypeHintOption:     true,
+		identifier.SecurityTypeHintOption:      true,
 	}
 }
 

@@ -4,9 +4,9 @@ import (
 	"context"
 	"regexp"
 
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/pluginutil"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

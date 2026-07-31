@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
-	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
+	"github.com/leedenison/portfoliodb/server/pricefetcher"
 )
 
 func barsServer(t *testing.T, bars []client.AggBar) *httptest.Server {
@@ -32,7 +32,7 @@ func configWithURL(url string) []byte {
 
 func TestFetchPrices_Stock(t *testing.T) {
 	bars := []client.AggBar{
-		{O: 100, H: 105, L: 99, C: 103, V: 1000, T: 1704067200000}, // 2024-01-01
+		{O: 100, H: 105, L: 99, C: 103, V: 1000, T: 1704067200000},  // 2024-01-01
 		{O: 103, H: 107, L: 102, C: 106, V: 1200, T: 1704153600000}, // 2024-01-02
 	}
 	srv := barsServer(t, bars)

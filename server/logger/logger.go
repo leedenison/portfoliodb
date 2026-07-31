@@ -48,9 +48,9 @@ func pathSegmentsMatchPrefix(categorySegs, prefixSegs []string) bool {
 
 // config holds either a global level (prefixMap nil) or prefix map + default level.
 type config struct {
-	globalLevel  *slog.Level
-	prefixMap     map[string]slog.Level // key is normalized path joined by "/"
-	defaultLevel  slog.Level
+	globalLevel    *slog.Level
+	prefixMap      map[string]slog.Level // key is normalized path joined by "/"
+	defaultLevel   slog.Level
 	prefixSegments map[string][]string // key -> normalized segments for longest-match
 }
 
@@ -296,4 +296,3 @@ func WithCategory(l *slog.Logger, category string) *slog.Logger {
 	}
 	return l.With(categoryKey, category)
 }
-

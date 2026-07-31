@@ -15,45 +15,45 @@ import (
 	"syscall"
 	"time"
 
+	"buf.build/go/protovalidate"
+	"github.com/jmoiron/sqlx"
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	authv1 "github.com/leedenison/portfoliodb/proto/auth/v1"
+	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
+	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/auth/allowlist"
 	"github.com/leedenison/portfoliodb/server/auth/google"
 	"github.com/leedenison/portfoliodb/server/auth/session"
 	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
-	"github.com/jmoiron/sqlx"
 	"github.com/leedenison/portfoliodb/server/db/migrate"
 	"github.com/leedenison/portfoliodb/server/db/postgres"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
+	"github.com/leedenison/portfoliodb/server/inflationfetcher"
 	"github.com/leedenison/portfoliodb/server/logger"
 	"github.com/leedenison/portfoliodb/server/migrations"
 	cashdesc "github.com/leedenison/portfoliodb/server/plugins/cash/description"
 	cashid "github.com/leedenison/portfoliodb/server/plugins/cash/identifier"
 	eodhdce "github.com/leedenison/portfoliodb/server/plugins/eodhd/corporateevents"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
-	openfigiexchmap "github.com/leedenison/portfoliodb/server/plugins/openfigi/exchangemap"
 	eodhdplugin "github.com/leedenison/portfoliodb/server/plugins/eodhd/identifier"
 	eodhdprice "github.com/leedenison/portfoliodb/server/plugins/eodhd/price"
 	massivece "github.com/leedenison/portfoliodb/server/plugins/massive/corporateevents"
 	massiveplugin "github.com/leedenison/portfoliodb/server/plugins/massive/identifier"
 	massiveprice "github.com/leedenison/portfoliodb/server/plugins/massive/price"
-	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
-	openaidesc "github.com/leedenison/portfoliodb/server/plugins/openai/description"
-	"github.com/leedenison/portfoliodb/server/inflationfetcher"
 	onsinflation "github.com/leedenison/portfoliodb/server/plugins/ons/inflation"
+	openaidesc "github.com/leedenison/portfoliodb/server/plugins/openai/description"
+	openfigiexchmap "github.com/leedenison/portfoliodb/server/plugins/openfigi/exchangemap"
+	openfigiplugin "github.com/leedenison/portfoliodb/server/plugins/openfigi/identifier"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/service/api"
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
 	"github.com/leedenison/portfoliodb/server/service/ingestion"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/worker"
-	"github.com/redis/go-redis/v9"
-	"buf.build/go/protovalidate"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
-	"github.com/leedenison/portfoliodb/server/auth"
 	_ "github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
@@ -180,7 +180,7 @@ func main() {
 		},
 		OptionalSessionMethods: []string{"/portfoliodb.auth.v1.AuthService/Logout"},
 		SessionStore:           sessionStore,
-		SessionCookieName:       cookieName,
+		SessionCookieName:      cookieName,
 		ExtendTTL:              extendTTL,
 	}
 
@@ -311,19 +311,19 @@ func main() {
 	)
 	authv1.RegisterAuthServiceServer(svc, authServer)
 	apiv1.RegisterApiServiceServer(svc, api.NewServer(api.ServerConfig{
-		DB:             database,
-		Redis:          rdb,
-		CounterPrefix:  counterPrefix,
-		PluginRegistry: pluginRegistry,
-		DescRegistry:   descRegistry,
+		DB:                     database,
+		Redis:                  rdb,
+		CounterPrefix:          counterPrefix,
+		PluginRegistry:         pluginRegistry,
+		DescRegistry:           descRegistry,
 		PriceRegistry:          priceRegistry,
 		PriceTrigger:           priceTrigger,
 		InflationRegistry:      inflationRegistry,
 		InflationTrigger:       inflationTrigger,
 		CorporateEventRegistry: corporateEventRegistry,
 		CorporateEventTrigger:  corporateEventTrigger,
-		WorkerRegistry:    workers,
-		EnqueueJob:     api.JobEnqueuer(enqueueJob),
+		WorkerRegistry:         workers,
+		EnqueueJob:             api.JobEnqueuer(enqueueJob),
 	}))
 	ingestionv1.RegisterIngestionServiceServer(svc, ingestion.NewServer(database, queue))
 	reflection.Register(svc)

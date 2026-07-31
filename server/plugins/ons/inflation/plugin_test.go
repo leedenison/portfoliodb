@@ -151,7 +151,7 @@ func TestPlugin_SupportedCurrencies(t *testing.T) {
 func TestParseMonthEntries(t *testing.T) {
 	entries := []MonthEntry{
 		{Date: "2024 JAN", Value: "130.5", Year: "2024", Month: "January"},
-		{Date: "bad", Value: "nope", Year: "bad", Month: "Invalid"},   // skip
+		{Date: "bad", Value: "nope", Year: "bad", Month: "Invalid"}, // skip
 		{Date: "2024 FEB", Value: "131.0", Year: "2024", Month: "February"},
 	}
 	months, values := ParseMonthEntries(entries)

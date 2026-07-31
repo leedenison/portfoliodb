@@ -88,7 +88,7 @@ func TestUnaryInterceptor(t *testing.T) {
 		{"XSessionId_Rejected", "", "", "/api/ListPortfolios", true, false, false},
 		{"SkipAuthPrefix_CallsHandlerWithoutUser", "", "", "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo", false, false, false},
 		{"NoSessionMethod_AuthUser", "", "", "/portfoliodb.auth.v1.AuthService/AuthUser", false, false, false},
-{"AuthMachine_NoSessionRequired", "", "", "/portfoliodb.auth.v1.AuthService/AuthMachine", false, false, false},
+		{"AuthMachine_NoSessionRequired", "", "", "/portfoliodb.auth.v1.AuthService/AuthMachine", false, false, false},
 		{"CookieWithMalformedPeer", "g_state={\"i_l\":0}; portfoliodb_session=valid-user-session", "", "/api/ListPortfolios", false, true, false},
 		{"MissingSession_ReturnsUnauthenticated", "other=value", "", "/api/ListPortfolios", true, false, false},
 		{"InvalidSession_ReturnsUnauthenticated", "portfoliodb_session=invalid-id", "", "/api/ListPortfolios", true, false, false},
@@ -191,8 +191,8 @@ type streamMock struct {
 }
 
 func (s *streamMock) Context() context.Context       { return s.ctx }
-func (s *streamMock) RecvMsg(m interface{}) error   { return nil }
-func (s *streamMock) SendMsg(m interface{}) error   { return nil }
-func (s *streamMock) SetHeader(m metadata.MD) error { return nil }
+func (s *streamMock) RecvMsg(m interface{}) error    { return nil }
+func (s *streamMock) SendMsg(m interface{}) error    { return nil }
+func (s *streamMock) SetHeader(m metadata.MD) error  { return nil }
 func (s *streamMock) SendHeader(m metadata.MD) error { return nil }
-func (s *streamMock) SetTrailer(m metadata.MD)      {}
+func (s *streamMock) SetTrailer(m metadata.MD)       {}

@@ -251,4 +251,3 @@ func (p *Plugin) tryOpenFIGIFromHints(ctx context.Context, identifierHints []ide
 	}
 	return nil, nil, nil
 }
-

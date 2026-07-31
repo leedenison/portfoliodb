@@ -3,8 +3,8 @@ package api
 import (
 	"testing"
 
-	"github.com/leedenison/portfoliodb/server/testutil"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/leedenison/portfoliodb/server/testutil"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"

@@ -17,9 +17,9 @@ func testLogger(buf *bytes.Buffer) *slog.Logger {
 
 func TestUnaryErrorInterceptor(t *testing.T) {
 	tests := []struct {
-		name      string
-		err       error
-		wantLog   bool
+		name       string
+		err        error
+		wantLog    bool
 		wantSubstr string
 	}{
 		{name: "nil error", err: nil, wantLog: false},

@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	authv1 "github.com/leedenison/portfoliodb/proto/auth/v1"
 	"github.com/leedenison/portfoliodb/server/auth/allowlist"
 	"github.com/leedenison/portfoliodb/server/auth/google"
 	"github.com/leedenison/portfoliodb/server/auth/session"
 	"github.com/leedenison/portfoliodb/server/db"
-	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -31,9 +31,15 @@ type stubServerTransportStream struct {
 	headers metadata.MD
 }
 
-func (s *stubServerTransportStream) Method() string                  { return "" }
-func (s *stubServerTransportStream) SetHeader(md metadata.MD) error  { s.headers = metadata.Join(s.headers, md); return nil }
-func (s *stubServerTransportStream) SendHeader(md metadata.MD) error { s.headers = metadata.Join(s.headers, md); return nil }
+func (s *stubServerTransportStream) Method() string { return "" }
+func (s *stubServerTransportStream) SetHeader(md metadata.MD) error {
+	s.headers = metadata.Join(s.headers, md)
+	return nil
+}
+func (s *stubServerTransportStream) SendHeader(md metadata.MD) error {
+	s.headers = metadata.Join(s.headers, md)
+	return nil
+}
 func (s *stubServerTransportStream) SetTrailer(md metadata.MD) error { return nil }
 
 func grpcContext() context.Context {

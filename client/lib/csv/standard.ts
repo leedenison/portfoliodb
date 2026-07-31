@@ -90,7 +90,8 @@ export function parseCSVLine(line: string): string[] {
 /**
  * Parse standard-format CSV text into Tx array and period.
  * Header names are case-insensitive. Required: date (or timestamp), instrument_description, type, quantity.
- * Optional: trading_currency, settlement_currency, unit_price, account, symbol_type, symbol, exchange_type, exchange.
+ * Optional: trading_currency, settlement_currency, unit_price, account, symbol_type, symbol, exchange_type,
+ * exchange, group_ref.
  */
 export function parseStandardCSV(csvText: string): StandardParseResult {
   const errors: ParseError[] = [];
@@ -138,6 +139,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
   const symbolCol = col("symbol");
   const exchangeTypeCol = col("exchange_type");
   const exchangeCol = col("exchange");
+  const groupRefCol = col("group_ref");
 
   if (dateCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: date or timestamp" });
   if (descCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: instrument_description" });
@@ -191,6 +193,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
     }
 
     const account = accountCol >= 0 ? get(accountCol) : "";
+    const groupRef = groupRefCol >= 0 ? get(groupRefCol) : "";
 
     // Parse exchange_type + exchange into a domain for the identifier hint.
     let domain: string | undefined;
@@ -237,6 +240,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
         type: txType,
         quantity,
         account,
+        ...(groupRef ? { groupRef } : {}),
         ...(tradingCurrency ? { tradingCurrency } : {}),
         ...(settlementCurrency ? { settlementCurrency } : {}),
         ...(unitPrice !== undefined && !Number.isNaN(unitPrice) ? { unitPrice } : {}),

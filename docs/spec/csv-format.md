@@ -24,6 +24,19 @@ Header names are case-insensitive. Supported column names:
 | `symbol`                 | No       | Identifier value (e.g. "AAPL", "US0378331005", "AAPL  240119C00185000"). Required when `symbol_type` is present. |
 | `exchange_type`          | No       | Exchange code system: `MIC` (ISO 10383) or `OPENFIGI` (Bloomberg exchange code). Required when `exchange` is present. |
 | `exchange`               | No       | Exchange code value (e.g. "XNAS" for MIC, "US" for OPENFIGI). Populates the domain field on the identifier hint. Required when `exchange_type` is present. |
+| `group_ref`              | No       | Opaque grouping key. Rows sharing a non-empty value are postings of one economic event. See [Transaction groups](#transaction-groups). |
+
+### Transaction groups
+
+Each row is a **posting**: a signed amount of one commodity in one account (see [postings.md](postings.md)). The postings of a single economic event -- a trade and the cash that paid for it -- are grouped by giving them the same `group_ref`. A row with no `group_ref` is its own single-posting group.
+
+`group_ref` is opaque and scoped to one upload. Any value works as long as it is distinct per event within the file; a broker's own order or reference number is the natural choice. It is not stored and carries no meaning across uploads, so re-uploading a period produces new groups.
+
+Grouping is the converter's job. The server persists what it is given: it does not infer a missing leg, pair rows, or fold a fee into a cash amount (see adr/0021-converters-own-transaction-grouping.md).
+
+**Fees are postings, not a column.** A commission, levy or duty is a row with `type=INVEXPENSE` and a negative `quantity` in the settlement currency. Put it in the trade's group when the broker charges it as part of the trade; leave it ungrouped when the broker reports it as a separate cash event on its own date. Where a broker nets commission into a single total and reports no separate charge, the converter derives the fee and emits the row itself.
+
+A group whose postings do not sum to zero is accepted, not rejected. The residual is made visible rather than silently absorbed.
 
 ### Transaction types (type column)
 

@@ -38,9 +38,22 @@ Every posting belongs to exactly one group. `txs.group_id` is nullable only so t
 raw fixtures can write a posting without one; no production write path leaves it
 unset.
 
-Groups currently hold a single posting each: what is stored is unchanged from before
-grouping existed, and no balance is enforced. Once ingestion emits multiple legs per
-group, the postings of a group are required to sum to zero.
+No balance is enforced yet. Once every converter groups its legs, the postings of a
+group are required to sum to zero.
+
+## Naming a group on upload
+
+An uploaded tx carries an optional `group_ref`: an opaque key, scoped to that
+upload, naming the event the posting belongs to. Txs sharing a non-empty `group_ref`
+are stored in one group; an empty one means the tx is its own single-posting group.
+The group takes the timestamp of the first leg that names it.
+
+`group_ref` is not stored and carries no meaning across uploads, so re-uploading a
+period produces new groups. This follows from transactions having no natural key
+(see adr/0002-transaction-ingestion-model.md): there is nothing stable to key a
+durable group identity on.
+
+Single-transaction uploads ignore `group_ref`. One tx has nothing to group with.
 
 ## Deletion
 

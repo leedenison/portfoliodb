@@ -311,6 +311,45 @@ describe("transaction grouping", () => {
     }
   });
 
+  it("rejects a cash row inconsistent with quantity times unit price", () => {
+    // Both cash rows satisfy the fee rule for both buys, and the wrong ones sit
+    // closer in reference order. Only quantity * unit price separates them: the
+    // 100-share buy at 300 cannot have cost 8,000.
+    const result = convert([
+      row("Cash Out For Buy", "Cash", "AP1", "-8000.00", "8000", "1", "2001"),
+      row("Buy", "VANGUARD S&P 500 (VUSA)", "AP1", "30007.50", "100", "300", "2002"),
+      row("Cash Out For Buy", "Cash", "AP1", "-30000.00", "30000", "1", "2003"),
+      row("Buy", "INVESCO EQQQ (EQQQ)", "AP1", "8007.50", "20", "400", "2004"),
+    ]);
+
+    expect(result.txs[1].groupRef).toBe("2002");
+    expect(result.txs[2].groupRef).toBe("2002");
+    expect(result.txs[3].groupRef).toBe("2004");
+    expect(result.txs[0].groupRef).toBe("2004");
+  });
+
+  it("tolerates the rounding in a quoted unit price", () => {
+    // 2676 * 7.67 is 20,524.92 while the broker settled 20,514.62 -- 0.05% out,
+    // because the export rounds the price. A tighter check would reject real trades.
+    const result = convert([
+      row("Sell", "ISHARES INRG (INRG)", "AG1", "-20514.62", "2676", "7.67", "3001"),
+      row("Cash In From Sell", "Cash", "AG1", "20514.62", "20514.62", "1", "3003"),
+    ]);
+
+    expect(result.txs[0].groupRef).toBe("3001");
+    expect(result.txs[1].groupRef).toBe("3001");
+  });
+
+  it("pairs on the totals alone when no unit price is quoted", () => {
+    const result = convert([
+      row("Sell", "WISE PLC (WISE)", "AG1", "-7266.49", "1242", "", "4001"),
+      row("Cash In From Sell", "Cash", "AG1", "7266.49", "7266.49", "1", "4002"),
+    ]);
+
+    expect(result.txs[0].groupRef).toBe("4001");
+    expect(result.txs[1].groupRef).toBe("4001");
+  });
+
   it("leaves a cash row with no trade ungrouped rather than failing", () => {
     const result = convert([
       row("Cash Out For Buy", "Cash", "AG1", "-401", "401", "1", "730493547"),

@@ -159,11 +159,14 @@ export function convertFidelityJson(
     if (ts < minTime) minTime = ts;
     if (ts > maxTime) maxTime = ts;
 
+    // units, not the sign-corrected quantity: cash rows report their money as units,
+    // which would make the check compare a total against itself.
     legs.push({
       type: typeStr,
       account: row.accountNumber ?? "",
       dateKey: row.settlementDate || row.dealDate || "",
       amount: row.valuation ?? 0,
+      consideration: Math.abs((row.units ?? 0) * (row.pricePerUnit ?? 0)),
       ref: parseInt(row.referenceId ?? "", 10),
     });
     txs.push(

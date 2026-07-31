@@ -158,3 +158,111 @@ describe("convertFidelityJson", () => {
     expect(convertFidelityJson('{"error":"nope"}').errors[0]!.message).toContain("array");
   });
 });
+
+describe("convertFidelityJson grouping", () => {
+  const trade = (fields: Record<string, unknown>) => ({
+    accountNumber: "ACC-1",
+    currency: "GBP",
+    status: "Completed",
+    dealDate: "08/02/2022",
+    settlementDate: "10/02/2022",
+    ...fields,
+  });
+
+  it("pairs a sell with the cash in of the same amount", () => {
+    const result = convertFidelityJson(
+      json(
+        trade({
+          transactionType: "Sell",
+          assetName: "WISE PLC (WISE)",
+          units: 1242,
+          valuation: 7266.49,
+          pricePerUnit: 5.85,
+          debitCreditIndicator: "DEBIT",
+          referenceId: "563466569",
+        }),
+        trade({
+          transactionType: "Cash In From Sell",
+          assetName: null,
+          units: 7266.49,
+          valuation: 7266.49,
+          debitCreditIndicator: "CREDIT",
+          referenceId: "563466571",
+        })
+      )
+    );
+
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs[0]!.groupRef).toBe("563466569");
+    expect(result.txs[1]!.groupRef).toBe("563466569");
+  });
+
+  it("pairs a buy with the cash out despite the fee gap", () => {
+    const result = convertFidelityJson(
+      json(
+        trade({
+          transactionType: "Cash Out For Buy",
+          assetName: null,
+          units: 7380.19,
+          valuation: 7380.19,
+          debitCreditIndicator: "DEBIT",
+          referenceId: "563466631",
+        }),
+        trade({
+          transactionType: "Buy",
+          assetName: "INVESCO EQQQ (EQQQ)",
+          units: 28,
+          valuation: 7390.19,
+          pricePerUnit: 263.58,
+          debitCreditIndicator: "CREDIT",
+          referenceId: "563466632",
+        })
+      )
+    );
+
+    expect(result.txs[0]!.groupRef).toBe("563466632");
+    expect(result.txs[1]!.groupRef).toBe("563466632");
+  });
+
+  it("leaves a separately reported charge ungrouped", () => {
+    const result = convertFidelityJson(
+      json(
+        trade({
+          transactionType: "Dealing Fee",
+          assetName: null,
+          units: 10,
+          valuation: 10,
+          debitCreditIndicator: "DEBIT",
+          referenceId: "563466600",
+        })
+      )
+    );
+
+    expect(result.txs[0]!.groupRef).toBe("");
+  });
+
+  it("leaves rows ungrouped when the payload carries no reference", () => {
+    const result = convertFidelityJson(
+      json(
+        trade({
+          transactionType: "Sell",
+          assetName: "WISE PLC (WISE)",
+          units: 1242,
+          valuation: 7266.49,
+          debitCreditIndicator: "DEBIT",
+        }),
+        trade({
+          transactionType: "Cash In From Sell",
+          assetName: null,
+          units: 7266.49,
+          valuation: 7266.49,
+          debitCreditIndicator: "CREDIT",
+        })
+      )
+    );
+
+    for (const tx of result.txs) {
+      expect(tx.groupRef).toBe("");
+    }
+  });
+});

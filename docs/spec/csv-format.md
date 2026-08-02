@@ -86,7 +86,7 @@ It declares the share count the file's quantities and unit prices are denominate
 
 A CSV of EOD prices imported via the `ImportPrices` API, and the format `ExportPrices` writes.
 
-The export omits synthetic forward-filled rows, so a file holds only the days its source actually reported. Its [coverage declarations](#coverage-declarations) are what let a re-import regenerate the days between, which is what makes the round trip reproduce the exported state.
+A file holds only the days its source actually reported. Its [coverage declarations](#coverage-declarations) say which ranges were answered for, which the rows cannot: a declared range holding no rows records that a provider was asked and had nothing. Dropping them loses that, and leaves valuation treating the days between reported bars as unpriced.
 
 ### Columns
 
@@ -135,7 +135,7 @@ OCC,NVDA250620P00110000,,2024-06-11,,,,13.42,,,OPTION,USD
 
 Stock splits are imported via the `ImportCorporateEvents` API as JSON, and `ExportCorporateEvents` writes the same shape. Cash dividends are part of the API but are not yet carried by this file format.
 
-Coverage is stored per (instrument, plugin), but an import records every span as `data_provider = "import"`, so the export merges spans across plugins rather than preserving a distinction that cannot survive the round trip.
+Coverage is stored per (instrument, plugin) for both prices and corporate events, but an import records every span against the `import` sentinel, so both exports merge spans across plugins rather than preserving a distinction that cannot survive the round trip.
 
 The canonical shape is an object with an `events` array and an optional `coverage` array. A bare array is accepted as events-only.
 
@@ -174,10 +174,12 @@ When the importer sees an unknown `(identifier_type, identifier_domain, identifi
 
 A coverage declaration records that the caller has authoritative coverage of a date interval. Both the price CSV and the corporate event JSON accept them, with the same semantics and the same fields; only the syntax differs.
 
-What the server does with one depends on the import:
+Both store the declaration, tagged as coming from an import so the background fetcher does not re-query the same interval from a plugin and cannot overwrite hand-curated data with provider data.
 
-- **Prices** -- non-trading days within the interval are filled with synthetic last-observation-carried-forward rows, so a file can carry only the days its source actually moved on. Without a declaration, rows are stored exactly as supplied and any gap stays a gap: valuation matches prices by exact date and has no read-time carry-forward.
-- **Corporate events** -- a `corporate_event_coverage` row is stored tagged `data_provider = "import"`, so the background fetcher does not re-query the same interval from a plugin and cannot overwrite hand-curated events with provider data.
+- **Prices** -- a `price_coverage` row. Valuation carries the last close forward across the non-trading days inside the interval, so a file can carry only the days its source actually moved on. Without a declaration each row covers only its own date, so any gap between rows stays a gap.
+- **Corporate events** -- a `corporate_event_coverage` row.
+
+In both cases a declared interval containing nothing is meaningful, and is the only way a file can say the caller asked about those dates and there was nothing to report. See adr/0023-price-coverage-is-stored-not-inferred.md.
 
 ### Fields
 
@@ -200,7 +202,9 @@ A declaration carrying no identifier at all is **global**: it applies to every i
 - Several specific declarations for one instrument are all applied, so an instrument can carry more than one interval.
 - A partly-written identifier -- a type with no value, or a domain alone -- is an error rather than a global declaration.
 
-Most files need one global and a handful of exceptions: instruments that started or stopped trading partway through the period the file covers.
+Most files need one global and a handful of exceptions: instruments that started or stopped trading partway through the period the file covers. That is what the export writes -- the span most instruments share as the global, then the exceptions.
+
+Two cases the export always writes out in full, both following from the override rule above. An instrument carrying more than one span writes all of them, since a specific declaration replaces the global rather than adding to it. An instrument that is covered but has no rows in the file also writes its own, since the global is expanded against the instruments the file names and would never reach it.
 
 ### Syntax
 

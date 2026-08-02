@@ -41,6 +41,7 @@ clock every read API means by "as of".
 | `holding_declarations` | `as_of_date` | The date the user's declaration refers to. |
 | `instruments` | `valid_from`, `valid_before`, `expiry` | When the instrument was tradeable. Descriptive only for `valid_from` / `valid_before` -- see [Instrument identity](#instrument-identity) below. |
 | `instruments` | `identity_as_of` | The point in market time the stored identity reflects -- see [Instrument identity](#instrument-identity) below. |
+| `price_coverage` | `covered_from`, `covered_before` | The valid-time interval a plugin was asked about for prices. |
 | `corporate_event_coverage` | `covered_from`, `covered_before` | The valid-time interval a plugin was asked about. |
 | `inflation_indices` | `month` | The month the index value describes. |
 | `ingestion_jobs` | `period_from`, `period_before` | The valid-time window a bulk upload replaces. |
@@ -107,6 +108,7 @@ a revision occurred, which follows from rule 8 below
 | `stock_splits` | `first_known_at` | First known. Preserved across corporate-event export and import; not read by option adjustment, which keys off `ex_date` (see adr/0017-option-identity-reflects-ex-date.md). |
 | `cash_dividends` | `first_known_at` | First known. |
 | `eod_prices` | `last_fetched_at` | Staleness only. It carries no semantics about the price itself -- that is what `share_count_basis` is for. |
+| `price_coverage` | `last_fetched_at` | When the span was last confirmed. Merged the same way as `corporate_event_coverage` below. |
 | `corporate_event_coverage` | `last_fetched_at` | When the span was last confirmed. Merging spans keeps the oldest constituent's, since a union is only as freshly confirmed as its stalest part. |
 | `inflation_indices` | `last_fetched_at` | Staleness only. |
 | `price_fetch_blocks` | `first_blocked_at` | First known. |

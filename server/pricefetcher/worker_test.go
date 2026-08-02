@@ -149,6 +149,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{fxInstID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{fxInstID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{fxInstID}).Return([]*db.InstrumentRow{
 		{
 			ID:         fxInstID,
@@ -194,6 +195,10 @@ type fetchStub struct {
 	err     error
 }
 
+func d(year int, month time.Month, day int) time.Time {
+	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+}
+
 func (s *fetchStub) SupportedIdentifierTypes() []string { return s.idTypes }
 func (s *fetchStub) FetchPrices(_ context.Context, _ []byte, _ []Identifier, _ string, _, _ time.Time) (*FetchResult, error) {
 	s.calls++
@@ -228,6 +233,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 	// Return blocked for this (instrument, plugin) pair.
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(
 		map[string]map[string]bool{instID: {pluginID: true}}, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
 			ID:         instID,
@@ -271,6 +277,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
 	}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
 			ID:         instID,
@@ -320,6 +327,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
 	}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
 			ID:         instID,
@@ -329,7 +337,11 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 			},
 		},
 	}, nil)
-	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, gomock.Any(), gomock.Any(), to, gomock.Any()).Return(nil)
+	cutoff := now.AddDate(0, 0, -maxDays)
+	// The head the plugin cannot reach is settled as covered by it, so the same
+	// unreachable range is not rediscovered as a gap on the next cycle.
+	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, nil, from, cutoff, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, gomock.Any(), cutoff, to, gomock.Any()).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
@@ -367,6 +379,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 		{PluginID: pluginID, Precedence: 10, Config: []byte("{}"), MaxHistoryDays: &maxDays},
 	}, nil)
 	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(nil, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{
 			ID:         instID,
@@ -376,11 +389,130 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 			},
 		},
 	}, nil)
+	// Wholly out of reach for this plugin, so it is recorded as covered by it
+	// rather than being asked about again every cycle.
+	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, nil, from, to, gomock.Any()).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
 	if stub.calls != 0 {
 		t.Errorf("expected 0 FetchPrices calls for gap older than max history, got %d", stub.calls)
+	}
+}
+
+// ErrNoData is an answer, not a failure to answer. Recording it as coverage is
+// what stops a pre-IPO, delisted or untraded range being asked about forever.
+func TestRunCycle_NoDataRecordsCoverage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	instID := "inst-1"
+	pluginID := "test-plugin"
+	from, to := d(2024, 1, 1), d(2024, 1, 11)
+
+	stub := &fetchStub{idTypes: []string{"MIC_TICKER"}, err: ErrNoData}
+	reg := NewRegistry()
+	reg.Register(pluginID, stub)
+
+	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
+		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
+	}, nil)
+	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
+		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
+	}, nil)
+	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
+		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}}},
+	}, nil)
+	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, nil, from, to, gomock.Any()).Return(nil)
+
+	runCycle(ctx, mockDB, reg, nil, nil, nil)
+
+	if stub.calls != 1 {
+		t.Errorf("expected 1 FetchPrices call, got %d", stub.calls)
+	}
+}
+
+// A range this plugin has already answered for is not put to it again, which is
+// what makes the previous test's recording worth anything.
+func TestRunCycle_CoveredRangeNotRefetched(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	instID := "inst-1"
+	pluginID := "test-plugin"
+	from, to := d(2024, 1, 1), d(2024, 1, 11)
+
+	stub := &fetchStub{idTypes: []string{"MIC_TICKER"}, err: ErrNoData}
+	reg := NewRegistry()
+	reg.Register(pluginID, stub)
+
+	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
+		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
+	}, nil)
+	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
+		{PluginID: pluginID, Precedence: 10, Config: []byte("{}")},
+	}, nil)
+	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(
+		map[string]map[string][]db.DateRange{instID: {pluginID: {{From: from, Before: to}}}}, nil)
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
+		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}}},
+	}, nil)
+
+	runCycle(ctx, mockDB, reg, nil, nil, nil)
+
+	if stub.calls != 0 {
+		t.Errorf("expected no FetchPrices call for an already covered range, got %d", stub.calls)
+	}
+}
+
+// Coverage is per plugin, so what one plugin has settled does not silence
+// another -- including a plugin configured after the first gave up.
+func TestRunCycle_OtherPluginStillAskedAfterCoverage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	instID := "inst-1"
+	coveredID, freshID := "covered-plugin", "fresh-plugin"
+	from, to := d(2024, 1, 1), d(2024, 1, 11)
+
+	covered := &fetchStub{idTypes: []string{"MIC_TICKER"}, err: ErrNoData}
+	fresh := &fetchStub{idTypes: []string{"MIC_TICKER"},
+		result: &FetchResult{Bars: []DailyBar{{Date: d(2024, 1, 3), Close: 100}}}}
+	reg := NewRegistry()
+	reg.Register(coveredID, covered)
+	reg.Register(freshID, fresh)
+
+	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().PriceGaps(gomock.Any(), gomock.Any()).Return([]db.InstrumentDateRanges{
+		{InstrumentID: instID, Ranges: []db.DateRange{{From: from, Before: to}}},
+	}, nil)
+	mockDB.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryPrice).Return([]db.PluginConfigRow{
+		{PluginID: coveredID, Precedence: 20, Config: []byte("{}")},
+		{PluginID: freshID, Precedence: 10, Config: []byte("{}")},
+	}, nil)
+	mockDB.EXPECT().BlockedPluginsForInstruments(gomock.Any(), []string{instID}).Return(nil, nil)
+	mockDB.EXPECT().PriceCoverageByPlugin(gomock.Any(), []string{instID}).Return(
+		map[string]map[string][]db.DateRange{instID: {coveredID: {{From: from, Before: to}}}}, nil)
+	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
+		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}}},
+	}, nil)
+	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, freshID, gomock.Any(), from, to, gomock.Any()).Return(nil)
+
+	runCycle(ctx, mockDB, reg, nil, nil, nil)
+
+	if covered.calls != 0 {
+		t.Errorf("covered plugin should not be asked again, got %d calls", covered.calls)
+	}
+	if fresh.calls != 1 {
+		t.Errorf("expected the uncovered plugin to be asked once, got %d", fresh.calls)
 	}
 }
 

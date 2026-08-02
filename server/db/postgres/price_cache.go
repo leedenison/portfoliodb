@@ -97,28 +97,40 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 	return result, nil
 }
 
-// PriceCoverage implements db.PriceCacheDB.
-func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([]db.InstrumentDateRanges, error) {
+// coverageFilter turns instrument IDs into a query argument, or nil for all.
+func coverageFilter(instrumentIDs []string) (interface{}, error) {
 	var uuids []uuid.UUID
 	for _, id := range instrumentIDs {
 		u, err := uuid.Parse(id)
 		if err != nil {
-			return nil, fmt.Errorf("price coverage: invalid instrument id %q: %w", id, err)
+			return nil, fmt.Errorf("invalid instrument id %q: %w", id, err)
 		}
 		uuids = append(uuids, u)
 	}
+	if len(uuids) == 0 {
+		return nil, nil
+	}
+	return pq.Array(uuids), nil
+}
 
-	var filter interface{}
-	if len(uuids) > 0 {
-		filter = pq.Array(uuids)
+// PriceCoverage implements db.PriceCacheDB.
+//
+// Coverage is read from price_coverage, not inferred from which dates happen to
+// have rows: a span a provider answered with no bars at all is coverage, and
+// row presence cannot say so. Spans are merged across plugins, since for "has
+// anyone answered for this range" it does not matter who did.
+func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([]db.InstrumentDateRanges, error) {
+	filter, err := coverageFilter(instrumentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("price coverage: %w", err)
 	}
 
 	rows, err := p.q.QueryContext(ctx, `
 		SELECT instrument_id, lower(r) AS range_from, upper(r) AS range_before
 		FROM (
 			SELECT instrument_id,
-				unnest(range_agg(daterange(price_date, price_date + 1))) AS r
-			FROM eod_prices
+				unnest(range_agg(daterange(covered_from, covered_before))) AS r
+			FROM price_coverage
 			WHERE ($1::uuid[] IS NULL OR instrument_id = ANY($1))
 			GROUP BY instrument_id
 		) sub
@@ -152,10 +164,49 @@ func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([
 
 	result := make([]db.InstrumentDateRanges, len(order))
 	for i, id := range order {
-		entry := *byInst[id]
-		// No bridging needed: the price fetcher worker writes synthetic
-		// (LOCF) rows for non-trading days, so coverage is contiguous.
-		result[i] = entry
+		result[i] = *byInst[id]
+	}
+	return result, nil
+}
+
+// PriceCoverageByPlugin implements db.PriceCacheDB.
+//
+// Keeping the plugin distinction is what lets a range one plugin declined still
+// be offered to another, and lets a newly configured plugin be asked about
+// history the existing ones could not reach.
+func (p *Postgres) PriceCoverageByPlugin(ctx context.Context, instrumentIDs []string) (map[string]map[string][]db.DateRange, error) {
+	filter, err := coverageFilter(instrumentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("price coverage by plugin: %w", err)
+	}
+
+	rows, err := p.q.QueryContext(ctx, `
+		SELECT instrument_id, plugin_id, covered_from, covered_before
+		FROM price_coverage
+		WHERE ($1::uuid[] IS NULL OR instrument_id = ANY($1))
+		ORDER BY instrument_id, plugin_id, covered_from
+	`, filter)
+	if err != nil {
+		return nil, fmt.Errorf("price coverage by plugin query: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]map[string][]db.DateRange)
+	for rows.Next() {
+		var instID uuid.UUID
+		var pluginID string
+		var from, before time.Time
+		if err := rows.Scan(&instID, &pluginID, &from, &before); err != nil {
+			return nil, fmt.Errorf("price coverage by plugin scan: %w", err)
+		}
+		id := instID.String()
+		if result[id] == nil {
+			result[id] = make(map[string][]db.DateRange)
+		}
+		result[id][pluginID] = append(result[id][pluginID], db.DateRange{From: from, Before: before})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("price coverage by plugin rows: %w", err)
 	}
 	return result, nil
 }

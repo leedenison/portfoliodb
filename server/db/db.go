@@ -109,10 +109,16 @@ type PriceCacheDB interface {
 	// HeldRanges computes system-wide date ranges during which any user held
 	// a non-zero position in each identified instrument.
 	HeldRanges(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
-	// PriceCoverage returns contiguous date ranges for which eod_prices has data.
+	// PriceCoverage returns the date ranges some plugin has answered for, merged
+	// across plugins. A range covered with no bars counts: it records that a
+	// provider was asked and had nothing, which row presence cannot express.
 	// If instrumentIDs is non-empty, only those instruments are returned.
 	PriceCoverage(ctx context.Context, instrumentIDs []string) ([]InstrumentDateRanges, error)
-	// PriceGaps computes needed ranges minus cached ranges per instrument.
+	// PriceCoverageByPlugin returns the same spans keyed instrument -> plugin ->
+	// ranges, for deciding what to ask each plugin rather than whether anyone has
+	// answered at all.
+	PriceCoverageByPlugin(ctx context.Context, instrumentIDs []string) (map[string]map[string][]DateRange, error)
+	// PriceGaps computes needed ranges minus covered ranges per instrument.
 	PriceGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
 	// FXGaps computes date ranges where FX rates are needed (non-USD instruments
 	// are held) but not yet cached. Returns gaps keyed by FX pair instrument ID.

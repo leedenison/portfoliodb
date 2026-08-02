@@ -135,11 +135,21 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		instByID[r.ID] = r
 	}
 
-	processGaps(ctx, database, plugins, allGaps, instByID, blocked, log)
+	// Per-plugin coverage, so a range one plugin has already answered for is not
+	// put to it again -- including ranges it answered with nothing.
+	coverage, err := database.PriceCoverageByPlugin(ctx, instIDs)
+	if err != nil {
+		if log != nil {
+			log.ErrorContext(ctx, "price fetch: load coverage", "err", err)
+		}
+		return
+	}
+
+	processGaps(ctx, database, plugins, allGaps, instByID, blocked, coverage, log)
 }
 
 // processGaps iterates instrument gaps and fetches prices from matching plugins.
-func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gaps []db.InstrumentDateRanges, instByID map[string]*db.InstrumentRow, blocked map[string]map[string]bool, log *slog.Logger) {
+func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gaps []db.InstrumentDateRanges, instByID map[string]*db.InstrumentRow, blocked map[string]map[string]bool, coverage map[string]map[string][]db.DateRange, log *slog.Logger) {
 	// One fetch time for the whole cycle, so every row a back-adjusting plugin
 	// returns shares the same share count basis.
 	now := time.Now()
@@ -175,16 +185,34 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 				continue
 			}
 
+			// Ranges this plugin has already answered for are not put to it
+			// again, whether it returned a series or nothing at all.
+			outstanding := db.SubtractRanges(ig.Ranges, coverage[ig.InstrumentID][pe.id])
+			if len(outstanding) == 0 {
+				// Nothing left to ask this one. It has not handled the
+				// instrument, so the next plugin still gets its turn.
+				continue
+			}
+
 			pfIDs := toPricefetcherIDs(ids)
 			allOK := true
-			for _, gap := range ig.Ranges {
+			for _, gap := range outstanding {
 				gap := gap // copy for truncation
 				if pe.maxHistDays != nil && *pe.maxHistDays > 0 {
 					cutoff := time.Now().UTC().Truncate(db.Day).AddDate(0, 0, -*pe.maxHistDays)
 					if !gap.Before.After(cutoff) {
-						continue // entire gap older than history limit
+						// The plugin cannot reach this far back and never will,
+						// so record it as covered by this plugin rather than
+						// rediscovering the same gap every cycle. Other plugins
+						// keep their own coverage and are still offered it.
+						coverRange(ctx, database, ig.InstrumentID, pe.id, gap, "history limit", log)
+						continue
 					}
 					if gap.From.Before(cutoff) {
+						// The unreachable head is settled for this plugin even
+						// though the tail is about to be fetched.
+						coverRange(ctx, database, ig.InstrumentID, pe.id,
+							db.DateRange{From: gap.From, Before: cutoff}, "history limit", log)
 						gap.From = cutoff
 					}
 				}
@@ -207,6 +235,11 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 						break // skip remaining ranges, try next plugin
 					}
 					if err == ErrNoData {
+						// "Nothing here" is an answer, not a failure to answer:
+						// record it so a pre-IPO, delisted or untraded range is
+						// settled for this plugin instead of being asked about
+						// on every cycle forever.
+						coverRange(ctx, database, ig.InstrumentID, pe.id, gap, "no data", log)
 						continue
 					}
 					if log != nil {
@@ -233,6 +266,19 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 			// On error, try next plugin for this instrument.
 		}
 		_ = fetchedByPlugin
+	}
+}
+
+// coverRange records that a plugin has settled a range without supplying bars.
+// A failure to record is logged rather than propagated: the fetch itself
+// succeeded, and the only cost is asking again next cycle.
+func coverRange(ctx context.Context, database db.DB, instrumentID, pluginID string, r db.DateRange, reason string, log *slog.Logger) {
+	if !r.Before.After(r.From) {
+		return
+	}
+	if err := database.UpsertPricesWithFill(ctx, instrumentID, pluginID, nil, r.From, r.Before, nil); err != nil && log != nil {
+		log.WarnContext(ctx, "price fetch: record empty coverage",
+			"plugin", pluginID, "instrument", instrumentID, "reason", reason, "err", err)
 	}
 }
 

@@ -58,7 +58,9 @@ func insertTxs(t *testing.T, p *Postgres, userID, instID string, txs []*apiv1.Tx
 	}
 }
 
-// insertPrice inserts a single eod_prices row.
+// insertPrice inserts a single eod_prices row and the coverage that goes with
+// it. Fixtures record both so they cannot construct a state the write path
+// never produces: a bar outside any covered span.
 func insertPrice(t *testing.T, p *Postgres, instID string, priceDate time.Time, close float64) {
 	t.Helper()
 	ctx := context.Background()
@@ -68,6 +70,18 @@ func insertPrice(t *testing.T, p *Postgres, instID string, priceDate time.Time, 
 	`, instID, priceDate, close)
 	if err != nil {
 		t.Fatalf("insert price: %v", err)
+	}
+	insertCoverage(t, p, instID, priceDate, priceDate.Add(db.Day))
+}
+
+// insertCoverage records a covered span without any bars in it.
+func insertCoverage(t *testing.T, p *Postgres, instID string, from, before time.Time) {
+	t.Helper()
+	err := p.runInTx(context.Background(), func(exec queryable) error {
+		return upsertCoverageSpan(context.Background(), exec, priceCoverageTable, instID, "test", from, before, nil)
+	})
+	if err != nil {
+		t.Fatalf("insert coverage: %v", err)
 	}
 }
 
@@ -502,6 +516,64 @@ func TestPriceGaps_PartialCoverage(t *testing.T) {
 	})
 }
 
+// A range a provider answered with nothing is not a gap. This is the case the
+// old row-presence inference could not express, and the reason the fetcher used
+// to re-ask about delisted and pre-IPO ranges on every cycle.
+func TestPriceGaps_EmptyCoverageIsNotAGap(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+	instID := setupInstrument(t, p, "GAPEMPTY")
+
+	insertTxs(t, p, userID, instID, []*apiv1.Tx{
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPEMPTY", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPEMPTY", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+	})
+
+	// The whole held period was asked about and came back with no bars at all.
+	insertCoverage(t, p, instID, d(2024, 1, 1), d(2024, 1, 10))
+
+	got, err := p.PriceGaps(ctx, db.HeldRangesOpts{})
+	if err != nil {
+		t.Fatalf("price gaps: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected no gaps for a fully covered period, got %+v", got)
+	}
+}
+
+// Coverage is kept per plugin so that what one plugin settled does not hide the
+// range from another that has never been asked.
+func TestPriceCoverageByPlugin_SeparatesPlugins(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "PERPLUGIN")
+
+	if err := p.UpsertPricesWithFill(ctx, instID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
+		t.Fatalf("upsert massive: %v", err)
+	}
+	if err := p.UpsertPricesWithFill(ctx, instID, "eodhd", nil, d(2024, 2, 1), d(2024, 2, 11), nil); err != nil {
+		t.Fatalf("upsert eodhd: %v", err)
+	}
+
+	got, err := p.PriceCoverageByPlugin(ctx, []string{instID})
+	if err != nil {
+		t.Fatalf("coverage by plugin: %v", err)
+	}
+	assertRanges(t, got[instID]["massive"], []db.DateRange{{From: d(2024, 1, 1), Before: d(2024, 1, 11)}})
+	assertRanges(t, got[instID]["eodhd"], []db.DateRange{{From: d(2024, 2, 1), Before: d(2024, 2, 11)}})
+
+	// Merged across plugins, both spans show up for the instrument.
+	merged, err := p.PriceCoverage(ctx, []string{instID})
+	if err != nil {
+		t.Fatalf("coverage: %v", err)
+	}
+	assertInstrumentRanges(t, merged, instID, []db.DateRange{
+		{From: d(2024, 1, 1), Before: d(2024, 1, 11)},
+		{From: d(2024, 2, 1), Before: d(2024, 2, 11)},
+	})
+}
+
 func TestPriceGaps_Empty(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -802,18 +874,31 @@ func TestUpsertPricesWithFill_NoSeedNoBars(t *testing.T) {
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "FILL3")
 
-	// No seed, no bars — nothing should be inserted.
+	// No seed, no bars: nothing to insert, but the range was still asked about
+	// and answered, so it is covered. That is the distinction row presence
+	// cannot draw and the reason coverage is stored separately.
 	err := p.UpsertPricesWithFill(ctx, instID, "test", nil, d(2024, 1, 1), d(2024, 1, 4), nil)
 	if err != nil {
 		t.Fatalf("upsert with fill: %v", err)
 	}
+
+	var rowCount int
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*) FROM eod_prices WHERE instrument_id = $1::uuid
+	`, instID).Scan(&rowCount); err != nil {
+		t.Fatalf("count rows: %v", err)
+	}
+	if rowCount != 0 {
+		t.Errorf("expected no price rows, got %d", rowCount)
+	}
+
 	cov, err := p.PriceCoverage(ctx, []string{instID})
 	if err != nil {
 		t.Fatalf("coverage: %v", err)
 	}
-	if len(cov) != 0 {
-		t.Errorf("expected no coverage, got %d instruments", len(cov))
-	}
+	assertInstrumentRanges(t, cov, instID, []db.DateRange{
+		{From: d(2024, 1, 1), Before: d(2024, 1, 4)},
+	})
 }
 
 func TestUpsertPricesWithFill_NoSeedAtStart(t *testing.T) {

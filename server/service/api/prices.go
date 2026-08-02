@@ -45,7 +45,6 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 			DataProvider:          r.DataProvider,
 			LastFetchedAt:         timestamppb.New(r.LastFetchedAt),
 			ShareCountBasis:       r.ShareCountBasis.Format("2006-01-02"),
-			Synthetic:             r.Synthetic,
 		}
 		if r.Open != nil {
 			p.Open = r.Open
@@ -73,9 +72,9 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 }
 
 // ExportPrices streams all cached EOD prices with the best identifier per
-// instrument. Coverage spans come first, then the rows: only real bars are
-// exported, so the spans are what let an import regenerate the synthetic days
-// between them. Admin only.
+// instrument. Coverage spans come first, then the rows. The spans are not
+// derivable from the rows: one covering dates with no rows records that a
+// provider was asked and had nothing. Admin only.
 func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiService_ExportPricesServer) error {
 	ctx := stream.Context()
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {

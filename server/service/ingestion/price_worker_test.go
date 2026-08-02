@@ -164,9 +164,9 @@ func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", "", "XNAS", "", nil)
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-cov").Return(nil)
-	// Expect UpsertPricesWithFill (not UpsertPrices) because coverage was provided.
+	// Expect UpsertPricesForRange (not UpsertPrices) because coverage was provided.
 	database.EXPECT().
-		UpsertPricesWithFill(gomock.Any(), "inst-aapl", "import", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		UpsertPricesForRange(gomock.Any(), "inst-aapl", "import", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-price-cov", apiv1.JobStatus_SUCCESS).

@@ -19,6 +19,7 @@ func insertPriceWithProvider(t *testing.T, p *Postgres, instID string, priceDate
 	if err != nil {
 		t.Fatalf("insert price: %v", err)
 	}
+	insertCoverage(t, p, instID, priceDate, priceDate.Add(db.Day))
 }
 
 // insertPriceFull inserts a price row with all OHLCV fields.
@@ -32,6 +33,7 @@ func insertPriceFull(t *testing.T, p *Postgres, instID string, priceDate time.Ti
 	if err != nil {
 		t.Fatalf("insert price: %v", err)
 	}
+	insertCoverage(t, p, instID, priceDate, priceDate.Add(db.Day))
 }
 
 func TestListPrices_Empty(t *testing.T) {
@@ -345,18 +347,18 @@ func setupTickerInstrument(t *testing.T, p *Postgres, ticker string) string {
 	return id
 }
 
-// The export omits synthetic rows, so the coverage span is the only thing that
-// tells an import which days to regenerate. It must therefore span them.
-func TestListPriceCoverageForExport_SpansSyntheticRows(t *testing.T) {
+// The exported span is the declared range, not the dates that happen to have
+// rows: the days between the bars are covered and must travel with the file.
+func TestListPriceCoverageForExport_SpansDeclaredRange(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
 	instID := setupTickerInstrument(t, p, "AAPL")
-	if err := p.UpsertPricesWithFill(ctx, instID, "test", []db.EODPrice{
+	if err := p.UpsertPricesForRange(ctx, instID, "test", []db.EODPrice{
 		{InstrumentID: instID, PriceDate: d(2024, 1, 15), Close: 100},
 		{InstrumentID: instID, PriceDate: d(2024, 1, 18), Close: 110},
 	}, d(2024, 1, 15), d(2024, 1, 19), nil); err != nil {
-		t.Fatalf("upsert prices with fill: %v", err)
+		t.Fatalf("upsert prices for range: %v", err)
 	}
 
 	rows, err := p.ListPricesForExport(ctx)

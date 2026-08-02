@@ -251,7 +251,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 				}
 
 				prices := barsToEODPrices(ig.InstrumentID, pe.id, result.Bars, result.ShareCountBasis, now)
-				if err := database.UpsertPricesWithFill(ctx, ig.InstrumentID, pe.id, prices, gap.From, gap.Before, nil); err != nil {
+				if err := database.UpsertPricesForRange(ctx, ig.InstrumentID, pe.id, prices, gap.From, gap.Before, nil); err != nil {
 					if log != nil {
 						log.ErrorContext(ctx, "price fetch: upsert", "instrument", ig.InstrumentID, "err", err)
 					}
@@ -276,7 +276,7 @@ func coverRange(ctx context.Context, database db.DB, instrumentID, pluginID stri
 	if !r.Before.After(r.From) {
 		return
 	}
-	if err := database.UpsertPricesWithFill(ctx, instrumentID, pluginID, nil, r.From, r.Before, nil); err != nil && log != nil {
+	if err := database.UpsertPricesForRange(ctx, instrumentID, pluginID, nil, r.From, r.Before, nil); err != nil && log != nil {
 		log.WarnContext(ctx, "price fetch: record empty coverage",
 			"plugin", pluginID, "instrument", instrumentID, "reason", reason, "err", err)
 	}

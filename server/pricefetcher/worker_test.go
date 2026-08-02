@@ -160,7 +160,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 			},
 		},
 	}, nil)
-	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), fxInstID, pluginID, gomock.Any(), from, to, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), fxInstID, pluginID, gomock.Any(), from, to, gomock.Any()).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
@@ -340,8 +340,8 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	cutoff := now.AddDate(0, 0, -maxDays)
 	// The head the plugin cannot reach is settled as covered by it, so the same
 	// unreachable range is not rediscovered as a gap on the next cycle.
-	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, nil, from, cutoff, gomock.Any()).Return(nil)
-	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, gomock.Any(), cutoff, to, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, nil, from, cutoff, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, gomock.Any(), cutoff, to, gomock.Any()).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
@@ -391,7 +391,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 	}, nil)
 	// Wholly out of reach for this plugin, so it is recorded as covered by it
 	// rather than being asked about again every cycle.
-	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, nil, from, to, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, nil, from, to, gomock.Any()).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
@@ -427,7 +427,7 @@ func TestRunCycle_NoDataRecordsCoverage(t *testing.T) {
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}}},
 	}, nil)
-	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, pluginID, nil, from, to, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, nil, from, to, gomock.Any()).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 
@@ -504,7 +504,7 @@ func TestRunCycle_OtherPluginStillAskedAfterCoverage(t *testing.T) {
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{instID}).Return([]*db.InstrumentRow{
 		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}}},
 	}, nil)
-	mockDB.EXPECT().UpsertPricesWithFill(gomock.Any(), instID, freshID, gomock.Any(), from, to, gomock.Any()).Return(nil)
+	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, freshID, gomock.Any(), from, to, gomock.Any()).Return(nil)
 
 	runCycle(ctx, mockDB, reg, nil, nil, nil)
 

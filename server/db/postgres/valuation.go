@@ -91,17 +91,6 @@ daily_holdings AS (
     FROM date_series ds
     CROSS JOIN inst_list i
 ),
-prices AS (
-    -- Adjusted quantity above pairs with adjusted close here: both are
-    -- denominated in today's share count. Mixing one of each would scale the
-    -- value by the split factor either side of an ex-date. See
-    -- docs/spec/bitemporality.md.
-    SELECT instrument_id, price_date AS val_date, split_adjusted_close AS close
-    FROM eod_prices
-    WHERE instrument_id = ANY(SELECT DISTINCT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL)
-      AND price_date >= $2::date
-      AND price_date < $3::date
-),
 -- Map held instruments to their FX pair instrument IDs (for currencies != display).
 fx_instruments AS (
     SELECT DISTINCT
@@ -115,27 +104,106 @@ fx_instruments AS (
       AND inst.currency IS NOT NULL
       AND inst.currency != 'USD'
 ),
+-- The display currency's own pair (DISPLAY/USD), only when display != USD.
+display_fx_instrument AS (
+    SELECT ii.instrument_id
+    FROM instrument_identifiers ii
+    WHERE ii.identifier_type = 'FX_PAIR'
+      AND ii.value = $4 || 'USD'
+      AND $4 != 'USD'
+),
+-- Every instrument this query needs a price series for.
+price_instruments AS (
+    SELECT DISTINCT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL
+    UNION
+    SELECT fx_instrument_id FROM fx_instruments
+    UNION
+    SELECT instrument_id FROM display_fx_instrument
+),
+-- Only real bars are stored, so the days a market was shut have no row. The
+-- next four CTEs carry the last close forward over them.
+--
+-- Spans merged across plugins: for "should this day have a price" it does not
+-- matter which provider answered.
+coverage_spans AS (
+    SELECT instrument_id,
+        unnest(range_agg(daterange(covered_from, covered_before))) AS span
+    FROM price_coverage
+    WHERE instrument_id IN (SELECT instrument_id FROM price_instruments)
+    GROUP BY instrument_id
+),
+-- Carry-forward is bounded by coverage, so a delisted instrument's last close
+-- stops at the end of the span rather than being held for ever. Partitioning by
+-- span below makes that fall out of the grouping instead of needing a guard.
+covered_grid AS (
+    SELECT cs.instrument_id, ds.val_date, lower(cs.span) AS span_from
+    FROM coverage_spans cs
+    JOIN date_series ds
+        ON ds.val_date >= lower(cs.span) AND ds.val_date < upper(cs.span)
+),
+-- A window opening mid-span would otherwise read as unpriced until the first
+-- bar inside it. One lookup per (instrument, span), not per day.
+span_seeds AS (
+    SELECT g.instrument_id, g.span_from, s.close, s.split_adjusted_close
+    FROM (SELECT DISTINCT instrument_id, span_from FROM covered_grid) g
+    CROSS JOIN LATERAL (
+        SELECT ep.close, ep.split_adjusted_close
+        FROM eod_prices ep
+        WHERE ep.instrument_id = g.instrument_id
+          AND ep.price_date >= g.span_from
+          AND ep.price_date < $2::date
+        ORDER BY ep.price_date DESC
+        LIMIT 1
+    ) s
+),
+price_points AS (
+    -- Virtual point before the window start, seeding the carry-forward.
+    SELECT instrument_id, span_from, ($2::date - 1) AS val_date, close, split_adjusted_close
+    FROM span_seeds
+    UNION ALL
+    SELECT g.instrument_id, g.span_from, g.val_date, ep.close, ep.split_adjusted_close
+    FROM covered_grid g
+    LEFT JOIN eod_prices ep
+        ON ep.instrument_id = g.instrument_id AND ep.price_date = g.val_date
+),
+-- PostgreSQL window functions have no IGNORE NULLS, so count() labels each run
+-- that starts at a real bar and first_value() spreads that bar across the run.
+price_islands AS (
+    SELECT instrument_id, span_from, val_date, close, split_adjusted_close,
+        count(close) OVER (PARTITION BY instrument_id, span_from ORDER BY val_date) AS island
+    FROM price_points
+),
+filled_prices AS (
+    SELECT instrument_id, val_date,
+        first_value(close) OVER w AS close,
+        first_value(split_adjusted_close) OVER w AS split_adjusted_close
+    FROM price_islands
+    WINDOW w AS (PARTITION BY instrument_id, span_from, island ORDER BY val_date)
+),
+prices AS (
+    -- Adjusted quantity above pairs with adjusted close here: both are
+    -- denominated in today's share count. Mixing one of each would scale the
+    -- value by the split factor either side of an ex-date. See
+    -- docs/spec/bitemporality.md.
+    SELECT instrument_id, val_date, split_adjusted_close AS close
+    FROM filled_prices
+    WHERE val_date >= $2::date AND split_adjusted_close IS NOT NULL
+),
 -- FX rates for each base currency (BASE/USD close values).
 -- Raw close, not split_adjusted_close: an exchange rate is not denominated in
 -- a share count, so it has no basis to adjust and never carries splits.
 fx_rates AS (
-    SELECT fi.base_currency, ep.price_date AS val_date, ep.close AS rate
+    SELECT fi.base_currency, fp.val_date, fp.close AS rate
     FROM fx_instruments fi
-    JOIN eod_prices ep ON ep.instrument_id = fi.fx_instrument_id
-    WHERE ep.price_date >= $2::date
-      AND ep.price_date < $3::date
+    JOIN filled_prices fp ON fp.instrument_id = fi.fx_instrument_id
+    WHERE fp.val_date >= $2::date AND fp.close IS NOT NULL
 ),
 -- Rate for the display currency (DISPLAY/USD), only when display != USD.
 display_fx_rate AS (
-    SELECT ep.price_date AS val_date, ep.close AS rate
-    FROM eod_prices ep
-    INNER JOIN instrument_identifiers ii
-        ON ii.instrument_id = ep.instrument_id
-        AND ii.identifier_type = 'FX_PAIR'
-        AND ii.value = $4 || 'USD'
-    WHERE $4 != 'USD'
-      AND ep.price_date >= $2::date
-      AND ep.price_date < $3::date
+    SELECT fp.val_date, fp.close AS rate
+    FROM display_fx_instrument dfi
+    JOIN filled_prices fp ON fp.instrument_id = dfi.instrument_id
+    WHERE fp.val_date >= $2::date AND fp.close IS NOT NULL
 ),
 -- Compute fx_rate per holding: converts from instrument currency to display currency.
 valued AS (
@@ -233,9 +301,9 @@ ORDER BY val_date
 
 // GetPortfolioValuation computes daily portfolio values over the half-open
 // [dateFrom, dateBefore) range.
-// Prices (including synthetic LOCF rows for non-trading days) are joined
-// directly from eod_prices. Holdings are forward-filled from the last
-// transaction date. Holdings are converted to displayCurrency via FX rates.
+// Only real bars are stored, so prices are carried forward over non-trading days
+// at read time, bounded by price_coverage. Holdings are forward-filled from the
+// last transaction date. Holdings are converted to displayCurrency via FX rates.
 func (p *Postgres) GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateBefore time.Time, displayCurrency string) ([]db.ValuationPoint, error) {
 	portUUID, err := uuid.Parse(portfolioID)
 	if err != nil {

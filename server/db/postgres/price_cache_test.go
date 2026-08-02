@@ -549,10 +549,10 @@ func TestPriceCoverageByPlugin_SeparatesPlugins(t *testing.T) {
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "PERPLUGIN")
 
-	if err := p.UpsertPricesWithFill(ctx, instID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
+	if err := p.UpsertPricesForRange(ctx, instID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
 		t.Fatalf("upsert massive: %v", err)
 	}
-	if err := p.UpsertPricesWithFill(ctx, instID, "eodhd", nil, d(2024, 2, 1), d(2024, 2, 11), nil); err != nil {
+	if err := p.UpsertPricesForRange(ctx, instID, "eodhd", nil, d(2024, 2, 1), d(2024, 2, 11), nil); err != nil {
 		t.Fatalf("upsert eodhd: %v", err)
 	}
 
@@ -699,280 +699,88 @@ func TestUpsertPrices_Empty(t *testing.T) {
 	}
 }
 
-func TestUpsertPrices_SyntheticNeverOverwritesReal(t *testing.T) {
-	p := testDBTx(t)
-	ctx := context.Background()
-	instID := setupInstrument(t, p, "SYNTH1")
-
-	// Insert a real price.
-	err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: 100.0, DataProvider: "real", Synthetic: false},
-	})
-	if err != nil {
-		t.Fatalf("upsert real: %v", err)
-	}
-
-	// Attempt to overwrite with synthetic.
-	err = p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: 99.0, DataProvider: "real", Synthetic: true},
-	})
-	if err != nil {
-		t.Fatalf("upsert synthetic: %v", err)
-	}
-
-	// Verify real price is preserved.
-	var close float64
-	var synthetic bool
-	err = p.q.QueryRowContext(ctx,
-		`SELECT close, synthetic FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
-		instID, d(2024, 1, 5)).Scan(&close, &synthetic)
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	if close != 100.0 {
-		t.Errorf("close = %v, want 100.0 (real preserved)", close)
-	}
-	if synthetic {
-		t.Error("synthetic = true, want false (real preserved)")
-	}
-}
-
-func TestUpsertPrices_RealOverwritesSynthetic(t *testing.T) {
-	p := testDBTx(t)
-	ctx := context.Background()
-	instID := setupInstrument(t, p, "SYNTH2")
-
-	// Insert a synthetic price.
-	err := p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 6), Close: 100.0, DataProvider: "old", Synthetic: true},
-	})
-	if err != nil {
-		t.Fatalf("upsert synthetic: %v", err)
-	}
-
-	// Overwrite with real.
-	err = p.UpsertPrices(ctx, []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 6), Close: 105.0, DataProvider: "real", Synthetic: false},
-	})
-	if err != nil {
-		t.Fatalf("upsert real: %v", err)
-	}
-
-	// Verify real price overwrote synthetic.
-	var close float64
-	var synthetic bool
-	err = p.q.QueryRowContext(ctx,
-		`SELECT close, synthetic FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
-		instID, d(2024, 1, 6)).Scan(&close, &synthetic)
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	if close != 105.0 {
-		t.Errorf("close = %v, want 105.0", close)
-	}
-	if synthetic {
-		t.Error("synthetic = true, want false")
-	}
-}
-
-func TestUpsertPricesWithFill_BasicWeekend(t *testing.T) {
+// Non-trading days get no row. The filled series is derived at read time from
+// (bars, coverage), so storing it would be a second copy of a derivable fact.
+func TestUpsertPricesForRange_StoresOnlyRealBars(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "FILL1")
 
-	// Mon-Fri real bars, gap range Mon-Mon (7 days).
+	// Mon-Fri real bars over a Mon-Mon range, so Sat and Sun have no bar.
 	mon := d(2024, 1, 1)
-	bars := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: mon, Close: 102.0},
-		{InstrumentID: instID, PriceDate: mon.AddDate(0, 0, 1), Close: 103.0},
-		{InstrumentID: instID, PriceDate: mon.AddDate(0, 0, 2), Close: 104.0},
-		{InstrumentID: instID, PriceDate: mon.AddDate(0, 0, 3), Close: 105.0},
-		{InstrumentID: instID, PriceDate: mon.AddDate(0, 0, 4), Close: 106.0}, // Fri
-	}
-	to := mon.AddDate(0, 0, 7)
-	err := p.UpsertPricesWithFill(ctx, instID, "test", bars, mon, to, nil)
-	if err != nil {
-		t.Fatalf("upsert with fill: %v", err)
-	}
-
-	// Should have 7 rows: 5 real + 2 synthetic (Sat, Sun).
-	rows, err := p.q.QueryContext(ctx,
-		`SELECT price_date, close, synthetic FROM eod_prices WHERE instrument_id = $1::uuid ORDER BY price_date`, instID)
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	defer rows.Close()
-
-	type row struct {
-		date      time.Time
-		close     float64
-		synthetic bool
-	}
-	var got []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.date, &r.close, &r.synthetic); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
-		got = append(got, r)
-	}
-	if len(got) != 7 {
-		t.Fatalf("expected 7 rows, got %d", len(got))
-	}
+	var bars []db.EODPrice
 	for i := 0; i < 5; i++ {
-		if got[i].synthetic {
-			t.Errorf("day %d: expected real", i)
-		}
+		bars = append(bars, db.EODPrice{
+			InstrumentID: instID, PriceDate: mon.AddDate(0, 0, i), Close: 102.0 + float64(i),
+		})
 	}
-	for i := 5; i < 7; i++ {
-		if !got[i].synthetic {
-			t.Errorf("day %d: expected synthetic", i)
-		}
-		if got[i].close != 106.0 {
-			t.Errorf("day %d: close = %v, want 106.0", i, got[i].close)
-		}
+	if err := p.UpsertPricesForRange(ctx, instID, "test", bars, mon, mon.AddDate(0, 0, 7), nil); err != nil {
+		t.Fatalf("upsert for range: %v", err)
 	}
+
+	var count int
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT count(*) FROM eod_prices WHERE instrument_id = $1::uuid`, instID).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 5 {
+		t.Errorf("expected 5 stored bars and no filled rows, got %d", count)
+	}
+	assertRanges(t, readPriceCoverage(t, p, instID), []db.DateRange{
+		{From: mon, Before: mon.AddDate(0, 0, 7)},
+	})
+	assertCoverageContains(t, p)
 }
 
-func TestUpsertPricesWithFill_SeedFromDB(t *testing.T) {
-	p := testDBTx(t)
-	ctx := context.Background()
-	instID := setupInstrument(t, p, "FILL2")
-
-	// Insert a real price on Friday.
-	insertPrice(t, p, instID, d(2024, 1, 5), 100.0)
-
-	// Gap fill Sat-Mon with no new bars (seed from Friday's close).
-	from := d(2024, 1, 6) // Sat
-	to := d(2024, 1, 9)   // Tue (exclusive)
-	err := p.UpsertPricesWithFill(ctx, instID, "test", nil, from, to, nil)
-	if err != nil {
-		t.Fatalf("upsert with fill: %v", err)
-	}
-
-	// Sat, Sun, Mon should be synthetic with close=100.
-	for _, day := range []time.Time{d(2024, 1, 6), d(2024, 1, 7), d(2024, 1, 8)} {
-		var close float64
-		var synthetic bool
-		err := p.q.QueryRowContext(ctx,
-			`SELECT close, synthetic FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
-			instID, day).Scan(&close, &synthetic)
-		if err != nil {
-			t.Fatalf("query %v: %v", day, err)
-		}
-		if !synthetic {
-			t.Errorf("%v: expected synthetic", day.Format("2006-01-02"))
-		}
-		if close != 100.0 {
-			t.Errorf("%v: close = %v, want 100.0", day.Format("2006-01-02"), close)
-		}
-	}
-}
-
-func TestUpsertPricesWithFill_NoSeedNoBars(t *testing.T) {
+// The declared range is coverage even where it holds no bars, so a range asked
+// about and answered with nothing is not mistaken for one never asked about.
+func TestUpsertPricesForRange_NoBarsStillCovers(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "FILL3")
 
-	// No seed, no bars: nothing to insert, but the range was still asked about
-	// and answered, so it is covered. That is the distinction row presence
-	// cannot draw and the reason coverage is stored separately.
-	err := p.UpsertPricesWithFill(ctx, instID, "test", nil, d(2024, 1, 1), d(2024, 1, 4), nil)
-	if err != nil {
-		t.Fatalf("upsert with fill: %v", err)
+	if err := p.UpsertPricesForRange(ctx, instID, "test", nil, d(2024, 1, 1), d(2024, 1, 4), nil); err != nil {
+		t.Fatalf("upsert for range: %v", err)
 	}
 
-	var rowCount int
-	if err := p.q.QueryRowContext(ctx, `
-		SELECT count(*) FROM eod_prices WHERE instrument_id = $1::uuid
-	`, instID).Scan(&rowCount); err != nil {
-		t.Fatalf("count rows: %v", err)
+	var count int
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT count(*) FROM eod_prices WHERE instrument_id = $1::uuid`, instID).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
 	}
-	if rowCount != 0 {
-		t.Errorf("expected no price rows, got %d", rowCount)
+	if count != 0 {
+		t.Errorf("expected no price rows, got %d", count)
 	}
-
-	cov, err := p.PriceCoverage(ctx, []string{instID})
-	if err != nil {
-		t.Fatalf("coverage: %v", err)
-	}
-	assertInstrumentRanges(t, cov, instID, []db.DateRange{
+	assertRanges(t, readPriceCoverage(t, p, instID), []db.DateRange{
 		{From: d(2024, 1, 1), Before: d(2024, 1, 4)},
 	})
 }
 
-func TestUpsertPricesWithFill_NoSeedAtStart(t *testing.T) {
+// Providers can repeat a date within one response; the last one supplied wins.
+func TestUpsertPricesForRange_DuplicateDates(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	instID := setupInstrument(t, p, "FILL4")
+	instID := setupInstrument(t, p, "FILL5")
 
-	// No seed, bar on day 3. Days 1-2 should have no price.
+	day := d(2024, 1, 2)
 	bars := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: 50.0},
+		{InstrumentID: instID, PriceDate: day, Close: 100.0},
+		{InstrumentID: instID, PriceDate: day, Close: 101.0},
 	}
-	err := p.UpsertPricesWithFill(ctx, instID, "test", bars, d(2024, 1, 1), d(2024, 1, 5), nil)
-	if err != nil {
-		t.Fatalf("upsert with fill: %v", err)
-	}
-
-	// Day 3 real, day 4 synthetic. Days 1-2 absent.
-	var count int
-	if err := p.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM eod_prices WHERE instrument_id = $1::uuid`, instID).Scan(&count); err != nil {
-		t.Fatalf("count: %v", err)
-	}
-	if count != 2 {
-		t.Fatalf("expected 2 rows, got %d", count)
-	}
-
-	var synthetic bool
-	if err := p.q.QueryRowContext(ctx,
-		`SELECT synthetic FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
-		instID, d(2024, 1, 3)).Scan(&synthetic); err != nil {
-		t.Fatalf("day 3: %v", err)
-	}
-	if synthetic {
-		t.Error("day 3: expected real")
-	}
-	if err := p.q.QueryRowContext(ctx,
-		`SELECT synthetic FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
-		instID, d(2024, 1, 4)).Scan(&synthetic); err != nil {
-		t.Fatalf("day 4: %v", err)
-	}
-	if !synthetic {
-		t.Error("day 4: expected synthetic")
-	}
-}
-
-func TestUpsertPricesWithFill_DuplicateDates(t *testing.T) {
-	p := testDBTx(t)
-	ctx := context.Background()
-	instID := setupInstrument(t, p, "FILLDUP")
-
-	// Bars with duplicate dates — last occurrence should win.
-	mon := d(2024, 1, 1)
-	bars := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: mon, Close: 100.0},
-		{InstrumentID: instID, PriceDate: mon, Close: 101.0}, // duplicate
-		{InstrumentID: instID, PriceDate: mon.AddDate(0, 0, 1), Close: 102.0},
-	}
-	to := mon.AddDate(0, 0, 2)
-	err := p.UpsertPricesWithFill(ctx, instID, "test", bars, mon, to, nil)
-	if err != nil {
-		t.Fatalf("upsert with fill: %v", err)
+	if err := p.UpsertPricesForRange(ctx, instID, "test", bars, d(2024, 1, 1), d(2024, 1, 4), nil); err != nil {
+		t.Fatalf("upsert for range: %v", err)
 	}
 
 	var close float64
 	if err := p.q.QueryRowContext(ctx,
 		`SELECT close FROM eod_prices WHERE instrument_id = $1::uuid AND price_date = $2`,
-		instID, mon).Scan(&close); err != nil {
-		t.Fatalf("scan close: %v", err)
+		instID, day).Scan(&close); err != nil {
+		t.Fatalf("query: %v", err)
 	}
 	if close != 101.0 {
-		t.Errorf("duplicate date: close = %v, want 101.0 (last occurrence)", close)
+		t.Errorf("close = %v, want 101.0 (last supplied wins)", close)
 	}
 }
-
-// --- FXGaps tests ---
 
 // setupInstrumentWithCurrency creates an instrument with a specific asset class and currency.
 func setupInstrumentWithCurrency(t *testing.T, p *Postgres, desc, assetClass, currency string) string {

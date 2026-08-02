@@ -178,8 +178,10 @@ func coverageKey(idType, domain, value string) string {
 	return idType + "\x00" + domain + "\x00" + value
 }
 
-// upsertWithCoverage upserts prices, using UpsertPricesWithFill for instruments
-// that have coverage ranges and plain UpsertPrices for the rest.
+// upsertWithCoverage stores prices, recording each declared range as coverage so
+// valuation carries prices forward across the non-trading days inside it. Rows
+// falling outside every declared range cover only their own dates, which keeps
+// the gaps between them gaps.
 func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPrice, coverage []*apiv1.ImportCoverage, resolveCache map[string]*resolveEntry) error {
 	if len(coverage) == 0 {
 		return database.UpsertPrices(ctx, prices)
@@ -211,14 +213,9 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 		byInst[p.InstrumentID] = append(byInst[p.InstrumentID], p)
 	}
 
-	// Upsert each instrument: with fill if coverage exists, plain otherwise.
-	var uncovered []db.EODPrice
-	for instID, instPrices := range byInst {
-		ranges, hasCoverage := instCoverage[instID]
-		if !hasCoverage {
-			uncovered = append(uncovered, instPrices...)
-			continue
-		}
+	uncovered := make([]db.EODPrice, 0, len(prices))
+	for instID, ranges := range instCoverage {
+		instPrices := byInst[instID]
 		covered := make(map[int]bool)
 		for _, r := range ranges {
 			// Filter prices within this range.
@@ -229,27 +226,30 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 					covered[i] = true
 				}
 			}
-			provider := "import"
-			if len(inRange) > 0 {
-				provider = inRange[0].DataProvider
-			}
 			var fetchedAt *time.Time
 			if len(inRange) > 0 {
 				fetchedAt = inRange[0].LastFetchedAt
 			}
-			if err := database.UpsertPricesWithFill(ctx, instID, provider, inRange, r.from, r.before, fetchedAt); err != nil {
+			// A declared range with no rows in it is not a no-op: it says the
+			// caller asked about those dates and there was nothing to report.
+			if err := database.UpsertPricesForRange(ctx, instID, db.PriceProviderImport, inRange, r.from, r.before, fetchedAt); err != nil {
 				return err
 			}
 		}
-		// Prices outside all coverage ranges get plain upsert.
+		// Prices outside all coverage ranges cover only their own dates.
 		for i, p := range instPrices {
 			if !covered[i] {
 				uncovered = append(uncovered, p)
 			}
 		}
 	}
+	// Instruments the file declared no coverage for at all.
+	for instID, instPrices := range byInst {
+		if _, declared := instCoverage[instID]; !declared {
+			uncovered = append(uncovered, instPrices...)
+		}
+	}
 
-	// Upsert any prices without coverage.
 	if len(uncovered) > 0 {
 		return database.UpsertPrices(ctx, uncovered)
 	}

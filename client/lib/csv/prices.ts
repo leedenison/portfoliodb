@@ -44,7 +44,7 @@ function fmtOptBigint(v: bigint | undefined): string {
  * Serialize ExportPriceRow[] to CSV text.
  *
  * Coverage spans are written as "# coverage=" headers in the specific form.
- * They matter: the export omits synthetic rows, so the spans are what let a
+ * They matter: a span is not derivable from the rows, so it is what lets a
  * re-import regenerate the filled days rather than leaving them as gaps.
  */
 export function pricesToCsv(rows: ExportPriceRow[], exportedAt?: Date, coverage?: ExportCoverage[]): string {

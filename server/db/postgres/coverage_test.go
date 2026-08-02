@@ -75,9 +75,9 @@ func assertCoverageContains(t *testing.T, p *Postgres) {
 	}
 }
 
-// UpsertPricesWithFill records its declared range, not merely the days it wrote
+// UpsertPricesForRange records its declared range, not merely the days it wrote
 // rows for: the range is what the provider was asked about.
-func TestUpsertPricesWithFill_RecordsDeclaredRange(t *testing.T) {
+func TestUpsertPricesForRange_RecordsDeclaredRange(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "AAPL")
@@ -86,8 +86,8 @@ func TestUpsertPricesWithFill_RecordsDeclaredRange(t *testing.T) {
 		{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: 10},
 		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: 12},
 	}
-	if err := p.UpsertPricesWithFill(ctx, instID, "massive", bars, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
-		t.Fatalf("upsert with fill: %v", err)
+	if err := p.UpsertPricesForRange(ctx, instID, "massive", bars, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
+		t.Fatalf("upsert for range: %v", err)
 	}
 
 	assertRanges(t, readPriceCoverage(t, p, instID), []db.DateRange{
@@ -98,13 +98,13 @@ func TestUpsertPricesWithFill_RecordsDeclaredRange(t *testing.T) {
 
 // A provider that returns nothing has still covered the range. This is the case
 // row presence alone cannot express, and the reason the table exists.
-func TestUpsertPricesWithFill_EmptyResultStillCovers(t *testing.T) {
+func TestUpsertPricesForRange_EmptyResultStillCovers(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "DELISTED")
 
-	if err := p.UpsertPricesWithFill(ctx, instID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
-		t.Fatalf("upsert with fill: %v", err)
+	if err := p.UpsertPricesForRange(ctx, instID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
+		t.Fatalf("upsert for range: %v", err)
 	}
 
 	assertRanges(t, readPriceCoverage(t, p, instID), []db.DateRange{
@@ -139,17 +139,17 @@ func TestUpsertPrices_CoversSuppliedDatesOnly(t *testing.T) {
 
 // Two disjoint held periods stay disjoint: the hole between them is a fact
 // about what was fetched, and merging would erase it.
-func TestUpsertPricesWithFill_DisjointPeriodsStayDisjoint(t *testing.T) {
+func TestUpsertPricesForRange_DisjointPeriodsStayDisjoint(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "AAPL")
 
 	first := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2023, 1, 3), Close: 10}}
-	if err := p.UpsertPricesWithFill(ctx, instID, "massive", first, d(2023, 1, 1), d(2023, 7, 1), nil); err != nil {
+	if err := p.UpsertPricesForRange(ctx, instID, "massive", first, d(2023, 1, 1), d(2023, 7, 1), nil); err != nil {
 		t.Fatalf("upsert first period: %v", err)
 	}
 	second := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: 20}}
-	if err := p.UpsertPricesWithFill(ctx, instID, "massive", second, d(2024, 1, 1), d(2024, 7, 1), nil); err != nil {
+	if err := p.UpsertPricesForRange(ctx, instID, "massive", second, d(2024, 1, 1), d(2024, 7, 1), nil); err != nil {
 		t.Fatalf("upsert second period: %v", err)
 	}
 
@@ -162,15 +162,15 @@ func TestUpsertPricesWithFill_DisjointPeriodsStayDisjoint(t *testing.T) {
 
 // Coverage is per plugin, so a range one plugin declined does not stop another
 // being asked. Both spans coexist for the same instrument.
-func TestUpsertPricesWithFill_CoverageIsPerPlugin(t *testing.T) {
+func TestUpsertPricesForRange_CoverageIsPerPlugin(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "AAPL")
 
-	if err := p.UpsertPricesWithFill(ctx, instID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
+	if err := p.UpsertPricesForRange(ctx, instID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
 		t.Fatalf("upsert massive: %v", err)
 	}
-	if err := p.UpsertPricesWithFill(ctx, instID, "eodhd", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
+	if err := p.UpsertPricesForRange(ctx, instID, "eodhd", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
 		t.Fatalf("upsert eodhd: %v", err)
 	}
 
@@ -192,7 +192,7 @@ func TestPriceCoverage_CascadesOnInstrumentDelete(t *testing.T) {
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "AAPL")
 
-	if err := p.UpsertPricesWithFill(ctx, instID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
+	if err := p.UpsertPricesForRange(ctx, instID, "massive", nil, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 	if _, err := p.q.ExecContext(ctx, `DELETE FROM instruments WHERE id = $1::uuid`, instID); err != nil {

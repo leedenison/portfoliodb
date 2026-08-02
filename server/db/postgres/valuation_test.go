@@ -1055,3 +1055,148 @@ func TestGetUserValuation_FXUnaffectedByASplit(t *testing.T) {
 		}
 	}
 }
+
+// setupHeldInstrument creates a user holding one instrument from buyDate on.
+func setupHeldInstrument(t *testing.T, p *Postgres, sub, desc string, qty float64, buyDate time.Time) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, sub, "U", sub+"@locf.com")
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", desc, "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: desc, Canonical: false},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	ts := time.Date(buyDate.Year(), buyDate.Month(), buyDate.Day(), 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(ts), InstrumentDescription: desc, Type: apiv1.TxType_BUYSTOCK, Quantity: qty, Account: "main"},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "",
+		timestamppb.New(ts.Add(-time.Hour)), timestamppb.New(ts.Add(time.Hour)),
+		txs, []string{instID}, nil); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+	return userID, instID
+}
+
+// Weekends have no stored row now, so the close must be carried forward at read
+// time or every Saturday would read as unpriced.
+func TestGetUserValuation_CarriesForwardOverNonTradingDays(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, instID := setupHeldInstrument(t, p, "sub|locf1", "LOCF1", 10, d(2024, 1, 1))
+
+	// Fri 5 Jan is the last bar; Sat and Sun have none.
+	bars := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: 100}}
+	if err := p.UpsertPricesForRange(ctx, instID, "test", bars, d(2024, 1, 5), d(2024, 1, 8), nil); err != nil {
+		t.Fatalf("upsert for range: %v", err)
+	}
+
+	points, err := p.GetUserValuation(ctx, userID, d(2024, 1, 5), d(2024, 1, 8), "USD")
+	if err != nil {
+		t.Fatalf("valuation: %v", err)
+	}
+	for _, day := range []time.Time{d(2024, 1, 5), d(2024, 1, 6), d(2024, 1, 7)} {
+		if got := valueOn(t, points, day); !approxEq(got, 1000) {
+			t.Errorf("%s: got %v want 1000", day.Format("2006-01-02"), got)
+		}
+	}
+}
+
+// Carry-forward stops at the end of the covered span. Without that bound a
+// delisted instrument would hold its last close for ever.
+func TestGetUserValuation_CarryForwardStopsAtCoverageEnd(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, instID := setupHeldInstrument(t, p, "sub|locf2", "LOCF2", 10, d(2024, 1, 1))
+
+	bars := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: 100}}
+	if err := p.UpsertPricesForRange(ctx, instID, "test", bars, d(2024, 1, 5), d(2024, 1, 7), nil); err != nil {
+		t.Fatalf("upsert for range: %v", err)
+	}
+
+	points, err := p.GetUserValuation(ctx, userID, d(2024, 1, 5), d(2024, 1, 9), "USD")
+	if err != nil {
+		t.Fatalf("valuation: %v", err)
+	}
+	if got := valueOn(t, points, d(2024, 1, 6)); !approxEq(got, 1000) {
+		t.Errorf("inside coverage: got %v want 1000", got)
+	}
+	// 7 Jan is past covered_before, so the position is unpriced, not stale.
+	if got := valueOn(t, points, d(2024, 1, 7)); !approxEq(got, 0) {
+		t.Errorf("past coverage end: got %v want 0 (unpriced, not carried)", got)
+	}
+	if !unpricedOn(t, points, d(2024, 1, 7)) {
+		t.Error("past coverage end: expected the instrument to be reported unpriced")
+	}
+}
+
+// Two disjoint covered periods must not bleed into each other: the first
+// period's close is not a price for a day in the gap or in the second period
+// before its own first bar.
+func TestGetUserValuation_DisjointCoverageDoesNotBleed(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, instID := setupHeldInstrument(t, p, "sub|locf3", "LOCF3", 10, d(2024, 1, 1))
+
+	first := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 2), Close: 100}}
+	if err := p.UpsertPricesForRange(ctx, instID, "test", first, d(2024, 1, 2), d(2024, 1, 4), nil); err != nil {
+		t.Fatalf("upsert first: %v", err)
+	}
+	second := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 9), Close: 200}}
+	if err := p.UpsertPricesForRange(ctx, instID, "test", second, d(2024, 1, 8), d(2024, 1, 10), nil); err != nil {
+		t.Fatalf("upsert second: %v", err)
+	}
+
+	points, err := p.GetUserValuation(ctx, userID, d(2024, 1, 2), d(2024, 1, 10), "USD")
+	if err != nil {
+		t.Fatalf("valuation: %v", err)
+	}
+	if got := valueOn(t, points, d(2024, 1, 3)); !approxEq(got, 1000) {
+		t.Errorf("inside first span: got %v want 1000", got)
+	}
+	// In the uncovered gap, and on the second span's first day which precedes
+	// its own first bar: neither may inherit the first span's close.
+	for _, day := range []time.Time{d(2024, 1, 5), d(2024, 1, 8)} {
+		if got := valueOn(t, points, day); !approxEq(got, 0) {
+			t.Errorf("%s: got %v want 0 (must not inherit the earlier span's close)",
+				day.Format("2006-01-02"), got)
+		}
+	}
+	if got := valueOn(t, points, d(2024, 1, 9)); !approxEq(got, 2000) {
+		t.Errorf("inside second span: got %v want 2000", got)
+	}
+}
+
+// A window opening mid-span must pick up the last bar before it, or the chart
+// would show the position unpriced until the next bar lands.
+func TestGetUserValuation_SeedsFromBarBeforeWindow(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, instID := setupHeldInstrument(t, p, "sub|locf4", "LOCF4", 10, d(2024, 1, 1))
+
+	bars := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 2), Close: 100}}
+	if err := p.UpsertPricesForRange(ctx, instID, "test", bars, d(2024, 1, 1), d(2024, 1, 20), nil); err != nil {
+		t.Fatalf("upsert for range: %v", err)
+	}
+
+	// The window starts well after the only bar, which is still its price.
+	points, err := p.GetUserValuation(ctx, userID, d(2024, 1, 10), d(2024, 1, 12), "USD")
+	if err != nil {
+		t.Fatalf("valuation: %v", err)
+	}
+	if got := valueOn(t, points, d(2024, 1, 10)); !approxEq(got, 1000) {
+		t.Errorf("window opening mid-span: got %v want 1000", got)
+	}
+}
+
+func unpricedOn(t *testing.T, points []db.ValuationPoint, want time.Time) bool {
+	t.Helper()
+	for _, pt := range points {
+		if pt.Date.Equal(want) {
+			return len(pt.UnpricedInstruments) > 0
+		}
+	}
+	t.Fatalf("no valuation point for %s", want.Format("2006-01-02"))
+	return false
+}

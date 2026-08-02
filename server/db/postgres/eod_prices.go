@@ -49,7 +49,7 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 	q, args, err := psql.Select(
 		"ep.instrument_id", "i.name AS display_name",
 		"ep.price_date", "ep.open", "ep.high", "ep.low", "ep.close", "ep.adjusted_close",
-		"ep.volume", "ep.data_provider", "ep.synthetic", "ep.last_fetched_at",
+		"ep.volume", "ep.data_provider", "ep.last_fetched_at",
 		"ep.share_count_basis",
 	).
 		From("eod_prices ep").
@@ -76,7 +76,7 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 		if err := rows.Scan(
 			&r.InstrumentID, &r.InstrumentDisplayName,
 			&r.PriceDate, &open, &high, &low, &r.Close, &adjClose,
-			&volume, &r.DataProvider, &r.Synthetic, &r.LastFetchedAt, &r.ShareCountBasis,
+			&volume, &r.DataProvider, &r.LastFetchedAt, &r.ShareCountBasis,
 		); err != nil {
 			return nil, 0, "", err
 		}
@@ -137,7 +137,6 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 		FROM eod_prices ep
 		JOIN instruments i ON i.id = ep.instrument_id
 		` + bestIdentifierJoin + `
-		WHERE NOT ep.synthetic
 		ORDER BY best_id.identifier_type, best_id.value, ep.price_date
 	`
 	var rows []exportPriceRow
@@ -189,17 +188,17 @@ func toExportCoverageRows(rows []exportCoverageRow) []db.ExportCoverageRow {
 
 // ListPriceCoverageForExport implements db.EODPriceListDB.
 //
-// Synthetic rows are included in the aggregation even though
-// ListPricesForExport omits them: the span is exactly what tells an import
-// which days to regenerate.
+// Spans come from price_coverage, so a range a provider answered with no bars
+// travels with the file. Merged across plugins: an import stores everything
+// under one provider, so the distinction cannot survive the round trip.
 func (p *Postgres) ListPriceCoverageForExport(ctx context.Context) ([]db.ExportCoverageRow, error) {
 	q := `
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
 			lower(sub.r) AS covered_from, upper(sub.r) AS covered_before
 		FROM (
 			SELECT instrument_id,
-				unnest(range_agg(daterange(price_date, price_date + 1))) AS r
-			FROM eod_prices
+				unnest(range_agg(daterange(covered_from, covered_before))) AS r
+			FROM price_coverage
 			GROUP BY instrument_id
 		) sub
 		JOIN instruments i ON i.id = sub.instrument_id

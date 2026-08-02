@@ -28,6 +28,10 @@ const (
 	CorporateEventProviderBroker = "broker"
 )
 
+// PriceProviderImport tags price coverage that came from an import rather than a
+// plugin, so the fetcher does not treat a hand-curated range as one of its own.
+const PriceProviderImport = "import"
+
 // Job type constants for the ingestion_jobs table.
 const (
 	JobTypeTx             = "tx"
@@ -97,7 +101,6 @@ type EODPrice struct {
 	// basis and typically including dividend adjustment. Stored for cross-checking
 	// only; never an input to valuation. nil when the provider does not supply it.
 	AdjustedClose *float64
-	Synthetic     bool       // true for forward-filled non-trading day prices
 	LastFetchedAt *time.Time // when this row was fetched; nil defaults to now()
 	// ShareCountBasis is the date at which the share count these raw values are
 	// denominated in was current. nil defaults to PriceDate (as-traded).
@@ -123,14 +126,14 @@ type PriceCacheDB interface {
 	// FXGaps computes date ranges where FX rates are needed (non-USD instruments
 	// are held) but not yet cached. Returns gaps keyed by FX pair instrument ID.
 	FXGaps(ctx context.Context, opts HeldRangesOpts) ([]InstrumentDateRanges, error)
-	// UpsertPrices inserts or updates EOD prices. On conflict (instrument_id, price_date)
-	// real prices always overwrite; synthetic prices only insert when no row exists
-	// or the existing row is also synthetic.
+	// UpsertPrices inserts or updates EOD prices, each covering its own date.
+	// Use it when the caller has no range to declare beyond the days it names.
 	UpsertPrices(ctx context.Context, prices []EODPrice) error
-	// UpsertPricesWithFill inserts real bars and generates synthetic LOCF prices
-	// for every date in [from, before) that has no real bar, all in a single SQL
-	// statement. The last non-synthetic close before `from` seeds the forward-fill.
-	UpsertPricesWithFill(ctx context.Context, instrumentID, provider string, bars []EODPrice, from, before time.Time, fetchedAt *time.Time) error
+	// UpsertPricesForRange stores bars and records [from, before) as coverage in
+	// one transaction, whether or not any bars came back. Days in the range with
+	// no bar stay absent: the carry-forward is applied at read time and bounded
+	// by this coverage, so it is never stored.
+	UpsertPricesForRange(ctx context.Context, instrumentID, provider string, bars []EODPrice, from, before time.Time, fetchedAt *time.Time) error
 }
 
 // PluginConfigDB provides unified plugin config CRUD for all categories.
@@ -359,7 +362,6 @@ type EODPriceRow struct {
 	AdjustedClose         *float64
 	Volume                *int64
 	DataProvider          string
-	Synthetic             bool
 	LastFetchedAt         time.Time
 	ShareCountBasis       time.Time
 }

@@ -449,8 +449,6 @@ func displayCurrencyFXValues(currencies []string) []string {
 
 // UpsertPrices implements db.PriceCacheDB.
 // It bulk inserts EOD prices using unnest arrays, updating on conflict.
-// Real prices (synthetic=false) always overwrite existing rows. Synthetic
-// prices only overwrite when the existing row is also synthetic.
 //
 // Each supplied bar covers its own date and nothing more: a caller with no
 // range to declare is asserting the days it names, not the span between them.
@@ -466,6 +464,26 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 		}
 		return coverSuppliedDates(ctx, exec, prices)
 	})
+}
+
+// dedupeByInstrumentDate keeps the last bar supplied for each (instrument, date).
+func dedupeByInstrumentDate(prices []db.EODPrice) []db.EODPrice {
+	type key struct {
+		instrumentID string
+		date         time.Time
+	}
+	seen := make(map[key]int, len(prices))
+	out := make([]db.EODPrice, 0, len(prices))
+	for _, pr := range prices {
+		k := key{pr.InstrumentID, pr.PriceDate.Truncate(db.Day)}
+		if i, ok := seen[k]; ok {
+			out[i] = pr
+			continue
+		}
+		seen[k] = len(out)
+		out = append(out, pr)
+	}
+	return out
 }
 
 // coverSuppliedDates records one coverage span per contiguous run of supplied
@@ -490,6 +508,9 @@ func coverSuppliedDates(ctx context.Context, exec queryable, prices []db.EODPric
 }
 
 func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) error {
+	// ON CONFLICT DO UPDATE cannot touch the same row twice in one statement, and
+	// providers do repeat a date within a response. Last one supplied wins.
+	prices = dedupeByInstrumentDate(prices)
 
 	instIDs := make([]string, len(prices))
 	dates := make([]time.Time, len(prices))
@@ -499,7 +520,6 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 	closes := make([]float64, len(prices))
 	volumes := make([]*int64, len(prices))
 	providers := make([]string, len(prices))
-	synthetics := make([]bool, len(prices))
 	fetchedAts := make([]time.Time, len(prices))
 	bases := make([]time.Time, len(prices))
 	adjCloses := make([]*float64, len(prices))
@@ -514,7 +534,6 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 		closes[i] = pr.Close
 		volumes[i] = pr.Volume
 		providers[i] = pr.DataProvider
-		synthetics[i] = pr.Synthetic
 		adjCloses[i] = pr.AdjustedClose
 		if pr.LastFetchedAt != nil {
 			fetchedAts[i] = *pr.LastFetchedAt
@@ -531,13 +550,13 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 	}
 
 	_, err := exec.ExecContext(ctx, `
-		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, last_fetched_at, share_count_basis, adjusted_close)
+		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, last_fetched_at, share_count_basis, adjusted_close)
 		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::double precision[]),
 			unnest($4::double precision[]), unnest($5::double precision[]),
 			unnest($6::double precision[]), unnest($7::bigint[]),
-			unnest($8::text[]), unnest($9::boolean[]),
-			unnest($10::timestamptz[]), unnest($11::date[]),
-			unnest($12::double precision[])
+			unnest($8::text[]),
+			unnest($9::timestamptz[]), unnest($10::date[]),
+			unnest($11::double precision[])
 		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
 			open = EXCLUDED.open,
 			high = EXCLUDED.high,
@@ -545,16 +564,14 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 			close = EXCLUDED.close,
 			volume = EXCLUDED.volume,
 			data_provider = EXCLUDED.data_provider,
-			synthetic = EXCLUDED.synthetic,
 			last_fetched_at = EXCLUDED.last_fetched_at,
 			-- Basis travels with the raw values it describes; restating one
 			-- without the other would leave the row self-inconsistent.
 			share_count_basis = EXCLUDED.share_count_basis,
 			adjusted_close = EXCLUDED.adjusted_close
-		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
 	`, pq.Array(instIDs), pq.Array(dates), pq.Array(opens),
 		pq.Array(highs), pq.Array(lows), pq.Array(closes),
-		pq.Array(volumes), pq.Array(providers), pq.Array(synthetics),
+		pq.Array(volumes), pq.Array(providers),
 		pq.Array(fetchedAts), pq.Array(bases), pq.Array(adjCloses))
 	if err != nil {
 		return fmt.Errorf("upsert prices: %w", err)
@@ -562,141 +579,32 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 	return nil
 }
 
-// UpsertPricesWithFill implements db.PriceCacheDB.
-// It inserts real bars and generates synthetic LOCF prices for every date in
-// [from, before) that has no real bar, all in a single SQL round-trip. The last
-// non-synthetic close price before `from` seeds the forward-fill for dates
-// preceding the first real bar.
+// UpsertPricesForRange implements db.PriceCacheDB.
 //
-// [from, before) is recorded as coverage in the same transaction, whether or not
-// any bars came back: a provider that answered "nothing here" has covered the
-// range just as authoritatively as one that returned a full series.
-func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provider string, bars []db.EODPrice, from, before time.Time, fetchedAt *time.Time) error {
+// The bars are stored as supplied and [from, before) is recorded as coverage, in
+// one transaction. Days inside the range with no bar are left absent rather than
+// filled: the carry-forward happens at read time, bounded by this same coverage,
+// so storing it as well would only be a second copy of a derivable fact.
+//
+// Coverage is recorded whether or not any bars came back. A provider that
+// answered "nothing here" has covered the range just as authoritatively as one
+// that returned a full series.
+func (p *Postgres) UpsertPricesForRange(ctx context.Context, instrumentID, provider string, bars []db.EODPrice, from, before time.Time, fetchedAt *time.Time) error {
 	return p.runInTx(ctx, func(exec queryable) error {
-		if err := upsertPricesWithFill(ctx, exec, instrumentID, provider, bars, from, before, fetchedAt); err != nil {
-			return err
+		if len(bars) > 0 {
+			priced := make([]db.EODPrice, len(bars))
+			for i, b := range bars {
+				b.InstrumentID = instrumentID
+				b.DataProvider = provider
+				if b.LastFetchedAt == nil {
+					b.LastFetchedAt = fetchedAt
+				}
+				priced[i] = b
+			}
+			if err := upsertPrices(ctx, exec, priced); err != nil {
+				return err
+			}
 		}
 		return upsertCoverageSpan(ctx, exec, priceCoverageTable, instrumentID, provider, from, before, fetchedAt)
 	})
-}
-
-func upsertPricesWithFill(ctx context.Context, exec queryable, instrumentID, provider string, bars []db.EODPrice, from, before time.Time, fetchedAt *time.Time) error {
-	id, err := uuid.Parse(instrumentID)
-	if err != nil {
-		return fmt.Errorf("upsert prices with fill: invalid id %q: %w", instrumentID, err)
-	}
-
-	if fetchedAt == nil {
-		now := time.Now()
-		fetchedAt = &now
-	}
-
-	// Deduplicate bars by date, keeping the last occurrence.
-	seen := make(map[time.Time]int, len(bars))
-	deduped := make([]db.EODPrice, 0, len(bars))
-	for _, b := range bars {
-		d := b.PriceDate.Truncate(24 * time.Hour)
-		if idx, ok := seen[d]; ok {
-			deduped[idx] = b
-		} else {
-			seen[d] = len(deduped)
-			deduped = append(deduped, b)
-		}
-	}
-	bars = deduped
-
-	dates := make([]time.Time, len(bars))
-	opens := make([]*float64, len(bars))
-	highs := make([]*float64, len(bars))
-	lows := make([]*float64, len(bars))
-	closes := make([]float64, len(bars))
-	volumes := make([]*int64, len(bars))
-	bases := make([]time.Time, len(bars))
-	adjCloses := make([]*float64, len(bars))
-	for i, b := range bars {
-		dates[i] = b.PriceDate
-		opens[i] = b.Open
-		highs[i] = b.High
-		lows[i] = b.Low
-		closes[i] = b.Close
-		volumes[i] = b.Volume
-		adjCloses[i] = b.AdjustedClose
-		// Undeclared basis means as-traded.
-		if b.ShareCountBasis != nil {
-			bases[i] = *b.ShareCountBasis
-		} else {
-			bases[i] = b.PriceDate
-		}
-	}
-
-	_, err = exec.ExecContext(ctx, `
-		WITH
-		seed AS (
-			SELECT close, share_count_basis FROM eod_prices
-			WHERE instrument_id = $1 AND price_date < $2::date AND NOT synthetic
-			ORDER BY price_date DESC LIMIT 1
-		),
-		new_bars AS (
-			SELECT unnest($4::date[]) AS price_date,
-				unnest($5::double precision[]) AS bopen,
-				unnest($6::double precision[]) AS bhigh,
-				unnest($7::double precision[]) AS blow,
-				unnest($8::double precision[]) AS bclose,
-				unnest($9::bigint[]) AS bvolume,
-				unnest($12::date[]) AS bbasis,
-				unnest($13::double precision[]) AS badjclose
-		),
-		all_points AS (
-			-- Virtual seed point before range start for LOCF initialization.
-			SELECT ($2::date - 1) AS price_date,
-				NULL::double precision AS bopen, NULL::double precision AS bhigh,
-				NULL::double precision AS blow, s.close AS bclose,
-				NULL::bigint AS bvolume, s.share_count_basis AS bbasis,
-				NULL::double precision AS badjclose
-			FROM seed s
-			UNION ALL
-			-- Every date in [from, before) with real bar if available.
-			SELECT d::date, nb.bopen, nb.bhigh, nb.blow, nb.bclose, nb.bvolume, nb.bbasis, nb.badjclose
-			FROM generate_series($2::date, $3::date - interval '1 day', '1 day') d
-			LEFT JOIN new_bars nb ON nb.price_date = d::date
-		),
-		grouped AS (
-			SELECT *,
-				COUNT(bclose) OVER (ORDER BY price_date) AS grp
-			FROM all_points
-		),
-		locf AS (
-			SELECT price_date,
-				bopen AS open, bhigh AS high, blow AS low,
-				FIRST_VALUE(bclose) OVER (PARTITION BY grp ORDER BY price_date) AS close,
-				bvolume AS volume,
-				badjclose AS adjusted_close,
-				(bclose IS NULL) AS synthetic,
-				-- A forward-filled row carries the value of the bar it copied, so
-				-- it is denominated in that bar's share count, not its own date's.
-				FIRST_VALUE(bbasis) OVER (PARTITION BY grp ORDER BY price_date) AS share_count_basis
-			FROM grouped
-		)
-		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, last_fetched_at, share_count_basis, adjusted_close)
-		SELECT $1::uuid, price_date, open, high, low, close, volume, $10::text, synthetic, $11::timestamptz,
-			COALESCE(share_count_basis, price_date), adjusted_close
-		FROM locf
-		WHERE price_date >= $2::date AND close IS NOT NULL
-		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
-			open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
-			close = EXCLUDED.close, volume = EXCLUDED.volume,
-			data_provider = EXCLUDED.data_provider, synthetic = EXCLUDED.synthetic,
-			last_fetched_at = EXCLUDED.last_fetched_at,
-			-- Basis travels with the raw values it describes; restating one
-			-- without the other would leave the row self-inconsistent.
-			share_count_basis = EXCLUDED.share_count_basis,
-			adjusted_close = EXCLUDED.adjusted_close
-		WHERE eod_prices.synthetic = true OR EXCLUDED.synthetic = false
-	`, id, from, before, pq.Array(dates), pq.Array(opens), pq.Array(highs),
-		pq.Array(lows), pq.Array(closes), pq.Array(volumes), provider, fetchedAt,
-		pq.Array(bases), pq.Array(adjCloses))
-	if err != nil {
-		return fmt.Errorf("upsert prices with fill: %w", err)
-	}
-	return nil
 }

@@ -666,7 +666,6 @@ message EODPriceProto {
   // Knowledge time: when this row was last fetched. Staleness only -- it says
   // nothing about the prices themselves.
   google.protobuf.Timestamp last_fetched_at = 11;
-  bool synthetic = 12;
   // The share count the raw values are denominated in, as "YYYY-MM-DD".
   string share_count_basis = 13;
 }
@@ -691,9 +690,10 @@ message ListPricesResponse {
 message ExportPricesRequest {}
 
 // ExportCoverage is one half-open [from, before) coverage span for an
-// instrument, streamed alongside the rows it covers. Re-importing rows without
-// their coverage does not reproduce the exported state: only real bars are
-// exported, so the synthetic days between them are regenerated from coverage.
+// instrument, streamed alongside the rows it covers. It records that a provider
+// answered for the range, which the rows cannot say on their own: a span with no
+// rows in it means the provider was asked and had nothing. Re-importing rows
+// without their coverage loses that.
 message ExportCoverage {
   string identifier_type = 1;
   string identifier_value = 2;
@@ -753,9 +753,10 @@ message ImportPriceRow {
 
 message ImportPricesRequest {
   repeated ImportPriceRow prices = 1;
-  // Optional coverage ranges. When set for an instrument, the server uses
-  // UpsertPricesWithFill to generate synthetic LOCF prices for non-trading
-  // days within each range. When absent, prices are upserted as-is.
+  // Optional coverage ranges. When set for an instrument, the server records
+  // the range as covered, so valuation carries prices forward across
+  // non-trading days within it. When absent, each row covers only its own date
+  // and gaps between rows stay gaps.
   repeated ImportCoverage coverage = 2;
   // Knowledge time: when the supplied data was current. OCC symbols are
   // split-adjusted to this point during instrument resolution, and imported
@@ -764,9 +765,10 @@ message ImportPricesRequest {
   google.protobuf.Timestamp exported_at = 3;
 }
 
-// ImportCoverage declares that the caller intends to cover a half-open
-// [from, before) date range for an instrument. The server fills gaps within
-// this range with synthetic prices.
+// ImportCoverage declares that the caller has authoritative coverage of a
+// half-open [from, before) date range for an instrument. The server stores it,
+// so the range is not re-fetched and prices carry forward across non-trading
+// days inside it.
 message ImportCoverage {
   string identifier_type = 1;
   string identifier_value = 2;

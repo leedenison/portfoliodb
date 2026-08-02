@@ -370,9 +370,10 @@ WHERE
            AND t.instrument_id::text IN (SELECT filter_value FROM portfolio_filters WHERE portfolio_id = p.id AND filter_type = 'instrument')));
 
 -- EOD price cache. Stores end-of-day OHLCV data per instrument per date.
--- Rows with synthetic = true are forward-filled (LOCF) prices for non-trading
--- days (weekends, holidays). They are generated at write time by the price
--- fetcher worker so that the valuation query can use a simple join.
+-- Every row is a bar a provider actually reported: non-trading days (weekends,
+-- holidays) simply have no row. Valuation carries the last close forward over
+-- them at read time, bounded by price_coverage, so the filled series is derived
+-- from (bars, coverage) rather than stored alongside them.
 -- share_count_basis is the date at which the share count the raw OHLCV is
 -- denominated in was current. It is declared by whoever supplied the row -- as
 -- price_date for an as-traded series, or the fetch date for a provider that
@@ -402,7 +403,6 @@ CREATE TABLE eod_prices (
   volume                 BIGINT,
   split_adjusted_volume  BIGINT,
   data_provider          TEXT        NOT NULL,
-  synthetic              BOOLEAN     NOT NULL DEFAULT false,
   share_count_basis      DATE        NOT NULL,
   -- Staleness only: when this row was last fetched. It carries no meaning about
   -- the prices themselves. See docs/spec/bitemporality.md.

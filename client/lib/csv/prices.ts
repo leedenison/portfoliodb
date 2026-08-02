@@ -40,12 +40,75 @@ function fmtOptBigint(v: bigint | undefined): string {
   return v === undefined ? "" : String(v);
 }
 
+function coverageKey(c: { identifierType: string; identifierValue: string; identifierDomain: string }): string {
+  return `${c.identifierType}\x00${c.identifierValue}\x00${c.identifierDomain}`;
+}
+
+/**
+ * Choose the global declaration and the instruments it covers.
+ *
+ * A global is only a saving where many instruments share one span, which is the
+ * common case: a file exported from one instance covers the same period for
+ * everything except instruments that started or stopped trading partway through.
+ *
+ * Two constraints come from how a global is read back (see expandCoverage):
+ *
+ * - A specific declaration overrides the global outright rather than adding to
+ *   it, so only an instrument whose whole span list is exactly the global can be
+ *   left implicit. One with two spans always writes both.
+ * - The global is expanded against the instruments the file has rows for, so an
+ *   instrument covered but carrying no rows would never receive it. Those keep
+ *   an explicit declaration.
+ */
+function chooseGlobal(
+  coverage: ExportCoverage[],
+  withRows: Set<string>,
+): { global?: ExportCoverage; implicit: Set<string> } {
+  const byInstrument = new Map<string, ExportCoverage[]>();
+  for (const c of coverage) {
+    const key = coverageKey(c);
+    const existing = byInstrument.get(key);
+    if (existing) existing.push(c);
+    else byInstrument.set(key, [c]);
+  }
+
+  // Only single-span instruments that the file has rows for can be implicit.
+  const candidates = new Map<string, string[]>();
+  for (const [key, spans] of byInstrument) {
+    if (spans.length !== 1 || !withRows.has(key)) continue;
+    const span = `${spans[0].from},${spans[0].before}`;
+    const keys = candidates.get(span);
+    if (keys) keys.push(key);
+    else candidates.set(span, [key]);
+  }
+
+  let bestSpan: string | undefined;
+  let bestKeys: string[] = [];
+  for (const [span, keys] of candidates) {
+    if (keys.length > bestKeys.length) {
+      bestSpan = span;
+      bestKeys = keys;
+    }
+  }
+  // One instrument sharing the span saves nothing: the global line replaces
+  // exactly one specific line.
+  if (bestSpan === undefined || bestKeys.length < 2) return { implicit: new Set() };
+
+  const [from, before] = bestSpan.split(",");
+  const global = byInstrument.get(bestKeys[0])![0];
+  return {
+    global: { ...global, from, before },
+    implicit: new Set(bestKeys),
+  };
+}
+
 /**
  * Serialize ExportPriceRow[] to CSV text.
  *
- * Coverage spans are written as "# coverage=" headers in the specific form.
- * They matter: a span is not derivable from the rows, so it is what lets a
- * re-import regenerate the filled days rather than leaving them as gaps.
+ * Coverage spans are written as "# coverage=" headers: one global for the span
+ * most instruments share, then the exceptions. They are not derivable from the
+ * rows -- a span holding no rows records that a provider was asked and had
+ * nothing -- so dropping them loses information the rows cannot carry.
  */
 export function pricesToCsv(rows: ExportPriceRow[], exportedAt?: Date, coverage?: ExportCoverage[]): string {
   const data = rows.map((r) => [
@@ -65,7 +128,12 @@ export function pricesToCsv(rows: ExportPriceRow[], exportedAt?: Date, coverage?
   const csv = Papa.unparse({ fields: HEADER.split(","), data }, { newline: "\n" }) + "\n";
   const headers: string[] = [];
   if (exportedAt) headers.push(`${EXPORTED_AT_PREFIX}${exportedAt.toISOString()}`);
+
+  const withRows = new Set(rows.map(coverageKey));
+  const { global, implicit } = chooseGlobal(coverage ?? [], withRows);
+  if (global) headers.push(`${COVERAGE_PREFIX}${global.from},${global.before}`);
   for (const c of coverage ?? []) {
+    if (implicit.has(coverageKey(c))) continue;
     headers.push(
       `${COVERAGE_PREFIX}${c.identifierType},${c.identifierValue},${c.identifierDomain},${c.from},${c.before}`,
     );

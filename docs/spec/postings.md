@@ -1,7 +1,7 @@
 # Transaction Groups and Postings
 
 A **tx group** is one economic event. The `txs` rows that reference it are its
-**postings**. See adr/0020-double-entry-postings.md.
+**postings**. See adr/0022-typed-per-account-cash-flow-boundary.md.
 
 ## Postings
 

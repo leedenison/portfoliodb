@@ -1,4 +1,12 @@
+---
+status: superseded by ADR-0022
+---
+
 # Transactions are double-entry postings grouped by economic event
+
+Superseded by [0022](0022-typed-per-account-cash-flow-boundary.md), which keeps
+the posting and group model below but replaces the non-asset account vocabulary
+with a typed `account_type`, and corrects the boundary rule stated here.
 
 A `txs` row is a **posting**, and the postings of one economic event belong to a
 **tx group** whose amounts are required to sum to zero, in the manner of beancount

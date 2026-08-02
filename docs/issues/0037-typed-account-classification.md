@@ -8,6 +8,7 @@ dependencies: [0036]
 Add an `account_type` to postings that classifies the account they land in, so
 that the non-asset side of a one-sided event has somewhere to go and the
 portfolio cash-flow boundary is a typed predicate rather than a string parse.
+See adr/0022-typed-per-account-cash-flow-boundary.md.
 
 ## Motivation
 

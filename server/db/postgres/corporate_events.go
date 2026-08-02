@@ -309,64 +309,12 @@ func (p *Postgres) DeleteCashDividend(ctx context.Context, instrumentID string, 
 	return nil
 }
 
-// UpsertCorporateEventCoverage implements db.CorporateEventDB. The merge step
-// finds every existing row for (instrument, plugin) whose interval touches
-// [from, before), deletes them, and inserts a single row spanning the union.
-// The whole operation runs in a single transaction so concurrent inserts cannot
-// leave partial state.
-//
-// The merged row keeps the oldest constituent last_fetched_at, since the union
-// is only as freshly confirmed as its stalest part. lastFetchedAt is when the
-// supplied span was confirmed; nil means now.
+// UpsertCorporateEventCoverage implements db.CorporateEventDB. The merge runs in
+// a single transaction so concurrent inserts cannot leave partial state. See
+// upsertCoverageSpan for the merge semantics, which price_coverage shares.
 func (p *Postgres) UpsertCorporateEventCoverage(ctx context.Context, instrumentID, pluginID string, from, before time.Time, lastFetchedAt *time.Time) error {
-	if !before.After(from) {
-		return fmt.Errorf("upsert corporate event coverage: covered_before %s not after covered_from %s", before, from)
-	}
-	id, err := uuid.Parse(instrumentID)
-	if err != nil {
-		return fmt.Errorf("upsert corporate event coverage: invalid instrument id %q: %w", instrumentID, err)
-	}
 	return p.runInTx(ctx, func(exec queryable) error {
-		// Half-open [a,b) and [c,d) touch or overlap iff a <= d AND c <= b, so
-		// abutting spans merge with no adjacency fudge. Find every existing row
-		// that touches [from, before), compute the union, delete them, and
-		// insert one merged row. CTE data-modifying statements share a snapshot
-		// in PostgreSQL so DELETE and INSERT cannot see one another -- run them
-		// as separate statements inside the transaction.
-		//
-		// LEAST ignores NULL, so with no touching rows the merged fetch time
-		// is just the supplied one (or now()).
-		var newFrom, newBefore, newFetched time.Time
-		err := exec.QueryRowContext(ctx, `
-			SELECT
-				LEAST($3::date,    COALESCE(MIN(covered_from),   $3::date)),
-				GREATEST($4::date, COALESCE(MAX(covered_before), $4::date)),
-				LEAST(COALESCE($5::timestamptz, now()), MIN(last_fetched_at))
-			FROM corporate_event_coverage
-			WHERE instrument_id = $1
-			  AND plugin_id     = $2
-			  AND covered_from   <= $4::date
-			  AND covered_before >= $3::date
-		`, id, pluginID, from, before, lastFetchedAt).Scan(&newFrom, &newBefore, &newFetched)
-		if err != nil {
-			return fmt.Errorf("upsert corporate event coverage: compute merge: %w", err)
-		}
-		if _, err := exec.ExecContext(ctx, `
-			DELETE FROM corporate_event_coverage
-			WHERE instrument_id = $1
-			  AND plugin_id     = $2
-			  AND covered_from   <= $4::date
-			  AND covered_before >= $3::date
-		`, id, pluginID, from, before); err != nil {
-			return fmt.Errorf("upsert corporate event coverage: delete overlapping: %w", err)
-		}
-		if _, err := exec.ExecContext(ctx, `
-			INSERT INTO corporate_event_coverage (instrument_id, plugin_id, covered_from, covered_before, last_fetched_at)
-			VALUES ($1, $2, $3, $4, $5)
-		`, id, pluginID, newFrom, newBefore, newFetched); err != nil {
-			return fmt.Errorf("upsert corporate event coverage: insert merged: %w", err)
-		}
-		return nil
+		return upsertCoverageSpan(ctx, exec, corporateEventCoverageTable, instrumentID, pluginID, from, before, lastFetchedAt)
 	})
 }
 

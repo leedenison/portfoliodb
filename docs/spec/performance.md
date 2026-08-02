@@ -75,15 +75,21 @@ or empty, it defaults to the user's stored `display_currency` preference.
 ### Unpriced handling for missing FX rates
 
 When an instrument requires FX conversion but the rate is unavailable for a
-given date (the `gapfilled_fx_rates` LEFT JOIN produces NULL), the instrument
-is reported in `unpriced_instruments` alongside instruments missing price
-data. The same orange-dot indicator appears on the chart.
+given date (the `fx_rates` LEFT JOIN produces NULL), the instrument is reported
+in `unpriced_instruments` alongside instruments missing price data. The same
+orange-dot indicator appears on the chart.
 
 ## Unpriced instrument handling
 
-An instrument is "unpriced" only when it has never had a price up to that date
-(i.e., `locf()` returns NULL because there is no prior observation). Weekend
-gaps where `locf()` successfully fills are NOT reported as unpriced.
+An instrument is "unpriced" on a date when the carry-forward yields no price:
+either no bar precedes the date inside the same covered span, or the date falls
+outside every covered span. Weekend and holiday gaps that the carry-forward
+fills are NOT reported as unpriced.
+
+The coverage bound is what separates "we have no price for this day" from "the
+last price we ever saw is still valid". Past the end of an instrument's
+coverage -- a delisting, say -- it reads as unpriced rather than holding its
+final close for ever. See prices.md and adr/0023-price-coverage-is-stored-not-inferred.md.
 
 On the chart, unpriced dates are indicated with orange dots and the custom
 tooltip lists the affected instrument names. An info banner appears above the

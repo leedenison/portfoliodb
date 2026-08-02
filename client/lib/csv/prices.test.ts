@@ -392,3 +392,103 @@ describe("price CSV coverage round trip", () => {
     expect(pricesToCsv([makeRow()])).not.toContain("# coverage=");
   });
 });
+
+describe("pricesToCsv coverage compression", () => {
+  const span = (value: string, from: string, before: string) =>
+    create(ExportCoverageSchema, {
+      identifierType: "MIC_TICKER",
+      identifierValue: value,
+      identifierDomain: "XNAS",
+      from,
+      before,
+    });
+  const row = (value: string, priceDate = "2024-02-01") =>
+    makeRow({ identifierType: "MIC_TICKER", identifierValue: value, identifierDomain: "XNAS", priceDate });
+
+  const coverageLines = (csv: string) =>
+    csv.split("\n").filter((l) => l.startsWith("# coverage="));
+
+  it("collapses a shared span to one global line", () => {
+    const csv = pricesToCsv(
+      [row("AAPL"), row("MSFT"), row("GOOG")],
+      undefined,
+      [span("AAPL", "2022-01-01", "2025-07-07"),
+       span("MSFT", "2022-01-01", "2025-07-07"),
+       span("GOOG", "2022-01-01", "2025-07-07")],
+    );
+    expect(coverageLines(csv)).toEqual(["# coverage=2022-01-01,2025-07-07"]);
+  });
+
+  it("writes the odd one out as an exception beside the global", () => {
+    const csv = pricesToCsv(
+      [row("AAPL"), row("MSFT"), row("ATVI")],
+      undefined,
+      [span("AAPL", "2022-01-01", "2025-07-07"),
+       span("MSFT", "2022-01-01", "2025-07-07"),
+       span("ATVI", "2021-12-31", "2023-10-14")],
+    );
+    expect(coverageLines(csv)).toEqual([
+      "# coverage=2022-01-01,2025-07-07",
+      "# coverage=MIC_TICKER,ATVI,XNAS,2021-12-31,2023-10-14",
+    ]);
+  });
+
+  it("keeps both spans of a two-period instrument explicit, since a specific overrides the global outright", () => {
+    const csv = pricesToCsv(
+      [row("AAPL"), row("MSFT"), row("TSLA")],
+      undefined,
+      [span("AAPL", "2022-01-01", "2025-07-07"),
+       span("MSFT", "2022-01-01", "2025-07-07"),
+       span("TSLA", "2022-01-01", "2022-06-01"),
+       span("TSLA", "2024-01-01", "2024-06-01")],
+    );
+    expect(coverageLines(csv)).toEqual([
+      "# coverage=2022-01-01,2025-07-07",
+      "# coverage=MIC_TICKER,TSLA,XNAS,2022-01-01,2022-06-01",
+      "# coverage=MIC_TICKER,TSLA,XNAS,2024-01-01,2024-06-01",
+    ]);
+  });
+
+  it("keeps a covered instrument with no rows explicit, since the global never reaches it", () => {
+    const csv = pricesToCsv(
+      [row("AAPL"), row("MSFT")],
+      undefined,
+      [span("AAPL", "2022-01-01", "2025-07-07"),
+       span("MSFT", "2022-01-01", "2025-07-07"),
+       span("DELISTED", "2022-01-01", "2025-07-07")],
+    );
+    expect(coverageLines(csv)).toEqual([
+      "# coverage=2022-01-01,2025-07-07",
+      "# coverage=MIC_TICKER,DELISTED,XNAS,2022-01-01,2025-07-07",
+    ]);
+  });
+
+  it("writes no global when no span is shared, which would save nothing", () => {
+    const csv = pricesToCsv(
+      [row("AAPL"), row("MSFT")],
+      undefined,
+      [span("AAPL", "2022-01-01", "2023-01-01"),
+       span("MSFT", "2024-01-01", "2025-01-01")],
+    );
+    expect(coverageLines(csv)).toEqual([
+      "# coverage=MIC_TICKER,AAPL,XNAS,2022-01-01,2023-01-01",
+      "# coverage=MIC_TICKER,MSFT,XNAS,2024-01-01,2025-01-01",
+    ]);
+  });
+
+  it("round trips the compressed form back to one entry per instrument per span", () => {
+    const coverage = [
+      span("AAPL", "2022-01-01", "2025-07-07"),
+      span("MSFT", "2022-01-01", "2025-07-07"),
+      span("ATVI", "2021-12-31", "2023-10-14"),
+    ];
+    const csv = pricesToCsv([row("AAPL"), row("MSFT"), row("ATVI")], undefined, coverage);
+    const result = csvToPrices(csv);
+    expect(result.errors).toEqual([]);
+    expect(result.coverage).toEqual([
+      expect.objectContaining({ identifierValue: "AAPL", from: "2022-01-01", before: "2025-07-07" }),
+      expect.objectContaining({ identifierValue: "MSFT", from: "2022-01-01", before: "2025-07-07" }),
+      expect.objectContaining({ identifierValue: "ATVI", from: "2021-12-31", before: "2023-10-14" }),
+    ]);
+  });
+});

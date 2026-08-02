@@ -412,6 +412,31 @@ CREATE TABLE eod_prices (
 
 SELECT create_hypertable('eod_prices', 'price_date');
 
+-- Coverage tracking for prices. A missing eod_prices row does not say whether
+-- the date was never fetched or was fetched and had no price (pre-IPO,
+-- delisted, suspended, or beyond a plugin's history limit). This table records,
+-- per (instrument, plugin), the date intervals the plugin has answered
+-- authoritatively -- including answers that returned no bars at all, which are
+-- coverage just as much as a full series is.
+-- The interval is half-open [covered_from, covered_before). Adjacent or
+-- overlapping intervals for the same (instrument, plugin) are merged on insert.
+-- Every eod_prices row lies within some span here for its instrument; the
+-- converse does not hold, and a span with no rows in it is exactly the "asked,
+-- nothing there" answer that row presence alone cannot express.
+CREATE TABLE price_coverage (
+  instrument_id  UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
+  plugin_id      TEXT        NOT NULL,
+  covered_from   DATE        NOT NULL,
+  covered_before DATE        NOT NULL CHECK (covered_before > covered_from),
+  -- Staleness only: when this span was last confirmed. A merged span keeps the
+  -- oldest constituent value, since a union is only as freshly confirmed as its
+  -- stalest part.
+  last_fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (instrument_id, plugin_id, covered_from)
+);
+
+CREATE INDEX idx_price_coverage_instrument ON price_coverage (instrument_id);
+
 -- Stock splits per instrument. ex_date is the effective/execution date. The
 -- split factor is split_to / split_from (e.g. 2:1 split = split_from=1,
 -- split_to=2, factor=2; 1:2 reverse split = split_from=2, split_to=1, factor=0.5).

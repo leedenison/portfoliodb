@@ -400,10 +400,45 @@ func displayCurrencyFXValues(currencies []string) []string {
 // It bulk inserts EOD prices using unnest arrays, updating on conflict.
 // Real prices (synthetic=false) always overwrite existing rows. Synthetic
 // prices only overwrite when the existing row is also synthetic.
+//
+// Each supplied bar covers its own date and nothing more: a caller with no
+// range to declare is asserting the days it names, not the span between them.
+// Coverage is written in the same transaction as the rows, so no path exists
+// that stores a price without recording what it covers.
 func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error {
 	if len(prices) == 0 {
 		return nil
 	}
+	return p.runInTx(ctx, func(exec queryable) error {
+		if err := upsertPrices(ctx, exec, prices); err != nil {
+			return err
+		}
+		return coverSuppliedDates(ctx, exec, prices)
+	})
+}
+
+// coverSuppliedDates records one coverage span per contiguous run of supplied
+// dates, per (instrument, provider). Single days merge into runs, so a dense
+// series costs one span rather than one per bar.
+func coverSuppliedDates(ctx context.Context, exec queryable, prices []db.EODPrice) error {
+	type key struct{ instrumentID, provider string }
+	byKey := make(map[key][]db.DateRange)
+	for _, pr := range prices {
+		d := pr.PriceDate
+		k := key{pr.InstrumentID, pr.DataProvider}
+		byKey[k] = append(byKey[k], db.DateRange{From: d, Before: d.Add(db.Day)})
+	}
+	for k, ranges := range byKey {
+		for _, r := range db.MergeRanges(ranges) {
+			if err := upsertCoverageSpan(ctx, exec, priceCoverageTable, k.instrumentID, k.provider, r.From, r.Before, nil); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) error {
 
 	instIDs := make([]string, len(prices))
 	dates := make([]time.Time, len(prices))
@@ -444,7 +479,7 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 		}
 	}
 
-	_, err := p.q.ExecContext(ctx, `
+	_, err := exec.ExecContext(ctx, `
 		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, synthetic, last_fetched_at, share_count_basis, adjusted_close)
 		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::double precision[]),
 			unnest($4::double precision[]), unnest($5::double precision[]),
@@ -481,7 +516,20 @@ func (p *Postgres) UpsertPrices(ctx context.Context, prices []db.EODPrice) error
 // [from, before) that has no real bar, all in a single SQL round-trip. The last
 // non-synthetic close price before `from` seeds the forward-fill for dates
 // preceding the first real bar.
+//
+// [from, before) is recorded as coverage in the same transaction, whether or not
+// any bars came back: a provider that answered "nothing here" has covered the
+// range just as authoritatively as one that returned a full series.
 func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provider string, bars []db.EODPrice, from, before time.Time, fetchedAt *time.Time) error {
+	return p.runInTx(ctx, func(exec queryable) error {
+		if err := upsertPricesWithFill(ctx, exec, instrumentID, provider, bars, from, before, fetchedAt); err != nil {
+			return err
+		}
+		return upsertCoverageSpan(ctx, exec, priceCoverageTable, instrumentID, provider, from, before, fetchedAt)
+	})
+}
+
+func upsertPricesWithFill(ctx context.Context, exec queryable, instrumentID, provider string, bars []db.EODPrice, from, before time.Time, fetchedAt *time.Time) error {
 	id, err := uuid.Parse(instrumentID)
 	if err != nil {
 		return fmt.Errorf("upsert prices with fill: invalid id %q: %w", instrumentID, err)
@@ -530,7 +578,7 @@ func (p *Postgres) UpsertPricesWithFill(ctx context.Context, instrumentID, provi
 		}
 	}
 
-	_, err = p.q.ExecContext(ctx, `
+	_, err = exec.ExecContext(ctx, `
 		WITH
 		seed AS (
 			SELECT close, share_count_basis FROM eod_prices

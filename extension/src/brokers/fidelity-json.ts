@@ -178,7 +178,8 @@ export function convertFidelityJson(
         account: row.accountNumber ?? "",
         ...(currency ? { settlementCurrency: currency } : {}),
         ...(currency && isCashTxType(ofxType) ? { tradingCurrency: currency } : {}),
-        ...(row.pricePerUnit ? { unitPrice: row.pricePerUnit } : {}),
+        // Presence, not truthiness: a reported price of zero is a price.
+        ...(row.pricePerUnit !== undefined ? { unitPrice: row.pricePerUnit } : {}),
         ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })
     );

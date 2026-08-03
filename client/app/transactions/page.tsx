@@ -265,7 +265,7 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
         {parseFloat(tx.quantity.toFixed(4))}
       </td>
       <td className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
-        {tx.unitPrice ? tx.unitPrice.toFixed(2) : "\u2014"}
+        {tx.unitPrice !== undefined ? tx.unitPrice.toFixed(2) : "\u2014"}
       </td>
       <td data-testid="tx-adj-qty" className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
         {tx.splitAdjustedQuantity !== undefined && tx.splitAdjustedQuantity !== tx.quantity

@@ -457,3 +457,19 @@ describe("account_type", () => {
     expect(result.errors[0].field).toBe("account_type");
   });
 });
+
+describe("unit_price", () => {
+  it("keeps a declared zero distinct from an empty cell", () => {
+    // An option expiring worthless is priced at zero and its group balances; a
+    // row whose converter supplied no price cannot be converted at all.
+    const csv = `date,instrument_description,type,quantity,unit_price
+2024-02-01,OPT,CLOSUREOPT,-1,0
+2024-02-01,OPT,BUYOPT,1,`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs[0].unitPrice).toBe(0);
+    expect(result.txs[1].unitPrice).toBeUndefined();
+  });
+});

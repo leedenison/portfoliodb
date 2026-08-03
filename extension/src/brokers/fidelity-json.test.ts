@@ -78,6 +78,16 @@ describe("convertFidelityJson", () => {
     ]);
   });
 
+  it("keeps a reported price of zero rather than dropping it as absent", () => {
+    // A zero price is a price -- an option expiring worthless. Only a row that
+    // reports none at all leaves unitPrice unset.
+    const priced = convertFidelityJson(json({ ...BUY, pricePerUnit: 0 }));
+    expect(priced.txs[0]!.unitPrice).toBe(0);
+
+    const { pricePerUnit: _omitted, ...unpriced } = BUY;
+    expect(convertFidelityJson(json(unpriced)).txs[0]!.unitPrice).toBeUndefined();
+  });
+
   it("negates a disposal", () => {
     const result = convertFidelityJson(
       json({ ...BUY, transactionType: "Sell", debitCreditIndicator: "DEBIT" })

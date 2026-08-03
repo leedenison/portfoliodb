@@ -217,11 +217,14 @@ func nullTime(t *time.Time) interface{} {
 	return *t
 }
 
-func nullFloat(f float64) interface{} {
-	if f == 0 {
+// nullFloat maps an absent value to SQL NULL, keying off presence rather than
+// zero. A price of zero is a real price -- an option that expires worthless --
+// and must survive the round trip distinctly from no price at all.
+func nullFloat(f *float64) interface{} {
+	if f == nil {
 		return nil
 	}
-	return f
+	return *f
 }
 
 func decodePageToken(token string) int64 {
@@ -356,12 +359,9 @@ func (r *txRow) toProto() *apiv1.PortfolioTx {
 	if r.SettleCcy != nil {
 		tx.SettlementCurrency = *r.SettleCcy
 	}
-	if r.UnitPrice != nil {
-		tx.UnitPrice = *r.UnitPrice
-	}
-	if r.SplitAdjUnitPrice != nil {
-		tx.SplitAdjustedUnitPrice = *r.SplitAdjUnitPrice
-	}
+	// Carried as pointers so a stored price of zero stays distinct from no price.
+	tx.UnitPrice = r.UnitPrice
+	tx.SplitAdjustedUnitPrice = r.SplitAdjUnitPrice
 	if r.InstID != nil {
 		tx.InstrumentId = *r.InstID
 	}

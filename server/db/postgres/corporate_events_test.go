@@ -8,6 +8,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"google.golang.org/protobuf/proto"
 )
 
 // approxEq compares two floats with relative tolerance suitable for the
@@ -560,7 +561,7 @@ func TestRecomputeSplitAdjustments_Txs(t *testing.T) {
 			Type:                  apiv1.TxType_BUYSTOCK,
 			Timestamp:             ts(2010, 6, 1),
 			Quantity:              100,
-			UnitPrice:             280.0,
+			UnitPrice:             proto.Float64(280),
 			InstrumentDescription: "AAPL",
 		},
 	})
@@ -911,7 +912,7 @@ func TestApplyOptionSplit(t *testing.T) {
 		Type:                  apiv1.TxType_BUYSTOCK,
 		Timestamp:             ts(2024, 6, 1),
 		Quantity:              1,
-		UnitPrice:             150,
+		UnitPrice:             proto.Float64(150),
 		InstrumentDescription: "AAPL 250117C00150000",
 	}})
 

@@ -18,7 +18,7 @@ Header names are case-insensitive. Supported column names:
 | `quantity`              | Yes      | Signed number: positive for buys/adds, negative for sells/reductions. |
 | `trading_currency`       | No       | Instrument trading currency (e.g. EUR); used as plugin hint. |
 | `settlement_currency`    | No       | Settlement/payment currency (e.g. GBP). |
-| `unit_price`             | No       | Unit price as reported by broker (optional). |
+| `unit_price`             | No       | Unit price as reported by broker. An empty cell means the source gave no price; `0` is a price of zero, which is not the same thing: balancing a group converts a purchase or sale at its price, so an option expiring worthless converts at zero while a row with no price cannot convert at all. |
 | `account`                | No       | Opaque account identifier. |
 | `symbol_type`            | No       | Identifier type name matching the IdentifierType enum. See allowed values below. |
 | `symbol`                 | No       | Identifier value (e.g. "AAPL", "US0378331005", "AAPL  240119C00185000"). Required when `symbol_type` is present. |

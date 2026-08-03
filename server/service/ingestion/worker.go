@@ -215,31 +215,44 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	if len(idErrs) > 0 {
 		_ = database.AppendIdentificationErrors(ctx, j.JobID, idErrs)
 	}
-	// Validate that each resolved instrument's asset class is compatible with
-	// the asset class implied by the tx type. Catches contradictions that
-	// arise when two txs share (source, description) but their tx types imply
-	// different asset classes (e.g. BUYSTOCK + INCOME), as well as any other
-	// path where resolution lands on an instrument of the wrong class.
-	classErrs, err := validateAssetClasses(ctx, database, txsToProcess, originalIndices, instrumentIDs)
+	// The resolved instruments feed both the asset-class check and balancing.
+	instByID, err := instrumentsByID(ctx, database, instrumentIDs)
 	if err != nil {
-		log.Printf("ingestion job %s: validate asset classes: %v", j.JobID, err)
+		log.Printf("ingestion job %s: load instruments: %v", j.JobID, err)
 		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
 			{RowIndex: -1, Field: "txs", Message: err.Error()},
 		})
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
-	if len(classErrs) > 0 {
+	// Validate that each resolved instrument's asset class is compatible with
+	// the asset class implied by the tx type. Catches contradictions that
+	// arise when two txs share (source, description) but their tx types imply
+	// different asset classes (e.g. BUYSTOCK + INCOME), as well as any other
+	// path where resolution lands on an instrument of the wrong class.
+	if classErrs := validateAssetClasses(txsToProcess, originalIndices, instrumentIDs, instByID); len(classErrs) > 0 {
 		_ = database.AppendValidationErrors(ctx, j.JobID, classErrs)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
+	// Balance every group by routing whatever its postings leave over to an
+	// explicit counterparty. This runs after filtering, so a dropped SPLIT leg
+	// cannot contribute a residual, and after resolution, because telling a
+	// currency commodity from a security one is a property of the instrument.
+	routed := routeResiduals(txsToProcess, instrumentIDs, balanceInstruments(instByID))
+	routedTxs, routedIDs, unresolved := resolveRouted(ctx, database, routed)
+	for _, cur := range unresolved {
+		log.Printf("ingestion job %s: no currency instrument for %q; residual left unrouted", j.JobID, cur)
+	}
+	txsToProcess = append(txsToProcess, routedTxs...)
+	instrumentIDs = append(instrumentIDs, routedIDs...)
+
 	// Store transactions.
 	var storeErr error
 	if bulk {
 		storeErr = database.ReplaceTxsInPeriod(ctx, userID, broker, j.JobID, req.PeriodFrom, req.PeriodBefore, txsToProcess, instrumentIDs, shareCountBasis)
 	} else {
-		storeErr = database.CreateTx(ctx, userID, broker, txsToProcess[0].GetAccount(), j.JobID, txsToProcess[0], instrumentIDs[0], shareCountBasis)
+		storeErr = database.CreateTxGroup(ctx, userID, broker, txsToProcess[0].GetAccount(), j.JobID, txsToProcess, instrumentIDs, shareCountBasis)
 	}
 	if storeErr != nil {
 		log.Printf("ingestion job %s: %v", j.JobID, storeErr)

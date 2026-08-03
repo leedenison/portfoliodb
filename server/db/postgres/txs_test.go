@@ -72,7 +72,7 @@ func TestReplaceTxsInPeriod_PeriodBeforeIsExclusive(t *testing.T) {
 		{boundary, 2},
 	} {
 		tx := &apiv1.Tx{Timestamp: timestamppb.New(seed.at), InstrumentDescription: "BND", Type: apiv1.TxType_BUYSTOCK, Quantity: seed.qty, Account: ""}
-		if err := p.CreateTx(ctx, userID, "IBKR", "", "", tx, instID, nil); err != nil {
+		if err := createTx(ctx, p, userID, "IBKR", "", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx: %v", err)
 		}
 	}
@@ -211,7 +211,7 @@ func TestCreateTx_CreatesGroup(t *testing.T) {
 	}
 	at := time.Date(2025, 6, 2, 14, 30, 0, 0, time.UTC)
 	tx := &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "NVDA", Type: apiv1.TxType_BUYSTOCK, Quantity: 4, Account: "A"}
-	if err := p.CreateTx(ctx, userID, "IBKR", "A", jobID, tx, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "A", jobID, tx, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 
@@ -229,6 +229,81 @@ func TestCreateTx_CreatesGroup(t *testing.T) {
 	}
 	if groupJob != jobID {
 		t.Errorf("group job_id: want %q, got %q", jobID, groupJob)
+	}
+}
+
+// TestCreateTxGroup_PutsEveryPostingInOneGroup verifies the append path stores a
+// posting and the counterparty routed to balance it as one economic event. If it
+// gave them a group each, an appended trade could never balance and the balance
+// invariant would be out of reach on that path.
+func TestCreateTxGroup_PutsEveryPostingInOneGroup(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-append", "U", "u@append.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "NFLX", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	at := time.Date(2025, 6, 2, 14, 30, 0, 0, time.UTC)
+	// The two carry different refs on the way in; the append path is one group
+	// regardless, so neither can split it.
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(at), InstrumentDescription: "NFLX", Type: apiv1.TxType_BUYSTOCK, Quantity: 4, Account: "A", GroupRef: "a"},
+		{Timestamp: timestamppb.New(at), InstrumentDescription: "NFLX", Type: apiv1.TxType_BUYSTOCK, Quantity: -4, Account: "A", GroupRef: "b", AccountType: apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE},
+	}
+	if err := p.CreateTxGroup(ctx, userID, "IBKR", "A", "", txs, []string{instID, instID}, nil); err != nil {
+		t.Fatalf("create tx group: %v", err)
+	}
+	if got := countGroups(t, p, userID); got != 1 {
+		t.Errorf("tx_groups: want 1, got %d", got)
+	}
+	var postings, sum float64
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*), sum(quantity) FROM txs WHERE user_id = $1
+	`, userID).Scan(&postings, &sum); err != nil {
+		t.Fatalf("read postings: %v", err)
+	}
+	if postings != 2 || sum != 0 {
+		t.Errorf("stored postings: want 2 summing to 0, got %v summing to %v", postings, sum)
+	}
+	// The caller's refs are not stored, so mutating them cannot leak out.
+	if txs[0].GetGroupRef() != "a" || txs[1].GetGroupRef() != "b" {
+		t.Errorf("caller's group refs were mutated: %q, %q", txs[0].GetGroupRef(), txs[1].GetGroupRef())
+	}
+}
+
+// TestReplaceTxsInPeriod_DeletesRoutedPostingsWithTheirGroup verifies a routed
+// counterparty is taken by the cascade like any other posting, so a re-upload
+// cannot leave a stale residual behind to be double counted.
+func TestReplaceTxsInPeriod_DeletesRoutedPostingsWithTheirGroup(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|routed-del", "U", "u@routed.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "IMB", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	base := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
+	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A", GroupRef: "t1"},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", Type: apiv1.TxType_BUYSTOCK, Quantity: -10, Account: "A", GroupRef: "t1", AccountType: apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, nil, nil, nil); err != nil {
+		t.Fatalf("replace with nothing: %v", err)
+	}
+	var remaining int
+	if err := p.q.QueryRowContext(ctx, `SELECT count(*) FROM txs WHERE user_id = $1`, userID).Scan(&remaining); err != nil {
+		t.Fatalf("count txs: %v", err)
+	}
+	if remaining != 0 {
+		t.Errorf("postings after replace: want 0, got %d", remaining)
+	}
+	if got := countGroups(t, p, userID); got != 0 {
+		t.Errorf("tx_groups after replace: want 0, got %d", got)
 	}
 }
 
@@ -427,10 +502,10 @@ func TestCreateTx_AppendOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
-	if err := p.CreateTx(ctx, userID, "IBKR", "", "", tx1, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "", "", tx1, instID, nil); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	if err := p.CreateTx(ctx, userID, "IBKR", "", "", tx2, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "", "", tx2, instID, nil); err != nil {
 		t.Fatalf("second create: %v", err)
 	}
 	holdings, _, _ := p.ComputeHoldings(ctx, userID, nil, "", nil)
@@ -468,7 +543,7 @@ func TestListTxs_BrokerFilterAndOrder(t *testing.T) {
 			t.Fatalf("broker to str: %v", err)
 		}
 		tx := &apiv1.Tx{Timestamp: timestamppb.New(now.Add(s.offset)), InstrumentDescription: "ORD", Type: apiv1.TxType_BUYSTOCK, Quantity: s.qty}
-		if err := p.CreateTx(ctx, userID, brokerStr, "", "", tx, instID, nil); err != nil {
+		if err := createTx(ctx, p, userID, brokerStr, "", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx: %v", err)
 		}
 	}
@@ -543,7 +618,7 @@ func TestListTxs_PeriodBeforeIsExclusive(t *testing.T) {
 		{boundary, 2},
 	} {
 		tx := &apiv1.Tx{Timestamp: timestamppb.New(seed.at), InstrumentDescription: "PER", Type: apiv1.TxType_BUYSTOCK, Quantity: seed.qty}
-		if err := p.CreateTx(ctx, userID, brokerStr, "", "", tx, instID, nil); err != nil {
+		if err := createTx(ctx, p, userID, brokerStr, "", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx: %v", err)
 		}
 	}
@@ -575,7 +650,7 @@ func TestListTxs_TiedTimestampsPageBoundary(t *testing.T) {
 	const total = 6
 	for i := 0; i < total; i++ {
 		tx := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "TIE", Type: apiv1.TxType_BUYSTOCK, Quantity: float64(i + 1)}
-		if err := p.CreateTx(ctx, userID, "IBKR", "", "", tx, instID, nil); err != nil {
+		if err := createTx(ctx, p, userID, "IBKR", "", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx %d: %v", i, err)
 		}
 	}
@@ -708,15 +783,15 @@ func TestListTxsByPortfolio_ANDBetweenCategories(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	// Tx1: IBKR, account "B" -> matches broker but NOT account -> excluded
-	if err := p.CreateTx(ctx, userID, "IBKR", "B", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 1, Account: "B"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "B", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 1, Account: "B"}, instID, nil); err != nil {
 		t.Fatalf("create tx1: %v", err)
 	}
 	// Tx2: SCHB, account "A" -> matches account but NOT broker -> excluded
-	if err := p.CreateTx(ctx, userID, "SCHB", "A", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 2, Account: "A"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "SCHB", "A", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 2, Account: "A"}, instID, nil); err != nil {
 		t.Fatalf("create tx2: %v", err)
 	}
 	// Tx3: IBKR, account "A" -> matches both -> included
-	if err := p.CreateTx(ctx, userID, "IBKR", "A", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 3, Account: "A"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "A", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: 3, Account: "A"}, instID, nil); err != nil {
 		t.Fatalf("create tx3: %v", err)
 	}
 	txs, _, err := p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, nil, false, 50, "")

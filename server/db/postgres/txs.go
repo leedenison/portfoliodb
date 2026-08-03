@@ -8,6 +8,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -121,83 +122,85 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 		if err != nil {
 			return fmt.Errorf("delete ungrouped txs in period: %w", err)
 		}
-		resolver := newGroupResolver()
-		for i, t := range txs {
-			instUUID, err := uuid.Parse(instrumentIDs[i])
-			if err != nil {
-				return fmt.Errorf("invalid instrument id: %w", err)
-			}
-			ts, err := tsToTime(t.Timestamp)
-			if err != nil {
-				return err
-			}
-			txTypeStr, err := txTypeToStr(t.Type)
-			if err != nil {
-				return err
-			}
-			acctTypeStr, err := accountTypeToStr(t.GetAccountType())
-			if err != nil {
-				return err
-			}
-			acc := t.GetAccount()
-			args := []interface{}{
-				userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, t.Quantity,
-				nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullFloat(t.UnitPrice),
-				instUUID, shareCountBasis, acctTypeStr,
-			}
-			ref := t.GetGroupRef()
-			if groupID, ok := resolver.group(ref); ok {
-				if _, err := exec.ExecContext(ctx, insertPostingInGroupSQL, append(args, groupID)...); err != nil {
-					return fmt.Errorf("insert tx: %w", err)
-				}
-				continue
-			}
-			// The group takes the timestamp of the first leg that names it.
-			var groupID uuid.UUID
-			if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID)...).Scan(&groupID); err != nil {
-				return fmt.Errorf("insert tx: %w", err)
-			}
-			resolver.record(ref, groupID)
-		}
-		return nil
+		return insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, shareCountBasis, "")
 	})
 }
 
-// CreateTx implements db.TxDB. group_ref is ignored: a single-tx upload has nothing
-// to group with.
-func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account, jobID string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error {
+// insertPostings writes each tx as a posting, creating one tx group per distinct
+// group_ref and reusing it for that ref's later legs. account overrides the
+// account on every posting when non-empty, for the append path where the whole
+// group belongs to one named account.
+func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time, account string) error {
+	resolver := newGroupResolver()
+	for i, t := range txs {
+		instUUID, err := uuid.Parse(instrumentIDs[i])
+		if err != nil {
+			return fmt.Errorf("invalid instrument id: %w", err)
+		}
+		ts, err := tsToTime(t.Timestamp)
+		if err != nil {
+			return err
+		}
+		txTypeStr, err := txTypeToStr(t.Type)
+		if err != nil {
+			return err
+		}
+		acctTypeStr, err := accountTypeToStr(t.GetAccountType())
+		if err != nil {
+			return err
+		}
+		acc := t.GetAccount()
+		if account != "" {
+			acc = account
+		}
+		args := []interface{}{
+			userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, t.Quantity,
+			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullFloat(t.UnitPrice),
+			instUUID, shareCountBasis, acctTypeStr,
+		}
+		ref := t.GetGroupRef()
+		if groupID, ok := resolver.group(ref); ok {
+			if _, err := exec.ExecContext(ctx, insertPostingInGroupSQL, append(args, groupID)...); err != nil {
+				return fmt.Errorf("insert tx: %w", err)
+			}
+			continue
+		}
+		// The group takes the timestamp of the first leg that names it.
+		var groupID uuid.UUID
+		if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID)...).Scan(&groupID); err != nil {
+			return fmt.Errorf("insert tx: %w", err)
+		}
+		resolver.record(ref, groupID)
+	}
+	return nil
+}
+
+// CreateTxGroup implements db.TxDB. It appends the postings of one economic event
+// as a single group, rather than one tx as a group of its own: a manually added
+// trade that does not balance gets a routed counterparty like any other, and a
+// group that could never be balanced would put the balance invariant permanently
+// out of reach. The postings share the named account. group_ref is ignored -- the
+// whole call is one group -- so the resolver never splits it.
+func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
-	}
-	instUUID, err := uuid.Parse(instrumentID)
-	if err != nil {
-		return fmt.Errorf("invalid instrument id: %w", err)
 	}
 	jobUUID, err := parseNullUUID(jobID)
 	if err != nil {
 		return fmt.Errorf("invalid job id: %w", err)
 	}
-	ts, err := tsToTime(tx.Timestamp)
-	if err != nil {
-		return err
+	grouped := make([]*apiv1.Tx, len(txs))
+	for i, t := range txs {
+		grouped[i] = proto.CloneOf(t)
+		grouped[i].GroupRef = "one-group"
 	}
-	txTypeStr, err := txTypeToStr(tx.Type)
-	if err != nil {
-		return err
-	}
-	acctTypeStr, err := accountTypeToStr(tx.GetAccountType())
-	if err != nil {
-		return err
-	}
-	_, err = p.q.ExecContext(ctx, insertPostingSQL,
-		userUUID, broker, account, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity,
-		nullStr(tx.TradingCurrency), nullStr(tx.SettlementCurrency), nullFloat(tx.UnitPrice),
-		instUUID, shareCountBasis, acctTypeStr, jobUUID)
-	if err != nil {
-		return fmt.Errorf("create tx: %w", err)
-	}
-	return nil
+	return p.runInTx(ctx, func(exec queryable) error {
+		if err := insertPostings(ctx, exec, userUUID, broker, jobUUID, grouped, instrumentIDs, shareCountBasis, account); err != nil {
+			return fmt.Errorf("create tx group: %w", err)
+		}
+		return nil
+	})
 }
 
 // txOrderBy returns the ORDER BY clauses for a tx listing, with an id tiebreaker

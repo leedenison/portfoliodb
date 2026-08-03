@@ -115,8 +115,59 @@ Every posting belongs to exactly one group. `txs.group_id` is nullable only so t
 raw fixtures can write a posting without one; no production write path leaves it
 unset.
 
-No balance is enforced yet. Once every converter groups its legs, the postings of a
-group are required to sum to zero.
+## Balancing
+
+Every group is balanced at ingest. Whatever its postings leave over is routed to an
+explicit counterparty rather than rejected, so the invariant holds by construction
+from day one and a residual becomes measurable instead of being absorbed into a cash
+balance. The database constraint that enforces it is not switched on yet.
+
+A group's postings are in different commodities, so a plain `SUM(quantity)` cannot
+say whether it balances: a buy is `+10 AAPL` and `-1855 USD`. Balance is checked on
+**weight**. A posting converts to the settlement currency at its `unit_price` when
+the units its counter-leg is expected in differ from its own; otherwise it weighs
+its own quantity in its own commodity. `tx_type` says which:
+
+| tx_type                                                     | Other side expected in | Converts               |
+| ----------------------------------------------------------- | ---------------------- | ---------------------- |
+| `BUY*`, `SELL*`, `REINVEST`, `CLOSUREOPT`                    | money                  | yes                    |
+| `INCOME`, `INVEXPENSE`, `MARGININTEREST`, `RETOFCAP`, `CASHFLOW` | the same currency  | only across currencies |
+| `TRANSFER`, `JRNLFUND`                                       | the same commodity, another account | only across currencies |
+| `JRNLSEC`                                                    | the same security, another account  | no        |
+
+"Across currencies" means `trading_currency != settlement_currency` -- a EUR
+dividend settling into a USD account, where `unit_price` is the FX rate. Two guards
+complete it: a leg already denominated in the settlement currency never converts,
+being already in the units the group balances in; and a posting with no price
+cannot convert at all, so an exchange event whose source omitted a price leaves its
+residual in the security itself. See
+adr/0024-group-balance-is-checked-on-weight.md.
+
+Weights accumulate **per commodity**, so a group can produce more than one routed
+posting and the commodity is whatever is left over -- cash for a missing cash leg,
+the security for an unpaired `JRNLSEC`. A residual is routed only above a
+tolerance: half a cent for money, `1e-6` otherwise. The constants are interim, but
+the tolerance is not -- a group written to 2dp that balances to within half a cent
+is balanced.
+
+The routed posting takes the `IMBALANCE` type, or `TRANSFER_CLEARING` when the
+group is a journal. It keeps the broker, account, date and `tx_type` of the group
+it balances, so the residual stays attributable to the account and the kind of
+event that produced it. Its commodity is carried by `instrument_id`, never encoded
+in a name. It is written into the group it balances, so replace-by-period takes it
+with the cascade.
+
+An INITIALIZE pad is balanced by an `EQUITY` counterparty instead; see
+[fixed-point.md](fixed-point.md#the-equity-counterparty).
+
+### Transfers
+
+The two sides of a journal (`TRANSFER`, `JRNLFUND`, `JRNLSEC`) are not paired at
+ingest. Brokers report them in separate statements and matching is unreliable, so
+each side is balanced by a `TRANSFER_CLEARING` counterparty in the same commodity,
+which holds the value in transit. A non-zero `TRANSFER_CLEARING` balance means a
+side whose pair has not arrived. Matching them is a later change; until then an
+unmatched balance is surfaced for review.
 
 ## Naming a group on upload
 
@@ -130,7 +181,9 @@ period produces new groups. This follows from transactions having no natural key
 (see adr/0002-transaction-ingestion-model.md): there is nothing stable to key a
 durable group identity on.
 
-Single-transaction uploads ignore `group_ref`. One tx has nothing to group with.
+Single-transaction uploads ignore `group_ref`: the upload is one group whatever it
+says. The uploaded tx and the counterparty routed to balance it are stored as that
+group, so an appended posting is balanced like any other.
 
 ## Deletion
 
@@ -148,3 +201,9 @@ The broker-specific converter decides which postings are legs of one event; the
 server persists what it is given and never infers a missing leg, pairs rows, or folds
 a fee into a cash amount. Fees are expressed as postings with `type=INVEXPENSE`, not
 as a column on the upload. See adr/0021-converters-own-transaction-grouping.md.
+
+Routing a residual is not an exception to that. A residual is arithmetic on the legs
+supplied -- what they leave over -- and it is typed as a residual rather than posted
+as the cash or the fee the server cannot know it to be. A derived cash leg would be
+an invention, and would double count against the cash row a broker already reports.
+A group that arrives with its cash row weighs to zero and has nothing routed to it.

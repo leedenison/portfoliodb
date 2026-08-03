@@ -67,14 +67,10 @@ func ValidateTxs(txs []*apiv1.Tx) []*apiv1.ValidationError {
 	return errs
 }
 
-// validateAssetClasses checks that each tx's resolved instrument has an
-// asset class compatible with the asset class implied by the tx type.
-// txs and instrumentIDs are parallel slices; originalIndices maps each
-// position back to the row index in the user-supplied request (for
-// ValidationError.RowIndex). Returns one ValidationError per contradicting
-// row. The second return value is a non-nil error only when the DB lookup
-// itself fails.
-func validateAssetClasses(ctx context.Context, database db.InstrumentDB, txs []*apiv1.Tx, originalIndices []int, instrumentIDs []string) ([]*apiv1.ValidationError, error) {
+// instrumentsByID fetches the resolved instruments for a set of ids, keyed by id.
+// The rows feed both asset-class validation and group balancing, so they are
+// fetched once here rather than once by each consumer.
+func instrumentsByID(ctx context.Context, database db.InstrumentDB, instrumentIDs []string) (map[string]*db.InstrumentRow, error) {
 	seen := make(map[string]bool)
 	var ids []string
 	for _, id := range instrumentIDs {
@@ -84,23 +80,33 @@ func validateAssetClasses(ctx context.Context, database db.InstrumentDB, txs []*
 		seen[id] = true
 		ids = append(ids, id)
 	}
+	out := map[string]*db.InstrumentRow{}
 	if len(ids) == 0 {
-		return nil, nil
+		return out, nil
 	}
 	rows, err := database.ListInstrumentsByIDs(ctx, ids)
 	if err != nil {
-		return nil, fmt.Errorf("list instruments for asset class validation: %w", err)
+		return nil, fmt.Errorf("list instruments: %w", err)
 	}
-	classByID := make(map[string]string, len(rows))
 	for _, r := range rows {
-		if r == nil {
-			continue
+		if r != nil {
+			out[r.ID] = r
 		}
-		var ac string
+	}
+	return out, nil
+}
+
+// validateAssetClasses checks that each tx's resolved instrument has an
+// asset class compatible with the asset class implied by the tx type.
+// txs and instrumentIDs are parallel slices; originalIndices maps each
+// position back to the row index in the user-supplied request (for
+// ValidationError.RowIndex). Returns one ValidationError per contradicting row.
+func validateAssetClasses(txs []*apiv1.Tx, originalIndices []int, instrumentIDs []string, byID map[string]*db.InstrumentRow) []*apiv1.ValidationError {
+	classByID := make(map[string]string, len(byID))
+	for id, r := range byID {
 		if r.AssetClass != nil {
-			ac = *r.AssetClass
+			classByID[id] = *r.AssetClass
 		}
-		classByID[r.ID] = ac
 	}
 	var errs []*apiv1.ValidationError
 	for i, tx := range txs {
@@ -122,5 +128,5 @@ func validateAssetClasses(ctx context.Context, database db.InstrumentDB, txs []*
 			Message:  fmt.Sprintf("transaction type %s implies asset class %s but resolved instrument has asset class %s", tx.GetType(), implied, resolved),
 		})
 	}
-	return errs, nil
+	return errs
 }

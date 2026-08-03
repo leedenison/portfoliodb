@@ -1,0 +1,341 @@
+package ingestion
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"sort"
+	"strings"
+
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/leedenison/portfoliodb/server/db"
+	"google.golang.org/protobuf/proto"
+)
+
+// Balancing a tx group.
+//
+// A group's postings are in different commodities, so a plain sum of quantity is
+// meaningless: a buy is +10 AAPL and -1855 USD. Balance is checked on weight, as
+// in beancount, whose get_weight is cost > price > units. A posting converts at
+// its price when the units its counter-leg is expected in differ from its own;
+// otherwise it weighs its own quantity in its own commodity. Weights accumulate
+// per commodity, and whatever is left over is routed to an explicit posting
+// rather than rejected. See docs/adr/0024-group-balance-is-checked-on-weight.md.
+
+// exchangeTypes are the tx types whose counter-leg is money rather than the
+// commodity the posting is in: a security is exchanged for cash, so the security
+// leg has to be converted at its price to reach the other side. Every other type
+// moves a commodity without converting it -- a journal, a charge and a dividend
+// all have their counter-leg in the units they are already in -- and converting
+// one would move its residual into the wrong commodity, which for a JRNLSEC means
+// losing the transferred shares.
+var exchangeTypes = map[apiv1.TxType]bool{
+	apiv1.TxType_BUYDEBT:    true,
+	apiv1.TxType_BUYFUTURE:  true,
+	apiv1.TxType_BUYMF:      true,
+	apiv1.TxType_BUYOPT:     true,
+	apiv1.TxType_BUYOTHER:   true,
+	apiv1.TxType_BUYSTOCK:   true,
+	apiv1.TxType_SELLDEBT:   true,
+	apiv1.TxType_SELLFUTURE: true,
+	apiv1.TxType_SELLMF:     true,
+	apiv1.TxType_SELLOPT:    true,
+	apiv1.TxType_SELLOTHER:  true,
+	apiv1.TxType_SELLSTOCK:  true,
+	apiv1.TxType_REINVEST:   true,
+	apiv1.TxType_CLOSUREOPT: true,
+}
+
+// transferTypes are the journals whose other side is a different account. Their
+// residual is an unmatched transfer rather than a data-quality problem, so it is
+// routed to TRANSFER_CLEARING and holds the value in transit until the pair is
+// matched.
+var transferTypes = map[apiv1.TxType]bool{
+	apiv1.TxType_TRANSFER: true,
+	apiv1.TxType_JRNLFUND: true,
+	apiv1.TxType_JRNLSEC:  true,
+}
+
+// Tolerances below which a residual is not worth a posting. A trade of 37 shares
+// at 12.3456 costs 456.7872 against a broker cash row of -456.79: the 0.0028 is
+// an artefact of the source being written to 2dp, not a real discrepancy.
+// Beancount infers half the last significant digit for exactly this case, and
+// half a cent is what it would infer for 2dp money. The constants are interim --
+// once quantities are exact decimals the tolerance can be inferred from their
+// scale -- but a tolerance is not, and both beancount and ledger keep one.
+const (
+	moneyTolerance     = 0.005
+	commodityTolerance = 1e-6
+)
+
+// balanceInstrument is what balancing needs to know about a posting's commodity.
+// Currencies are instruments, so telling money from a security is a property of
+// the resolved instrument rather than of the tx type -- which matters, because a
+// broker can report a cash movement under a security tx type.
+type balanceInstrument struct {
+	isCurrency bool
+	currency   string
+}
+
+// commodity names what a weight is denominated in. A converted weight is named by
+// its currency and an unconverted one by its instrument, so both have to reduce to
+// the same name or a trade's two legs would never cancel. An unresolved posting
+// falls back to its description, which still balances it against itself.
+type commodity struct {
+	currency     string
+	instrumentID string
+	description  string
+}
+
+func (c commodity) key() string {
+	switch {
+	case c.currency != "":
+		return "cur:" + c.currency
+	case c.instrumentID != "":
+		return "inst:" + c.instrumentID
+	default:
+		return "desc:" + c.description
+	}
+}
+
+// tolerance returns the residual below which this commodity counts as balanced.
+func (c commodity) tolerance() float64 {
+	if c.currency != "" {
+		return moneyTolerance
+	}
+	return commodityTolerance
+}
+
+// routedPosting is a counterparty the server writes to make a group balance.
+// currency is set when the commodity is money and its instrument still has to be
+// looked up; instrumentID is set when it is carried over from the leg balanced.
+type routedPosting struct {
+	tx           *apiv1.Tx
+	currency     string
+	instrumentID string
+}
+
+// settleCurrency is the currency a converted weight is denominated in. Settlement
+// is what the group is paid in; trading is the fallback for a source that reports
+// only the instrument's own denomination.
+func settleCurrency(tx *apiv1.Tx) string {
+	if c := strings.ToUpper(strings.TrimSpace(tx.GetSettlementCurrency())); c != "" {
+		return c
+	}
+	return strings.ToUpper(strings.TrimSpace(tx.GetTradingCurrency()))
+}
+
+// ownCommodity names the posting's own units.
+func ownCommodity(tx *apiv1.Tx, instID string, inst balanceInstrument) commodity {
+	if inst.isCurrency && inst.currency != "" {
+		return commodity{currency: strings.ToUpper(inst.currency)}
+	}
+	if instID != "" {
+		return commodity{instrumentID: instID}
+	}
+	return commodity{description: tx.GetInstrumentDescription()}
+}
+
+// weightOf returns the amount a posting contributes to the group's balance, and
+// the commodity it contributes in.
+func weightOf(tx *apiv1.Tx, instID string, inst balanceInstrument) (float64, commodity) {
+	own := ownCommodity(tx, instID, inst)
+	settle := settleCurrency(tx)
+	convert := func() (float64, commodity) {
+		return tx.GetQuantity() * tx.GetUnitPrice(), commodity{currency: settle}
+	}
+	switch {
+	// No price, so nothing to convert at. An exchange event with no price leaves a
+	// residual in the security itself, which is the signal that the source omitted
+	// a price -- nothing else produces one.
+	case tx.UnitPrice == nil:
+		return tx.GetQuantity(), own
+	case settle == "":
+		return tx.GetQuantity(), own
+	// The money leg of an exchange event is already in the units the group
+	// balances in. Beancount has the same guard implicitly: nobody annotates a
+	// plain cash posting with a price.
+	case own.currency != "" && own.currency == settle:
+		return tx.GetQuantity(), own
+	case exchangeTypes[tx.GetType()]:
+		return convert()
+	// A movement event across currencies -- a EUR dividend settling into a USD
+	// account -- does have its counter-leg in different units after all, and the
+	// price is the FX rate. This is beancount's `3877.41 EUR @ 1.35 USD`.
+	case own.currency != "" && own.currency != settle:
+		return convert()
+	default:
+		return tx.GetQuantity(), own
+	}
+}
+
+// groupPostings returns the indices of each group's postings in input order,
+// and the group refs in a stable order. Postings with no ref are each their own
+// group, and are given a synthetic ref so a routed counterparty can join them.
+// Refs are scoped to one upload and never stored, so synthesising them is local.
+func groupPostings(txs []*apiv1.Tx) ([]string, map[string][]int) {
+	prefix := "g"
+	for _, t := range txs {
+		for strings.HasPrefix(t.GetGroupRef(), prefix) {
+			prefix += "_"
+		}
+	}
+	var order []string
+	byRef := map[string][]int{}
+	for i, t := range txs {
+		ref := t.GetGroupRef()
+		if ref == "" {
+			ref = fmt.Sprintf("%s%d", prefix, i)
+			t.GroupRef = ref
+		}
+		if _, seen := byRef[ref]; !seen {
+			order = append(order, ref)
+		}
+		byRef[ref] = append(byRef[ref], i)
+	}
+	return order, byRef
+}
+
+// routeResiduals returns the counterparty postings that make every group balance.
+// Groups that already balance produce none. A group can produce more than one when
+// its residual spans commodities, as beancount's residual inventory and ledger's
+// Imbalance:<CUR> both can.
+//
+// It assigns a synthetic group_ref to any posting that has none, so that a routed
+// counterparty is stored in the same group as the posting it balances.
+func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[string]balanceInstrument) []routedPosting {
+	order, byRef := groupPostings(txs)
+	var out []routedPosting
+	for _, ref := range order {
+		idxs := byRef[ref]
+		sums := map[string]float64{}
+		commodities := map[string]commodity{}
+		// The description to give a residual in a security commodity, taken from
+		// the leg it balances rather than invented.
+		descs := map[string]string{}
+		var keys []string
+		transfer := false
+		for _, i := range idxs {
+			t := txs[i]
+			if transferTypes[t.GetType()] {
+				transfer = true
+			}
+			amount, c := weightOf(t, instrumentIDs[i], instruments[instrumentIDs[i]])
+			k := c.key()
+			if _, seen := sums[k]; !seen {
+				keys = append(keys, k)
+				commodities[k] = c
+				descs[k] = t.GetInstrumentDescription()
+			}
+			sums[k] += amount
+		}
+		// Sorted so a group's routed postings come out in a fixed order whatever
+		// the map iteration gave.
+		sort.Strings(keys)
+		first := txs[idxs[0]]
+		accountType := apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE
+		if transfer {
+			accountType = apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING
+		}
+		for _, k := range keys {
+			c := commodities[k]
+			if math.Abs(sums[k]) < c.tolerance() {
+				continue
+			}
+			out = append(out, routedFor(first, ref, c, descs[k], -sums[k], accountType))
+		}
+	}
+	return out
+}
+
+// routedFor builds the counterparty posting for one commodity's residual. It keeps
+// the broker account, date and tx type of the group it balances, so the residual
+// stays attributable to the account that produced it and to the kind of event that
+// left it -- which is what the imbalance report reads.
+func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount float64, accountType apiv1.AccountType) routedPosting {
+	tx := &apiv1.Tx{
+		Timestamp:   proto.CloneOf(first.GetTimestamp()),
+		Type:        first.GetType(),
+		Quantity:    amount,
+		Account:     first.GetAccount(),
+		GroupRef:    ref,
+		AccountType: accountType,
+	}
+	if c.currency != "" {
+		// A currency posting's description is the code, matching how an ordinary
+		// cash row arrives, so nothing downstream has to treat it specially.
+		tx.InstrumentDescription = c.currency
+		tx.TradingCurrency = c.currency
+		tx.SettlementCurrency = c.currency
+		return routedPosting{tx: tx, currency: c.currency}
+	}
+	tx.InstrumentDescription = desc
+	tx.TradingCurrency = first.GetTradingCurrency()
+	tx.SettlementCurrency = first.GetSettlementCurrency()
+	return routedPosting{tx: tx, instrumentID: c.instrumentID}
+}
+
+// balanceInstruments reduces the resolved instruments to what balancing needs:
+// whether each is money, and if so which currency. Telling the two apart is a
+// property of the instrument, not of the tx type -- which matters, because a
+// broker can report a cash movement under a security tx type.
+func balanceInstruments(byID map[string]*db.InstrumentRow) map[string]balanceInstrument {
+	out := make(map[string]balanceInstrument, len(byID))
+	for id, r := range byID {
+		var inst balanceInstrument
+		if r.AssetClass != nil && *r.AssetClass == db.AssetClassCash {
+			inst.isCurrency = true
+			if r.Currency != nil {
+				inst.currency = strings.ToUpper(*r.Currency)
+			}
+		}
+		out[id] = inst
+	}
+	return out
+}
+
+// resolveRouted turns the routed postings into txs with a resolved instrument,
+// ready to store alongside the postings they balance. A residual in a currency
+// resolves through the seeded currency instruments; one in a security carries the
+// instrument of the leg it balances. The third return names the commodities whose
+// residual could not be given an instrument.
+//
+// A residual with nowhere to go is dropped rather than failed: routing exists so
+// that imperfect source data still lands, and refusing an import because its
+// residual has no instrument would defeat that. The group is then left unbalanced,
+// which is the same state it was in before routing existed.
+func resolveRouted(ctx context.Context, database db.InstrumentDB, routed []routedPosting) ([]*apiv1.Tx, []string, []string) {
+	var txs []*apiv1.Tx
+	var ids []string
+	var unresolved []string
+	byCurrency := map[string]string{}
+	for _, r := range routed {
+		id := r.instrumentID
+		if r.currency != "" {
+			cached, ok := byCurrency[r.currency]
+			if !ok {
+				var err error
+				cached, err = database.FindInstrumentByIdentifier(ctx, "CURRENCY", "", r.currency)
+				if err != nil {
+					cached = ""
+				}
+				byCurrency[r.currency] = cached
+			}
+			id = cached
+		}
+		if id == "" {
+			// The commodity as best we can name it: the currency code when the
+			// residual is money, otherwise the description of the leg it balances,
+			// whose own instrument never resolved either.
+			name := r.currency
+			if name == "" {
+				name = r.tx.GetInstrumentDescription()
+			}
+			unresolved = append(unresolved, name)
+			continue
+		}
+		txs = append(txs, r.tx)
+		ids = append(ids, id)
+	}
+	return txs, ids, unresolved
+}

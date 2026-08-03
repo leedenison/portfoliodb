@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db/migrate"
 	"github.com/leedenison/portfoliodb/server/migrations"
 	_ "github.com/lib/pq"
@@ -58,4 +59,11 @@ func testDBTx(t *testing.T) *Postgres {
 	}
 	t.Cleanup(func() { _ = tx.Rollback() })
 	return NewWithQueryable(tx)
+}
+
+// createTx appends a single posting as its own group. Most tests only need one
+// seed row, and CreateTxGroup takes a slice so that the append path can carry a
+// routed counterparty alongside the posting it balances.
+func createTx(ctx context.Context, p *Postgres, userID, broker, account, jobID string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error {
+	return p.CreateTxGroup(ctx, userID, broker, account, jobID, []*apiv1.Tx{tx}, []string{instrumentID}, shareCountBasis)
 }

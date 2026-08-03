@@ -37,7 +37,7 @@ Grouping is the converter's job. The server persists what it is given: it does n
 
 **Fees are postings, not a column.** A commission, levy or duty is a row with `type=INVEXPENSE` and a negative `quantity` in the settlement currency. Put it in the trade's group when the broker charges it as part of the trade; leave it ungrouped when the broker reports it as a separate cash event on its own date. Where a broker nets commission into a single total and reports no separate charge, the converter derives the fee and emits the row itself.
 
-A group whose postings do not sum to zero is accepted, not rejected. The residual is made visible rather than silently absorbed.
+A group whose postings do not sum to zero is accepted, not rejected. The server routes whatever is left over to an `IMBALANCE` posting -- or `TRANSFER_CLEARING` for a journal -- so the residual is made visible rather than silently absorbed. See [postings.md](postings.md#balancing).
 
 ### Transaction types (type column)
 

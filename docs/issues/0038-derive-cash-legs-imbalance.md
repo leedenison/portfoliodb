@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Route posting residuals to Imbalance
 milestone: M12
 dependencies: [0036, 0037, 0063]

@@ -94,3 +94,41 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 		t.Fatalf("expected GOOG quantity -5 (signed quantity, no type-based flip), got %v", googQty)
 	}
 }
+
+// TestComputeHoldings_excludesNonUserAccountTypes verifies the counterparty leg of a
+// one-sided event does not net against the holding it balances. The EQUITY leg here is
+// what an INITIALIZE pad's counterparty looks like: same instrument, same broker
+// account, equal and opposite. Without the account_type predicate the two sum to zero
+// and the declared opening balance silently disappears.
+func TestComputeHoldings_excludesNonUserAccountTypes(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|acct-type-hold", "U", "u@ah.com")
+	now := time.Now()
+	from := timestamppb.New(now.Add(-1 * time.Hour))
+	to := timestamppb.New(now)
+	ts := timestamppb.New(now.Add(-30 * time.Minute))
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "TSCO", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	txs := []*apiv1.Tx{
+		{Timestamp: ts, InstrumentDescription: "TSCO", Type: apiv1.TxType_BUYSTOCK, Quantity: 40, Account: "A", GroupRef: "pad"},
+		{Timestamp: ts, InstrumentDescription: "TSCO", Type: apiv1.TxType_BUYSTOCK, Quantity: -40, Account: "A", GroupRef: "pad", AccountType: apiv1.AccountType_ACCOUNT_TYPE_EQUITY},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	holdings, _, err := p.ComputeHoldings(ctx, userID, nil, "", nil)
+	if err != nil {
+		t.Fatalf("holdings: %v", err)
+	}
+	if len(holdings) != 1 {
+		t.Fatalf("expected 1 holding, got %d", len(holdings))
+	}
+	if got := holdings[0].Quantity; got != 40 {
+		t.Errorf("holding quantity = %v, want 40: the EQUITY counter-leg must not net against the position", got)
+	}
+}

@@ -20,15 +20,20 @@ import (
 // and $4 for displayCurrency.
 func valuationQuery(portfolioMode bool) string {
 	var txSource string
+	// Only USER postings are valued. Income, charges and residuals are not positions,
+	// and an unmatched TRANSFER_CLEARING balance would assert that money in transit is
+	// coming back to an account we hold, which is the thing we do not know. Matched
+	// pairs whose accounts are both portfolio members are value in transit and belong
+	// in valuation; including them needs the pairing from 0068.
 	if portfolioMode {
 		txSource = `
     FROM txs t
     INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
-    WHERE t.timestamp::date < $3`
+    WHERE t.timestamp::date < $3 AND t.account_type = 'USER'`
 	} else {
 		txSource = `
     FROM txs t
-    WHERE t.user_id = $1 AND t.timestamp::date < $3`
+    WHERE t.user_id = $1 AND t.timestamp::date < $3 AND t.account_type = 'USER'`
 	}
 
 	return `

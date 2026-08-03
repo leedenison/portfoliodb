@@ -25,6 +25,7 @@ Header names are case-insensitive. Supported column names:
 | `exchange_type`          | No       | Exchange code system: `MIC` (ISO 10383) or `OPENFIGI` (Bloomberg exchange code). Required when `exchange` is present. |
 | `exchange`               | No       | Exchange code value (e.g. "XNAS" for MIC, "US" for OPENFIGI). Populates the domain field on the identifier hint. Required when `exchange_type` is present. |
 | `group_ref`              | No       | Opaque grouping key. Rows sharing a non-empty value are postings of one economic event. See [Transaction groups](#transaction-groups). |
+| `account_type`           | No       | What kind of leg the row is. Defaults to `USER`. See allowed values below. |
 
 ### Transaction groups
 
@@ -45,6 +46,20 @@ Allowed values for `type` (OFX-style):
 `SELLDEBT`, `SELLFUTURE`, `SELLMF`, `SELLOPT`, `SELLOTHER`, `SELLSTOCK`,
 `INCOME`, `INVEXPENSE`, `REINVEST`, `RETOFCAP`, `SPLIT`, `TRANSFER`,
 `JRNLFUND`, `JRNLSEC`, `MARGININTEREST`, `CLOSUREOPT`, `CASHFLOW`.
+
+### Account types (account_type column)
+
+Allowed values for `account_type`:
+`USER`, `EQUITY`, `INCOME`, `EXPENSE`, `IMBALANCE`, `TRANSFER_CLEARING`.
+
+An absent column or an empty cell means `USER`, so an ordinary export needs no such
+column. An unrecognised value is a row error rather than a silent fall back to `USER`.
+
+`account_type` is what makes a one-sided event balance: the income side of a dividend or
+the expense side of a charge is a second row in the same `group_ref`, carrying the same
+`broker` and `account` as the cash row it balances. It is distinct from `type`, which
+records what the broker called the event -- a dividend's cash row and its income row are
+both `type=INCOME`, and differ by `account_type`. See [postings.md](postings.md#account-types).
 
 ### Identifier hints
 
@@ -70,6 +85,15 @@ The optional `exchange_type` and `exchange` columns provide a domain for resolut
 date,instrument_description,type,quantity,trading_currency,unit_price,account,symbol_type,symbol,exchange_type,exchange
 2024-01-15,AAPL - Apple Inc.,BUYSTOCK,10,USD,185.50,ACC-1,MIC_TICKER,AAPL,MIC,XNAS
 2024-01-16,MSFT Option,BUYOPT,1,USD,12.50,ACC-1,OCC,MSFT  250117P00385000,,
+```
+
+A dividend as a balanced group: the cash arriving in the account, and the income it came
+from. Both rows carry the same `account` and `group_ref`; only `account_type` differs.
+
+```csv
+date,instrument_description,type,quantity,settlement_currency,account,group_ref,account_type
+2024-02-01,USD,INCOME,23.40,USD,ACC-1,div-8842,
+2024-02-01,USD,INCOME,-23.40,USD,ACC-1,div-8842,INCOME
 ```
 
 Any extra columns are ignored. Empty optional fields can be omitted or left blank.

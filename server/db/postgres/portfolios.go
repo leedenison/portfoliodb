@@ -201,7 +201,7 @@ func (p *Postgres) ListBrokersAndAccounts(ctx context.Context, userID string) ([
 	}
 	rows, err := p.q.QueryContext(ctx, `
 		SELECT DISTINCT broker, account FROM txs
-		WHERE user_id = $1
+		WHERE user_id = $1 AND account_type = 'USER'
 		ORDER BY broker, account
 	`, userUUID)
 	if err != nil {

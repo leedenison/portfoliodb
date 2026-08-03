@@ -9,6 +9,7 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "@/lib/dates";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import {
+  AccountType,
   IdentifierType,
   InstrumentIdentifierSchema,
   TxSchema,
@@ -59,12 +60,30 @@ const IDENTIFIER_TYPE_BY_NAME = new Map<string, IdentifierType>(
     .map(([k, v]) => [k, v as IdentifierType])
 );
 
+const ACCOUNT_TYPE_BY_NAME = new Map<string, AccountType>(
+  (Object.entries(AccountType) as [string, number][])
+    .filter(([k, v]) => typeof v === "number" && k !== "UNSPECIFIED")
+    .map(([k, v]) => [k, v as AccountType])
+);
+
 const EXCHANGE_TYPES = new Set(["MIC", "OPENFIGI"]);
 
 function parseTxType(value: string): TxType | null {
   const trimmed = value.trim().toUpperCase();
   if (trimmed === "" || trimmed === "TX_TYPE_UNSPECIFIED") return null;
   return TX_TYPE_BY_NAME.get(trimmed) ?? null;
+}
+
+/**
+ * Parse an account_type cell. An absent or empty value is USER: a row that says
+ * nothing about what kind of leg it is is an ordinary broker account posting.
+ * Returns null for a value that is not in the vocabulary, so the row can be
+ * rejected rather than silently treated as USER.
+ */
+function parseAccountType(value: string): AccountType | null {
+  const trimmed = value.trim().toUpperCase();
+  if (trimmed === "") return AccountType.USER;
+  return ACCOUNT_TYPE_BY_NAME.get(trimmed) ?? null;
 }
 
 function parseIdentifierType(value: string): IdentifierType | null {
@@ -91,7 +110,7 @@ export function parseCSVLine(line: string): string[] {
  * Parse standard-format CSV text into Tx array and period.
  * Header names are case-insensitive. Required: date (or timestamp), instrument_description, type, quantity.
  * Optional: trading_currency, settlement_currency, unit_price, account, symbol_type, symbol, exchange_type,
- * exchange, group_ref.
+ * exchange, group_ref, account_type.
  */
 export function parseStandardCSV(csvText: string): StandardParseResult {
   const errors: ParseError[] = [];
@@ -140,6 +159,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
   const exchangeTypeCol = col("exchange_type");
   const exchangeCol = col("exchange");
   const groupRefCol = col("group_ref");
+  const accountTypeCol = col("account_type");
 
   if (dateCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: date or timestamp" });
   if (descCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: instrument_description" });
@@ -195,6 +215,13 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
     const account = accountCol >= 0 ? get(accountCol) : "";
     const groupRef = groupRefCol >= 0 ? get(groupRefCol) : "";
 
+    const accountTypeStr = accountTypeCol >= 0 ? get(accountTypeCol) : "";
+    const accountType = parseAccountType(accountTypeStr);
+    if (accountType === null) {
+      errors.push({ rowIndex, field: "account_type", message: "Unknown account type" });
+      continue;
+    }
+
     // Parse exchange_type + exchange into a domain for the identifier hint.
     let domain: string | undefined;
     const exchangeTypeStr = exchangeTypeCol >= 0 ? get(exchangeTypeCol) : "";
@@ -240,6 +267,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
         type: txType,
         quantity,
         account,
+        accountType,
         ...(groupRef ? { groupRef } : {}),
         ...(tradingCurrency ? { tradingCurrency } : {}),
         ...(settlementCurrency ? { settlementCurrency } : {}),

@@ -91,3 +91,31 @@ func TestListPortfolioFilters_SetPortfolioFilters(t *testing.T) {
 		t.Fatalf("expected single broker=SCHB filter, got %v", list)
 	}
 }
+
+// TestListBrokersAndAccounts_excludesNonUser verifies the account picker offers only
+// real broker accounts. Non-USER postings keep the broker and account of the event they
+// belong to, so without the predicate they add no new pair -- but a residual posted
+// against an account the user never traded in would, and it is not a filter target.
+func TestListBrokersAndAccounts_excludesNonUser(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|ba-acct-type", "U", "u@ba.com")
+	if _, err := p.q.ExecContext(ctx, `
+		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+		                 tx_type, quantity, split_adjusted_quantity, share_count_basis, account_type)
+		VALUES ($1, 'IBKR', 'A', now(), 'X', 'BUYSTOCK', 1, 1, current_date, 'USER'),
+		       ($1, 'IBKR', 'CLEARING', now(), 'X', 'TRANSFER', 1, 1, current_date, 'TRANSFER_CLEARING')
+	`, userID); err != nil {
+		t.Fatalf("insert txs: %v", err)
+	}
+	got, err := p.ListBrokersAndAccounts(ctx, userID)
+	if err != nil {
+		t.Fatalf("ListBrokersAndAccounts: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 broker/account pair, got %d: %+v", len(got), got)
+	}
+	if got[0].Account != "A" {
+		t.Errorf("account = %q, want %q", got[0].Account, "A")
+	}
+}

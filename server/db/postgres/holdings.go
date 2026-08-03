@@ -28,6 +28,10 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *a
 		From("txs t").
 		LeftJoin("instruments i ON i.id = t.instrument_id").
 		Where(sq.Eq{"t.user_id": userUUID}).
+		// Only the user's own postings are positions. The non-asset legs (income,
+		// charges, residuals, in-flight transfers) share the broker account and
+		// would otherwise net against the holding they belong to.
+		Where(sq.Eq{"t.account_type": "USER"}).
 		Where(sq.LtOrEq{"t.timestamp": asOfT}).
 		GroupBy("t.broker", "t.account", "t.instrument_id", "i.name").
 		Suffix("HAVING NOT qty_is_zero(SUM(t.quantity))")
@@ -75,7 +79,7 @@ func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID 
 		FROM txs t
 		INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
 		LEFT JOIN instruments i ON i.id = t.instrument_id
-		WHERE t.timestamp <= $2
+		WHERE t.timestamp <= $2 AND t.account_type = 'USER'
 		GROUP BY t.broker, t.account, t.instrument_id, i.name
 		HAVING NOT qty_is_zero(SUM(t.quantity))
 	`, portUUID, asOfT)

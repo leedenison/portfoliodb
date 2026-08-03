@@ -740,3 +740,73 @@ func TestListTxsByPortfolio_ANDBetweenCategories(t *testing.T) {
 		t.Fatalf("expected total quantity 3, got %v", totalQty)
 	}
 }
+
+// TestReplaceTxsInPeriod_RoundTripsAccountType verifies a posting's account_type
+// survives the write and comes back on the read, and that an upload which says
+// nothing about kind stores USER rather than an unspecified value.
+func TestReplaceTxsInPeriod_RoundTripsAccountType(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|acct-type", "U", "u@acct.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "USD", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	base := time.Date(2025, 5, 1, 0, 0, 0, 0, time.UTC)
+	// A dividend as a balanced group: cash into the account, and the income it
+	// came from. Both legs keep the same broker and account.
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "USD", Type: apiv1.TxType_INCOME, Quantity: 23.4, Account: "A", GroupRef: "div-1"},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "USD", Type: apiv1.TxType_INCOME, Quantity: -23.4, Account: "A", GroupRef: "div-1", AccountType: apiv1.AccountType_ACCOUNT_TYPE_INCOME},
+	}
+	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	var user, income int
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*) FILTER (WHERE account_type = 'USER'),
+		       count(*) FILTER (WHERE account_type = 'INCOME')
+		FROM txs WHERE user_id = $1
+	`, userID).Scan(&user, &income); err != nil {
+		t.Fatalf("count by account type: %v", err)
+	}
+	if user != 1 || income != 1 {
+		t.Errorf("stored account types: want 1 USER and 1 INCOME, got %d and %d", user, income)
+	}
+
+	// The ledger view is not filtered: both legs come back, so a group can be seen
+	// to balance.
+	got, _, err := p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
+	if err != nil {
+		t.Fatalf("ListTxs: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListTxs returned %d postings, want both legs", len(got))
+	}
+	seen := map[apiv1.AccountType]bool{}
+	for _, ptx := range got {
+		seen[ptx.GetTx().GetAccountType()] = true
+	}
+	if !seen[apiv1.AccountType_ACCOUNT_TYPE_USER] || !seen[apiv1.AccountType_ACCOUNT_TYPE_INCOME] {
+		t.Errorf("ListTxs account types: want USER and INCOME, got %v", seen)
+	}
+}
+
+// TestTxs_AccountTypeCheckConstraint verifies the vocabulary is enforced by the
+// database, not only by the enum on the way in.
+func TestTxs_AccountTypeCheckConstraint(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|acct-check", "U", "u@check.com")
+	_, err := p.q.ExecContext(ctx, `
+		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+		                 tx_type, quantity, split_adjusted_quantity, share_count_basis, account_type)
+		VALUES ($1, 'IBKR', 'A', now(), 'X', 'BUYSTOCK', 1, 1, current_date, 'Imbalance.USD')
+	`, userID)
+	if err == nil {
+		t.Fatal("insert with an account_type outside the vocabulary: want error, got none")
+	}
+}

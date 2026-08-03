@@ -138,7 +138,7 @@ func (p *Postgres) GetPortfolioStartDate(ctx context.Context, userID string) (*t
 	var t sql.NullTime
 	err = p.q.QueryRowContext(ctx, `
 		SELECT MIN(timestamp) FROM txs
-		WHERE user_id = $1 AND synthetic_purpose IS NULL
+		WHERE user_id = $1 AND synthetic_purpose IS NULL AND account_type = 'USER'
 	`, userUUID).Scan(&t)
 	if err != nil {
 		return nil, fmt.Errorf("get portfolio start date: %w", err)
@@ -165,6 +165,7 @@ func (p *Postgres) ComputeRunningBalance(ctx context.Context, userID, broker, ac
 		WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
 		  AND timestamp >= $5 AND timestamp < $6
 		  AND synthetic_purpose IS NULL
+		  AND account_type = 'USER'
 	`, userUUID, broker, account, instUUID, from, to).Scan(&balance)
 	if err != nil {
 		return 0, fmt.Errorf("compute running balance: %w", err)
@@ -191,6 +192,7 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 			SELECT group_id FROM txs
 			WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
 			  AND synthetic_purpose = 'INITIALIZE'
+			  AND account_type = 'USER'
 		`, userUUID, broker, account, instUUID).Scan(&groupID)
 		switch {
 		case err == sql.ErrNoRows:
@@ -215,6 +217,7 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 			UPDATE txs SET timestamp = $5, quantity = $6, tx_type = $7
 			WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
 			  AND synthetic_purpose = 'INITIALIZE'
+			  AND account_type = 'USER'
 		`, userUUID, broker, account, instUUID, timestamp, quantity, txType)
 		if err != nil {
 			return fmt.Errorf("update initialize tx: %w", err)

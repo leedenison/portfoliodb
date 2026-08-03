@@ -48,6 +48,22 @@ enum TxType {
   SELLFUTURE     = 23;
 }
 
+// AccountType classifies the account a posting lands in, so that the non-asset side
+// of an event that is one-sided in the source data has somewhere to go. A posting
+// keeps the broker and account of the event it belongs to; the type says what kind
+// of leg it is. Values are prefixed because proto enum values share package scope
+// and TxType already defines INCOME and TRANSFER.
+// See docs/adr/0022-typed-per-account-cash-flow-boundary.md.
+enum AccountType {
+  ACCOUNT_TYPE_UNSPECIFIED = 0;       // Unset on upload; stored as USER.
+  ACCOUNT_TYPE_USER = 1;              // An ordinary broker account posting.
+  ACCOUNT_TYPE_EQUITY = 2;            // Value entering or leaving the user's holdings entirely.
+  ACCOUNT_TYPE_INCOME = 3;            // Dividends, interest and other income.
+  ACCOUNT_TYPE_EXPENSE = 4;           // Commissions, levies, custody and service charges, taxes.
+  ACCOUNT_TYPE_IMBALANCE = 5;         // The residual of a group that does not sum to zero.
+  ACCOUNT_TYPE_TRANSFER_CLEARING = 6; // One side of a transfer whose other side is not yet known.
+}
+
 // IdentifierType is the controlled vocabulary for instrument identifier types.
 // Stored in instrument_identifiers.identifier_type. Broker description identifiers use BROKER_DESCRIPTION with domain = source (e.g. "Fidelity:web:fidelity-csv").
 enum IdentifierType {
@@ -168,6 +184,11 @@ message Tx {
   // of a trade. Not a durable identifier: it is not stored and carries no
   // meaning across uploads.
   string group_ref = 14;
+  // What kind of leg this posting is. Set by the broker converter, which is the only
+  // thing that knows whether a row is the user's cash or the income it came from.
+  // Unset means USER, so an upload that says nothing about kind reads as an ordinary
+  // broker account posting.
+  AccountType account_type = 15 [(buf.validate.field).enum.defined_only = true];
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,

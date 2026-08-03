@@ -62,6 +62,11 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 -- by replace-by-period (user_id, broker, period). Single-tx ingestion is append-only.
 -- group_id is the economic event this row is a posting of. Deleting a group deletes
 -- its postings, which makes the group the unit of deletion for replace-by-period.
+-- account_type classifies the account this row lands in. USER is an ordinary broker
+-- account posting; the others are the non-asset side of an event that is one-sided in
+-- the source data and keep the broker and account of the event they belong to, so a
+-- residual stays attributable to the account that produced it. Holdings and the other
+-- quantity aggregations read USER only. See docs/adr/0022-typed-per-account-cash-flow-boundary.md.
 -- share_count_basis is the date at which the share count the raw quantity and
 -- unit_price are denominated in was current. It defaults to timestamp::date --
 -- the as-traded assumption, that a broker log line accounts only for events
@@ -89,6 +94,9 @@ CREATE TABLE txs (
   split_adjusted_unit_price DOUBLE PRECISION,
   share_count_basis         DATE NOT NULL,
   synthetic_purpose         TEXT CHECK (synthetic_purpose IS NULL OR synthetic_purpose = 'INITIALIZE'),
+  account_type              TEXT NOT NULL DEFAULT 'USER'
+                              CHECK (account_type IN ('USER', 'EQUITY', 'INCOME', 'EXPENSE',
+                                                      'IMBALANCE', 'TRANSFER_CLEARING')),
   group_id                  UUID REFERENCES tx_groups (id) ON DELETE CASCADE,
   created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -347,8 +355,12 @@ ALTER TABLE txs ADD COLUMN instrument_id UUID REFERENCES instruments (id);
 
 CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);
 
+-- At most one INITIALIZE posting per holding per account type. account_type is part of
+-- the key because the pad's counterparty is an equal-and-opposite posting of the same
+-- instrument in the same broker account, and is synthetic for the same reason the pad
+-- is; without it the two collide.
 CREATE UNIQUE INDEX idx_txs_initialize_unique
-  ON txs (user_id, broker, account, instrument_id)
+  ON txs (user_id, broker, account, instrument_id, account_type)
   WHERE synthetic_purpose = 'INITIALIZE';
 
 -- Portfolio filter matching view: returns (portfolio_id, tx_id) pairs for txs

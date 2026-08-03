@@ -99,6 +99,11 @@ import {
   ListUnhandledCorporateEventsRequestSchema,
   ListUnhandledCorporateEventsResponseSchema,
   ResolveUnhandledCorporateEventRequestSchema,
+  ListResidualBalancesRequestSchema,
+  ListResidualBalancesResponseSchema,
+  CountResidualBalancesRequestSchema,
+  CountResidualBalancesResponseSchema,
+  AccountType,
   AssetClass,
   JobStatus,
   WorkerState,
@@ -124,6 +129,7 @@ import type {
   Portfolio as GenPortfolio,
   PortfolioFilterProto,
   PortfolioTx,
+  ResidualBalance as ResidualBalanceProto,
   ValidationError,
   Worker as WorkerProto,
 } from "@/gen/api/v1/api_pb";
@@ -1091,4 +1097,81 @@ export async function resolveUnhandledCorporateEvent(id: string): Promise<void> 
   await unaryFetch(base, ApiServicePrefix + "ResolveUnhandledCorporateEvent", toBinary(ResolveUnhandledCorporateEventRequestSchema, req), {
     credentials: "include",
   });
+}
+
+// Residual balances
+
+/**
+ * The net value left in one non-asset account: what events of one tx type left
+ * over in one broker account in one commodity. Balances are per commodity and are
+ * never converted, so `assetClass` decides whether a row is money or a quantity.
+ */
+export interface ResidualBalance {
+  accountType: AccountType;
+  broker: number;
+  account: string;
+  instrumentId: string;
+  commodity: string;
+  assetClass: AssetClass;
+  txType: number;
+  balance: number;
+  postingCount: number;
+  /**
+   * Oldest and newest postings contributing to the balance. For a transfer these
+   * are not the age of a missing side: nothing pairs the two sides of a journal
+   * until transfers are matched, so a settled transfer is reported like an open
+   * one.
+   */
+  oldestTimestamp?: Date;
+  newestTimestamp?: Date;
+}
+
+/**
+ * List residual balances across all users (admin only). Omitting the period
+ * bounds reports all of history.
+ */
+export async function listResidualBalances(params?: {
+  periodFrom?: Date;
+  periodBefore?: Date;
+  accountType?: AccountType;
+}): Promise<ResidualBalance[]> {
+  const base = getBaseUrl();
+  const req = create(ListResidualBalancesRequestSchema, {
+    periodFrom: params?.periodFrom ? timestampFromDate(params.periodFrom) : undefined,
+    periodBefore: params?.periodBefore ? timestampFromDate(params.periodBefore) : undefined,
+    accountType: params?.accountType ?? AccountType.UNSPECIFIED,
+  });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ListResidualBalances", toBinary(ListResidualBalancesRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(ListResidualBalancesResponseSchema, resBytes);
+  return (res.balances ?? []).map((b: ResidualBalanceProto) => ({
+    accountType: b.accountType,
+    broker: b.broker,
+    account: b.account,
+    instrumentId: b.instrumentId,
+    commodity: b.commodity,
+    assetClass: b.assetClass,
+    txType: b.txType,
+    balance: b.balance,
+    postingCount: b.postingCount,
+    oldestTimestamp: b.oldestTimestamp ? timestampDate(b.oldestTimestamp) : undefined,
+    newestTimestamp: b.newestTimestamp ? timestampDate(b.newestTimestamp) : undefined,
+  }));
+}
+
+export interface ResidualBalanceCounts {
+  imbalanceCount: number;
+  staleTransferCount: number;
+}
+
+/** Headline counts for the admin dashboard (admin only). */
+export async function countResidualBalances(staleAfterDays?: number): Promise<ResidualBalanceCounts> {
+  const base = getBaseUrl();
+  const req = create(CountResidualBalancesRequestSchema, { staleAfterDays: staleAfterDays ?? 0 });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "CountResidualBalances", toBinary(CountResidualBalancesRequestSchema, req), {
+    credentials: "include",
+  });
+  const res = fromBinary(CountResidualBalancesResponseSchema, resBytes);
+  return { imbalanceCount: res.imbalanceCount, staleTransferCount: res.staleTransferCount };
 }

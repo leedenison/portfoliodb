@@ -12,44 +12,10 @@ import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import { listTxs } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
-import { AccountType, TxType, IdentifierType } from "@/gen/api/v1/api_pb";
+import { ACCOUNT_TYPE_LABEL, TX_TYPE_LABEL } from "@/lib/tx-type";
+import { IdentifierType } from "@/gen/api/v1/api_pb";
 import type { PortfolioTx } from "@/gen/api/v1/api_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
-
-const TX_TYPE_LABEL: Record<number, string> = {
-  [TxType.BUYDEBT]: "Buy Debt",
-  [TxType.BUYMF]: "Buy MF",
-  [TxType.BUYOPT]: "Buy Option",
-  [TxType.BUYOTHER]: "Buy Other",
-  [TxType.BUYSTOCK]: "Buy Stock",
-  [TxType.SELLDEBT]: "Sell Debt",
-  [TxType.SELLMF]: "Sell MF",
-  [TxType.SELLOPT]: "Sell Option",
-  [TxType.SELLOTHER]: "Sell Other",
-  [TxType.SELLSTOCK]: "Sell Stock",
-  [TxType.INCOME]: "Income",
-  [TxType.INVEXPENSE]: "Expense",
-  [TxType.REINVEST]: "Reinvest",
-  [TxType.RETOFCAP]: "Return of Capital",
-  [TxType.SPLIT]: "Split",
-  [TxType.TRANSFER]: "Transfer",
-  [TxType.JRNLFUND]: "Journal Fund",
-  [TxType.JRNLSEC]: "Journal Security",
-  [TxType.MARGININTEREST]: "Margin Interest",
-  [TxType.CLOSUREOPT]: "Option Closure",
-  [TxType.CASHFLOW]: "Cash Flow",
-};
-
-// Labels for the non-asset side of an event. USER postings are the ordinary case and
-// carry no badge; the rest are shown so that a group's legs can be told apart, which
-// is also how an imbalance becomes visible rather than silently absorbed.
-const ACCOUNT_TYPE_LABEL: Record<number, string> = {
-  [AccountType.EQUITY]: "Equity",
-  [AccountType.INCOME]: "Income",
-  [AccountType.EXPENSE]: "Expense",
-  [AccountType.IMBALANCE]: "Imbalance",
-  [AccountType.TRANSFER_CLEARING]: "In Flight",
-};
 
 export default function TxsPage() {
   const { state, authError } = useAuth();

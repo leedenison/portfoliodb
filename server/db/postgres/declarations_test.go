@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"maps"
 	"testing"
 	"time"
 
@@ -193,54 +194,64 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	// Verify it shows up in ListTxs
-	txs, _, err := p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	var found bool
-	for _, pt := range txs {
-		if pt.GetTx().GetSyntheticPurpose() == "INITIALIZE" {
-			found = true
-			if pt.GetTx().GetQuantity() != 50 {
-				t.Fatalf("expected qty 50, got %v", pt.GetTx().GetQuantity())
-			}
-		}
-	}
-	if !found {
-		t.Fatal("INITIALIZE tx not found in list")
+	// The ledger view is unfiltered, so both legs of the pad show up: the pad
+	// itself and the EQUITY counterparty that balances it.
+	if got := initQtyByAccountType(t, p, userID); !maps.Equal(got, map[apiv1.AccountType]float64{
+		apiv1.AccountType_ACCOUNT_TYPE_USER:   50,
+		apiv1.AccountType_ACCOUNT_TYPE_EQUITY: -50,
+	}) {
+		t.Fatalf("INITIALIZE legs after create: got %v", got)
 	}
 
-	// Upsert again with different qty (should update, not duplicate)
+	// Upsert again with different qty (should update, not duplicate). Both legs
+	// move together: a recalculation that shifted only the pad would leave the
+	// group unbalanced.
 	err = p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", ts, 75)
 	if err != nil {
 		t.Fatalf("upsert update: %v", err)
 	}
-	txs, _, _ = p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
-	var initCount int
-	for _, pt := range txs {
-		if pt.GetTx().GetSyntheticPurpose() == "INITIALIZE" {
-			initCount++
-			if pt.GetTx().GetQuantity() != 75 {
-				t.Fatalf("expected qty 75 after update, got %v", pt.GetTx().GetQuantity())
-			}
-		}
-	}
-	if initCount != 1 {
-		t.Fatalf("expected 1 INITIALIZE tx, got %d", initCount)
+	if got := initQtyByAccountType(t, p, userID); !maps.Equal(got, map[apiv1.AccountType]float64{
+		apiv1.AccountType_ACCOUNT_TYPE_USER:   75,
+		apiv1.AccountType_ACCOUNT_TYPE_EQUITY: -75,
+	}) {
+		t.Fatalf("INITIALIZE legs after recalculation: got %v", got)
 	}
 
-	// Delete
+	// Deleting takes both legs: the group is the unit of deletion, so no code path
+	// can leave half the event behind.
 	err = p.DeleteInitializeTx(ctx, userID, "IBKR", "acct1", instID)
 	if err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	txs, _, _ = p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
-	for _, pt := range txs {
-		if pt.GetTx().GetSyntheticPurpose() == "INITIALIZE" {
-			t.Fatal("INITIALIZE tx should have been deleted")
-		}
+	if got := initQtyByAccountType(t, p, userID); len(got) != 0 {
+		t.Fatalf("INITIALIZE legs after delete: want none, got %v", got)
 	}
+	if got := countOrphanGroups(t, p, userID); got != 0 {
+		t.Errorf("orphan tx_groups after delete: want 0, got %d", got)
+	}
+}
+
+// initQtyByAccountType returns the quantity of each INITIALIZE posting a user
+// has, keyed by account type. It reads through ListTxs, which is deliberately
+// unfiltered, so both the pad and its counterparty are visible.
+func initQtyByAccountType(t *testing.T, p *Postgres, userID string) map[apiv1.AccountType]float64 {
+	t.Helper()
+	txs, _, err := p.ListTxs(context.Background(), userID, nil, "", nil, nil, false, 50, "")
+	if err != nil {
+		t.Fatalf("list txs: %v", err)
+	}
+	out := map[apiv1.AccountType]float64{}
+	for _, pt := range txs {
+		if pt.GetTx().GetSyntheticPurpose() != "INITIALIZE" {
+			continue
+		}
+		at := pt.GetTx().GetAccountType()
+		if _, dup := out[at]; dup {
+			t.Fatalf("more than one INITIALIZE posting of account type %v", at)
+		}
+		out[at] = pt.GetTx().GetQuantity()
+	}
+	return out
 }
 
 func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
@@ -259,7 +270,7 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 	var jobID *string
 	var groupTs time.Time
 	err := p.q.QueryRowContext(ctx, `
-		SELECT g.id, g.job_id, g.timestamp FROM txs t JOIN tx_groups g ON g.id = t.group_id
+		SELECT DISTINCT g.id, g.job_id, g.timestamp FROM txs t JOIN tx_groups g ON g.id = t.group_id
 		WHERE t.user_id = $1 AND t.synthetic_purpose = 'INITIALIZE'
 	`, userID).Scan(&groupID, &jobID, &groupTs)
 	if err != nil {
@@ -281,7 +292,7 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 	var groupID2 string
 	var groupTs2 time.Time
 	err = p.q.QueryRowContext(ctx, `
-		SELECT g.id, g.timestamp FROM txs t JOIN tx_groups g ON g.id = t.group_id
+		SELECT DISTINCT g.id, g.timestamp FROM txs t JOIN tx_groups g ON g.id = t.group_id
 		WHERE t.user_id = $1 AND t.synthetic_purpose = 'INITIALIZE'
 	`, userID).Scan(&groupID2, &groupTs2)
 	if err != nil {
@@ -302,6 +313,55 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 	}
 	if got := countGroups(t, p, userID); got != 0 {
 		t.Errorf("tx_groups after delete: want 0, got %d", got)
+	}
+}
+
+// TestUpsertInitializeTx_WritesTheEquityCounterparty verifies the pad is written
+// with the leg that balances it. A pad has no counterparty in the source data, so
+// the EQUITY posting is what lets the group sum to zero. It has to be equal and
+// opposite, in the same account, instrument, group and share count basis --
+// otherwise a stock split adjusts the two legs differently and the pair drifts.
+func TestUpsertInitializeTx_WritesTheEquityCounterparty(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|init-equity", "U", "u@eq.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "EQ1", Canonical: false}}, "", nil, nil, nil)
+
+	at := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", at, 50); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	var legs, groups, bases, sum float64
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*), count(DISTINCT group_id), count(DISTINCT share_count_basis), sum(quantity)
+		FROM txs
+		WHERE user_id = $1 AND synthetic_purpose = 'INITIALIZE'
+		  AND broker = 'IBKR' AND account = 'acct1' AND instrument_id = $2
+	`, userID, instID).Scan(&legs, &groups, &bases, &sum); err != nil {
+		t.Fatalf("read legs: %v", err)
+	}
+	if legs != 2 {
+		t.Errorf("INITIALIZE postings: want 2, got %v", legs)
+	}
+	if groups != 1 {
+		t.Errorf("the pad and its counterparty must share one group, got %v groups", groups)
+	}
+	if bases != 1 {
+		t.Errorf("the two legs must share a share_count_basis, got %v distinct", bases)
+	}
+	if sum != 0 {
+		t.Errorf("the pad's group must sum to zero, got %v", sum)
+	}
+
+	// The counterparty is excluded from holdings, so the declared opening balance
+	// still reads as declared rather than netting to nothing.
+	holdings, _, err := p.ComputeHoldings(ctx, userID, nil, "", nil)
+	if err != nil {
+		t.Fatalf("holdings: %v", err)
+	}
+	if len(holdings) != 1 || holdings[0].Quantity != 50 {
+		t.Fatalf("holdings: want a single holding of 50, got %+v", holdings)
 	}
 }
 

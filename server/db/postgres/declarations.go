@@ -183,9 +183,16 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 	if err != nil {
 		return fmt.Errorf("invalid instrument id: %w", err)
 	}
-	// The INITIALIZE posting and its group are updated in place rather than
+	// The INITIALIZE postings and their group are updated in place rather than
 	// re-inserted, so that recalculating a declaration does not orphan a group.
 	// The group has no job: it is derived from the declaration, not ingested.
+	//
+	// A pad has no counterparty in the source data, so it is written with one: an
+	// equal and opposite EQUITY posting of the same instrument in the same broker
+	// account, which is what makes the group balance. Both legs are upserted on
+	// the same key, so a recalculation moves them together and neither can drift
+	// from the other. See docs/spec/postings.md and
+	// docs/adr/0022-typed-per-account-cash-flow-boundary.md.
 	return p.runInTx(ctx, func(exec queryable) error {
 		var groupID uuid.NullUUID
 		err := exec.QueryRowContext(ctx, `
@@ -202,25 +209,35 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 			`, userUUID, timestamp).Scan(&newGroupID); err != nil {
 				return fmt.Errorf("insert initialize tx group: %w", err)
 			}
-			_, err := exec.ExecContext(ctx, `
-				INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, instrument_id, synthetic_purpose, group_id)
-				VALUES ($1, $2, $3, $4, 'INITIALIZE', $7, $5, $6, 'INITIALIZE', $8)
-			`, userUUID, broker, account, timestamp, quantity, instUUID, txType, newGroupID)
-			if err != nil {
-				return fmt.Errorf("insert initialize tx: %w", err)
-			}
-			return nil
+			groupID = uuid.NullUUID{UUID: newGroupID, Valid: true}
 		case err != nil:
 			return fmt.Errorf("find initialize tx: %w", err)
 		}
-		_, err = exec.ExecContext(ctx, `
-			UPDATE txs SET timestamp = $5, quantity = $6, tx_type = $7
-			WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
-			  AND synthetic_purpose = 'INITIALIZE'
-			  AND account_type = 'USER'
-		`, userUUID, broker, account, instUUID, timestamp, quantity, txType)
-		if err != nil {
-			return fmt.Errorf("update initialize tx: %w", err)
+		// Upsert rather than update: the EQUITY leg is absent from any pad written
+		// before it existed, and inserting it there is the same operation as
+		// keeping it in step afterwards. The conflict target is the partial unique
+		// index on INITIALIZE postings, which has account_type in its key so the
+		// two legs do not collide.
+		for _, leg := range []struct {
+			accountType string
+			quantity    float64
+		}{
+			{"USER", quantity},
+			{"EQUITY", -quantity},
+		} {
+			if _, err := exec.ExecContext(ctx, `
+				INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+				                 tx_type, quantity, instrument_id, synthetic_purpose,
+				                 account_type, group_id)
+				VALUES ($1, $2, $3, $4, 'INITIALIZE', $7, $5, $6, 'INITIALIZE', $8, $9)
+				ON CONFLICT (user_id, broker, account, instrument_id, account_type)
+				  WHERE synthetic_purpose = 'INITIALIZE'
+				DO UPDATE SET timestamp = EXCLUDED.timestamp,
+				              quantity = EXCLUDED.quantity,
+				              tx_type = EXCLUDED.tx_type
+			`, userUUID, broker, account, timestamp, leg.quantity, instUUID, txType, leg.accountType, groupID); err != nil {
+				return fmt.Errorf("upsert initialize %s posting: %w", leg.accountType, err)
+			}
 		}
 		if !groupID.Valid {
 			return nil

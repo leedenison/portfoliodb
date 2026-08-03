@@ -52,7 +52,15 @@ Holdings are computed aggregates (there is no holdings table), so a holding is i
 
 **Constraints:**
 
-- `UNIQUE (user_id, broker, account, instrument_id) WHERE synthetic_purpose = 'INITIALIZE'` -- at most one INITIALIZE transaction per holding per user (partial unique index).
+- `UNIQUE (user_id, broker, account, instrument_id, account_type) WHERE synthetic_purpose = 'INITIALIZE'` -- at most one INITIALIZE posting per holding per account type (partial unique index). `account_type` is part of the key because the pad is written with a counterparty (see below) that shares everything else; without it the two would collide.
+
+### The EQUITY counterparty
+
+A pad has no counterparty in the source data -- that is what makes it a pad -- so one is written for it: an equal and opposite `EQUITY` posting of the same instrument, in the same broker account, in the same group. It is what makes the group sum to zero, and value entering the user's holdings from before their history begins is exactly what `EQUITY` is for. See [postings.md](postings.md#account-types) and adr/0022-typed-per-account-cash-flow-boundary.md.
+
+The counterparty is synthetic for the same reason the pad is, carries the same `timestamp` and `share_count_basis`, and moves with it: both legs are recalculated together, so a stock split adjusts them identically and the pair cannot drift.
+
+It is excluded from holdings and from every other quantity aggregation, along with all non-`USER` postings. That exclusion is what stops it netting the pad out to nothing, which would make a declared opening balance read as zero. The transaction list is not filtered, so both legs are visible there.
 
 ## Business Logic
 
@@ -75,6 +83,7 @@ Holdings are computed aggregates (there is no holdings table), so a holding is i
    - `quantity` = the value computed in step 4
    - `broker`, `account`, `instrument_id` = copied from the declaration
    - `synthetic_purpose` = `'INITIALIZE'`
+6. Create (or replace) its `EQUITY` counterparty in the same group, identical but for `account_type` and a negated `quantity`.
 
 **Note on quantity:** The INITIALIZE quantity may be negative. This represents a short position at portfolio inception and is permitted.
 
@@ -84,7 +93,7 @@ The user may edit the declared quantity or the `as_of_date`. The procedure is id
 
 ### Deleting a Declaration
 
-When a user deletes a declaration, delete both the declaration record and the associated INITIALIZE transaction. The holding's history will revert to showing only real transactions, with an implied zero balance at portfolio inception.
+When a user deletes a declaration, delete both the declaration record and the associated INITIALIZE group. Deleting the group takes both postings, so no path can leave the counterparty behind without the pad it balances. The holding's history will revert to showing only real transactions, with an implied zero balance at portfolio inception.
 
 ### Recalculation Triggers
 

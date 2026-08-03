@@ -41,7 +41,10 @@ to the account that produced it.
 
 Opening balances are `EQUITY` postings rather than a type of their own. An opening
 balance is one use of equity, and a withdrawal to a bank is an equity posting too; an
-enum that mixes roots with specific accounts ages badly.
+enum that mixes roots with specific accounts ages badly. An INITIALIZE pad is written
+with exactly such a counterparty -- equal and opposite, same instrument, same account,
+same group -- which is what lets its group sum to zero. See
+[fixed-point.md](fixed-point.md#the-equity-counterparty).
 
 The type is a column rather than a reserved prefix on `account`, because `account` is
 user-supplied free text that a broker CSV can collide with, a name has nowhere to record

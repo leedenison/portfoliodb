@@ -136,10 +136,18 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list txs: %v", err)
 	}
-	var sawInit, sawBuy, sawSell bool
+	var sawInit, sawInitEquity, sawBuy, sawSell bool
 	var sawOldBuy bool
 	for _, r := range rows {
 		switch {
+		// The pad and its EQUITY counterparty are one group, so a replace has to
+		// spare both or neither.
+		case r.GetTx().GetSyntheticPurpose() == "INITIALIZE" &&
+			r.GetTx().GetAccountType() == apiv1.AccountType_ACCOUNT_TYPE_EQUITY:
+			sawInitEquity = true
+			if r.GetTx().GetQuantity() != -42 {
+				t.Errorf("synthetic counterparty qty: want -42, got %v", r.GetTx().GetQuantity())
+			}
 		case r.GetTx().GetSyntheticPurpose() == "INITIALIZE":
 			sawInit = true
 			if r.GetTx().GetQuantity() != 42 {
@@ -153,8 +161,8 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 			sawOldBuy = true
 		}
 	}
-	if !sawInit {
-		t.Error("synthetic INITIALIZE tx was deleted by ReplaceTxsInPeriod")
+	if !sawInit || !sawInitEquity {
+		t.Errorf("synthetic INITIALIZE group was deleted by ReplaceTxsInPeriod: pad=%v counterparty=%v", sawInit, sawInitEquity)
 	}
 	if !sawBuy || !sawSell {
 		t.Errorf("new real txs missing: buy=%v sell=%v", sawBuy, sawSell)

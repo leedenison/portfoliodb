@@ -44,4 +44,10 @@ export const qk = {
   job: (jobId: string) => ["job", jobId] as const,
   inflationIndices: (currency: string, dateFrom: string, dateTo: string) =>
     ["inflation-indices", currency, dateFrom, dateTo] as const,
+  // Called with no arguments to invalidate every period variant.
+  residualBalances: (periodFrom?: string, periodBefore?: string) =>
+    periodFrom === undefined
+      ? (["residual-balances"] as const)
+      : (["residual-balances", periodFrom, periodBefore ?? ""] as const),
+  residualBalanceCounts: () => ["residual-balance-counts"] as const,
 };

@@ -1,13 +1,19 @@
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
+  CountResidualBalancesResponseSchema,
   CreatePortfolioResponseSchema,
   GetJobResponseSchema,
   ListInstrumentsResponseSchema,
   ListPortfoliosResponseSchema,
+  ListResidualBalancesResponseSchema,
   UpdatePortfolioResponseSchema,
+  AccountType,
   AssetClass,
+  Broker,
   IdentifierType,
+  TxType,
 } from "@/gen/api/v1/api_pb";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { JobStatus } from "@/gen/api/v1/api_pb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -17,6 +23,8 @@ import {
   deletePortfolio,
   getJob,
   listInstruments,
+  listResidualBalances,
+  countResidualBalances,
 } from "./portfolio-api";
 import * as grpcWeb from "./grpc-web";
 
@@ -266,6 +274,82 @@ describe("portfolio-api", () => {
       expect(result.validationErrors[0]).toMatchObject({ rowIndex: 0, field: "timestamp", message: "required" });
       expect(result.identificationErrors).toHaveLength(1);
       expect(result.identificationErrors[0].instrumentDescription).toBe("FOO");
+    });
+  });
+  describe("listResidualBalances", () => {
+    it("maps balances and converts timestamps to Dates", async () => {
+      const oldest = new Date("2026-03-01T12:00:00Z");
+      mockUnaryFetch.mockResolvedValue(
+        toBinary(
+          ListResidualBalancesResponseSchema,
+          create(ListResidualBalancesResponseSchema, {
+            balances: [
+              {
+                accountType: AccountType.IMBALANCE,
+                broker: Broker.FIDELITY,
+                account: "X123",
+                instrumentId: "inst-1",
+                commodity: "USD",
+                assetClass: AssetClass.CASH,
+                txType: TxType.INCOME,
+                balance: -1234.56,
+                postingCount: 7,
+                oldestTimestamp: timestampFromDate(oldest),
+              },
+            ],
+          })
+        )
+      );
+
+      const balances = await listResidualBalances();
+
+      expect(balances).toHaveLength(1);
+      expect(balances[0]).toMatchObject({
+        accountType: AccountType.IMBALANCE,
+        broker: Broker.FIDELITY,
+        account: "X123",
+        commodity: "USD",
+        assetClass: AssetClass.CASH,
+        txType: TxType.INCOME,
+        balance: -1234.56,
+        postingCount: 7,
+      });
+      expect(balances[0].oldestTimestamp?.getTime()).toBe(oldest.getTime());
+      // A row with no posting on the outstanding side stays undated rather than
+      // acquiring the epoch.
+      expect(balances[0].newestTimestamp).toBeUndefined();
+      expect(mockUnaryFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        "portfoliodb.api.v1.ApiService/ListResidualBalances",
+        expect.any(Uint8Array),
+        { credentials: "include" }
+      );
+    });
+
+    it("returns an empty list when nothing is outstanding", async () => {
+      mockUnaryFetch.mockResolvedValue(
+        toBinary(ListResidualBalancesResponseSchema, create(ListResidualBalancesResponseSchema, {}))
+      );
+      expect(await listResidualBalances()).toEqual([]);
+    });
+  });
+
+  describe("countResidualBalances", () => {
+    it("returns both headline counts", async () => {
+      mockUnaryFetch.mockResolvedValue(
+        toBinary(
+          CountResidualBalancesResponseSchema,
+          create(CountResidualBalancesResponseSchema, { imbalanceCount: 3, staleTransferCount: 1 })
+        )
+      );
+
+      expect(await countResidualBalances()).toEqual({ imbalanceCount: 3, staleTransferCount: 1 });
+      expect(mockUnaryFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        "portfoliodb.api.v1.ApiService/CountResidualBalances",
+        expect.any(Uint8Array),
+        { credentials: "include" }
+      );
     });
   });
 });

@@ -57,6 +57,7 @@ type DB interface {
 	IgnoredAssetClassDB
 	InflationIndexDB
 	CorporateEventDB
+	ResidualBalanceDB
 }
 
 // PriceFetchBlockDB manages permanently blocked (instrument, plugin) pairs.
@@ -966,4 +967,54 @@ type ExportCashDividend struct {
 	Frequency        string
 	Type             string
 	FirstKnownAt     time.Time
+}
+
+// ResidualBalance is the net value left in one non-asset account, aggregated over
+// every user: what events of one tx type left in one broker account in one
+// commodity. An IMBALANCE balance is a group that did not sum to zero -- a missing
+// fee or an uncategorised dividend; a TRANSFER_CLEARING balance is one side of a
+// journal, whether or not the other side has arrived.
+//
+// It carries no user identity: the report measures how lossy each broker converter
+// is, not what is in any one portfolio.
+type ResidualBalance struct {
+	AccountType  apiv1.AccountType
+	Broker       apiv1.Broker
+	Account      string
+	InstrumentID string
+	// Commodity is the instrument's name: the ISO code for money, the ticker for a
+	// security. AssetClass says which, and is empty when the instrument was never
+	// identified.
+	Commodity    string
+	AssetClass   string
+	TxType       apiv1.TxType
+	Balance      float64
+	PostingCount int32
+	// Oldest and Newest bound the postings that contribute to the balance. For a
+	// transfer they are not the age of a missing side: nothing pairs the two sides
+	// of a journal until 0068, so a settled transfer is reported like an open one.
+	Oldest *time.Time
+	Newest *time.Time
+}
+
+// ResidualBalanceOpts filters the residual balance report. From and Before are a
+// half-open [From, Before) window over the posting timestamp; nil bounds are
+// open-ended. An AccountType of ACCOUNT_TYPE_UNSPECIFIED returns both residual
+// types.
+type ResidualBalanceOpts struct {
+	From        *time.Time
+	Before      *time.Time
+	AccountType apiv1.AccountType
+}
+
+// ResidualBalanceDB aggregates the residual postings -- the IMBALANCE and
+// TRANSFER_CLEARING legs routed to balance groups their source data left one-sided
+// -- across all users.
+type ResidualBalanceDB interface {
+	ListResidualBalances(ctx context.Context, opts ResidualBalanceOpts) ([]ResidualBalance, error)
+	// CountResidualBalances returns the number of non-zero IMBALANCE balances and
+	// the number of TRANSFER_CLEARING balances older than staleBefore, over all of
+	// history. The transfer count includes settled transfers, and will until
+	// matching (0068) makes the two distinguishable.
+	CountResidualBalances(ctx context.Context, staleBefore time.Time) (imbalances, staleTransfers int32, err error)
 }

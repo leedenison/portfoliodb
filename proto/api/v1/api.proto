@@ -313,6 +313,12 @@ service ApiService {
   rpc ListUnhandledCorporateEvents(ListUnhandledCorporateEventsRequest) returns (ListUnhandledCorporateEventsResponse);
   rpc CountUnhandledCorporateEvents(CountUnhandledCorporateEventsRequest) returns (CountUnhandledCorporateEventsResponse);
   rpc ResolveUnhandledCorporateEvent(ResolveUnhandledCorporateEventRequest) returns (ResolveUnhandledCorporateEventResponse);
+
+  // Residual balances (admin-only). The net IMBALANCE and TRANSFER_CLEARING value
+  // left in each broker account: a direct measure of how lossy each broker
+  // converter is, and of which transfers are missing a side.
+  rpc ListResidualBalances(ListResidualBalancesRequest) returns (ListResidualBalancesResponse);
+  rpc CountResidualBalances(CountResidualBalancesRequest) returns (CountResidualBalancesResponse);
 }
 
 // Portfolio is a user-owned container for transactions and holdings.
@@ -1206,3 +1212,61 @@ message ResolveUnhandledCorporateEventRequest {
 }
 
 message ResolveUnhandledCorporateEventResponse {}
+
+// Residual balances.
+
+// ResidualBalance is the net value left in one non-asset account: what events of
+// one tx type left over in one broker account in one commodity. An IMBALANCE
+// balance is a group that did not sum to zero -- a missing fee, or an
+// uncategorised dividend whose income leg the converter does not yet emit. A
+// TRANSFER_CLEARING balance is one side of a journal. Nothing pairs the two
+// sides until transfers are matched, so a transfer balance means a transfer was
+// imported rather than that its second side is missing.
+//
+// Balances are per commodity and are never converted: one in a currency is money,
+// one in a security is a quantity of shares, and the two are not summed. See
+// docs/spec/postings.md.
+message ResidualBalance {
+  AccountType account_type = 1;  // IMBALANCE or TRANSFER_CLEARING
+  Broker broker = 2;
+  string account = 3;
+  string instrument_id = 4;
+  string commodity = 5;          // instrument name: the ISO code for money, the ticker for a security
+  AssetClass asset_class = 6;    // CASH means the balance is money; anything else is a quantity
+  TxType tx_type = 7;            // the kind of event that left the balance
+  double balance = 8;            // signed sum over the contributing postings
+  int32 posting_count = 9;
+  // The oldest and newest postings contributing to the balance. For a transfer
+  // these are not the age of a missing side: see the note above.
+  google.protobuf.Timestamp oldest_timestamp = 10;
+  google.protobuf.Timestamp newest_timestamp = 11;
+}
+
+// ListResidualBalances returns residual balances across all users, grouped by
+// broker, account, commodity and tx type. Admin only: it measures converter
+// quality rather than any one portfolio, and carries no user identity.
+message ListResidualBalancesRequest {
+  // Half-open [period_from, period_before) over the posting timestamp; an unset
+  // bound is open-ended.
+  google.protobuf.Timestamp period_from = 1;    // inclusive
+  google.protobuf.Timestamp period_before = 2;  // exclusive
+  // Restrict to one account type. ACCOUNT_TYPE_UNSPECIFIED returns both IMBALANCE
+  // and TRANSFER_CLEARING.
+  AccountType account_type = 3 [(buf.validate.field).enum.defined_only = true];
+}
+
+message ListResidualBalancesResponse {
+  repeated ResidualBalance balances = 1;
+}
+
+// CountResidualBalances returns the headline counts for the admin dashboard, over
+// all of history. The transfer count is bounded by age alone and includes settled
+// transfers, so it counts imported transfers rather than problems.
+message CountResidualBalancesRequest {
+  int32 stale_after_days = 1 [(buf.validate.field).int32.gte = 0];  // 0 selects the server default
+}
+
+message CountResidualBalancesResponse {
+  int32 imbalance_count = 1;       // non-zero IMBALANCE balances
+  int32 stale_transfer_count = 2;  // TRANSFER_CLEARING balances older than the window
+}

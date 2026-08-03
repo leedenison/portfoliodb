@@ -355,6 +355,15 @@ ALTER TABLE txs ADD COLUMN instrument_id UUID REFERENCES instruments (id);
 
 CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);
 
+-- Residual postings -- the IMBALANCE and TRANSFER_CLEARING legs routed to balance a
+-- group its source data left one-sided -- are a small minority of txs, and the report
+-- that aggregates them reads every one across all users. A partial index over just
+-- those rows answers it without carrying the USER postings that dominate the table.
+-- Column order follows the report's GROUP BY.
+CREATE INDEX idx_txs_residual_postings
+  ON txs (account_type, user_id, broker, account, instrument_id, tx_type)
+  WHERE account_type IN ('IMBALANCE', 'TRANSFER_CLEARING');
+
 -- At most one INITIALIZE posting per holding per account type. account_type is part of
 -- the key because the pad's counterparty is an equal-and-opposite posting of the same
 -- instrument in the same broker account, and is synthetic for the same reason the pad

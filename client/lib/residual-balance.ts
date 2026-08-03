@@ -40,7 +40,7 @@ export function ageInDays(oldest: Date | undefined, now: Date): number | null {
  * instrument counts as a quantity: rendering an unknown commodity as money would
  * assert something the data does not say.
  */
-export function isMoney(b: ResidualBalance): boolean {
+export function isMoney(b: { assetClass: AssetClass }): boolean {
   return b.assetClass === AssetClass.CASH;
 }
 

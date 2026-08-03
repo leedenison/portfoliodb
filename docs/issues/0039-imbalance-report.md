@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Imbalance and unmatched-transfer reporting
 milestone: M12
 dependencies: [0038]
@@ -52,6 +52,19 @@ becomes a problem when it persists, because the second side legitimately arrives
 in a later statement. Reporting the raw balance would flag every transfer ever
 imported. Age the balance -- how long a side has been waiting -- so that a
 recently imported transfer is quiet and a stale one is loud.
+
+**Not delivered, and deliberately so.** Age alone does not identify an unmatched
+transfer. Both sides of a completed journal are `TRANSFER_CLEARING` postings in
+different broker accounts, and nothing pairs them until 0068, so a settled
+transfer and one whose second side never arrived are the same shape and both are
+reported. The report therefore lists every imported transfer and says so on the
+page.
+
+Inferring the pairing from balances was tried and rejected: every rule for it
+misattributes as soon as an account has more than one transfer open, reporting
+the wrong account and the wrong age while looking authoritative. A report that
+over-reports and admits it is better than one that quietly points at the wrong
+row. 0068 is the fix, and the transfers view becomes meaningful when it lands.
 
 ## Note
 

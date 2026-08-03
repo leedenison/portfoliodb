@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Typed account classification for non-asset postings
 milestone: M12
 dependencies: [0036]

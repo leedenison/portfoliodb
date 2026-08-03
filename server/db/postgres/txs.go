@@ -20,13 +20,13 @@ var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 const insertPostingSQL = `
 	WITH g AS (
 		INSERT INTO tx_groups (user_id, timestamp, job_id)
-		VALUES ($1, $4, $13)
+		VALUES ($1, $4, $14)
 		RETURNING id
 	)
 	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
 	                 quantity, trading_currency, settlement_currency, unit_price,
-	                 instrument_id, share_count_basis, group_id)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, g.id FROM g
+	                 instrument_id, share_count_basis, account_type, group_id)
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, g.id FROM g
 	RETURNING group_id
 `
 
@@ -35,8 +35,8 @@ const insertPostingSQL = `
 const insertPostingInGroupSQL = `
 	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
 	                 quantity, trading_currency, settlement_currency, unit_price,
-	                 instrument_id, share_count_basis, group_id)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13)
+	                 instrument_id, share_count_basis, account_type, group_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14)
 `
 
 // groupResolver hands out the tx group for a tx's group_ref. An empty group_ref
@@ -135,11 +135,15 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 			if err != nil {
 				return err
 			}
+			acctTypeStr, err := accountTypeToStr(t.GetAccountType())
+			if err != nil {
+				return err
+			}
 			acc := t.GetAccount()
 			args := []interface{}{
 				userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, t.Quantity,
 				nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullFloat(t.UnitPrice),
-				instUUID, shareCountBasis,
+				instUUID, shareCountBasis, acctTypeStr,
 			}
 			ref := t.GetGroupRef()
 			if groupID, ok := resolver.group(ref); ok {
@@ -182,10 +186,14 @@ func (p *Postgres) CreateTx(ctx context.Context, userID, broker, account, jobID 
 	if err != nil {
 		return err
 	}
+	acctTypeStr, err := accountTypeToStr(tx.GetAccountType())
+	if err != nil {
+		return err
+	}
 	_, err = p.q.ExecContext(ctx, insertPostingSQL,
 		userUUID, broker, account, ts, tx.InstrumentDescription, txTypeStr, tx.Quantity,
 		nullStr(tx.TradingCurrency), nullStr(tx.SettlementCurrency), nullFloat(tx.UnitPrice),
-		instUUID, shareCountBasis, jobUUID)
+		instUUID, shareCountBasis, acctTypeStr, jobUUID)
 	if err != nil {
 		return fmt.Errorf("create tx: %w", err)
 	}
@@ -215,7 +223,7 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *apiv1.Bro
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	qb := psql.Select("broker", "account", "timestamp", "instrument_description", "tx_type", "quantity", "split_adjusted_quantity", "trading_currency", "settlement_currency", "unit_price", "split_adjusted_unit_price", "instrument_id", "synthetic_purpose").
+	qb := psql.Select("broker", "account", "timestamp", "instrument_description", "tx_type", "quantity", "split_adjusted_quantity", "trading_currency", "settlement_currency", "unit_price", "split_adjusted_unit_price", "instrument_id", "synthetic_purpose", "account_type").
 		From("txs").
 		Where(sq.Eq{"user_id": userUUID}).
 		OrderBy(txOrderBy("", descending)...)
@@ -275,7 +283,7 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, b
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	qb := psql.Select("t.broker", "t.account", "t.timestamp", "t.instrument_description", "t.tx_type", "t.quantity", "t.split_adjusted_quantity", "t.trading_currency", "t.settlement_currency", "t.unit_price", "t.split_adjusted_unit_price", "t.instrument_id", "t.synthetic_purpose").
+	qb := psql.Select("t.broker", "t.account", "t.timestamp", "t.instrument_description", "t.tx_type", "t.quantity", "t.split_adjusted_quantity", "t.trading_currency", "t.settlement_currency", "t.unit_price", "t.split_adjusted_unit_price", "t.instrument_id", "t.synthetic_purpose", "t.account_type").
 		From("txs t").
 		Join("portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = ?", portUUID).
 		OrderBy(txOrderBy("t.", descending)...)

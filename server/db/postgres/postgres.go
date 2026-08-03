@@ -92,6 +92,36 @@ func strToTxType(s string) apiv1.TxType {
 	return apiv1.TxType(v)
 }
 
+// accountTypePrefix is stripped from the enum name to get the stored form. The proto
+// values are prefixed because enum values share package scope and TxType already
+// defines INCOME and TRANSFER; the column stores the bare vocabulary the CHECK
+// constraint and the specs use.
+const accountTypePrefix = "ACCOUNT_TYPE_"
+
+// accountTypeToStr returns the stored form of an account type: its enum name without
+// the prefix. Unspecified is USER rather than an error -- an upload that says nothing
+// about a posting's kind is an ordinary broker account posting, which is what almost
+// every row is. Derived from the generated names rather than mapped by hand so a new
+// type cannot be stored under a spelling that strToAccountType does not recognise.
+func accountTypeToStr(a apiv1.AccountType) (string, error) {
+	if a == apiv1.AccountType_ACCOUNT_TYPE_UNSPECIFIED {
+		return "USER", nil
+	}
+	s, ok := apiv1.AccountType_name[int32(a)]
+	if !ok {
+		return "", fmt.Errorf("unknown account type: %v", a)
+	}
+	return strings.TrimPrefix(s, accountTypePrefix), nil
+}
+
+func strToAccountType(s string) apiv1.AccountType {
+	v, ok := apiv1.AccountType_value[accountTypePrefix+s]
+	if !ok {
+		return apiv1.AccountType_ACCOUNT_TYPE_UNSPECIFIED
+	}
+	return apiv1.AccountType(v)
+}
+
 func jobStatusToStr(s apiv1.JobStatus) string {
 	switch s {
 	case apiv1.JobStatus_PENDING:
@@ -307,6 +337,7 @@ type txRow struct {
 	SplitAdjUnitPrice *float64  `db:"split_adjusted_unit_price"`
 	InstID            *string   `db:"instrument_id"`
 	SyntheticPurpose  *string   `db:"synthetic_purpose"`
+	AccountType       string    `db:"account_type"`
 }
 
 func (r *txRow) toProto() *apiv1.PortfolioTx {
@@ -317,6 +348,7 @@ func (r *txRow) toProto() *apiv1.PortfolioTx {
 		Quantity:              r.Quantity,
 		SplitAdjustedQuantity: r.SplitAdjQty,
 		Account:               r.Account,
+		AccountType:           strToAccountType(r.AccountType),
 	}
 	if r.TradingCcy != nil {
 		tx.TradingCurrency = *r.TradingCcy

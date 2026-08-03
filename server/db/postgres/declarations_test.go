@@ -304,3 +304,32 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 		t.Errorf("tx_groups after delete: want 0, got %d", got)
 	}
 }
+
+// TestComputeRunningBalance_excludesNonUser verifies the balance an INITIALIZE pad is
+// derived from counts only the user's own postings. A counterparty leg shares the
+// broker account and instrument, so summing it would halve the pad and restate the
+// declared opening balance.
+func TestComputeRunningBalance_excludesNonUser(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-acct-type", "U", "u@rb.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "RB2", Canonical: false}}, "", nil, nil, nil)
+
+	ts := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
+	if err := p.CreateTx(ctx, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "RB2", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "acct1"}, instID, nil); err != nil {
+		t.Fatalf("create buy: %v", err)
+	}
+	if err := p.CreateTx(ctx, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "RB2", Type: apiv1.TxType_BUYSTOCK, Quantity: -100, Account: "acct1", AccountType: apiv1.AccountType_ACCOUNT_TYPE_EQUITY}, instID, nil); err != nil {
+		t.Fatalf("create equity leg: %v", err)
+	}
+
+	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC)
+	bal, err := p.ComputeRunningBalance(ctx, userID, "IBKR", "acct1", instID, from, to)
+	if err != nil {
+		t.Fatalf("compute: %v", err)
+	}
+	if bal != 100 {
+		t.Fatalf("running balance = %v, want 100: the EQUITY leg must not be summed", bal)
+	}
+}

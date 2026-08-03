@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseStandardCSV } from "./standard";
-import { IdentifierType, TxType } from "@/gen/api/v1/api_pb";
+import { AccountType, IdentifierType, TxType } from "@/gen/api/v1/api_pb";
 
 describe("parseStandardCSV", () => {
   it("parses valid CSV and derives period from min/max dates", () => {
@@ -388,5 +388,72 @@ describe("group_ref", () => {
 
     expect(result.errors).toHaveLength(0);
     expect(result.txs[0].groupRef).toBe("");
+  });
+});
+
+describe("account_type", () => {
+  it("types the non-asset leg of a group", () => {
+    const csv = `date,instrument_description,type,quantity,account,group_ref,account_type
+2024-02-01,USD,INCOME,23.40,ACC1,div-8842,
+2024-02-01,USD,INCOME,-23.40,ACC1,div-8842,INCOME`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs).toHaveLength(2);
+    // The cash arriving in the account is an ordinary posting; the income it came
+    // from is the other side of the same event.
+    expect(result.txs[0].accountType).toBe(AccountType.USER);
+    expect(result.txs[1].accountType).toBe(AccountType.INCOME);
+    expect(result.txs[1].groupRef).toBe("div-8842");
+  });
+
+  it("is case-insensitive and accepts the whole vocabulary", () => {
+    const csv = `date,instrument_description,type,quantity,account_type
+2024-02-01,X,BUYSTOCK,1,equity
+2024-02-01,X,BUYSTOCK,1,Expense
+2024-02-01,X,BUYSTOCK,1,IMBALANCE
+2024-02-01,X,BUYSTOCK,1,transfer_clearing`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs.map((t) => t.accountType)).toEqual([
+      AccountType.EQUITY,
+      AccountType.EXPENSE,
+      AccountType.IMBALANCE,
+      AccountType.TRANSFER_CLEARING,
+    ]);
+  });
+
+  it("defaults to USER when the column is absent", () => {
+    const csv = `date,instrument_description,type,quantity
+2024-03-01,AAPL,BUYSTOCK,10`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs[0].accountType).toBe(AccountType.USER);
+  });
+
+  it("rejects an unknown value rather than falling back to USER", () => {
+    const csv = `date,instrument_description,type,quantity,account_type
+2024-03-01,AAPL,BUYSTOCK,10,Imbalance.USD`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.txs).toHaveLength(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].field).toBe("account_type");
+  });
+
+  it("does not accept UNSPECIFIED as a written value", () => {
+    const csv = `date,instrument_description,type,quantity,account_type
+2024-03-01,AAPL,BUYSTOCK,10,UNSPECIFIED`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.txs).toHaveLength(0);
+    expect(result.errors[0].field).toBe("account_type");
   });
 });

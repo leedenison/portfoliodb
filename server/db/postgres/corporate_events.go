@@ -500,7 +500,7 @@ func (p *Postgres) HeldEventBearingInstruments(ctx context.Context) ([]db.HeldIn
 			SELECT t.instrument_id, MIN(t.timestamp)::date AS earliest
 			FROM txs t
 			JOIN instruments i ON i.id = t.instrument_id
-			WHERE i.asset_class IN ('STOCK', 'ETF')
+			WHERE i.asset_class IN ('STOCK', 'ETF') AND t.account_type = 'USER'
 			GROUP BY t.instrument_id
 		),
 		via_derivative AS (
@@ -508,6 +508,7 @@ func (p *Postgres) HeldEventBearingInstruments(ctx context.Context) ([]db.HeldIn
 			FROM txs t
 			JOIN instruments i ON i.id = t.instrument_id
 			WHERE i.asset_class IN ('OPTION', 'FUTURE') AND i.underlying_id IS NOT NULL
+			  AND t.account_type = 'USER'
 			GROUP BY i.underlying_id
 		)
 		SELECT instrument_id, MIN(earliest) AS earliest

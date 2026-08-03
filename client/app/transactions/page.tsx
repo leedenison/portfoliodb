@@ -12,7 +12,7 @@ import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import { listTxs } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
-import { TxType, IdentifierType } from "@/gen/api/v1/api_pb";
+import { AccountType, TxType, IdentifierType } from "@/gen/api/v1/api_pb";
 import type { PortfolioTx } from "@/gen/api/v1/api_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 
@@ -38,6 +38,17 @@ const TX_TYPE_LABEL: Record<number, string> = {
   [TxType.MARGININTEREST]: "Margin Interest",
   [TxType.CLOSUREOPT]: "Option Closure",
   [TxType.CASHFLOW]: "Cash Flow",
+};
+
+// Labels for the non-asset side of an event. USER postings are the ordinary case and
+// carry no badge; the rest are shown so that a group's legs can be told apart, which
+// is also how an imbalance becomes visible rather than silently absorbed.
+const ACCOUNT_TYPE_LABEL: Record<number, string> = {
+  [AccountType.EQUITY]: "Equity",
+  [AccountType.INCOME]: "Income",
+  [AccountType.EXPENSE]: "Expense",
+  [AccountType.IMBALANCE]: "Imbalance",
+  [AccountType.TRANSFER_CLEARING]: "In Flight",
 };
 
 export default function TxsPage() {
@@ -207,6 +218,7 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
   if (!tx) return null;
 
   const isSynthetic = !!tx.syntheticPurpose;
+  const accountTypeLabel = ACCOUNT_TYPE_LABEL[tx.accountType];
   const ticker = ptx.instrument?.identifiers?.find(
     (id) => id.type === IdentifierType.MIC_TICKER || id.type === IdentifierType.OPENFIGI_TICKER
   )?.value;
@@ -231,13 +243,23 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
         {label}
       </td>
       <td className="px-4 py-3 text-text-muted">
-        {isSynthetic ? (
-          <span className="inline-block rounded-sm bg-primary-dark/10 px-1.5 py-0.5 text-xs font-medium text-primary-dark">
-            {tx.syntheticPurpose}
-          </span>
-        ) : (
-          TX_TYPE_LABEL[tx.type] ?? "Unknown"
-        )}
+        <span className="flex flex-wrap items-center gap-1.5">
+          {isSynthetic ? (
+            <span className="inline-block rounded-sm bg-primary-dark/10 px-1.5 py-0.5 text-xs font-medium text-primary-dark">
+              {tx.syntheticPurpose}
+            </span>
+          ) : (
+            TX_TYPE_LABEL[tx.type] ?? "Unknown"
+          )}
+          {accountTypeLabel && (
+            <span
+              data-testid="tx-account-type"
+              className="inline-block rounded-sm bg-text-muted/10 px-1.5 py-0.5 text-xs font-medium text-text-muted"
+            >
+              {accountTypeLabel}
+            </span>
+          )}
+        </span>
       </td>
       <td data-testid="tx-qty" className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
         {parseFloat(tx.quantity.toFixed(4))}

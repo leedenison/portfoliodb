@@ -17,7 +17,7 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 		WITH daily_net AS (
 			SELECT instrument_id, timestamp::date AS tx_date, SUM(quantity) AS day_qty
 			FROM txs
-			WHERE instrument_id IS NOT NULL
+			WHERE instrument_id IS NOT NULL AND account_type = 'USER'
 			GROUP BY instrument_id, timestamp::date
 		)
 		SELECT instrument_id, tx_date,

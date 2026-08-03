@@ -104,6 +104,7 @@ Admin pages live under `/admin` and use a dedicated layout with a left sidebar. 
 | **Plugins** | Identifier | `/admin/plugins/identifier` | Active |
 | **Plugins** | Description | `/admin/plugins/description` | Active |
 | **Plugins** | Price | `/admin/plugins/price` | Active |
+| **Diagnostics** | Imbalance | `/admin/imbalance` | Active |
 | **Diagnostics** | Logs | `/admin/logs` | Disabled |
 | **Diagnostics** | Telemetry | `/admin/telemetry` | Active |
 | **Diagnostics** | Authentication | `/admin/tools` | Active |
@@ -113,7 +114,8 @@ Admin pages live under `/admin` and use a dedicated layout with a left sidebar. 
  * **Dashboard** is the admin landing page and should provide a dashboard-style summary with quick links to the most important admin functions.
  * **Reference Data** groups Instruments and Prices.  These are the data stewardship pages the admin visits most frequently.  Both are active.
  * **Plugins** lists individual plugin types: Identifier (`/admin/plugins/identifier`), Description (`/admin/plugins/description`) and Price (`/admin/plugins/price`).  Each plugin page shows configuration and telemetry for that plugin type.  All are active.
- * **Diagnostics** groups Logs, Telemetry and Authentication.  Telemetry (`/admin/telemetry`) and Authentication (`/admin/tools`) are active; Logs is disabled until implemented.
+ * **Diagnostics** groups Imbalance, Logs, Telemetry and Authentication.  Telemetry (`/admin/telemetry`) and Authentication (`/admin/tools`) are active; Logs is disabled until implemented.
+ * **Imbalance** (`/admin/imbalance`) reports the residual and transfer-clearing balances left in non-asset accounts, aggregated across all users and grouped by broker, account, commodity and the event that left them.  It is an admin surface because it measures how lossy each broker converter is rather than what is in any one portfolio, and it carries no user identity.  The per-user view of the same data belongs with user alerts.  Until the two sides of a transfer are matched, the transfers view lists every imported transfer rather than the unmatched ones, and says so.
  * Section headers (Reference Data, Plugins, Diagnostics) are non-clickable labels that organise the sidebar visually.
 
 ### Mobile Considerations

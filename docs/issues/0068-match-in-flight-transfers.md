@@ -20,6 +20,12 @@ Without that job the clearing account only ever grows. Every transfer ever
 imported sits in it, so the unmatched-transfer signal in 0039 and the alert in
 0066 fire on correctly imported data and carry no information.
 
+0039 shipped on that basis: its transfers view lists every imported transfer and
+says on the page that it cannot tell a settled one from an unmatched one. When
+this lands, that view can report unmatched transfers, its caveat comes off, and
+the age it shows becomes the age of something actually missing. The dashboard
+count can then flag rather than merely state.
+
 It is also a correctness prerequisite, not only hygiene. Under 0037 the cash-flow
 boundary is per account and netting happens per portfolio at query time, so an
 unmatched transfer between two accounts of the same portfolio reads as a

@@ -2,6 +2,7 @@
 
 import { useAuthedQuery } from "@/hooks/use-authed-query";
 import { qk } from "@/lib/query-keys";
+import { TRANSFER_STALE_DAYS } from "@/lib/residual-balance";
 import Link from "next/link";
 import {
   listIdentifierPlugins,
@@ -9,7 +10,9 @@ import {
   listPricePlugins,
   listWorkers,
   countUnhandledCorporateEvents,
+  countResidualBalances,
   WorkerState,
+  type ResidualBalanceCounts,
   type WorkerRow,
 } from "@/lib/portfolio-api";
 
@@ -74,6 +77,13 @@ const dashboardCards: {
     description: "View session token and fetch a Google ID token for scripts.",
   },
   {
+    id: "imbalance",
+    title: "Imbalance",
+    href: "/admin/imbalance",
+    description:
+      "Residual and unmatched-transfer balances by broker: how lossy each converter is.",
+  },
+  {
     id: "corporate-events",
     title: "Corporate Events",
     href: "/admin/corporate-events",
@@ -120,6 +130,14 @@ export default function AdminOverviewPage() {
     queryKey: qk.unhandledCorporateEventCount(),
     queryFn: countUnhandledCorporateEvents,
   });
+  const { data: residualCounts } = useAuthedQuery<ResidualBalanceCounts>({
+    queryKey: qk.residualBalanceCounts(),
+    queryFn: () => countResidualBalances(),
+  });
+  // Only imbalances draw attention. The transfer count includes settled
+  // transfers -- nothing pairs the two sides of a journal yet -- so it is
+  // reported as a fact rather than as something to act on.
+  const residualAttention = (residualCounts?.imbalanceCount ?? 0) > 0;
 
   function pluginSummary(
     id: string
@@ -142,6 +160,14 @@ export default function AdminOverviewPage() {
       return unhandledEventCount > 0
         ? `${unhandledEventCount} unhandled`
         : "No unhandled events";
+    }
+    if (id === "imbalance") {
+      if (!residualCounts) return null;
+      const imbalanced = residualAttention
+        ? `${residualCounts.imbalanceCount} imbalanced`
+        : "Everything balances";
+      // The count is bounded by age, so the window is named rather than implied.
+      return `${imbalanced}, ${residualCounts.staleTransferCount} transfers in flight over ${TRANSFER_STALE_DAYS}d`;
     }
     return null;
   }
@@ -176,7 +202,8 @@ export default function AdminOverviewPage() {
               <p className="mt-1.5 text-sm text-text-muted">{card.description}</p>
               {summary && (
                 <p className={`mt-3 font-mono text-xs ${
-                  card.id === "corporate-events" && unhandledEventCount > 0
+                  (card.id === "corporate-events" && unhandledEventCount > 0) ||
+                  (card.id === "imbalance" && residualAttention)
                     ? "text-amber-600 dark:text-amber-400"
                     : "text-text-muted"
                 }`}>

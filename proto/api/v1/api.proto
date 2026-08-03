@@ -163,7 +163,13 @@ message Tx {
   // Currency used to pay/settle the transaction (e.g. GBP when buying in a UK account). Optional. Set from user input (e.g. Fidelity converter) for all transactions.
   string settlement_currency = 6;
   // Unit price as reported by broker. Optional; not used for valuation.
-  double unit_price = 7;
+  // Explicitly optional because a declared price of zero is not the same as no
+  // price. Balancing converts a purchase or sale to its settlement currency at
+  // this price, so an option that expires worthless converts at zero and its
+  // group balances, while a row whose converter supplied no price cannot convert
+  // and leaves a residual in the security itself. Collapsing the two would let a
+  // missing price balance silently. See docs/spec/postings.md.
+  optional double unit_price = 7;
   // Resolved instrument id (UUID). Set by identification during ingestion.
   string instrument_id = 8;
   // Account (opaque string). Required.
@@ -175,8 +181,9 @@ message Tx {
   // Split-adjusted quantity (quantity * cumulative split factor). Equal to
   // quantity when no splits exist for the instrument.
   double split_adjusted_quantity = 12;
-  // Split-adjusted unit price (unit_price / cumulative split factor).
-  double split_adjusted_unit_price = 13;
+  // Split-adjusted unit price (unit_price / cumulative split factor). Optional
+  // for the same reason as unit_price, and absent exactly when it is.
+  optional double split_adjusted_unit_price = 13;
   // Opaque grouping key, scoped to a single upload. Txs sharing a non-empty
   // group_ref are postings of one economic event and are stored in one tx group.
   // Empty means the tx is its own single-posting group. Set by the broker

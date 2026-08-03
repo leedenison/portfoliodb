@@ -7,6 +7,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -808,5 +809,60 @@ func TestTxs_AccountTypeCheckConstraint(t *testing.T) {
 	`, userID)
 	if err == nil {
 		t.Fatal("insert with an account_type outside the vocabulary: want error, got none")
+	}
+}
+
+// TestReplaceTxsInPeriod_RoundTripsZeroUnitPrice verifies a declared price of
+// zero stays distinct from no price at all. Balancing converts a purchase or
+// sale at its price, so an option expiring worthless converts at zero and its
+// group balances, while a row whose converter supplied no price cannot convert.
+// Collapsing the two would let a missing price balance silently.
+func TestReplaceTxsInPeriod_RoundTripsZeroUnitPrice(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|zero-price", "U", "u@zero.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "OPT", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	base := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "OPT", Type: apiv1.TxType_CLOSUREOPT, Quantity: -1, Account: "A", UnitPrice: proto.Float64(0)},
+		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "OPT", Type: apiv1.TxType_BUYOPT, Quantity: 1, Account: "A"},
+	}
+	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	var zeros, nulls int
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*) FILTER (WHERE unit_price = 0),
+		       count(*) FILTER (WHERE unit_price IS NULL)
+		FROM txs WHERE user_id = $1
+	`, userID).Scan(&zeros, &nulls); err != nil {
+		t.Fatalf("count by unit_price: %v", err)
+	}
+	if zeros != 1 || nulls != 1 {
+		t.Errorf("stored unit_price: want one zero and one NULL, got %d and %d", zeros, nulls)
+	}
+
+	got, _, err := p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
+	if err != nil {
+		t.Fatalf("ListTxs: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListTxs returned %d postings, want 2", len(got))
+	}
+	byType := map[apiv1.TxType]*apiv1.Tx{}
+	for _, ptx := range got {
+		byType[ptx.GetTx().GetType()] = ptx.GetTx()
+	}
+	if p := byType[apiv1.TxType_CLOSUREOPT].UnitPrice; p == nil || *p != 0 {
+		t.Errorf("expired option unit_price: want a present zero, got %v", p)
+	}
+	if p := byType[apiv1.TxType_BUYOPT].UnitPrice; p != nil {
+		t.Errorf("unpriced buy unit_price: want absent, got %v", *p)
 	}
 }

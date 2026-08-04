@@ -57,22 +57,30 @@ and that is what makes an exact constraint satisfiable.
 
 Tracked as 0042.
 
-## Open question: where the weight function lives
+## Where the weight function lives
 
-The constraint checks weight, so the trigger needs the weight rules --
-`exchangeTypes`, the settlement-currency guard, the contract-size multiplication
-in `server/service/ingestion/balance.go` -- available in SQL. Reimplementing
-them in PL/pgSQL means a second copy of the rules that must not drift from the
-Go one, which is a poor trade for a constraint whose value is that it cannot be
-bypassed.
+Settled in adr/0029-posting-weight-is-stored.md: each posting stores the weight
+it contributes, and the weight rules are not reimplemented in PL/pgSQL. Two
+columns on `txs`, because balance is per commodity:
 
-The alternative is to store each posting's computed weight on its row. The
-constraint then becomes a plain `SUM(weight) = 0` per group with no duplicated
-logic, and weight is `quantity * unit_price * contract_size`, closed under
-multiplication and so exact once 0042 lands. The cost is a stored derived column
-that recompute passes have to maintain.
+- `weight` -- `quantity`, or `quantity * unit_price * contract_size` for a
+  converting leg. Closed under multiplication, so exact once 0042 lands.
+- `weight_commodity` -- the currency code for a converted or cash leg, the
+  instrument for an unconverted security leg, and the posting's description when
+  its instrument never resolved. Never NULL, so an unresolved posting still
+  balances against itself.
 
-Settle this before implementing.
+The trigger then groups on `(group_id, weight_commodity)` and checks
+`SUM(weight) = 0`.
+
+The instrument merge in `server/db/postgres/instruments.go` rewrites
+`txs.instrument_id`, so it has to rewrite `weight_commodity` in the same
+statement. Nothing else maintains the columns: weight is on the raw `quantity`
+and `unit_price`, which the corporate event recompute leaves alone.
+
+Note what this costs. The constraint proves that the declared weights of a group
+sum to zero, not that its postings balance, so the motivation above is stronger
+than what lands. 0029 records why that is the right trade anyway.
 
 ## Sequencing
 

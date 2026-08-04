@@ -54,6 +54,9 @@ posting with no price cannot convert at all.
 - **Adding an explicit annotation to the upload format.** Correct, and the option
   to keep open. Rejected for now because nothing balances until every converter
   has been taught to set it, whereas the tx type is already there.
+  [0029](0029-posting-weight-is-stored.md) stores the weight this rule computes
+  on the posting, which is the same annotation supplied by the server rather than
+  by the upload.
 
 The choice between these is decided by an asymmetry. **Failing to convert leaves a
 residual in some commodity: visible in the imbalance report, attributable to a

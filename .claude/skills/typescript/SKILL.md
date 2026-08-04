@@ -25,6 +25,26 @@ Backend types come from generated protobuf-es v2 code (`@bufbuild/protobuf`) und
   `AssetClass.STOCK`, and `*_UNSPECIFIED` becomes `.UNSPECIFIED`. Enum label maps
   and string<->enum converters live in `client/lib/` (e.g. `asset-class.ts`).
 
+## Decimal fields
+
+Quantities, prices and money arrive as `string`, not `number` -- a TypeScript
+`number` is a float64 and cannot hold them exactly. See the `protobuf` skill and
+adr/0027-decimal-values-cross-the-wire-as-strings.md.
+
+- **Display: render the string.** Do not round-trip through `Number` to format
+  it. The `parseFloat(x.toFixed(n))` idiom exists only to hide float artifacts
+  and is unnecessary on a value that never had any.
+- **Arithmetic: only in the converters.** Code under `client/lib/csv/` and
+  `client/lib/ofx/` authors facts -- deriving counter-legs, splitting netted
+  totals -- and uses a decimal library so the postings it emits balance exactly.
+  Nothing else on the client computes with these values. Keep the dependency out
+  of component code; the extension shares these modules and carries the bundle
+  cost. The library is picked in 0042.
+- **Charts take `number`.** Series values (`ValuationPoint.total_value` and any
+  later return metric) are `double` on the wire and feed Recharts directly.
+- Sorting and comparison need a numeric or decimal comparator; lexicographic
+  string ordering is wrong for these fields.
+
 ## Next.js / React
 
 - App Router (`client/app/`). Default to client components: interactive files

@@ -81,6 +81,8 @@ both portfolio members, and excluded otherwise.
 
 0020's remaining consequences stand. An INITIALIZE row (see
 [0011](0011-synthetic-initialize-transactions.md)) is a pad with no counterparty
-and needs an `EQUITY` posting to satisfy the invariant, and the invariant is not
-expressible while `quantity` and `unit_price` are `DOUBLE PRECISION`, because
-summing float buys and sells does not land on exactly zero.
+and needs an `EQUITY` posting to satisfy the invariant, and the invariant is
+awkward to state while `quantity` and `unit_price` are `DOUBLE PRECISION`, because
+summing float buys and sells does not land on exactly zero and the tolerance that
+covers it has to be justified per call site (see
+[0026](0026-exact-decimals-bounded-by-closure.md)).

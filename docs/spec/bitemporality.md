@@ -151,7 +151,17 @@ declaration is explicit -- `share_count_basis` on the row, and a declaration on
 the plugin interface and the ingestion request that sets it.
 
 `split_factor_at(instrument_id, share_count_basis)` converts a row from its own
-basis to today's. See [corporate-events.md](corporate-events.md#adjustment).
+basis to today's. It returns the factor as an exact rational -- a numerator and
+denominator, the products of `split_to` and `split_from` over the applicable
+splits -- so a caller multiplies before dividing and the division happens once.
+See [corporate-events.md](corporate-events.md#adjustment) and
+adr/0028-cumulative-split-factor-is-an-exact-rational.md.
+
+The `split_adjusted_quantity` and `split_adjusted_unit_price` columns are a
+derived cache of that conversion, not stored facts. A reverse split in an awkward
+ratio has no exact decimal form, so they carry a declared rounding scale while
+the values they derive from -- `quantity`, `unit_price`, `share_count_basis` and
+the split chain -- stay exact and can be recomputed from at any time.
 
 ## Rules
 

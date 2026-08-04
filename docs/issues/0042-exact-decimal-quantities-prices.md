@@ -39,50 +39,73 @@ rather than only pads.
 
 ## Blocks
 
-0041. A balance constraint needs an exact `SUM(...) = 0`. With floats it would
-need an epsilon, which defeats the purpose: a genuine imbalance below the
-tolerance passes silently, while a legitimate group can still fail as the
-number of legs grows.
+0041. See that issue for what a balance constraint gains from exactness.
 
-## Scope: three layers, not one
+## Scope
 
-1. **Postgres** -- column types, `qty_is_zero`, `split_factor_at`.
-2. **Go** -- there is no decimal dependency today; `go.mod` has `lib/pq` and
-   nothing else relevant.
-3. **Wire and clients** -- proto and TypeScript.
+The boundary is set by adr/0026-exact-decimals-bounded-by-closure.md: exact
+decimals up to and including the last `+`, `-` or `*` from a recorded value, and
+`double` past the first division or transcendental. Applying it here:
 
-The API is already lossy for prices independently of `txs`: `eod_prices` stores
-`NUMERIC` but api.proto exposes `double open/high/low/close`, and `double
-quantity`, `double unit_price`, `double strike`, `double contract_multiplier`.
-TypeScript `number` is float64, so the browser is lossy too. This is not only a
-`txs` problem.
+**Postgres.** `NUMERIC` for the four columns. `qty_is_zero` becomes `q = 0` at
+its three call sites (`holdings.go`, `residual_balances.go`, `valuation.go`), or
+is dropped. The valuation query keeps its day-grid arithmetic on `float8` by
+casting the operands -- not the result -- at the point of FX conversion; see
+spec/performance.md.
 
-## Design
+**Go.** `shopspring/decimal` implements `sql.Scanner` and `driver.Valuer`, so it
+works with `lib/pq` without changing drivers. It stops at the db and API layers:
+the Massive and EODHD plugin clients parse JSON from providers that emit floats,
+and there is nothing to gain by converting them.
 
-**Postgres.** `NUMERIC` for the four columns. `qty_is_zero` becomes `q = 0`, or
-is dropped entirely.
+**Wire.** Decimal strings, per adr/0027-decimal-values-cross-the-wire-as-strings.md.
+25 of the 26 `double` fields in api.proto move; `ValuationPoint.total_value`
+stays `double`. `ExportPriceRow` and `ImportPriceRow` are the clearest case,
+being a round-trip pair that currently downgrades a `NUMERIC` column through a
+`double` in both directions. `Instrument.strike` is the next clearest: it is
+denormalised from the OCC identifier and so is a component of option identity.
+Add protovalidate patterns while the fields are being touched -- none of the 26
+carries a constraint today.
 
-**Go.** `shopspring/decimal` implements `sql.Scanner` and `driver.Valuer`, so
-it works with `lib/pq` without changing drivers.
+**Clients.** A decimal library is needed only in the CSV and OFX converters under
+`client/lib/csv/` and `client/lib/ofx/`, which author facts and are shared with
+the extension. Pick it here: the converters need only the four operations and
+comparison, and the modules are shared with an MV3 extension where bundle size
+counts, so big.js (around 8KB minified) is the smaller fit and decimal.js (around
+32KB) buys arbitrary-precision functions nothing on the client uses. Display
+paths get simpler, not harder: the
+`parseFloat(tx.quantity.toFixed(4))` in `client/app/transactions/page.tsx` exists
+to hide float artifacts and deletes outright. Chart series stay `number`.
 
-**Wire.** A protobuf `double` cannot carry an exact decimal. Use canonical
-decimal strings: `google.type.Decimal` is already in the buf module cache, and
-a plain `string` field is equivalent and simpler. Client-side arithmetic needs
-a decimal library (decimal.js, big.js); display-only paths can parse the string
-directly.
+## split_factor_at
 
-## Sub-problem: split_factor_at
+Settled in adr/0028-cumulative-split-factor-is-an-exact-rational.md: a `mul`
+aggregate over `numeric`, returning numerator and denominator separately so the
+single division is deferred to the caller. The existing `exp(sum(ln(...)))`
+implementation and the comment defending it both go.
 
-`split_factor_at()` returns `DOUBLE PRECISION` and computes the cumulative
-factor as `exp(sum(ln(...)))`. Multiplying a `NUMERIC` quantity by a double
-factor returns to floating point, so this needs deciding as part of the work.
-Options: compute the product in Go; use a numeric custom aggregate or a
-recursive CTE in Postgres; or store the cumulative factor per instrument. The
-existing comment on the function documents why exp/ln was acceptable for
-realistic split chains -- that reasoning holds for the factor itself, but not
-once the result feeds an exact balance check.
+The `split_adjusted_*` columns then need a **declared rounding scale**, because a
+reverse `/3` has no exact decimal form. Pick a number as part of this work --
+more decimal places than any broker quotes fractional shares to -- and record it
+in the schema alongside the columns.
 
-## Note
+## Known costs
+
+`decimal.Decimal` wraps a `big.Int` and an exponent, so `1.0` and `1.00` are
+`.Equal` but neither `==` nor `reflect.DeepEqual`. The server tree has around 78
+`float64` references in tests and uses go-cmp throughout, so a
+`cmp.Comparer(decimal.Decimal.Equal)` needs threading through the test helpers,
+and it should land before the types change rather than after.
+
+## Sequencing
 
 Pre-release, so there is no migration or back-compat burden (CLAUDE.md). The
-change is wide but mechanical, and it will never be cheaper than now.
+change is wide but mechanical, and it will never be cheaper than now. Four PRs,
+to stay near the 500-800 line target:
+
+1. Postgres: column types, `qty_is_zero`, the `mul` aggregate and
+   `split_factor_at`.
+2. Go: the go-cmp comparer first, then decimal through the db layer, ingestion
+   and balancing.
+3. Proto: string fields, protovalidate patterns, regenerate.
+4. Client and extension.

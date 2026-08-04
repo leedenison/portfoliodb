@@ -21,7 +21,7 @@ function describeDryRun(r: DryRunResult): string {
   const lines: string[] = [];
   if (r.requested) lines.push(`window     ${r.requested.from} to ${r.requested.to}`);
   if (r.rowCount !== undefined) lines.push(`rows       ${r.rowCount}`);
-  if (r.txCount !== undefined) lines.push(`converted  ${r.txCount}`);
+  if (r.txCount !== undefined) lines.push(`postings   ${r.txCount}`);
   if (r.droppedCount) lines.push(`dropped    ${r.droppedCount}`);
   if (r.droppedTypes?.length) lines.push(`unknown    ${r.droppedTypes.join(", ")}`);
   if (r.error) lines.push(`error      ${r.error}`);
@@ -35,7 +35,7 @@ function describeRun(r: RunLogEntry): string {
   const parts = [`${when}  ${r.status.toUpperCase()}`];
   if (r.window) parts.push(`  window ${r.window.from} to ${r.window.to}`);
   if (r.txCount !== undefined) {
-    parts.push(`  ${r.txCount} of ${r.rowCount ?? "?"} rows uploaded`);
+    parts.push(`  ${r.txCount} posting(s) from ${r.rowCount ?? "?"} row(s)`);
   }
   if (r.droppedCount) {
     // Dropped rows are the thing a reader must not miss: the replace deleted

@@ -23,6 +23,7 @@ import {
   isCashTxType,
 } from "@/lib/csv/converters/fidelity-csv";
 import type { ParseError, StandardParseResult } from "@/lib/csv/standard";
+import { counterLegs } from "@/lib/csv/postings";
 import { parseSlashDate } from "../lib/dates";
 
 /** The fields this converter reads. Fidelity sends many more. */
@@ -188,6 +189,8 @@ export function convertFidelityJson(
   assignFidelityGroups(legs).forEach((ref, i) => {
     if (ref) txs[i].groupRef = ref;
   });
+  // After the refs are stamped, since that loop is index-parallel with legs.
+  txs.push(...counterLegs(txs));
 
   return {
     txs,

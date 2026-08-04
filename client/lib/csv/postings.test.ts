@@ -1,0 +1,172 @@
+import { describe, it, expect } from "vitest";
+import { create } from "@bufbuild/protobuf";
+import type { MessageInitShape } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import type { Tx } from "@/gen/api/v1/api_pb";
+import { AccountType, IdentifierType, TxSchema, TxType } from "@/gen/api/v1/api_pb";
+import { counterLeg, counterLegs, feeLeg, refPrefix, FEE_EPSILON } from "./postings";
+import { expectGroupsBalance } from "./group-balance.test-utils";
+
+const tx = (fields: MessageInitShape<typeof TxSchema>): Tx =>
+  create(TxSchema, {
+    timestamp: timestampFromDate(new Date(2026, 1, 1)),
+    instrumentDescription: "GBP",
+    quantity: 0,
+    account: "ACC-1",
+    tradingCurrency: "GBP",
+    settlementCurrency: "GBP",
+    ...fields,
+  });
+
+describe("counterLeg", () => {
+  it("sends a charge to expense and a dividend to income", () => {
+    const charge = counterLeg(tx({ type: TxType.INVEXPENSE, quantity: -3.24 }));
+    expect(charge?.accountType).toBe(AccountType.EXPENSE);
+    expect(charge?.quantity).toBe(3.24);
+
+    const dividend = counterLeg(tx({ type: TxType.INCOME, quantity: 23.4 }));
+    expect(dividend?.accountType).toBe(AccountType.INCOME);
+    expect(dividend?.quantity).toBe(-23.4);
+  });
+
+  it("carries the group, account and currencies of the posting it mirrors", () => {
+    const source = tx({
+      type: TxType.INVEXPENSE,
+      quantity: -3.24,
+      groupRef: "fee-1",
+      account: "ACC-9",
+      tradingCurrency: "EUR",
+      settlementCurrency: "USD",
+    });
+    const leg = counterLeg(source)!;
+    expect(leg.groupRef).toBe("fee-1");
+    expect(leg.account).toBe("ACC-9");
+    expect(leg.tradingCurrency).toBe("EUR");
+    expect(leg.settlementCurrency).toBe("USD");
+    expect(leg.timestamp).toEqual(source.timestamp);
+  });
+
+  it("leaves the posting it mirrors alone", () => {
+    const source = tx({ type: TxType.INCOME, quantity: 23.4 });
+    counterLeg(source);
+    expect(source.quantity).toBe(23.4);
+    expect(source.accountType).toBe(AccountType.UNSPECIFIED);
+  });
+
+  it("returns nothing for a type whose other side the source already supplied", () => {
+    expect(counterLeg(tx({ type: TxType.BUYSTOCK, quantity: 10 }))).toBeUndefined();
+    expect(counterLeg(tx({ type: TxType.CASHFLOW, quantity: -10 }))).toBeUndefined();
+  });
+
+  it("returns nothing for a type whose other side is another account", () => {
+    // A journal's pair arrives in a different statement, which is 0068's problem.
+    expect(counterLeg(tx({ type: TxType.JRNLFUND, quantity: 500 }))).toBeUndefined();
+    expect(counterLeg(tx({ type: TxType.TRANSFER, quantity: 500 }))).toBeUndefined();
+  });
+
+  it("does not mirror a counter-leg", () => {
+    const leg = counterLeg(tx({ type: TxType.INVEXPENSE, quantity: -3.24 }))!;
+    expect(counterLeg(leg)).toBeUndefined();
+  });
+});
+
+describe("feeLeg", () => {
+  const trade = tx({ type: TxType.BUYSTOCK, quantity: 378, unitPrice: 61.06, groupRef: "t-1" });
+
+  it("posts the commission as cash leaving the account", () => {
+    const leg = feeLeg(trade, 11.54034)!;
+    expect(leg.type).toBe(TxType.INVEXPENSE);
+    expect(leg.quantity).toBe(-11.54034);
+    expect(leg.unitPrice).toBe(1);
+    expect(leg.accountType).toBe(AccountType.USER);
+    expect(leg.groupRef).toBe("t-1");
+    expect(leg.account).toBe("ACC-1");
+  });
+
+  it("is money in the settlement currency, not the instrument", () => {
+    const source = tx({
+      type: TxType.BUYSTOCK,
+      quantity: 378,
+      unitPrice: 61.06,
+      tradingCurrency: "EUR",
+      settlementCurrency: "USD",
+    });
+    const leg = feeLeg(source, 5)!;
+    expect(leg.instrumentDescription).toBe("USD");
+    expect(leg.tradingCurrency).toBe("USD");
+    expect(leg.settlementCurrency).toBe("USD");
+    expect(leg.identifierHints[0]?.type).toBe(IdentifierType.CURRENCY);
+    expect(leg.identifierHints[0]?.value).toBe("USD");
+  });
+
+  it("takes the magnitude, so a broker's sign convention does not flip it", () => {
+    expect(feeLeg(trade, -11.54)?.quantity).toBe(-11.54);
+  });
+
+  it("produces nothing below the tolerance the server routes at", () => {
+    expect(feeLeg(trade, 0)).toBeUndefined();
+    expect(feeLeg(trade, FEE_EPSILON / 2)).toBeUndefined();
+    expect(feeLeg(trade, NaN)).toBeUndefined();
+    expect(feeLeg(trade, FEE_EPSILON)).toBeDefined();
+  });
+
+  it("balances a netted trade once its counter-leg is added", () => {
+    // The broker reported -23092.22034 of cash with 11.54034 of it commission.
+    const legs = [
+      tx({ type: TxType.BUYSTOCK, quantity: 378, unitPrice: 61.06, groupRef: "t-1", instrumentDescription: "VUSA" }),
+      tx({ type: TxType.CASHFLOW, quantity: -23080.68, unitPrice: 1, groupRef: "t-1" }),
+    ];
+    legs.push(feeLeg(legs[0]!, 11.54034)!);
+    legs.push(...counterLegs(legs));
+
+    expectGroupsBalance(legs);
+    // The two cash postings in the user's own account still sum to the total the
+    // broker reported; splitting them changed where the money is attributed,
+    // not how much of it moved.
+    const cash = legs
+      .filter((l) => l.accountType !== AccountType.EXPENSE && l.type !== TxType.BUYSTOCK)
+      .reduce((sum, l) => sum + l.quantity, 0);
+    expect(cash).toBeCloseTo(-23092.22034, 5);
+  });
+});
+
+describe("refPrefix", () => {
+  it("avoids a ref the batch already uses", () => {
+    expect(refPrefix([tx({ type: TxType.INCOME, groupRef: "p0" })])).toBe("p_");
+    expect(
+      refPrefix([tx({ type: TxType.INCOME, groupRef: "p0" }), tx({ type: TxType.INCOME, groupRef: "p_1" })])
+    ).toBe("p__");
+  });
+
+  it("leaves broker refs that share no prefix alone", () => {
+    expect(refPrefix([tx({ type: TxType.INCOME, groupRef: "563466569" })])).toBe("p");
+  });
+});
+
+describe("counterLegs", () => {
+  it("groups a one-sided row with the leg that balances it", () => {
+    const txs = [tx({ type: TxType.INCOME, quantity: 23.4 })];
+    txs.push(...counterLegs(txs));
+
+    expect(txs).toHaveLength(2);
+    expect(txs[0]!.groupRef).not.toBe("");
+    expect(txs[1]!.groupRef).toBe(txs[0]!.groupRef);
+    expectGroupsBalance(txs);
+  });
+
+  it("keeps a group the converter already assigned", () => {
+    const txs = [tx({ type: TxType.INVEXPENSE, quantity: -3.24, groupRef: "563466600" })];
+    txs.push(...counterLegs(txs));
+    expect(txs[1]!.groupRef).toBe("563466600");
+  });
+
+  it("gives each one-sided row a group of its own", () => {
+    const txs = [
+      tx({ type: TxType.INCOME, quantity: 23.4 }),
+      tx({ type: TxType.INVEXPENSE, quantity: -3.24 }),
+    ];
+    txs.push(...counterLegs(txs));
+    expect(txs[0]!.groupRef).not.toBe(txs[1]!.groupRef);
+    expectGroupsBalance(txs);
+  });
+});

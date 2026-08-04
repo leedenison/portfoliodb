@@ -35,7 +35,7 @@ Each row is a **posting**: a signed amount of one commodity in one account (see 
 
 Grouping is the converter's job. The server persists what it is given: it does not infer a missing leg, pair rows, or fold a fee into a cash amount (see adr/0021-converters-own-transaction-grouping.md).
 
-**Fees are postings, not a column.** A commission, levy or duty is a row with `type=INVEXPENSE` and a negative `quantity` in the settlement currency. Put it in the trade's group when the broker charges it as part of the trade; leave it ungrouped when the broker reports it as a separate cash event on its own date. Where a broker nets commission into a single total and reports no separate charge, the converter derives the fee and emits the row itself.
+**Fees are postings, not a column.** A commission, levy or duty is a row with `type=INVEXPENSE` and a negative `quantity` in the settlement currency, paired with an `account_type=EXPENSE` row for the same money. Put the pair in the trade's group when the broker charges it as part of the trade; give it a group of its own when the broker reports it as a separate cash event on its own date. Where a broker folds the commission into a single cash total, the converter splits that total into a consideration row and a fee row rather than posting it as one (see adr/0025-netted-cash-totals-are-split-into-legs.md).
 
 A group whose postings do not sum to zero is accepted, not rejected. The server routes whatever is left over to an `IMBALANCE` posting -- or `TRANSFER_CLEARING` for a journal -- so the residual is made visible rather than silently absorbed. See [postings.md](postings.md#balancing).
 
@@ -94,6 +94,19 @@ from. Both rows carry the same `account` and `group_ref`; only `account_type` di
 date,instrument_description,type,quantity,settlement_currency,account,group_ref,account_type
 2024-02-01,USD,INCOME,23.40,USD,ACC-1,div-8842,
 2024-02-01,USD,INCOME,-23.40,USD,ACC-1,div-8842,INCOME
+```
+
+A trade whose broker charged 11.54 of commission and reported a single cash total
+of -23092.22. The commission is split out of that total, so the two rows in the
+user's own account still sum to what the broker reported and the third names the
+expense it went to.
+
+```csv
+date,instrument_description,type,quantity,settlement_currency,unit_price,account,group_ref,account_type
+2024-03-04,VUSA,BUYSTOCK,378,GBP,61.06,ACC-1,ord-4471,
+2024-03-04,GBP,CASHFLOW,-23080.68,GBP,1,ACC-1,ord-4471,
+2024-03-04,GBP,INVEXPENSE,-11.54,GBP,1,ACC-1,ord-4471,
+2024-03-04,GBP,INVEXPENSE,11.54,GBP,1,ACC-1,ord-4471,EXPENSE
 ```
 
 Any extra columns are ignored. Empty optional fields can be omitted or left blank.

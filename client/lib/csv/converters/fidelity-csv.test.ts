@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { AccountType, TxType } from "@/gen/api/v1/api_pb";
 import { convertFidelityToStandard, FIDELITY_TYPE_TO_OFX } from "./fidelity-csv";
+import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 
 const HEADER =
   "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit";
@@ -64,7 +66,8 @@ describe("convertFidelityToStandard", () => {
     ].join("\n");
     const result = convertFidelityToStandard(csv, { currency: "USD" });
     expect(result.errors).toEqual([]);
-    expect(result.txs.length).toBe(1);
+    // The cash row plus the income it came from.
+    expect(result.txs.length).toBe(2);
     expect(result.txs[0]!.type).toBe(11); // INCOME
     expect(result.txs[0]!.quantity).toBe(3.27);
     expect(result.txs[0]!.settlementCurrency).toBe("USD");
@@ -81,8 +84,11 @@ describe("convertFidelityToStandard", () => {
     ].join("\n");
     const result = convertFidelityToStandard(csv, { currency: "GBP" });
     expect(result.errors).toEqual([]);
-    expect(result.txs.length).toBe(types.length);
-    expect(new Set(result.txs.map((tx) => tx.type))).toEqual(
+    // Counter-legs are appended for the one-sided rows, so count the postings
+    // that came from a source row: those are the ones a type maps to.
+    const source = result.txs.filter((tx) => tx.accountType === AccountType.UNSPECIFIED);
+    expect(source.length).toBe(types.length);
+    expect(new Set(source.map((tx) => tx.type))).toEqual(
       new Set(Object.values(FIDELITY_TYPE_TO_OFX))
     );
   });
@@ -243,14 +249,18 @@ describe("transaction grouping", () => {
     expect(result.txs[1].groupRef).toBe("563466632");
   });
 
-  it("leaves separately reported charges ungrouped", () => {
+  it("keeps a separately reported charge out of the trade's group", () => {
     const result = convert([
       row("Sell", "WISE PLC (WISE)", "AG1", "-7266.49", "1242", "5.85", "563466569"),
       row("Cash In From Sell", "Cash", "AG1", "7266.49", "7266.49", "1", "563466571"),
       row("Dealing Fee", "Cash", "AG1", "-10", "0", "0", "563466600", "8 Feb 2022"),
     ]);
 
-    expect(result.txs[2].groupRef).toBe("");
+    // It has a group of its own -- it needs one to hold its expense leg -- but
+    // Fidelity dates it on the order date while the trade settles later, so
+    // folding it into the trade would misdate it.
+    expect(result.txs[2].groupRef).not.toBe("");
+    expect(result.txs[2].groupRef).not.toBe(result.txs[0].groupRef);
   });
 
   it("does not cross-pair two sells settling the same day in one account", () => {
@@ -358,5 +368,94 @@ describe("transaction grouping", () => {
     expect(result.errors).toHaveLength(0);
     expect(result.txs).toHaveLength(1);
     expect(result.txs[0].groupRef).toBe("");
+  });
+});
+
+describe("counter-legs", () => {
+  const HEAD =
+    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
+  const row = (
+    type: string,
+    investments: string,
+    account: string,
+    amount: string,
+    quantity: string,
+    price: string,
+    ref: string,
+    completion = "10 Feb 2022"
+  ) =>
+    `8 Feb 2022,${completion},${type},"${investments}",Investment Account,${account},,${amount},${quantity},${price},${ref},Completed`;
+
+  const convert = (rows: string[]) =>
+    convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
+
+  it("names the account a charge went to", () => {
+    const result = convert([row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "563466600")]);
+
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs[1].type).toBe(TxType.INVEXPENSE);
+    expect(result.txs[1].accountType).toBe(AccountType.EXPENSE);
+    expect(result.txs[1].quantity).toBe(10);
+    expect(result.txs[1].groupRef).toBe(result.txs[0].groupRef);
+    expectGroupsBalance(result.txs);
+  });
+
+  it("names the account a dividend came from", () => {
+    const result = convert([row("Cash Dividend", "Cash", "AG1", "23.40", "23.40", "1", "563466601")]);
+
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs[1].accountType).toBe(AccountType.INCOME);
+    expect(result.txs[1].quantity).toBe(-23.4);
+    expectGroupsBalance(result.txs);
+  });
+
+  it("leaves a trade and its cash leg alone -- the source supplied both", () => {
+    const result = convert([
+      row("Sell", "WISE PLC (WISE)", "AG1", "-7265.70", "1242", "5.85", "563466569"),
+      row("Cash In From Sell", "Cash", "AG1", "7265.70", "7265.70", "1", "563466571"),
+    ]);
+
+    expect(result.txs).toHaveLength(2);
+    expectGroupsBalance(result.txs);
+  });
+
+  it("balances a trade, its cash leg and the charge reported beside it", () => {
+    const result = convert([
+      row("Sell", "WISE PLC (WISE)", "AG1", "-7265.70", "1242", "5.85", "563466569"),
+      row("Cash In From Sell", "Cash", "AG1", "7265.70", "7265.70", "1", "563466571"),
+      row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "563466600", "8 Feb 2022"),
+    ]);
+
+    expect(result.txs).toHaveLength(4);
+    expectGroupsBalance(result.txs);
+  });
+
+  it("does not invent a leg for a journal, whose other side is another account", () => {
+    const result = convert([row("Cash In", "Cash", "AG1", "5000", "5000", "1", "563466602")]);
+
+    expect(result.txs).toHaveLength(1);
+    expect(result.txs[0].type).toBe(TxType.JRNLFUND);
+  });
+});
+
+describe("trade cash legs", () => {
+  const HEAD =
+    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
+  const convert = (rows: string[]) =>
+    convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
+
+  // Typing these JRNLFUND made every trade group read as a transfer, so its
+  // residual was routed to TRANSFER_CLEARING instead of IMBALANCE.
+  it("are CASHFLOW, keeping their direction and currency", () => {
+    const result = convert([
+      "8 Feb 2022,10 Feb 2022,Cash Out For Buy,Cash,Investment Account,AG1,,-401,401,1,730493547,Completed",
+      "8 Feb 2022,10 Feb 2022,Cash In From Sell,Cash,Investment Account,AG1,,7265.70,7265.70,1,563466571,Completed",
+    ]);
+
+    expect(result.txs[0].type).toBe(TxType.CASHFLOW);
+    expect(result.txs[0].quantity).toBe(-401);
+    expect(result.txs[0].tradingCurrency).toBe("GBP");
+    expect(result.txs[1].type).toBe(TxType.CASHFLOW);
+    expect(result.txs[1].quantity).toBe(7265.7);
   });
 });

@@ -13,6 +13,7 @@ import type { Tx } from "@/gen/api/v1/api_pb";
 import { TxSchema, TxType } from "@/gen/api/v1/api_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/standard";
 import { parseCSVLine } from "@/lib/csv/standard";
+import { counterLegs } from "@/lib/csv/postings";
 
 const FIDELITY_DATE_FORMAT = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/;
 const MONTHS: Record<string, number> = {
@@ -56,10 +57,16 @@ export const FIDELITY_TYPE_TO_OFX: Record<string, TxType> = {
   "Cash In Ring-fenced For Fees": TxType.TRANSFER,
   "Cash In": TxType.JRNLFUND,
   "Cash In Lump Sum": TxType.JRNLFUND,
-  "Cash In From Sell": TxType.JRNLFUND,
   "Cash In For Transfer": TxType.JRNLFUND,
-  "Cash Out For Buy": TxType.JRNLFUND,
-  "Cash Out For Buy From Transfer": TxType.JRNLFUND,
+  // The cash leg of a trade, not a journal: these pair 1:1 with their trade rows
+  // and settle inside the account. Typing them JRNLFUND made the whole trade
+  // group read as a transfer, so its residual was routed to TRANSFER_CLEARING
+  // rather than IMBALANCE and never reached the report that measures converter
+  // lossiness. The types above keep JRNLFUND because their other side really is
+  // outside the account.
+  "Cash In From Sell": TxType.CASHFLOW,
+  "Cash Out For Buy": TxType.CASHFLOW,
+  "Cash Out For Buy From Transfer": TxType.CASHFLOW,
 };
 
 export function isCashTxType(type: TxType): boolean {
@@ -69,7 +76,8 @@ export function isCashTxType(type: TxType): boolean {
     type === TxType.REINVEST ||
     type === TxType.TRANSFER ||
     type === TxType.MARGININTEREST ||
-    type === TxType.RETOFCAP
+    type === TxType.RETOFCAP ||
+    type === TxType.CASHFLOW
   );
 }
 
@@ -358,6 +366,10 @@ export function convertFidelityToStandard(
   assignFidelityGroups(legs).forEach((ref, i) => {
     if (ref) txs[i].groupRef = ref;
   });
+  // After the refs are stamped, since that loop is index-parallel with legs.
+  // Fidelity nets nothing into a trade total, so no fee is derived here: its
+  // charges arrive as their own rows and only need the account they went to.
+  txs.push(...counterLegs(txs));
 
   const periodFrom = minTime === Infinity ? new Date(0) : new Date(minTime);
   const periodBefore =

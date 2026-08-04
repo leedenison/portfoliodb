@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { IdentifierType, TxType } from "@/gen/api/v1/api_pb";
+import { AccountType, IdentifierType, TxType } from "@/gen/api/v1/api_pb";
 import { convertFidelityJson, isValidIsin } from "./fidelity-json";
 
 const BUY = {
@@ -145,7 +145,9 @@ describe("convertFidelityJson", () => {
     const result = convertFidelityJson(
       json({ ...BUY, status: "Cancelled", units: 0, valuation: 0 }, SERVICE_FEE)
     );
-    expect(result.txs).toHaveLength(1);
+    // The service fee and its expense leg; nothing from the cancelled buy.
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs[0]!.type).toBe(TxType.INVEXPENSE);
     expect(result.errors).toEqual([]);
   });
 
@@ -234,7 +236,7 @@ describe("convertFidelityJson grouping", () => {
     expect(result.txs[1]!.groupRef).toBe("563466632");
   });
 
-  it("leaves a separately reported charge ungrouped", () => {
+  it("keeps a separately reported charge out of any trade's group", () => {
     const result = convertFidelityJson(
       json(
         trade({
@@ -248,7 +250,11 @@ describe("convertFidelityJson grouping", () => {
       )
     );
 
-    expect(result.txs[0]!.groupRef).toBe("");
+    // A group of its own, holding the charge and the expense it went to.
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs[0]!.groupRef).not.toBe("");
+    expect(result.txs[1]!.groupRef).toBe(result.txs[0]!.groupRef);
+    expect(result.txs[1]!.accountType).toBe(AccountType.EXPENSE);
   });
 
   it("leaves rows ungrouped when the payload carries no reference", () => {

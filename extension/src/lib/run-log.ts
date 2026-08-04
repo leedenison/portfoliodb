@@ -23,6 +23,11 @@ export interface RunLogEntry {
   /** The transaction the window was derived from, or null on a first run. */
   resumedFrom?: string | null;
   rowCount?: number;
+  /**
+   * Postings uploaded, which is not the row count: the converter emits the leg
+   * that balances a one-sided row -- the income a dividend came from, the
+   * expense a charge went to -- so a row can produce more than one posting.
+   */
   txCount?: number;
   droppedCount?: number;
   /**

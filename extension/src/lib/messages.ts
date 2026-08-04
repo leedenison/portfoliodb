@@ -56,6 +56,7 @@ export interface DryRunResult {
   requested?: { from: string; to: string };
   /** Rows in the captured payload, before conversion. */
   rowCount?: number;
+  /** Postings the conversion produced, which a row can produce more than one of. */
   txCount?: number;
   /** Distinct broker transaction types the converter did not recognise. */
   droppedTypes?: string[];

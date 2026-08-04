@@ -38,7 +38,7 @@ describe("ingestion-api", () => {
         timestamp: timestampFromDate(new Date("2024-01-15")),
         instrumentDescription: "AAPL",
         type: 5, // BUYSTOCK
-        quantity: 10,
+        quantity: "10",
         account: "",
       });
 
@@ -65,7 +65,7 @@ describe("ingestion-api", () => {
       expect(decoded.source).toBe("IBKR:web:standard");
       expect(decoded.txs).toHaveLength(1);
       expect(decoded.txs[0].instrumentDescription).toBe("AAPL");
-      expect(decoded.txs[0].quantity).toBe(10);
+      expect(decoded.txs[0].quantity).toBe("10");
       expect(decoded.txs[0].account).toBe("");
     });
   });

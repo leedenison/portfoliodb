@@ -14,14 +14,14 @@ describe("parseStandardCSV", () => {
     expect(result.txs).toHaveLength(2);
     expect(result.txs[0].instrumentDescription).toBe("AAPL - Apple Inc.");
     expect(result.txs[0].type).toBe(TxType.BUYSTOCK);
-    expect(result.txs[0].quantity).toBe(10);
+    expect(result.txs[0].quantity).toBe("10");
     expect(result.txs[0].tradingCurrency).toBe("USD");
     expect(result.txs[0].settlementCurrency).toBe("USD");
-    expect(result.txs[0].unitPrice).toBe(185.5);
+    expect(result.txs[0].unitPrice).toBe("185.5");
 
     expect(result.txs[1].instrumentDescription).toBe("MSFT - Microsoft");
     expect(result.txs[1].type).toBe(TxType.SELLSTOCK);
-    expect(result.txs[1].quantity).toBe(-5);
+    expect(result.txs[1].quantity).toBe("-5");
 
     expect(result.periodFrom.getTime()).toBe(new Date("2024-01-10").getTime());
     // Exclusive: midnight after the last row's day, so the last row is inside.
@@ -140,7 +140,7 @@ not-a-date,AAPL,BUYSTOCK,10`;
 
     expect(result.errors).toHaveLength(0);
     expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].quantity).toBe(10);
+    expect(result.txs[0].quantity).toBe("10");
     expect(result.txs[0].instrumentDescription).toBe("AAPL");
     // Optional fields may be unset or proto default ("" or 0)
     expect([undefined, ""]).toContain(result.txs[0].settlementCurrency);
@@ -469,7 +469,7 @@ describe("unit_price", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs[0].unitPrice).toBe(0);
+    expect(result.txs[0].unitPrice).toBe("0");
     expect(result.txs[1].unitPrice).toBeUndefined();
   });
 });

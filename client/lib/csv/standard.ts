@@ -7,6 +7,7 @@ import Papa from "papaparse";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "@/lib/dates";
+import { parseDecimal } from "@/lib/decimal";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import {
   AccountType,
@@ -196,9 +197,10 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
       continue;
     }
 
-    const qtyStr = get(qtyCol);
-    const quantity = parseFloat(qtyStr);
-    if (Number.isNaN(quantity)) {
+    // Decimal cells are format-checked and carried through as text: the column
+    // is exact and so is the wire field, so nothing here has to be a number.
+    const quantity = parseDecimal(get(qtyCol))?.toString();
+    if (quantity === undefined) {
       errors.push({ rowIndex, field: "quantity", message: "Must be a number" });
       continue;
     }
@@ -206,8 +208,8 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
     const tradingCurrency = tradingCurrencyCol >= 0 ? get(tradingCurrencyCol) || undefined : undefined;
     const settlementCurrency = settlementCurrencyCol >= 0 ? get(settlementCurrencyCol) || undefined : undefined;
     const unitPriceStr = get(priceCol);
-    const unitPrice = unitPriceStr ? parseFloat(unitPriceStr) : undefined;
-    if (unitPriceStr && (Number.isNaN(unitPrice!) || unitPrice === undefined)) {
+    const unitPrice = parseDecimal(unitPriceStr)?.toString();
+    if (unitPriceStr && unitPrice === undefined) {
       errors.push({ rowIndex, field: "unit_price", message: "Must be a number if present" });
       continue;
     }
@@ -271,7 +273,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
         ...(groupRef ? { groupRef } : {}),
         ...(tradingCurrency ? { tradingCurrency } : {}),
         ...(settlementCurrency ? { settlementCurrency } : {}),
-        ...(unitPrice !== undefined && !Number.isNaN(unitPrice) ? { unitPrice } : {}),
+        ...(unitPrice !== undefined ? { unitPrice } : {}),
         ...(identifierHints.length > 0
           ? {
               identifierHints: identifierHints.map((h) =>

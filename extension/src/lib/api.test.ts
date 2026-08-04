@@ -77,7 +77,7 @@ describe("api", () => {
           timestamp: timestampFromDate(new Date("2026-07-10T00:00:00Z")),
           instrumentDescription: "ISHARES II PLC INRG",
           type: TxType.BUYSTOCK,
-          quantity: 10,
+          quantity: "10",
         },
       ],
     });

@@ -8,6 +8,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -177,13 +178,17 @@ func (s *Server) DeleteHoldingDeclaration(ctx context.Context, req *apiv1.Delete
 // initializeValues holds the computed values for an INITIALIZE tx.
 type initializeValues struct {
 	timestamp time.Time
-	quantity  float64
+	quantity  decimal.Decimal
 	txType    string
 }
 
 // computeInitializeValues computes the INITIALIZE tx timestamp, quantity, and tx type.
 func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, account, instrumentID, declaredQtyStr string, asOfDate time.Time, startDate time.Time) (*initializeValues, error) {
-	declaredQty, err := strconv.ParseFloat(declaredQtyStr, 64)
+	// declared_qty is a decimal string on the wire and a NUMERIC column, so it
+	// never has to become a float. The subtraction below is exact, which is what
+	// makes the resulting pad reconcile to the declaration rather than to within
+	// a rounding of it.
+	declaredQty, err := decimal.NewFromString(declaredQtyStr)
 	if err != nil {
 		return nil, fmt.Errorf("parse declared_qty: %w", err)
 	}
@@ -193,7 +198,7 @@ func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, ac
 	if err != nil {
 		return nil, fmt.Errorf("compute running balance: %w", err)
 	}
-	initQty := declaredQty - runningBalance
+	initQty := declaredQty.Sub(runningBalance)
 	var assetClass string
 	inst, err := s.db.GetInstrument(ctx, instrumentID)
 	if err == nil && inst != nil && inst.AssetClass != nil {

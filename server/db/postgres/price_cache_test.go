@@ -138,8 +138,8 @@ func TestHeldRanges_BuySell(t *testing.T) {
 	instID := setupInstrument(t, p, "AAPL")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "A"},
-		{Timestamp: ts(2024, 3, 15), InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: -100, Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: "100", Account: "A"},
+		{Timestamp: ts(2024, 3, 15), InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: "-100", Account: "A"},
 	})
 
 	got, err := p.HeldRanges(ctx, db.HeldRangesOpts{})
@@ -158,7 +158,7 @@ func TestHeldRanges_OpenPosition(t *testing.T) {
 	instID := setupInstrument(t, p, "GOOG")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 6, 1), InstrumentDescription: "GOOG", Type: apiv1.TxType_BUYSTOCK, Quantity: 50, Account: "A"},
+		{Timestamp: ts(2024, 6, 1), InstrumentDescription: "GOOG", Type: apiv1.TxType_BUYSTOCK, Quantity: "50", Account: "A"},
 	})
 
 	today := time.Now().UTC().Truncate(db.Day)
@@ -179,7 +179,7 @@ func TestHeldRanges_OpenPositionNoExtend(t *testing.T) {
 	instID := setupInstrument(t, p, "MSFT")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 6, 1), InstrumentDescription: "MSFT", Type: apiv1.TxType_BUYSTOCK, Quantity: 50, Account: "A"},
+		{Timestamp: ts(2024, 6, 1), InstrumentDescription: "MSFT", Type: apiv1.TxType_BUYSTOCK, Quantity: "50", Account: "A"},
 	})
 
 	got, err := p.HeldRanges(ctx, db.HeldRangesOpts{ExtendToToday: false})
@@ -199,10 +199,10 @@ func TestHeldRanges_CloseAndReopen(t *testing.T) {
 	instID := setupInstrument(t, p, "TSLA")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "TSLA", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "A"},
-		{Timestamp: ts(2024, 2, 15), InstrumentDescription: "TSLA", Type: apiv1.TxType_SELLSTOCK, Quantity: -100, Account: "A"},
-		{Timestamp: ts(2024, 4, 1), InstrumentDescription: "TSLA", Type: apiv1.TxType_BUYSTOCK, Quantity: 50, Account: "A"},
-		{Timestamp: ts(2024, 5, 1), InstrumentDescription: "TSLA", Type: apiv1.TxType_SELLSTOCK, Quantity: -50, Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "TSLA", Type: apiv1.TxType_BUYSTOCK, Quantity: "100", Account: "A"},
+		{Timestamp: ts(2024, 2, 15), InstrumentDescription: "TSLA", Type: apiv1.TxType_SELLSTOCK, Quantity: "-100", Account: "A"},
+		{Timestamp: ts(2024, 4, 1), InstrumentDescription: "TSLA", Type: apiv1.TxType_BUYSTOCK, Quantity: "50", Account: "A"},
+		{Timestamp: ts(2024, 5, 1), InstrumentDescription: "TSLA", Type: apiv1.TxType_SELLSTOCK, Quantity: "-50", Account: "A"},
 	})
 
 	got, err := p.HeldRanges(ctx, db.HeldRangesOpts{})
@@ -247,18 +247,18 @@ func TestHeldRanges_MultipleInstruments(t *testing.T) {
 
 	// Insert txs for inst1.
 	insertTxs(t, p, userID, inst1, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "INST1", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
-		{Timestamp: ts(2024, 2, 1), InstrumentDescription: "INST1", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "INST1", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 2, 1), InstrumentDescription: "INST1", Type: apiv1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
 	})
 
 	// Insert txs for inst2 using CreateTx to avoid ReplaceTxsInPeriod conflict with same broker/period.
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 3, 1), InstrumentDescription: "INST2", Type: apiv1.TxType_BUYSTOCK, Quantity: 20, Account: "A",
+		Timestamp: ts(2024, 3, 1), InstrumentDescription: "INST2", Type: apiv1.TxType_BUYSTOCK, Quantity: "20", Account: "A",
 	}, inst2, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 4, 1), InstrumentDescription: "INST2", Type: apiv1.TxType_SELLSTOCK, Quantity: -20, Account: "A",
+		Timestamp: ts(2024, 4, 1), InstrumentDescription: "INST2", Type: apiv1.TxType_SELLSTOCK, Quantity: "-20", Account: "A",
 	}, inst2, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -287,18 +287,18 @@ func TestHeldRanges_MultipleUsers(t *testing.T) {
 
 	// User 1 holds Jan-Feb.
 	insertTxs(t, p, user1, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "SHARED", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
-		{Timestamp: ts(2024, 2, 1), InstrumentDescription: "SHARED", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "SHARED", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 2, 1), InstrumentDescription: "SHARED", Type: apiv1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
 	})
 
 	// User 2 holds Mar-Apr (separate broker to avoid replace conflict).
 	if err := createTx(ctx, p, user2, "TEST2", "B", "", &apiv1.Tx{
-		Timestamp: ts(2024, 3, 1), InstrumentDescription: "SHARED", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "B",
+		Timestamp: ts(2024, 3, 1), InstrumentDescription: "SHARED", Type: apiv1.TxType_BUYSTOCK, Quantity: "5", Account: "B",
 	}, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, user2, "TEST2", "B", "", &apiv1.Tx{
-		Timestamp: ts(2024, 4, 1), InstrumentDescription: "SHARED", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: "B",
+		Timestamp: ts(2024, 4, 1), InstrumentDescription: "SHARED", Type: apiv1.TxType_SELLSTOCK, Quantity: "-5", Account: "B",
 	}, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -453,8 +453,8 @@ func TestPriceGaps_NoPrices(t *testing.T) {
 	instID := setupInstrument(t, p, "GAPNONE")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPNONE", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "A"},
-		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "GAPNONE", Type: apiv1.TxType_SELLSTOCK, Quantity: -100, Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPNONE", Type: apiv1.TxType_BUYSTOCK, Quantity: "100", Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "GAPNONE", Type: apiv1.TxType_SELLSTOCK, Quantity: "-100", Account: "A"},
 	})
 
 	got, err := p.PriceGaps(ctx, db.HeldRangesOpts{})
@@ -474,8 +474,8 @@ func TestPriceGaps_FullCoverage(t *testing.T) {
 	instID := setupInstrument(t, p, "GAPFULL")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPFULL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
-		{Timestamp: ts(2024, 1, 4), InstrumentDescription: "GAPFULL", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPFULL", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 1, 4), InstrumentDescription: "GAPFULL", Type: apiv1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
 	})
 
 	// Insert prices covering [Jan 1, Jan 4) fully.
@@ -498,8 +498,8 @@ func TestPriceGaps_PartialCoverage(t *testing.T) {
 	instID := setupInstrument(t, p, "GAPPART")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPPART", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPPART", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPPART", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPPART", Type: apiv1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
 	})
 
 	// Prices for Jan 3-5 only (gap before and after).
@@ -527,8 +527,8 @@ func TestPriceGaps_EmptyCoverageIsNotAGap(t *testing.T) {
 	instID := setupInstrument(t, p, "GAPEMPTY")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPEMPTY", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPEMPTY", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPEMPTY", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPEMPTY", Type: apiv1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
 	})
 
 	// The whole held period was asked about and came back with no bars at all.
@@ -822,26 +822,26 @@ func TestFXGaps_MixedCurrencies(t *testing.T) {
 
 	// Buy all three on Jan 10, sell on Feb 10.
 	insertTxs(t, p, userID, eurInst, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
-		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "SAP", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "SAP", Type: apiv1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
 	})
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 1, 10), InstrumentDescription: "HSBC", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "A",
+		Timestamp: ts(2024, 1, 10), InstrumentDescription: "HSBC", Type: apiv1.TxType_BUYSTOCK, Quantity: "5", Account: "A",
 	}, gbpInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 2, 10), InstrumentDescription: "HSBC", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: "A",
+		Timestamp: ts(2024, 2, 10), InstrumentDescription: "HSBC", Type: apiv1.TxType_SELLSTOCK, Quantity: "-5", Account: "A",
 	}, gbpInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "TEST3", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-FX", Type: apiv1.TxType_BUYSTOCK, Quantity: 20, Account: "A",
+		Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-FX", Type: apiv1.TxType_BUYSTOCK, Quantity: "20", Account: "A",
 	}, usdInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "TEST3", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-FX", Type: apiv1.TxType_SELLSTOCK, Quantity: -20, Account: "A",
+		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-FX", Type: apiv1.TxType_SELLSTOCK, Quantity: "-20", Account: "A",
 	}, usdInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -872,8 +872,8 @@ func TestFXGaps_PartialCoverage(t *testing.T) {
 
 	eurInst := setupInstrumentWithCurrency(t, p, "SAP-PC", "STOCK", "EUR")
 	insertTxs(t, p, userID, eurInst, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP-PC", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
-		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "SAP-PC", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP-PC", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "SAP-PC", Type: apiv1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
 	})
 
 	eurFX := lookupFXInstrument(t, p, "EUR")
@@ -902,8 +902,8 @@ func TestFXGaps_AllUSD(t *testing.T) {
 
 	usdInst := setupInstrumentWithCurrency(t, p, "AAPL-USD", "STOCK", "USD")
 	insertTxs(t, p, userID, usdInst, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-USD", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
-		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-USD", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-USD", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-USD", Type: apiv1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
 	})
 
 	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
@@ -925,16 +925,16 @@ func TestFXGaps_MultipleInstrumentsSameCurrency(t *testing.T) {
 	eurInst2 := setupInstrumentWithCurrency(t, p, "BMW-M1", "STOCK", "EUR")
 
 	insertTxs(t, p, userID, eurInst1, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 5), InstrumentDescription: "SAP-M1", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
-		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "SAP-M1", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+		{Timestamp: ts(2024, 1, 5), InstrumentDescription: "SAP-M1", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "SAP-M1", Type: apiv1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
 	})
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 1, 15), InstrumentDescription: "BMW-M1", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "A",
+		Timestamp: ts(2024, 1, 15), InstrumentDescription: "BMW-M1", Type: apiv1.TxType_BUYSTOCK, Quantity: "5", Account: "A",
 	}, eurInst2, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 1, 30), InstrumentDescription: "BMW-M1", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: "A",
+		Timestamp: ts(2024, 1, 30), InstrumentDescription: "BMW-M1", Type: apiv1.TxType_SELLSTOCK, Quantity: "-5", Account: "A",
 	}, eurInst2, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -964,8 +964,8 @@ func TestFXGaps_DisplayCurrency_USDHoldings(t *testing.T) {
 
 	usdInst := setupInstrumentWithCurrency(t, p, "AAPL-DC", "STOCK", "USD")
 	insertTxs(t, p, userID, usdInst, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-DC", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
-		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-DC", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC", Type: apiv1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
 	})
 
 	eurFX := lookupFXInstrument(t, p, "EUR")
@@ -993,8 +993,8 @@ func TestFXGaps_DisplayCurrency_SkipsSameCurrency(t *testing.T) {
 
 	eurInst := setupInstrumentWithCurrency(t, p, "SAP-DC", "STOCK", "EUR")
 	insertTxs(t, p, userID, eurInst, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP-DC", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A"},
-		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "SAP-DC", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP-DC", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "SAP-DC", Type: apiv1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
 	})
 
 	eurFX := lookupFXInstrument(t, p, "EUR")
@@ -1027,16 +1027,16 @@ func TestFXGaps_DisplayCurrency_MixedHoldings(t *testing.T) {
 	usdInst := setupInstrumentWithCurrency(t, p, "AAPL-DC2", "STOCK", "USD")
 
 	insertTxs(t, p, userID, gbpInst, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "HSBC-DC", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "A"},
-		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "HSBC-DC", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "HSBC-DC", Type: apiv1.TxType_BUYSTOCK, Quantity: "5", Account: "A"},
+		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "HSBC-DC", Type: apiv1.TxType_SELLSTOCK, Quantity: "-5", Account: "A"},
 	})
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 2, 1), InstrumentDescription: "AAPL-DC2", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "A",
+		Timestamp: ts(2024, 2, 1), InstrumentDescription: "AAPL-DC2", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A",
 	}, usdInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC2", Type: apiv1.TxType_SELLSTOCK, Quantity: -10, Account: "A",
+		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC2", Type: apiv1.TxType_SELLSTOCK, Quantity: "-10", Account: "A",
 	}, usdInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}

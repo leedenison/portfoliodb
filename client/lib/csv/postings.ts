@@ -58,8 +58,7 @@ export function counterLeg(tx: Tx): Tx | undefined {
     return undefined;
   }
   const leg = clone(TxSchema, tx);
-  // Negation is exact in binary floating point, so this needs no decimal.
-  leg.quantity = -tx.quantity;
+  leg.quantity = new Big(tx.quantity).times(-1).toString();
   leg.accountType = accountType;
   return leg;
 }
@@ -81,11 +80,8 @@ export function feeLeg(from: Tx, fee: Big | undefined): Tx | undefined {
     // downstream has to treat a derived fee specially.
     instrumentDescription: currency,
     type: TxType.INVEXPENSE,
-    // Exact up to here; the proto field is still a number, so this is the one
-    // place the value narrows. It stops narrowing when the field becomes a
-    // decimal string.
-    quantity: fee.abs().times(-1).toNumber(),
-    unitPrice: 1,
+    quantity: fee.abs().times(-1).toString(),
+    unitPrice: "1",
     account: from.account,
     groupRef: from.groupRef,
     accountType: AccountType.USER,

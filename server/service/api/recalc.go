@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 )
 
 // RecalcInitializeTx recomputes the INITIALIZE tx for a single holding declaration.
@@ -34,7 +34,7 @@ func recalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDec
 			"start_date", startDay.Format("2006-01-02"))
 		return database.DeleteDeclarationWithInitializeTx(ctx, decl.ID, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID)
 	}
-	declaredQty, err := strconv.ParseFloat(decl.DeclaredQty, 64)
+	declaredQty, err := decimal.NewFromString(decl.DeclaredQty)
 	if err != nil {
 		return fmt.Errorf("parse declared_qty: %w", err)
 	}
@@ -43,8 +43,10 @@ func recalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDec
 	if err != nil {
 		return fmt.Errorf("compute running balance: %w", err)
 	}
-	initQty := declaredQty - runningBalance
-	if initQty == 0 {
+	// Exact, so this is a real "the real txs already account for it" rather than
+	// a value that happened to land on zero.
+	initQty := declaredQty.Sub(runningBalance)
+	if initQty.IsZero() {
 		// Real txs already fully account for the declared balance at as_of_date;
 		// the declaration is superseded by real data. Drop both atomically.
 		slog.Info("real txs fully account for declared balance; deleting declaration",

@@ -18,7 +18,7 @@ type residualSeed struct {
 	instID      string
 	txType      apiv1.TxType
 	accountType apiv1.AccountType
-	qty         float64
+	qty         string
 	daysAgo     int
 }
 
@@ -83,9 +83,9 @@ func TestListResidualBalances_GroupsByTxType(t *testing.T) {
 	usd := usdInstrument(t, p)
 
 	seedResiduals(t, p, userID,
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, -100, 1},
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, -50, 2},
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_BUYSTOCK, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, 3.5, 3},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, "-100", 1},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, "-50", 2},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_BUYSTOCK, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, "3.5", 3},
 	)
 
 	rows, err := p.ListResidualBalances(context.Background(), db.ResidualBalanceOpts{})
@@ -125,8 +125,8 @@ func TestListResidualBalances_OffsettingImbalancesDrop(t *testing.T) {
 	usd := usdInstrument(t, p)
 
 	seedResiduals(t, p, userID,
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, 100, 1},
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, -100, 2},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, "100", 1},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, "-100", 2},
 	)
 
 	rows, err := p.ListResidualBalances(context.Background(), db.ResidualBalanceOpts{})
@@ -151,7 +151,7 @@ func TestListResidualBalances_SecurityCommodity(t *testing.T) {
 	}
 
 	seedResiduals(t, p, userID,
-		residualSeed{"IBKR", "A1", stockID, apiv1.TxType_JRNLSEC, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, 50, 1},
+		residualSeed{"IBKR", "A1", stockID, apiv1.TxType_JRNLSEC, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, "50", 1},
 	)
 
 	rows, err := p.ListResidualBalances(context.Background(), db.ResidualBalanceOpts{})
@@ -180,8 +180,8 @@ func TestListResidualBalances_SettledTransferIsStillReported(t *testing.T) {
 	usd := usdInstrument(t, p)
 
 	seedResiduals(t, p, userID,
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_JRNLFUND, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, 500, 40},
-		residualSeed{"IBKR", "A2", usd, apiv1.TxType_JRNLFUND, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, -500, 38},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_JRNLFUND, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, "500", 40},
+		residualSeed{"IBKR", "A2", usd, apiv1.TxType_JRNLFUND, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, "-500", 38},
 	)
 
 	rows, err := p.ListResidualBalances(context.Background(), db.ResidualBalanceOpts{})
@@ -209,8 +209,8 @@ func TestListResidualBalances_ImbalancesDoNotNetAcrossAccounts(t *testing.T) {
 	usd := usdInstrument(t, p)
 
 	seedResiduals(t, p, userID,
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, 500, 5},
-		residualSeed{"IBKR", "A2", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, -500, 5},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, "500", 5},
+		residualSeed{"IBKR", "A2", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, "-500", 5},
 	)
 
 	rows, err := p.ListResidualBalances(context.Background(), db.ResidualBalanceOpts{})
@@ -229,8 +229,8 @@ func TestListResidualBalances_PeriodBounds(t *testing.T) {
 	usd := usdInstrument(t, p)
 
 	seedResiduals(t, p, userID,
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, -10, 30},
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_BUYSTOCK, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, -20, 2},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, "-10", 30},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_BUYSTOCK, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, "-20", 2},
 	)
 
 	from := time.Now().UTC().AddDate(0, 0, -10)
@@ -260,8 +260,8 @@ func TestListResidualBalances_AccountTypeFilter(t *testing.T) {
 	usd := usdInstrument(t, p)
 
 	seedResiduals(t, p, userID,
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, -10, 2},
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_JRNLFUND, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, 500, 2},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, "-10", 2},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_JRNLFUND, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, "500", 2},
 	)
 
 	ctx := context.Background()
@@ -289,9 +289,9 @@ func TestCountResidualBalances_StalenessBoundary(t *testing.T) {
 	usd := usdInstrument(t, p)
 
 	seedResiduals(t, p, userID,
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, -10, 1},
-		residualSeed{"IBKR", "A1", usd, apiv1.TxType_JRNLFUND, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, 100, 6},
-		residualSeed{"IBKR", "A2", usd, apiv1.TxType_JRNLFUND, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, 200, 8},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_INCOME, apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE, "-10", 1},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_JRNLFUND, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, "100", 6},
+		residualSeed{"IBKR", "A2", usd, apiv1.TxType_JRNLFUND, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, "200", 8},
 	)
 
 	staleBefore := time.Now().UTC().AddDate(0, 0, -7)

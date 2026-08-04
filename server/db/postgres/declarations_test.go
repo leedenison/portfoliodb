@@ -139,7 +139,7 @@ func TestGetPortfolioStartDate(t *testing.T) {
 	// Add a tx
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SD1", Canonical: false}}, "", nil, nil, nil)
 	ts := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
-	tx := &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "SD1", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "acct1"}
+	tx := &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "SD1", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "acct1"}
 	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", tx, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -164,10 +164,10 @@ func TestComputeRunningBalance(t *testing.T) {
 
 	ts1 := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
 	ts2 := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
-	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts1), InstrumentDescription: "RB1", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "acct1"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts1), InstrumentDescription: "RB1", Type: apiv1.TxType_BUYSTOCK, Quantity: "100", Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create buy: %v", err)
 	}
-	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts2), InstrumentDescription: "RB1", Type: apiv1.TxType_SELLSTOCK, Quantity: -30, Account: "acct1"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts2), InstrumentDescription: "RB1", Type: apiv1.TxType_SELLSTOCK, Quantity: "-30", Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create sell: %v", err)
 	}
 
@@ -177,7 +177,7 @@ func TestComputeRunningBalance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compute: %v", err)
 	}
-	if bal != 70 {
+	if bal.String() != "70" {
 		t.Fatalf("expected 70, got %v", bal)
 	}
 }
@@ -189,16 +189,16 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "UI1", Canonical: false}}, "", nil, nil, nil)
 
 	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", ts, 50)
+	err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", ts, decf(50))
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
 	// The ledger view is unfiltered, so both legs of the pad show up: the pad
 	// itself and the EQUITY counterparty that balances it.
-	if got := initQtyByAccountType(t, p, userID); !maps.Equal(got, map[apiv1.AccountType]float64{
-		apiv1.AccountType_ACCOUNT_TYPE_USER:   50,
-		apiv1.AccountType_ACCOUNT_TYPE_EQUITY: -50,
+	if got := initQtyByAccountType(t, p, userID); !maps.Equal(got, map[apiv1.AccountType]string{
+		apiv1.AccountType_ACCOUNT_TYPE_USER:   "50",
+		apiv1.AccountType_ACCOUNT_TYPE_EQUITY: "-50",
 	}) {
 		t.Fatalf("INITIALIZE legs after create: got %v", got)
 	}
@@ -206,13 +206,13 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	// Upsert again with different qty (should update, not duplicate). Both legs
 	// move together: a recalculation that shifted only the pad would leave the
 	// group unbalanced.
-	err = p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", ts, 75)
+	err = p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", ts, decf(75))
 	if err != nil {
 		t.Fatalf("upsert update: %v", err)
 	}
-	if got := initQtyByAccountType(t, p, userID); !maps.Equal(got, map[apiv1.AccountType]float64{
-		apiv1.AccountType_ACCOUNT_TYPE_USER:   75,
-		apiv1.AccountType_ACCOUNT_TYPE_EQUITY: -75,
+	if got := initQtyByAccountType(t, p, userID); !maps.Equal(got, map[apiv1.AccountType]string{
+		apiv1.AccountType_ACCOUNT_TYPE_USER:   "75",
+		apiv1.AccountType_ACCOUNT_TYPE_EQUITY: "-75",
 	}) {
 		t.Fatalf("INITIALIZE legs after recalculation: got %v", got)
 	}
@@ -234,13 +234,13 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 // initQtyByAccountType returns the quantity of each INITIALIZE posting a user
 // has, keyed by account type. It reads through ListTxs, which is deliberately
 // unfiltered, so both the pad and its counterparty are visible.
-func initQtyByAccountType(t *testing.T, p *Postgres, userID string) map[apiv1.AccountType]float64 {
+func initQtyByAccountType(t *testing.T, p *Postgres, userID string) map[apiv1.AccountType]string {
 	t.Helper()
 	txs, _, err := p.ListTxs(context.Background(), userID, nil, "", nil, nil, false, 50, "")
 	if err != nil {
 		t.Fatalf("list txs: %v", err)
 	}
-	out := map[apiv1.AccountType]float64{}
+	out := map[apiv1.AccountType]string{}
 	for _, pt := range txs {
 		if pt.GetTx().GetSyntheticPurpose() != "INITIALIZE" {
 			continue
@@ -261,7 +261,7 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "IG1", Canonical: false}}, "", nil, nil, nil)
 
 	at := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", at, 50); err != nil {
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", at, decf(50)); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -286,7 +286,7 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 	// Recalculating a declaration must move the existing group rather than
 	// replacing it, or every recalc would orphan one.
 	moved := at.Add(48 * time.Hour)
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", moved, 75); err != nil {
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", moved, decf(75)); err != nil {
 		t.Fatalf("re-upsert: %v", err)
 	}
 	var groupID2 string
@@ -328,7 +328,7 @@ func TestUpsertInitializeTx_WritesTheEquityCounterparty(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "EQ1", Canonical: false}}, "", nil, nil, nil)
 
 	at := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", at, 50); err != nil {
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", at, decf(50)); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -376,10 +376,10 @@ func TestComputeRunningBalance_excludesNonUser(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "RB2", Canonical: false}}, "", nil, nil, nil)
 
 	ts := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
-	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "RB2", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "acct1"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "RB2", Type: apiv1.TxType_BUYSTOCK, Quantity: "100", Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create buy: %v", err)
 	}
-	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "RB2", Type: apiv1.TxType_BUYSTOCK, Quantity: -100, Account: "acct1", AccountType: apiv1.AccountType_ACCOUNT_TYPE_EQUITY}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "RB2", Type: apiv1.TxType_BUYSTOCK, Quantity: "-100", Account: "acct1", AccountType: apiv1.AccountType_ACCOUNT_TYPE_EQUITY}, instID, nil); err != nil {
 		t.Fatalf("create equity leg: %v", err)
 	}
 
@@ -389,7 +389,7 @@ func TestComputeRunningBalance_excludesNonUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compute: %v", err)
 	}
-	if bal != 100 {
+	if bal.String() != "100" {
 		t.Fatalf("running balance = %v, want 100: the EQUITY leg must not be summed", bal)
 	}
 }

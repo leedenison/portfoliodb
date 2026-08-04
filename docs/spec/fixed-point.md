@@ -77,7 +77,9 @@ It is excluded from holdings and from every other quantity aggregation, along wi
 1. Store the holding declaration record (`user_id`, `broker`, `account`, `instrument_id`, `declared_qty`, `as_of_date`).
 2. Determine the portfolio start date: the date of the earliest real transaction for this user across all holdings.
 3. Compute the running unit balance for this holding from all real transactions (excluding any existing INITIALIZE) for the same `(broker, account, instrument_id)` that fall on or between the portfolio start date and `as_of_date` inclusive.
-4. Calculate the INITIALIZE quantity: `declared_qty - running_balance`.
+4. Calculate the INITIALIZE quantity: `declared_qty - running_balance`. Both are
+   exact decimals and subtraction is closed, so the pad reconciles the holding to
+   the declaration exactly rather than to within a rounding of it.
 5. Create (or replace) the INITIALIZE transaction for this holding with:
    - `date` = portfolio start date, at `00:00:00` (midnight, start of day)
    - `quantity` = the value computed in step 4

@@ -3,6 +3,7 @@
  * quantities are altered, identifiers and the field structure are not.
  */
 
+import { Big } from "@/lib/decimal";
 import { describe, expect, it } from "vitest";
 import { AccountType, IdentifierType, TxType } from "@/gen/api/v1/api_pb";
 import { convertFidelityJson, isValidIsin } from "./fidelity-json";
@@ -67,8 +68,8 @@ describe("convertFidelityJson", () => {
     expect(result.errors).toEqual([]);
     const tx = result.txs[0]!;
     expect(tx.type).toBe(TxType.BUYSTOCK);
-    expect(tx.quantity).toBe(913);
-    expect(tx.unitPrice).toBeCloseTo(79.848724, 6);
+    expect(tx.quantity).toBe("913");
+    expect(tx.unitPrice).toBe("79.848724");
     expect(tx.settlementCurrency).toBe("GBP");
     // Not a cash transaction, so no trading currency is asserted.
     expect(tx.tradingCurrency).toBe("");
@@ -82,7 +83,7 @@ describe("convertFidelityJson", () => {
     // A zero price is a price -- an option expiring worthless. Only a row that
     // reports none at all leaves unitPrice unset.
     const priced = convertFidelityJson(json({ ...BUY, pricePerUnit: 0 }));
-    expect(priced.txs[0]!.unitPrice).toBe(0);
+    expect(priced.txs[0]!.unitPrice).toBe("0");
 
     const { pricePerUnit: _omitted, ...unpriced } = BUY;
     expect(convertFidelityJson(json(unpriced)).txs[0]!.unitPrice).toBeUndefined();
@@ -92,13 +93,13 @@ describe("convertFidelityJson", () => {
     const result = convertFidelityJson(
       json({ ...BUY, transactionType: "Sell", debitCreditIndicator: "DEBIT" })
     );
-    expect(result.txs[0]!.quantity).toBe(-913);
+    expect(result.txs[0]!.quantity).toBe("-913");
   });
 
   it("takes a cash movement's value from valuation, signed by the indicator", () => {
     const result = convertFidelityJson(json(SERVICE_FEE));
     const tx = result.txs[0]!;
-    expect(tx.quantity).toBe(-5.2);
+    expect(tx.quantity).toBe("-5.2");
     expect(tx.type).toBe(TxType.INVEXPENSE);
     // Cash transactions carry the currency on both sides.
     expect(tx.tradingCurrency).toBe("GBP");
@@ -109,7 +110,7 @@ describe("convertFidelityJson", () => {
     const result = convertFidelityJson(
       json({ ...SERVICE_FEE, transactionType: "Tax On Interest", units: 0, valuation: 0.2 })
     );
-    expect(result.txs[0]!.quantity).toBe(-0.2);
+    expect(result.txs[0]!.quantity).toBe("-0.2");
   });
 
   it("nets a matched transfer pair to zero", () => {
@@ -122,7 +123,9 @@ describe("convertFidelityJson", () => {
     };
     const back = { ...out, transactionType: "Cash In Ring-fenced For Fees", debitCreditIndicator: "CREDIT" };
     const result = convertFidelityJson(json(out, back));
-    expect(result.txs.reduce((sum, tx) => sum + tx.quantity, 0)).toBeCloseTo(0, 10);
+    // Summed as decimals: the postings carry decimal strings now.
+    const total = result.txs.reduce((sum, tx) => sum.plus(tx.quantity), new Big(0));
+    expect(total.eq(0)).toBe(true);
   });
 
   it("emits no identifier hint for a cash pseudo-ISIN", () => {

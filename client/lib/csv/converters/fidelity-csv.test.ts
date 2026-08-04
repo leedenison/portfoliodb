@@ -37,7 +37,7 @@ describe("convertFidelityToStandard", () => {
     expect(result.errors).toEqual([]);
     expect(result.txs.length).toBe(1);
     expect(result.txs[0]!.instrumentDescription).toContain("INVESCO");
-    expect(result.txs[0]!.quantity).toBe(-70);
+    expect(result.txs[0]!.quantity).toBe("-70");
     expect(result.txs[0]!.type).toBe(10); // SELLSTOCK
     expect(result.txs[0]!.settlementCurrency).toBe("GBP");
     expect(result.txs[0]!.tradingCurrency).toBe(""); // Sell is not Cash type
@@ -70,7 +70,7 @@ describe("convertFidelityToStandard", () => {
     // The cash row plus the income it came from.
     expect(result.txs.length).toBe(2);
     expect(result.txs[0]!.type).toBe(11); // INCOME
-    expect(result.txs[0]!.quantity).toBe(3.27);
+    expect(result.txs[0]!.quantity).toBe("3.27");
     expect(result.txs[0]!.settlementCurrency).toBe("USD");
   });
 
@@ -112,31 +112,31 @@ describe("convertFidelityToStandard", () => {
     "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,";
 
   describe("cash movement direction", () => {
-    const cases: { name: string; row: string; want: number }[] = [
+    const cases: { name: string; row: string; want: string }[] = [
       {
         name: "a fee is an outflow",
         row: '03 Jul 2026,08 Jul 2026,Service Fee,"Cash",Cash Management Account,AW10075724,,-5.20,5.2,1,1314200860,Completed,',
-        want: -5.2,
+        want: "-5.2",
       },
       {
         name: "interest is an inflow",
         row: '15 Jul 2026,21 Jul 2026,Cash Interest,"Cash",Investment ISA,AS10110796,"Cash",1.26,1.26,1,1319149500,Completed,',
-        want: 1.26,
+        want: "1.26",
       },
       {
         name: "a transfer out is an outflow",
         row: '03 Jul 2026,03 Jul 2026,Transfer To Cash Management Account For Fees,"Cash",Investment ISA,AS10110796,,-2.30,2.3,1,1313264690,Completed,',
-        want: -2.3,
+        want: "-2.3",
       },
       {
         name: "the matching transfer in is an inflow",
         row: '03 Jul 2026,03 Jul 2026,Cash In Ring-fenced For Fees,"Cash",Cash Management Account,AW10075724,,2.30,2.3,1,1313264694,Completed,',
-        want: 2.3,
+        want: "2.3",
       },
       {
         name: "Quantity of zero does not lose the amount",
         row: '15 Jul 2026,21 Jul 2026,Tax On Interest,"Cash",Investment Account,AG10041188,,-0.20,0,0,267898807,Completed,',
-        want: -0.2,
+        want: "-0.2",
       },
     ];
 
@@ -173,7 +173,7 @@ describe("convertFidelityToStandard", () => {
       const result = convertFidelityToStandard(csv, { currency: "GBP" });
       expect(result.errors).toEqual([]);
       expect(result.txs).toHaveLength(1);
-      expect(result.txs[0]!.quantity).toBe(-100);
+      expect(result.txs[0]!.quantity).toBe("-100");
     }
   );
 
@@ -184,7 +184,7 @@ describe("convertFidelityToStandard", () => {
     ].join("\n");
     const result = convertFidelityToStandard(csv, { currency: "GBP" });
     // Quantity is a share count here, not money, so Amount must not replace it.
-    expect(result.txs[0]!.quantity).toBe(-70);
+    expect(result.txs[0]!.quantity).toBe("-70");
   });
 
   it("falls back to Quantity when the export has no Amount column", () => {
@@ -193,7 +193,7 @@ describe("convertFidelityToStandard", () => {
       "15 Jul 2026,21 Jul 2026,Cash Interest,Cash,AS10110796,1.26,1",
     ].join("\n");
     const result = convertFidelityToStandard(csv, { currency: "GBP" });
-    expect(result.txs[0]!.quantity).toBe(1.26);
+    expect(result.txs[0]!.quantity).toBe("1.26");
   });
 
   it("parses Buy with positive quantity", () => {
@@ -205,7 +205,7 @@ describe("convertFidelityToStandard", () => {
     expect(result.errors).toEqual([]);
     expect(result.txs.length).toBe(1);
     expect(result.txs[0]!.type).toBe(5); // BUYSTOCK
-    expect(result.txs[0]!.quantity).toBe(12783);
+    expect(result.txs[0]!.quantity).toBe("12783");
     expect(result.txs[0]!.settlementCurrency).toBe("GBP");
     expect(result.txs[0]!.tradingCurrency).toBe(""); // Buy is not Cash type
   });
@@ -398,7 +398,7 @@ describe("counter-legs", () => {
     expect(result.txs).toHaveLength(2);
     expect(result.txs[1].type).toBe(TxType.INVEXPENSE);
     expect(result.txs[1].accountType).toBe(AccountType.EXPENSE);
-    expect(result.txs[1].quantity).toBe(10);
+    expect(result.txs[1].quantity).toBe("10");
     expect(result.txs[1].groupRef).toBe(result.txs[0].groupRef);
     expectGroupsBalance(result.txs);
   });
@@ -408,7 +408,7 @@ describe("counter-legs", () => {
 
     expect(result.txs).toHaveLength(2);
     expect(result.txs[1].accountType).toBe(AccountType.INCOME);
-    expect(result.txs[1].quantity).toBe(-23.4);
+    expect(result.txs[1].quantity).toBe("-23.4");
     expectGroupsBalance(result.txs);
   });
 
@@ -456,9 +456,9 @@ describe("trade cash legs", () => {
     ]);
 
     expect(result.txs[0].type).toBe(TxType.CASHFLOW);
-    expect(result.txs[0].quantity).toBe(-401);
+    expect(result.txs[0].quantity).toBe("-401");
     expect(result.txs[0].tradingCurrency).toBe("GBP");
     expect(result.txs[1].type).toBe(TxType.CASHFLOW);
-    expect(result.txs[1].quantity).toBe(7265.7);
+    expect(result.txs[1].quantity).toBe("7265.7");
   });
 });

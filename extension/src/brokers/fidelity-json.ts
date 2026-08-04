@@ -134,8 +134,10 @@ export function convertFidelityJson(
     // units and valuation are both unsigned; direction lives only in the
     // indicator. For a cash movement the transacted value is the money, and
     // units is 0 on some rows where money did move, so valuation is used there.
-    const magnitude = isCashMovement(ofxType) ? (row.valuation ?? 0) : (row.units ?? 0);
-    const quantity = row.debitCreditIndicator === "DEBIT" ? -Math.abs(magnitude) : Math.abs(magnitude);
+    const magnitude =
+      decimalFromNumber(isCashMovement(ofxType) ? row.valuation : row.units) ?? ZERO;
+    const signed = magnitude.abs();
+    const quantity = (row.debitCreditIndicator === "DEBIT" ? signed.times(-1) : signed).toString();
 
     const currency = row.currency ?? "";
     const isin = row.isin ?? "";
@@ -189,7 +191,9 @@ export function convertFidelityJson(
         ...(currency ? { settlementCurrency: currency } : {}),
         ...(currency && isCashTxType(ofxType) ? { tradingCurrency: currency } : {}),
         // Presence, not truthiness: a reported price of zero is a price.
-        ...(row.pricePerUnit !== undefined ? { unitPrice: row.pricePerUnit } : {}),
+        ...(row.pricePerUnit !== undefined
+          ? { unitPrice: (decimalFromNumber(row.pricePerUnit) ?? ZERO).toString() }
+          : {}),
         ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })
     );

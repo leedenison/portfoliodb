@@ -37,7 +37,7 @@ func TestComputeHoldings_instrumentNameOverTxDescription(t *testing.T) {
 	// An income transaction whose tx description is the source security, not
 	// the cash instrument name.
 	txs := []*apiv1.Tx{
-		{Timestamp: ts, InstrumentDescription: "MSFT MICROSOFT CORP", Type: apiv1.TxType_INCOME, Quantity: 137.08, Account: ""},
+		{Timestamp: ts, InstrumentDescription: "MSFT MICROSOFT CORP", Type: apiv1.TxType_INCOME, Quantity: "137.08", Account: ""},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{cashID}, nil); err != nil {
 		t.Fatalf("replace: %v", err)
@@ -69,7 +69,7 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	ts := timestamppb.New(now.Add(-30 * time.Minute))
 	// Only a sell with negative quantity: no buys. Net position should be -5.
 	txs := []*apiv1.Tx{
-		{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_SELLSTOCK, Quantity: -5, Account: ""},
+		{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_SELLSTOCK, Quantity: "-5", Account: ""},
 	}
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil, nil)
 	if err != nil {
@@ -120,7 +120,7 @@ func TestComputeHoldings_fractionalQuantitiesSumExactly(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		txs = append(txs, &apiv1.Tx{
 			Timestamp: at, InstrumentDescription: "FRAC",
-			Type: apiv1.TxType_BUYSTOCK, Quantity: 0.1,
+			Type: apiv1.TxType_BUYSTOCK, Quantity: "0.1",
 		})
 		instIDs = append(instIDs, instID)
 	}
@@ -164,8 +164,8 @@ func TestComputeHoldings_excludesNonUserAccountTypes(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	txs := []*apiv1.Tx{
-		{Timestamp: ts, InstrumentDescription: "TSCO", Type: apiv1.TxType_BUYSTOCK, Quantity: 40, Account: "A", GroupRef: "pad"},
-		{Timestamp: ts, InstrumentDescription: "TSCO", Type: apiv1.TxType_BUYSTOCK, Quantity: -40, Account: "A", GroupRef: "pad", AccountType: apiv1.AccountType_ACCOUNT_TYPE_EQUITY},
+		{Timestamp: ts, InstrumentDescription: "TSCO", Type: apiv1.TxType_BUYSTOCK, Quantity: "40", Account: "A", GroupRef: "pad"},
+		{Timestamp: ts, InstrumentDescription: "TSCO", Type: apiv1.TxType_BUYSTOCK, Quantity: "-40", Account: "A", GroupRef: "pad", AccountType: apiv1.AccountType_ACCOUNT_TYPE_EQUITY},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil); err != nil {
 		t.Fatalf("replace: %v", err)

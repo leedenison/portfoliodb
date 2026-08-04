@@ -52,7 +52,7 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 	for rows.Next() {
 		var instID uuid.UUID
 		var txDate time.Time
-		var eodPos float64
+		var eodPos decimal.Decimal
 		if err := rows.Scan(&instID, &txDate, &eodPos); err != nil {
 			return nil, fmt.Errorf("held ranges scan: %w", err)
 		}
@@ -73,10 +73,10 @@ func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db
 			ranges = nil
 		}
 
-		if !qtyIsZero(eodPos) && !inRange {
+		if !eodPos.IsZero() && !inRange {
 			rangeStart = txDate
 			inRange = true
-		} else if qtyIsZero(eodPos) && inRange {
+		} else if eodPos.IsZero() && inRange {
 			ranges = append(ranges, db.DateRange{From: rangeStart, Before: txDate})
 			inRange = false
 		}

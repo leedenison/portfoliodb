@@ -8,6 +8,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -153,9 +154,22 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 		if account != "" {
 			acc = account
 		}
+		// The wire carries decimals as strings, so this is where a posting's
+		// quantity and price become values. A malformed one is the caller's
+		// fault: the protovalidate patterns reject it at the interceptor for
+		// every unary RPC, so reaching this error means an internal caller
+		// built the posting badly.
+		qty, err := decimal.NewFromString(t.GetQuantity())
+		if err != nil {
+			return fmt.Errorf("invalid quantity %q: %w", t.GetQuantity(), err)
+		}
+		price, err := parseOptDecimal(t.UnitPrice)
+		if err != nil {
+			return fmt.Errorf("invalid unit price %q: %w", t.GetUnitPrice(), err)
+		}
 		args := []interface{}{
-			userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, t.Quantity,
-			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullFloat(t.UnitPrice),
+			userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, qty,
+			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullDecimal(price),
 			instUUID, shareCountBasis, acctTypeStr,
 		}
 		ref := t.GetGroupRef()

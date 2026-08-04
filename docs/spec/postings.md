@@ -143,6 +143,14 @@ cannot convert at all, so an exchange event whose source omitted a price leaves 
 residual in the security itself. See
 adr/0024-group-balance-is-checked-on-weight.md.
 
+A price is per underlying unit, so converting also multiplies by the instrument's
+**contract size**: `100 * contract_multiplier` for an option, and 1 for anything
+quoted in the units it trades in. The 100 is the OCC standard deliverable and
+belongs to the asset class, while `contract_multiplier` records only the deviation
+a corporate action can leave behind, so a standard contract needs nothing stored.
+A future's size varies per contract and is not held anywhere, so a future weighs as
+though its size were 1 (0072).
+
 Weights accumulate **per commodity**, so a group can produce more than one routed
 posting and the commodity is whatever is left over -- cash for a missing cash leg,
 the security for an unpaired `JRNLSEC`. A residual is routed only above a

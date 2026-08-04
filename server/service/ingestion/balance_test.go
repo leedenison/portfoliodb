@@ -117,6 +117,33 @@ func TestRouteResiduals(t *testing.T) {
 		},
 		want: nil,
 	}, {
+		// An option is quoted per share and traded per contract, so its leg only
+		// reaches the cash it was exchanged for once the contract size is applied.
+		// Figures from local/masters/U7033034_20250107_20260107.qfx: 8 contracts at
+		// 20.1105585 settles at -16088.4468 before commission.
+		name: "option trade balances against the cash it settled for",
+		postings: []posting{
+			{desc: "OPT", typ: apiv1.TxType_BUYOPT, qty: 8, price: price(20.1105585), settle: "USD", instID: optID, groupRef: "t1"},
+			{desc: "USD", typ: apiv1.TxType_CASHFLOW, qty: -16088.4468, price: price(1), settle: "USD", trading: "USD", instID: usdID, groupRef: "t1"},
+		},
+		want: nil,
+	}, {
+		// The commission is what is left over, not the other 99% of the trade.
+		name: "option trade leaves only its netted commission",
+		postings: []posting{
+			{desc: "OPT", typ: apiv1.TxType_BUYOPT, qty: 8, price: price(20.1105585), settle: "USD", instID: optID, groupRef: "t1"},
+			{desc: "USD", typ: apiv1.TxType_CASHFLOW, qty: -16095.867048, price: price(1), settle: "USD", trading: "USD", instID: usdID, groupRef: "t1"},
+		},
+		want: []routed{{commodity: "USD", quantity: 7.420248, accountType: apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE}},
+	}, {
+		// A share is quoted in the units it trades in, so nothing is multiplied.
+		name: "a share trade is unaffected by the contract size",
+		postings: []posting{
+			{desc: "AAPL", typ: apiv1.TxType_BUYSTOCK, qty: 8, price: price(20.1105585), settle: "USD", instID: aaplID, groupRef: "t1"},
+			{desc: "USD", typ: apiv1.TxType_CASHFLOW, qty: -160.884468, price: price(1), settle: "USD", trading: "USD", instID: usdID, groupRef: "t1"},
+		},
+		want: nil,
+	}, {
 		// 456.7872 against a cash row rounded to 456.79. The residual is real but
 		// is an artefact of the source being written to 2dp.
 		name: "sub-cent rounding is within tolerance",
@@ -317,4 +344,75 @@ func describeRouted(rs []routedPosting) string {
 		out += proto.CloneOf(r.tx).String() + " [" + commodity + "] "
 	}
 	return out
+}
+
+// The contract size a price is multiplied by to reach the consideration. The 100
+// belongs to the asset class -- an OCC symbol exists only for a standardised
+// contract -- while contract_multiplier records the deviation a corporate action
+// can leave behind. See the column comment in server/migrations/001_initial.sql.
+func TestBalanceInstruments_ContractSize(t *testing.T) {
+	cases := []struct {
+		name string
+		row  *db.InstrumentRow
+		want float64
+	}{{
+		name: "standard option contract delivers 100 shares",
+		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassOption), ContractMultiplier: 1},
+		want: 100,
+	}, {
+		name: "a 3:2 deliverable is recorded as 1.5, meaning 150",
+		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassOption), ContractMultiplier: 1.5},
+		want: 150,
+	}, {
+		// The column is NOT NULL DEFAULT 1 so the database cannot supply this,
+		// but a zero would weigh a whole trade to nothing.
+		name: "an absent multiplier falls back to the standard",
+		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassOption)},
+		want: 100,
+	}, {
+		name: "a share is quoted in the units it trades in",
+		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassStock), ContractMultiplier: 1},
+		want: 1,
+	}, {
+		name: "so is a currency",
+		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassCash), Currency: strPtr("USD")},
+		want: 1,
+	}, {
+		// A future's size varies per contract and nothing stores it, so one
+		// weighs as it always has. See docs/issues/0072.
+		name: "a future is left as it was",
+		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassFuture), ContractMultiplier: 1},
+		want: 1,
+	}}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := balanceInstruments(map[string]*db.InstrumentRow{"i": tc.row})["i"].contractSize
+			if got != tc.want {
+				t.Errorf("contract size = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// A non-standard deliverable balances against the cash it actually settled for,
+// which is what makes the multiplier worth reading rather than assuming 100.
+func TestRouteResiduals_NonStandardDeliverable(t *testing.T) {
+	at := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+	price := func(v float64) *float64 { return &v }
+	instruments := balanceInstruments(map[string]*db.InstrumentRow{
+		optID: {ID: optID, AssetClass: strPtr(db.AssetClassOption), ContractMultiplier: 1.5},
+		usdID: {ID: usdID, AssetClass: strPtr(db.AssetClassCash), Currency: strPtr("USD")},
+	})
+
+	// 2 contracts of 150 shares at 3.00 is 900, not the 600 a standard one costs.
+	txs := []*apiv1.Tx{
+		posting{desc: "OPT", typ: apiv1.TxType_BUYOPT, qty: 2, price: price(3), settle: "USD", instID: optID, groupRef: "t1"}.tx(at),
+		posting{desc: "USD", typ: apiv1.TxType_CASHFLOW, qty: -900, price: price(1), settle: "USD", trading: "USD", instID: usdID, groupRef: "t1"}.tx(at),
+	}
+
+	got := routeResiduals(txs, []string{optID, usdID}, instruments)
+	if len(got) != 0 {
+		t.Fatalf("routed %d postings, want none: %s", len(got), describeRouted(got))
+	}
 }

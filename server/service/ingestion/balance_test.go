@@ -7,6 +7,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -354,41 +355,41 @@ func TestBalanceInstruments_ContractSize(t *testing.T) {
 	cases := []struct {
 		name string
 		row  *db.InstrumentRow
-		want float64
+		want string
 	}{{
 		name: "standard option contract delivers 100 shares",
-		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassOption), ContractMultiplier: 1},
-		want: 100,
+		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassOption), ContractMultiplier: decimal.RequireFromString("1")},
+		want: "100",
 	}, {
 		name: "a 3:2 deliverable is recorded as 1.5, meaning 150",
-		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassOption), ContractMultiplier: 1.5},
-		want: 150,
+		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassOption), ContractMultiplier: decimal.RequireFromString("1.5")},
+		want: "150",
 	}, {
 		// The column is NOT NULL DEFAULT 1 so the database cannot supply this,
 		// but a zero would weigh a whole trade to nothing.
 		name: "an absent multiplier falls back to the standard",
 		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassOption)},
-		want: 100,
+		want: "100",
 	}, {
 		name: "a share is quoted in the units it trades in",
-		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassStock), ContractMultiplier: 1},
-		want: 1,
+		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassStock), ContractMultiplier: decimal.RequireFromString("1")},
+		want: "1",
 	}, {
 		name: "so is a currency",
 		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassCash), Currency: strPtr("USD")},
-		want: 1,
+		want: "1",
 	}, {
 		// A future's size varies per contract and nothing stores it, so one
 		// weighs as it always has. See docs/issues/0072.
 		name: "a future is left as it was",
-		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassFuture), ContractMultiplier: 1},
-		want: 1,
+		row:  &db.InstrumentRow{AssetClass: strPtr(db.AssetClassFuture), ContractMultiplier: decimal.RequireFromString("1")},
+		want: "1",
 	}}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := balanceInstruments(map[string]*db.InstrumentRow{"i": tc.row})["i"].contractSize
-			if got != tc.want {
+			if got.String() != tc.want {
 				t.Errorf("contract size = %v, want %v", got, tc.want)
 			}
 		})
@@ -401,7 +402,7 @@ func TestRouteResiduals_NonStandardDeliverable(t *testing.T) {
 	at := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
 	price := func(v float64) *float64 { return &v }
 	instruments := balanceInstruments(map[string]*db.InstrumentRow{
-		optID: {ID: optID, AssetClass: strPtr(db.AssetClassOption), ContractMultiplier: 1.5},
+		optID: {ID: optID, AssetClass: strPtr(db.AssetClassOption), ContractMultiplier: decimal.RequireFromString("1.5")},
 		usdID: {ID: usdID, AssetClass: strPtr(db.AssetClassCash), Currency: strPtr("USD")},
 	})
 

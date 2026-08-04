@@ -9,10 +9,14 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 )
 
-func floatPtr(f float64) *float64    { return &f }
+// decPtr builds a strike from a float literal, which is what a test fixture is
+// naturally written as. Production code never converts this way.
+func decPtr(f float64) *decimal.Decimal { d := decimal.NewFromFloat(f); return &d }
+
 func timePtr(t time.Time) *time.Time { return &t }
 
 func date(year int, month time.Month, day int) time.Time {
@@ -34,7 +38,7 @@ func makeOptionUnidentified(id, occ string, strike float64) *db.InstrumentRow {
 	putCall := "C"
 	return &db.InstrumentRow{
 		ID:      id,
-		Strike:  floatPtr(strike),
+		Strike:  decPtr(strike),
 		Expiry:  &expiry,
 		PutCall: &putCall,
 		Identifiers: []db.IdentifierInput{
@@ -83,8 +87,8 @@ func TestProcessPendingOptionSplits_SingleSplit(t *testing.T) {
 			if p.NewOCC.Value != "AAPL250117C00100000" {
 				t.Errorf("new OCC = %q, want AAPL250117C00100000", p.NewOCC.Value)
 			}
-			if p.NewStrike != 100.0 {
-				t.Errorf("new strike = %f, want 100", p.NewStrike)
+			if p.NewStrike.String() != "100" {
+				t.Errorf("new strike = %v, want 100", p.NewStrike)
 			}
 			return nil
 		})
@@ -119,8 +123,8 @@ func TestProcessPendingOptionSplits_CompoundsMultipleSplits(t *testing.T) {
 	// Exactly one call: strike 400 / (2 * 4) = 50.
 	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, p db.OptionSplitParams) error {
-			if p.NewStrike != 50.0 {
-				t.Errorf("new strike = %f, want 50 (400 / (2*4))", p.NewStrike)
+			if p.NewStrike.String() != "50" {
+				t.Errorf("new strike = %v, want 50 (400 / (2*4))", p.NewStrike)
 			}
 			if p.NewOCC.Value != "AAPL250117C00050000" {
 				t.Errorf("new OCC = %q, want AAPL250117C00050000", p.NewOCC.Value)

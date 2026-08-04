@@ -9,6 +9,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -81,7 +82,7 @@ type balanceInstrument struct {
 	// Units of the underlying one unit of quantity delivers, which is what a
 	// price has to be multiplied by to reach the consideration. 1 for anything
 	// quoted in the units it trades in; 100 for a standard option contract.
-	contractSize float64
+	contractSize decimal.Decimal
 }
 
 // optionContractSize is the OCC standard deliverable. It belongs to the asset
@@ -89,7 +90,7 @@ type balanceInstrument struct {
 // standardised contract, and contract_multiplier records the deviation from this
 // that a corporate action can leave behind, not the size itself. See the column
 // comment in server/migrations/001_initial.sql.
-const optionContractSize = 100
+var optionContractSize = decimal.NewFromInt(100)
 
 // commodity names what a weight is denominated in. A converted weight is named by
 // its currency and an unconverted one by its instrument, so both have to reduce to
@@ -159,7 +160,9 @@ func weightOf(tx *apiv1.Tx, instID string, inst balanceInstrument) (float64, com
 		// contractSize is 1 for every instrument quoted in the units it trades
 		// in, which includes every currency -- so this is a no-op on the FX case
 		// below and applies only where a price is per underlying unit.
-		size := inst.contractSize
+		// The weight arithmetic still runs in float64 here; it moves to decimal
+		// with the quantity and price fields themselves. Tracked in 0042.
+		size, _ := inst.contractSize.Float64()
 		if size <= 0 {
 			size = 1
 		}
@@ -303,7 +306,7 @@ func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount flo
 func balanceInstruments(byID map[string]*db.InstrumentRow) map[string]balanceInstrument {
 	out := make(map[string]balanceInstrument, len(byID))
 	for id, r := range byID {
-		inst := balanceInstrument{contractSize: 1}
+		inst := balanceInstrument{contractSize: decimal.NewFromInt(1)}
 		if r.AssetClass != nil && *r.AssetClass == db.AssetClassCash {
 			inst.isCurrency = true
 			if r.Currency != nil {
@@ -315,10 +318,10 @@ func balanceInstruments(byID map[string]*db.InstrumentRow) map[string]balanceIns
 			// column is NOT NULL DEFAULT 1 so the database cannot supply one,
 			// but silently voiding a leg is too quiet a failure to risk.
 			multiplier := r.ContractMultiplier
-			if multiplier <= 0 {
-				multiplier = 1
+			if !multiplier.IsPositive() {
+				multiplier = decimal.NewFromInt(1)
 			}
-			inst.contractSize = optionContractSize * multiplier
+			inst.contractSize = optionContractSize.Mul(multiplier)
 		}
 		out[id] = inst
 	}

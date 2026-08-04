@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/lib/pq"
+	"github.com/shopspring/decimal"
 )
 
 // errIdentifierExists is returned when EnsureInstrument hits a unique violation (identifier already for another instrument).
@@ -644,7 +645,7 @@ func (p *Postgres) InsertInstrumentIdentifier(ctx context.Context, instrumentID 
 }
 
 // UpdateInstrumentStrike implements db.InstrumentDB.
-func (p *Postgres) UpdateInstrumentStrike(ctx context.Context, instrumentID string, strike float64) error {
+func (p *Postgres) UpdateInstrumentStrike(ctx context.Context, instrumentID string, strike decimal.Decimal) error {
 	uid, err := uuid.Parse(instrumentID)
 	if err != nil {
 		return fmt.Errorf("update instrument strike: invalid id: %w", err)

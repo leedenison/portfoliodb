@@ -11,6 +11,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/service/identification"
+	"github.com/shopspring/decimal"
 )
 
 // ProcessPendingOptionSplits adjusts every option whose stored identity predates
@@ -52,11 +53,11 @@ func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingI
 
 	var adjusted []*db.InstrumentRow
 	for _, p := range pending {
-		// Compound as exact rationals and convert once. Every ratio the
-		// IsWholeForwardSplit guard admits is a whole number, so float
-		// multiplication would happen to be exact today, but that stops holding
-		// the moment the guard admits a fractional ratio.
-		factorRat := new(big.Rat).SetInt64(1)
+		// Compound as an exact rational and carry it as one. The quotient is
+		// never taken here: applyOptionSplits multiplies the strike by the
+		// denominator before dividing by the numerator, so the single division
+		// comes last.
+		num, den := decimal.NewFromInt(1), decimal.NewFromInt(1)
 		unhandled := false
 		for _, s := range p.Splits {
 			if !identification.IsWholeForwardSplit(s.SplitFrom, s.SplitTo) {
@@ -71,11 +72,11 @@ func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingI
 				unhandled = true
 				continue
 			}
-			from, _ := new(big.Rat).SetString(s.SplitFrom)
-			to, _ := new(big.Rat).SetString(s.SplitTo)
-			factorRat.Mul(factorRat, new(big.Rat).Quo(to, from))
+			from, _ := decimal.NewFromString(s.SplitFrom)
+			to, _ := decimal.NewFromString(s.SplitTo)
+			num = num.Mul(to)
+			den = den.Mul(from)
 		}
-		factor, _ := factorRat.Float64()
 		// A pending split we cannot apply blocks the whole option: adjusting
 		// only the splits either side of it would silently produce a strike
 		// that matches no real contract. Leaving identity_as_of untouched keeps
@@ -84,7 +85,7 @@ func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingI
 		if unhandled {
 			continue
 		}
-		if applyOptionSplits(ctx, database, p.Option, p.Splits, factor, log) {
+		if applyOptionSplits(ctx, database, p.Option, p.Splits, num, den, log) {
 			adjusted = append(adjusted, p.Option)
 		}
 	}
@@ -100,7 +101,7 @@ func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingI
 // cumulative factor of its pending splits. Returns true when the adjustment was
 // applied. splits is used only for reporting; factor already accounts for all of
 // them.
-func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRow, splits []db.StockSplit, factor float64, log *slog.Logger) bool {
+func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRow, splits []db.StockSplit, num, den decimal.Decimal, log *slog.Logger) bool {
 	split := splits[len(splits)-1] // most recent, for unhandled-event context
 
 	if opt.Strike == nil || opt.Expiry == nil || opt.PutCall == nil {
@@ -125,7 +126,7 @@ func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRo
 		return false
 	}
 
-	newStrike := *opt.Strike / factor
+	newStrike := derivative.AdjustStrike(*opt.Strike, num, den)
 
 	// Build new OCC.
 	parsed, ok := derivative.ParseOptionTicker(currentOCC)
@@ -136,7 +137,7 @@ func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRo
 
 	newOCC, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, newStrike)
 	if !ok {
-		insertUnhandledOptionSplit(ctx, database, opt, split, fmt.Sprintf("cannot build OCC with adjusted strike %.4f", newStrike), log)
+		insertUnhandledOptionSplit(ctx, database, opt, split, fmt.Sprintf("cannot build OCC with adjusted strike %s", newStrike), log)
 		return false
 	}
 
@@ -163,7 +164,7 @@ func applyOptionSplits(ctx context.Context, database db.DB, opt *db.InstrumentRo
 		log.InfoContext(ctx, "option splits: adjusted",
 			"option", opt.ID, "old_occ", currentOCC, "new_occ", newOCC,
 			"old_strike", *opt.Strike, "new_strike", newStrike,
-			"splits", len(splits), "factor", factor)
+			"splits", len(splits), "factor_num", num, "factor_den", den)
 	}
 	return true
 }

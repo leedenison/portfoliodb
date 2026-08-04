@@ -983,9 +983,8 @@ func TestApplyOptionSplit(t *testing.T) {
 	underlyingID := setupInstrument(t, p, "AAPL-UNDERLYING")
 
 	// Create option instrument with OCC identifier and option fields.
-	strike := 150.0
 	expiry := d(2025, 1, 17)
-	optFields := &db.OptionFields{Strike: strike, Expiry: expiry, PutCall: "C"}
+	optFields := &db.OptionFields{Strike: decf(150), Expiry: expiry, PutCall: "C"}
 	optID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL 250117C00150000", "", "", []db.IdentifierInput{
 		{Type: "OCC", Value: "AAPL  250117C00150000", Canonical: true},
 	}, underlyingID, nil, nil, optFields)
@@ -1021,7 +1020,7 @@ func TestApplyOptionSplit(t *testing.T) {
 		InstrumentID: optID,
 		OldOCCValue:  "AAPL  250117C00150000",
 		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL  250117C00037500", Canonical: true},
-		NewStrike:    37.5,
+		NewStrike:    decf(37.5),
 		NewName:      "AAPL250117C00037500",
 	}
 	if err := p.ApplyOptionSplit(ctx, params); err != nil {
@@ -1052,7 +1051,7 @@ func TestApplyOptionSplit(t *testing.T) {
 	}
 
 	// Verify strike updated.
-	if inst.Strike == nil || *inst.Strike != 37.5 {
+	if inst.Strike == nil || inst.Strike.String() != "37.5" {
 		t.Errorf("strike: got %v, want 37.5", inst.Strike)
 	}
 
@@ -1421,7 +1420,7 @@ func adjustedQty(t *testing.T, p *Postgres, txID string) float64 {
 func setupOption(t *testing.T, p *Postgres, underlyingID, occ string, strike float64, identityAsOf *time.Time) string {
 	t.Helper()
 	ctx := context.Background()
-	optFields := &db.OptionFields{Strike: strike, Expiry: d(2025, 1, 17), PutCall: "C"}
+	optFields := &db.OptionFields{Strike: decf(strike), Expiry: d(2025, 1, 17), PutCall: "C"}
 	id, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", occ, "", "", []db.IdentifierInput{
 		{Type: "OCC", Value: occ, Canonical: true},
 	}, underlyingID, nil, nil, optFields)
@@ -1626,7 +1625,7 @@ func TestListPendingOptionSplits_ClearedByApply(t *testing.T) {
 		InstrumentID: optID,
 		OldOCCValue:  "AAPL  250117C00200000",
 		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00100000", Canonical: true},
-		NewStrike:    100,
+		NewStrike:    decf(100),
 		NewName:      "AAPL250117C00100000",
 	}); err != nil {
 		t.Fatalf("ApplyOptionSplit: %v", err)
@@ -1667,7 +1666,7 @@ func TestApplyOptionSplit_ConvergesOnStaleOldOCC(t *testing.T) {
 		InstrumentID: optID,
 		OldOCCValue:  "AAPL  250117C00200000",
 		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00100000", Canonical: true},
-		NewStrike:    100,
+		NewStrike:    decf(100),
 		NewName:      "AAPL250117C00100000",
 	}); err != nil {
 		t.Fatalf("run A: %v", err)
@@ -1678,7 +1677,7 @@ func TestApplyOptionSplit_ConvergesOnStaleOldOCC(t *testing.T) {
 		InstrumentID: optID,
 		OldOCCValue:  "AAPL  250117C00200000", // stale
 		NewOCC:       db.IdentifierInput{Type: "OCC", Value: "AAPL250117C00025000", Canonical: true},
-		NewStrike:    25,
+		NewStrike:    decf(25),
 		NewName:      "AAPL250117C00025000",
 	}); err != nil {
 		t.Fatalf("run B: %v", err)
@@ -1700,7 +1699,7 @@ func TestApplyOptionSplit_ConvergesOnStaleOldOCC(t *testing.T) {
 	if occs[0] != "AAPL250117C00025000" {
 		t.Errorf("OCC = %q, want the last writer's symbol", occs[0])
 	}
-	if inst.Strike == nil || *inst.Strike != 25 {
+	if inst.Strike == nil || inst.Strike.String() != "25" {
 		t.Errorf("strike = %v, want 25 to match the stored symbol", inst.Strike)
 	}
 }

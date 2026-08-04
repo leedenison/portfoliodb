@@ -17,37 +17,39 @@ func TestSplitFactorSince(t *testing.T) {
 		{ExDate: time.Date(2023, 6, 1, 0, 0, 0, 0, time.UTC), SplitFrom: "1", SplitTo: "2"},
 		{ExDate: time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC), SplitFrom: "1", SplitTo: "10"},
 	}
+	// The factor is a rational, so both halves are asserted: taking the quotient
+	// here would test the division rather than the product.
 	tests := []struct {
-		name  string
-		since time.Time
-		want  float64
+		name             string
+		since            time.Time
+		wantNum, wantDen string
 	}{
 		{
-			name:  "before all splits",
-			since: time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC),
-			want:  20.0, // 2 * 10
+			name:    "before all splits",
+			since:   time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC),
+			wantNum: "20", wantDen: "1", // 2 * 10
 		},
 		{
-			name:  "between splits",
-			since: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			want:  10.0, // only the 10:1
+			name:    "between splits",
+			since:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			wantNum: "10", wantDen: "1", // only the 10:1
 		},
 		{
-			name:  "after all splits",
-			since: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-			want:  1.0, // no applicable splits
+			name:    "after all splits",
+			since:   time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			wantNum: "1", wantDen: "1", // no applicable splits
 		},
 		{
-			name:  "on split date (not after)",
-			since: time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC),
-			want:  1.0, // ex_date must be strictly after since
+			name:    "on split date (not after)",
+			since:   time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC),
+			wantNum: "1", wantDen: "1", // ex_date must be strictly after since
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := splitFactorSince(splits, tt.since, nil)
-			if got != tt.want {
-				t.Errorf("got %f, want %f", got, tt.want)
+			num, den := splitFactorSince(splits, tt.since, nil)
+			if num.String() != tt.wantNum || den.String() != tt.wantDen {
+				t.Errorf("got %v/%v, want %v/%v", num, den, tt.wantNum, tt.wantDen)
 			}
 		})
 	}
@@ -57,9 +59,9 @@ func TestSplitFactorSince_FutureSplitIgnored(t *testing.T) {
 	splits := []db.StockSplit{
 		{ExDate: time.Now().AddDate(1, 0, 0), SplitFrom: "1", SplitTo: "4"},
 	}
-	got := splitFactorSince(splits, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), nil)
-	if got != 1.0 {
-		t.Errorf("got %f, want 1.0 (future split should be ignored)", got)
+	num, den := splitFactorSince(splits, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), nil)
+	if num.String() != "1" || den.String() != "1" {
+		t.Errorf("got %v/%v, want 1/1 (future split should be ignored)", num, den)
 	}
 }
 
@@ -97,8 +99,8 @@ func TestOptionFieldsFromIdentifiers(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil OptionFields")
 	}
-	if got.Strike != 230 {
-		t.Errorf("strike = %f, want 230", got.Strike)
+	if got.Strike.String() != "230" {
+		t.Errorf("strike = %v, want 230", got.Strike)
 	}
 	if got.PutCall != "C" {
 		t.Errorf("put_call = %q, want C", got.PutCall)
@@ -347,16 +349,16 @@ func TestSplitFactorSince_WithTimer(t *testing.T) {
 
 	// Timer before ex_date: split not applicable.
 	timer := fixedTimer(d(2025, 3, 1))
-	got := splitFactorSince(splits, d(2024, 1, 1), timer)
-	if got != 1.0 {
-		t.Errorf("with timer before ex_date: got %f, want 1.0", got)
+	num, den := splitFactorSince(splits, d(2024, 1, 1), timer)
+	if num.String() != "1" || den.String() != "1" {
+		t.Errorf("with timer before ex_date: got %v/%v, want 1/1", num, den)
 	}
 
 	// Timer after ex_date: split applicable.
 	timer = fixedTimer(d(2025, 7, 1))
-	got = splitFactorSince(splits, d(2024, 1, 1), timer)
-	if got != 4.0 {
-		t.Errorf("with timer after ex_date: got %f, want 4.0", got)
+	num, den = splitFactorSince(splits, d(2024, 1, 1), timer)
+	if num.String() != "4" || den.String() != "1" {
+		t.Errorf("with timer after ex_date: got %v/%v, want 4/1", num, den)
 	}
 }
 
@@ -366,23 +368,23 @@ func TestSplitFactorBetween(t *testing.T) {
 		{ExDate: d(2025, 6, 1), SplitFrom: "1", SplitTo: "5"},
 	}
 	tests := []struct {
-		name         string
-		since, until time.Time
-		want         float64
+		name             string
+		since, until     time.Time
+		wantNum, wantDen string
 	}{
-		{"both included", d(2024, 1, 1), d(2026, 1, 1), 10.0},
-		{"only first", d(2024, 1, 1), d(2025, 1, 1), 2.0},
-		{"only second", d(2024, 6, 1), d(2026, 1, 1), 5.0},
-		{"none (too early)", d(2023, 1, 1), d(2024, 1, 1), 1.0},
-		{"none (too late)", d(2026, 1, 1), d(2027, 1, 1), 1.0},
-		{"until equals ex_date (inclusive)", d(2024, 1, 1), d(2024, 3, 1), 2.0},
-		{"since equals ex_date (exclusive)", d(2024, 3, 1), d(2025, 1, 1), 1.0},
+		{"both included", d(2024, 1, 1), d(2026, 1, 1), "10", "1"},
+		{"only first", d(2024, 1, 1), d(2025, 1, 1), "2", "1"},
+		{"only second", d(2024, 6, 1), d(2026, 1, 1), "5", "1"},
+		{"none (too early)", d(2023, 1, 1), d(2024, 1, 1), "1", "1"},
+		{"none (too late)", d(2026, 1, 1), d(2027, 1, 1), "1", "1"},
+		{"until equals ex_date (inclusive)", d(2024, 1, 1), d(2024, 3, 1), "2", "1"},
+		{"since equals ex_date (exclusive)", d(2024, 3, 1), d(2025, 1, 1), "1", "1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := splitFactorBetween(splits, tt.since, tt.until)
-			if got != tt.want {
-				t.Errorf("got %f, want %f", got, tt.want)
+			num, den := splitFactorBetween(splits, tt.since, tt.until)
+			if num.String() != tt.wantNum || den.String() != tt.wantDen {
+				t.Errorf("got %v/%v, want %v/%v", num, den, tt.wantNum, tt.wantDen)
 			}
 		})
 	}

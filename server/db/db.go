@@ -322,7 +322,7 @@ type ProviderIdentifierInput struct {
 // OptionFields carries denormalized OCC components for option instruments.
 // Nil when the instrument is not an option.
 type OptionFields struct {
-	Strike  float64
+	Strike  decimal.Decimal
 	Expiry  time.Time
 	PutCall string // "C" or "P"
 }
@@ -564,11 +564,11 @@ type InstrumentRow struct {
 	ValidBefore         *time.Time
 	CIK                 *string
 	SICCode             *string
-	Strike              *float64   // denormalized from OCC; NULL for non-options
-	Expiry              *time.Time // denormalized from OCC; NULL for non-options
-	PutCall             *string    // "C" or "P"; NULL for non-options
-	ContractMultiplier  float64    // deliverable multiplier; 1 = standard
-	IdentityAsOf        *time.Time // point in market time the stored identity reflects; NULL predates every split
+	Strike              *decimal.Decimal // denormalized from OCC; NULL for non-options
+	Expiry              *time.Time       // denormalized from OCC; NULL for non-options
+	PutCall             *string          // "C" or "P"; NULL for non-options
+	ContractMultiplier  decimal.Decimal  // deliverable multiplier; 1 = standard
+	IdentityAsOf        *time.Time       // point in market time the stored identity reflects; NULL predates every split
 	Identifiers         []IdentifierInput
 	ProviderIdentifiers []ProviderIdentifierInput // provider-specific identifiers
 	ExchangeName        *string                   // read-only; from exchanges JOIN
@@ -645,7 +645,7 @@ type InstrumentDB interface {
 	// InsertInstrumentIdentifier inserts a single identifier row.
 	InsertInstrumentIdentifier(ctx context.Context, instrumentID string, input IdentifierInput) error
 	// UpdateInstrumentStrike updates the strike on an existing option instrument.
-	UpdateInstrumentStrike(ctx context.Context, instrumentID string, strike float64) error
+	UpdateInstrumentStrike(ctx context.Context, instrumentID string, strike decimal.Decimal) error
 	// UpdateInstrumentName updates the name on an existing instrument.
 	UpdateInstrumentName(ctx context.Context, instrumentID, name string) error
 	// UpdateIdentityAsOf sets identity_as_of = now() on an existing instrument.
@@ -805,7 +805,7 @@ type OptionSplitParams struct {
 	// converges even if the stored symbol has moved on since the read.
 	OldOCCValue string
 	NewOCC      IdentifierInput
-	NewStrike   float64
+	NewStrike   decimal.Decimal
 	NewName     string
 }
 

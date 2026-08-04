@@ -17,6 +17,7 @@ import {
   TxType,
 } from "@/gen/api/v1/api_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/standard";
+import { counterLegs, feeLeg, refPrefix } from "@/lib/csv/postings";
 import { parseOfxSgml } from "./sgml";
 
 export interface OfxParseResult extends StandardParseResult {
@@ -231,6 +232,11 @@ export function parseOfxStatement(text: string): OfxParseResult {
   const dtEnd = parseOfxDate(str(tranList, "DTEND")) ?? new Date(0);
 
   const txs: Tx[] = [];
+  // Legs of transactions the source gave no FITID for, so they can be given a
+  // synthesised group once every real ref is known. FITID is mandatory in OFX,
+  // but without a group a trade and its cash leg would land as two groups and
+  // neither would balance -- too quiet a failure to leave to the source.
+  const unreferenced: Tx[][] = [];
   let txIndex = 0;
 
   for (const [tag, def] of Object.entries(TX_TYPES)) {
@@ -246,6 +252,9 @@ export function parseOfxStatement(text: string): OfxParseResult {
 
       // INVTRAN holds FITID and DTTRADE.
       const invTran = one(inner.INVTRAN) ?? inner;
+      // The broker's own reference for the transaction, unique within the file,
+      // so it names the group a security leg and its cash share.
+      const fitId = str(invTran, "FITID");
       const dateStr = str(invTran, "DTTRADE");
       const date = parseOfxDate(dateStr);
       if (!date) {
@@ -267,6 +276,10 @@ export function parseOfxStatement(text: string): OfxParseResult {
         tag;
 
       // Currency: per-transaction CURRENCY element, or account default.
+      // UNITPRICE, COMMISSION and TOTAL are all quoted in CURSYM; CURRATE is the
+      // rate back to the account's base currency and no figure here is in it.
+      // So this is the settlement currency as well as the trading one, and a fee
+      // derived from these fields needs no conversion first.
       const currencyEl = one(inner.CURRENCY);
       const tradingCurrency = str(currencyEl, "CURSYM") || acctCurrency;
       if (!tradingCurrency) {
@@ -307,24 +320,37 @@ export function parseOfxStatement(text: string): OfxParseResult {
         }),
       );
 
-      txs.push(
-        create(TxSchema, {
-          timestamp: ts,
-          instrumentDescription: description,
-          type: def.txType,
-          quantity,
-          account: acctId,
-          tradingCurrency,
-          ...(unitPrice !== undefined ? { unitPrice } : {}),
-          ...(hintProtos.length > 0 ? { identifierHints: hintProtos } : {}),
-        }),
-      );
+      const legs: Tx[] = [];
+      const security = create(TxSchema, {
+        timestamp: ts,
+        instrumentDescription: description,
+        type: def.txType,
+        quantity,
+        account: acctId,
+        tradingCurrency,
+        settlementCurrency: tradingCurrency,
+        groupRef: fitId,
+        ...(unitPrice !== undefined ? { unitPrice } : {}),
+        ...(hintProtos.length > 0 ? { identifierHints: hintProtos } : {}),
+      });
+      legs.push(security);
 
       // Security buys/sells carry a TOTAL that represents the cash leg.
       // Emit a paired CASHFLOW transaction so each holding is updated by
       // its own transaction.
       if (def.invTag !== null) {
         const total = num(inner, "TOTAL");
+        // What the broker charged on the trade. TOTAL nets it against the
+        // consideration -- 378 at 61.06 with 11.54034 of commission settles at
+        // -23092.22034 -- so the consideration is TOTAL plus the charge, in
+        // either direction. Deriving it that way rather than from
+        // quantity * unitPrice keeps the two cash legs summing to the total the
+        // broker reported. TAXES is a charge like COMMISSION and there is no
+        // field to tell them apart downstream, so they are one posting.
+        const charge = [num(inner, "COMMISSION"), num(inner, "TAXES")]
+          .filter((v) => !Number.isNaN(v))
+          .reduce((sum, v) => sum + Math.abs(v), 0);
+
         if (!Number.isNaN(total) && total !== 0) {
           const cashHints = [
             create(InstrumentIdentifierSchema, {
@@ -333,22 +359,41 @@ export function parseOfxStatement(text: string): OfxParseResult {
               canonical: false,
             }),
           ];
-          txs.push(
+          legs.push(
             create(TxSchema, {
               timestamp: ts,
               instrumentDescription: description,
               type: TxType.CASHFLOW,
-              quantity: total,
+              quantity: total + charge,
               unitPrice: 1,
               account: acctId,
               tradingCurrency,
+              settlementCurrency: tradingCurrency,
+              groupRef: fitId,
               identifierHints: cashHints,
             }),
           );
         }
+
+        const fee = feeLeg(security, charge);
+        if (fee) legs.push(fee);
       }
+
+      txs.push(...legs);
+      if (!fitId) unreferenced.push(legs);
     }
   }
+
+  if (unreferenced.length > 0) {
+    const prefix = refPrefix(txs);
+    unreferenced.forEach((legs, i) => {
+      for (const leg of legs) leg.groupRef = `${prefix}${i}`;
+    });
+  }
+
+  // The income a dividend came from and the expense a commission went to. After
+  // the loop so a derived fee gets its counter-leg too.
+  txs.push(...counterLegs(txs));
 
   txs.sort((a, b) =>
     Number(a.timestamp?.seconds ?? 0) - Number(b.timestamp?.seconds ?? 0),

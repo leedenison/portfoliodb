@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseOfxStatement, parseOfxDate } from "./parser";
-import { TxType, IdentifierType } from "@/gen/api/v1/api_pb";
+import { AccountType, TxType, IdentifierType } from "@/gen/api/v1/api_pb";
+import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 
 describe("parseOfxDate", () => {
   it("parses full datetime with negative offset", () => {
@@ -225,7 +226,8 @@ describe("parseOfxStatement", () => {
     });
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
-    expect(result.txs.length).toBe(1);
+    // The cash row plus the income it came from.
+    expect(result.txs.length).toBe(2);
 
     const tx = result.txs[0]!;
     expect(tx.type).toBe(TxType.INCOME);
@@ -369,5 +371,115 @@ VERSION:102
     expect(result.periodBefore.getTime()).toBeGreaterThan(
       Number(lastTx.seconds) * 1000
     );
+  });
+});
+
+describe("groups and charges", () => {
+  /**
+   * Verbatim from local/masters/U7033034_20250107_20260107.qfx, which is the
+   * arithmetic this has to reproduce: 378 x 61.06 + 11.54034 = 23092.22034, so
+   * TOTAL is the consideration with the commission already in it.
+   */
+  const GBP_BUY = `<BUYSTOCK>
+    <INVBUY>
+      <INVTRAN><FITID>20251015U70330348371888432</FITID><DTTRADE>20251015092129.000[-4:EDT]</DTTRADE></INVTRAN>
+      <SECID><UNIQUEID>IE00B4ND3602</UNIQUEID><UNIQUEIDTYPE>ISIN</UNIQUEIDTYPE></SECID>
+      <UNITS>378
+      <UNITPRICE>61.06
+      <COMMISSION>11.54034
+      <TAXES>0
+      <TOTAL>-23092.22034
+      <CURRENCY><CURRATE>1.0</CURRATE><CURSYM>GBP</CURSYM></CURRENCY>
+    </INVBUY>
+    <BUYTYPE>BUY</BUYTYPE>
+  </BUYSTOCK>`;
+
+  /** A sell in a currency that is not the account's: 10 x 609.472188 - 3.04736094. */
+  const EUR_SELL = `<SELLSTOCK>
+    <INVSELL>
+      <INVTRAN><FITID>eur-sell-1</FITID><DTTRADE>20251016092129.000[-4:EDT]</DTTRADE></INVTRAN>
+      <SECID><UNIQUEID>IE00B4ND3603</UNIQUEID><UNIQUEIDTYPE>ISIN</UNIQUEIDTYPE></SECID>
+      <UNITS>-10
+      <UNITPRICE>609.472188
+      <COMMISSION>3.04736094
+      <TOTAL>6091.67451906
+      <CURRENCY><CURRATE>0.8432</CURRATE><CURSYM>EUR</CURSYM></CURRENCY>
+    </INVSELL>
+    <SELLTYPE>SELL</SELLTYPE>
+  </SELLSTOCK>`;
+
+  const parse = (transactions: string) => parseOfxStatement(buildOfx({ transactions }));
+
+  it("groups a trade with its cash leg on the broker's own reference", () => {
+    const result = parse(GBP_BUY);
+    const refs = new Set(result.txs.map((t) => t.groupRef));
+    expect(refs).toEqual(new Set(["20251015U70330348371888432"]));
+  });
+
+  it("splits the commission out of the netted total", () => {
+    const result = parse(GBP_BUY);
+
+    const cash = result.txs.find((t) => t.type === TxType.CASHFLOW)!;
+    expect(cash.quantity).toBeCloseTo(-23080.68, 5);
+
+    const fees = result.txs.filter((t) => t.type === TxType.INVEXPENSE);
+    expect(fees).toHaveLength(2);
+    expect(fees.find((t) => t.accountType === AccountType.USER)!.quantity).toBeCloseTo(-11.54034, 5);
+    expect(fees.find((t) => t.accountType === AccountType.EXPENSE)!.quantity).toBeCloseTo(11.54034, 5);
+  });
+
+  it("leaves the money that moved equal to the total the broker reported", () => {
+    const result = parse(GBP_BUY);
+    const cash = result.txs
+      .filter((t) => t.accountType !== AccountType.EXPENSE && t.type !== TxType.BUYSTOCK)
+      .reduce((sum, t) => sum + t.quantity, 0);
+    expect(cash).toBeCloseTo(-23092.22034, 5);
+  });
+
+  it("balances a buy and a sell, including one not in the account's currency", () => {
+    expectGroupsBalance(parse(GBP_BUY + EUR_SELL).txs);
+  });
+
+  it("derives the fee in the currency the trade was quoted in, not the account's", () => {
+    // CURDEF is GBP and CURRATE is the rate back to it. UNITPRICE, COMMISSION
+    // and TOTAL are all EUR, so nothing needs converting before the split.
+    const fee = parse(EUR_SELL).txs.find(
+      (t) => t.type === TxType.INVEXPENSE && t.accountType === AccountType.USER
+    )!;
+    expect(fee.settlementCurrency).toBe("EUR");
+    expect(fee.tradingCurrency).toBe("EUR");
+    expect(fee.quantity).toBeCloseTo(-3.04736094, 6);
+  });
+
+  it("emits no charge postings for a commission-free trade", () => {
+    const result = parse(buyStockTx());
+    expect(result.txs.filter((t) => t.type === TxType.INVEXPENSE)).toHaveLength(0);
+    expect(result.txs).toHaveLength(2);
+  });
+
+  it("groups a trade whose source gave no reference", () => {
+    const result = parse(GBP_BUY.replace("<FITID>20251015U70330348371888432", "<FITID>"));
+    const refs = new Set(result.txs.map((t) => t.groupRef));
+    expect(refs.size).toBe(1);
+    expect([...refs][0]).not.toBe("");
+    expectGroupsBalance(result.txs);
+  });
+
+  it("names the account a dividend came from", () => {
+    const income = `<INCOME>
+      <INVTRAN><FITID>div1</FITID><DTTRADE>20260312202000.000[-4:EDT]</DTTRADE>
+        <MEMO>MSFT CASH DIVIDEND USD 0.91</MEMO></INVTRAN>
+      <SECID><UNIQUEID>594918104</UNIQUEID><UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE></SECID>
+      <INCOMETYPE>DIV
+      <TOTAL>137.08
+      <CURRENCY><CURRATE>0.75</CURRATE><CURSYM>USD</CURSYM></CURRENCY>
+    </INCOME>`;
+    const result = parse(income);
+
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs[1]!.accountType).toBe(AccountType.INCOME);
+    expect(result.txs[1]!.quantity).toBe(-137.08);
+    expect(result.txs[1]!.groupRef).toBe("div1");
+    expectGroupsBalance(result.txs);
   });
 });

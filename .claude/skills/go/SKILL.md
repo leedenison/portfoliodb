@@ -43,6 +43,18 @@ Prefer terse names for functions and variables. In particular, financial
 transactions are named `Tx` (not `Transaction`); reserve `Transaction` for database
 transactions. Use short receiver names and idiomatic interface names.
 
+## Decimals
+
+Quantities, prices and money are `shopspring/decimal`, not `float64`. It
+implements `sql.Scanner` and `driver.Valuer`, so it scans from and writes to
+`NUMERIC` columns through `lib/pq` directly. Use `float64` only past the
+exactness boundary -- valuations, FX-converted totals, return metrics -- per
+adr/0026-exact-decimals-bounded-by-closure.md. Plugin clients decoding provider
+JSON keep `float64`; the conversion belongs at the db and API layers.
+
+Never compare a `decimal.Decimal` with `==`. Use `.Equal` for equality and `.Cmp`
+for ordering. Arithmetic is method chaining: `a.Mul(b).Add(c)`.
+
 ## Testing idioms
 
 Go unit tests use the slice-of-test-cases (table-driven) approach:
@@ -86,6 +98,17 @@ Use matchers (`gomock.Any`, `gomock.AssignableToTypeOf`) and `DoAndReturn` to
 inspect arguments. Give shared assertion/context helpers a `t.Helper()` call; the
 canonical gRPC assertion is `testutil.RequireGRPCCode(t, err, codes.X)`. See the
 `unit-testing` skill for the rest.
+
+Comparing values containing a `decimal.Decimal` needs an explicit go-cmp option.
+`decimal.Decimal` holds a `big.Int` and an exponent, so `1.0` and `1.00` are
+`.Equal` but not `reflect.DeepEqual` -- the default comparison fails on a
+difference in scale that carries no difference in value:
+
+```go
+cmp.Diff(want, got, cmp.Comparer(func(a, b decimal.Decimal) bool { return a.Equal(b) }))
+```
+
+Put it in the shared comparer options rather than at each call site.
 
 ## Linting
 

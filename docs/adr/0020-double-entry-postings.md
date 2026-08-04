@@ -33,12 +33,15 @@ session can leave an unbalanced group behind.
 
 An INITIALIZE row (see [0011](0011-synthetic-initialize-transactions.md)) is a pad
 with no counterparty, so it cannot satisfy the invariant until a reserved `Equity`
-account gives it one. The invariant is also not expressible while `quantity` and
+account gives it one. The invariant is also awkward to state while `quantity` and
 `unit_price` are `DOUBLE PRECISION`: summing float buys and sells does not land on
-exactly zero, which is why `qty_is_zero(q) := ABS(q) < 1e-9` already exists, and
-applying that epsilon to a balance check would let a genuine imbalance smaller than
-the tolerance pass silently. Both are prerequisites of turning the constraint on, so
-grouping lands first and the constraint follows.
+exactly zero, which is why `qty_is_zero(q) := ABS(q) < 1e-9` already exists. It can
+be written against floats with a relative tolerance, but that tolerance then has to
+be chosen and justified per call site, and an absolute one is silently
+scale-dependent. Exact decimals remove the question instead of answering it
+repeatedly; see [0026](0026-exact-decimals-bounded-by-closure.md). Both are
+prerequisites of turning the constraint on, so grouping lands first and the
+constraint follows.
 
 The read path is unaffected. Holdings, valuation, price coverage and holding
 declarations all aggregate `SUM(quantity)` grouped by instrument, and adding a

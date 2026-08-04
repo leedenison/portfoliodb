@@ -21,6 +21,23 @@ The final SELECT joins holdings with prices and aggregates
 `SUM(qty * close)` per date, where both sides are split-adjusted (see
 [Share count](#share-count) below).
 
+## Exact and approximate parts
+
+Holdings are accumulated from exact decimal quantities: the running position per
+instrument is a sum, so it stays exact. Valuing that position is not -- it
+multiplies by a market price and divides by an FX rate, and a division has no
+exact decimal result. The value is therefore an estimate from that point on, and
+the query says so by casting to `double precision` at the conversion, in the
+`valued` CTE.
+
+The cast is applied to the operands, not to the result, and is the single place
+this query crosses from exact to approximate.
+
+`ValuationPoint.total_value` is a `double` on the wire for the same reason, and
+so is any later return metric: geometric linking and an internal rate of return
+are past the boundary too. See adr/0026-exact-decimals-bounded-by-closure.md and
+adr/0027-decimal-values-cross-the-wire-as-strings.md.
+
 ## TimescaleDB usage
 
 `time_bucket_gapfill('1 day', price_date, dateFrom, dateTo)` generates a row

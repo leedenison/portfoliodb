@@ -79,4 +79,14 @@ server/service/api/declarations.go and server/service/api/recalc.go.
 `declared_qty` is `NUMERIC` but computed holdings sum `DOUBLE PRECISION`
 columns, so the comparison crosses a float boundary. 0042 removes that. This
 issue does not have to wait: an interim tolerance comparable to `qty_is_zero`
-is acceptable, and tightens to an exact comparison once 0042 lands.
+is acceptable, and tightens once 0042 lands.
+
+It does not tighten all the way to an exact comparison, though. The computed
+side is `SUM(split_adjusted_quantity)`, and those columns carry a declared
+rounding scale rather than being exact, because the split factor divides (see
+adr/0028-cumulative-split-factor-is-an-exact-rational.md and
+adr/0026-exact-decimals-bounded-by-closure.md). So the assertion keeps a
+tolerance derived from that scale and the number of contributing postings. That
+is a bound that can be stated, unlike the current epsilon, but it is not zero --
+which is a reason to settle the share count basis question above rather than
+hoping exactness resolves it.

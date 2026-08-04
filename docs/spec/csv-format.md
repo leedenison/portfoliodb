@@ -27,6 +27,8 @@ Header names are case-insensitive. Supported column names:
 | `group_ref`              | No       | Opaque grouping key. Rows sharing a non-empty value are postings of one economic event. See [Transaction groups](#transaction-groups). |
 | `account_type`           | No       | What kind of leg the row is. Defaults to `USER`. See allowed values below. |
 
+`quantity` and `unit_price` are parsed as exact decimals and stored to the precision the file supplies, with no limit on decimal places. A converter deriving one leg from another must not round to reach a fixed scale. See adr/0026-exact-decimals-bounded-by-closure.md.
+
 ### Transaction groups
 
 Each row is a **posting**: a signed amount of one commodity in one account (see [postings.md](postings.md)). The postings of a single economic event -- a trade and the cash that paid for it -- are grouped by giving them the same `group_ref`. A row with no `group_ref` is its own single-posting group.
@@ -145,6 +147,8 @@ Header names are case-insensitive. Column order is not significant.
 | `currency` | No | ISO 4217 currency code, used as a validation hint. |
 
 Prices are stored as supplied. `split_adjusted_close` is derived by PortfolioDB from `close` and the known splits, and is what performance math uses.
+
+Price values are parsed and emitted as exact decimals, so a file written by `ExportPrices` reimports to the same stored values, to the digit. Trailing zeroes are the one thing not preserved: `1.50` and `1.5` are the same price. See adr/0026-exact-decimals-bounded-by-closure.md.
 
 ### Comment lines
 

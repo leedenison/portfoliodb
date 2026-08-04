@@ -151,12 +151,18 @@ a corporate action can leave behind, so a standard contract needs nothing stored
 A future's size varies per contract and is not held anywhere, so a future weighs as
 though its size were 1 (0072).
 
+Weight is computed from the raw `quantity` and `unit_price`, never from the
+split-adjusted pair, which carries a rounding an exact check would reject (see
+adr/0028-cumulative-split-factor-is-an-exact-rational.md).
+
 Weights accumulate **per commodity**, so a group can produce more than one routed
 posting and the commodity is whatever is left over -- cash for a missing cash leg,
 the security for an unpaired `JRNLSEC`. A residual is routed only above a
-tolerance: half a cent for money, `1e-6` otherwise. The constants are interim, but
-the tolerance is not -- a group written to 2dp that balances to within half a cent
-is balanced.
+tolerance: half a cent for money, `1e-6` otherwise. The tolerance is not a
+floating-point fudge and does not go away when quantities become exact -- a group
+written to 2dp that balances to within half a cent is balanced. The constants are
+interim: once the amounts carry a scale, the tolerance is inferred from it rather
+than fixed. See adr/0026-exact-decimals-bounded-by-closure.md.
 
 The routed posting takes the `IMBALANCE` type, or `TRANSFER_CLEARING` when the
 group is a journal. It keeps the broker, account, date and `tx_type` of the group

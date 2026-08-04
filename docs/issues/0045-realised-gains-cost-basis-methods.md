@@ -34,8 +34,22 @@ comes first.
   matching decisions visible so a user can check them.
 - Unrealised gain is the complement: current value less remaining basis.
 
+## Exactness
+
+The methods differ here too. Specific identification and FIFO only add, subtract
+and multiply, so a realised gain computed under either is exact once 0042 lands.
+Section 104 pooling averages, and an average divides: a pooled cost per share is
+not generally representable, so the pool carries a declared rounding scale and
+the rounding accumulates across acquisitions. That has to be decided with the
+pool's data model rather than discovered afterwards, because the pool is carried
+forward and a rounding policy applied to a running balance is not something a
+later change can revise cleanly. See
+adr/0026-exact-decimals-bounded-by-closure.md.
+
 ## Note
 
 This unlocks the performance work in the unscheduled milestone list (TWR and
 MWR). MWR additionally needs the external/internal cash flow boundary, which
-comes from double-entry (0036 onward), not from this issue.
+comes from double-entry (0036 onward), not from this issue. Both metrics are
+past the exactness boundary regardless of method -- geometric linking and an
+internal rate of return are division and root-finding.

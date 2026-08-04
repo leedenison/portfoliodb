@@ -63,6 +63,20 @@ the other side is money, and lets everything else show up as a residual. The kno
 cost is that a cross-currency movement whose broker supplies no FX rate leaves a
 residual rather than balancing.
 
+## Which columns are weighed
+
+Weight is computed from the raw `quantity` and `unit_price`, never from the
+`split_adjusted_*` pair. A split adjusts a security leg's quantity while leaving
+its cash counter-leg alone, and the pair only continues to balance because the
+price is adjusted inversely -- a 3:1 split turns `+10 AAPL @ 185.50` into
+`+30 @ 61.8333...` against the same `-1855 USD`. The product is preserved in
+exact arithmetic, but `61.8333...` is not exactly representable, so the adjusted
+weight misses by the rounding. An exact `SUM(...) = 0` over adjusted values would
+reject correct groups on any instrument that has had a split in an awkward ratio.
+The raw columns carry no such rounding; see
+[0028](0028-cumulative-split-factor-is-an-exact-rational.md) for why the adjusted
+ones do.
+
 ## Tolerance
 
 A residual is routed only above a tolerance: half a cent for money, `1e-6`

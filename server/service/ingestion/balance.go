@@ -18,9 +18,12 @@ import (
 // meaningless: a buy is +10 AAPL and -1855 USD. Balance is checked on weight, as
 // in beancount, whose get_weight is cost > price > units. A posting converts at
 // its price when the units its counter-leg is expected in differ from its own;
-// otherwise it weighs its own quantity in its own commodity. Weights accumulate
-// per commodity, and whatever is left over is routed to an explicit posting
-// rather than rejected. See docs/adr/0024-group-balance-is-checked-on-weight.md.
+// otherwise it weighs its own quantity in its own commodity. A price is per
+// underlying unit, so converting also multiplies by the instrument's contract
+// size -- 100 for an option, 1 for anything quoted in the units it trades in.
+// Weights accumulate per commodity, and whatever is left over is routed to an
+// explicit posting rather than rejected. See
+// docs/adr/0024-group-balance-is-checked-on-weight.md.
 
 // exchangeTypes are the tx types whose counter-leg is money rather than the
 // commodity the posting is in: a security is exchanged for cash, so the security
@@ -75,7 +78,18 @@ const (
 type balanceInstrument struct {
 	isCurrency bool
 	currency   string
+	// Units of the underlying one unit of quantity delivers, which is what a
+	// price has to be multiplied by to reach the consideration. 1 for anything
+	// quoted in the units it trades in; 100 for a standard option contract.
+	contractSize float64
 }
+
+// optionContractSize is the OCC standard deliverable. It belongs to the asset
+// class rather than to the instrument: an OCC symbol exists only for a
+// standardised contract, and contract_multiplier records the deviation from this
+// that a corporate action can leave behind, not the size itself. See the column
+// comment in server/migrations/001_initial.sql.
+const optionContractSize = 100
 
 // commodity names what a weight is denominated in. A converted weight is named by
 // its currency and an unconverted one by its instrument, so both have to reduce to
@@ -142,7 +156,14 @@ func weightOf(tx *apiv1.Tx, instID string, inst balanceInstrument) (float64, com
 	own := ownCommodity(tx, instID, inst)
 	settle := settleCurrency(tx)
 	convert := func() (float64, commodity) {
-		return tx.GetQuantity() * tx.GetUnitPrice(), commodity{currency: settle}
+		// contractSize is 1 for every instrument quoted in the units it trades
+		// in, which includes every currency -- so this is a no-op on the FX case
+		// below and applies only where a price is per underlying unit.
+		size := inst.contractSize
+		if size <= 0 {
+			size = 1
+		}
+		return tx.GetQuantity() * tx.GetUnitPrice() * size, commodity{currency: settle}
 	}
 	switch {
 	// No price, so nothing to convert at. An exchange event with no price leaves a
@@ -282,12 +303,22 @@ func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount flo
 func balanceInstruments(byID map[string]*db.InstrumentRow) map[string]balanceInstrument {
 	out := make(map[string]balanceInstrument, len(byID))
 	for id, r := range byID {
-		var inst balanceInstrument
+		inst := balanceInstrument{contractSize: 1}
 		if r.AssetClass != nil && *r.AssetClass == db.AssetClassCash {
 			inst.isCurrency = true
 			if r.Currency != nil {
 				inst.currency = strings.ToUpper(*r.Currency)
 			}
+		}
+		if r.AssetClass != nil && *r.AssetClass == db.AssetClassOption {
+			// A multiplier of zero would weigh a whole trade to nothing. The
+			// column is NOT NULL DEFAULT 1 so the database cannot supply one,
+			// but silently voiding a leg is too quiet a failure to risk.
+			multiplier := r.ContractMultiplier
+			if multiplier <= 0 {
+				multiplier = 1
+			}
+			inst.contractSize = optionContractSize * multiplier
 		}
 		out[id] = inst
 	}

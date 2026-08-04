@@ -18,7 +18,10 @@ import {
 } from "@/gen/api/v1/api_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/standard";
 import { counterLegs, feeLeg, refPrefix } from "@/lib/csv/postings";
+import { Big, parseDecimal } from "@/lib/decimal";
 import { parseOfxSgml } from "./sgml";
+
+const ZERO = new Big(0);
 
 export interface OfxParseResult extends StandardParseResult {
   secList: Map<string, SecInfo>;
@@ -57,11 +60,13 @@ function str(obj: unknown, key: string): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-/** Read a numeric field from an object. */
-function num(obj: unknown, key: string): number {
-  const s = str(obj, key);
-  if (!s) return NaN;
-  return parseFloat(s);
+/**
+ * Read a decimal field from an object, returning undefined when it is absent or
+ * malformed. OFX amounts are decimal text and stay text until they are needed as
+ * a value, so no digit is lost to a float64 on the way in.
+ */
+function dec(obj: unknown, key: string): Big | undefined {
+  return parseDecimal(str(obj, key));
 }
 
 // ── Date parsing ─────────────────────────────────────────────────────
@@ -293,14 +298,11 @@ export function parseOfxStatement(text: string): OfxParseResult {
 
       if (tag === "INCOME") {
         // Income: quantity = TOTAL (cash amount), price = 1.
-        quantity = num(inner, "TOTAL");
-        if (Number.isNaN(quantity)) quantity = 0;
+        quantity = (dec(inner, "TOTAL") ?? ZERO).toNumber();
         unitPrice = 1;
       } else {
-        quantity = num(inner, "UNITS");
-        if (Number.isNaN(quantity)) quantity = 0;
-        const rawPrice = num(inner, "UNITPRICE");
-        unitPrice = Number.isNaN(rawPrice) ? undefined : rawPrice;
+        quantity = (dec(inner, "UNITS") ?? ZERO).toNumber();
+        unitPrice = dec(inner, "UNITPRICE")?.toNumber();
       }
 
       // Build identifier hints.  Cash transaction types use a CURRENCY hint
@@ -339,7 +341,7 @@ export function parseOfxStatement(text: string): OfxParseResult {
       // Emit a paired CASHFLOW transaction so each holding is updated by
       // its own transaction.
       if (def.invTag !== null) {
-        const total = num(inner, "TOTAL");
+        const total = dec(inner, "TOTAL");
         // What the broker charged on the trade. TOTAL nets it against the
         // consideration -- 378 at 61.06 with 11.54034 of commission settles at
         // -23092.22034 -- so the consideration is TOTAL plus the charge, in
@@ -347,11 +349,11 @@ export function parseOfxStatement(text: string): OfxParseResult {
         // quantity * unitPrice keeps the two cash legs summing to the total the
         // broker reported. TAXES is a charge like COMMISSION and there is no
         // field to tell them apart downstream, so they are one posting.
-        const charge = [num(inner, "COMMISSION"), num(inner, "TAXES")]
-          .filter((v) => !Number.isNaN(v))
-          .reduce((sum, v) => sum + Math.abs(v), 0);
+        const charge = [dec(inner, "COMMISSION"), dec(inner, "TAXES")]
+          .filter((v): v is Big => v !== undefined)
+          .reduce((sum, v) => sum.plus(v.abs()), ZERO);
 
-        if (!Number.isNaN(total) && total !== 0) {
+        if (total !== undefined && !total.eq(ZERO)) {
           const cashHints = [
             create(InstrumentIdentifierSchema, {
               type: IdentifierType.CURRENCY,
@@ -364,7 +366,11 @@ export function parseOfxStatement(text: string): OfxParseResult {
               timestamp: ts,
               instrumentDescription: description,
               type: TxType.CASHFLOW,
-              quantity: total + charge,
+              // Decimal, so the two cash legs sum back to the broker's total for
+              // any input rather than for the ones that happen to round well.
+              // The example above survives float64; a charge quoted to more
+              // places than the total does not.
+              quantity: total.plus(charge).toNumber(),
               unitPrice: 1,
               account: acctId,
               tradingCurrency,

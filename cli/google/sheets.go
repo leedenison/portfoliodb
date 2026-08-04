@@ -12,6 +12,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
@@ -252,7 +253,10 @@ func parseOutputData(values [][]any) ([]*apiv1.ImportPriceRow, []string) {
 				}
 				continue
 			}
-			closeVal, err := strconv.ParseFloat(closeStr, 64)
+			// Parsed to validate, then re-rendered canonically: a cell can hold
+			// exponent notation, which the wire format's pattern rejects. The
+			// value itself never passes through a float.
+			closeVal, err := decimal.NewFromString(closeStr)
 			if err != nil {
 				warnings = append(warnings, fmt.Sprintf("row %d col %d: invalid close price %q", row+1, col+1, closeStr))
 				continue
@@ -267,7 +271,7 @@ func parseOutputData(values [][]any) ([]*apiv1.ImportPriceRow, []string) {
 				IdentifierValue:  value,
 				IdentifierDomain: domain,
 				PriceDate:        priceDate,
-				Close:            closeVal,
+				Close:            closeVal.String(),
 				AssetClass:       db.StrToAssetClass(assetClass),
 			})
 		}

@@ -945,7 +945,7 @@ func TestSplitAdjustment_TriggerSeeds(t *testing.T) {
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "MSFT")
 
-	open, high, low := 380.0, 385.0, 378.0
+	open, high, low := decf(380), decf(385), decf(378)
 	vol := int64(123456)
 	if err := p.UpsertPrices(ctx, []db.EODPrice{{
 		InstrumentID: instID,
@@ -953,7 +953,7 @@ func TestSplitAdjustment_TriggerSeeds(t *testing.T) {
 		Open:         &open,
 		High:         &high,
 		Low:          &low,
-		Close:        382.5,
+		Close:        decf(382.5),
 		Volume:       &vol,
 		DataProvider: "test",
 	}}); err != nil {
@@ -1297,7 +1297,7 @@ func TestRecomputeSplitAdjustments_BackAdjustedSourceDeclaresItsBasis(t *testing
 	if err := p.UpsertPrices(ctx, []db.EODPrice{{
 		InstrumentID:    instID,
 		PriceDate:       d(2020, 8, 28),
-		Close:           124.75,
+		Close:           decf(124.75),
 		DataProvider:    "test",
 		ShareCountBasis: &today,
 	}}); err != nil {
@@ -1328,7 +1328,7 @@ func TestUpsertPrices_BasisTravelsWithTheRawValues(t *testing.T) {
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	row := db.EODPrice{
 		InstrumentID: instID, PriceDate: d(2020, 8, 28),
-		Close: 499, DataProvider: "test",
+		Close: decf(499), DataProvider: "test",
 	}
 	if err := p.UpsertPrices(ctx, []db.EODPrice{row}); err != nil {
 		t.Fatalf("upsert as-traded: %v", err)
@@ -1336,7 +1336,7 @@ func TestUpsertPrices_BasisTravelsWithTheRawValues(t *testing.T) {
 	assertBasis(t, p, instID, d(2020, 8, 28), d(2020, 8, 28))
 
 	// The same date re-fetched from a back-adjusting source.
-	row.Close = 124.75
+	row.Close = decf(124.75)
 	row.ShareCountBasis = &today
 	if err := p.UpsertPrices(ctx, []db.EODPrice{row}); err != nil {
 		t.Fatalf("upsert back-adjusted: %v", err)

@@ -11,6 +11,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/testutil/vcr"
+	"github.com/shopspring/decimal"
 )
 
 func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
@@ -91,14 +92,15 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 				t.Fatal("expected at least one bar, got 0")
 			}
 			for _, bar := range result.Bars {
-				if bar.Close <= 0 {
+				if !bar.Close.IsPositive() {
 					t.Errorf("bar %v: close=%v, want >0", bar.Date.Format("2006-01-02"), bar.Close)
 				}
 			}
-			// GBXUSD is derived from GBPUSD / 100; verify scaling happened.
+			// GBXUSD is derived from GBPUSD shifted two places; verify it happened.
 			if tc.name == "fx_gbxusd_derived" {
+				tenth := decimal.RequireFromString("0.1")
 				for _, bar := range result.Bars {
-					if bar.Close >= 0.1 {
+					if bar.Close.GreaterThanOrEqual(tenth) {
 						t.Errorf("bar %v: close=%v, expected < 0.1 (GBPUSD/100)", bar.Date.Format("2006-01-02"), bar.Close)
 					}
 				}

@@ -80,7 +80,7 @@ func TestListPrices_Basic(t *testing.T) {
 	}
 	// Check OHLCV on the full row.
 	fullRow := rows[1] // 2024-01-15
-	if fullRow.Open == nil || *fullRow.Open != 100 {
+	if fullRow.Open == nil || fullRow.Open.String() != "100" {
 		t.Errorf("expected open=100, got %v", fullRow.Open)
 	}
 	if fullRow.Volume == nil || *fullRow.Volume != 1000 {
@@ -206,8 +206,8 @@ func TestListPricesForExport_IdentifierPrecedence(t *testing.T) {
 	if rows[0].AssetClass != "STOCK" {
 		t.Errorf("expected asset_class=STOCK, got %s", rows[0].AssetClass)
 	}
-	if rows[0].Close != 185.90 {
-		t.Errorf("expected close=185.90, got %v", rows[0].Close)
+	if rows[0].Close.String() != "185.9" {
+		t.Errorf("expected close=185.9, got %v", rows[0].Close)
 	}
 }
 
@@ -235,7 +235,7 @@ func TestListPricesForExport_NoIdentifiersExcluded(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row (no-identifier excluded), got %d", len(rows))
 	}
-	if rows[0].Close != 100 {
+	if rows[0].Close.String() != "100" {
 		t.Errorf("expected close=100, got %v", rows[0].Close)
 	}
 }
@@ -255,16 +255,16 @@ func TestListPricesForExport_OHLCVFields(t *testing.T) {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
 	r := rows[0]
-	if r.Open == nil || *r.Open != 100 {
+	if r.Open == nil || r.Open.String() != "100" {
 		t.Errorf("expected open=100, got %v", r.Open)
 	}
-	if r.High == nil || *r.High != 105 {
+	if r.High == nil || r.High.String() != "105" {
 		t.Errorf("expected high=105, got %v", r.High)
 	}
-	if r.Low == nil || *r.Low != 99 {
+	if r.Low == nil || r.Low.String() != "99" {
 		t.Errorf("expected low=99, got %v", r.Low)
 	}
-	if r.Close != 102 {
+	if r.Close.String() != "102" {
 		t.Errorf("expected close=102, got %v", r.Close)
 	}
 	if r.Volume == nil || *r.Volume != 50000 {
@@ -355,8 +355,8 @@ func TestListPriceCoverageForExport_SpansDeclaredRange(t *testing.T) {
 
 	instID := setupTickerInstrument(t, p, "AAPL")
 	if err := p.UpsertPricesForRange(ctx, instID, "test", []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 15), Close: 100},
-		{InstrumentID: instID, PriceDate: d(2024, 1, 18), Close: 110},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 15), Close: decf(100)},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 18), Close: decf(110)},
 	}, d(2024, 1, 15), d(2024, 1, 19), nil); err != nil {
 		t.Fatalf("upsert prices for range: %v", err)
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db/migrate"
 	"github.com/leedenison/portfoliodb/server/migrations"
 	_ "github.com/lib/pq"
+	"github.com/shopspring/decimal"
 )
 
 func TestMain(m *testing.M) {
@@ -67,3 +68,8 @@ func testDBTx(t *testing.T) *Postgres {
 func createTx(ctx context.Context, p *Postgres, userID, broker, account, jobID string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error {
 	return p.CreateTxGroup(ctx, userID, broker, account, jobID, []*apiv1.Tx{tx}, []string{instrumentID}, shareCountBasis)
 }
+
+// decf builds a decimal from a float literal, which is what a price test fixture
+// is naturally written as. Production code never converts this way -- the
+// provider seam in server/pricefetcher does it once, deliberately.
+func decf(v float64) decimal.Decimal { return decimal.NewFromFloat(v) }

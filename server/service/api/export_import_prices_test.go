@@ -8,6 +8,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/testutil"
+	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 )
@@ -21,7 +22,7 @@ func TestExportPrices_NonAdmin_PermissionDenied(t *testing.T) {
 
 func TestExportPrices_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
-	open := 185.5
+	open := decimal.RequireFromString("185.5")
 	vol := int64(50000000)
 	rows := []dbpkg.ExportPriceRow{
 		{
@@ -32,7 +33,7 @@ func TestExportPrices_Success(t *testing.T) {
 			Currency:         "USD",
 			PriceDate:        time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
 			Open:             &open,
-			Close:            185.90,
+			Close:            decimal.RequireFromString("185.90"),
 			Volume:           &vol,
 		},
 	}
@@ -66,10 +67,13 @@ func TestExportPrices_Success(t *testing.T) {
 	if row.GetPriceDate() != "2024-01-15" {
 		t.Fatalf("expected date 2024-01-15, got %s", row.GetPriceDate())
 	}
-	if row.GetClose() != 185.90 {
-		t.Fatalf("expected close=185.90, got %v", row.GetClose())
+	// The fixture is 185.90 and the wire carries 185.9: decimal.String() emits
+	// the canonical shortest form, so a value read out of a NUMERIC column does
+	// not arrive padded with the column's scale.
+	if row.GetClose() != "185.9" {
+		t.Fatalf("expected close=185.9, got %v", row.GetClose())
 	}
-	if row.Open == nil || *row.Open != 185.5 {
+	if row.Open == nil || *row.Open != "185.5" {
 		t.Fatalf("expected open=185.5, got %v", row.Open)
 	}
 	if row.Volume == nil || *row.Volume != 50000000 {
@@ -120,7 +124,7 @@ func TestExportPrices_SendsCoverageBeforeRows(t *testing.T) {
 			IdentifierType:  "MIC_TICKER",
 			IdentifierValue: "AAPL",
 			PriceDate:       time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
-			Close:           185.90,
+			Close:           decimal.RequireFromString("185.90"),
 		}}, nil)
 	stream := &exportPriceStreamMock{ctx: adminCtx("user-1", "sub|1")}
 	if err := srv.ExportPrices(&apiv1.ExportPricesRequest{}, stream); err != nil {
@@ -150,7 +154,7 @@ func TestImportPrices_NonAdmin_PermissionDenied(t *testing.T) {
 	_, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{
 		Prices: []*apiv1.ImportPriceRow{{
 			IdentifierType: "ISIN", IdentifierValue: "US0378331005",
-			PriceDate: "2024-01-15", Close: 100,
+			PriceDate: "2024-01-15", Close: "100",
 		}},
 	})
 	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
@@ -193,7 +197,7 @@ func TestImportPrices_Success_CreatesJob(t *testing.T) {
 			IdentifierType:  "ISIN",
 			IdentifierValue: "US0378331005",
 			PriceDate:       "2024-01-15",
-			Close:           185.90,
+			Close:           "185.90",
 		}},
 	})
 	if err != nil {

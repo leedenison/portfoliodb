@@ -32,6 +32,19 @@ The price cache.
 
 **Index:** A TimescaleDB hypertable on `price_date`.
 
+The `numeric` columns are exact decimals and cross the wire as decimal strings,
+not `double` -- `EODPriceProto`, `ExportPriceRow` and `ImportPriceRow` all carry
+them as `string` with a format constraint. Export and import are a round-trip
+pair, so a price that does not reimport identically is a bug, and a `double` on
+either side loses digits the column holds. Provider clients decode JSON floats
+and the conversion happens once, at the `pricefetcher` seam. See
+adr/0026-exact-decimals-bounded-by-closure.md and
+adr/0027-decimal-values-cross-the-wire-as-strings.md.
+
+The `split_adjusted_*` columns declare a rounding scale of 12 places, because the
+cumulative split factor is a rational; see
+[corporate-events.md](corporate-events.md).
+
 Every row is a bar a provider actually reported. Non-trading days have no row;
 valuation carries the last close forward over them at read time, bounded by
 `price_coverage`. See [Component 2](#component-2-coverage-inventory-pricecoverage).

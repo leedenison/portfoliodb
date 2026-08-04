@@ -14,6 +14,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/telemetry"
+	"github.com/shopspring/decimal"
 )
 
 // PluginID is the stable plugin_id for registration and plugin_config.
@@ -70,7 +71,7 @@ func (p *Plugin) AcceptableExchanges() map[string]bool { return nil }
 func (p *Plugin) AcceptableCurrencies() map[string]bool { return nil }
 
 func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []pricefetcher.Identifier, assetClass string, from, before time.Time) (*pricefetcher.FetchResult, error) {
-	symbol, fxDivisor := p.symbolForAssetClass(identifiers, assetClass)
+	symbol, fxExp := p.symbolForAssetClass(identifiers, assetClass)
 	if symbol == "" {
 		return nil, pricefetcher.ErrNoData
 	}
@@ -123,40 +124,44 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 		if err != nil {
 			continue
 		}
-		o := b.Open
-		h := b.High
-		l := b.Low
+		// The provider decodes JSON floats, so this is the seam where a provider
+		// value becomes exact. NewFromFloat takes the shortest representation
+		// that round-trips, so 123.45 stays 123.45.
+		o := decimal.NewFromFloat(b.Open)
+		h := decimal.NewFromFloat(b.High)
+		l := decimal.NewFromFloat(b.Low)
 		v := b.Volume
-		ac := b.AdjClose
+		ac := decimal.NewFromFloat(b.AdjClose)
 		result[i] = pricefetcher.DailyBar{
 			Date:   d,
 			Open:   &o,
 			High:   &h,
 			Low:    &l,
-			Close:  b.Close,
+			Close:  decimal.NewFromFloat(b.Close),
 			Volume: &v,
 			// EODHD's /api/eod OHLC is as-traded; adjusted_close is its own
 			// separate, provider-adjusted series.
 			AdjustedClose: &ac,
 		}
 	}
-	if fxDivisor != 1 {
-		result = pricefetcher.ScaleBars(result, fxDivisor)
+	if fxExp != 0 {
+		result = pricefetcher.ScaleBars(result, fxExp)
 	}
 	return &pricefetcher.FetchResult{Bars: result}, nil
 }
 
 // symbolForAssetClass picks the EODHD API symbol from identifiers.
-// For FX pairs it also returns a divisor for derived pairs; otherwise 1.
-func (p *Plugin) symbolForAssetClass(ids []pricefetcher.Identifier, assetClass string) (string, float64) {
+// For FX pairs it also returns the power of ten to shift a derived pair's rates
+// by; otherwise 0.
+func (p *Plugin) symbolForAssetClass(ids []pricefetcher.Identifier, assetClass string) (string, int32) {
 	if assetClass == db.AssetClassFX {
 		for _, id := range ids {
 			if id.Type == "FX_PAIR" && id.Value != "" {
-				source, divisor := pricefetcher.RewriteFXPair(id.Value)
-				return source + ".FOREX", divisor
+				source, exp := pricefetcher.RewriteFXPair(id.Value)
+				return source + ".FOREX", exp
 			}
 		}
-		return "", 1
+		return "", 0
 	}
 	// Stock/ETF: need {ticker}.{exchange_code}
 	// Prefer provider-specific EODHD exchange code over MIC lookup.
@@ -170,7 +175,7 @@ func (p *Plugin) symbolForAssetClass(ids []pricefetcher.Identifier, assetClass s
 	if ticker != "" {
 		for _, id := range ids {
 			if id.Type == "EODHD_EXCH_CODE" && id.Value != "" {
-				return ticker + "." + id.Value, 1
+				return ticker + "." + id.Value, 0
 			}
 		}
 	}
@@ -178,18 +183,18 @@ func (p *Plugin) symbolForAssetClass(ids []pricefetcher.Identifier, assetClass s
 	for _, id := range ids {
 		if id.Type == "MIC_TICKER" && id.Value != "" {
 			if code := p.micToEODHDCode(id.Domain); code != "" {
-				return id.Value + "." + code, 1
+				return id.Value + "." + code, 0
 			}
 		}
 	}
 	for _, id := range ids {
 		if id.Type == "OPENFIGI_TICKER" && id.Value != "" {
 			if code := p.micToEODHDCode(id.Domain); code != "" {
-				return id.Value + "." + code, 1
+				return id.Value + "." + code, 0
 			}
 		}
 	}
-	return "", 1
+	return "", 0
 }
 
 func (p *Plugin) micToEODHDCode(mic string) string {

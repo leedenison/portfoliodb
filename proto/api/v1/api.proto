@@ -687,14 +687,15 @@ message EODPriceProto {
   string instrument_display_name = 2;
   // Valid time: the trading date this bar describes.
   string price_date = 3;               // "YYYY-MM-DD"
-  optional double open = 4;
-  optional double high = 5;
-  optional double low = 6;
-  double close = 7;
+  // OHLC are decimal strings in the instrument's own currency.
+  optional string open = 4 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string high = 5 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string low = 6 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  string close = 7 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // The provider's own adjusted close, on the provider's basis and typically
   // including dividend adjustment. Never an input to valuation; see
-  // docs/spec/bitemporality.md.
-  optional double adjusted_close = 8;
+  // docs/spec/bitemporality.md. Decimal string.
+  optional string adjusted_close = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   optional int64 volume = 9;
   string data_provider = 10;
   // Knowledge time: when this row was last fetched. Staleness only -- it says
@@ -751,11 +752,14 @@ message ExportPriceRow {
   string identifier_value = 2;
   string identifier_domain = 3;  // MIC for MIC_TICKER, exchange code for OPENFIGI_TICKER, source for BROKER_DESCRIPTION, empty otherwise
   string price_date = 4;         // "YYYY-MM-DD"
-  optional double open = 5;
-  optional double high = 6;
-  optional double low = 7;
-  double close = 8;
-  optional double adjusted_close = 9;
+  // OHLC are decimal strings in the instrument's own currency. Export and import
+  // are a round-trip pair: a row that does not reimport identically is a bug, and
+  // a double on either side loses digits a NUMERIC column holds.
+  optional string open = 5 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string high = 6 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string low = 7 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  string close = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string adjusted_close = 9 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   optional int64 volume = 10;
   AssetClass asset_class = 11;   // denormalized from instrument
   google.protobuf.Timestamp exported_at = 12; // when the export was generated
@@ -770,11 +774,13 @@ message ImportPriceRow {
   string identifier_value = 2;
   string identifier_domain = 3;
   string price_date = 4;
-  optional double open = 5;
-  optional double high = 6;
-  optional double low = 7;
-  double close = 8;
-  optional double adjusted_close = 9;
+  // OHLC are decimal strings in the instrument's own currency. ImportPrices is
+  // unary, so these patterns are enforced at the validating interceptor.
+  optional string open = 5 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string high = 6 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string low = 7 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  string close = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string adjusted_close = 9 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   optional int64 volume = 10;
   AssetClass asset_class = 11;   // optional; security type hint for plugin routing on unknown instruments
   string currency = 12;          // optional; ISO 4217 currency code used as hint for validation

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"github.com/shopspring/decimal"
 
 	"github.com/leedenison/portfoliodb/server/db"
 )
@@ -514,15 +515,15 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 
 	instIDs := make([]string, len(prices))
 	dates := make([]time.Time, len(prices))
-	opens := make([]*float64, len(prices))
-	highs := make([]*float64, len(prices))
-	lows := make([]*float64, len(prices))
-	closes := make([]float64, len(prices))
+	opens := make([]*decimal.Decimal, len(prices))
+	highs := make([]*decimal.Decimal, len(prices))
+	lows := make([]*decimal.Decimal, len(prices))
+	closes := make([]decimal.Decimal, len(prices))
 	volumes := make([]*int64, len(prices))
 	providers := make([]string, len(prices))
 	fetchedAts := make([]time.Time, len(prices))
 	bases := make([]time.Time, len(prices))
-	adjCloses := make([]*float64, len(prices))
+	adjCloses := make([]*decimal.Decimal, len(prices))
 	now := time.Now()
 
 	for i, pr := range prices {
@@ -551,12 +552,12 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 
 	_, err := exec.ExecContext(ctx, `
 		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, last_fetched_at, share_count_basis, adjusted_close)
-		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::double precision[]),
-			unnest($4::double precision[]), unnest($5::double precision[]),
-			unnest($6::double precision[]), unnest($7::bigint[]),
+		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::numeric[]),
+			unnest($4::numeric[]), unnest($5::numeric[]),
+			unnest($6::numeric[]), unnest($7::bigint[]),
 			unnest($8::text[]),
 			unnest($9::timestamptz[]), unnest($10::date[]),
-			unnest($11::double precision[])
+			unnest($11::numeric[])
 		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
 			open = EXCLUDED.open,
 			high = EXCLUDED.high,

@@ -8,6 +8,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -594,9 +595,9 @@ func TestUpsertPrices_Insert(t *testing.T) {
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "UPS1")
 
-	open := 100.0
-	high := 105.0
-	low := 99.0
+	open := decf(100)
+	high := decf(105)
+	low := decf(99)
 	vol := int64(1000)
 	err := p.UpsertPrices(ctx, []db.EODPrice{
 		{
@@ -605,7 +606,7 @@ func TestUpsertPrices_Insert(t *testing.T) {
 			Open:         &open,
 			High:         &high,
 			Low:          &low,
-			Close:        102.0,
+			Close:        decf(102.0),
 			Volume:       &vol,
 			DataProvider: "test",
 		},
@@ -637,7 +638,7 @@ func TestUpsertPrices_Overwrite(t *testing.T) {
 		{
 			InstrumentID: instID,
 			PriceDate:    d(2024, 1, 1),
-			Close:        200.0,
+			Close:        decf(200.0),
 			DataProvider: "updated",
 		},
 	})
@@ -669,7 +670,7 @@ func TestUpsertPrices_NullableFields(t *testing.T) {
 		{
 			InstrumentID: instID,
 			PriceDate:    d(2024, 1, 1),
-			Close:        50.0,
+			Close:        decf(50.0),
 			DataProvider: "test",
 			// Open, High, Low, Volume all nil
 		},
@@ -711,7 +712,7 @@ func TestUpsertPricesForRange_StoresOnlyRealBars(t *testing.T) {
 	var bars []db.EODPrice
 	for i := 0; i < 5; i++ {
 		bars = append(bars, db.EODPrice{
-			InstrumentID: instID, PriceDate: mon.AddDate(0, 0, i), Close: 102.0 + float64(i),
+			InstrumentID: instID, PriceDate: mon.AddDate(0, 0, i), Close: decf(102).Add(decimal.NewFromInt(int64(i))),
 		})
 	}
 	if err := p.UpsertPricesForRange(ctx, instID, "test", bars, mon, mon.AddDate(0, 0, 7), nil); err != nil {
@@ -764,8 +765,8 @@ func TestUpsertPricesForRange_DuplicateDates(t *testing.T) {
 
 	day := d(2024, 1, 2)
 	bars := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: day, Close: 100.0},
-		{InstrumentID: instID, PriceDate: day, Close: 101.0},
+		{InstrumentID: instID, PriceDate: day, Close: decf(100.0)},
+		{InstrumentID: instID, PriceDate: day, Close: decf(101.0)},
 	}
 	if err := p.UpsertPricesForRange(ctx, instID, "test", bars, d(2024, 1, 1), d(2024, 1, 4), nil); err != nil {
 		t.Fatalf("upsert for range: %v", err)

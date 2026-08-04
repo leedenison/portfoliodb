@@ -8,6 +8,7 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 )
 
 // ListPrices implements db.EODPriceListDB.
@@ -71,7 +72,7 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 	var results []db.EODPriceRow
 	for rows.Next() {
 		var r db.EODPriceRow
-		var open, high, low, adjClose sql.NullFloat64
+		var open, high, low, adjClose decimal.NullDecimal
 		var volume sql.NullInt64
 		if err := rows.Scan(
 			&r.InstrumentID, &r.InstrumentDisplayName,
@@ -81,16 +82,16 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 			return nil, 0, "", err
 		}
 		if open.Valid {
-			r.Open = &open.Float64
+			r.Open = &open.Decimal
 		}
 		if high.Valid {
-			r.High = &high.Float64
+			r.High = &high.Decimal
 		}
 		if low.Valid {
-			r.Low = &low.Float64
+			r.Low = &low.Decimal
 		}
 		if adjClose.Valid {
-			r.AdjustedClose = &adjClose.Float64
+			r.AdjustedClose = &adjClose.Decimal
 		}
 		if volume.Valid {
 			r.Volume = &volume.Int64
@@ -112,18 +113,18 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 
 // exportPriceRow is a sqlx-scannable version of db.ExportPriceRow.
 type exportPriceRow struct {
-	IdentifierType   string    `db:"identifier_type"`
-	IdentifierValue  string    `db:"value"`
-	IdentifierDomain string    `db:"domain"`
-	AssetClass       string    `db:"asset_class"`
-	Currency         string    `db:"currency"`
-	PriceDate        time.Time `db:"price_date"`
-	Open             *float64  `db:"open"`
-	High             *float64  `db:"high"`
-	Low              *float64  `db:"low"`
-	Close            float64   `db:"close"`
-	AdjustedClose    *float64  `db:"adjusted_close"`
-	Volume           *int64    `db:"volume"`
+	IdentifierType   string           `db:"identifier_type"`
+	IdentifierValue  string           `db:"value"`
+	IdentifierDomain string           `db:"domain"`
+	AssetClass       string           `db:"asset_class"`
+	Currency         string           `db:"currency"`
+	PriceDate        time.Time        `db:"price_date"`
+	Open             *decimal.Decimal `db:"open"`
+	High             *decimal.Decimal `db:"high"`
+	Low              *decimal.Decimal `db:"low"`
+	Close            decimal.Decimal  `db:"close"`
+	AdjustedClose    *decimal.Decimal `db:"adjusted_close"`
+	Volume           *int64           `db:"volume"`
 }
 
 // ListPricesForExport implements db.EODPriceListDB.

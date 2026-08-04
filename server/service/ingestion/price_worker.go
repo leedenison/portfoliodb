@@ -12,6 +12,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/service/identification"
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -110,10 +111,25 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 			continue
 		}
 
+		dec, field, err := parsePriceDecimals(row)
+		if err != nil {
+			valErrs = append(valErrs, &apiv1.ValidationError{
+				RowIndex: int32(i),
+				Field:    field,
+				Message:  err.Error(),
+			})
+			_ = database.IncrJobProcessedCount(ctx, j.JobID)
+			continue
+		}
+
 		p := db.EODPrice{
 			InstrumentID:  entry.result.InstrumentID,
 			PriceDate:     priceDate,
-			Close:         row.GetClose(),
+			Close:         dec.Close,
+			Open:          dec.Open,
+			High:          dec.High,
+			Low:           dec.Low,
+			AdjustedClose: dec.AdjustedClose,
 			DataProvider:  "import",
 			LastFetchedAt: pricesAsOf,
 		}
@@ -133,20 +149,8 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 			}
 			p.ShareCountBasis = &basis
 		}
-		if row.Open != nil {
-			p.Open = row.Open
-		}
-		if row.High != nil {
-			p.High = row.High
-		}
-		if row.Low != nil {
-			p.Low = row.Low
-		}
 		if row.Volume != nil {
 			p.Volume = row.Volume
-		}
-		if row.AdjustedClose != nil {
-			p.AdjustedClose = row.AdjustedClose
 		}
 		prices = append(prices, p)
 		_ = database.IncrJobProcessedCount(ctx, j.JobID)
@@ -171,6 +175,51 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
 	return persisted
+}
+
+// priceDecimals is the decimal half of an import row.
+type priceDecimals struct {
+	Close                          decimal.Decimal
+	Open, High, Low, AdjustedClose *decimal.Decimal
+}
+
+// parsePriceDecimals converts a row's decimal strings into exact values, and is
+// the seam where an imported price stops being text. It returns the offending
+// field name alongside the error so the caller can report it against the row.
+//
+// ImportPrices is unary, so the protovalidate patterns on ImportPriceRow reject a
+// malformed value at the interceptor before this runs. Reaching the error here
+// means the request came from somewhere that bypassed it, and it is reported per
+// row rather than failing the job, like every other row-level problem.
+func parsePriceDecimals(row *apiv1.ImportPriceRow) (priceDecimals, string, error) {
+	var out priceDecimals
+	c, err := decimal.NewFromString(row.GetClose())
+	if err != nil {
+		return out, "close", fmt.Errorf("invalid decimal %q", row.GetClose())
+	}
+	out.Close = c
+	for _, f := range []struct {
+		name string
+		src  *string
+		dst  **decimal.Decimal
+	}{
+		{"open", row.Open, &out.Open},
+		{"high", row.High, &out.High},
+		{"low", row.Low, &out.Low},
+		{"adjusted_close", row.AdjustedClose, &out.AdjustedClose},
+	} {
+		// An unset optional field and an empty one both mean the provider did
+		// not supply the value, which is what a nil column records.
+		if f.src == nil || *f.src == "" {
+			continue
+		}
+		d, err := decimal.NewFromString(*f.src)
+		if err != nil {
+			return out, f.name, fmt.Errorf("invalid decimal %q", *f.src)
+		}
+		*f.dst = &d
+	}
+	return out, "", nil
 }
 
 // coverageKey builds a lookup key for ImportCoverage entries.

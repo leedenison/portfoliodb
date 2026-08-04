@@ -32,9 +32,16 @@ const COVERAGE_PREFIX = "# coverage=";
 
 const REQUIRED_COLUMNS = new Set(["identifier_type", "identifier_value", "price_date", "close"]);
 
-function fmtOptNum(v: number | undefined): string {
-  return v === undefined ? "" : String(v);
+/**
+ * Decimal fields arrive as strings and are written back unchanged, so export and
+ * import round-trip byte for byte. An absent optional field is an empty cell.
+ */
+function fmtOptDec(v: string | undefined): string {
+  return v ?? "";
 }
+
+/** Matches the protovalidate pattern the decimal wire fields carry. */
+const DECIMAL_RE = /^-?[0-9]+(\.[0-9]+)?$/;
 
 function fmtOptBigint(v: bigint | undefined): string {
   return v === undefined ? "" : String(v);
@@ -116,11 +123,11 @@ export function pricesToCsv(rows: ExportPriceRow[], exportedAt?: Date, coverage?
     r.identifierValue,
     r.identifierDomain,
     r.priceDate,
-    fmtOptNum(r.open),
-    fmtOptNum(r.high),
-    fmtOptNum(r.low),
-    String(r.close),
-    fmtOptNum(r.adjustedClose),
+    fmtOptDec(r.open),
+    fmtOptDec(r.high),
+    fmtOptDec(r.low),
+    r.close,
+    fmtOptDec(r.adjustedClose),
     fmtOptBigint(r.volume),
     assetClassToStr(r.assetClass),
     r.currency,
@@ -269,8 +276,11 @@ export function csvToPrices(text: string): PriceParseResult {
       continue;
     }
 
-    const close = Number(closeStr);
-    if (!closeStr || isNaN(close)) {
+    // Decimal cells are validated against the wire format and carried through as
+    // text. Parsing them into a JS number would round-trip an exact decimal
+    // through a float64 and silently lose digits the NUMERIC column can hold --
+    // which is the bug that makes export and import disagree.
+    if (!closeStr || !DECIMAL_RE.test(closeStr)) {
       errors.push({ rowIndex, field: "close", message: `invalid close price: ${closeStr}` });
       continue;
     }
@@ -280,50 +290,28 @@ export function csvToPrices(text: string): PriceParseResult {
       identifierValue,
       identifierDomain: get("identifier_domain"),
       priceDate,
-      close,
+      close: closeStr,
       assetClass: assetClassFromStr(get("asset_class")),
       currency: get("currency"),
     });
 
-    const openStr = get("open");
-    if (openStr) {
-      const v = Number(openStr);
-      if (isNaN(v)) {
-        errors.push({ rowIndex, field: "open", message: `invalid open: ${openStr}` });
-        continue;
+    let badDecimal = false;
+    for (const [column, assign] of [
+      ["open", (v: string) => (row.open = v)],
+      ["high", (v: string) => (row.high = v)],
+      ["low", (v: string) => (row.low = v)],
+      ["adjusted_close", (v: string) => (row.adjustedClose = v)],
+    ] as const) {
+      const raw = get(column);
+      if (!raw) continue;
+      if (!DECIMAL_RE.test(raw)) {
+        errors.push({ rowIndex, field: column, message: `invalid ${column}: ${raw}` });
+        badDecimal = true;
+        break;
       }
-      row.open = v;
+      assign(raw);
     }
-
-    const highStr = get("high");
-    if (highStr) {
-      const v = Number(highStr);
-      if (isNaN(v)) {
-        errors.push({ rowIndex, field: "high", message: `invalid high: ${highStr}` });
-        continue;
-      }
-      row.high = v;
-    }
-
-    const lowStr = get("low");
-    if (lowStr) {
-      const v = Number(lowStr);
-      if (isNaN(v)) {
-        errors.push({ rowIndex, field: "low", message: `invalid low: ${lowStr}` });
-        continue;
-      }
-      row.low = v;
-    }
-
-    const adjStr = get("adjusted_close");
-    if (adjStr) {
-      const v = Number(adjStr);
-      if (isNaN(v)) {
-        errors.push({ rowIndex, field: "adjusted_close", message: `invalid adjusted_close: ${adjStr}` });
-        continue;
-      }
-      row.adjustedClose = v;
-    }
+    if (badDecimal) continue;
 
     const volStr = get("volume");
     if (volStr) {

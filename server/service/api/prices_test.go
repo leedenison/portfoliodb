@@ -8,6 +8,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/testutil"
+	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/genproto/googleapis/type/date"
 	"google.golang.org/grpc/codes"
@@ -28,7 +29,7 @@ func TestListPrices_NonAdmin(t *testing.T) {
 
 func TestListPrices_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
-	open := 100.0
+	open := decimal.RequireFromString("100")
 	vol := int64(1000)
 	rows := []dbpkg.EODPriceRow{
 		{
@@ -36,7 +37,7 @@ func TestListPrices_Success(t *testing.T) {
 			InstrumentDisplayName: "AAPL",
 			PriceDate:             time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
 			Open:                  &open,
-			Close:                 105.0,
+			Close:                 decimal.RequireFromString("105"),
 			Volume:                &vol,
 			DataProvider:          "test",
 			LastFetchedAt:         time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC),
@@ -57,10 +58,10 @@ func TestListPrices_Success(t *testing.T) {
 	if p.GetInstrumentId() != "inst-1" || p.GetInstrumentDisplayName() != "AAPL" {
 		t.Fatalf("got %v", p)
 	}
-	if p.GetClose() != 105.0 {
+	if p.GetClose() != "105" {
 		t.Fatalf("expected close=105, got %v", p.GetClose())
 	}
-	if p.Open == nil || *p.Open != 100.0 {
+	if p.Open == nil || *p.Open != "100" {
 		t.Fatalf("expected open=100, got %v", p.Open)
 	}
 	if resp.GetTotalCount() != 1 {

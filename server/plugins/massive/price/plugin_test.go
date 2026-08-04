@@ -50,10 +50,10 @@ func TestFetchPrices_Stock(t *testing.T) {
 	if len(result.Bars) != 2 {
 		t.Fatalf("expected 2 bars, got %d", len(result.Bars))
 	}
-	if result.Bars[0].Close != 103 {
+	if result.Bars[0].Close.String() != "103" {
 		t.Errorf("bar[0].Close = %v, want 103", result.Bars[0].Close)
 	}
-	if result.Bars[0].Open == nil || *result.Bars[0].Open != 100 {
+	if result.Bars[0].Open == nil || result.Bars[0].Open.String() != "100" {
 		t.Error("bar[0].Open should be 100")
 	}
 }
@@ -205,7 +205,7 @@ func TestFetchPrices_FX(t *testing.T) {
 	if len(result.Bars) != 1 {
 		t.Fatalf("expected 1 bar, got %d", len(result.Bars))
 	}
-	if result.Bars[0].Close != 1.08 {
+	if result.Bars[0].Close.String() != "1.08" {
 		t.Errorf("bar[0].Close = %v, want 1.08", result.Bars[0].Close)
 	}
 	expected := "/v2/aggs/ticker/C:EURUSD/range/1/day/2024-01-01/2024-01-01"
@@ -264,10 +264,10 @@ func TestFetchPrices_FX_GBXUSD(t *testing.T) {
 		t.Errorf("path = %q, want %q", requestedPath, expected)
 	}
 	// Verify prices are divided by 100.
-	if result.Bars[0].Close != 0.0126 {
+	if result.Bars[0].Close.String() != "0.0126" {
 		t.Errorf("bar[0].Close = %v, want 0.0126", result.Bars[0].Close)
 	}
-	if result.Bars[0].Open == nil || *result.Bars[0].Open != 0.0125 {
+	if result.Bars[0].Open == nil || result.Bars[0].Open.String() != "0.0125" {
 		t.Errorf("bar[0].Open = %v, want 0.0125", result.Bars[0].Open)
 	}
 }
@@ -372,27 +372,27 @@ func TestFetchPrices_ChunksLargeRanges(t *testing.T) {
 
 func TestTickerForAssetClass(t *testing.T) {
 	tests := []struct {
-		name        string
-		ids         []pricefetcher.Identifier
-		assetClass  string
-		wantTicker  string
-		wantDivisor float64
+		name       string
+		ids        []pricefetcher.Identifier
+		assetClass string
+		wantTicker string
+		wantExp    int32
 	}{
-		{"stock_ticker", []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, db.AssetClassStock, "AAPL", 1},
-		{"option_occ", []pricefetcher.Identifier{{Type: "OCC", Value: "AAPL250321C00150000"}}, db.AssetClassOption, "O:AAPL250321C00150000", 1},
-		{"fx_pair", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}, db.AssetClassFX, "C:EURUSD", 1},
-		{"fx_gbxusd", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBXUSD"}}, db.AssetClassFX, "C:GBPUSD", 100},
-		{"fx_no_match", []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "EURUSD"}}, db.AssetClassFX, "", 1},
-		{"stock_no_match", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}, db.AssetClassStock, "", 1},
+		{"stock_ticker", []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}, db.AssetClassStock, "AAPL", 0},
+		{"option_occ", []pricefetcher.Identifier{{Type: "OCC", Value: "AAPL250321C00150000"}}, db.AssetClassOption, "O:AAPL250321C00150000", 0},
+		{"fx_pair", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}, db.AssetClassFX, "C:EURUSD", 0},
+		{"fx_gbxusd", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBXUSD"}}, db.AssetClassFX, "C:GBPUSD", -2},
+		{"fx_no_match", []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "EURUSD"}}, db.AssetClassFX, "", 0},
+		{"stock_no_match", []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}, db.AssetClassStock, "", 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ticker, divisor := tickerForAssetClass(tc.ids, tc.assetClass)
+			ticker, exp := tickerForAssetClass(tc.ids, tc.assetClass)
 			if ticker != tc.wantTicker {
 				t.Errorf("ticker = %q, want %q", ticker, tc.wantTicker)
 			}
-			if divisor != tc.wantDivisor {
-				t.Errorf("divisor = %v, want %v", divisor, tc.wantDivisor)
+			if exp != tc.wantExp {
+				t.Errorf("exponent = %v, want %v", exp, tc.wantExp)
 			}
 		})
 	}

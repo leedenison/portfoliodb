@@ -3,32 +3,36 @@ package pricefetcher
 import (
 	"testing"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 func TestRewriteFXPair(t *testing.T) {
 	tests := []struct {
-		input       string
-		wantSource  string
-		wantDivisor float64
+		input      string
+		wantSource string
+		wantExp    int32
 	}{
-		{"GBXUSD", "GBPUSD", 100},
-		{"EURUSD", "EURUSD", 1},
-		{"GBPUSD", "GBPUSD", 1},
-		{"", "", 1},
+		{"GBXUSD", "GBPUSD", -2},
+		{"EURUSD", "EURUSD", 0},
+		{"GBPUSD", "GBPUSD", 0},
+		{"", "", 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
-			src, div := RewriteFXPair(tc.input)
-			if src != tc.wantSource || div != tc.wantDivisor {
+			src, exp := RewriteFXPair(tc.input)
+			if src != tc.wantSource || exp != tc.wantExp {
 				t.Errorf("RewriteFXPair(%q) = (%q, %v), want (%q, %v)",
-					tc.input, src, div, tc.wantSource, tc.wantDivisor)
+					tc.input, src, exp, tc.wantSource, tc.wantExp)
 			}
 		})
 	}
 }
 
 func TestScaleBars(t *testing.T) {
-	o, h, l := 1.25, 1.27, 1.24
+	o := decimal.RequireFromString("1.25")
+	h := decimal.RequireFromString("1.27")
+	l := decimal.RequireFromString("1.24")
 	v := int64(1000)
 	bars := []DailyBar{
 		{
@@ -36,17 +40,17 @@ func TestScaleBars(t *testing.T) {
 			Open:   &o,
 			High:   &h,
 			Low:    &l,
-			Close:  1.26,
+			Close:  decimal.RequireFromString("1.26"),
 			Volume: &v,
 		},
 		{
 			Date:  time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC),
-			Close: 1.28,
+			Close: decimal.RequireFromString("1.28"),
 			// Open, High, Low, Volume nil
 		},
 	}
 
-	scaled := ScaleBars(bars, 100)
+	scaled := ScaleBars(bars, -2)
 
 	if len(scaled) != 2 {
 		t.Fatalf("len = %d, want 2", len(scaled))
@@ -54,16 +58,16 @@ func TestScaleBars(t *testing.T) {
 
 	// Bar 0: all fields present.
 	b := scaled[0]
-	if b.Close != 0.0126 {
+	if b.Close.String() != "0.0126" {
 		t.Errorf("bar[0].Close = %v, want 0.0126", b.Close)
 	}
-	if b.Open == nil || *b.Open != 0.0125 {
+	if b.Open == nil || b.Open.String() != "0.0125" {
 		t.Errorf("bar[0].Open = %v, want 0.0125", b.Open)
 	}
-	if b.High == nil || *b.High != 0.0127 {
+	if b.High == nil || b.High.String() != "0.0127" {
 		t.Errorf("bar[0].High = %v, want 0.0127", b.High)
 	}
-	if b.Low == nil || *b.Low != 0.0124 {
+	if b.Low == nil || b.Low.String() != "0.0124" {
 		t.Errorf("bar[0].Low = %v, want 0.0124", b.Low)
 	}
 	if b.Volume == nil || *b.Volume != 1000 {
@@ -72,7 +76,7 @@ func TestScaleBars(t *testing.T) {
 
 	// Bar 1: nil optional fields stay nil.
 	b = scaled[1]
-	if b.Close != 0.0128 {
+	if b.Close.String() != "0.0128" {
 		t.Errorf("bar[1].Close = %v, want 0.0128", b.Close)
 	}
 	if b.Open != nil {
@@ -89,7 +93,7 @@ func TestScaleBars(t *testing.T) {
 	}
 
 	// Original bars unchanged.
-	if bars[0].Close != 1.26 {
+	if bars[0].Close.String() != "1.26" {
 		t.Error("original bars mutated")
 	}
 }

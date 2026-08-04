@@ -120,7 +120,9 @@ unset.
 Every group is balanced at ingest. Whatever its postings leave over is routed to an
 explicit counterparty rather than rejected, so the invariant holds by construction
 from day one and a residual becomes measurable instead of being absorbed into a cash
-balance. The database constraint that enforces it is not switched on yet.
+balance. The database constraint that enforces it is not switched on yet; when it
+is, it checks a weight stored on each posting rather than one re-derived in SQL
+(see adr/0029-posting-weight-is-stored.md).
 
 A group's postings are in different commodities, so a plain `SUM(quantity)` cannot
 say whether it balances: a buy is `+10 AAPL` and `-1855 USD`. Balance is checked on

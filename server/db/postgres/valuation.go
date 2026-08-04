@@ -220,32 +220,49 @@ valued AS (
         inst.asset_class,
         dh.qty,
         gp.close,
+        -- This CASE is the single place the query crosses from exact to
+        -- approximate. Quantities and prices are exact decimals, but valuing a
+        -- position divides by an FX rate and a division has no exact decimal
+        -- result, so the value is an estimate from here on. The cast says so, and
+        -- it is applied to the operands rather than to the result: casting the
+        -- result would have Postgres compute sixteen significant digits of numeric
+        -- division for every instrument on every calendar day and then discard
+        -- them. See docs/spec/performance.md and
+        -- docs/adr/0026-exact-decimals-bounded-by-closure.md.
         CASE
             -- Unidentified instrument: always unpriced.
             WHEN dh.instrument_id IS NULL THEN NULL
             -- Cash in display currency: implicit price 1.0, no FX needed.
             WHEN inst.asset_class = 'CASH' AND COALESCE(inst.currency, $4) = $4
-                THEN dh.qty
+                THEN dh.qty::double precision
             -- Cash in foreign currency: implicit price 1.0, convert via FX rate.
             WHEN inst.asset_class = 'CASH' THEN
                 CASE
                     WHEN $4 = 'USD' THEN
-                        CASE WHEN fr.rate IS NOT NULL THEN dh.qty * fr.rate ELSE NULL END
+                        CASE WHEN fr.rate IS NOT NULL
+                            THEN dh.qty::double precision * fr.rate::double precision
+                            ELSE NULL
+                        END
                     ELSE
                         CASE WHEN dfr.rate IS NOT NULL
                                 AND (COALESCE(inst.currency, 'USD') = 'USD' OR fr.rate IS NOT NULL)
-                            THEN dh.qty * COALESCE(fr.rate, 1.0) / dfr.rate
+                            THEN dh.qty::double precision
+                                * COALESCE(fr.rate::double precision, 1.0)
+                                / dfr.rate::double precision
                             ELSE NULL
                         END
                 END
             -- Non-cash with no price: unpriced.
             WHEN gp.close IS NULL THEN NULL
             -- Instrument currency IS the display currency (or NULL): no conversion.
-            WHEN COALESCE(inst.currency, $4) = $4 THEN dh.qty * gp.close
+            WHEN COALESCE(inst.currency, $4) = $4
+                THEN dh.qty::double precision * gp.close::double precision
             -- Display = USD: fx_rate = BASEUSD_rate.
             WHEN $4 = 'USD' THEN
                 CASE WHEN fr.rate IS NOT NULL
-                    THEN dh.qty * gp.close * fr.rate
+                    THEN dh.qty::double precision
+                        * gp.close::double precision
+                        * fr.rate::double precision
                     ELSE NULL  -- missing FX rate -> unpriced
                 END
             -- Display != USD: fx_rate = BASEUSD_rate / DISPLAYUSD_rate.
@@ -253,7 +270,10 @@ valued AS (
             ELSE
                 CASE WHEN dfr.rate IS NOT NULL
                         AND (COALESCE(inst.currency, 'USD') = 'USD' OR fr.rate IS NOT NULL)
-                    THEN dh.qty * gp.close * COALESCE(fr.rate, 1.0) / dfr.rate
+                    THEN dh.qty::double precision
+                        * gp.close::double precision
+                        * COALESCE(fr.rate::double precision, 1.0)
+                        / dfr.rate::double precision
                     ELSE NULL  -- missing base or display FX rate -> unpriced
                 END
         END AS converted_value,

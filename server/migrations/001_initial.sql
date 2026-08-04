@@ -78,6 +78,15 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 -- instrument. They equal the raw quantity/unit_price when no later split exists.
 -- They are recomputed idempotently from the raw columns whenever splits change
 -- (see RecomputeTxSplitAdjustments).
+-- quantity and unit_price are transcribed decimals and are exact, so they are
+-- bare NUMERIC. The split-adjusted pair is not: the cumulative split factor is a
+-- rational and a reverse /3 has no finite decimal form, so the pair declares a
+-- rounding scale of 12 -- more places than any broker quotes fractional shares or
+-- prices to. The rounding is confined to this derived cache; the raw columns it
+-- is computed from stay exact and it is recomputable from them at any time. An
+-- exact check (a group balance, a checked declaration) reads the raw columns.
+-- See docs/adr/0026-exact-decimals-bounded-by-closure.md and
+-- docs/adr/0028-cumulative-split-factor-is-an-exact-rational.md.
 CREATE TABLE txs (
   id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id                   UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -86,12 +95,12 @@ CREATE TABLE txs (
   timestamp                 TIMESTAMPTZ NOT NULL,
   instrument_description    TEXT NOT NULL,
   tx_type                   TEXT NOT NULL,
-  quantity                  DOUBLE PRECISION NOT NULL,
-  split_adjusted_quantity   DOUBLE PRECISION NOT NULL,
+  quantity                  NUMERIC NOT NULL,
+  split_adjusted_quantity   NUMERIC(38, 12) NOT NULL,
   trading_currency          TEXT,
   settlement_currency       TEXT,
-  unit_price                DOUBLE PRECISION,
-  split_adjusted_unit_price DOUBLE PRECISION,
+  unit_price                NUMERIC,
+  split_adjusted_unit_price NUMERIC(38, 12),
   share_count_basis         DATE NOT NULL,
   synthetic_purpose         TEXT CHECK (synthetic_purpose IS NULL OR synthetic_purpose = 'INITIALIZE'),
   account_type              TEXT NOT NULL DEFAULT 'USER'
@@ -405,6 +414,11 @@ WHERE
 -- no later split exists. close (NOT NULL) implies split_adjusted_close (NOT NULL);
 -- the others are NULL iff their raw counterpart is NULL. Volume is adjusted in
 -- the opposite direction (more shares trade in adjusted-share terms).
+-- The raw OHLC are transcribed decimals and are exact, so they are bare NUMERIC.
+-- The split_adjusted_* pair is not: the cumulative split factor is a rational and
+-- a reverse /3 has no finite decimal form, so they declare a rounding scale of 12,
+-- matching txs.split_adjusted_*. The rounding is confined to this derived cache.
+-- See docs/adr/0028-cumulative-split-factor-is-an-exact-rational.md.
 -- adjusted_close is preserved as-supplied by the data provider on the provider's
 -- own basis (typically including dividend adjustment as well as splits). It is
 -- never an input to valuation and exists to cross-check split_adjusted_close,
@@ -413,13 +427,13 @@ CREATE TABLE eod_prices (
   instrument_id          UUID        NOT NULL REFERENCES instruments (id) ON DELETE CASCADE,
   price_date             DATE        NOT NULL,
   open                   NUMERIC,
-  split_adjusted_open    NUMERIC,
+  split_adjusted_open    NUMERIC(38, 12),
   high                   NUMERIC,
-  split_adjusted_high    NUMERIC,
+  split_adjusted_high    NUMERIC(38, 12),
   low                    NUMERIC,
-  split_adjusted_low     NUMERIC,
+  split_adjusted_low     NUMERIC(38, 12),
   close                  NUMERIC     NOT NULL,
-  split_adjusted_close   NUMERIC     NOT NULL,
+  split_adjusted_close   NUMERIC(38, 12) NOT NULL,
   adjusted_close         NUMERIC,
   volume                 BIGINT,
   split_adjusted_volume  BIGINT,
@@ -656,10 +670,22 @@ CREATE TRIGGER trg_default_split_adjusted_eod_price
   BEFORE INSERT OR UPDATE ON eod_prices
   FOR EACH ROW EXECUTE FUNCTION default_split_adjusted_eod_price();
 
+-- mul is the product aggregate Postgres does not ship. Multiplication over
+-- numeric is exact, so a cumulative split factor built from it is exact.
+-- numeric_mul is strict and the initcond is non-null, so a NULL input is skipped
+-- rather than poisoning the product, and zero input rows return 1.
+CREATE AGGREGATE mul(numeric) (SFUNC = numeric_mul, STYPE = numeric, INITCOND = '1');
+
 -- split_factor_at returns the cumulative split adjustment factor for the
--- given instrument as of the given reference date. The factor is the product
--- of (split_to / split_from) over every stock split with ex_date strictly
--- greater than reference_date AND less than or equal to the current date.
+-- given instrument as of the given reference date, as an exact rational: the
+-- numerator is the product of split_to and the denominator the product of
+-- split_from, over every stock split with ex_date strictly greater than
+-- reference_date AND less than or equal to the current date.
+--
+-- The quotient is returned unevaluated so that callers multiply first and divide
+-- once -- quantity * num / den rather than quantity * (num / den) -- which is the
+-- minimal-error ordering and keeps the exact part exact for as long as possible.
+-- See docs/adr/0028-cumulative-split-factor-is-an-exact-rational.md.
 --
 -- For derivative instruments (options, futures) that have an underlying_id,
 -- the function also includes splits on the underlying instrument. This
@@ -677,17 +703,15 @@ CREATE TRIGGER trg_default_split_adjusted_eod_price
 -- daily scheduler (see docs/spec/corporate-events.md) is responsible for
 -- triggering that recompute when ex_dates cross.
 --
--- Returns 1 when no effective future splits are known, so a row with no
--- later splits is unchanged by adjustment. Implemented via exp(sum(ln(...)))
--- on double precision: split factors are small rationals (typically 2, 3,
--- 4, 0.5) and the round-trip is accurate to many decimal places for any
--- realistic chain of splits.
-CREATE OR REPLACE FUNCTION split_factor_at(p_instrument_id UUID, p_reference DATE)
-RETURNS DOUBLE PRECISION LANGUAGE sql STABLE AS $$
-  SELECT COALESCE(
-    exp(sum(ln(s.split_to::double precision / s.split_from::double precision))),
-    1::double precision
-  )
+-- Returns 1/1 when no effective future splits are known, so a row with no
+-- later splits is unchanged by adjustment.
+CREATE OR REPLACE FUNCTION split_factor_at(
+  p_instrument_id UUID,
+  p_reference DATE,
+  OUT num NUMERIC,
+  OUT den NUMERIC
+) LANGUAGE sql STABLE AS $$
+  SELECT mul(s.split_to), mul(s.split_from)
   FROM stock_splits s
   WHERE s.instrument_id IN (
       p_instrument_id,
@@ -724,9 +748,12 @@ CREATE TABLE ignored_asset_classes (
 
 CREATE INDEX idx_ignored_asset_classes_user ON ignored_asset_classes (user_id);
 
--- qty_is_zero returns true when a double precision quantity is effectively zero,
--- absorbing floating-point residuals from SUM aggregation over buys/sells.
-CREATE FUNCTION qty_is_zero(q double precision) RETURNS boolean
+-- qty_is_zero is a null-safe test for a closed position. Quantities are exact
+-- decimals, so summing buys against sells lands on zero and there is no residual
+-- to absorb -- what the function still carries is the NULL branch, which the
+-- valuation day grid depends on: a holding has no position on a date before its
+-- instrument's first tx, and that reads as closed rather than as unknown.
+CREATE FUNCTION qty_is_zero(q numeric) RETURNS boolean
     LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-    SELECT q IS NULL OR ABS(q) < 1e-9
+    SELECT q IS NULL OR q = 0
 $$;

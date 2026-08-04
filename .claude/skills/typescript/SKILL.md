@@ -36,10 +36,10 @@ adr/0027-decimal-values-cross-the-wire-as-strings.md.
   and is unnecessary on a value that never had any.
 - **Arithmetic: only in the converters.** Code under `client/lib/csv/` and
   `client/lib/ofx/` authors facts -- deriving counter-legs, splitting netted
-  totals -- and uses a decimal library (`big.js`) so the postings it emits
-  balance exactly. Nothing else on the client computes with these values. Keep
-  the dependency out of component code; the extension shares these modules and
-  carries the bundle cost.
+  totals -- and uses a decimal library so the postings it emits balance exactly.
+  Nothing else on the client computes with these values. Keep the dependency out
+  of component code; the extension shares these modules and carries the bundle
+  cost. The library is picked in 0042.
 - **Charts take `number`.** Series values (`ValuationPoint.total_value` and any
   later return metric) are `double` on the wire and feed Recharts directly.
 - Sorting and comparison need a numeric or decimal comparator; lexicographic

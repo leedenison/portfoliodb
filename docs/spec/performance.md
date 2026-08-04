@@ -23,15 +23,21 @@ The final SELECT joins holdings with prices and aggregates
 
 ## Exact and approximate parts
 
-Holdings are accumulated from exact decimal quantities: the running position per
-instrument is a sum, so it stays exact. Valuing that position is not -- it
-multiplies by a market price and divides by an FX rate, and a division has no
-exact decimal result. The value is therefore an estimate from that point on, and
-the query says so by casting to `double precision` at the conversion, in the
-`valued` CTE.
+The running position per instrument is a sum, so accumulating it introduces no
+error of its own. Its inputs are `split_adjusted_quantity`, though, which carries
+the split adjustment's declared rounding scale (see
+[Share count](#share-count) below), so the position is exact to that scale rather
+than exact outright, with the bound growing in the number of contributing
+postings. For valuation that rounding is immaterial and is tolerated rather than
+tracked; where it is not tolerable -- the balance constraint, a checked holding
+declaration -- the raw columns are read instead.
 
-The cast is applied to the operands, not to the result, and is the single place
-this query crosses from exact to approximate.
+Valuing the position is approximate for a stronger reason: it multiplies by a
+market price and divides by an FX rate, and a division has no exact decimal
+result. The value is an estimate from that point on, and the query says so by
+casting to `double precision` at the conversion, in the `valued` CTE. The cast is
+applied to the operands, not to the result, and is the single place this query
+crosses from exact to approximate.
 
 `ValuationPoint.total_value` is a `double` on the wire for the same reason, and
 so is any later return metric: geometric linking and an internal rate of return

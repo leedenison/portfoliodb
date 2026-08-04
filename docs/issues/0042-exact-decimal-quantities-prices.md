@@ -67,9 +67,13 @@ denormalised from the OCC identifier and so is a component of option identity.
 Add protovalidate patterns while the fields are being touched -- none of the 26
 carries a constraint today.
 
-**Clients.** A decimal library (big.js, decimal.js) is needed only in the CSV and
-OFX converters under `client/lib/csv/` and `client/lib/ofx/`, which author facts
-and are shared with the extension. Display paths get simpler, not harder: the
+**Clients.** A decimal library is needed only in the CSV and OFX converters under
+`client/lib/csv/` and `client/lib/ofx/`, which author facts and are shared with
+the extension. Pick it here: the converters need only the four operations and
+comparison, and the modules are shared with an MV3 extension where bundle size
+counts, so big.js (around 8KB minified) is the smaller fit and decimal.js (around
+32KB) buys arbitrary-precision functions nothing on the client uses. Display
+paths get simpler, not harder: the
 `parseFloat(tx.quantity.toFixed(4))` in `client/app/transactions/page.tsx` exists
 to hide float artifacts and deletes outright. Chart series stay `number`.
 

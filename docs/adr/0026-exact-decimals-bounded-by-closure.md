@@ -45,8 +45,8 @@ confined to the cache because the facts it derives from remain exact.
 [0024](0024-group-balance-is-checked-on-weight.md), which this is recorded
 against.
 
-**Queries cast operands, not results, at the boundary.** Valuation multiplies an
-exact quantity by a price and divides by an FX rate once per instrument per
+**Queries cast operands, not results, at the boundary.** Valuation multiplies a
+decimal quantity by a price and divides by an FX rate once per instrument per
 calendar day. Casting the result would have Postgres compute sixteen significant
 digits of `numeric` division for every one of those rows and then discard them;
 casting the operands keeps the day grid on hardware arithmetic, which is what it

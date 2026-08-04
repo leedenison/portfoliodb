@@ -18,7 +18,7 @@ function balance(overrides: Partial<ResidualBalance> = {}): ResidualBalance {
     commodity: "USD",
     assetClass: AssetClass.CASH,
     txType: TxType.INCOME,
-    balance: -100,
+    balance: "-100",
     postingCount: 1,
     ...overrides,
   };
@@ -71,35 +71,35 @@ describe("isMoney", () => {
 describe("groupByBroker", () => {
   it("subtotals per commodity and never sums across them", () => {
     const groups = groupByBroker([
-      balance({ balance: -100, commodity: "USD" }),
-      balance({ balance: -50, commodity: "USD", txType: TxType.BUYSTOCK }),
-      balance({ balance: 25, commodity: "AAPL", assetClass: AssetClass.STOCK }),
+      balance({ balance: "-100", commodity: "USD" }),
+      balance({ balance: "-50", commodity: "USD", txType: TxType.BUYSTOCK }),
+      balance({ balance: "25", commodity: "AAPL", assetClass: AssetClass.STOCK }),
     ]);
 
     expect(groups).toHaveLength(1);
     const subtotals = groups[0].subtotals;
     expect(subtotals).toHaveLength(2);
     expect(subtotals.find((s) => s.commodity === "USD")).toMatchObject({
-      balance: -150,
+      balance: "-150",
       postingCount: 2,
     });
-    expect(subtotals.find((s) => s.commodity === "AAPL")).toMatchObject({ balance: 25 });
+    expect(subtotals.find((s) => s.commodity === "AAPL")).toMatchObject({ balance: "25" });
   });
 
   it("puts the broker with the largest exposure first", () => {
     const groups = groupByBroker([
-      balance({ broker: Broker.IBKR, balance: -10 }),
-      balance({ broker: Broker.FIDELITY, balance: -5000 }),
-      balance({ broker: Broker.SCHB, balance: -200 }),
+      balance({ broker: Broker.IBKR, balance: "-10" }),
+      balance({ broker: Broker.FIDELITY, balance: "-5000" }),
+      balance({ broker: Broker.SCHB, balance: "-200" }),
     ]);
     expect(groups.map((g) => g.broker)).toEqual([Broker.FIDELITY, Broker.SCHB, Broker.IBKR]);
   });
 
   it("orders rows within a broker by magnitude, sign aside", () => {
     const groups = groupByBroker([
-      balance({ balance: 5, account: "small" }),
-      balance({ balance: -900, account: "big" }),
-      balance({ balance: 40, account: "middle" }),
+      balance({ balance: "5", account: "small" }),
+      balance({ balance: "-900", account: "big" }),
+      balance({ balance: "40", account: "middle" }),
     ]);
     expect(groups[0].rows.map((r) => r.account)).toEqual(["big", "middle", "small"]);
   });

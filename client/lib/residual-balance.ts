@@ -1,5 +1,6 @@
 import { AssetClass } from "@/gen/api/v1/api_pb";
 import type { ResidualBalance } from "./portfolio-api";
+import { Big } from "@/lib/decimal";
 
 /**
  * How old a transfer balance must be before it is worth a second look. This is
@@ -47,7 +48,8 @@ export function isMoney(b: { assetClass: AssetClass }): boolean {
 export interface CommoditySubtotal {
   commodity: string;
   assetClass: AssetClass;
-  balance: number;
+  /** Decimal string, summed exactly from the rows it covers. */
+  balance: string;
   postingCount: number;
 }
 
@@ -80,7 +82,10 @@ export function groupByBroker(rows: ResidualBalance[]): BrokerGroup[] {
     for (const r of brokerRows) {
       const existing = byCommodity.get(r.commodity);
       if (existing) {
-        existing.balance += r.balance;
+        // A sum of exact values, so it is summed exactly. This is the imbalance
+        // report: the one screen whose whole purpose is to find discrepancies to
+        // the penny, so re-floating the figures here would defeat it.
+        existing.balance = new Big(existing.balance).plus(r.balance).toString();
         existing.postingCount += r.postingCount;
       } else {
         byCommodity.set(r.commodity, {
@@ -93,14 +98,25 @@ export function groupByBroker(rows: ResidualBalance[]): BrokerGroup[] {
     }
     groups.push({
       broker,
-      subtotals: [...byCommodity.values()].sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance)),
-      rows: [...brokerRows].sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance)),
+      subtotals: [...byCommodity.values()].sort(byMagnitude),
+      rows: [...brokerRows].sort(byMagnitude),
     });
   }
 
-  return groups.sort((a, b) => {
-    const aMax = Math.max(...a.subtotals.map((s) => Math.abs(s.balance)));
-    const bMax = Math.max(...b.subtotals.map((s) => Math.abs(s.balance)));
-    return bMax - aMax;
-  });
+  return groups.sort((a, b) => maxMagnitude(b).cmp(maxMagnitude(a)));
+}
+
+/** Descending by absolute balance. Lexicographic order would be wrong here. */
+function byMagnitude(a: { balance: string }, b: { balance: string }): number {
+  return new Big(b.balance).abs().cmp(new Big(a.balance).abs());
+}
+
+function maxMagnitude(g: BrokerGroup): Big {
+  return g.subtotals.reduce(
+    (max, s) => {
+      const v = new Big(s.balance).abs();
+      return v.gt(max) ? v : max;
+    },
+    new Big(0),
+  );
 }

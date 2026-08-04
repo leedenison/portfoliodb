@@ -83,14 +83,14 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("holdings: %v", err)
 	}
-	var googQty float64
+	var googQty string
 	for _, h := range holdings {
 		if h.InstrumentDescription == "GOOG" {
 			googQty = h.Quantity
 			break
 		}
 	}
-	if googQty != -5 {
+	if googQty != "-5" {
 		t.Fatalf("expected GOOG quantity -5 (signed quantity, no type-based flip), got %v", googQty)
 	}
 }
@@ -132,7 +132,7 @@ func TestComputeHoldings_fractionalQuantitiesSumExactly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("holdings: %v", err)
 	}
-	var got float64
+	var got string
 	for _, h := range holdings {
 		if h.InstrumentDescription == "FRAC" {
 			got = h.Quantity
@@ -140,7 +140,7 @@ func TestComputeHoldings_fractionalQuantitiesSumExactly(t *testing.T) {
 		}
 	}
 	// Exact equality, not approxEq: that is the whole point.
-	if got != 1 {
+	if got != "1" {
 		t.Fatalf("ten buys of 0.1: got %v want exactly 1", got)
 	}
 }
@@ -178,7 +178,7 @@ func TestComputeHoldings_excludesNonUserAccountTypes(t *testing.T) {
 	if len(holdings) != 1 {
 		t.Fatalf("expected 1 holding, got %d", len(holdings))
 	}
-	if got := holdings[0].Quantity; got != 40 {
+	if got := holdings[0].Quantity; got != "40" {
 		t.Errorf("holding quantity = %v, want 40: the EQUITY counter-leg must not net against the position", got)
 	}
 }

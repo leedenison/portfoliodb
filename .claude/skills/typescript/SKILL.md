@@ -34,16 +34,27 @@ adr/0027-decimal-values-cross-the-wire-as-strings.md.
 - **Display: render the string.** Do not round-trip through `Number` to format
   it. The `parseFloat(x.toFixed(n))` idiom exists only to hide float artifacts
   and is unnecessary on a value that never had any.
-- **Arithmetic: only in the converters.** Code under `client/lib/csv/` and
-  `client/lib/ofx/` authors facts -- deriving counter-legs, splitting netted
-  totals -- and uses a decimal library so the postings it emits balance exactly.
-  Nothing else on the client computes with these values. Keep the dependency out
-  of component code; the extension shares these modules and carries the bundle
-  cost. The library is picked in 0042.
+- **Arithmetic: big.js, in `client/lib/` only.** Two places compute with these
+  values. The converters under `client/lib/csv/` and `client/lib/ofx/` author
+  facts -- deriving counter-legs, splitting netted totals -- so the postings they
+  emit balance exactly. `client/lib/residual-balance.ts` subtotals the imbalance
+  report, which is a sum of exact values on the screen whose whole purpose is to
+  find discrepancies to the penny.
+
+  Keep the dependency out of component code. The extension shares the converter
+  modules and carries the bundle cost, which is why the library is big.js rather
+  than decimal.js -- four operations and a comparison, at a quarter of the size.
+- **Parse through `parseDecimal`** (`client/lib/decimal.ts`). big.js throws on a
+  malformed value and has no `NaN`, so nothing constructs a `Big` from
+  unvalidated input directly. It format-checks against the same pattern the wire
+  fields carry, which keeps a bad cell producing a row-level parse error rather
+  than throwing out of the whole file.
 - **Charts take `number`.** Series values (`ValuationPoint.total_value` and any
   later return metric) are `double` on the wire and feed Recharts directly.
-- Sorting and comparison need a numeric or decimal comparator; lexicographic
-  string ordering is wrong for these fields.
+- Sorting and comparison need a decimal comparator (`new Big(a).cmp(new Big(b))`);
+  lexicographic string ordering is wrong for these fields.
+- `Intl.NumberFormat.format` accepts a numeric string and formats it without
+  going through a float, so an exact value can be displayed exactly.
 
 ## Next.js / React
 

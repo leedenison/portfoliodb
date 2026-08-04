@@ -46,7 +46,7 @@ func (s *Server) ListResidualBalances(ctx context.Context, req *apiv1.ListResidu
 			Commodity:       b.Commodity,
 			AssetClass:      db.StrToAssetClass(b.AssetClass),
 			TxType:          b.TxType,
-			Balance:         b.Balance,
+			Balance:         decStr(b.Balance),
 			PostingCount:    b.PostingCount,
 			OldestTimestamp: timePtrToTs(b.Oldest),
 			NewestTimestamp: timePtrToTs(b.Newest),

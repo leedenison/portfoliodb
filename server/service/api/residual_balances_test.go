@@ -7,6 +7,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/testutil"
+	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -50,7 +51,7 @@ func TestListResidualBalances_Success(t *testing.T) {
 			Commodity:    "USD",
 			AssetClass:   "CASH",
 			TxType:       apiv1.TxType_INCOME,
-			Balance:      -1234.56,
+			Balance:      decimal.RequireFromString("-1234.56"),
 			PostingCount: 7,
 			Oldest:       &oldest,
 			Newest:       &newest,
@@ -64,7 +65,7 @@ func TestListResidualBalances_Success(t *testing.T) {
 			Commodity:    "AAPL",
 			AssetClass:   "STOCK",
 			TxType:       apiv1.TxType_JRNLSEC,
-			Balance:      50,
+			Balance:      decimal.RequireFromString("50"),
 			PostingCount: 1,
 		},
 	}, nil)
@@ -96,7 +97,7 @@ func TestListResidualBalances_Success(t *testing.T) {
 	if got.GetTxType() != apiv1.TxType_INCOME {
 		t.Errorf("tx type = %v, want INCOME", got.GetTxType())
 	}
-	if got.GetBalance() != -1234.56 {
+	if got.GetBalance() != "-1234.56" {
 		t.Errorf("balance = %v, want -1234.56", got.GetBalance())
 	}
 	if got.GetPostingCount() != 7 {

@@ -7,6 +7,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -98,13 +99,13 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 		t.Fatalf("holdings: %v", err)
 	}
 	// We had two txs (10 and 5) on two instruments; after merge both are on survivor, so one holding with quantity 15.
-	var totalQty float64
+	totalQty := decimal.Zero
 	for _, h := range holdings {
 		if h.InstrumentId == survivor {
-			totalQty += h.Quantity
+			totalQty = totalQty.Add(decimal.RequireFromString(h.Quantity))
 		}
 	}
-	if totalQty != 15 {
+	if !totalQty.Equal(decimal.NewFromInt(15)) {
 		t.Fatalf("expected merged holding quantity 15, got %v (holdings: %+v)", totalQty, holdings)
 	}
 }

@@ -36,7 +36,7 @@ func (s *Server) ListInflationIndices(ctx context.Context, req *apiv1.ListInflat
 		indices = append(indices, &apiv1.InflationIndexProto{
 			Currency:     r.Currency,
 			Month:        r.Month.Format("2006-01-02"),
-			IndexValue:   r.IndexValue,
+			IndexValue:   decStr(r.IndexValue),
 			BaseYear:     int32(r.BaseYear),
 			DataProvider: r.DataProvider,
 		})

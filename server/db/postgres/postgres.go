@@ -321,20 +321,20 @@ func (r *instrumentRow) toDBRow() *db.InstrumentRow {
 
 // holdingRow is the sqlx-scannable shape for computing holdings.
 type holdingRow struct {
-	Broker      string  `db:"broker"`
-	Account     string  `db:"account"`
-	InstDesc    string  `db:"instrument_description"`
-	InstID      *string `db:"instrument_id"`
-	Quantity    float64 `db:"quantity"`
-	SplitAdjQty float64 `db:"split_adjusted_quantity"`
+	Broker      string          `db:"broker"`
+	Account     string          `db:"account"`
+	InstDesc    string          `db:"instrument_description"`
+	InstID      *string         `db:"instrument_id"`
+	Quantity    decimal.Decimal `db:"quantity"`
+	SplitAdjQty decimal.Decimal `db:"split_adjusted_quantity"`
 }
 
 func (r *holdingRow) toProto() *apiv1.Holding {
 	h := &apiv1.Holding{
 		Broker:                strToBroker(r.Broker),
 		InstrumentDescription: r.InstDesc,
-		Quantity:              r.Quantity,
-		SplitAdjustedQuantity: r.SplitAdjQty,
+		Quantity:              r.Quantity.String(),
+		SplitAdjustedQuantity: r.SplitAdjQty.String(),
 		Account:               r.Account,
 	}
 	if r.InstID != nil {

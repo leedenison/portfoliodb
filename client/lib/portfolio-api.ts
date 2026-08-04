@@ -1114,7 +1114,8 @@ export interface ResidualBalance {
   commodity: string;
   assetClass: AssetClass;
   txType: number;
-  balance: number;
+  /** Decimal string: a signed sum over exact weights, so it stays exact. */
+  balance: string;
   postingCount: number;
   /**
    * Oldest and newest postings contributing to the balance. For a transfer these

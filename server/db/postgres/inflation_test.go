@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 )
 
 func setupUserWithCurrency(t *testing.T, p *Postgres, authSub, name, email, displayCurrency string) string {
@@ -61,8 +62,8 @@ func TestUpsertInflationIndices(t *testing.T) {
 	ctx := context.Background()
 
 	indices := []db.InflationIndex{
-		{Currency: "GBP", Month: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), IndexValue: 130.5, BaseYear: 2015, DataProvider: "ons"},
-		{Currency: "GBP", Month: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC), IndexValue: 131.0, BaseYear: 2015, DataProvider: "ons"},
+		{Currency: "GBP", Month: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), IndexValue: decf(130.5), BaseYear: 2015, DataProvider: "ons"},
+		{Currency: "GBP", Month: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC), IndexValue: decf(131.0), BaseYear: 2015, DataProvider: "ons"},
 	}
 
 	if err := p.UpsertInflationIndices(ctx, indices); err != nil {
@@ -79,7 +80,7 @@ func TestUpsertInflationIndices(t *testing.T) {
 	}
 
 	// Upsert with updated value should overwrite.
-	indices[0].IndexValue = 130.8
+	indices[0].IndexValue = decf(130.8)
 	if err := p.UpsertInflationIndices(ctx, indices); err != nil {
 		t.Fatalf("upsert update: %v", err)
 	}
@@ -92,11 +93,11 @@ func TestUpsertInflationIndices(t *testing.T) {
 		t.Fatalf("expected total=2, got %d", total)
 	}
 	// Ordered by month DESC, so Feb first.
-	if rows[0].IndexValue != 131.0 {
-		t.Errorf("expected 131.0, got %f", rows[0].IndexValue)
+	if rows[0].IndexValue.String() != "131" {
+		t.Errorf("expected 131, got %v", rows[0].IndexValue)
 	}
-	if rows[1].IndexValue != 130.8 {
-		t.Errorf("expected 130.8 (updated), got %f", rows[1].IndexValue)
+	if rows[1].IndexValue.String() != "130.8" {
+		t.Errorf("expected 130.8 (updated), got %v", rows[1].IndexValue)
 	}
 }
 
@@ -127,9 +128,9 @@ func TestListInflationIndices_Filters(t *testing.T) {
 	ctx := context.Background()
 
 	indices := []db.InflationIndex{
-		{Currency: "GBP", Month: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), IndexValue: 130.5, BaseYear: 2015, DataProvider: "ons"},
-		{Currency: "GBP", Month: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC), IndexValue: 132.0, BaseYear: 2015, DataProvider: "ons"},
-		{Currency: "USD", Month: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), IndexValue: 310.0, BaseYear: 1982, DataProvider: "bls"},
+		{Currency: "GBP", Month: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), IndexValue: decf(130.5), BaseYear: 2015, DataProvider: "ons"},
+		{Currency: "GBP", Month: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC), IndexValue: decf(132.0), BaseYear: 2015, DataProvider: "ons"},
+		{Currency: "USD", Month: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), IndexValue: decf(310.0), BaseYear: 1982, DataProvider: "bls"},
 	}
 	if err := p.UpsertInflationIndices(ctx, indices); err != nil {
 		t.Fatalf("upsert: %v", err)
@@ -182,7 +183,7 @@ func TestListInflationIndices_Pagination(t *testing.T) {
 	for m := time.Month(1); m <= 5; m++ {
 		indices = append(indices, db.InflationIndex{
 			Currency: "GBP", Month: time.Date(2024, m, 1, 0, 0, 0, 0, time.UTC),
-			IndexValue: 130.0 + float64(m), BaseYear: 2015, DataProvider: "ons",
+			IndexValue: decf(130).Add(decimal.NewFromInt(int64(m))), BaseYear: 2015, DataProvider: "ons",
 		})
 	}
 	if err := p.UpsertInflationIndices(ctx, indices); err != nil {

@@ -7,6 +7,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 )
 
 // residualBalanceAgg aggregates the residual postings -- the IMBALANCE and
@@ -49,17 +50,17 @@ const residualBalanceAgg = `
 
 // residualBalanceRow is the sqlx-scannable shape for a residual balance.
 type residualBalanceRow struct {
-	AccountType  string     `db:"account_type"`
-	Broker       string     `db:"broker"`
-	Account      string     `db:"account"`
-	InstID       *string    `db:"instrument_id"`
-	Commodity    string     `db:"commodity"`
-	AssetClass   string     `db:"asset_class"`
-	TxType       string     `db:"tx_type"`
-	Balance      float64    `db:"balance"`
-	PostingCount int32      `db:"posting_count"`
-	Oldest       *time.Time `db:"oldest"`
-	Newest       *time.Time `db:"newest"`
+	AccountType  string          `db:"account_type"`
+	Broker       string          `db:"broker"`
+	Account      string          `db:"account"`
+	InstID       *string         `db:"instrument_id"`
+	Commodity    string          `db:"commodity"`
+	AssetClass   string          `db:"asset_class"`
+	TxType       string          `db:"tx_type"`
+	Balance      decimal.Decimal `db:"balance"`
+	PostingCount int32           `db:"posting_count"`
+	Oldest       *time.Time      `db:"oldest"`
+	Newest       *time.Time      `db:"newest"`
 }
 
 func (r *residualBalanceRow) toDomain() db.ResidualBalance {

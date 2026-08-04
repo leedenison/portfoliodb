@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Use exact decimals for quantities and prices
 milestone: M12
 ---
@@ -92,20 +92,37 @@ in the schema alongside the columns.
 ## Known costs
 
 `decimal.Decimal` wraps a `big.Int` and an exponent, so `1.0` and `1.00` are
-`.Equal` but neither `==` nor `reflect.DeepEqual`. The server tree has around 78
-`float64` references in tests and uses go-cmp throughout, so a
-`cmp.Comparer(decimal.Decimal.Equal)` needs threading through the test helpers,
-and it should land before the types change rather than after.
+`.Equal` but neither `==` nor `reflect.DeepEqual`. Comparing one needs an
+explicit option: `testutil.DecimalOpts` for go-cmp and `testutil.DecEq` for a
+gomock expectation, whose default matcher is `reflect.DeepEqual`.
+
+The premise that the server tree "uses go-cmp throughout" was wrong -- one file
+imported it and there were no shared options -- so the comparer was created
+alongside the first decimal types rather than threaded ahead of them.
 
 ## Sequencing
 
-Pre-release, so there is no migration or back-compat burden (CLAUDE.md). The
-change is wide but mechanical, and it will never be cheaper than now. Four PRs,
-to stay near the 500-800 line target:
+Pre-release, so there was no migration or back-compat burden (CLAUDE.md).
+
+The four PRs proposed here did not survive contact. There is no `db.Tx` struct:
+transactions cross the db boundary as `*apiv1.Tx`, so the Go and proto changes
+for `txs` are one change. And `client-typecheck` gates CI, so a proto field
+becoming a string breaks TypeScript in the same commit it breaks Go. The work
+was sliced by proto message group instead, each slice carrying its own Go and
+client fallout, plus one client-only PR that landed the decimal library while
+every field was still a number:
 
 1. Postgres: column types, `qty_is_zero`, the `mul` aggregate and
-   `split_factor_at`.
-2. Go: the go-cmp comparer first, then decimal through the db layer, ingestion
-   and balancing.
-3. Proto: string fields, protovalidate patterns, regenerate.
-4. Client and extension.
+   `split_factor_at`. The scale is `NUMERIC(38, 12)`, declared on the
+   `split_adjusted_*` pair in `eod_prices` as well as `txs`.
+2. Go decimal foundation and the price wire.
+3. Instrument identity: `strike` and `contract_multiplier`.
+4. Client converters on big.js, still emitting numbers.
+5. The `Tx` wire, ingestion and the client string boundary.
+6. `Holding`, `InflationIndexProto`, `ResidualBalance` and docs.
+
+One hazard worth recording: a server-computed field cannot carry a required
+format pattern. `split_adjusted_quantity` is derived by the database, so an
+upload leaves it unset, `""` reaches the validating interceptor and every upload
+is rejected. It is `optional`. Only the e2e suite catches this, because the
+constraint lives in the interceptor rather than in any unit-testable path.

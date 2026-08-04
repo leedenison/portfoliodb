@@ -1,3 +1,4 @@
+import { Big } from "@/lib/decimal";
 import { describe, it, expect } from "vitest";
 import { parseOfxStatement, parseOfxDate } from "./parser";
 import { AccountType, TxType, IdentifierType } from "@/gen/api/v1/api_pb";
@@ -420,20 +421,24 @@ describe("groups and charges", () => {
     const result = parse(GBP_BUY);
 
     const cash = result.txs.find((t) => t.type === TxType.CASHFLOW)!;
-    expect(cash.quantity).toBeCloseTo(-23080.68, 5);
+    // toBe, not toBeCloseTo: the split is a decimal subtraction, so the result
+    // is the exact value narrowed once rather than an accumulation of error.
+    expect(cash.quantity).toBe(-23080.68);
 
     const fees = result.txs.filter((t) => t.type === TxType.INVEXPENSE);
     expect(fees).toHaveLength(2);
-    expect(fees.find((t) => t.accountType === AccountType.USER)!.quantity).toBeCloseTo(-11.54034, 5);
-    expect(fees.find((t) => t.accountType === AccountType.EXPENSE)!.quantity).toBeCloseTo(11.54034, 5);
+    expect(fees.find((t) => t.accountType === AccountType.USER)!.quantity).toBe(-11.54034);
+    expect(fees.find((t) => t.accountType === AccountType.EXPENSE)!.quantity).toBe(11.54034);
   });
 
   it("leaves the money that moved equal to the total the broker reported", () => {
     const result = parse(GBP_BUY);
+    // Summed in decimal so the assertion holds for any fixture rather than for
+    // ones whose float64 sum happens to land. This one's does.
     const cash = result.txs
       .filter((t) => t.accountType !== AccountType.EXPENSE && t.type !== TxType.BUYSTOCK)
-      .reduce((sum, t) => sum + t.quantity, 0);
-    expect(cash).toBeCloseTo(-23092.22034, 5);
+      .reduce((sum, t) => sum.plus(t.quantity), new Big(0));
+    expect(cash.toString()).toBe("-23092.22034");
   });
 
   it("balances a buy and a sell, including one not in the account's currency", () => {
@@ -448,7 +453,7 @@ describe("groups and charges", () => {
     )!;
     expect(fee.settlementCurrency).toBe("EUR");
     expect(fee.tradingCurrency).toBe("EUR");
-    expect(fee.quantity).toBeCloseTo(-3.04736094, 6);
+    expect(fee.quantity).toBe(-3.04736094);
   });
 
   it("emits no charge postings for a commission-free trade", () => {

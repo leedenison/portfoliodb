@@ -24,7 +24,10 @@ import {
 } from "@/lib/csv/converters/fidelity-csv";
 import type { ParseError, StandardParseResult } from "@/lib/csv/standard";
 import { counterLegs } from "@/lib/csv/postings";
+import { Big, decimalFromNumber } from "@/lib/decimal";
 import { parseSlashDate } from "../lib/dates";
+
+const ZERO = new Big(0);
 
 /** The fields this converter reads. Fidelity sends many more. */
 interface FidelityRow {
@@ -167,7 +170,13 @@ export function convertFidelityJson(
       account: row.accountNumber ?? "",
       dateKey: row.settlementDate || row.dealDate || "",
       amount: row.valuation ?? 0,
-      consideration: Math.abs((row.units ?? 0) * (row.pricePerUnit ?? 0)),
+      // The product is exact. Fidelity's JSON already decoded these through a
+      // float64, so this is where they stop losing digits rather than where
+      // they start being exact.
+      consideration: (decimalFromNumber(row.units) ?? ZERO)
+        .times(decimalFromNumber(row.pricePerUnit) ?? ZERO)
+        .abs()
+        .toNumber(),
       ref: parseInt(row.referenceId ?? "", 10),
     });
     txs.push(

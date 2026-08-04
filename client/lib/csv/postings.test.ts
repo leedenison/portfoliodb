@@ -5,6 +5,7 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import { AccountType, IdentifierType, TxSchema, TxType } from "@/gen/api/v1/api_pb";
 import { counterLeg, counterLegs, feeLeg, refPrefix, FEE_EPSILON } from "./postings";
+import { Big } from "@/lib/decimal";
 import { expectGroupsBalance } from "./group-balance.test-utils";
 
 const tx = (fields: MessageInitShape<typeof TxSchema>): Tx =>
@@ -74,7 +75,7 @@ describe("feeLeg", () => {
   const trade = tx({ type: TxType.BUYSTOCK, quantity: 378, unitPrice: 61.06, groupRef: "t-1" });
 
   it("posts the commission as cash leaving the account", () => {
-    const leg = feeLeg(trade, 11.54034)!;
+    const leg = feeLeg(trade, new Big("11.54034"))!;
     expect(leg.type).toBe(TxType.INVEXPENSE);
     expect(leg.quantity).toBe(-11.54034);
     expect(leg.unitPrice).toBe(1);
@@ -91,7 +92,7 @@ describe("feeLeg", () => {
       tradingCurrency: "EUR",
       settlementCurrency: "USD",
     });
-    const leg = feeLeg(source, 5)!;
+    const leg = feeLeg(source, new Big(5))!;
     expect(leg.instrumentDescription).toBe("USD");
     expect(leg.tradingCurrency).toBe("USD");
     expect(leg.settlementCurrency).toBe("USD");
@@ -100,13 +101,14 @@ describe("feeLeg", () => {
   });
 
   it("takes the magnitude, so a broker's sign convention does not flip it", () => {
-    expect(feeLeg(trade, -11.54)?.quantity).toBe(-11.54);
+    expect(feeLeg(trade, new Big("-11.54"))?.quantity).toBe(-11.54);
   });
 
   it("produces nothing below the tolerance the server routes at", () => {
-    expect(feeLeg(trade, 0)).toBeUndefined();
-    expect(feeLeg(trade, FEE_EPSILON / 2)).toBeUndefined();
-    expect(feeLeg(trade, NaN)).toBeUndefined();
+    expect(feeLeg(trade, new Big(0))).toBeUndefined();
+    expect(feeLeg(trade, FEE_EPSILON.div(2))).toBeUndefined();
+    // A field the source did not supply, which parseDecimal reports as absent.
+    expect(feeLeg(trade, undefined)).toBeUndefined();
     expect(feeLeg(trade, FEE_EPSILON)).toBeDefined();
   });
 
@@ -116,7 +118,7 @@ describe("feeLeg", () => {
       tx({ type: TxType.BUYSTOCK, quantity: 378, unitPrice: 61.06, groupRef: "t-1", instrumentDescription: "VUSA" }),
       tx({ type: TxType.CASHFLOW, quantity: -23080.68, unitPrice: 1, groupRef: "t-1" }),
     ];
-    legs.push(feeLeg(legs[0]!, 11.54034)!);
+    legs.push(feeLeg(legs[0]!, new Big("11.54034"))!);
     legs.push(...counterLegs(legs));
 
     expectGroupsBalance(legs);

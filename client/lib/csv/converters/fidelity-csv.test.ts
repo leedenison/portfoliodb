@@ -1,3 +1,4 @@
+import { Big } from "@/lib/decimal";
 import { describe, it, expect } from "vitest";
 import { AccountType, TxType } from "@/gen/api/v1/api_pb";
 import { convertFidelityToStandard, FIDELITY_TYPE_TO_OFX } from "./fidelity-csv";
@@ -143,7 +144,7 @@ describe("convertFidelityToStandard", () => {
       it(tc.name, () => {
         const result = convertFidelityToStandard([FULL_HEADER, tc.row].join("\n"), { currency: "GBP" });
         expect(result.errors).toEqual([]);
-        expect(result.txs[0]!.quantity).toBeCloseTo(tc.want, 10);
+        expect(result.txs[0]!.quantity).toBe(tc.want);
       });
     }
 
@@ -152,8 +153,10 @@ describe("convertFidelityToStandard", () => {
       // another. Reading the unsigned Quantity made them sum to twice the value.
       const csv = [FULL_HEADER, cases[2]!.row, cases[3]!.row].join("\n");
       const result = convertFidelityToStandard(csv, { currency: "GBP" });
-      const total = result.txs.reduce((sum, tx) => sum + tx.quantity, 0);
-      expect(total).toBeCloseTo(0, 10);
+      // Summed in decimal so the assertion holds for any pair rather than for
+      // ones whose float64 sum happens to land on zero.
+      const total = result.txs.reduce((sum, tx) => sum.plus(tx.quantity), new Big(0));
+      expect(total.eq(0)).toBe(true);
     });
   });
 

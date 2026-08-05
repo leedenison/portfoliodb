@@ -281,6 +281,44 @@ func TestListResidualBalances_AccountTypeFilter(t *testing.T) {
 	}
 }
 
+// TestResidualBalances_SourceRoundingIsReportedNotCounted verifies where a rounding
+// residual lands: aggregated in the report, where the per-broker total and posting
+// count are the only place its cost is visible, and absent from the dashboard counts,
+// which ask whether something is wrong. A source rounding its own cash figures is not.
+func TestResidualBalances_SourceRoundingIsReportedNotCounted(t *testing.T) {
+	p := testDBTx(t)
+	userID := newUser(t, p, "sub|rounding")
+	usd := usdInstrument(t, p)
+
+	seedResiduals(t, p, userID,
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_BUYSTOCK, apiv1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING, "0.0028", 1},
+		residualSeed{"IBKR", "A1", usd, apiv1.TxType_BUYSTOCK, apiv1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING, "-0.0011", 2},
+	)
+
+	ctx := context.Background()
+	rows, err := p.ListResidualBalances(ctx, db.ResidualBalanceOpts{AccountType: apiv1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING})
+	if err != nil {
+		t.Fatalf("list rounding: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected the two postings to aggregate to 1 row, got %+v", rows)
+	}
+	if rows[0].Balance.String() != "0.0017" {
+		t.Errorf("balance = %v, want 0.0017", rows[0].Balance)
+	}
+	if rows[0].PostingCount != 2 {
+		t.Errorf("posting count = %d, want 2", rows[0].PostingCount)
+	}
+
+	imbalances, stale, err := p.CountResidualBalances(ctx, time.Now().UTC().AddDate(0, 0, -7))
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if imbalances != 0 || stale != 0 {
+		t.Errorf("counts = (%d, %d), want (0, 0): rounding is not a fault", imbalances, stale)
+	}
+}
+
 // TestCountResidualBalances_StalenessBoundary verifies a recently imported transfer
 // is quiet and an old one is loud. Every imbalance counts whatever its age.
 func TestCountResidualBalances_StalenessBoundary(t *testing.T) {

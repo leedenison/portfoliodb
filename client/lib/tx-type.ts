@@ -36,4 +36,5 @@ export const ACCOUNT_TYPE_LABEL: Record<number, string> = {
   [AccountType.EXPENSE]: "Expense",
   [AccountType.IMBALANCE]: "Imbalance",
   [AccountType.TRANSFER_CLEARING]: "In Flight",
+  [AccountType.SOURCE_ROUNDING]: "Rounding",
 };

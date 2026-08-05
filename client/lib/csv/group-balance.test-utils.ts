@@ -40,8 +40,10 @@ const EXCHANGE_TYPES = new Set<TxType>([
  *
  * The weights below are exact now, so a group written to full precision balances
  * to exactly zero. The tolerance stays because it is not a floating-point fudge:
- * a source written to 2dp that balances to within half a cent is balanced, and
- * the server routes nothing below this either.
+ * a source written to 2dp that balances to within half a cent is balanced. The
+ * server does post the difference, to SOURCE_ROUNDING rather than to IMBALANCE,
+ * but that is the server classifying its own residual and says nothing about
+ * whether the converter did its job -- which is what this file checks.
  */
 const TOLERANCE = new Big("0.005");
 

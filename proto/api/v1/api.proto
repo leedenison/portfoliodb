@@ -62,6 +62,7 @@ enum AccountType {
   ACCOUNT_TYPE_EXPENSE = 4;           // Commissions, levies, custody and service charges, taxes.
   ACCOUNT_TYPE_IMBALANCE = 5;         // The residual of a group that does not sum to zero.
   ACCOUNT_TYPE_TRANSFER_CLEARING = 6; // One side of a transfer whose other side is not yet known.
+  ACCOUNT_TYPE_SOURCE_ROUNDING = 7;   // A residual small enough to be the source rounding, not missing data.
 }
 
 // IdentifierType is the controlled vocabulary for instrument identifier types.
@@ -330,9 +331,10 @@ service ApiService {
   rpc CountUnhandledCorporateEvents(CountUnhandledCorporateEventsRequest) returns (CountUnhandledCorporateEventsResponse);
   rpc ResolveUnhandledCorporateEvent(ResolveUnhandledCorporateEventRequest) returns (ResolveUnhandledCorporateEventResponse);
 
-  // Residual balances (admin-only). The net IMBALANCE and TRANSFER_CLEARING value
-  // left in each broker account: a direct measure of how lossy each broker
-  // converter is, and of which transfers are missing a side.
+  // Residual balances (admin-only). The net IMBALANCE, TRANSFER_CLEARING and
+  // SOURCE_ROUNDING value left in each broker account: a direct measure of how lossy
+  // each broker converter is, of which transfers are missing a side, and of what the
+  // source's own rounding costs.
   rpc ListResidualBalances(ListResidualBalancesRequest) returns (ListResidualBalancesResponse);
   rpc CountResidualBalances(CountResidualBalancesRequest) returns (CountResidualBalancesResponse);
 }
@@ -1247,13 +1249,15 @@ message ResolveUnhandledCorporateEventResponse {}
 // uncategorised dividend whose income leg the converter does not yet emit. A
 // TRANSFER_CLEARING balance is one side of a journal. Nothing pairs the two
 // sides until transfers are matched, so a transfer balance means a transfer was
-// imported rather than that its second side is missing.
+// imported rather than that its second side is missing. A SOURCE_ROUNDING balance
+// is the accumulated difference between figures the source rounded to different
+// scales: not a fault, but worth measuring per broker.
 //
 // Balances are per commodity and are never converted: one in a currency is money,
 // one in a security is a quantity of shares, and the two are not summed. See
 // docs/spec/postings.md.
 message ResidualBalance {
-  AccountType account_type = 1;  // IMBALANCE or TRANSFER_CLEARING
+  AccountType account_type = 1;  // IMBALANCE, TRANSFER_CLEARING or SOURCE_ROUNDING
   Broker broker = 2;
   string account = 3;
   string instrument_id = 4;
@@ -1278,8 +1282,8 @@ message ListResidualBalancesRequest {
   // bound is open-ended.
   google.protobuf.Timestamp period_from = 1;    // inclusive
   google.protobuf.Timestamp period_before = 2;  // exclusive
-  // Restrict to one account type. ACCOUNT_TYPE_UNSPECIFIED returns both IMBALANCE
-  // and TRANSFER_CLEARING.
+  // Restrict to one account type. ACCOUNT_TYPE_UNSPECIFIED returns IMBALANCE,
+  // TRANSFER_CLEARING and SOURCE_ROUNDING alike.
   AccountType account_type = 3 [(buf.validate.field).enum.defined_only = true];
 }
 

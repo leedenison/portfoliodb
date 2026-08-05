@@ -38,6 +38,7 @@ to the account that produced it.
 | `EXPENSE`           | Commissions, levies, custody and service charges, taxes.   |
 | `IMBALANCE`         | The residual of a group that does not sum to zero.         |
 | `TRANSFER_CLEARING` | One side of a transfer whose other side is not yet known.  |
+| `SOURCE_ROUNDING`   | A residual small enough to be the source rounding its own figures. |
 
 Opening balances are `EQUITY` postings rather than a type of their own. An opening
 balance is one use of equity, and a withdrawal to a bank is an equity posting too; an
@@ -159,18 +160,12 @@ adr/0028-cumulative-split-factor-is-an-exact-rational.md).
 
 Weights accumulate **per commodity**, so a group can produce more than one routed
 posting and the commodity is whatever is left over -- cash for a missing cash leg,
-the security for an unpaired `JRNLSEC`. A residual is routed only above a
-tolerance: half a cent for money, `1e-6` otherwise. The tolerance is not a
-floating-point fudge and did not go away when quantities became exact -- a group
-written to 2dp that balances to within half a cent is balanced, and that is a
-disagreement between two rounded figures rather than arithmetic error. Inferring
-the tolerance from the scale of the contributing amounts, rather than fixing it,
-would change which residuals get routed and has not been done. See
-adr/0026-exact-decimals-bounded-by-closure.md.
+the security for an unpaired `JRNLSEC`.
 
 Weights are exact: a posting's weight is `quantity * unit_price * contract_size`,
 which is closed under multiplication, so a group's balance is a plain sum with
-nothing to absorb.
+nothing to absorb. Every non-zero residual is routed, and only a group that sums to
+exactly zero produces no posting at all.
 
 The routed posting takes the `IMBALANCE` type, or `TRANSFER_CLEARING` when the
 group is a journal. It keeps the broker, account, date and `tx_type` of the group
@@ -178,6 +173,30 @@ it balances, so the residual stays attributable to the account and the kind of
 event that produced it. Its commodity is carried by `instrument_id`, never encoded
 in a name. It is written into the group it balances, so replace-by-period takes it
 with the cascade.
+
+### Source rounding
+
+A residual below a **tolerance** -- half a cent for money, `1e-6` otherwise -- takes
+the `SOURCE_ROUNDING` type instead. The tolerance is not a floating-point fudge and
+did not go away when quantities became exact: a broker quoting a price to 4dp and a
+cash amount to 2dp disagrees with itself by a fraction of a cent per trade, and that
+difference is exact and real but is an artefact of how the statement was written
+rather than a leg the converter missed. Inferring the tolerance from the scale of the
+contributing amounts, rather than fixing it, would change which residuals are
+classified this way and has not been done. See
+adr/0026-exact-decimals-bounded-by-closure.md.
+
+The tolerance decides the **type** of the routed posting, not whether one is written.
+Suppressing the small residuals would leave the group summing to a small non-zero
+value, which is what the balance constraint rejects; folding them into `IMBALANCE`
+alongside genuinely missing legs would throw away the one thing already known about
+them. A sub-tolerance residual on a journal is rounding too, so `SOURCE_ROUNDING`
+beats `TRANSFER_CLEARING` rather than the other way round.
+
+Rounding balances appear in the imbalance report under their own tab -- one posting
+is noise, but the per-broker total and posting count are the only place the cost of a
+source's rounding is visible -- and are deliberately absent from the dashboard
+counts, which ask whether something is wrong.
 
 An INITIALIZE pad is balanced by an `EQUITY` counterparty instead; see
 [fixed-point.md](fixed-point.md#the-equity-counterparty).

@@ -82,7 +82,7 @@ ones do.
 
 ## Tolerance
 
-A residual is routed only above a tolerance: half a cent for money, `1e-6`
+A residual is classified by a tolerance: half a cent for money, `1e-6`
 otherwise. This is not a floating-point fudge and it does not disappear when
 [0042](../issues/0042-exact-decimal-quantities-prices.md) makes quantities exact.
 A trade of 37 shares at 12.3456 costs 456.7872 against a broker cash row of
@@ -102,3 +102,32 @@ The balance constraint in
 [0041](../issues/0041-enable-balance-constraint.md) needs no tolerance of its own
 either way. Once residuals are routed the group sums to zero by construction,
 which is what lets that constraint be an exact `SUM(...) = 0`.
+
+### What the tolerance decides
+
+**Amended by [0041](../issues/0041-enable-balance-constraint.md).** The paragraph
+above was true only of residuals at or above the tolerance. A residual *below* it
+was originally suppressed rather than routed, which left the group summing to a
+small non-zero value -- so the ordinary, well-formed, 2dp-rounded trade groups were
+exactly the ones an exact `SUM(...) = 0` would have rejected.
+
+The tolerance therefore decides the **account type** a residual is routed to, not
+whether it is routed. Every non-zero residual gets a posting: `IMBALANCE` or
+`TRANSFER_CLEARING` at or above the tolerance, and `SOURCE_ROUNDING` below it. A
+sub-tolerance residual on a journal is rounding too, so `SOURCE_ROUNDING` beats the
+transfer classification rather than the other way round.
+
+Two alternatives were considered and rejected. **Absorbing the sub-tolerance
+residual into the weight of the group's converting leg** would have needed no new
+type and written no extra rows, but it makes a leg's stored weight something other
+than `quantity * unit_price * contract_size`, so a reader comparing the two sees a
+discrepancy with nothing to explain it. **Folding the small residuals into
+`IMBALANCE`** would have been simpler still and is what dropping the tolerance
+outright amounts to, but the whole point of a typed residual account is to classify
+what is left over: an `IMBALANCE` balance is converter work to be done, and a
+rounding difference is not, so merging them costs the one thing already known about
+the residual and makes the imbalance figure permanently non-zero for every broker
+that rounds.
+
+The tolerance still keeps its original job of not treating a rounded source as a
+data-quality problem. It just says so in the account type rather than by omission.

@@ -12,6 +12,25 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// initTx builds a pad denominated in the share count current on its own date, which
+// is what the tests that are not about denomination want.
+func initTx(at time.Time, qty float64) db.InitializeTx {
+	return db.InitializeTx{TxType: "BUYSTOCK", Timestamp: at, Quantity: decf(qty), ShareCountBasis: at}
+}
+
+// addSplit records a stock split. Splits are written by the corporate event path in
+// production; these tests need one to exist, not to arrive.
+func addSplit(t *testing.T, p *Postgres, instID string, exDate time.Time, from, to int) {
+	t.Helper()
+	_, err := p.q.ExecContext(context.Background(), `
+		INSERT INTO stock_splits (instrument_id, ex_date, split_from, split_to, data_provider)
+		VALUES ($1, $2, $3, $4, 'test')
+	`, instID, exDate, from, to)
+	if err != nil {
+		t.Fatalf("insert split: %v", err)
+	}
+}
+
 func TestCreateHoldingDeclaration(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -19,7 +38,7 @@ func TestCreateHoldingDeclaration(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "150.5", asOf)
+	row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "150.5", asOf, time.Time{})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -38,11 +57,11 @@ func TestCreateHoldingDeclaration_DuplicateRejected(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	_, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf)
+	_, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, time.Time{})
 	if err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	_, err = p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "200", asOf)
+	_, err = p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "200", asOf, time.Time{})
 	if err == nil {
 		t.Fatal("expected duplicate error")
 	}
@@ -55,10 +74,10 @@ func TestUpdateHoldingDeclaration(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "MSFT", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	row, _ := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf)
+	row, _ := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, time.Time{})
 
 	newDate := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
-	updated, err := p.UpdateHoldingDeclaration(ctx, row.ID, "200", newDate)
+	updated, err := p.UpdateHoldingDeclaration(ctx, row.ID, "200", newDate, time.Time{})
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -77,7 +96,7 @@ func TestDeleteHoldingDeclaration(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "TSLA", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	row, _ := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "50", asOf)
+	row, _ := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "50", asOf, time.Time{})
 
 	if err := p.DeleteHoldingDeclaration(ctx, row.ID); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -106,10 +125,10 @@ func TestListHoldingDeclarations(t *testing.T) {
 	inst2, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "A2", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst1, "100", asOf); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst1, "100", asOf, time.Time{}); err != nil {
 		t.Fatalf("create decl 1: %v", err)
 	}
-	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst2, "200", asOf); err != nil {
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", inst2, "200", asOf, time.Time{}); err != nil {
 		t.Fatalf("create decl 2: %v", err)
 	}
 
@@ -173,7 +192,7 @@ func TestComputeRunningBalance(t *testing.T) {
 
 	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC)
-	bal, err := p.ComputeRunningBalance(ctx, userID, "IBKR", "acct1", instID, from, to)
+	bal, err := p.ComputeRunningBalance(ctx, userID, "IBKR", "acct1", instID, from, to, from)
 	if err != nil {
 		t.Fatalf("compute: %v", err)
 	}
@@ -189,7 +208,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "UI1", Canonical: false}}, "", nil, nil, nil)
 
 	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", ts, decf(50))
+	err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(ts, 50))
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -206,7 +225,7 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 	// Upsert again with different qty (should update, not duplicate). Both legs
 	// move together: a recalculation that shifted only the pad would leave the
 	// group unbalanced.
-	err = p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", ts, decf(75))
+	err = p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(ts, 75))
 	if err != nil {
 		t.Fatalf("upsert update: %v", err)
 	}
@@ -261,7 +280,7 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "IG1", Canonical: false}}, "", nil, nil, nil)
 
 	at := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", at, decf(50)); err != nil {
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(at, 50)); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -286,7 +305,7 @@ func TestUpsertInitializeTx_GroupsThePosting(t *testing.T) {
 	// Recalculating a declaration must move the existing group rather than
 	// replacing it, or every recalc would orphan one.
 	moved := at.Add(48 * time.Hour)
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", moved, decf(75)); err != nil {
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(moved, 75)); err != nil {
 		t.Fatalf("re-upsert: %v", err)
 	}
 	var groupID2 string
@@ -328,7 +347,7 @@ func TestUpsertInitializeTx_WritesTheEquityCounterparty(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "EQ1", Canonical: false}}, "", nil, nil, nil)
 
 	at := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, "BUYSTOCK", at, decf(50)); err != nil {
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(at, 50)); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -385,11 +404,142 @@ func TestComputeRunningBalance_excludesNonUser(t *testing.T) {
 
 	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC)
-	bal, err := p.ComputeRunningBalance(ctx, userID, "IBKR", "acct1", instID, from, to)
+	bal, err := p.ComputeRunningBalance(ctx, userID, "IBKR", "acct1", instID, from, to, from)
 	if err != nil {
 		t.Fatalf("compute: %v", err)
 	}
 	if bal.String() != "100" {
 		t.Fatalf("running balance = %v, want 100: the EQUITY leg must not be summed", bal)
 	}
+}
+
+// TestCreateHoldingDeclaration_DefaultsShareCountBasis pins the as-traded default:
+// a declaration that says nothing about denomination is in the share count current
+// on the date it refers to.
+func TestCreateHoldingDeclaration_DefaultsShareCountBasis(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-basis-default", "U", "u@b.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "BD1", Canonical: false}}, "", nil, nil, nil)
+
+	asOf := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+	row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "500", asOf, time.Time{})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if !row.ShareCountBasis.Equal(asOf) {
+		t.Fatalf("share_count_basis: want %v (as_of_date), got %v", asOf, row.ShareCountBasis)
+	}
+
+	// A stated basis survives, and moving as_of_date afterwards does not restate it:
+	// the denomination is what the user said, not a function of the date.
+	stated := time.Date(2025, 8, 5, 0, 0, 0, 0, time.UTC)
+	row, err = p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct2", instID, "500", asOf, stated)
+	if err != nil {
+		t.Fatalf("create with basis: %v", err)
+	}
+	if !row.ShareCountBasis.Equal(stated) {
+		t.Fatalf("stated share_count_basis: want %v, got %v", stated, row.ShareCountBasis)
+	}
+	moved := time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC)
+	row, err = p.UpdateHoldingDeclaration(ctx, row.ID, "500", moved, time.Time{})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !row.ShareCountBasis.Equal(stated) {
+		t.Fatalf("share_count_basis after moving as_of_date: want %v, got %v", stated, row.ShareCountBasis)
+	}
+}
+
+// TestComputeRunningBalance_ConvertsToDeclarationBasis is the reason the balance is
+// not a plain SUM(quantity). The two postings below are recorded either side of a
+// 2:1 split and are in different units, so adding them raw gives 150 -- a number in
+// no share count at all. Converted, the same history is 100 pre-split shares or 200
+// post-split ones, and which of those a declaration is compared against is the
+// declaration's to state.
+func TestComputeRunningBalance_ConvertsToDeclarationBasis(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-basis-conv", "U", "u@b.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "BC1", Canonical: false}}, "", nil, nil, nil)
+
+	preSplit := time.Date(2021, 3, 1, 10, 0, 0, 0, time.UTC)
+	exDate := time.Date(2022, 6, 1, 0, 0, 0, 0, time.UTC)
+	postSplit := time.Date(2023, 3, 1, 10, 0, 0, 0, time.UTC)
+	addSplit(t, p, instID, exDate, 1, 2)
+
+	// 50 shares bought before the split, and 50 more after -- 100 post-split shares
+	// for the first buy, plus 50, is 150 in post-split terms and 75 in pre-split.
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(preSplit), InstrumentDescription: "BC1", Type: apiv1.TxType_BUYSTOCK, Quantity: "50", Account: "acct1"}, instID, nil); err != nil {
+		t.Fatalf("create pre-split buy: %v", err)
+	}
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(postSplit), InstrumentDescription: "BC1", Type: apiv1.TxType_BUYSTOCK, Quantity: "50", Account: "acct1"}, instID, nil); err != nil {
+		t.Fatalf("create post-split buy: %v", err)
+	}
+
+	from := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name  string
+		basis time.Time
+		want  string
+	}{
+		{"pre-split basis", preSplit, "75"},
+		{"post-split basis", postSplit, "150"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bal, err := p.ComputeRunningBalance(ctx, userID, "IBKR", "acct1", instID, from, to, tc.basis)
+			if err != nil {
+				t.Fatalf("compute: %v", err)
+			}
+			if bal.String() != tc.want {
+				t.Fatalf("running balance = %v, want %s", bal, tc.want)
+			}
+		})
+	}
+}
+
+// TestUpsertInitializeTx_DenominatesThePad verifies the pad is stored in its
+// declaration's share count rather than in the one current on the portfolio start
+// date. The two are unrelated, and letting the txs trigger infer the basis from the
+// timestamp made a pad declared in today's terms read as pre-split shares.
+func TestUpsertInitializeTx_DenominatesThePad(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|init-basis", "U", "u@b.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "IB1", Canonical: false}}, "", nil, nil, nil)
+
+	startDay := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+	basis := time.Date(2025, 8, 5, 0, 0, 0, 0, time.UTC)
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, db.InitializeTx{
+		TxType: "BUYSTOCK", Timestamp: startDay, Quantity: decf(50), ShareCountBasis: basis,
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	assertPadBasis := func(want time.Time) {
+		t.Helper()
+		var legs int
+		if err := p.q.QueryRowContext(ctx, `
+			SELECT count(*) FROM txs
+			WHERE user_id = $1 AND synthetic_purpose = 'INITIALIZE'
+			  AND share_count_basis = $2
+		`, userID, want).Scan(&legs); err != nil {
+			t.Fatalf("read basis: %v", err)
+		}
+		if legs != 2 {
+			t.Fatalf("postings denominated at %v: want both legs, got %d", want, legs)
+		}
+	}
+	assertPadBasis(basis)
+
+	// Moving the portfolio start date moves the pad's timestamp. Its denomination is
+	// the declaration's and must not follow.
+	moved := startDay.AddDate(0, 0, -30)
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, db.InitializeTx{
+		TxType: "BUYSTOCK", Timestamp: moved, Quantity: decf(75), ShareCountBasis: basis,
+	}); err != nil {
+		t.Fatalf("re-upsert: %v", err)
+	}
+	assertPadBasis(basis)
 }

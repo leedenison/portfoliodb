@@ -795,6 +795,7 @@ export async function createHoldingDeclaration(params: {
   instrumentId: string;
   declaredQty: string;
   asOfDate: string;
+  shareCountBasis: string;
 }): Promise<HoldingDeclaration> {
   const base = getBaseUrl();
   const req = create(CreateHoldingDeclarationRequestSchema, {
@@ -803,6 +804,7 @@ export async function createHoldingDeclaration(params: {
     instrumentId: params.instrumentId,
     declaredQty: params.declaredQty,
     asOfDate: strToProtoDate(params.asOfDate),
+    shareCountBasis: strToProtoDate(params.shareCountBasis),
   });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "CreateHoldingDeclaration", toBinary(CreateHoldingDeclarationRequestSchema, req), {
     credentials: "include",
@@ -815,12 +817,14 @@ export async function updateHoldingDeclaration(params: {
   id: string;
   declaredQty: string;
   asOfDate: string;
+  shareCountBasis: string;
 }): Promise<HoldingDeclaration> {
   const base = getBaseUrl();
   const req = create(UpdateHoldingDeclarationRequestSchema, {
     id: params.id,
     declaredQty: params.declaredQty,
     asOfDate: strToProtoDate(params.asOfDate),
+    shareCountBasis: strToProtoDate(params.shareCountBasis),
   });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "UpdateHoldingDeclaration", toBinary(UpdateHoldingDeclarationRequestSchema, req), {
     credentials: "include",

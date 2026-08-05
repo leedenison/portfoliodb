@@ -13,13 +13,20 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+var (
+	asOfJun1 = time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	// storedBasis is a denomination the declaration already carries, distinct from
+	// its as_of_date, so a test can tell "kept what was stored" from "re-derived".
+	storedBasis = time.Date(2025, 8, 5, 0, 0, 0, 0, time.UTC)
+)
+
 func TestListHoldingDeclarations_Success(t *testing.T) {
 	srv, mockDB := newAPIServerWithMock(t)
 	ctx := authCtx("user-1", "sub|1")
 	mockDB.EXPECT().
 		ListHoldingDeclarations(gomock.Any(), "user-1").
 		Return([]*db.HoldingDeclarationRow{
-			{ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", DeclaredQty: "100", AsOfDate: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)},
+			{ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", DeclaredQty: "100", AsOfDate: asOfJun1, ShareCountBasis: storedBasis},
 		}, nil)
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), []string{"inst-1"}).Return(nil, nil)
 
@@ -34,6 +41,11 @@ func TestListHoldingDeclarations_Success(t *testing.T) {
 	if d.GetBroker() != "IBKR" || d.GetDeclaredQty() != "100" || d.GetAsOfDate().GetYear() != 2025 || d.GetAsOfDate().GetMonth() != 6 || d.GetAsOfDate().GetDay() != 1 {
 		t.Fatalf("unexpected declaration: %+v", d)
 	}
+	// The denomination is part of what the declaration says, so it has to reach the
+	// client: a quantity read without it is in an unknown share count.
+	if b := d.GetShareCountBasis(); b.GetYear() != 2025 || b.GetMonth() != 8 || b.GetDay() != 5 {
+		t.Fatalf("share_count_basis: want 2025-08-05, got %+v", b)
+	}
 }
 
 func TestListHoldingDeclarations_Unauthenticated(t *testing.T) {
@@ -47,10 +59,11 @@ func TestCreateHoldingDeclaration_Success(t *testing.T) {
 	ctx := authCtx("user-1", "sub|1")
 	startDate := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(decimal.NewFromInt(30), nil)
+	// Unset in the request, so the balance is asked for at as_of_date -- as-traded.
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), asOfJun1).Return(decimal.NewFromInt(30), nil)
 	mockDB.EXPECT().GetInstrument(gomock.Any(), "inst-1").Return(nil, nil)
 	mockDB.EXPECT().
-		CreateDeclarationWithInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "100", time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), "BUYOTHER", gomock.Any(), testutil.DecEq("70")).
+		CreateDeclarationWithInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "100", asOfJun1, asOfJun1, padEq("BUYOTHER", "70", asOfJun1)).
 		Return(&db.HoldingDeclarationRow{
 			ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1", DeclaredQty: "100",
 			AsOfDate: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
@@ -64,6 +77,32 @@ func TestCreateHoldingDeclaration_Success(t *testing.T) {
 	}
 	if resp.GetDeclaration().GetId() != "d1" {
 		t.Fatalf("unexpected id: %s", resp.GetDeclaration().GetId())
+	}
+}
+
+// TestCreateHoldingDeclaration_StatedShareCountBasis covers the other reading of a
+// declared quantity: a number copied off today's holdings screen rather than off a
+// statement of as_of_date. Both are reasonable, so the request says which, and
+// everything downstream of it -- the balance it is compared against and the pad it
+// produces -- is denominated the same way.
+func TestCreateHoldingDeclaration_StatedShareCountBasis(t *testing.T) {
+	srv, mockDB := newAPIServerWithMock(t)
+	ctx := authCtx("user-1", "sub|1")
+	startDate := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
+	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), storedBasis).Return(decimal.NewFromInt(30), nil)
+	mockDB.EXPECT().GetInstrument(gomock.Any(), "inst-1").Return(nil, nil)
+	mockDB.EXPECT().
+		CreateDeclarationWithInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "100", asOfJun1, storedBasis, padEq("BUYOTHER", "70", storedBasis)).
+		Return(&db.HoldingDeclarationRow{ID: "d1", UserID: "user-1", AsOfDate: asOfJun1, ShareCountBasis: storedBasis}, nil)
+
+	_, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{
+		Broker: "IBKR", Account: "acct1", InstrumentId: "inst-1", DeclaredQty: "100",
+		AsOfDate:        &date.Date{Year: 2025, Month: 6, Day: 1},
+		ShareCountBasis: &date.Date{Year: 2025, Month: 8, Day: 5},
+	})
+	if err != nil {
+		t.Fatalf("CreateHoldingDeclaration: %v", err)
 	}
 }
 
@@ -102,15 +141,15 @@ func TestUpdateHoldingDeclaration_Success(t *testing.T) {
 	ctx := authCtx("user-1", "sub|1")
 	existing := &db.HoldingDeclarationRow{
 		ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1",
-		DeclaredQty: "100", AsOfDate: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
+		DeclaredQty: "100", AsOfDate: asOfJun1, ShareCountBasis: storedBasis,
 	}
 	mockDB.EXPECT().GetHoldingDeclaration(gomock.Any(), "d1").Return(existing, nil)
 	startDate := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(decimal.NewFromInt(50), nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any(), storedBasis).Return(decimal.NewFromInt(50), nil)
 	mockDB.EXPECT().GetInstrument(gomock.Any(), "inst-1").Return(nil, nil)
 	mockDB.EXPECT().
-		UpdateDeclarationWithInitializeTx(gomock.Any(), "d1", "200", time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC), "user-1", "IBKR", "acct1", "inst-1", "BUYOTHER", gomock.Any(), testutil.DecEq("150")).
+		UpdateDeclarationWithInitializeTx(gomock.Any(), "d1", "200", time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC), storedBasis, "user-1", "IBKR", "acct1", "inst-1", padEq("BUYOTHER", "150", storedBasis)).
 		Return(&db.HoldingDeclarationRow{
 			ID: "d1", UserID: "user-1", Broker: "IBKR", Account: "acct1", InstrumentID: "inst-1",
 			DeclaredQty: "200", AsOfDate: time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC),

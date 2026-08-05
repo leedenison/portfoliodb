@@ -16,6 +16,18 @@ import { IdentifierType } from "@/gen/api/v1/api_pb";
 import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
 import { DeclarationForm } from "./declaration-form";
 
+/**
+ * Which share count the declared quantity is in, said the way the form asks it. The
+ * denomination only matters once it differs from the as of date, so a declaration on
+ * the as-traded default reads as the date itself rather than as jargon.
+ */
+function shareCountLabel(decl: HoldingDeclaration): string {
+  const basis = decl.shareCountBasis ? protoDateToStr(decl.shareCountBasis) : "";
+  const asOf = decl.asOfDate ? protoDateToStr(decl.asOfDate) : "";
+  if (!basis || basis === asOf) return "As of date";
+  return `As of ${basis}`;
+}
+
 export function OpeningBalances() {
   const queryClient = useQueryClient();
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -119,6 +131,9 @@ export function OpeningBalances() {
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                     As Of Date
                   </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
+                    Share Count
+                  </th>
                   <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-muted">
                     Actions
                   </th>
@@ -128,7 +143,7 @@ export function OpeningBalances() {
                 {declarations.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       className="px-4 py-8 text-center text-text-muted"
                     >
                       No opening balance checkpoints.
@@ -158,6 +173,9 @@ export function OpeningBalances() {
                         </td>
                         <td className="px-4 py-3 text-text-muted">
                           {protoDateToStr(d.asOfDate)}
+                        </td>
+                        <td className="px-4 py-3 text-text-muted">
+                          {shareCountLabel(d)}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button

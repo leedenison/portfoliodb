@@ -612,27 +612,45 @@ type HoldingDeclarationRow struct {
 	InstrumentID string
 	DeclaredQty  string // numeric as string to preserve precision
 	AsOfDate     time.Time
+	// ShareCountBasis is the date at which the share count DeclaredQty is
+	// denominated in was current. Defaults to AsOfDate. See docs/spec/bitemporality.md.
+	ShareCountBasis time.Time
+}
+
+// InitializeTx is the derived pad for a holding declaration: the synthetic posting
+// that makes the declared quantity true, and the EQUITY counterparty that balances
+// it. Timestamp is the portfolio start date and ShareCountBasis is the declaration's,
+// which are independent -- the pad is dated when the history begins but denominated
+// where the declaration is. TxType is the OFX type string (e.g. "BUYSTOCK", "SELLOPT").
+type InitializeTx struct {
+	TxType          string
+	Timestamp       time.Time
+	Quantity        decimal.Decimal
+	ShareCountBasis time.Time
 }
 
 // HoldingDeclarationDB provides holding declaration CRUD and INITIALIZE tx helpers.
 type HoldingDeclarationDB interface {
-	CreateHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate time.Time) (*HoldingDeclarationRow, error)
-	UpdateHoldingDeclaration(ctx context.Context, id, declaredQty string, asOfDate time.Time) (*HoldingDeclarationRow, error)
+	CreateHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time) (*HoldingDeclarationRow, error)
+	UpdateHoldingDeclaration(ctx context.Context, id, declaredQty string, asOfDate, shareCountBasis time.Time) (*HoldingDeclarationRow, error)
 	DeleteHoldingDeclaration(ctx context.Context, id string) error
 	GetHoldingDeclaration(ctx context.Context, id string) (*HoldingDeclarationRow, error)
 	ListHoldingDeclarations(ctx context.Context, userID string) ([]*HoldingDeclarationRow, error)
 	// GetPortfolioStartDate returns the earliest real tx timestamp for the user, or nil if none exist.
 	GetPortfolioStartDate(ctx context.Context, userID string) (*time.Time, error)
-	// ComputeRunningBalance sums quantity of real (non-synthetic) txs for the given holding where timestamp >= from and timestamp < to.
-	ComputeRunningBalance(ctx context.Context, userID, broker, account, instrumentID string, from, to time.Time) (decimal.Decimal, error)
-	// UpsertInitializeTx creates or updates the INITIALIZE synthetic tx for the given holding. txType is the OFX type string (e.g. "BUYSTOCK", "SELLOPT").
-	UpsertInitializeTx(ctx context.Context, userID, broker, account, instrumentID, txType string, timestamp time.Time, quantity decimal.Decimal) error
+	// ComputeRunningBalance sums the real (non-synthetic) txs for the given holding
+	// where timestamp >= from and timestamp < to, expressed in the share count
+	// current at basis. Quantities are converted from each posting's own
+	// share_count_basis, so the sum is in one denomination rather than a mixture.
+	ComputeRunningBalance(ctx context.Context, userID, broker, account, instrumentID string, from, to, basis time.Time) (decimal.Decimal, error)
+	// UpsertInitializeTx creates or updates the INITIALIZE synthetic tx for the given holding.
+	UpsertInitializeTx(ctx context.Context, userID, broker, account, instrumentID string, init InitializeTx) error
 	// DeleteInitializeTx deletes the INITIALIZE synthetic tx for the given holding, if it exists.
 	DeleteInitializeTx(ctx context.Context, userID, broker, account, instrumentID string) error
 	// CreateDeclarationWithInitializeTx atomically creates a declaration and upserts its INITIALIZE tx.
-	CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate time.Time, initTxType string, initTimestamp time.Time, initQty decimal.Decimal) (*HoldingDeclarationRow, error)
+	CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time, init InitializeTx) (*HoldingDeclarationRow, error)
 	// UpdateDeclarationWithInitializeTx atomically updates a declaration and upserts its INITIALIZE tx.
-	UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate time.Time, userID, broker, account, instrumentID, initTxType string, initTimestamp time.Time, initQty decimal.Decimal) (*HoldingDeclarationRow, error)
+	UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate, shareCountBasis time.Time, userID, broker, account, instrumentID string, init InitializeTx) (*HoldingDeclarationRow, error)
 	// DeleteDeclarationWithInitializeTx atomically deletes a declaration and its INITIALIZE tx.
 	DeleteDeclarationWithInitializeTx(ctx context.Context, id, userID, broker, account, instrumentID string) error
 }

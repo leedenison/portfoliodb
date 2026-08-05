@@ -39,20 +39,15 @@ func recalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDec
 		return fmt.Errorf("parse declared_qty: %w", err)
 	}
 	dayAfterAsOf := decl.AsOfDate.AddDate(0, 0, 1)
-	runningBalance, err := database.ComputeRunningBalance(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, startDay, dayAfterAsOf)
+	runningBalance, err := database.ComputeRunningBalance(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, startDay, dayAfterAsOf, decl.ShareCountBasis)
 	if err != nil {
 		return fmt.Errorf("compute running balance: %w", err)
 	}
-	// Exact, so this is a real "the real txs already account for it" rather than
-	// a value that happened to land on zero.
+	// A zero pad means the real transactions already account for the declared
+	// balance exactly. That is the declaration agreeing with the data, not being
+	// superseded by it, and it is the outcome a checked declaration exists to
+	// report -- so the record stays and the pad is written as zero.
 	initQty := declaredQty.Sub(runningBalance)
-	if initQty.IsZero() {
-		// Real txs already fully account for the declared balance at as_of_date;
-		// the declaration is superseded by real data. Drop both atomically.
-		slog.Info("real txs fully account for declared balance; deleting declaration",
-			"user_id", decl.UserID, "declaration_id", decl.ID)
-		return database.DeleteDeclarationWithInitializeTx(ctx, decl.ID, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID)
-	}
 	var assetClass string
 	if inst := instByID[decl.InstrumentID]; inst != nil && inst.AssetClass != nil {
 		assetClass = *inst.AssetClass
@@ -62,8 +57,12 @@ func recalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDec
 			assetClass = *inst.AssetClass
 		}
 	}
-	txType := txTypeForAssetClass(assetClass, initQty)
-	return database.UpsertInitializeTx(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, txType, startDay, initQty)
+	return database.UpsertInitializeTx(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, db.InitializeTx{
+		TxType:          txTypeForAssetClass(assetClass, initQty),
+		Timestamp:       startDay,
+		Quantity:        initQty,
+		ShareCountBasis: decl.ShareCountBasis,
+	})
 }
 
 // RecalcAllInitializeTxs recomputes all INITIALIZE txs for a user.

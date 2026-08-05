@@ -8,7 +8,9 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
+	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
+	"google.golang.org/genproto/googleapis/type/date"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -39,19 +41,37 @@ func (s *Server) ListHoldingDeclarations(ctx context.Context, req *apiv1.ListHol
 	}
 	decls := make([]*apiv1.HoldingDeclaration, len(rows))
 	for i, r := range rows {
-		decls[i] = &apiv1.HoldingDeclaration{
-			Id:           r.ID,
-			Broker:       r.Broker,
-			Account:      r.Account,
-			InstrumentId: r.InstrumentID,
-			DeclaredQty:  r.DeclaredQty,
-			AsOfDate:     timeToDate(r.AsOfDate),
-		}
+		decls[i] = declarationToProto(r)
 		if inst := instByID[r.InstrumentID]; inst != nil {
 			decls[i].Instrument = inst
 		}
 	}
 	return &apiv1.ListHoldingDeclarationsResponse{Declarations: decls}, nil
+}
+
+// declarationToProto converts a stored declaration to its wire form. The instrument
+// is left to the caller: only the list populates it.
+func declarationToProto(r *db.HoldingDeclarationRow) *apiv1.HoldingDeclaration {
+	return &apiv1.HoldingDeclaration{
+		Id:              r.ID,
+		Broker:          r.Broker,
+		Account:         r.Account,
+		InstrumentId:    r.InstrumentID,
+		DeclaredQty:     r.DeclaredQty,
+		AsOfDate:        timeToDate(r.AsOfDate),
+		ShareCountBasis: timeToDate(r.ShareCountBasis),
+	}
+}
+
+// shareCountBasis reads the declared denomination from a request, falling back to
+// as_of_date. That is the as-traded assumption -- a quantity read off a record of
+// some date is in the share count current then -- and it matches the default the
+// holding_declarations trigger applies. See docs/spec/bitemporality.md.
+func shareCountBasis(d *date.Date, asOfDate time.Time) time.Time {
+	if d == nil {
+		return asOfDate
+	}
+	return dateToTime(d)
 }
 
 // CreateHoldingDeclaration creates a declaration and computes the INITIALIZE tx.
@@ -61,6 +81,7 @@ func (s *Server) CreateHoldingDeclaration(ctx context.Context, req *apiv1.Create
 		return nil, authErr
 	}
 	asOfDate := dateToTime(req.GetAsOfDate())
+	basis := shareCountBasis(req.GetShareCountBasis(), asOfDate)
 	if _, err := strconv.ParseFloat(req.GetDeclaredQty(), 64); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid declared_qty: %v", err)
 	}
@@ -79,25 +100,17 @@ func (s *Server) CreateHoldingDeclaration(ctx context.Context, req *apiv1.Create
 		return nil, status.Errorf(codes.InvalidArgument, "as_of_date must be on or after the portfolio start date (%s)", startDay.Format("2006-01-02"))
 	}
 
-	init, err := s.computeInitializeValues(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, *startDate)
+	init, err := s.computeInitializeValues(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, basis, *startDate)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
 	}
 
-	row, err := s.db.CreateDeclarationWithInitializeTx(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, init.txType, init.timestamp, init.quantity)
+	row, err := s.db.CreateDeclarationWithInitializeTx(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, basis, init)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	decl := &apiv1.HoldingDeclaration{
-		Id:           row.ID,
-		Broker:       row.Broker,
-		Account:      row.Account,
-		InstrumentId: row.InstrumentID,
-		DeclaredQty:  row.DeclaredQty,
-		AsOfDate:     timeToDate(row.AsOfDate),
-	}
-	return &apiv1.CreateHoldingDeclarationResponse{Declaration: decl}, nil
+	return &apiv1.CreateHoldingDeclarationResponse{Declaration: declarationToProto(row)}, nil
 }
 
 // UpdateHoldingDeclaration updates a declaration and recomputes the INITIALIZE tx.
@@ -132,25 +145,22 @@ func (s *Server) UpdateHoldingDeclaration(ctx context.Context, req *apiv1.Update
 		return nil, status.Errorf(codes.InvalidArgument, "as_of_date must be on or after the portfolio start date (%s)", startDay.Format("2006-01-02"))
 	}
 
-	init, err := s.computeInitializeValues(ctx, u.ID, existing.Broker, existing.Account, existing.InstrumentID, req.GetDeclaredQty(), asOfDate, *startDate)
+	// An update that says nothing about denomination keeps the one the declaration
+	// already has, rather than re-deriving it from a moved as_of_date: restating the
+	// units of a quantity the user did not touch would silently change what they said.
+	basis := shareCountBasis(req.GetShareCountBasis(), existing.ShareCountBasis)
+
+	init, err := s.computeInitializeValues(ctx, u.ID, existing.Broker, existing.Account, existing.InstrumentID, req.GetDeclaredQty(), asOfDate, basis, *startDate)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
 	}
 
-	row, err := s.db.UpdateDeclarationWithInitializeTx(ctx, req.GetId(), req.GetDeclaredQty(), asOfDate, u.ID, existing.Broker, existing.Account, existing.InstrumentID, init.txType, init.timestamp, init.quantity)
+	row, err := s.db.UpdateDeclarationWithInitializeTx(ctx, req.GetId(), req.GetDeclaredQty(), asOfDate, basis, u.ID, existing.Broker, existing.Account, existing.InstrumentID, init)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	decl := &apiv1.HoldingDeclaration{
-		Id:           row.ID,
-		Broker:       row.Broker,
-		Account:      row.Account,
-		InstrumentId: row.InstrumentID,
-		DeclaredQty:  row.DeclaredQty,
-		AsOfDate:     timeToDate(row.AsOfDate),
-	}
-	return &apiv1.UpdateHoldingDeclarationResponse{Declaration: decl}, nil
+	return &apiv1.UpdateHoldingDeclarationResponse{Declaration: declarationToProto(row)}, nil
 }
 
 // DeleteHoldingDeclaration deletes a declaration and its INITIALIZE tx.
@@ -175,28 +185,23 @@ func (s *Server) DeleteHoldingDeclaration(ctx context.Context, req *apiv1.Delete
 	return &apiv1.DeleteHoldingDeclarationResponse{}, nil
 }
 
-// initializeValues holds the computed values for an INITIALIZE tx.
-type initializeValues struct {
-	timestamp time.Time
-	quantity  decimal.Decimal
-	txType    string
-}
-
-// computeInitializeValues computes the INITIALIZE tx timestamp, quantity, and tx type.
-func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, account, instrumentID, declaredQtyStr string, asOfDate time.Time, startDate time.Time) (*initializeValues, error) {
+// computeInitializeValues computes the pad that makes declaredQty true at asOfDate.
+// basis is the declaration's denomination: the running balance is converted into it
+// and the pad is written in it, so the subtraction has both sides in one share count.
+func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, account, instrumentID, declaredQtyStr string, asOfDate, basis time.Time, startDate time.Time) (db.InitializeTx, error) {
 	// declared_qty is a decimal string on the wire and a NUMERIC column, so it
 	// never has to become a float. The subtraction below is exact, which is what
 	// makes the resulting pad reconcile to the declaration rather than to within
 	// a rounding of it.
 	declaredQty, err := decimal.NewFromString(declaredQtyStr)
 	if err != nil {
-		return nil, fmt.Errorf("parse declared_qty: %w", err)
+		return db.InitializeTx{}, fmt.Errorf("parse declared_qty: %w", err)
 	}
 	startDay := startDate.Truncate(24 * time.Hour)
 	dayAfterAsOf := asOfDate.AddDate(0, 0, 1)
-	runningBalance, err := s.db.ComputeRunningBalance(ctx, userID, broker, account, instrumentID, startDay, dayAfterAsOf)
+	runningBalance, err := s.db.ComputeRunningBalance(ctx, userID, broker, account, instrumentID, startDay, dayAfterAsOf, basis)
 	if err != nil {
-		return nil, fmt.Errorf("compute running balance: %w", err)
+		return db.InitializeTx{}, fmt.Errorf("compute running balance: %w", err)
 	}
 	initQty := declaredQty.Sub(runningBalance)
 	var assetClass string
@@ -204,6 +209,10 @@ func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, ac
 	if err == nil && inst != nil && inst.AssetClass != nil {
 		assetClass = *inst.AssetClass
 	}
-	txType := txTypeForAssetClass(assetClass, initQty)
-	return &initializeValues{timestamp: startDay, quantity: initQty, txType: txType}, nil
+	return db.InitializeTx{
+		TxType:          txTypeForAssetClass(assetClass, initQty),
+		Timestamp:       startDay,
+		Quantity:        initQty,
+		ShareCountBasis: basis,
+	}, nil
 }

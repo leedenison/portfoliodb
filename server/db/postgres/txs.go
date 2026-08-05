@@ -8,6 +8,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -22,13 +23,14 @@ var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 const insertPostingSQL = `
 	WITH g AS (
 		INSERT INTO tx_groups (user_id, timestamp, job_id)
-		VALUES ($1, $4, $14)
+		VALUES ($1, $4, $16)
 		RETURNING id
 	)
 	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
 	                 quantity, trading_currency, settlement_currency, unit_price,
-	                 instrument_id, share_count_basis, account_type, group_id)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, g.id FROM g
+	                 instrument_id, share_count_basis, account_type,
+	                 weight, weight_commodity, group_id)
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, g.id FROM g
 	RETURNING group_id
 `
 
@@ -37,8 +39,9 @@ const insertPostingSQL = `
 const insertPostingInGroupSQL = `
 	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
 	                 quantity, trading_currency, settlement_currency, unit_price,
-	                 instrument_id, share_count_basis, account_type, group_id)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14)
+	                 instrument_id, share_count_basis, account_type,
+	                 weight, weight_commodity, group_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, $16)
 `
 
 // groupResolver hands out the tx group for a tx's group_ref. An empty group_ref
@@ -71,7 +74,7 @@ func (r *groupResolver) record(ref string, id uuid.UUID) {
 }
 
 // ReplaceTxsInPeriod implements db.TxDB.
-func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error {
+func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis *time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -111,7 +114,7 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 		if err != nil {
 			return fmt.Errorf("delete tx groups in period: %w", err)
 		}
-		return insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, shareCountBasis, "")
+		return insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, shareCountBasis, "")
 	})
 }
 
@@ -119,7 +122,10 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 // group_ref and reusing it for that ref's later legs. account overrides the
 // account on every posting when non-empty, for the append path where the whole
 // group belongs to one named account.
-func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time, account string) error {
+//
+// weights is parallel to txs, or nil when the caller has none. See db.TxDB for what
+// a missing weight means.
+func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis *time.Time, account string) error {
 	resolver := newGroupResolver()
 	for i, t := range txs {
 		instUUID, err := uuid.Parse(instrumentIDs[i])
@@ -155,10 +161,14 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 		if err != nil {
 			return fmt.Errorf("invalid unit price %q: %w", t.GetUnitPrice(), err)
 		}
+		w := db.Weight{Amount: qty, Commodity: "inst:" + instUUID.String()}
+		if i < len(weights) {
+			w = weights[i]
+		}
 		args := []interface{}{
 			userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, qty,
 			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullDecimal(price),
-			instUUID, shareCountBasis, acctTypeStr,
+			instUUID, shareCountBasis, acctTypeStr, w.Amount, w.Commodity,
 		}
 		ref := t.GetGroupRef()
 		if groupID, ok := resolver.group(ref); ok {
@@ -183,7 +193,7 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 // group that could never be balanced would put the balance invariant permanently
 // out of reach. The postings share the named account. group_ref is ignored -- the
 // whole call is one group -- so the resolver never splits it.
-func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error {
+func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis *time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -198,7 +208,7 @@ func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, j
 		grouped[i].GroupRef = "one-group"
 	}
 	return p.runInTx(ctx, func(exec queryable) error {
-		if err := insertPostings(ctx, exec, userUUID, broker, jobUUID, grouped, instrumentIDs, shareCountBasis, account); err != nil {
+		if err := insertPostings(ctx, exec, userUUID, broker, jobUUID, grouped, instrumentIDs, weights, shareCountBasis, account); err != nil {
 			return fmt.Errorf("create tx group: %w", err)
 		}
 		return nil

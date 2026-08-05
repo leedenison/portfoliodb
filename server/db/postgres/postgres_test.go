@@ -66,7 +66,7 @@ func testDBTx(t *testing.T) *Postgres {
 // seed row, and CreateTxGroup takes a slice so that the append path can carry a
 // routed counterparty alongside the posting it balances.
 func createTx(ctx context.Context, p *Postgres, userID, broker, account, jobID string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error {
-	return p.CreateTxGroup(ctx, userID, broker, account, jobID, []*apiv1.Tx{tx}, []string{instrumentID}, shareCountBasis)
+	return p.CreateTxGroup(ctx, userID, broker, account, jobID, []*apiv1.Tx{tx}, []string{instrumentID}, nil, shareCountBasis)
 }
 
 // newTxGroup creates an empty tx group and returns its id, for the fixtures that

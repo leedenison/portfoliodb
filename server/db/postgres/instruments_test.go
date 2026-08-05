@@ -41,7 +41,7 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 		{Timestamp: ts1, InstrumentDescription: "StockA", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
 		{Timestamp: ts2, InstrumentDescription: "StockB", Type: apiv1.TxType_BUYSTOCK, Quantity: "5", Account: ""},
 	}
-	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, nil)
+	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, nil, nil)
 	if err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
@@ -780,5 +780,69 @@ func TestInsertInstrumentIdentifier_NormalizesSegmentMIC(t *testing.T) {
 		if id.Type == "MIC_TICKER" && id.Domain != "XNAS" {
 			t.Fatalf("expected MIC_TICKER domain XNAS, got %s", id.Domain)
 		}
+	}
+}
+
+// TestMergeInstruments_RewritesWeightCommodity verifies the one thing a merge has to
+// do to keep the balance invariant: a posting weighing in its own security names that
+// commodity by instrument, so leaving the name behind would split one commodity into
+// two and unbalance a group that was balanced when it was written. Both legs of an
+// unpaired securities journal move together, so the group stays balanced.
+func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	idA, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "ISIN", Value: "W1", Canonical: true}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure A: %v", err)
+	}
+	idB, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "CUSIP", Value: "W1", Canonical: true}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure B: %v", err)
+	}
+	userID, _ := p.GetOrCreateUser(ctx, "sub|weight-merge", "U", "u@wm.com")
+	now := time.Now()
+	from, to := timestamppb.New(now.Add(-time.Hour)), timestamppb.New(now.Add(time.Hour))
+
+	// A journal leg against A and its clearing counterparty against B: two names for
+	// what the merge is about to decide is one commodity.
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "StockA", Type: apiv1.TxType_JRNLSEC, Quantity: "-10", GroupRef: "j1"},
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "StockB", Type: apiv1.TxType_JRNLSEC, Quantity: "10", GroupRef: "j1"},
+	}
+	ws := []db.Weight{
+		{Amount: decf(-10), Commodity: "inst:" + idA},
+		{Amount: decf(10), Commodity: "inst:" + idB},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, ws, nil); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+
+	survivor, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "ISIN", Value: "W1", Canonical: true},
+		{Type: "CUSIP", Value: "W1", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	rows, err := p.q.QueryContext(ctx, `SELECT weight_commodity FROM txs WHERE user_id = $1`, userID)
+	if err != nil {
+		t.Fatalf("read commodities: %v", err)
+	}
+	defer rows.Close()
+	want := "inst:" + survivor
+	n := 0
+	for rows.Next() {
+		var got string
+		if err := rows.Scan(&got); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if got != want {
+			t.Errorf("weight_commodity = %q, want %q (the survivor)", got, want)
+		}
+		n++
+	}
+	if n != 2 {
+		t.Fatalf("expected 2 postings, got %d", n)
 	}
 }

@@ -217,17 +217,44 @@ type PortfolioDB interface {
 	ListBrokersAndAccounts(ctx context.Context, userID string) ([]BrokerAccount, error)
 }
 
+// Weight is what a posting contributes to its group's balance, and the commodity it
+// contributes in. A group balances when its postings' weights sum to zero in every
+// commodity.
+//
+// The weight rules -- which tx types convert, the settlement-currency guard, the
+// contract-size multiplication -- live in server/service/ingestion/balance.go and are
+// evaluated once, at ingest. The value is then stored on the posting rather than
+// re-derived on read, because instrument state moves under a posting afterwards: a
+// merge rewrites instrument_id wholesale and contract_multiplier records what a
+// corporate action left behind, so a re-derived weight could disagree with the one
+// the group was balanced on. See docs/adr/0029-posting-weight-is-stored.md.
+//
+// Commodity is a prefixed name rather than an id, because the three kinds of
+// commodity a weight can be in are not the same kind of thing: "cur:USD" for money,
+// "inst:<uuid>" for a security, and "desc:<description>" for a posting whose
+// instrument never resolved. It is never empty, so an unresolved posting still
+// balances against itself.
+type Weight struct {
+	Amount    decimal.Decimal
+	Commodity string
+}
+
 // TxDB provides transaction write and list.
 type TxDB interface {
 	// Txs sharing a group_ref are written as postings of one tx group; the rest get
 	// a group each. Every group is stamped with the ingestion job that created it.
 	// shareCountBasis is the date the uploaded quantities and unit prices are
 	// denominated in. nil means as-traded: each row uses its own timestamp.
-	ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error
+	//
+	// weights is parallel to txs and carries what each posting contributes to its
+	// group's balance. A nil slice means the caller has none, and each posting then
+	// weighs its own quantity in its own instrument -- which is what the weight rule
+	// returns for a posting with no price.
+	ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis *time.Time) error
 	// CreateTxGroup appends the postings of one economic event as a single group.
 	// It takes a slice rather than a tx so that the append path can carry a routed
 	// counterparty, without which its groups could never balance.
-	CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, shareCountBasis *time.Time) error
+	CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis *time.Time) error
 	ListTxs(ctx context.Context, userID string, broker *apiv1.Broker, account string, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 	ListTxsByPortfolio(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 }

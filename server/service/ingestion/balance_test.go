@@ -444,3 +444,125 @@ func TestRouteResiduals_NonStandardDeliverable(t *testing.T) {
 		t.Fatalf("routed %d postings, want none: %s", len(got), describeRouted(got))
 	}
 }
+
+// TestWeights covers the stored form of each branch of the weight rule. The values
+// are the ones routeResiduals sums on, so what is asserted here is what a group's
+// balance is checked against.
+func TestWeights(t *testing.T) {
+	at := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+	price := func(v string) *string { return &v }
+	instruments := balanceFixtures()
+
+	cases := []struct {
+		name      string
+		posting   posting
+		instID    string
+		amount    string
+		commodity string
+	}{{
+		// The converting branch: a security leg reaches its counter-leg's units at
+		// its price, so it weighs money rather than shares.
+		name:      "a priced buy weighs its consideration in the settlement currency",
+		posting:   posting{desc: "AAPL", typ: apiv1.TxType_BUYSTOCK, qty: "10", price: price("185.50"), settle: "USD"},
+		instID:    aaplID,
+		amount:    "1855",
+		commodity: "cur:USD",
+	}, {
+		// A price is per underlying unit, so the contract size is part of the
+		// consideration rather than a correction applied to it.
+		name:      "an option leg weighs by its contract size",
+		posting:   posting{desc: "OPT", typ: apiv1.TxType_BUYOPT, qty: "8", price: price("20.1105585"), settle: "USD"},
+		instID:    optID,
+		amount:    "16088.4468",
+		commodity: "cur:USD",
+	}, {
+		// The settlement-currency guard: a cash row is already in the units the
+		// group balances in, so its price is not a conversion rate whatever the
+		// broker typed in the tx type column.
+		name:      "a cash row typed as a sale weighs its own quantity",
+		posting:   posting{desc: "USD", typ: apiv1.TxType_SELLSTOCK, qty: "-1855", price: price("185.50"), settle: "USD", trading: "USD"},
+		instID:    usdID,
+		amount:    "-1855",
+		commodity: "cur:USD",
+	}, {
+		// No price is not a price of zero: there is nothing to convert at, so the
+		// weight stays in the security and the missing price shows up as a
+		// share-denominated residual.
+		name:      "an unpriced buy weighs shares in its instrument",
+		posting:   posting{desc: "AAPL", typ: apiv1.TxType_BUYSTOCK, qty: "10", settle: "USD"},
+		instID:    aaplID,
+		amount:    "10",
+		commodity: "inst:" + aaplID,
+	}, {
+		// A movement across currencies does have its counter-leg in other units,
+		// and the price is the FX rate.
+		name:      "a cross-currency dividend converts at the FX rate",
+		posting:   posting{desc: "EUR", typ: apiv1.TxType_INCOME, qty: "100", price: price("1.35"), settle: "USD", trading: "EUR"},
+		instID:    eurID,
+		amount:    "135",
+		commodity: "cur:USD",
+	}, {
+		// A journal moves a commodity without converting it, so the weight holds
+		// the shares rather than a frozen cash value.
+		name:      "a securities journal weighs shares even with a price",
+		posting:   posting{desc: "AAPL", typ: apiv1.TxType_JRNLSEC, qty: "-10", price: price("185.50"), settle: "USD"},
+		instID:    aaplID,
+		amount:    "-10",
+		commodity: "inst:" + aaplID,
+	}, {
+		// The fallback that keeps weight_commodity non-empty: a posting whose
+		// instrument never resolved still balances against itself.
+		name:      "an unresolved posting falls back to its description",
+		posting:   posting{desc: "MYSTERY CORP", typ: apiv1.TxType_BUYSTOCK, qty: "5"},
+		instID:    "",
+		amount:    "5",
+		commodity: "desc:MYSTERY CORP",
+	}}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := weights([]*apiv1.Tx{tc.posting.tx(at)}, []string{tc.instID}, instruments)
+			if len(got) != 1 {
+				t.Fatalf("weights returned %d entries, want 1", len(got))
+			}
+			if got[0].Amount.String() != tc.amount {
+				t.Errorf("amount = %v, want %v", got[0].Amount, tc.amount)
+			}
+			if got[0].Commodity != tc.commodity {
+				t.Errorf("commodity = %q, want %q", got[0].Commodity, tc.commodity)
+			}
+		})
+	}
+}
+
+// TestWeights_GroupSumsToZeroOnceRouted is the property the balance constraint will
+// check: the stored weights of a group, including the routed counterparty, sum to
+// exactly zero in every commodity. The netted fee makes it non-trivial -- the group
+// as supplied does not balance, and it is the routed posting that closes it.
+func TestWeights_GroupSumsToZeroOnceRouted(t *testing.T) {
+	at := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+	price := func(v string) *string { return &v }
+	instruments := balanceFixtures()
+
+	txs := []*apiv1.Tx{
+		posting{desc: "AAPL", typ: apiv1.TxType_BUYSTOCK, qty: "10", price: price("185.50"), settle: "USD", instID: aaplID, groupRef: "t1"}.tx(at),
+		posting{desc: "USD", typ: apiv1.TxType_BUYSTOCK, qty: "-1866.95", settle: "USD", trading: "USD", instID: usdID, groupRef: "t1"}.tx(at),
+	}
+	ids := []string{aaplID, usdID}
+
+	routed := routeResiduals(txs, ids, instruments)
+	if len(routed) != 1 {
+		t.Fatalf("routed %d postings, want 1: %s", len(routed), describeRouted(routed))
+	}
+
+	all := append(weights(txs, ids, instruments), routed[0].weight)
+	sums := map[string]decimal.Decimal{}
+	for _, w := range all {
+		sums[w.Commodity] = sums[w.Commodity].Add(w.Amount)
+	}
+	for commodity, sum := range sums {
+		if !sum.IsZero() {
+			t.Errorf("weights sum to %v in %s, want exactly 0", sum, commodity)
+		}
+	}
+}

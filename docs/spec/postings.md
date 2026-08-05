@@ -122,9 +122,27 @@ could not reach.
 Every group is balanced at ingest. Whatever its postings leave over is routed to an
 explicit counterparty rather than rejected, so the invariant holds by construction
 from day one and a residual becomes measurable instead of being absorbed into a cash
-balance. The database constraint that enforces it is not switched on yet; when it
-is, it checks a weight stored on each posting rather than one re-derived in SQL
-(see adr/0029-posting-weight-is-stored.md).
+balance.
+
+Each posting **stores** what it contributes to that balance, in two columns:
+
+| Column             | Notes                                                              |
+| ------------------ | ------------------------------------------------------------------ |
+| `weight`           | The amount contributed. `NUMERIC`, exact.                           |
+| `weight_commodity` | What it is contributed in: `cur:<code>`, `inst:<uuid>` or `desc:<text>`. Never empty. |
+
+A group balances when `SUM(weight)` is zero for each `weight_commodity`. The database
+constraint that enforces it is not switched on yet, but the columns it reads are
+written now.
+
+The weight is stored rather than re-derived on read because instrument state moves
+under a posting after ingest: a merge rewrites `instrument_id` wholesale and
+`contract_multiplier` records what a corporate action left behind, so a re-derived
+weight could disagree with the one the group was balanced on. The cost is that the
+constraint proves the *declared* weights of a group sum to zero rather than that its
+postings balance; see adr/0029-posting-weight-is-stored.md for why that is the right
+trade. Nothing maintains the columns after ingest except the instrument merge, which
+rewrites `weight_commodity` alongside `instrument_id` in the same statement.
 
 A group's postings are in different commodities, so a plain `SUM(quantity)` cannot
 say whether it balances: a buy is `+10 AAPL` and `-1855 USD`. Balance is checked on

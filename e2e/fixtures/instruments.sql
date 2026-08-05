@@ -22,7 +22,8 @@ ON CONFLICT DO NOTHING;
 
 -- Transactions referencing the instruments (for holdings/valuation). Every posting
 -- belongs to a group, so each trade gets one; the ids are explicit because the
--- postings reference them.
+-- postings reference them. A priced BUYSTOCK converts, so it weighs its
+-- consideration in the settlement currency: quantity * unit_price.
 INSERT INTO tx_groups (id, user_id, timestamp)
 VALUES
   ('e2e00000-0000-0000-0000-000000000201', 'e2e00000-0000-0000-0000-000000000001', '2024-01-15'),
@@ -30,11 +31,11 @@ VALUES
   ('e2e00000-0000-0000-0000-000000000203', 'e2e00000-0000-0000-0000-000000000001', '2024-01-17')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, unit_price, instrument_id, group_id)
+INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, unit_price, instrument_id, weight, weight_commodity, group_id)
 VALUES
-  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-15', 'AMZN - Amazon.com Inc.', 'BUYSTOCK', 8, 'USD', 155.20, 'e2e00000-0000-0000-0000-000000000101', 'e2e00000-0000-0000-0000-000000000201'),
-  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-16', 'NVDA - NVIDIA Corp.', 'BUYSTOCK', 15, 'USD', 560.50, 'e2e00000-0000-0000-0000-000000000102', 'e2e00000-0000-0000-0000-000000000202'),
-  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-17', 'TSLA - Tesla Inc.', 'BUYSTOCK', 12, 'USD', 218.90, 'e2e00000-0000-0000-0000-000000000103', 'e2e00000-0000-0000-0000-000000000203')
+  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-15', 'AMZN - Amazon.com Inc.', 'BUYSTOCK', 8, 'USD', 155.20, 'e2e00000-0000-0000-0000-000000000101', 1241.60, 'cur:USD', 'e2e00000-0000-0000-0000-000000000201'),
+  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-16', 'NVDA - NVIDIA Corp.', 'BUYSTOCK', 15, 'USD', 560.50, 'e2e00000-0000-0000-0000-000000000102', 8407.50, 'cur:USD', 'e2e00000-0000-0000-0000-000000000202'),
+  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-17', 'TSLA - Tesla Inc.', 'BUYSTOCK', 12, 'USD', 218.90, 'e2e00000-0000-0000-0000-000000000103', 2626.80, 'cur:USD', 'e2e00000-0000-0000-0000-000000000203')
 ON CONFLICT DO NOTHING;
 
 -- EOD prices: a few days of data for each instrument.

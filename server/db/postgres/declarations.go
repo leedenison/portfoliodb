@@ -224,16 +224,30 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 			{"USER", quantity},
 			{"EQUITY", quantity.Neg()},
 		} {
+			// A pad has no price, so each leg weighs its own quantity in its own
+			// commodity and the two cancel. The commodity is named the way
+			// ownCommodity in server/service/ingestion/balance.go names it, so a
+			// cash pad reads as the same commodity an ingested cash leg does.
+			// weight is in the DO UPDATE list for the same reason quantity is:
+			// otherwise a recalculation moves the quantity and leaves the weight
+			// behind, and the group stops balancing.
 			if _, err := exec.ExecContext(ctx, `
 				INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
 				                 tx_type, quantity, instrument_id, synthetic_purpose,
-				                 account_type, group_id)
-				VALUES ($1, $2, $3, $4, 'INITIALIZE', $7, $5, $6, 'INITIALIZE', $8, $9)
+				                 account_type, weight, weight_commodity, group_id)
+				SELECT $1, $2, $3, $4, 'INITIALIZE', $7, $5, $6, 'INITIALIZE', $8, $5,
+				       CASE WHEN i.asset_class = 'CASH' AND i.currency IS NOT NULL
+				            THEN 'cur:' || upper(i.currency)
+				            ELSE 'inst:' || i.id::text END,
+				       $9
+				FROM instruments i WHERE i.id = $6
 				ON CONFLICT (user_id, broker, account, instrument_id, account_type)
 				  WHERE synthetic_purpose = 'INITIALIZE'
 				DO UPDATE SET timestamp = EXCLUDED.timestamp,
 				              quantity = EXCLUDED.quantity,
-				              tx_type = EXCLUDED.tx_type
+				              tx_type = EXCLUDED.tx_type,
+				              weight = EXCLUDED.weight,
+				              weight_commodity = EXCLUDED.weight_commodity
 			`, userUUID, broker, account, timestamp, leg.quantity, instUUID, txType, leg.accountType, groupID); err != nil {
 				return fmt.Errorf("upsert initialize %s posting: %w", leg.accountType, err)
 			}

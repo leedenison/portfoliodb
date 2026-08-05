@@ -39,7 +39,7 @@ func TestComputeHoldings_instrumentNameOverTxDescription(t *testing.T) {
 	txs := []*apiv1.Tx{
 		{Timestamp: ts, InstrumentDescription: "MSFT MICROSOFT CORP", Type: apiv1.TxType_INCOME, Quantity: "137.08", Account: ""},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{cashID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{cashID}, nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -75,7 +75,7 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
-	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil)
+	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil, nil)
 	if err != nil {
 		t.Fatalf("replace: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestComputeHoldings_fractionalQuantitiesSumExactly(t *testing.T) {
 		})
 		instIDs = append(instIDs, instID)
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, instIDs, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, instIDs, nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -167,7 +167,7 @@ func TestComputeHoldings_excludesNonUserAccountTypes(t *testing.T) {
 		{Timestamp: ts, InstrumentDescription: "TSCO", Type: apiv1.TxType_BUYSTOCK, Quantity: "40", Account: "A", GroupRef: "pad"},
 		{Timestamp: ts, InstrumentDescription: "TSCO", Type: apiv1.TxType_BUYSTOCK, Quantity: "-40", Account: "A", GroupRef: "pad", AccountType: apiv1.AccountType_ACCOUNT_TYPE_EQUITY},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 

@@ -54,7 +54,7 @@ func insertTxs(t *testing.T, p *Postgres, userID, instID string, txs []*apiv1.Tx
 	}
 	from := timestamppb.New(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
 	to := timestamppb.New(time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "TEST", "", from, to, txs, ids, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "TEST", "", from, to, txs, ids, nil, nil); err != nil {
 		t.Fatalf("insert txs: %v", err)
 	}
 }
@@ -222,8 +222,9 @@ func TestHeldRanges_UnidentifiedExcluded(t *testing.T) {
 
 	// Insert a tx with NULL instrument_id directly via SQL.
 	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, group_id)
-		VALUES ($1::uuid, 'TEST', 'A', $2, 'UNKNOWN', 'BUYSTOCK', 100, $3::uuid)
+		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity,
+		                 weight, weight_commodity, group_id)
+		VALUES ($1::uuid, 'TEST', 'A', $2, 'UNKNOWN', 'BUYSTOCK', 100, 100, 'desc:UNKNOWN', $3::uuid)
 	`, userID, d(2024, 6, 1), newTxGroup(t, p, userID))
 	if err != nil {
 		t.Fatalf("insert tx: %v", err)

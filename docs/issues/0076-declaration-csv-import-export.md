@@ -25,48 +25,79 @@ error -- is all that is left.
 The same argument applies to the pad at inception. A portfolio with forty holdings
 is forty forms before the opening balances are right.
 
-Export matters as much as import, for three reasons. It is what makes editing
-practical: pull the current declarations, reconcile them against a statement in a
-spreadsheet, put them back. It is the only way to get the data out, and a
-declaration is a user's own statement rather than something recoverable from a
-broker. And it is what makes the round trip testable.
+Export matters as much as import, and the expected flow is create-export-import
+rather than authoring a file from nothing: a user creates declarations in the UI,
+where the instrument is picked and identity is therefore already resolved, then
+exports to reconcile against a statement in a spreadsheet and imports the result.
+Hand-assembling a file is possible but is not the case to design for. Export is
+also the only way to get the data out, a declaration being the user's own
+statement rather than something recoverable from a broker.
 
 ## Design
 
-A CSV, following the conventions the other import formats already share -- header
-names case-insensitive, `#` comment metadata, extra columns ignored. See
+A CSV, following the conventions the other formats already share -- header names
+case-insensitive, `#` comment metadata, extra columns ignored. See
 docs/spec/csv-format.md, which gains a fourth format alongside the transaction
 CSV, the price CSV and the corporate event JSON.
 
+The **price CSV is the precedent, not the transaction CSV.** There is no
+transaction export -- only `ListTxs` -- so the transaction CSV is an import-only
+format, and its identity columns are optional *hints* because a broker file's
+primary handle on an instrument is the broker's own description. The price CSV is
+the format an export writes and an import reads back, and it makes identity a
+required, explicit identifier for exactly that reason: a round trip has to resolve
+to the same instrument deterministically rather than through a description guess.
+Declarations are a round-trip format, so they take that shape.
+
 Columns, with `broker` supplied by the upload request as it is for transactions:
 
-| Column                                            | Required | Notes                                              |
-| ------------------------------------------------- | -------- | -------------------------------------------------- |
-| `account`                                         | Yes      | The broker account the holding is in.               |
-| `instrument_description`                          | Yes      | As for a transaction row.                           |
-| `declared_qty`                                    | Yes      | Exact decimal. May be negative -- a short at inception is permitted. |
-| `as_of_date`                                      | Yes      | The date the declaration refers to.                 |
-| `share_count_basis`                               | No       | Defaults to `as_of_date`, as the table trigger does. |
-| `symbol_type`, `symbol`, `exchange_type`, `exchange` | No    | Identifier hints, exactly as the transaction CSV defines them. |
+| Column                | Required | Notes                                                               |
+| --------------------- | -------- | ------------------------------------------------------------------- |
+| `identifier_type`     | Yes      | Identifier type used to resolve the instrument. Any IdentifierType enum value. |
+| `identifier_value`    | Yes      | Identifier value.                                                    |
+| `identifier_domain`   | No       | Domain for the identifier: MIC for `MIC_TICKER`, exchange code for `OPENFIGI_TICKER`, source for `BROKER_DESCRIPTION`, empty otherwise. |
+| `account`             | Yes      | The broker account the holding is in.                                |
+| `declared_qty`        | Yes      | Exact decimal. May be negative -- a short at inception is permitted. |
+| `as_of_date`          | Yes      | The date the declaration refers to.                                  |
+| `share_count_basis`   | No       | Defaults to `as_of_date`, as the table trigger does.                 |
+| `instrument_description` | No    | Written by the export so a reader can tell the rows apart. Not read on import, where the identifier decides. |
+
+`declared_qty` is parsed and emitted as an exact decimal, so a file written by the
+export re-imports to the same stored value to the digit, as the price CSV
+guarantees. Trailing zeroes are not preserved.
 
 Once 0075 lands the format also carries `declared_cost` and `cost_currency`. The
 format should be specified with them in mind even if it ships first, so that
 adding them is a new optional column rather than a second format.
 
-### Instrument identity is the hard part
+### Which identifier the export writes
 
-A declaration references `instrument_id`, which is a UUID and cannot appear in a
-user-facing file. Resolution therefore goes through the same identification path a
-transaction upload uses: the description plus an optional identifier hint, through
-the identifier plugins.
+`bestIdentifierJoin` in server/db/postgres/identifier_priority.go already selects
+the highest-priority canonical identifier per instrument, and its comment requires
+that every export surfacing a single identifier use it so the ordering stays
+consistent. This export uses it too; nothing new is needed.
 
-That has a consequence worth deciding rather than discovering. A transaction that
-fails to identify is still an event that happened, and the system keeps it and
-surfaces the failure. A declaration that fails to identify is a statement about a
-holding the system cannot name -- there is nothing for it to pad and nothing to
-check it against -- so it is likely better rejected as a row error than stored
-against an unresolved instrument. Settle which, and surface failures the way
-transaction uploads do.
+Two consequences follow from identity being current state rather than a
+time-varying fact (adr/0004-instrument-resolution-and-merge.md).
+
+A row can fail to resolve on import even though the instrument was picked in the
+UI when the declaration was created -- if the priority order lands on an
+identifier the resolution path cannot take back. In the flow this feature is for
+that is a defect rather than user error, so it should fail loudly.
+
+And a merge between export and import can move an identifier to a different
+instrument, so a file re-imported across one lands somewhere else. That is the
+same class of problem as 0053 and is not solved here, but the round trip is where
+a user would first meet it.
+
+### An unresolved declaration has nothing to attach to
+
+A transaction that fails to identify is still an event that happened, so the
+system keeps it and surfaces the failure. A declaration that fails to identify is
+a statement about a holding the system cannot name -- there is nothing for it to
+pad and nothing to check it against -- so it is likely better rejected as a row
+error than stored against an unresolved instrument. Settle which, and surface
+failures the way transaction uploads do.
 
 ### Re-importing an exported file must be a no-op
 

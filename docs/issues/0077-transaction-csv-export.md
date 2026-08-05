@@ -21,8 +21,8 @@ checked by round-tripping their output through storage and out again.
 The gap is visible in the format itself. Because nothing writes the file, its
 identity columns were designed for what a broker supplies -- a description plus an
 optional hint -- rather than for what a writer can guarantee. 0076 hit the same
-question for declarations and took the price CSV's shape instead, and the two
-should agree.
+question for declarations and took the price CSV's shape instead. Three formats
+should not spell one concept three ways, so this issue converges them.
 
 ## Design
 
@@ -39,15 +39,37 @@ whose comment requires that every export surfacing a single identifier per
 instrument use it so the priority order stays consistent. This is what 0076 does
 for declarations.
 
-That leaves the transaction CSV accepting two spellings of the same thing: the
-existing `symbol_type` / `symbol` / `exchange_type` / `exchange` hint columns that
-converters emit, and the `identifier_*` trio the export writes. Converging on the
-latter is the better end state -- `exchange_type` is derivable from
-`identifier_type`, since `MIC_TICKER` and `OPENFIGI_TICKER` already say which
-system the domain belongs to, so the price CSV's form carries the same information
-in one column fewer. Decide whether this issue accepts both and deprecates the
-older spelling, or converts the converters. Accepting both first is the cheaper
-order, since the import already ignores unknown columns.
+### One spelling, not two
+
+The transaction CSV's existing `symbol_type` / `symbol` / `exchange_type` /
+`exchange` columns are **replaced** by that trio rather than kept alongside it.
+Two spellings of one concept across two formats is not an acceptable end state,
+and the project is pre-release, so this is a clean cut with no transitional
+acceptance of the old names.
+
+`exchange_type` disappears entirely rather than being renamed. It says whether the
+domain is a MIC or an OpenFIGI exchange code, which `identifier_type` already
+says: `MIC_TICKER` and `OPENFIGI_TICKER` differ in exactly that. So the price
+CSV's form carries the same information in one column fewer, and it takes with it
+the three paired-presence checks the pair currently needs in
+client/lib/csv/standard.ts -- that `exchange` requires `exchange_type`, that
+`exchange_type` requires `exchange`, and that the type is one of the known values.
+
+The conversion is smaller than the phrase "update the converters" suggests,
+because the names never reach a converter:
+
+- **The wire format is already identifier-shaped.** `Tx.identifier_hints` is a
+  `repeated InstrumentIdentifier` of type, value and domain. Nothing on the API
+  changes.
+- **No converter emits these column names.** They exist only as CSV headers,
+  parsed in client/lib/csv/standard.ts and mapped into `identifierHints` there.
+  The Fidelity, IBKR and Schwab converters produce rows, not headers, and are
+  untouched.
+
+So the surface is docs/spec/csv-format.md, the parsing and error messages in
+client/lib/csv/standard.ts, client/lib/csv/standard.test.ts, and the three e2e
+fixtures that carry the old headers: e2e/fixtures/split-txs.csv,
+e2e/fixtures/standard-3-stocks.csv and e2e/fixtures/fetch-blocks-stocks.csv.
 
 ### The file has to carry share_count_basis per row
 

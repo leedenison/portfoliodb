@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -92,16 +93,16 @@ type HeldRangesOpts struct {
 type EODPrice struct {
 	InstrumentID string
 	PriceDate    time.Time
-	Open         *float64
-	High         *float64
-	Low          *float64
-	Close        float64
+	Open         *decimal.Decimal
+	High         *decimal.Decimal
+	Low          *decimal.Decimal
+	Close        decimal.Decimal
 	Volume       *int64
 	DataProvider string
 	// AdjustedClose is the provider's own adjusted close, on the provider's
 	// basis and typically including dividend adjustment. Stored for cross-checking
 	// only; never an input to valuation. nil when the provider does not supply it.
-	AdjustedClose *float64
+	AdjustedClose *decimal.Decimal
 	LastFetchedAt *time.Time // when this row was fetched; nil defaults to now()
 	// ShareCountBasis is the date at which the share count these raw values are
 	// denominated in was current. nil defaults to PriceDate (as-traded).
@@ -359,11 +360,11 @@ type EODPriceRow struct {
 	InstrumentID          string
 	InstrumentDisplayName string
 	PriceDate             time.Time
-	Open                  *float64
-	High                  *float64
-	Low                   *float64
-	Close                 float64
-	AdjustedClose         *float64
+	Open                  *decimal.Decimal
+	High                  *decimal.Decimal
+	Low                   *decimal.Decimal
+	Close                 decimal.Decimal
+	AdjustedClose         *decimal.Decimal
 	Volume                *int64
 	DataProvider          string
 	LastFetchedAt         time.Time
@@ -378,11 +379,11 @@ type ExportPriceRow struct {
 	AssetClass       string
 	Currency         string
 	PriceDate        time.Time
-	Open             *float64
-	High             *float64
-	Low              *float64
-	Close            float64
-	AdjustedClose    *float64
+	Open             *decimal.Decimal
+	High             *decimal.Decimal
+	Low              *decimal.Decimal
+	Close            decimal.Decimal
+	AdjustedClose    *decimal.Decimal
 	Volume           *int64
 }
 

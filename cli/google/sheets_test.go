@@ -169,7 +169,7 @@ func TestParseOutputData(t *testing.T) {
 	if prices[0].GetPriceDate() != "2024-01-02" {
 		t.Fatalf("expected date 2024-01-02, got %s", prices[0].GetPriceDate())
 	}
-	if prices[0].GetClose() != 185.5 {
+	if prices[0].GetClose() != "185.5" {
 		t.Fatalf("expected close 185.5, got %v", prices[0].GetClose())
 	}
 	if prices[0].GetAssetClass() != apiv1.AssetClass_ASSET_CLASS_STOCK {
@@ -232,7 +232,7 @@ func TestImportPriceRowSerialization(t *testing.T) {
 		IdentifierValue:  "AAPL",
 		IdentifierDomain: "XNAS",
 		PriceDate:        "2024-01-15",
-		Close:            185.5,
+		Close:            "185.5",
 		AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
 	}
 	data, err := json.Marshal(row)

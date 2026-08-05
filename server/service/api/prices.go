@@ -41,23 +41,15 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 			InstrumentId:          r.InstrumentID,
 			InstrumentDisplayName: r.InstrumentDisplayName,
 			PriceDate:             r.PriceDate.Format("2006-01-02"),
-			Close:                 r.Close,
+			Close:                 decStr(r.Close),
 			DataProvider:          r.DataProvider,
 			LastFetchedAt:         timestamppb.New(r.LastFetchedAt),
 			ShareCountBasis:       r.ShareCountBasis.Format("2006-01-02"),
 		}
-		if r.Open != nil {
-			p.Open = r.Open
-		}
-		if r.High != nil {
-			p.High = r.High
-		}
-		if r.Low != nil {
-			p.Low = r.Low
-		}
-		if r.AdjustedClose != nil {
-			p.AdjustedClose = r.AdjustedClose
-		}
+		p.Open = decStrPtr(r.Open)
+		p.High = decStrPtr(r.High)
+		p.Low = decStrPtr(r.Low)
+		p.AdjustedClose = decStrPtr(r.AdjustedClose)
 		if r.Volume != nil {
 			p.Volume = r.Volume
 		}
@@ -105,20 +97,12 @@ func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiSe
 			AssetClass:       db.StrToAssetClass(r.AssetClass),
 			Currency:         r.Currency,
 			PriceDate:        r.PriceDate.Format("2006-01-02"),
-			Close:            r.Close,
+			Close:            decStr(r.Close),
 		}
-		if r.Open != nil {
-			row.Open = r.Open
-		}
-		if r.High != nil {
-			row.High = r.High
-		}
-		if r.Low != nil {
-			row.Low = r.Low
-		}
-		if r.AdjustedClose != nil {
-			row.AdjustedClose = r.AdjustedClose
-		}
+		row.Open = decStrPtr(r.Open)
+		row.High = decStrPtr(r.High)
+		row.Low = decStrPtr(r.Low)
+		row.AdjustedClose = decStrPtr(r.AdjustedClose)
 		if r.Volume != nil {
 			row.Volume = r.Volume
 		}

@@ -25,6 +25,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 // ErrNoData indicates the plugin cannot provide price data for this
@@ -42,14 +44,14 @@ func (e *ErrPermanent) Error() string { return "permanent: " + e.Reason }
 // are optional (nil = not available from the provider).
 type DailyBar struct {
 	Date   time.Time
-	Open   *float64
-	High   *float64
-	Low    *float64
-	Close  float64
+	Open   *decimal.Decimal
+	High   *decimal.Decimal
+	Low    *decimal.Decimal
+	Close  decimal.Decimal
 	Volume *int64
 	// AdjustedClose is the provider's own adjusted close when it supplies one.
 	// Stored for cross-checking; never an input to valuation.
-	AdjustedClose *float64
+	AdjustedClose *decimal.Decimal
 }
 
 // ShareCountBasis states which share count a plugin's bars are denominated in.
@@ -127,50 +129,55 @@ type Plugin interface {
 	DefaultConfig() []byte
 }
 
-// DerivedFXPair describes an FX pair that is derived from another by
-// dividing all prices by a fixed factor.
+// DerivedFXPair describes an FX pair that is derived from another by a change of
+// currency unit prefix, which moves the decimal point rather than dividing.
 type DerivedFXPair struct {
 	SourcePair string
-	Divisor    float64
+	// Exponent is the power of ten to shift the source pair's rates by.
+	Exponent int32
 }
 
-// DerivedFXPairs maps FX pair values that cannot be fetched directly to
-// their source pair and a divisor. GBXUSD (British pence) is derived from
-// GBPUSD by dividing by 100 because 1 GBX = 0.01 GBP.
+// DerivedFXPairs maps FX pair values that cannot be fetched directly to their
+// source pair and exponent. GBXUSD (British pence) is derived from GBPUSD by
+// shifting two places, because one pence is 10^-2 pounds -- GBX and GBP are the
+// same unit under a different prefix. Recording the exponent rather than a
+// divisor keeps the rates exact: a decimal-point shift is multiplication by a
+// power of ten, which is closed, whereas dividing would round at whatever
+// precision the division picked. See adr/0026-exact-decimals-bounded-by-closure.md.
 var DerivedFXPairs = map[string]DerivedFXPair{
-	"GBXUSD": {SourcePair: "GBPUSD", Divisor: 100},
+	"GBXUSD": {SourcePair: "GBPUSD", Exponent: -2},
 }
 
-// RewriteFXPair checks whether value is a derived FX pair. If so it returns
-// the source pair and divisor; otherwise it returns value unchanged with
-// divisor 1.
-func RewriteFXPair(value string) (string, float64) {
+// RewriteFXPair checks whether value is a derived FX pair. If so it returns the
+// source pair and the exponent to shift its rates by; otherwise it returns value
+// unchanged with exponent 0.
+func RewriteFXPair(value string) (string, int32) {
 	if d, ok := DerivedFXPairs[value]; ok {
-		return d.SourcePair, d.Divisor
+		return d.SourcePair, d.Exponent
 	}
-	return value, 1
+	return value, 0
 }
 
-// ScaleBars divides all price fields (Open, High, Low, Close) by divisor.
-// Volume is left unchanged. Returns a new slice.
-func ScaleBars(bars []DailyBar, divisor float64) []DailyBar {
+// ScaleBars shifts all price fields (Open, High, Low, Close) by exp powers of
+// ten. Volume is left unchanged. Returns a new slice.
+func ScaleBars(bars []DailyBar, exp int32) []DailyBar {
 	out := make([]DailyBar, len(bars))
 	for i, b := range bars {
 		out[i] = DailyBar{
 			Date:   b.Date,
-			Close:  b.Close / divisor,
+			Close:  b.Close.Shift(exp),
 			Volume: b.Volume,
 		}
 		if b.Open != nil {
-			v := *b.Open / divisor
+			v := b.Open.Shift(exp)
 			out[i].Open = &v
 		}
 		if b.High != nil {
-			v := *b.High / divisor
+			v := b.High.Shift(exp)
 			out[i].High = &v
 		}
 		if b.Low != nil {
-			v := *b.Low / divisor
+			v := b.Low.Shift(exp)
 			out[i].Low = &v
 		}
 	}

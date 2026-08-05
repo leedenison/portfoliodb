@@ -13,6 +13,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/telemetry"
+	"github.com/shopspring/decimal"
 )
 
 // PluginID is the stable plugin_id for registration and price_plugin_config.
@@ -75,7 +76,7 @@ func (p *Plugin) AcceptableCurrencies() map[string]bool {
 const maxChunkDays = 200
 
 func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []pricefetcher.Identifier, assetClass string, from, before time.Time) (*pricefetcher.FetchResult, error) {
-	ticker, fxDivisor := tickerForAssetClass(identifiers, assetClass)
+	ticker, fxExp := tickerForAssetClass(identifiers, assetClass)
 	if ticker == "" {
 		return nil, pricefetcher.ErrNoData
 	}
@@ -142,63 +143,66 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 
 	result := make([]pricefetcher.DailyBar, len(allBars))
 	for i, b := range allBars {
-		o := b.O
-		h := b.H
-		l := b.L
+		// The provider decodes JSON floats, so this is the seam where a
+		// provider value becomes exact. NewFromFloat takes the shortest
+		// representation that round-trips, so 123.45 stays 123.45.
+		o := decimal.NewFromFloat(b.O)
+		h := decimal.NewFromFloat(b.H)
+		l := decimal.NewFromFloat(b.L)
 		v := int64(b.V)
 		result[i] = pricefetcher.DailyBar{
 			Date:   time.UnixMilli(b.T).UTC().Truncate(24 * time.Hour),
 			Open:   &o,
 			High:   &h,
 			Low:    &l,
-			Close:  b.C,
+			Close:  decimal.NewFromFloat(b.C),
 			Volume: &v,
 		}
 	}
-	if fxDivisor != 1 {
-		result = pricefetcher.ScaleBars(result, fxDivisor)
+	if fxExp != 0 {
+		result = pricefetcher.ScaleBars(result, fxExp)
 	}
 	return &pricefetcher.FetchResult{Bars: result}, nil
 }
 
 // tickerForAssetClass picks the appropriate ticker from identifiers.
-// For FX pairs it also returns a divisor for derived pairs (e.g. GBXUSD);
-// for all other cases divisor is 1.
-func tickerForAssetClass(ids []pricefetcher.Identifier, assetClass string) (string, float64) {
+// For FX pairs it also returns the power of ten to shift a derived pair's rates
+// by (e.g. GBXUSD); for all other cases the exponent is 0.
+func tickerForAssetClass(ids []pricefetcher.Identifier, assetClass string) (string, int32) {
 	if assetClass == db.AssetClassOption {
 		for _, id := range ids {
 			if id.Type == "OCC" && id.Value != "" {
-				return "O:" + id.Value, 1
+				return "O:" + id.Value, 0
 			}
 		}
-		return "", 1
+		return "", 0
 	}
 	if assetClass == db.AssetClassFX {
 		for _, id := range ids {
 			if id.Type == "FX_PAIR" && id.Value != "" {
-				source, divisor := pricefetcher.RewriteFXPair(id.Value)
-				return "C:" + source, divisor
+				source, exp := pricefetcher.RewriteFXPair(id.Value)
+				return "C:" + source, exp
 			}
 		}
-		return "", 1
+		return "", 0
 	}
 	// Prefer provider-specific SEGMENT_MIC_TICKER over canonical MIC_TICKER.
 	for _, id := range ids {
 		if id.Type == "SEGMENT_MIC_TICKER" && id.Value != "" {
-			return id.Value, 1
+			return id.Value, 0
 		}
 	}
 	for _, id := range ids {
 		if id.Type == "MIC_TICKER" && id.Value != "" {
-			return id.Value, 1
+			return id.Value, 0
 		}
 	}
 	for _, id := range ids {
 		if id.Type == "OPENFIGI_TICKER" && id.Value != "" {
-			return id.Value, 1
+			return id.Value, 0
 		}
 	}
-	return "", 1
+	return "", 0
 }
 
 const (

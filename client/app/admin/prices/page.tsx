@@ -72,9 +72,11 @@ function TabButton({
   );
 }
 
-function fmtPrice(v: number | undefined): string {
-  if (v === undefined) return "\u2014";
-  return v.toFixed(2);
+// Prices arrive as decimal strings and are rendered as supplied. Rounding to a
+// fixed 2dp here would hide a price quoted to more places, which is the whole
+// reason the column is exact.
+function fmtPrice(v: string | undefined): string {
+  return v === undefined ? "\u2014" : v;
 }
 
 function fmtVolume(v: bigint | undefined): string {
@@ -326,7 +328,7 @@ function PriceRow({ price: p }: { price: EODPriceProto }) {
         {fmtPrice(p.low)}
       </td>
       <td className="px-4 py-2 text-right font-mono text-text-primary">
-        {p.close.toFixed(2)}
+        {p.close}
       </td>
       <td className="px-4 py-2 text-right font-mono text-text-muted">
         {fmtPrice(p.adjustedClose)}

@@ -9,6 +9,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -60,7 +61,7 @@ func seedValuationLoad(t testing.TB, p *Postgres, instruments, years int) (strin
 			}
 			bars = append(bars, db.EODPrice{
 				InstrumentID: instID, PriceDate: day,
-				Close: 100 + float64(day.YearDay()%50), DataProvider: "bench",
+				Close: decf(100).Add(decimal.NewFromInt(int64(day.YearDay() % 50))), DataProvider: "bench",
 			})
 		}
 		if err := p.UpsertPricesForRange(ctx, instID, "bench", bars, from, before, nil); err != nil {

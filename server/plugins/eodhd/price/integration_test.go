@@ -64,7 +64,7 @@ func TestIntegration_EODHD_FetchPrices(t *testing.T) {
 				t.Fatal("expected at least one bar, got 0")
 			}
 			for _, bar := range result.Bars {
-				if bar.Close <= 0 {
+				if !bar.Close.IsPositive() {
 					t.Errorf("bar %v: close=%v, want >0", bar.Date.Format("2006-01-02"), bar.Close)
 				}
 			}

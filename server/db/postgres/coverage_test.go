@@ -83,8 +83,8 @@ func TestUpsertPricesForRange_RecordsDeclaredRange(t *testing.T) {
 	instID := setupInstrument(t, p, "AAPL")
 
 	bars := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: 10},
-		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: 12},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: decf(10)},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: decf(12)},
 	}
 	if err := p.UpsertPricesForRange(ctx, instID, "massive", bars, d(2024, 1, 1), d(2024, 1, 11), nil); err != nil {
 		t.Fatalf("upsert for range: %v", err)
@@ -121,10 +121,10 @@ func TestUpsertPrices_CoversSuppliedDatesOnly(t *testing.T) {
 
 	// Jan 3, 4, 5 are contiguous and merge; Feb 1 stands alone.
 	prices := []db.EODPrice{
-		{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: 10, DataProvider: "import"},
-		{InstrumentID: instID, PriceDate: d(2024, 1, 4), Close: 11, DataProvider: "import"},
-		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: 12, DataProvider: "import"},
-		{InstrumentID: instID, PriceDate: d(2024, 2, 1), Close: 20, DataProvider: "import"},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: decf(10), DataProvider: "import"},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 4), Close: decf(11), DataProvider: "import"},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: decf(12), DataProvider: "import"},
+		{InstrumentID: instID, PriceDate: d(2024, 2, 1), Close: decf(20), DataProvider: "import"},
 	}
 	if err := p.UpsertPrices(ctx, prices); err != nil {
 		t.Fatalf("upsert prices: %v", err)
@@ -144,11 +144,11 @@ func TestUpsertPricesForRange_DisjointPeriodsStayDisjoint(t *testing.T) {
 	ctx := context.Background()
 	instID := setupInstrument(t, p, "AAPL")
 
-	first := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2023, 1, 3), Close: 10}}
+	first := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2023, 1, 3), Close: decf(10)}}
 	if err := p.UpsertPricesForRange(ctx, instID, "massive", first, d(2023, 1, 1), d(2023, 7, 1), nil); err != nil {
 		t.Fatalf("upsert first period: %v", err)
 	}
-	second := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: 20}}
+	second := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 3), Close: decf(20)}}
 	if err := p.UpsertPricesForRange(ctx, instID, "massive", second, d(2024, 1, 1), d(2024, 7, 1), nil); err != nil {
 		t.Fatalf("upsert second period: %v", err)
 	}

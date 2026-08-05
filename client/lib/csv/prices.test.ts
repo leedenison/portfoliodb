@@ -15,7 +15,7 @@ function makeRow(
     identifierValue: "US0378331005",
     identifierDomain: "",
     priceDate: "2024-01-15",
-    close: 185.9,
+    close: "185.9",
     ...overrides,
   });
 }
@@ -51,7 +51,7 @@ describe("pricesToCsv", () => {
 
   it("includes optional fields when present", () => {
     const csv = pricesToCsv([
-      makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n, assetClass: AssetClass.STOCK, currency: "USD" }),
+      makeRow({ open: "185.5", high: "186.2", low: "184.8", adjustedClose: "185.9", volume: 50000000n, assetClass: AssetClass.STOCK, currency: "USD" }),
     ]);
     const lines = csv.trim().split("\n");
     const fields = lines[1].split(",");
@@ -99,11 +99,11 @@ describe("csvToPrices", () => {
     expect(p.identifierValue).toBe("US0378331005");
     expect(p.identifierDomain).toBe("");
     expect(p.priceDate).toBe("2024-01-15");
-    expect(p.open).toBe(185.5);
-    expect(p.high).toBe(186.2);
-    expect(p.low).toBe(184.8);
-    expect(p.close).toBe(185.9);
-    expect(p.adjustedClose).toBe(185.9);
+    expect(p.open).toBe("185.5");
+    expect(p.high).toBe("186.2");
+    expect(p.low).toBe("184.8");
+    expect(p.close).toBe("185.9");
+    expect(p.adjustedClose).toBe("185.9");
     expect(p.volume).toBe(50000000n);
   });
 
@@ -200,10 +200,29 @@ describe("csvToPrices", () => {
     expect(result.prices[0].currency).toBe("");
   });
 
+  it("round-trips a decimal too precise for a float64", () => {
+    // 0.1 + 0.2 is the textbook case, but a price column is worse: these values
+    // have more significant digits than a float64 carries, so parsing them into
+    // a JS number and printing them back changes the digits. Export and import
+    // are a round-trip pair, so that is a bug rather than a rounding preference.
+    const precise = "185.90000000000012345";
+    const tiny = "0.000000000000001";
+    const csv = pricesToCsv([makeRow({ close: precise, open: tiny })]);
+    const result = csvToPrices(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.prices[0].close).toBe(precise);
+    expect(result.prices[0].open).toBe(tiny);
+    // The float path these replaced: one loses digits, the other comes back in
+    // exponent notation, which the wire format does not even accept.
+    expect(String(Number(precise))).toBe("185.90000000000012");
+    expect(String(Number(tiny))).toBe("1e-15");
+  });
+
   it("round-trips through pricesToCsv and csvToPrices", () => {
     const original = [
-      makeRow({ open: 185.5, high: 186.2, low: 184.8, adjustedClose: 185.9, volume: 50000000n, currency: "USD" }),
-      makeRow({ identifierType: "MIC_TICKER", identifierValue: "AAPL", identifierDomain: "XNAS", priceDate: "2024-01-16", close: 186.5, currency: "GBP" }),
+      makeRow({ open: "185.5", high: "186.2", low: "184.8", adjustedClose: "185.9", volume: 50000000n, currency: "USD" }),
+      makeRow({ identifierType: "MIC_TICKER", identifierValue: "AAPL", identifierDomain: "XNAS", priceDate: "2024-01-16", close: "186.5", currency: "GBP" }),
     ];
     const exportedAt = new Date("2025-07-15T10:30:00.000Z");
     const csv = pricesToCsv(original, exportedAt);
@@ -212,13 +231,13 @@ describe("csvToPrices", () => {
     expect(result.prices).toHaveLength(2);
     expect(result.exportedAt).toEqual(exportedAt);
     expect(result.prices[0].identifierType).toBe("ISIN");
-    expect(result.prices[0].close).toBe(185.9);
-    expect(result.prices[0].open).toBe(185.5);
+    expect(result.prices[0].close).toBe("185.9");
+    expect(result.prices[0].open).toBe("185.5");
     expect(result.prices[0].volume).toBe(50000000n);
     expect(result.prices[0].currency).toBe("USD");
     expect(result.prices[1].identifierType).toBe("MIC_TICKER");
     expect(result.prices[1].identifierDomain).toBe("XNAS");
-    expect(result.prices[1].close).toBe(186.5);
+    expect(result.prices[1].close).toBe("186.5");
     expect(result.prices[1].open).toBeUndefined();
     expect(result.prices[1].currency).toBe("GBP");
   });

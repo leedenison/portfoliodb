@@ -10,6 +10,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/pluginutil"
 	"github.com/leedenison/portfoliodb/server/telemetry"
+	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 )
 
@@ -135,7 +136,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 
 	stub := &fetchStub{
 		idTypes: []string{"FX_PAIR"},
-		result:  &FetchResult{Bars: []DailyBar{{Date: from, Close: 1.08}}},
+		result:  &FetchResult{Bars: []DailyBar{{Date: from, Close: decimal.RequireFromString("1.08")}}},
 	}
 	reg := NewRegistry()
 	reg.Register(pluginID, stub)
@@ -215,7 +216,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 
 	stub := &fetchStub{
 		idTypes: []string{"MIC_TICKER"},
-		result:  &FetchResult{Bars: []DailyBar{{Date: time.Now(), Close: 100}}},
+		result:  &FetchResult{Bars: []DailyBar{{Date: time.Now(), Close: decimal.RequireFromString("100")}}},
 	}
 	reg := NewRegistry()
 	reg.Register(pluginID, stub)
@@ -314,7 +315,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	barDate := now.AddDate(0, 0, -1)
 	stub := &fetchStub{
 		idTypes: []string{"MIC_TICKER"},
-		result:  &FetchResult{Bars: []DailyBar{{Date: barDate, Close: 100}}},
+		result:  &FetchResult{Bars: []DailyBar{{Date: barDate, Close: decimal.RequireFromString("100")}}},
 	}
 	reg := NewRegistry()
 	reg.Register(pluginID, stub)
@@ -361,7 +362,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 
 	stub := &fetchStub{
 		idTypes: []string{"MIC_TICKER"},
-		result:  &FetchResult{Bars: []DailyBar{{Date: time.Now(), Close: 100}}},
+		result:  &FetchResult{Bars: []DailyBar{{Date: time.Now(), Close: decimal.RequireFromString("100")}}},
 	}
 	reg := NewRegistry()
 	reg.Register(pluginID, stub)
@@ -485,7 +486,7 @@ func TestRunCycle_OtherPluginStillAskedAfterCoverage(t *testing.T) {
 
 	covered := &fetchStub{idTypes: []string{"MIC_TICKER"}, err: ErrNoData}
 	fresh := &fetchStub{idTypes: []string{"MIC_TICKER"},
-		result: &FetchResult{Bars: []DailyBar{{Date: d(2024, 1, 3), Close: 100}}}}
+		result: &FetchResult{Bars: []DailyBar{{Date: d(2024, 1, 3), Close: decimal.RequireFromString("100")}}}}
 	reg := NewRegistry()
 	reg.Register(coveredID, covered)
 	reg.Register(freshID, fresh)

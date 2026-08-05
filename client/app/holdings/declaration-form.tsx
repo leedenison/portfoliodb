@@ -143,12 +143,13 @@ export function DeclarationForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <h3 className="text-lg font-semibold text-text-primary">
-        {editing ? "Edit Checkpoint" : "New Opening Balance Checkpoint"}
+        {editing ? "Edit Checkpoint" : "New Checkpoint"}
       </h3>
       <p className="text-sm text-text-muted">
-        Enter the number of units you held at a specific date. The system will
-        calculate an opening balance so that your records show this quantity on
-        that date.
+        Enter the number of units you held at a specific date. If this is the earliest
+        checkpoint for the holding, the system calculates an opening balance so that your
+        records show this quantity on that date. If it is a later one, it is checked
+        against what your transactions add up to.
       </p>
 
       {error && <ErrorAlert>{error}</ErrorAlert>}

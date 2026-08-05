@@ -10,30 +10,113 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// RecalcInitializeTx recomputes the INITIALIZE tx for a single holding declaration.
-// Called when a real tx changes within the declaration's date range.
-func RecalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDeclarationRow) error {
-	return recalcInitializeTx(ctx, database, decl, nil)
+// holdingKey identifies the holding a set of declarations belongs to. Holdings are
+// computed aggregates, so there is no id to key them by.
+type holdingKey struct {
+	broker       string
+	account      string
+	instrumentID string
 }
 
-func recalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDeclarationRow, instByID map[string]*db.InstrumentRow) error {
-	startDate, err := database.GetPortfolioStartDate(ctx, decl.UserID)
+// RecalcAllInitializeTxs recomputes every INITIALIZE tx for a user. Called when the
+// portfolio start date may have changed (e.g. after bulk tx replace).
+//
+// The unit of recalculation is the holding, not the declaration: which declaration
+// pads a holding depends on the others, so a single declaration is not enough to
+// know whether it is the pad. Declarations that the start date has moved past are
+// pruned first, and each surviving holding's earliest declaration becomes its pad.
+func RecalcAllInitializeTxs(ctx context.Context, database db.DB, userID string) error {
+	decls, err := database.ListHoldingDeclarations(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("list declarations: %w", err)
+	}
+	if len(decls) == 0 {
+		return nil
+	}
+
+	startDate, err := database.GetPortfolioStartDate(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("get portfolio start date: %w", err)
 	}
 	if startDate == nil {
-		// No real txs remain; delete the INITIALIZE tx if it exists.
-		return database.DeleteInitializeTx(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID)
+		// No real txs remain, so there is no start date to anchor a pad to. The
+		// declarations are what the user said and survive; the derived pads do not.
+		for key := range byHolding(decls) {
+			if err := database.DeleteInitializeTx(ctx, userID, key.broker, key.account, key.instrumentID); err != nil {
+				return fmt.Errorf("delete pad for %s/%s/%s: %w", key.broker, key.account, key.instrumentID, err)
+			}
+		}
+		return nil
 	}
 	startDay := startDate.Truncate(24 * time.Hour)
-	if decl.AsOfDate.Before(startDay) {
-		// Start date moved past declaration date; delete declaration and INITIALIZE tx.
+
+	before := byHolding(decls)
+	kept, err := pruneBeforeStart(ctx, database, decls, startDay)
+	if err != nil {
+		return err
+	}
+	after := byHolding(kept)
+
+	// A holding whose last declaration was pruned has nothing left to pad to.
+	for key := range before {
+		if len(after[key]) == 0 {
+			if err := database.DeleteInitializeTx(ctx, userID, key.broker, key.account, key.instrumentID); err != nil {
+				return fmt.Errorf("delete pad for %s/%s/%s: %w", key.broker, key.account, key.instrumentID, err)
+			}
+		}
+	}
+
+	// Batch-load instruments for asset class lookup.
+	instIDs := make([]string, 0, len(kept))
+	for _, decl := range kept {
+		instIDs = append(instIDs, decl.InstrumentID)
+	}
+	instByID := map[string]*db.InstrumentRow{}
+	if len(instIDs) > 0 {
+		instRows, err := database.ListInstrumentsByIDs(ctx, instIDs)
+		if err != nil {
+			return fmt.Errorf("load instruments: %w", err)
+		}
+		for _, r := range instRows {
+			instByID[r.ID] = r
+		}
+	}
+
+	for key, group := range byHolding(kept) {
+		pad := padDeclaration(group)
+		if err := recalcHoldingPad(ctx, database, pad, startDay, instByID); err != nil {
+			return fmt.Errorf("recalc pad for %s/%s/%s: %w", key.broker, key.account, key.instrumentID, err)
+		}
+	}
+	return nil
+}
+
+// pruneBeforeStart deletes the declarations the portfolio start date has moved past
+// -- a statement about a date the history no longer reaches cannot be padded to or
+// checked against -- and returns those that survive. Only the declaration rows go
+// here; the caller settles each holding's pad afterwards from what is left, so this
+// does not need the atomic delete the user-facing path uses.
+func pruneBeforeStart(ctx context.Context, database db.DB, decls []*db.HoldingDeclarationRow, startDay time.Time) ([]*db.HoldingDeclarationRow, error) {
+	kept := make([]*db.HoldingDeclarationRow, 0, len(decls))
+	for _, decl := range decls {
+		if !decl.AsOfDate.Before(startDay) {
+			kept = append(kept, decl)
+			continue
+		}
 		slog.Warn("portfolio start date moved past declaration as_of_date; deleting declaration",
 			"user_id", decl.UserID, "declaration_id", decl.ID,
 			"as_of_date", decl.AsOfDate.Format("2006-01-02"),
 			"start_date", startDay.Format("2006-01-02"))
-		return database.DeleteDeclarationWithInitializeTx(ctx, decl.ID, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID)
+		if err := database.DeleteHoldingDeclaration(ctx, decl.ID); err != nil {
+			return nil, fmt.Errorf("delete declaration %s: %w", decl.ID, err)
+		}
 	}
+	return kept, nil
+}
+
+// recalcHoldingPad rewrites a holding's INITIALIZE tx from the declaration that pads
+// it. instByID may be nil, in which case the instrument is loaded on demand.
+func recalcHoldingPad(ctx context.Context, database db.DB, decl *db.HoldingDeclarationRow, startDay time.Time, instByID map[string]*db.InstrumentRow) error {
 	declaredQty, err := decimal.NewFromString(decl.DeclaredQty)
 	if err != nil {
 		return fmt.Errorf("parse declared_qty: %w", err)
@@ -65,33 +148,14 @@ func recalcInitializeTx(ctx context.Context, database db.DB, decl *db.HoldingDec
 	})
 }
 
-// RecalcAllInitializeTxs recomputes all INITIALIZE txs for a user.
-// Called when the portfolio start date may have changed (e.g. after bulk tx replace).
-func RecalcAllInitializeTxs(ctx context.Context, database db.DB, userID string) error {
-	decls, err := database.ListHoldingDeclarations(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("list declarations: %w", err)
-	}
-	if len(decls) == 0 {
-		return nil
-	}
-	// Batch-load instruments for asset class lookup
-	instIDs := make([]string, 0, len(decls))
+func keyOf(decl *db.HoldingDeclarationRow) holdingKey {
+	return holdingKey{broker: decl.Broker, account: decl.Account, instrumentID: decl.InstrumentID}
+}
+
+func byHolding(decls []*db.HoldingDeclarationRow) map[holdingKey][]*db.HoldingDeclarationRow {
+	out := map[holdingKey][]*db.HoldingDeclarationRow{}
 	for _, decl := range decls {
-		instIDs = append(instIDs, decl.InstrumentID)
+		out[keyOf(decl)] = append(out[keyOf(decl)], decl)
 	}
-	instRows, err := database.ListInstrumentsByIDs(ctx, instIDs)
-	if err != nil {
-		return fmt.Errorf("load instruments: %w", err)
-	}
-	instByID := make(map[string]*db.InstrumentRow, len(instRows))
-	for _, r := range instRows {
-		instByID[r.ID] = r
-	}
-	for _, decl := range decls {
-		if err := recalcInitializeTx(ctx, database, decl, instByID); err != nil {
-			return fmt.Errorf("recalc declaration %s: %w", decl.ID, err)
-		}
-	}
-	return nil
+	return out
 }

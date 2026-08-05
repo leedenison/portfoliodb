@@ -7,13 +7,33 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
 )
 
-// declarationCols is the projection every declaration read shares, so a column added
-// to the table reaches all of them at once.
+// declarationCols is the stored projection every declaration read shares, so a
+// column added to the table reaches all of them at once. It is also what the write
+// paths return: kind cannot be derived there, because an INSERT's own row is not
+// visible to a subquery in its RETURNING clause, so a create would always call
+// itself the pad.
 const declarationCols = `id, user_id, broker, account, instrument_id, declared_qty, as_of_date, share_count_basis`
+
+// declarationKind derives the pad/assert discriminator rather than storing it, so
+// there is no column to keep in step with the rows. The earliest declaration for a
+// holding seeds its opening balance; every later one is checked against the computed
+// holding. Written as a correlated subquery rather than a window so that it is
+// correct for a single-row read too, and the unique key on (user_id, broker,
+// account, instrument_id, as_of_date) serves the lookup directly.
+const declarationKind = `CASE WHEN d.as_of_date = (
+	    SELECT MIN(e.as_of_date) FROM holding_declarations e
+	    WHERE e.user_id = d.user_id AND e.broker = d.broker
+	      AND e.account = d.account AND e.instrument_id = d.instrument_id)
+	  THEN 'PAD' ELSE 'ASSERT' END AS kind`
+
+// declarationReadCols is the projection for reads, qualified for declarationKind.
+const declarationReadCols = `d.id, d.user_id, d.broker, d.account, d.instrument_id,
+	d.declared_qty, d.as_of_date, d.share_count_basis, ` + declarationKind
 
 type declarationRow struct {
 	ID              uuid.UUID `db:"id"`
@@ -24,10 +44,11 @@ type declarationRow struct {
 	DeclaredQty     string    `db:"declared_qty"`
 	AsOfDate        time.Time `db:"as_of_date"`
 	ShareCountBasis time.Time `db:"share_count_basis"`
+	Kind            *string   `db:"kind"` // absent from the write paths' projection
 }
 
 func (r *declarationRow) toRow() *db.HoldingDeclarationRow {
-	return &db.HoldingDeclarationRow{
+	out := &db.HoldingDeclarationRow{
 		ID:              r.ID.String(),
 		UserID:          r.UserID.String(),
 		Broker:          r.Broker,
@@ -36,6 +57,21 @@ func (r *declarationRow) toRow() *db.HoldingDeclarationRow {
 		DeclaredQty:     r.DeclaredQty,
 		AsOfDate:        r.AsOfDate,
 		ShareCountBasis: r.ShareCountBasis,
+	}
+	if r.Kind != nil {
+		out.Kind = strToDeclarationKind(*r.Kind)
+	}
+	return out
+}
+
+func strToDeclarationKind(s string) apiv1.DeclarationKind {
+	switch s {
+	case "PAD":
+		return apiv1.DeclarationKind_DECLARATION_KIND_PAD
+	case "ASSERT":
+		return apiv1.DeclarationKind_DECLARATION_KIND_ASSERT
+	default:
+		return apiv1.DeclarationKind_DECLARATION_KIND_UNSPECIFIED
 	}
 }
 
@@ -62,6 +98,9 @@ func (p *Postgres) CreateHoldingDeclaration(ctx context.Context, userID, broker,
 		RETURNING `+declarationCols,
 		userUUID, broker, account, instUUID, declaredQty, asOfDate, basis).StructScan(&row)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, fmt.Errorf("create holding declaration: %w", db.ErrDuplicate)
+		}
 		return nil, fmt.Errorf("create holding declaration: %w", err)
 	}
 	return row.toRow(), nil
@@ -89,6 +128,9 @@ func (p *Postgres) UpdateHoldingDeclaration(ctx context.Context, id, declaredQty
 		RETURNING `+declarationCols,
 		declaredQty, asOfDate, basis, declID).StructScan(&row)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, fmt.Errorf("update holding declaration: %w", db.ErrDuplicate)
+		}
 		return nil, fmt.Errorf("update holding declaration: %w", err)
 	}
 	return row.toRow(), nil
@@ -119,8 +161,8 @@ func (p *Postgres) GetHoldingDeclaration(ctx context.Context, id string) (*db.Ho
 	}
 	var row declarationRow
 	err = p.q.QueryRowxContext(ctx, `
-		SELECT `+declarationCols+`
-		FROM holding_declarations WHERE id = $1
+		SELECT `+declarationReadCols+`
+		FROM holding_declarations d WHERE d.id = $1
 	`, declID).StructScan(&row)
 	if err != nil {
 		return nil, fmt.Errorf("get holding declaration: %w", err)
@@ -136,9 +178,9 @@ func (p *Postgres) ListHoldingDeclarations(ctx context.Context, userID string) (
 	}
 	var rows []declarationRow
 	err = p.q.SelectContext(ctx, &rows, `
-		SELECT `+declarationCols+`
-		FROM holding_declarations WHERE user_id = $1
-		ORDER BY broker, account, as_of_date
+		SELECT `+declarationReadCols+`
+		FROM holding_declarations d WHERE d.user_id = $1
+		ORDER BY d.broker, d.account, d.instrument_id, d.as_of_date
 	`, userUUID)
 	if err != nil {
 		return nil, fmt.Errorf("list holding declarations: %w", err)
@@ -352,12 +394,18 @@ func (p *Postgres) UpdateDeclarationWithInitializeTx(ctx context.Context, id, de
 }
 
 // DeleteDeclarationWithInitializeTx implements db.HoldingDeclarationDB.
-func (p *Postgres) DeleteDeclarationWithInitializeTx(ctx context.Context, id, userID, broker, account, instrumentID string) error {
+func (p *Postgres) DeleteDeclarationWithInitializeTx(ctx context.Context, id, userID, broker, account, instrumentID string, init *db.InitializeTx) error {
 	return p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}
 		if err := txp.DeleteHoldingDeclaration(ctx, id); err != nil {
 			return err
 		}
-		return txp.DeleteInitializeTx(ctx, userID, broker, account, instrumentID)
+		// A holding keeps its pad for as long as it has any declaration left: what
+		// was deleted may have been an assertion, or the pad with a later
+		// declaration behind it ready to take over. Only an empty holding loses it.
+		if init == nil {
+			return txp.DeleteInitializeTx(ctx, userID, broker, account, instrumentID)
+		}
+		return txp.UpsertInitializeTx(ctx, userID, broker, account, instrumentID, *init)
 	})
 }

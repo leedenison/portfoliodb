@@ -12,7 +12,17 @@ The date of the earliest transaction across all holdings for a given user. This 
 
 ### Holding Declaration
 
-A user-provided statement: "I held **N** units of **holding X** on **date D**." This is the source of truth for what the user knew about their holdings. It is stored as a first-class record and is never discarded. The INITIALIZE transaction is derived from it.
+A user-provided statement: "I held **N** units of **holding X** on **date D**." This is the source of truth for what the user knew about their holdings. It is stored as a first-class record and is never discarded.
+
+A holding may carry a declaration at each of several dates, and their roles differ.
+
+### Pad and Assertion
+
+The **earliest** declaration for a holding is its **pad**. The INITIALIZE transaction is derived from it, which makes the declared quantity true at that date by construction -- so a pad can never catch an error.
+
+Every **later** declaration is an **assertion**. It generates nothing. It is checked against what the transactions add up to at its own date, and a disagreement means something is wrong with the data: a misparsed broker CSV, a missed transfer, a converter that silently dropped a row. That check is where the safety comes from; the pad is what makes a portfolio with incomplete history usable in the first place. The pair is beancount's `pad` and `balance`.
+
+The role is derived from the declaration dates, not stored. Adding a declaration earlier than the current pad makes it the pad and demotes the incumbent to an assertion; deleting the pad promotes the next-earliest. Nothing has to be kept in step, because there is no stored discriminator to disagree with the rows.
 
 ### INITIALIZE Transaction
 
@@ -41,8 +51,10 @@ Holdings are computed aggregates (there is no holdings table), so a holding is i
 
 **Constraints:**
 
-- `UNIQUE (user_id, broker, account, instrument_id)` -- one declaration per holding per user.
+- `UNIQUE (user_id, broker, account, instrument_id, as_of_date)` -- a holding may carry a declaration at each of several dates, but not two at one date, which would be two answers to the same question with nothing to choose between them.
 - `as_of_date` must be on or after the user's portfolio start date (enforced in application logic, since the portfolio start date is dynamic).
+
+There is no `kind` column: the earliest `as_of_date` per holding is the pad and the rest are assertions, derived on read.
 
 ### Denomination
 
@@ -89,37 +101,38 @@ It is excluded from holdings and from every other quantity aggregation, along wi
 
 **Preconditions:**
 
-1. At least one real transaction must exist for the user (across any holding). If no real transactions exist, the declaration is rejected — there is no portfolio start date to anchor the INITIALIZE transaction to.
-2. The user must not already have a declaration for this holding. If they do, the request is treated as an update (see below).
+1. At least one real transaction must exist for the user (across any holding). If no real transactions exist, the declaration is rejected -- there is no portfolio start date to anchor the INITIALIZE transaction to.
+2. The user must not already have a declaration for this holding at this `as_of_date`. If they do, the request is rejected with `ALREADY_EXISTS`; declaring a different quantity at a *different* date is the normal case, not a conflict.
 3. `as_of_date` must be on or after the user's portfolio start date.
 
 **Procedure:**
 
 1. Store the holding declaration record (`user_id`, `broker`, `account`, `instrument_id`, `declared_qty`, `as_of_date`, `share_count_basis`).
 2. Determine the portfolio start date: the date of the earliest real transaction for this user across all holdings.
-3. Compute the running unit balance for this holding from all real transactions (excluding any existing INITIALIZE) for the same `(broker, account, instrument_id)` that fall on or between the portfolio start date and `as_of_date` inclusive, converting each posting from its own `share_count_basis` into the declaration's.
-4. Calculate the INITIALIZE quantity: `declared_qty - running_balance`. Both are
+3. Identify the holding's pad: the earliest of its declarations, including the one being stored. The steps below are computed from that declaration, which may not be the one the request wrote -- a later declaration is an assertion and changes nothing about the pad.
+4. Compute the running unit balance for this holding from all real transactions (excluding any existing INITIALIZE) for the same `(broker, account, instrument_id)` that fall on or between the portfolio start date and `as_of_date` inclusive, converting each posting from its own `share_count_basis` into the declaration's.
+5. Calculate the INITIALIZE quantity: `declared_qty - running_balance`. Both are
    exact decimals and subtraction is closed, so the pad reconciles the holding to
    the declaration exactly rather than to within a rounding of it.
-5. Create (or replace) the INITIALIZE transaction for this holding with:
+6. Create (or replace) the INITIALIZE transaction for this holding with:
    - `date` = portfolio start date, at `00:00:00` (midnight, start of day)
-   - `quantity` = the value computed in step 4
+   - `quantity` = the value computed in step 5
    - `share_count_basis` = the declaration's. The pad is dated where the history
      begins but denominated where the declaration is; the two are unrelated, and
      inferring the basis from the timestamp made the pad wrong by a split factor.
    - `broker`, `account`, `instrument_id` = copied from the declaration
    - `synthetic_purpose` = `'INITIALIZE'`
-6. Create (or replace) its `EQUITY` counterparty in the same group, identical but for `account_type` and a negated `quantity`.
+7. Create (or replace) its `EQUITY` counterparty in the same group, identical but for `account_type` and a negated `quantity`.
 
 **Note on quantity:** The INITIALIZE quantity may be negative. This represents a short position at portfolio inception and is permitted.
 
 ### Updating a Declaration
 
-The user may edit the declared quantity or the `as_of_date`. The procedure is identical to creation: update the declaration record, then recalculate and replace the INITIALIZE transaction using the same procedure above.
+The user may edit the declared quantity, the `as_of_date` or the `share_count_basis`. The procedure is identical to creation: update the declaration record, then recalculate and replace the INITIALIZE transaction from whichever declaration pads the holding once the edit lands. Moving an `as_of_date` can hand the pad to a sibling or take it from one, so the pad is never recomputed from the edited row alone. Moving it onto a date the holding already has is rejected with `ALREADY_EXISTS`.
 
 ### Deleting a Declaration
 
-When a user deletes a declaration, delete both the declaration record and the associated INITIALIZE group. Deleting the group takes both postings, so no path can leave the counterparty behind without the pad it balances. The holding's history will revert to showing only real transactions, with an implied zero balance at portfolio inception.
+Deleting an **assertion** leaves the pad alone. Deleting the **pad** promotes the next-earliest declaration, and the INITIALIZE transaction is recalculated from it. Only deleting a holding's last declaration removes the INITIALIZE group: deleting the group takes both postings, so no path can leave the counterparty behind without the pad it balances, and the holding's history reverts to showing only real transactions with an implied zero balance at portfolio inception.
 
 ### Recalculation Triggers
 
@@ -139,13 +152,13 @@ The portfolio start date changes when:
 
 1. Determine the new portfolio start date.
 2. Validate that all existing declarations still have `as_of_date` on or after the new start date. (If the start date moved earlier, this is always satisfied. If it moved later, some declarations may now be invalid — see Edge Cases.)
-3. For every INITIALIZE transaction owned by this user (across all holdings): recalculate using the stored declaration and the new portfolio start date. Update both the date and the quantity.
+3. For every holding this user has declarations for: recalculate its INITIALIZE transaction from the holding's pad -- its earliest surviving declaration -- and the new portfolio start date. Update both the date and the quantity. The unit of recalculation is the holding, not the declaration: which declaration pads a holding depends on the others, so a single declaration is not enough to know whether it is the pad.
 
 #### Trigger 2: Transaction History Changes Between Start Date and Declaration Date
 
 When a real transaction is added, edited, or deleted for a holding that has a declaration, and that transaction falls on or between the portfolio start date and the declaration's `as_of_date`:
 
-1. Recalculate only the INITIALIZE transaction for that specific holding, using the stored declaration.
+1. Recalculate only the INITIALIZE transaction for that specific holding, from its pad.
 
 **Note:** If both triggers fire simultaneously (e.g. a new earliest transaction is added for a holding that also has a declaration), the portfolio-start-date recalculation in Trigger 1 is sufficient — it already recalculates all INITIALIZE transactions.
 
@@ -165,7 +178,7 @@ If the user declares "I held 150 units of AAPL on March 15" and there are no rea
 
 ### Portfolio start date moves later and passes a declaration date
 
-This can happen if the user deletes early transactions. If the new portfolio start date would be after an existing declaration's `as_of_date`, the system should delete the affected declaration(s) first, and warn the user that this will happen.
+This can happen if the user deletes early transactions. A declaration about a date the history no longer reaches can be neither padded to nor checked against, so the affected declarations are deleted first and the user warned that this will happen. If the pad was among them, the next-earliest survivor becomes the pad; if nothing survives for a holding, its INITIALIZE transaction goes too.
 
 ### User edits the INITIALIZE transaction directly
 
@@ -175,7 +188,7 @@ INITIALIZE transactions should not be directly editable through the normal trans
 
 ### Visibility of Declarations
 
-The holding declaration UI lives as an "Opening Balances" tab alongside the "Holdings" tab on the Holdings page.
+The holding declaration UI lives as an "Opening Balances" tab alongside the "Holdings" tab on the Holdings page. It shows each declaration's role, so a user can see which of a holding's checkpoints seeds the opening balance and which are checked.
 
 ### Transaction List
 
@@ -196,6 +209,5 @@ The declaration form should:
 
 ## Future Extensions
 
-- **TRUE_UP synthetic transactions:** Additional fixed points after portfolio inception that insert corrective transactions at their own dates. The `synthetic_purpose` field is already designed to accommodate this.
+- **TRUE_UP synthetic transactions:** Additional fixed points after portfolio inception that insert corrective transactions at their own dates, for a user who wants a disagreeing assertion plugged rather than reported. The `synthetic_purpose` field is already designed to accommodate this.
 - **Cost basis on INITIALIZE transactions:** Allowing users to optionally declare cost basis alongside units, for gain/loss reporting.
-- **Multiple declarations per holding:** For TRUE_UP support, the unique constraint on declarations would be relaxed to `UNIQUE (user_id, broker, account, instrument_id, as_of_date)`.

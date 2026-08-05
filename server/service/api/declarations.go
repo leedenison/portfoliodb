@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -60,7 +61,78 @@ func declarationToProto(r *db.HoldingDeclarationRow) *apiv1.HoldingDeclaration {
 		DeclaredQty:     r.DeclaredQty,
 		AsOfDate:        timeToDate(r.AsOfDate),
 		ShareCountBasis: timeToDate(r.ShareCountBasis),
+		Kind:            r.Kind,
 	}
+}
+
+// padDeclaration returns the declaration that seeds a holding's opening balance --
+// the earliest of them -- or nil when the holding has none. The pad is derived from
+// the set rather than flagged on a row, so adding an earlier declaration or deleting
+// the current pad simply changes which one this returns.
+func padDeclaration(decls []*db.HoldingDeclarationRow) *db.HoldingDeclarationRow {
+	var pad *db.HoldingDeclarationRow
+	for _, d := range decls {
+		if pad == nil || d.AsOfDate.Before(pad.AsOfDate) {
+			pad = d
+		}
+	}
+	return pad
+}
+
+// holdingDeclarations filters a user's declarations to one holding, dropping the
+// declaration with the given id. Callers pass the id of the row they are about to
+// replace or delete, so what comes back is the rest of the holding as it will be
+// once the write lands. Pass "" to keep all of them.
+func holdingDeclarations(all []*db.HoldingDeclarationRow, broker, account, instrumentID, excludeID string) []*db.HoldingDeclarationRow {
+	out := make([]*db.HoldingDeclarationRow, 0, len(all))
+	for _, d := range all {
+		if d.Broker == broker && d.Account == account && d.InstrumentID == instrumentID && d.ID != excludeID {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// holdingPad is the pad a write settles on: the transaction to store, and the
+// as_of_date of the declaration it came from. Declaration dates are unique within a
+// holding, so that date is what tells a caller whether the row it just wrote is the
+// pad -- which the pending row's absent id cannot.
+type holdingPad struct {
+	init *db.InitializeTx // nil when the holding has no declarations left
+	asOf time.Time
+}
+
+// padAfterWrite computes the pad for a holding as it will stand once the pending
+// write lands. pending is the declaration being created or updated, or nil for a
+// delete; excludeID drops the row being replaced or removed. The pad is nil only
+// when the holding will have no declarations left, which is the one case where it is
+// removed rather than rewritten.
+func (s *Server) padAfterWrite(ctx context.Context, userID, broker, account, instrumentID, excludeID string, pending *db.HoldingDeclarationRow, startDate time.Time) (holdingPad, error) {
+	all, err := s.db.ListHoldingDeclarations(ctx, userID)
+	if err != nil {
+		return holdingPad{}, err
+	}
+	decls := holdingDeclarations(all, broker, account, instrumentID, excludeID)
+	if pending != nil {
+		decls = append(decls, pending)
+	}
+	pad := padDeclaration(decls)
+	if pad == nil {
+		return holdingPad{}, nil
+	}
+	init, err := s.computeInitializeValues(ctx, userID, broker, account, instrumentID, pad.DeclaredQty, pad.AsOfDate, pad.ShareCountBasis, startDate)
+	if err != nil {
+		return holdingPad{}, err
+	}
+	return holdingPad{init: &init, asOf: pad.AsOfDate}, nil
+}
+
+// kindOf reports whether the declaration at asOfDate is its holding's pad.
+func (p holdingPad) kindOf(asOfDate time.Time) apiv1.DeclarationKind {
+	if p.init != nil && asOfDate.Equal(p.asOf) {
+		return apiv1.DeclarationKind_DECLARATION_KIND_PAD
+	}
+	return apiv1.DeclarationKind_DECLARATION_KIND_ASSERT
 }
 
 // shareCountBasis reads the declared denomination from a request, falling back to
@@ -100,15 +172,23 @@ func (s *Server) CreateHoldingDeclaration(ctx context.Context, req *apiv1.Create
 		return nil, status.Errorf(codes.InvalidArgument, "as_of_date must be on or after the portfolio start date (%s)", startDay.Format("2006-01-02"))
 	}
 
-	init, err := s.computeInitializeValues(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, basis, *startDate)
+	// The new declaration joins whatever the holding already has, and the earliest of
+	// the set is the pad -- so a declaration earlier than the current pad takes over
+	// from it, and a later one is an assertion that generates nothing.
+	pending := &db.HoldingDeclarationRow{DeclaredQty: req.GetDeclaredQty(), AsOfDate: asOfDate, ShareCountBasis: basis}
+	pad, err := s.padAfterWrite(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), "", pending, *startDate)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
 	}
 
-	row, err := s.db.CreateDeclarationWithInitializeTx(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, basis, init)
+	row, err := s.db.CreateDeclarationWithInitializeTx(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, basis, *pad.init)
 	if err != nil {
+		if errors.Is(err, db.ErrDuplicate) {
+			return nil, status.Error(codes.AlreadyExists, "a declaration for this holding already exists at that date")
+		}
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	row.Kind = pad.kindOf(row.AsOfDate)
 
 	return &apiv1.CreateHoldingDeclarationResponse{Declaration: declarationToProto(row)}, nil
 }
@@ -150,15 +230,22 @@ func (s *Server) UpdateHoldingDeclaration(ctx context.Context, req *apiv1.Update
 	// units of a quantity the user did not touch would silently change what they said.
 	basis := shareCountBasis(req.GetShareCountBasis(), existing.ShareCountBasis)
 
-	init, err := s.computeInitializeValues(ctx, u.ID, existing.Broker, existing.Account, existing.InstrumentID, req.GetDeclaredQty(), asOfDate, basis, *startDate)
+	// Moving as_of_date can hand the pad to a sibling or take it from one, so the pad
+	// is recomputed from the holding as it will stand, not from this row alone.
+	pending := &db.HoldingDeclarationRow{DeclaredQty: req.GetDeclaredQty(), AsOfDate: asOfDate, ShareCountBasis: basis}
+	pad, err := s.padAfterWrite(ctx, u.ID, existing.Broker, existing.Account, existing.InstrumentID, existing.ID, pending, *startDate)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
 	}
 
-	row, err := s.db.UpdateDeclarationWithInitializeTx(ctx, req.GetId(), req.GetDeclaredQty(), asOfDate, basis, u.ID, existing.Broker, existing.Account, existing.InstrumentID, init)
+	row, err := s.db.UpdateDeclarationWithInitializeTx(ctx, req.GetId(), req.GetDeclaredQty(), asOfDate, basis, u.ID, existing.Broker, existing.Account, existing.InstrumentID, *pad.init)
 	if err != nil {
+		if errors.Is(err, db.ErrDuplicate) {
+			return nil, status.Error(codes.AlreadyExists, "a declaration for this holding already exists at that date")
+		}
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	row.Kind = pad.kindOf(row.AsOfDate)
 
 	return &apiv1.UpdateHoldingDeclarationResponse{Declaration: declarationToProto(row)}, nil
 }
@@ -179,7 +266,24 @@ func (s *Server) DeleteHoldingDeclaration(ctx context.Context, req *apiv1.Delete
 	if existing.UserID != u.ID {
 		return nil, status.Error(codes.NotFound, "declaration not found")
 	}
-	if err := s.db.DeleteDeclarationWithInitializeTx(ctx, req.GetId(), u.ID, existing.Broker, existing.Account, existing.InstrumentID); err != nil {
+
+	// Deleting an assertion leaves the pad alone; deleting the pad promotes the
+	// next-earliest declaration to take its place. Only the last declaration for a
+	// holding takes the pad with it, and a portfolio with no transactions left has no
+	// start date to anchor one to.
+	var pad holdingPad
+	startDate, err := s.db.GetPortfolioStartDate(ctx, u.ID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if startDate != nil {
+		pad, err = s.padAfterWrite(ctx, u.ID, existing.Broker, existing.Account, existing.InstrumentID, existing.ID, nil, *startDate)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
+		}
+	}
+
+	if err := s.db.DeleteDeclarationWithInitializeTx(ctx, req.GetId(), u.ID, existing.Broker, existing.Account, existing.InstrumentID, pad.init); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return &apiv1.DeleteHoldingDeclarationResponse{}, nil

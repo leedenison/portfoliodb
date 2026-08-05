@@ -4,6 +4,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -11,6 +12,11 @@ import (
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// ErrDuplicate reports that a write collided with a uniqueness constraint. The db
+// layer translates the driver's error into this so a caller can react to it without
+// knowing which driver, or which constraint, produced it.
+var ErrDuplicate = errors.New("duplicate")
 
 // Plugin category constants.
 const (
@@ -615,6 +621,9 @@ type HoldingDeclarationRow struct {
 	// ShareCountBasis is the date at which the share count DeclaredQty is
 	// denominated in was current. Defaults to AsOfDate. See docs/spec/bitemporality.md.
 	ShareCountBasis time.Time
+	// Kind is derived, not stored: the earliest declaration for a holding is the
+	// pad and the rest are assertions. Reads populate it; writes ignore it.
+	Kind apiv1.DeclarationKind
 }
 
 // InitializeTx is the derived pad for a holding declaration: the synthetic posting
@@ -651,8 +660,11 @@ type HoldingDeclarationDB interface {
 	CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time, init InitializeTx) (*HoldingDeclarationRow, error)
 	// UpdateDeclarationWithInitializeTx atomically updates a declaration and upserts its INITIALIZE tx.
 	UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate, shareCountBasis time.Time, userID, broker, account, instrumentID string, init InitializeTx) (*HoldingDeclarationRow, error)
-	// DeleteDeclarationWithInitializeTx atomically deletes a declaration and its INITIALIZE tx.
-	DeleteDeclarationWithInitializeTx(ctx context.Context, id, userID, broker, account, instrumentID string) error
+	// DeleteDeclarationWithInitializeTx atomically deletes a declaration and either
+	// rewrites the holding's pad from init or, when init is nil, deletes it. A
+	// deleted assertion leaves the pad alone; a deleted pad promotes the
+	// next-earliest declaration to take its place.
+	DeleteDeclarationWithInitializeTx(ctx context.Context, id, userID, broker, account, instrumentID string, init *InitializeTx) error
 }
 
 // InstrumentDB provides instrument resolution and plugin config.

@@ -142,6 +142,7 @@ Every source declares its own. The storage layer assumes nothing.
 | Price plugin returning as-traded bars | each bar's `price_date` | The bar is the market as it printed that day. |
 | Price plugin returning back-adjusted bars | the fetch date | The provider restated the whole series to the share count current when it answered. |
 | Price import file | `price_date`, unless the row declares otherwise | Matches PortfolioDB's own export, which emits raw close. |
+| Holding declaration | `as_of_date`, unless the user says otherwise | A quantity read off a record of some date is in the share count current then. A quantity read off today's holdings screen is not, and the form asks which. |
 
 Both defaults are inferrable, and both are wrong for a source that restates. Two
 sources here can: the browser extension scrapes the broker's live web UI, which

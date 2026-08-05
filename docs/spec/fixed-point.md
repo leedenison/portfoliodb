@@ -26,22 +26,43 @@ All transactions carry a `synthetic_purpose` field. This is `NULL` for real tran
 
 Holdings are computed aggregates (there is no holdings table), so a holding is identified by the composite key `(broker, account, instrument_id)`.
 
-| Column         | Type                     | Notes                                                    |
-|----------------|--------------------------|----------------------------------------------------------|
-| id             | uuid, PK                 |                                                          |
-| user_id        | uuid, FK -> users        |                                                          |
-| broker         | text                     | Broker for the holding                                   |
-| account        | text                     | Account for the holding                                  |
-| instrument_id  | uuid, FK -> instruments  | Instrument for the holding                               |
-| declared_qty   | numeric                  | The number of units the user held at `as_of_date`        |
-| as_of_date     | date                     | The date the user's declaration refers to                |
-| created_at     | timestamptz              |                                                          |
-| updated_at     | timestamptz              |                                                          |
+| Column            | Type                     | Notes                                                    |
+|-------------------|--------------------------|----------------------------------------------------------|
+| id                | uuid, PK                 |                                                          |
+| user_id           | uuid, FK -> users        |                                                          |
+| broker            | text                     | Broker for the holding                                   |
+| account           | text                     | Account for the holding                                  |
+| instrument_id     | uuid, FK -> instruments  | Instrument for the holding                               |
+| declared_qty      | numeric                  | The number of units the user held at `as_of_date`        |
+| as_of_date        | date                     | The date the user's declaration refers to                |
+| share_count_basis | date                     | Which share count `declared_qty` is in. Defaults to `as_of_date`. |
+| created_at        | timestamptz              |                                                          |
+| updated_at        | timestamptz              |                                                          |
 
 **Constraints:**
 
 - `UNIQUE (user_id, broker, account, instrument_id)` -- one declaration per holding per user.
 - `as_of_date` must be on or after the user's portfolio start date (enforced in application logic, since the portfolio start date is dynamic).
+
+### Denomination
+
+A quantity of shares means nothing without the share count it is expressed in. A
+user reading "500 shares" off a statement dated 2021-01-01 means the share count
+current then; a user reading it off today's holdings screen means today's. Both
+are ordinary, and a split between the two dates makes them differ by the split
+factor -- so the declaration states which rather than the system guessing.
+
+`share_count_basis` is that statement, and it defaults to `as_of_date`: the
+as-traded assumption, the same default `txs` and `eod_prices` carry. The default
+is applied by a trigger on the table, so every path in lands on it. It is an
+insert-time decision -- moving `as_of_date` afterwards does not restate a
+denomination the user already gave.
+
+The balance the pad is computed against is converted into the declaration's basis
+before the subtraction (`holding_qty_in_basis`), so both sides of it are in one
+share count. Summing raw quantities instead would add postings recorded either
+side of a split, giving a number in no share count at all. See
+[bitemporality.md](bitemporality.md#share-count-basis).
 
 ### transactions (existing table, amended)
 
@@ -74,15 +95,18 @@ It is excluded from holdings and from every other quantity aggregation, along wi
 
 **Procedure:**
 
-1. Store the holding declaration record (`user_id`, `broker`, `account`, `instrument_id`, `declared_qty`, `as_of_date`).
+1. Store the holding declaration record (`user_id`, `broker`, `account`, `instrument_id`, `declared_qty`, `as_of_date`, `share_count_basis`).
 2. Determine the portfolio start date: the date of the earliest real transaction for this user across all holdings.
-3. Compute the running unit balance for this holding from all real transactions (excluding any existing INITIALIZE) for the same `(broker, account, instrument_id)` that fall on or between the portfolio start date and `as_of_date` inclusive.
+3. Compute the running unit balance for this holding from all real transactions (excluding any existing INITIALIZE) for the same `(broker, account, instrument_id)` that fall on or between the portfolio start date and `as_of_date` inclusive, converting each posting from its own `share_count_basis` into the declaration's.
 4. Calculate the INITIALIZE quantity: `declared_qty - running_balance`. Both are
    exact decimals and subtraction is closed, so the pad reconciles the holding to
    the declaration exactly rather than to within a rounding of it.
 5. Create (or replace) the INITIALIZE transaction for this holding with:
    - `date` = portfolio start date, at `00:00:00` (midnight, start of day)
    - `quantity` = the value computed in step 4
+   - `share_count_basis` = the declaration's. The pad is dated where the history
+     begins but denominated where the declaration is; the two are unrelated, and
+     inferring the basis from the timestamp made the pad wrong by a split factor.
    - `broker`, `account`, `instrument_id` = copied from the declaration
    - `synthetic_purpose` = `'INITIALIZE'`
 6. Create (or replace) its `EQUITY` counterparty in the same group, identical but for `account_type` and a negated `quantity`.

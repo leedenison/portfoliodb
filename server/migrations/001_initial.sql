@@ -810,20 +810,99 @@ CREATE OR REPLACE FUNCTION split_factor_at(
     AND s.ex_date <= CURRENT_DATE;
 $$;
 
+-- holding_qty_in_basis returns a holding's quantity over a half-open [from, before)
+-- window, converted into a single share count basis, together with the two numbers
+-- a caller needs to bound the rounding in that conversion.
+--
+-- Postings are grouped by their own share_count_basis and summed before conversion,
+-- so the division happens once per distinct basis rather than once per posting. That
+-- is what makes the bound stateable: each group converts by an exact rational
+-- (num_b * den_d) / (den_b * num_d) -- the row's own factor to today divided by the
+-- target's -- so the whole result is exact unless a group's factor is not 1/1, and
+-- inexact_bases counts the groups that can carry a rounding. A caller comparing
+-- against a declared quantity allows inexact_bases units in the last place of the
+-- split-adjusted rounding scale, and nothing when the count is zero.
+--
+-- Only USER postings are read. The EQUITY counterparty of a pad shares its broker
+-- account and instrument, so including it would net a declared opening balance back
+-- to zero. p_include_synthetic is false when computing a pad, which must not feed
+-- back into its own recomputation, and true when checking a declaration against the
+-- holding as the user sees it. Either bound may be NULL for an open one.
+-- See docs/spec/bitemporality.md and docs/adr/0028-cumulative-split-factor-is-an-exact-rational.md.
+CREATE OR REPLACE FUNCTION holding_qty_in_basis(
+  p_user_id UUID,
+  p_broker TEXT,
+  p_account TEXT,
+  p_instrument_id UUID,
+  p_from TIMESTAMPTZ,
+  p_before TIMESTAMPTZ,
+  p_basis DATE,
+  p_include_synthetic BOOLEAN,
+  OUT qty NUMERIC,
+  OUT posting_count INT,
+  OUT inexact_bases INT
+) LANGUAGE sql STABLE AS $$
+  WITH per_basis AS (
+    SELECT t.share_count_basis AS basis, SUM(t.quantity) AS q, COUNT(*)::int AS n
+    FROM txs t
+    WHERE t.user_id = p_user_id
+      AND t.broker = p_broker
+      AND t.account = p_account
+      AND t.instrument_id = p_instrument_id
+      AND t.account_type = 'USER'
+      AND (p_include_synthetic OR t.synthetic_purpose IS NULL)
+      AND (p_from IS NULL OR t.timestamp >= p_from)
+      AND (p_before IS NULL OR t.timestamp < p_before)
+    GROUP BY t.share_count_basis
+  )
+  SELECT COALESCE(SUM(p.q * fb.num * fd.den / (fb.den * fd.num)), 0),
+         COALESCE(SUM(p.n), 0)::int,
+         COUNT(*) FILTER (WHERE fb.num * fd.den <> fb.den * fd.num)::int
+  FROM per_basis p,
+       LATERAL split_factor_at(p_instrument_id, p.basis) fb,
+       LATERAL split_factor_at(p_instrument_id, p_basis) fd;
+$$;
+
 -- Holding declarations: user-provided statement of known holding quantity at a date.
 -- Holdings are computed aggregates identified by (broker, account, instrument_id).
+--
+-- share_count_basis is the date at which the share count declared_qty is denominated
+-- in was current. It defaults to as_of_date: a user reading a quantity off a
+-- statement of that date means the share count current then. A user reading today's
+-- holdings screen means today's, and says so. Without the declaration stating which,
+-- it and the postings it is reconciled against can be in different units, and a
+-- correct portfolio disagrees with itself by the split factor.
+-- See docs/spec/bitemporality.md.
 CREATE TABLE holding_declarations (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  broker          TEXT NOT NULL,
-  account         TEXT NOT NULL,
-  instrument_id   UUID NOT NULL REFERENCES instruments(id),
-  declared_qty    NUMERIC NOT NULL,
-  as_of_date      DATE NOT NULL,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  broker            TEXT NOT NULL,
+  account           TEXT NOT NULL,
+  instrument_id     UUID NOT NULL REFERENCES instruments(id),
+  declared_qty      NUMERIC NOT NULL,
+  as_of_date        DATE NOT NULL,
+  share_count_basis DATE NOT NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, broker, account, instrument_id)
 );
+
+-- The default lives here rather than in the application so that every path into the
+-- table -- the API, an integration test, a psql session -- lands on the same
+-- denomination. It is an insert-time decision: once a declaration states its basis,
+-- moving as_of_date does not restate it.
+CREATE OR REPLACE FUNCTION default_declaration_share_count_basis() RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.share_count_basis IS NULL THEN
+    NEW.share_count_basis := NEW.as_of_date;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_default_declaration_share_count_basis
+  BEFORE INSERT ON holding_declarations
+  FOR EACH ROW EXECUTE FUNCTION default_declaration_share_count_basis();
 
 -- Ignored asset classes: skip tx types mapping to these asset classes during ingestion.
 -- account = '' means all accounts for the broker; otherwise a specific broker+account pair.

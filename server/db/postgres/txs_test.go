@@ -114,7 +114,9 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 	}
 
 	// Seed an INITIALIZE synthetic tx and an unrelated real tx, both inside the period.
-	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "", instID, "BUYOTHER", initTs, decf(42)); err != nil {
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "", instID, db.InitializeTx{
+		TxType: "BUYOTHER", Timestamp: initTs, Quantity: decf(42), ShareCountBasis: initTs,
+	}); err != nil {
 		t.Fatalf("upsert initialize: %v", err)
 	}
 	oldTx := []*apiv1.Tx{

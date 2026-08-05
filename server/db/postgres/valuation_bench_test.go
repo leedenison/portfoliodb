@@ -43,7 +43,7 @@ func seedValuationLoad(t testing.TB, p *Postgres, instruments, years int) (strin
 		}
 		txs = append(txs, &apiv1.Tx{
 			Timestamp: timestamppb.New(buy), InstrumentDescription: desc,
-			Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "main",
+			Type: apiv1.TxType_BUYSTOCK, Quantity: "100", Account: "main",
 		})
 		instIDs = append(instIDs, instID)
 	}

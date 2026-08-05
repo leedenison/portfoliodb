@@ -7,6 +7,8 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/testutil"
+	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 )
 
@@ -22,9 +24,9 @@ func TestRecalcInitializeTx_RecomputesQty(t *testing.T) {
 	}
 
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(40), nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(decimal.NewFromInt(40), nil)
 	mockDB.EXPECT().GetInstrument(gomock.Any(), "inst-1").Return(nil, nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "BUYOTHER", gomock.Any(), float64(60)).Return(nil)
+	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "BUYOTHER", gomock.Any(), testutil.DecEq("60")).Return(nil)
 
 	if err := RecalcInitializeTx(context.Background(), mockDB, decl); err != nil {
 		t.Fatalf("RecalcInitializeTx: %v", err)
@@ -81,7 +83,7 @@ func TestRecalcInitializeTx_ZeroQty_DeletesDeclaration(t *testing.T) {
 	}
 
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(100), nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(decimal.NewFromInt(100), nil)
 	mockDB.EXPECT().DeleteDeclarationWithInitializeTx(gomock.Any(), "d1", "user-1", "IBKR", "acct1", "inst-1").Return(nil)
 
 	if err := RecalcInitializeTx(context.Background(), mockDB, decl); err != nil {
@@ -103,10 +105,10 @@ func TestRecalcAllInitializeTxs_RecalcsEachDeclaration(t *testing.T) {
 	mockDB.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
 	// Each declaration triggers a recalc
 	mockDB.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-1").Return(&startDate, nil).Times(2)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(float64(20), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "BUYOTHER", gomock.Any(), float64(80)).Return(nil)
-	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-2", gomock.Any(), gomock.Any()).Return(float64(10), nil)
-	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-2", "BUYOTHER", gomock.Any(), float64(40)).Return(nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", gomock.Any(), gomock.Any()).Return(decimal.NewFromInt(20), nil)
+	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-1", "BUYOTHER", gomock.Any(), testutil.DecEq("80")).Return(nil)
+	mockDB.EXPECT().ComputeRunningBalance(gomock.Any(), "user-1", "IBKR", "acct1", "inst-2", gomock.Any(), gomock.Any()).Return(decimal.NewFromInt(10), nil)
+	mockDB.EXPECT().UpsertInitializeTx(gomock.Any(), "user-1", "IBKR", "acct1", "inst-2", "BUYOTHER", gomock.Any(), testutil.DecEq("40")).Return(nil)
 
 	if err := RecalcAllInitializeTxs(context.Background(), mockDB, "user-1"); err != nil {
 		t.Fatalf("RecalcAllInitializeTxs: %v", err)

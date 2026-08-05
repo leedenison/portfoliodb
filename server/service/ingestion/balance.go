@@ -3,7 +3,6 @@ package ingestion
 import (
 	"context"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 
@@ -64,12 +63,17 @@ var transferTypes = map[apiv1.TxType]bool{
 // at 12.3456 costs 456.7872 against a broker cash row of -456.79: the 0.0028 is
 // an artefact of the source being written to 2dp, not a real discrepancy.
 // Beancount infers half the last significant digit for exactly this case, and
-// half a cent is what it would infer for 2dp money. The constants are interim --
-// once quantities are exact decimals the tolerance can be inferred from their
-// scale -- but a tolerance is not, and both beancount and ledger keep one.
-const (
-	moneyTolerance     = 0.005
-	commodityTolerance = 1e-6
+// half a cent is what it would infer for 2dp money.
+//
+// Quantities are exact decimals now, so this is no longer absorbing arithmetic
+// error -- it is the disagreement between two figures the source rounded
+// differently, which exactness does not remove. Both beancount and ledger keep a
+// tolerance for the same reason. Inferring it from the scale of the contributing
+// amounts, rather than fixing it, is a change to which residuals get routed and
+// is deliberately not made here.
+var (
+	moneyTolerance     = decimal.RequireFromString("0.005")
+	commodityTolerance = decimal.New(1, -6)
 )
 
 // balanceInstrument is what balancing needs to know about a posting's commodity.
@@ -91,6 +95,20 @@ type balanceInstrument struct {
 // that a corporate action can leave behind, not the size itself. See the column
 // comment in server/migrations/001_initial.sql.
 var optionContractSize = decimal.NewFromInt(100)
+
+// parseOptDec parses an optional decimal wire field, preserving absence. An
+// unset field is nil; so is an empty string, since proto3 implicit presence
+// cannot distinguish the two on a field of this shape.
+func parseOptDec(s *string) (*decimal.Decimal, error) {
+	if s == nil || *s == "" {
+		return nil, nil
+	}
+	d, err := decimal.NewFromString(*s)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
 
 // commodity names what a weight is denominated in. A converted weight is named by
 // its currency and an unconverted one by its instrument, so both have to reduce to
@@ -114,7 +132,7 @@ func (c commodity) key() string {
 }
 
 // tolerance returns the residual below which this commodity counts as balanced.
-func (c commodity) tolerance() float64 {
+func (c commodity) tolerance() decimal.Decimal {
 	if c.currency != "" {
 		return moneyTolerance
 	}
@@ -153,34 +171,39 @@ func ownCommodity(tx *apiv1.Tx, instID string, inst balanceInstrument) commodity
 
 // weightOf returns the amount a posting contributes to the group's balance, and
 // the commodity it contributes in.
-func weightOf(tx *apiv1.Tx, instID string, inst balanceInstrument) (float64, commodity) {
+//
+// qty and price are the posting's parsed quantity and unit price. price is nil
+// when the source supplied none, which is not the same as a price of zero -- the
+// first case below turns on exactly that distinction.
+func weightOf(tx *apiv1.Tx, qty decimal.Decimal, price *decimal.Decimal, instID string, inst balanceInstrument) (decimal.Decimal, commodity) {
 	own := ownCommodity(tx, instID, inst)
 	settle := settleCurrency(tx)
-	convert := func() (float64, commodity) {
+	convert := func() (decimal.Decimal, commodity) {
 		// contractSize is 1 for every instrument quoted in the units it trades
 		// in, which includes every currency -- so this is a no-op on the FX case
 		// below and applies only where a price is per underlying unit.
-		// The weight arithmetic still runs in float64 here; it moves to decimal
-		// with the quantity and price fields themselves. Tracked in 0042.
-		size, _ := inst.contractSize.Float64()
-		if size <= 0 {
-			size = 1
+		size := inst.contractSize
+		if !size.IsPositive() {
+			size = decimal.NewFromInt(1)
 		}
-		return tx.GetQuantity() * tx.GetUnitPrice() * size, commodity{currency: settle}
+		// Quantity, price and contract size are all exact and this is closed
+		// under multiplication, so the weight is exact too. That is what lets a
+		// group's balance be a plain sum against zero.
+		return qty.Mul(*price).Mul(size), commodity{currency: settle}
 	}
 	switch {
 	// No price, so nothing to convert at. An exchange event with no price leaves a
 	// residual in the security itself, which is the signal that the source omitted
 	// a price -- nothing else produces one.
-	case tx.UnitPrice == nil:
-		return tx.GetQuantity(), own
+	case price == nil:
+		return qty, own
 	case settle == "":
-		return tx.GetQuantity(), own
+		return qty, own
 	// The money leg of an exchange event is already in the units the group
 	// balances in. Beancount has the same guard implicitly: nobody annotates a
 	// plain cash posting with a price.
 	case own.currency != "" && own.currency == settle:
-		return tx.GetQuantity(), own
+		return qty, own
 	case exchangeTypes[tx.GetType()]:
 		return convert()
 	// A movement event across currencies -- a EUR dividend settling into a USD
@@ -189,7 +212,7 @@ func weightOf(tx *apiv1.Tx, instID string, inst balanceInstrument) (float64, com
 	case own.currency != "" && own.currency != settle:
 		return convert()
 	default:
-		return tx.GetQuantity(), own
+		return qty, own
 	}
 }
 
@@ -227,12 +250,19 @@ func groupPostings(txs []*apiv1.Tx) ([]string, map[string][]int) {
 //
 // It assigns a synthetic group_ref to any posting that has none, so that a routed
 // counterparty is stored in the same group as the posting it balances.
+//
+// A posting whose quantity or price is not a decimal is left out of its group's
+// sums rather than failing the batch: routing exists so imperfect source data
+// still lands, and the group is then left unbalanced -- the same state it was in
+// before routing existed. The protovalidate patterns reject a malformed value at
+// the interceptor for every unary RPC, so this is reachable only from an internal
+// caller.
 func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[string]balanceInstrument) []routedPosting {
 	order, byRef := groupPostings(txs)
 	var out []routedPosting
 	for _, ref := range order {
 		idxs := byRef[ref]
-		sums := map[string]float64{}
+		sums := map[string]decimal.Decimal{}
 		commodities := map[string]commodity{}
 		// The description to give a residual in a security commodity, taken from
 		// the leg it balances rather than invented.
@@ -244,14 +274,23 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 			if transferTypes[t.GetType()] {
 				transfer = true
 			}
-			amount, c := weightOf(t, instrumentIDs[i], instruments[instrumentIDs[i]])
+			qty, err := decimal.NewFromString(t.GetQuantity())
+			if err != nil {
+				continue
+			}
+			price, err := parseOptDec(t.UnitPrice)
+			if err != nil {
+				continue
+			}
+			amount, c := weightOf(t, qty, price, instrumentIDs[i], instruments[instrumentIDs[i]])
 			k := c.key()
 			if _, seen := sums[k]; !seen {
 				keys = append(keys, k)
 				commodities[k] = c
 				descs[k] = t.GetInstrumentDescription()
 			}
-			sums[k] += amount
+			// The zero value is 0, so a first contribution needs no init.
+			sums[k] = sums[k].Add(amount)
 		}
 		// Sorted so a group's routed postings come out in a fixed order whatever
 		// the map iteration gave.
@@ -263,10 +302,10 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 		}
 		for _, k := range keys {
 			c := commodities[k]
-			if math.Abs(sums[k]) < c.tolerance() {
+			if sums[k].Abs().LessThan(c.tolerance()) {
 				continue
 			}
-			out = append(out, routedFor(first, ref, c, descs[k], -sums[k], accountType))
+			out = append(out, routedFor(first, ref, c, descs[k], sums[k].Neg(), accountType))
 		}
 	}
 	return out
@@ -276,11 +315,11 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 // the broker account, date and tx type of the group it balances, so the residual
 // stays attributable to the account that produced it and to the kind of event that
 // left it -- which is what the imbalance report reads.
-func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount float64, accountType apiv1.AccountType) routedPosting {
+func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount decimal.Decimal, accountType apiv1.AccountType) routedPosting {
 	tx := &apiv1.Tx{
 		Timestamp:   proto.CloneOf(first.GetTimestamp()),
 		Type:        first.GetType(),
-		Quantity:    amount,
+		Quantity:    amount.String(),
 		Account:     first.GetAccount(),
 		GroupRef:    ref,
 		AccountType: accountType,

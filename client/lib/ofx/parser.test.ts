@@ -148,8 +148,8 @@ describe("parseOfxStatement", () => {
 
     const tx = result.txs[0]!;
     expect(tx.type).toBe(TxType.BUYSTOCK);
-    expect(tx.quantity).toBe(20);
-    expect(tx.unitPrice).toBe(156.55);
+    expect(tx.quantity).toBe("20");
+    expect(tx.unitPrice).toBe("156.55");
     expect(tx.tradingCurrency).toBe("USD");
     expect(tx.account).toBe("U123");
     expect(tx.instrumentDescription).toBe("AMZN AMAZON.COM INC");
@@ -159,8 +159,8 @@ describe("parseOfxStatement", () => {
 
     const cf = result.txs[1]!;
     expect(cf.type).toBe(TxType.CASHFLOW);
-    expect(cf.quantity).toBe(-3131);
-    expect(cf.unitPrice).toBe(1);
+    expect(cf.quantity).toBe("-3131");
+    expect(cf.unitPrice).toBe("1");
     expect(cf.tradingCurrency).toBe("USD");
     expect(cf.identifierHints.length).toBe(1);
     expect(cf.identifierHints[0]!.type).toBe(IdentifierType.CURRENCY);
@@ -178,15 +178,15 @@ describe("parseOfxStatement", () => {
 
     const tx = result.txs[0]!;
     expect(tx.type).toBe(TxType.SELLSTOCK);
-    expect(tx.quantity).toBe(-1230);
+    expect(tx.quantity).toBe("-1230");
     expect(tx.instrumentDescription).toBe("SGLN ISHARES PHYSICAL GOLD ETC");
     expect(tx.identifierHints[0]!.type).toBe(IdentifierType.ISIN);
     expect(tx.identifierHints[0]!.value).toBe("IE00B4ND3602");
 
     const cf = result.txs[1]!;
     expect(cf.type).toBe(TxType.CASHFLOW);
-    expect(cf.quantity).toBe(85939);
-    expect(cf.unitPrice).toBe(1);
+    expect(cf.quantity).toBe("85939");
+    expect(cf.unitPrice).toBe("1");
   });
 
   it("parses multiple transactions of the same type", () => {
@@ -197,8 +197,8 @@ describe("parseOfxStatement", () => {
     // 2 security txs + 2 cashflow txs = 4
     const buys = result.txs.filter((t) => t.type === TxType.BUYSTOCK);
     expect(buys.length).toBe(2);
-    expect(buys[0]!.quantity).toBe(10);
-    expect(buys[1]!.quantity).toBe(20);
+    expect(buys[0]!.quantity).toBe("10");
+    expect(buys[1]!.quantity).toBe("20");
   });
 
   it("parses mixed buy and sell transactions", () => {
@@ -232,8 +232,8 @@ describe("parseOfxStatement", () => {
 
     const tx = result.txs[0]!;
     expect(tx.type).toBe(TxType.INCOME);
-    expect(tx.quantity).toBe(137.08);
-    expect(tx.unitPrice).toBe(1);
+    expect(tx.quantity).toBe("137.08");
+    expect(tx.unitPrice).toBe("1");
     expect(tx.instrumentDescription).toBe("MSFT MICROSOFT CORP");
     expect(tx.identifierHints.length).toBe(1);
     expect(tx.identifierHints[0]!.type).toBe(IdentifierType.CURRENCY);
@@ -263,7 +263,7 @@ describe("parseOfxStatement", () => {
 
     const tx = result.txs[0]!;
     expect(tx.type).toBe(TxType.BUYOPT);
-    expect(tx.quantity).toBe(3);
+    expect(tx.quantity).toBe("3");
     expect(tx.instrumentDescription).toContain("BRKB");
     // CONID is not a standard identifier -- no hints from generic parser.
     // Broker-specific converters (e.g. IBKR) add OCC hints via post-processing.
@@ -271,7 +271,7 @@ describe("parseOfxStatement", () => {
 
     const cf = result.txs[1]!;
     expect(cf.type).toBe(TxType.CASHFLOW);
-    expect(cf.quantity).toBe(-4239);
+    expect(cf.quantity).toBe("-4239");
   });
 
   it("returns secList for broker-specific post-processing", () => {
@@ -423,12 +423,12 @@ describe("groups and charges", () => {
     const cash = result.txs.find((t) => t.type === TxType.CASHFLOW)!;
     // toBe, not toBeCloseTo: the split is a decimal subtraction, so the result
     // is the exact value narrowed once rather than an accumulation of error.
-    expect(cash.quantity).toBe(-23080.68);
+    expect(cash.quantity).toBe("-23080.68");
 
     const fees = result.txs.filter((t) => t.type === TxType.INVEXPENSE);
     expect(fees).toHaveLength(2);
-    expect(fees.find((t) => t.accountType === AccountType.USER)!.quantity).toBe(-11.54034);
-    expect(fees.find((t) => t.accountType === AccountType.EXPENSE)!.quantity).toBe(11.54034);
+    expect(fees.find((t) => t.accountType === AccountType.USER)!.quantity).toBe("-11.54034");
+    expect(fees.find((t) => t.accountType === AccountType.EXPENSE)!.quantity).toBe("11.54034");
   });
 
   it("leaves the money that moved equal to the total the broker reported", () => {
@@ -453,7 +453,7 @@ describe("groups and charges", () => {
     )!;
     expect(fee.settlementCurrency).toBe("EUR");
     expect(fee.tradingCurrency).toBe("EUR");
-    expect(fee.quantity).toBe(-3.04736094);
+    expect(fee.quantity).toBe("-3.04736094");
   });
 
   it("emits no charge postings for a commission-free trade", () => {
@@ -483,7 +483,7 @@ describe("groups and charges", () => {
 
     expect(result.txs).toHaveLength(2);
     expect(result.txs[1]!.accountType).toBe(AccountType.INCOME);
-    expect(result.txs[1]!.quantity).toBe(-137.08);
+    expect(result.txs[1]!.quantity).toBe("-137.08");
     expect(result.txs[1]!.groupRef).toBe("div1");
     expectGroupsBalance(result.txs);
   });

@@ -28,15 +28,6 @@ type queryable interface {
 	GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
 }
 
-// qtyIsZero is true when a running position is closed. Its SQL counterpart no
-// longer needs an epsilon -- the quantity columns are NUMERIC and buys sum
-// against sells exactly -- but this one still reads a float64 position out of the
-// HeldRanges window, so it keeps absorbing that sum's residual until the scan
-// type follows the column.
-func qtyIsZero(q float64) bool {
-	return q > -1e-9 && q < 1e-9
-}
-
 // Postgres implements db.DB using PostgreSQL.
 type Postgres struct {
 	q queryable
@@ -221,14 +212,37 @@ func nullTime(t *time.Time) interface{} {
 	return *t
 }
 
-// nullFloat maps an absent value to SQL NULL, keying off presence rather than
+// nullDecimal maps an absent value to SQL NULL, keying off presence rather than
 // zero. A price of zero is a real price -- an option that expires worthless --
 // and must survive the round trip distinctly from no price at all.
-func nullFloat(f *float64) interface{} {
-	if f == nil {
+func nullDecimal(d *decimal.Decimal) interface{} {
+	if d == nil {
 		return nil
 	}
-	return *f
+	return *d
+}
+
+// parseOptDecimal parses an optional decimal wire field, preserving absence. An
+// unset field is nil; so is an empty string, because proto3 implicit presence
+// cannot tell "not supplied" from "" on the fields this shares a format with.
+func parseOptDecimal(s *string) (*decimal.Decimal, error) {
+	if s == nil || *s == "" {
+		return nil, nil
+	}
+	d, err := decimal.NewFromString(*s)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+// decStrPtr renders an optional decimal for the wire, preserving absence.
+func decStrPtr(d *decimal.Decimal) *string {
+	if d == nil {
+		return nil
+	}
+	s := d.String()
+	return &s
 }
 
 func decodePageToken(token string) int64 {
@@ -331,20 +345,20 @@ func (r *holdingRow) toProto() *apiv1.Holding {
 
 // txRow is the sqlx-scannable shape for transaction rows.
 type txRow struct {
-	Broker            string    `db:"broker"`
-	Account           string    `db:"account"`
-	Timestamp         time.Time `db:"timestamp"`
-	InstDesc          string    `db:"instrument_description"`
-	TxType            string    `db:"tx_type"`
-	Quantity          float64   `db:"quantity"`
-	SplitAdjQty       float64   `db:"split_adjusted_quantity"`
-	TradingCcy        *string   `db:"trading_currency"`
-	SettleCcy         *string   `db:"settlement_currency"`
-	UnitPrice         *float64  `db:"unit_price"`
-	SplitAdjUnitPrice *float64  `db:"split_adjusted_unit_price"`
-	InstID            *string   `db:"instrument_id"`
-	SyntheticPurpose  *string   `db:"synthetic_purpose"`
-	AccountType       string    `db:"account_type"`
+	Broker            string           `db:"broker"`
+	Account           string           `db:"account"`
+	Timestamp         time.Time        `db:"timestamp"`
+	InstDesc          string           `db:"instrument_description"`
+	TxType            string           `db:"tx_type"`
+	Quantity          decimal.Decimal  `db:"quantity"`
+	SplitAdjQty       decimal.Decimal  `db:"split_adjusted_quantity"`
+	TradingCcy        *string          `db:"trading_currency"`
+	SettleCcy         *string          `db:"settlement_currency"`
+	UnitPrice         *decimal.Decimal `db:"unit_price"`
+	SplitAdjUnitPrice *decimal.Decimal `db:"split_adjusted_unit_price"`
+	InstID            *string          `db:"instrument_id"`
+	SyntheticPurpose  *string          `db:"synthetic_purpose"`
+	AccountType       string           `db:"account_type"`
 }
 
 func (r *txRow) toProto() *apiv1.PortfolioTx {
@@ -352,8 +366,12 @@ func (r *txRow) toProto() *apiv1.PortfolioTx {
 		Timestamp:             timeToTs(r.Timestamp),
 		InstrumentDescription: r.InstDesc,
 		Type:                  strToTxType(r.TxType),
-		Quantity:              r.Quantity,
-		SplitAdjustedQuantity: r.SplitAdjQty,
+		// String() trims trailing zeros, so a value scanned out of the
+		// NUMERIC(38, 12) split-adjusted column arrives in the same form as the
+		// raw one it equals when no split applies. That is what lets the client
+		// compare the two to decide whether to show an adjustment.
+		Quantity:              r.Quantity.String(),
+		SplitAdjustedQuantity: decStrPtr(&r.SplitAdjQty),
 		Account:               r.Account,
 		AccountType:           strToAccountType(r.AccountType),
 	}
@@ -364,8 +382,8 @@ func (r *txRow) toProto() *apiv1.PortfolioTx {
 		tx.SettlementCurrency = *r.SettleCcy
 	}
 	// Carried as pointers so a stored price of zero stays distinct from no price.
-	tx.UnitPrice = r.UnitPrice
-	tx.SplitAdjustedUnitPrice = r.SplitAdjUnitPrice
+	tx.UnitPrice = decStrPtr(r.UnitPrice)
+	tx.SplitAdjustedUnitPrice = decStrPtr(r.SplitAdjUnitPrice)
 	if r.InstID != nil {
 		tx.InstrumentId = *r.InstID
 	}

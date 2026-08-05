@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 )
 
 type declarationRow struct {
@@ -150,16 +151,16 @@ func (p *Postgres) GetPortfolioStartDate(ctx context.Context, userID string) (*t
 }
 
 // ComputeRunningBalance implements db.HoldingDeclarationDB.
-func (p *Postgres) ComputeRunningBalance(ctx context.Context, userID, broker, account, instrumentID string, from, to time.Time) (float64, error) {
+func (p *Postgres) ComputeRunningBalance(ctx context.Context, userID, broker, account, instrumentID string, from, to time.Time) (decimal.Decimal, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return 0, fmt.Errorf("invalid user id: %w", err)
+		return decimal.Decimal{}, fmt.Errorf("invalid user id: %w", err)
 	}
 	instUUID, err := uuid.Parse(instrumentID)
 	if err != nil {
-		return 0, fmt.Errorf("invalid instrument id: %w", err)
+		return decimal.Decimal{}, fmt.Errorf("invalid instrument id: %w", err)
 	}
-	var balance sql.NullFloat64
+	var balance decimal.NullDecimal
 	err = p.q.QueryRowContext(ctx, `
 		SELECT COALESCE(SUM(quantity), 0) FROM txs
 		WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
@@ -168,13 +169,13 @@ func (p *Postgres) ComputeRunningBalance(ctx context.Context, userID, broker, ac
 		  AND account_type = 'USER'
 	`, userUUID, broker, account, instUUID, from, to).Scan(&balance)
 	if err != nil {
-		return 0, fmt.Errorf("compute running balance: %w", err)
+		return decimal.Decimal{}, fmt.Errorf("compute running balance: %w", err)
 	}
-	return balance.Float64, nil
+	return balance.Decimal, nil
 }
 
 // UpsertInitializeTx implements db.HoldingDeclarationDB.
-func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, account, instrumentID, txType string, timestamp time.Time, quantity float64) error {
+func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, account, instrumentID, txType string, timestamp time.Time, quantity decimal.Decimal) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -220,10 +221,10 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 		// two legs do not collide.
 		for _, leg := range []struct {
 			accountType string
-			quantity    float64
+			quantity    decimal.Decimal
 		}{
 			{"USER", quantity},
-			{"EQUITY", -quantity},
+			{"EQUITY", quantity.Neg()},
 		} {
 			if _, err := exec.ExecContext(ctx, `
 				INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
@@ -291,7 +292,7 @@ func (p *Postgres) DeleteInitializeTx(ctx context.Context, userID, broker, accou
 }
 
 // CreateDeclarationWithInitializeTx implements db.HoldingDeclarationDB.
-func (p *Postgres) CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate time.Time, initTxType string, initTimestamp time.Time, initQty float64) (*db.HoldingDeclarationRow, error) {
+func (p *Postgres) CreateDeclarationWithInitializeTx(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate time.Time, initTxType string, initTimestamp time.Time, initQty decimal.Decimal) (*db.HoldingDeclarationRow, error) {
 	var row *db.HoldingDeclarationRow
 	err := p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}
@@ -306,7 +307,7 @@ func (p *Postgres) CreateDeclarationWithInitializeTx(ctx context.Context, userID
 }
 
 // UpdateDeclarationWithInitializeTx implements db.HoldingDeclarationDB.
-func (p *Postgres) UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate time.Time, userID, broker, account, instrumentID, initTxType string, initTimestamp time.Time, initQty float64) (*db.HoldingDeclarationRow, error) {
+func (p *Postgres) UpdateDeclarationWithInitializeTx(ctx context.Context, id, declaredQty string, asOfDate time.Time, userID, broker, account, instrumentID, initTxType string, initTimestamp time.Time, initQty decimal.Decimal) (*db.HoldingDeclarationRow, error) {
 	var row *db.HoldingDeclarationRow
 	err := p.runInTx(ctx, func(tx queryable) error {
 		txp := &Postgres{q: tx}

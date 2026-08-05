@@ -560,8 +560,8 @@ func TestRecomputeSplitAdjustments_Txs(t *testing.T) {
 		{
 			Type:                  apiv1.TxType_BUYSTOCK,
 			Timestamp:             ts(2010, 6, 1),
-			Quantity:              100,
-			UnitPrice:             proto.Float64(280),
+			Quantity:              "100",
+			UnitPrice:             proto.String("280"),
 			InstrumentDescription: "AAPL",
 		},
 	})
@@ -716,8 +716,8 @@ func TestRecomputeSplitAdjustments_ForwardSplitIsExact(t *testing.T) {
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{{
 		Type:                  apiv1.TxType_BUYSTOCK,
 		Timestamp:             ts(2010, 6, 1),
-		Quantity:              100,
-		UnitPrice:             proto.Float64(280),
+		Quantity:              "100",
+		UnitPrice:             proto.String("280"),
 		InstrumentDescription: "AAPL",
 	}})
 	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
@@ -762,8 +762,8 @@ func TestRecomputeSplitAdjustments_ReverseSplitRoundsToDeclaredScale(t *testing.
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{{
 		Type:                  apiv1.TxType_BUYSTOCK,
 		Timestamp:             ts(2020, 1, 2),
-		Quantity:              100,
-		UnitPrice:             proto.Float64(280),
+		Quantity:              "100",
+		UnitPrice:             proto.String("280"),
 		InstrumentDescription: "RVRS",
 	}})
 	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
@@ -998,8 +998,8 @@ func TestApplyOptionSplit(t *testing.T) {
 	insertTxs(t, p, userID, optID, []*apiv1.Tx{{
 		Type:                  apiv1.TxType_BUYSTOCK,
 		Timestamp:             ts(2024, 6, 1),
-		Quantity:              1,
-		UnitPrice:             proto.Float64(150),
+		Quantity:              "1",
+		UnitPrice:             proto.String("150"),
 		InstrumentDescription: "AAPL 250117C00150000",
 	}})
 
@@ -1369,9 +1369,9 @@ func TestRecomputeSplitAdjustments_TxsUseDeclaredBasis(t *testing.T) {
 	userID := setupUser(t, p)
 	instID := setupInstrument(t, p, "AAPL")
 
-	asTraded := insertTxWithBasis(t, p, userID, instID, d(2020, 8, 28), 100, nil)
+	asTraded := insertTxWithBasis(t, p, userID, instID, d(2020, 8, 28), "100", nil)
 	today := time.Now().UTC().Truncate(24 * time.Hour)
-	restated := insertTxWithBasis(t, p, userID, instID, d(2020, 8, 28), 400, &today)
+	restated := insertTxWithBasis(t, p, userID, instID, d(2020, 8, 28), "400", &today)
 
 	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
 		{InstrumentID: instID, ExDate: d(2020, 8, 31), SplitFrom: "1", SplitTo: "4", DataProvider: "test"},
@@ -1390,7 +1390,7 @@ func TestRecomputeSplitAdjustments_TxsUseDeclaredBasis(t *testing.T) {
 	}
 }
 
-func insertTxWithBasis(t *testing.T, p *Postgres, userID, instID string, ts time.Time, qty float64, basis *time.Time) string {
+func insertTxWithBasis(t *testing.T, p *Postgres, userID, instID string, ts time.Time, qty string, basis *time.Time) string {
 	t.Helper()
 	var id string
 	err := p.q.QueryRowContext(context.Background(), `

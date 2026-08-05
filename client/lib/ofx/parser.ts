@@ -293,16 +293,16 @@ export function parseOfxStatement(text: string): OfxParseResult {
       }
 
       // Quantity and price depend on transaction category.
-      let quantity: number;
-      let unitPrice: number | undefined;
+      let quantity: string;
+      let unitPrice: string | undefined;
 
       if (tag === "INCOME") {
         // Income: quantity = TOTAL (cash amount), price = 1.
-        quantity = (dec(inner, "TOTAL") ?? ZERO).toNumber();
-        unitPrice = 1;
+        quantity = (dec(inner, "TOTAL") ?? ZERO).toString();
+        unitPrice = "1";
       } else {
-        quantity = (dec(inner, "UNITS") ?? ZERO).toNumber();
-        unitPrice = dec(inner, "UNITPRICE")?.toNumber();
+        quantity = (dec(inner, "UNITS") ?? ZERO).toString();
+        unitPrice = dec(inner, "UNITPRICE")?.toString();
       }
 
       // Build identifier hints.  Cash transaction types use a CURRENCY hint
@@ -366,12 +366,11 @@ export function parseOfxStatement(text: string): OfxParseResult {
               timestamp: ts,
               instrumentDescription: description,
               type: TxType.CASHFLOW,
-              // Decimal, so the two cash legs sum back to the broker's total for
-              // any input rather than for the ones that happen to round well.
-              // The example above survives float64; a charge quoted to more
-              // places than the total does not.
-              quantity: total.plus(charge).toNumber(),
-              unitPrice: 1,
+              // Decimal end to end now: the split is computed exactly and the
+              // wire carries the result, so the two cash legs sum back to the
+              // broker's total for any input.
+              quantity: total.plus(charge).toString(),
+              unitPrice: "1",
               account: acctId,
               tradingCurrency,
               settlementCurrency: tradingCurrency,

@@ -25,6 +25,6 @@ describe("client module imports", () => {
     expect(result.errors).toEqual([]);
     expect(result.txs).toHaveLength(1);
     expect(result.txs[0]!.type).toBe(TxType.BUYSTOCK);
-    expect(result.txs[0]!.quantity).toBe(10);
+    expect(result.txs[0]!.quantity).toBe("10");
   });
 });

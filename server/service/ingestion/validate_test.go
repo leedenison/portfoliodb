@@ -16,10 +16,10 @@ func TestValidateTx(t *testing.T) {
 		want   int
 	}{
 		{"nil tx", nil, 0, 1},
-		{"missing timestamp", &apiv1.Tx{InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 1}, 0, 1},
-		{"missing instrument_description", &apiv1.Tx{Timestamp: validTs, Type: apiv1.TxType_BUYSTOCK, Quantity: 1}, 0, 1},
-		{"missing type", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", Quantity: 1}, 0, 1},
-		{"valid", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10}, 0, 0},
+		{"missing timestamp", &apiv1.Tx{InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: "1"}, 0, 1},
+		{"missing instrument_description", &apiv1.Tx{Timestamp: validTs, Type: apiv1.TxType_BUYSTOCK, Quantity: "1"}, 0, 1},
+		{"missing type", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", Quantity: "1"}, 0, 1},
+		{"valid", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: "10"}, 0, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,8 +90,8 @@ func TestValidateTxs_sameTimestampAndDescriptionAllowed(t *testing.T) {
 	// No natural key: same (timestamp, instrument_description) in one batch is allowed.
 	ts := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: ts, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10},
-		{Timestamp: ts, InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: 5},
+		{Timestamp: ts, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: "10"},
+		{Timestamp: ts, InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: "5"},
 	}
 	errs := ValidateTxs(txs)
 	if len(errs) != 0 {
@@ -113,8 +113,8 @@ func TestValidateTxs_empty(t *testing.T) {
 func TestValidateTxs_perTxErrors(t *testing.T) {
 	validTs := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: validTs, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: 10},
-		{Timestamp: validTs, InstrumentDescription: "GOOG", Quantity: 5}, // missing type
+		{Timestamp: validTs, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: "10"},
+		{Timestamp: validTs, InstrumentDescription: "GOOG", Quantity: "5"}, // missing type
 	}
 	errs := ValidateTxs(txs)
 	if len(errs) == 0 {

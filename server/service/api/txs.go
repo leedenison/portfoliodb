@@ -6,6 +6,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -96,7 +97,7 @@ func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1
 }
 
 // txTypeForAssetClass returns the OFX tx type for a given asset class and quantity sign.
-func txTypeForAssetClass(assetClass string, qty float64) string {
+func txTypeForAssetClass(assetClass string, qty decimal.Decimal) string {
 	buy, sell := "BUYOTHER", "SELLOTHER"
 	switch assetClass {
 	case "STOCK", "ETF":
@@ -110,7 +111,7 @@ func txTypeForAssetClass(assetClass string, qty float64) string {
 	case "CASH":
 		buy, sell = "JRNLFUND", "JRNLFUND"
 	}
-	if qty < 0 {
+	if qty.IsNegative() {
 		return sell
 	}
 	return buy

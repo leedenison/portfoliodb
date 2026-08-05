@@ -227,20 +227,23 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
           )}
         </span>
       </td>
+      {/* Decimal strings render as supplied. The parseFloat(x.toFixed(4))
+          these replaced existed only to hide float artifacts, and a value that
+          never had any does not need it. The adjusted columns show a dash when
+          they equal the raw ones, which is a string comparison now: the server
+          emits both in canonical form, so equal values compare equal. */}
       <td data-testid="tx-qty" className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
-        {parseFloat(tx.quantity.toFixed(4))}
+        {tx.quantity}
       </td>
       <td className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
-        {tx.unitPrice !== undefined ? tx.unitPrice.toFixed(2) : "\u2014"}
+        {tx.unitPrice ?? "\u2014"}
       </td>
       <td data-testid="tx-adj-qty" className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
-        {tx.splitAdjustedQuantity !== undefined && tx.splitAdjustedQuantity !== tx.quantity
-          ? parseFloat(tx.splitAdjustedQuantity.toFixed(4))
-          : "\u2014"}
+        {tx.splitAdjustedQuantity !== tx.quantity ? tx.splitAdjustedQuantity : "\u2014"}
       </td>
       <td data-testid="tx-adj-price" className="px-4 py-3 text-right font-mono tabular-nums text-text-muted">
         {tx.splitAdjustedUnitPrice !== undefined && tx.splitAdjustedUnitPrice !== tx.unitPrice
-          ? tx.splitAdjustedUnitPrice.toFixed(2)
+          ? tx.splitAdjustedUnitPrice
           : "\u2014"}
       </td>
       <td className="px-4 py-3 text-text-muted">

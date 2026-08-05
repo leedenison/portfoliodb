@@ -30,7 +30,7 @@ func TestGetPortfolioValuation_Basic(t *testing.T) {
 	// Insert a buy of 10 shares on Jan 2.
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Corp", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Corp", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -134,8 +134,8 @@ func TestGetPortfolioValuation_DifferentDescriptionsNetToZero(t *testing.T) {
 	sellDate := time.Date(2025, 1, 5, 12, 0, 0, 0, time.UTC)
 
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(transferDate), InstrumentDescription: "ABNB", Type: apiv1.TxType_TRANSFER, Quantity: 213, Account: "main"},
-		{Timestamp: timestamppb.New(sellDate), InstrumentDescription: "ABNB AIRBNB INC-CLASS A", Type: apiv1.TxType_SELLSTOCK, Quantity: -213, Account: "main"},
+		{Timestamp: timestamppb.New(transferDate), InstrumentDescription: "ABNB", Type: apiv1.TxType_TRANSFER, Quantity: "213", Account: "main"},
+		{Timestamp: timestamppb.New(sellDate), InstrumentDescription: "ABNB AIRBNB INC-CLASS A", Type: apiv1.TxType_SELLSTOCK, Quantity: "-213", Account: "main"},
 	}
 	from := timestamppb.New(transferDate.Add(-1 * time.Hour))
 	to := timestamppb.New(sellDate.Add(1 * time.Hour))
@@ -203,8 +203,8 @@ func TestGetPortfolioValuation_UnpricedDeduplication(t *testing.T) {
 
 	// Two txs for the same instrument but with different descriptions.
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "ABNB", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "ABNB AIRBNB INC-CLASS A", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "ABNB", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "ABNB AIRBNB INC-CLASS A", Type: apiv1.TxType_BUYSTOCK, Quantity: "5", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -250,8 +250,8 @@ func TestGetPortfolioValuation_MultipleInstruments(t *testing.T) {
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL multi", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "GOOG multi", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL multi", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "GOOG multi", Type: apiv1.TxType_BUYSTOCK, Quantity: "5", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -299,7 +299,7 @@ func TestGetUserValuation_Basic(t *testing.T) {
 	// Insert a buy of 10 shares on Jan 2.
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL UserVal", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL UserVal", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -378,7 +378,7 @@ func TestGetPortfolioValuation_ExcludesDateBefore(t *testing.T) {
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Corp", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Corp", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "main"},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)), txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
@@ -422,7 +422,7 @@ func TestGetPortfolioValuation_FromEqualsBeforeReturnsNothing(t *testing.T) {
 	}
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Corp", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Corp", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "main"},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)), txs, []string{instID}, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
@@ -470,7 +470,7 @@ func TestGetUserValuation_FXConversion_DisplayUSD(t *testing.T) {
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "SAP FX", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "SAP FX", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -525,7 +525,7 @@ func TestGetUserValuation_FXConversion_CrossRate(t *testing.T) {
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "HSBC FX", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "HSBC FX", Type: apiv1.TxType_BUYSTOCK, Quantity: "5", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -579,7 +579,7 @@ func TestGetUserValuation_FXConversion_MissingRate(t *testing.T) {
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "SAP NR", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "SAP NR", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -631,7 +631,7 @@ func TestGetUserValuation_FXConversion_USDDisplayNonUSD(t *testing.T) {
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL FXD", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL FXD", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -684,7 +684,7 @@ func TestGetUserValuation_FXConversion_MissingBaseRate(t *testing.T) {
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "HSBC MBR", Type: apiv1.TxType_BUYSTOCK, Quantity: 5, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "HSBC MBR", Type: apiv1.TxType_BUYSTOCK, Quantity: "5", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -748,7 +748,7 @@ func TestGetUserValuation_CashInDisplayCurrency(t *testing.T) {
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "USD CASH", Type: apiv1.TxType_INCOME, Quantity: 500, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "USD CASH", Type: apiv1.TxType_INCOME, Quantity: "500", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -800,7 +800,7 @@ func TestGetUserValuation_CashInForeignCurrency(t *testing.T) {
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "GBP CASH", Type: apiv1.TxType_INCOME, Quantity: 1000, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "GBP CASH", Type: apiv1.TxType_INCOME, Quantity: "1000", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -841,7 +841,7 @@ func TestGetUserValuation_CashForeignMissingFXRate(t *testing.T) {
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "GBP CASH", Type: apiv1.TxType_INCOME, Quantity: 1000, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "GBP CASH", Type: apiv1.TxType_INCOME, Quantity: "1000", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -902,7 +902,7 @@ func TestGetUserValuation_CashForeignCurrency_NonUSDDisplay(t *testing.T) {
 
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "EUR CASH", Type: apiv1.TxType_INCOME, Quantity: 1000, TradingCurrency: "EUR", Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "EUR CASH", Type: apiv1.TxType_INCOME, Quantity: "1000", TradingCurrency: "EUR", Account: "main"},
 	}
 	from := timestamppb.New(buyDate.Add(-1 * time.Hour))
 	to := timestamppb.New(buyDate.Add(1 * time.Hour))
@@ -954,7 +954,7 @@ func TestGetUserValuation_ContinuousAcrossSplit(t *testing.T) {
 	// Buy 100 shares well before the split, then leave the position alone.
 	buyDate := time.Date(2020, 8, 3, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Split", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "AAPL Split", Type: apiv1.TxType_BUYSTOCK, Quantity: "100", Account: "main"},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID,
 		"IBKR", "", timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)),
@@ -1017,7 +1017,7 @@ func TestGetUserValuation_FXUnaffectedByASplit(t *testing.T) {
 
 	buyDate := time.Date(2020, 8, 3, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "SAP FXSplit", Type: apiv1.TxType_BUYSTOCK, Quantity: 100, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "SAP FXSplit", Type: apiv1.TxType_BUYSTOCK, Quantity: "100", Account: "main"},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "",
 		timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)),
@@ -1057,7 +1057,7 @@ func TestGetUserValuation_FXUnaffectedByASplit(t *testing.T) {
 }
 
 // setupHeldInstrument creates a user holding one instrument from buyDate on.
-func setupHeldInstrument(t *testing.T, p *Postgres, sub, desc string, qty float64, buyDate time.Time) (string, string) {
+func setupHeldInstrument(t *testing.T, p *Postgres, sub, desc string, qty string, buyDate time.Time) (string, string) {
 	t.Helper()
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, sub, "U", sub+"@locf.com")
@@ -1084,7 +1084,7 @@ func setupHeldInstrument(t *testing.T, p *Postgres, sub, desc string, qty float6
 func TestGetUserValuation_CarriesForwardOverNonTradingDays(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	userID, instID := setupHeldInstrument(t, p, "sub|locf1", "LOCF1", 10, d(2024, 1, 1))
+	userID, instID := setupHeldInstrument(t, p, "sub|locf1", "LOCF1", "10", d(2024, 1, 1))
 
 	// Fri 5 Jan is the last bar; Sat and Sun have none.
 	bars := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: decf(100)}}
@@ -1108,7 +1108,7 @@ func TestGetUserValuation_CarriesForwardOverNonTradingDays(t *testing.T) {
 func TestGetUserValuation_CarryForwardStopsAtCoverageEnd(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	userID, instID := setupHeldInstrument(t, p, "sub|locf2", "LOCF2", 10, d(2024, 1, 1))
+	userID, instID := setupHeldInstrument(t, p, "sub|locf2", "LOCF2", "10", d(2024, 1, 1))
 
 	bars := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 5), Close: decf(100)}}
 	if err := p.UpsertPricesForRange(ctx, instID, "test", bars, d(2024, 1, 5), d(2024, 1, 7), nil); err != nil {
@@ -1137,7 +1137,7 @@ func TestGetUserValuation_CarryForwardStopsAtCoverageEnd(t *testing.T) {
 func TestGetUserValuation_DisjointCoverageDoesNotBleed(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	userID, instID := setupHeldInstrument(t, p, "sub|locf3", "LOCF3", 10, d(2024, 1, 1))
+	userID, instID := setupHeldInstrument(t, p, "sub|locf3", "LOCF3", "10", d(2024, 1, 1))
 
 	first := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 2), Close: decf(100)}}
 	if err := p.UpsertPricesForRange(ctx, instID, "test", first, d(2024, 1, 2), d(2024, 1, 4), nil); err != nil {
@@ -1173,7 +1173,7 @@ func TestGetUserValuation_DisjointCoverageDoesNotBleed(t *testing.T) {
 func TestGetUserValuation_SeedsFromBarBeforeWindow(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	userID, instID := setupHeldInstrument(t, p, "sub|locf4", "LOCF4", 10, d(2024, 1, 1))
+	userID, instID := setupHeldInstrument(t, p, "sub|locf4", "LOCF4", "10", d(2024, 1, 1))
 
 	bars := []db.EODPrice{{InstrumentID: instID, PriceDate: d(2024, 1, 2), Close: decf(100)}}
 	if err := p.UpsertPricesForRange(ctx, instID, "test", bars, d(2024, 1, 1), d(2024, 1, 20), nil); err != nil {
@@ -1225,7 +1225,7 @@ func TestGetUserValuation_ExcludesDatesBeforeFirstTx(t *testing.T) {
 	// Bought on Jan 3, but the valuation window opens on Jan 1.
 	buyDate := time.Date(2025, 1, 3, 12, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "NULLQ", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "NULLQ", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "main"},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "",
 		timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)),

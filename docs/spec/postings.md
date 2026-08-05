@@ -161,10 +161,16 @@ Weights accumulate **per commodity**, so a group can produce more than one route
 posting and the commodity is whatever is left over -- cash for a missing cash leg,
 the security for an unpaired `JRNLSEC`. A residual is routed only above a
 tolerance: half a cent for money, `1e-6` otherwise. The tolerance is not a
-floating-point fudge and does not go away when quantities become exact -- a group
-written to 2dp that balances to within half a cent is balanced. The constants are
-interim: once the amounts carry a scale, the tolerance is inferred from it rather
-than fixed. See adr/0026-exact-decimals-bounded-by-closure.md.
+floating-point fudge and did not go away when quantities became exact -- a group
+written to 2dp that balances to within half a cent is balanced, and that is a
+disagreement between two rounded figures rather than arithmetic error. Inferring
+the tolerance from the scale of the contributing amounts, rather than fixing it,
+would change which residuals get routed and has not been done. See
+adr/0026-exact-decimals-bounded-by-closure.md.
+
+Weights are exact: a posting's weight is `quantity * unit_price * contract_size`,
+which is closed under multiplication, so a group's balance is a plain sum with
+nothing to absorb.
 
 The routed posting takes the `IMBALANCE` type, or `TRANSFER_CLEARING` when the
 group is a journal. It keeps the broker, account, date and `tx_type` of the group

@@ -164,8 +164,10 @@ message Tx {
   string instrument_description = 2 [(buf.validate.field).string.min_len = 1];
   // OFX transaction type. Required.
   TxType type = 3 [(buf.validate.field).enum.defined_only = true];
-  // Signed quantity: positive for buys/adds, negative for sells/reductions.
-  double quantity = 4;
+  // Signed quantity as a decimal string: positive for buys/adds, negative for
+  // sells/reductions. Exact, because a holding is a sum of these and a group's
+  // balance is a sum of their weights.
+  string quantity = 4 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // Currency in which the instrument is denominated (trading currency, e.g. EUR for SAF). Optional. Passed to plugins as the currency hint. For cash transactions only, set this (same as settlement when user selects one currency).
   string trading_currency = 5;
   // Currency used to pay/settle the transaction (e.g. GBP when buying in a UK account). Optional. Set from user input (e.g. Fidelity converter) for all transactions.
@@ -177,7 +179,8 @@ message Tx {
   // group balances, while a row whose converter supplied no price cannot convert
   // and leaves a residual in the security itself. Collapsing the two would let a
   // missing price balance silently. See docs/spec/postings.md.
-  optional double unit_price = 7;
+  // A decimal string, in the trading currency.
+  optional string unit_price = 7 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // Resolved instrument id (UUID). Set by identification during ingestion.
   string instrument_id = 8;
   // Account (opaque string). Required.
@@ -187,11 +190,16 @@ message Tx {
   // NULL for real transactions, 'INITIALIZE' for synthetic opening-balance transactions.
   string synthetic_purpose = 11;
   // Split-adjusted quantity (quantity * cumulative split factor). Equal to
-  // quantity when no splits exist for the instrument.
-  double split_adjusted_quantity = 12;
+  // quantity when no splits exist for the instrument. A decimal string, carrying
+  // the column's declared rounding scale; an exact check reads quantity instead.
+  //
+  // Optional because it is server-computed: an upload leaves it unset and the
+  // database derives it from quantity, so requiring it would make every client
+  // send a value it has no way to know. It is always present on the way out.
+  optional string split_adjusted_quantity = 12 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // Split-adjusted unit price (unit_price / cumulative split factor). Optional
   // for the same reason as unit_price, and absent exactly when it is.
-  optional double split_adjusted_unit_price = 13;
+  optional string split_adjusted_unit_price = 13 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // Opaque grouping key, scoped to a single upload. Txs sharing a non-empty
   // group_ref are postings of one economic event and are stored in one tx group.
   // Empty means the tx is its own single-posting group. Set by the broker

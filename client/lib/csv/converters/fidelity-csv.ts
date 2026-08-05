@@ -14,7 +14,9 @@ import { TxSchema, TxType } from "@/gen/api/v1/api_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/standard";
 import { parseCSVLine } from "@/lib/csv/standard";
 import { counterLegs } from "@/lib/csv/postings";
-import { parseDecimal } from "@/lib/decimal";
+import { Big, parseDecimal } from "@/lib/decimal";
+
+const ZERO = new Big(0);
 
 const FIDELITY_DATE_FORMAT = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/;
 const MONTHS: Record<string, number> = {
@@ -317,23 +319,21 @@ export function convertFidelityToStandard(
     const qtyStr = get(qtyCol);
     const amountStr = amountCol >= 0 ? get(amountCol) : "";
     const amountDec = parseDecimal(amountStr);
-    const amount = amountDec?.toNumber() ?? NaN;
 
     const rawQtyDec = parseDecimal(qtyStr);
-    let quantity = rawQtyDec?.toNumber() ?? 0;
+    let quantity = rawQtyDec ?? ZERO;
     if (isCashMovement(ofxType) && amountDec !== undefined) {
       // Quantity is an unsigned magnitude: a fee and the interest that paid for
       // it both report a positive number, and the direction survives only in the
       // sign of Amount. Quantity is also 0 on some rows where money did move
       // (Tax On Interest reports 0 against an Amount of -0.20), so for cash the
       // transacted value is Amount itself rather than a sign-corrected Quantity.
-      quantity = amount;
+      quantity = amountDec;
     } else if (ofxType === TxType.SELLSTOCK || ofxType === TxType.SELLMF || ofxType === TxType.SELLDEBT || ofxType === TxType.SELLOPT || ofxType === TxType.SELLOTHER) {
-      quantity = -Math.abs(quantity);
+      quantity = quantity.abs().times(-1);
     }
     const priceStr = priceCol >= 0 ? get(priceCol) : "";
     const unitPriceDec = parseDecimal(priceStr);
-    const unitPrice = unitPriceDec?.toNumber();
 
     const ts = date.getTime();
     if (ts < minTime) minTime = ts;
@@ -361,11 +361,12 @@ export function convertFidelityToStandard(
         timestamp: timestampFromDate(date),
         instrumentDescription,
         type: ofxType,
-        quantity,
+        quantity: quantity.toString(),
         account,
         settlementCurrency: currency,
         ...(isCashTxType(ofxType) ? { tradingCurrency: currency } : {}),
-        ...(unitPrice !== undefined && !Number.isNaN(unitPrice) ? { unitPrice } : {}),
+        // Presence, not truthiness: a reported price of zero is a price.
+        ...(unitPriceDec !== undefined ? { unitPrice: unitPriceDec.toString() } : {}),
       })
     );
   }

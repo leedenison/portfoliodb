@@ -14,6 +14,7 @@ import { TxSchema, TxType } from "@/gen/api/v1/api_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/standard";
 import { parseCSVLine } from "@/lib/csv/standard";
 import { counterLegs } from "@/lib/csv/postings";
+import { parseDecimal } from "@/lib/decimal";
 
 const FIDELITY_DATE_FORMAT = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/;
 const MONTHS: Record<string, number> = {
@@ -161,6 +162,9 @@ export function assignFidelityGroups(legs: FidelityLeg[]): string[] {
   // notices a cash row that is internally consistent but belongs to a different
   // trade. quantity * unit price is derived from different fields, which makes it an
   // independent check: a swapped cash row misses it by percentage points.
+  // A ratio test, so it divides: past the exactness boundary by construction,
+  // and a band this wide would not notice the difference anyway. See
+  // adr/0026-exact-decimals-bounded-by-closure.md.
   const consistent = (security: FidelityLeg, cash: FidelityLeg) => {
     const expected = Math.abs(security.consideration);
     // Nothing quoted to check against. Absence is not evidence of a bad pairing.
@@ -312,11 +316,12 @@ export function convertFidelityToStandard(
     const account = accountCol >= 0 ? get(accountCol) : "";
     const qtyStr = get(qtyCol);
     const amountStr = amountCol >= 0 ? get(amountCol) : "";
-    const amount = amountStr ? parseFloat(amountStr) : NaN;
+    const amountDec = parseDecimal(amountStr);
+    const amount = amountDec?.toNumber() ?? NaN;
 
-    let quantity = parseFloat(qtyStr);
-    if (Number.isNaN(quantity)) quantity = 0;
-    if (isCashMovement(ofxType) && !Number.isNaN(amount)) {
+    const rawQtyDec = parseDecimal(qtyStr);
+    let quantity = rawQtyDec?.toNumber() ?? 0;
+    if (isCashMovement(ofxType) && amountDec !== undefined) {
       // Quantity is an unsigned magnitude: a fee and the interest that paid for
       // it both report a positive number, and the direction survives only in the
       // sign of Amount. Quantity is also 0 on some rows where money did move
@@ -327,7 +332,8 @@ export function convertFidelityToStandard(
       quantity = -Math.abs(quantity);
     }
     const priceStr = priceCol >= 0 ? get(priceCol) : "";
-    const unitPrice = priceStr ? parseFloat(priceStr) : undefined;
+    const unitPriceDec = parseDecimal(priceStr);
+    const unitPrice = unitPriceDec?.toNumber();
 
     const ts = date.getTime();
     if (ts < minTime) minTime = ts;
@@ -337,15 +343,16 @@ export function convertFidelityToStandard(
     // and pairing only needs them to agree.
     // The raw quantity, not the sign-corrected one: cash rows overwrite it with
     // their amount, which would make the check compare a total against itself.
-    const rawQty = parseFloat(qtyStr);
     legs.push({
       type: txTypeStr,
       account,
       dateKey: dateStr,
-      amount: Number.isNaN(amount) ? 0 : amount,
+      amount: amountDec?.toNumber() ?? 0,
+      // The product is exact; the band it is compared against is not, which is
+      // why the leg carries it as a number.
       consideration:
-        !Number.isNaN(rawQty) && unitPrice !== undefined && !Number.isNaN(unitPrice)
-          ? Math.abs(rawQty * unitPrice)
+        rawQtyDec !== undefined && unitPriceDec !== undefined
+          ? rawQtyDec.times(unitPriceDec).abs().toNumber()
           : 0,
       ref: refCol >= 0 ? parseInt(get(refCol), 10) : NaN,
     });

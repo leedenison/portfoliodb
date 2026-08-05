@@ -17,7 +17,7 @@ export default defineConfig({
     // from extension/node_modules. Without dedupe both copies land in the bundle,
     // and two protobuf runtimes means registries that do not recognise each
     // other's descriptors. See the version pinning note in package.json.
-    dedupe: ["@bufbuild/protobuf", "papaparse"],
+    dedupe: ["@bufbuild/protobuf", "papaparse", "big.js"],
   },
   build: {
     outDir: "dist",

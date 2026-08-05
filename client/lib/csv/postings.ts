@@ -11,6 +11,7 @@
  */
 
 import { clone, create } from "@bufbuild/protobuf";
+import { Big } from "@/lib/decimal";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import {
@@ -43,7 +44,7 @@ const COUNTER_TYPE = new Map<TxType, AccountType>([
  * server/service/ingestion/balance.go), so a sub-cent commission would add two
  * postings to every trade and change no balance.
  */
-export const FEE_EPSILON = 0.005;
+export const FEE_EPSILON = new Big("0.005");
 
 /**
  * The mirror of a one-sided cash posting: the same money in the account it came
@@ -57,6 +58,7 @@ export function counterLeg(tx: Tx): Tx | undefined {
     return undefined;
   }
   const leg = clone(TxSchema, tx);
+  // Negation is exact in binary floating point, so this needs no decimal.
   leg.quantity = -tx.quantity;
   leg.accountType = accountType;
   return leg;
@@ -70,8 +72,8 @@ export function counterLeg(tx: Tx): Tx | undefined {
  * counterLeg, so a derived fee and a separately reported one end up identical.
  * Returns undefined below FEE_EPSILON.
  */
-export function feeLeg(from: Tx, fee: number): Tx | undefined {
-  if (!Number.isFinite(fee) || Math.abs(fee) < FEE_EPSILON) return undefined;
+export function feeLeg(from: Tx, fee: Big | undefined): Tx | undefined {
+  if (fee === undefined || fee.abs().lt(FEE_EPSILON)) return undefined;
   const currency = from.settlementCurrency || from.tradingCurrency;
   return create(TxSchema, {
     ...(from.timestamp ? { timestamp: clone(TimestampSchema, from.timestamp) } : {}),
@@ -79,7 +81,10 @@ export function feeLeg(from: Tx, fee: number): Tx | undefined {
     // downstream has to treat a derived fee specially.
     instrumentDescription: currency,
     type: TxType.INVEXPENSE,
-    quantity: -Math.abs(fee),
+    // Exact up to here; the proto field is still a number, so this is the one
+    // place the value narrows. It stops narrowing when the field becomes a
+    // decimal string.
+    quantity: fee.abs().times(-1).toNumber(),
     unitPrice: 1,
     account: from.account,
     groupRef: from.groupRef,

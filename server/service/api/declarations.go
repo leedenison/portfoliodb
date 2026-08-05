@@ -50,10 +50,16 @@ func (s *Server) ListHoldingDeclarations(ctx context.Context, req *apiv1.ListHol
 	return &apiv1.ListHoldingDeclarationsResponse{Declarations: decls}, nil
 }
 
-// declarationToProto converts a stored declaration to its wire form. The instrument
-// is left to the caller: only the list populates it.
+// declarationScale is the rounding scale the split-adjusted columns declare, and so
+// the size of one unit in the last place of a converted quantity. See
+// docs/adr/0026-exact-decimals-bounded-by-closure.md.
+const declarationScale = -12
+
+// declarationToProto converts a stored declaration to its wire form, checking it
+// against the computed holding when the read supplied one. The instrument is left to
+// the caller: only the list populates it.
 func declarationToProto(r *db.HoldingDeclarationRow) *apiv1.HoldingDeclaration {
-	return &apiv1.HoldingDeclaration{
+	out := &apiv1.HoldingDeclaration{
 		Id:              r.ID,
 		Broker:          r.Broker,
 		Account:         r.Account,
@@ -63,6 +69,35 @@ func declarationToProto(r *db.HoldingDeclarationRow) *apiv1.HoldingDeclaration {
 		ShareCountBasis: timeToDate(r.ShareCountBasis),
 		Kind:            r.Kind,
 	}
+	if r.Verified == nil {
+		return out
+	}
+	declared, err := decimal.NewFromString(r.DeclaredQty)
+	if err != nil {
+		// A declared_qty that will not parse is a stored value the write path
+		// validated, so this cannot happen from the API. Report the declaration
+		// without a verdict rather than failing the whole list for it.
+		return out
+	}
+
+	// The tolerance is a bound, not a fudge factor. Each share count basis that
+	// contributes a conversion by something other than 1/1 can round once, at the
+	// declared scale of the split-adjusted columns -- so that many units in the last
+	// place is the most the two sides can differ by while still agreeing. When no
+	// split falls in the window, which is the common case, no basis converts
+	// inexactly and the comparison is exact.
+	tolerance := decimal.New(int64(r.Verified.InexactBases), declarationScale)
+	delta := r.Verified.ComputedQty.Sub(declared)
+
+	out.ComputedQty = decStr(r.Verified.ComputedQty)
+	out.Delta = decStr(delta)
+	out.Tolerance = decStr(tolerance)
+	out.PostingCount = r.Verified.PostingCount
+	// A pad is made true by construction, so its own check can only ever pass and
+	// reporting it as a result would suggest it had found something out.
+	out.Matched = r.Kind == apiv1.DeclarationKind_DECLARATION_KIND_PAD ||
+		delta.Abs().LessThanOrEqual(tolerance)
+	return out
 }
 
 // padDeclaration returns the declaration that seeds a holding's opening balance --

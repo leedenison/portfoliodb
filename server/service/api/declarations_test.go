@@ -49,6 +49,70 @@ func TestListHoldingDeclarations_Success(t *testing.T) {
 	}
 }
 
+// TestListHoldingDeclarations_Checks covers the tolerance rule. It is a bound, not a
+// fudge factor: each share count basis that converts by something other than 1/1 can
+// round once at the declared scale of the split-adjusted columns, so that many units
+// in the last place is the most the two sides can differ by and still agree. With no
+// split in the window nothing converts inexactly and the comparison is exact.
+func TestListHoldingDeclarations_Checks(t *testing.T) {
+	ulp := "0.000000000001"
+	for _, tc := range []struct {
+		name          string
+		kind          apiv1.DeclarationKind
+		declared      string
+		computed      string
+		inexactBases  int32
+		wantDelta     string
+		wantTolerance string
+		wantMatched   bool
+	}{
+		{"exact agreement", apiv1.DeclarationKind_DECLARATION_KIND_ASSERT, "650", "650", 0, "0", "0", true},
+		{"a missing transaction", apiv1.DeclarationKind_DECLARATION_KIND_ASSERT, "650", "500", 0, "-150", "0", false},
+		{"no split, so no slack at all", apiv1.DeclarationKind_DECLARATION_KIND_ASSERT, "650", "650.000000000001", 0, "0.000000000001", "0", false},
+		{"one inexact basis, within its rounding", apiv1.DeclarationKind_DECLARATION_KIND_ASSERT, "650", "650.000000000001", 1, "0.000000000001", ulp, true},
+		{"one inexact basis, beyond its rounding", apiv1.DeclarationKind_DECLARATION_KIND_ASSERT, "650", "650.000000000002", 1, "0.000000000002", ulp, false},
+		{"two inexact bases widen the bound", apiv1.DeclarationKind_DECLARATION_KIND_ASSERT, "650", "650.000000000002", 2, "0.000000000002", "0.000000000002", true},
+		// A pad is made true by construction, so its own check can only pass.
+		{"a pad always reconciles", apiv1.DeclarationKind_DECLARATION_KIND_PAD, "500", "400", 0, "-100", "0", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := declarationToProto(&db.HoldingDeclarationRow{
+				ID: "d1", DeclaredQty: tc.declared, AsOfDate: asOfJun1, ShareCountBasis: asOfJun1, Kind: tc.kind,
+				Verified: &db.DeclarationCheck{
+					ComputedQty:  decimal.RequireFromString(tc.computed),
+					PostingCount: 3,
+					InexactBases: tc.inexactBases,
+				},
+			})
+			if got.GetComputedQty() != tc.computed {
+				t.Errorf("computed_qty = %s, want %s", got.GetComputedQty(), tc.computed)
+			}
+			if got.GetDelta() != tc.wantDelta {
+				t.Errorf("delta = %s, want %s", got.GetDelta(), tc.wantDelta)
+			}
+			if got.GetTolerance() != tc.wantTolerance {
+				t.Errorf("tolerance = %s, want %s", got.GetTolerance(), tc.wantTolerance)
+			}
+			if got.GetMatched() != tc.wantMatched {
+				t.Errorf("matched = %v, want %v", got.GetMatched(), tc.wantMatched)
+			}
+			if got.GetPostingCount() != 3 {
+				t.Errorf("posting_count = %d, want 3", got.GetPostingCount())
+			}
+		})
+	}
+}
+
+// TestListHoldingDeclarations_UncheckedRow covers the write paths, which return the
+// stored row without measuring it. A declaration with no check reports no verdict
+// rather than a default one, so a create cannot read as "matched".
+func TestListHoldingDeclarations_UncheckedRow(t *testing.T) {
+	got := declarationToProto(&db.HoldingDeclarationRow{ID: "d1", DeclaredQty: "650", AsOfDate: asOfJun1, ShareCountBasis: asOfJun1})
+	if got.GetComputedQty() != "" || got.GetDelta() != "" || got.GetMatched() {
+		t.Fatalf("unchecked declaration carried a verdict: %+v", got)
+	}
+}
+
 func TestListHoldingDeclarations_Unauthenticated(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
 	_, err := srv.ListHoldingDeclarations(ctxNoAuth(), &apiv1.ListHoldingDeclarationsRequest{})

@@ -570,6 +570,126 @@ func TestComputeRunningBalance_ConvertsToDeclarationBasis(t *testing.T) {
 	}
 }
 
+// TestListHoldingDeclarations_ChecksAgainstTheHolding is the point of the whole
+// pad/assert split: an assertion is measured against what the transactions add up
+// to, so a missing one shows up as a difference. The pad is included in that sum --
+// an assertion checks the holding as the user sees it -- which is also why the pad's
+// own check is always level.
+func TestListHoldingDeclarations_ChecksAgainstTheHolding(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-verify", "U", "u@v.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "VF1", Canonical: false}}, "", nil, nil, nil)
+
+	padDate := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+	buyAt := time.Date(2022, 6, 1, 10, 0, 0, 0, time.UTC)
+	assertDate := time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC)
+
+	// A pad of 500 at the start, one real buy of 150, and an assertion of 650.
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, db.InitializeTx{
+		TxType: "BUYSTOCK", Timestamp: padDate, Quantity: decf(500), ShareCountBasis: padDate,
+	}); err != nil {
+		t.Fatalf("upsert pad: %v", err)
+	}
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(buyAt), InstrumentDescription: "VF1", Type: apiv1.TxType_BUYSTOCK, Quantity: "150", Account: "acct1"}, instID, nil); err != nil {
+		t.Fatalf("create buy: %v", err)
+	}
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "500", padDate, time.Time{}); err != nil {
+		t.Fatalf("create pad declaration: %v", err)
+	}
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "650", assertDate, time.Time{}); err != nil {
+		t.Fatalf("create assertion: %v", err)
+	}
+
+	checked := func() map[string]string {
+		t.Helper()
+		rows, err := p.ListHoldingDeclarations(ctx, userID)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		out := map[string]string{}
+		for _, r := range rows {
+			if r.Verified == nil {
+				t.Fatalf("declaration %s came back unchecked", r.AsOfDate.Format("2006-01-02"))
+			}
+			if r.Verified.InexactBases != 0 {
+				t.Errorf("no split falls in this window, so the check should be exact; got %d inexact bases", r.Verified.InexactBases)
+			}
+			out[r.AsOfDate.Format("2006-01-02")] = r.Verified.ComputedQty.String()
+		}
+		return out
+	}
+
+	if got, want := checked(), map[string]string{"2021-01-01": "500", "2023-12-31": "650"}; !maps.Equal(got, want) {
+		t.Fatalf("computed quantities: got %v, want %v", got, want)
+	}
+
+	// Lose the buy, the way a converter dropping a row would. The assertion is the
+	// only thing in the system that notices.
+	if _, err := p.q.ExecContext(ctx, `
+		DELETE FROM tx_groups g WHERE g.user_id = $1 AND EXISTS (
+			SELECT 1 FROM txs t WHERE t.group_id = g.id AND t.synthetic_purpose IS NULL)
+	`, userID); err != nil {
+		t.Fatalf("delete buy: %v", err)
+	}
+	if got, want := checked(), map[string]string{"2021-01-01": "500", "2023-12-31": "500"}; !maps.Equal(got, want) {
+		t.Fatalf("computed quantities after losing the buy: got %v, want %v", got, want)
+	}
+}
+
+// TestListHoldingDeclarations_ChecksAcrossASplit denominates both sides of the
+// comparison. The postings are recorded either side of a 2:1 split, so an assertion
+// stated in pre-split shares and one stated in post-split shares describe the same
+// holding with different numbers, and both have to reconcile.
+func TestListHoldingDeclarations_ChecksAcrossASplit(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-verify-split", "U", "u@v.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "VS1", Canonical: false}}, "", nil, nil, nil)
+
+	preSplit := time.Date(2021, 3, 1, 10, 0, 0, 0, time.UTC)
+	exDate := time.Date(2022, 6, 1, 0, 0, 0, 0, time.UTC)
+	postSplit := time.Date(2023, 3, 1, 10, 0, 0, 0, time.UTC)
+	addSplit(t, p, instID, exDate, 1, 2)
+
+	for _, at := range []time.Time{preSplit, postSplit} {
+		if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "VS1", Type: apiv1.TxType_BUYSTOCK, Quantity: "50", Account: "acct1"}, instID, nil); err != nil {
+			t.Fatalf("create buy at %s: %v", at.Format("2006-01-02"), err)
+		}
+	}
+
+	// 50 shares bought pre-split are 100 post-split, plus 50 more: 150 in post-split
+	// terms, 75 in pre-split terms. The two as_of dates differ only because a holding
+	// takes one declaration per date; both are after the last buy, so the two
+	// declarations see the same postings.
+	for _, tc := range []struct {
+		name  string
+		asOf  time.Time
+		basis time.Time
+		want  string
+	}{
+		{"pre-split basis", time.Date(2023, 12, 30, 0, 0, 0, 0, time.UTC), preSplit, "75"},
+		{"post-split basis", time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC), postSplit, "150"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, tc.want, tc.asOf, tc.basis)
+			if err != nil {
+				t.Fatalf("create declaration: %v", err)
+			}
+			got, err := p.GetHoldingDeclaration(ctx, row.ID)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			if got.Verified == nil {
+				t.Fatal("declaration came back unchecked")
+			}
+			if got.Verified.ComputedQty.String() != tc.want {
+				t.Fatalf("computed qty = %s, want %s", got.Verified.ComputedQty, tc.want)
+			}
+		})
+	}
+}
+
 // TestDeleteDeclarationWithInitializeTx_KeepsThePadForSurvivors covers what deleting
 // one of a holding's declarations does to the pad. Deleting one that leaves others
 // behind rewrites the pad from whichever now pads the holding; deleting the last one

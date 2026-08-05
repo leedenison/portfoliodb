@@ -902,6 +902,24 @@ message HoldingDeclaration {
   google.type.Date share_count_basis = 8;
   // Read-only; derived from the declaration dates for this holding.
   DeclarationKind kind = 9;
+  // What the transactions add up to at as_of_date, in share_count_basis, including
+  // the holding's pad. Numeric string. Read-only, and recomputed on every read, so
+  // it follows an ingestion, an instrument merge or a split recompute with nothing
+  // to invalidate. See docs/spec/fixed-point.md#verification.
+  string computed_qty = 10;
+  // computed_qty - declared_qty. Numeric string; positive means the transactions
+  // account for more than was declared. Read-only.
+  string delta = 11;
+  // How far delta may stray from zero before it means something. Numeric string,
+  // derived from the rounding scale of the split conversion and the number of share
+  // count bases that contribute one; zero when no split falls in the window, which
+  // is the common case. Read-only.
+  string tolerance = 12;
+  // Whether the declaration reconciles: abs(delta) <= tolerance. Always true for a
+  // pad, which is made true by construction. Read-only.
+  bool matched = 13;
+  // How many postings the computed quantity was summed from. Read-only.
+  int32 posting_count = 14;
 }
 
 message ListHoldingDeclarationsRequest {}

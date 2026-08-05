@@ -1,6 +1,7 @@
 ---
-status: open
+status: closed
 title: Split holding declarations into pads and checked assertions
+dependencies: [0042]
 ---
 
 Allow more than one declaration per holding and distinguish declarations that

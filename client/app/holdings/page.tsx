@@ -8,9 +8,10 @@ import { ErrorAlert } from "@/app/components/error-alert";
 import { useAuthedQuery } from "@/hooks/use-authed-query";
 import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
-import { getHoldings } from "@/lib/portfolio-api";
+import { getHoldings, listHoldingDeclarations } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
-import { IdentifierType } from "@/gen/api/v1/api_pb";
+import { DeclarationKind, IdentifierType } from "@/gen/api/v1/api_pb";
+import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
 import { OpeningBalances } from "./opening-balances";
 
 type Tab = "holdings" | "opening-balances";
@@ -31,6 +32,18 @@ export default function UserHoldingsPage() {
     queryKey: qk.holdings(portfolioId),
     queryFn: () => getHoldings({ portfolioId }),
   });
+
+  // The tab carries the count of checkpoints that disagree with the transactions, so
+  // a user who is not looking at the tab still learns there is something to look at.
+  // It reads the list the tab itself renders, so the two share a cache entry and the
+  // badge costs no extra request.
+  const { data: declarations = [] } = useAuthedQuery<HoldingDeclaration[]>({
+    queryKey: qk.holdingDeclarations(),
+    queryFn: listHoldingDeclarations,
+  });
+  const mismatches = declarations.filter(
+    (d) => d.kind === DeclarationKind.ASSERT && !!d.computedQty && !d.matched
+  ).length;
 
   return (
     <AppShell>
@@ -67,6 +80,7 @@ export default function UserHoldingsPage() {
             <div className="flex gap-0 border-b border-border">
               <button
                 type="button"
+                data-testid="tab-holdings"
                 onClick={() => setActiveTab("holdings")}
                 className={
                   "px-4 py-2 text-sm font-medium transition-colors " +
@@ -79,6 +93,7 @@ export default function UserHoldingsPage() {
               </button>
               <button
                 type="button"
+                data-testid="tab-opening-balances"
                 onClick={() => setActiveTab("opening-balances")}
                 className={
                   "px-4 py-2 text-sm font-medium transition-colors " +
@@ -88,6 +103,14 @@ export default function UserHoldingsPage() {
                 }
               >
                 Opening Balances
+                {mismatches > 0 && (
+                  <span
+                    data-testid="declaration-mismatch-badge"
+                    className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                  >
+                    {mismatches}
+                  </span>
+                )}
               </button>
             </div>
 

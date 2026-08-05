@@ -13,7 +13,7 @@ import type { StandardParseResult } from "@/lib/csv/standard";
 import { parseOfxStatement } from "@/lib/ofx/parser";
 import { register } from "./registry";
 
-function convertIbkrOfx(text: string): StandardParseResult {
+export function convertIbkrOfx(text: string): StandardParseResult {
   const result = parseOfxStatement(text);
 
   // IBKR uses CONID (internal contract ID) for options. The SECLIST

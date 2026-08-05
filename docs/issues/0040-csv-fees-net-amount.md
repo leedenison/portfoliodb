@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Emit fee and cash postings from brokers that net commission
 milestone: M12
 dependencies: [0039, 0063]
@@ -13,7 +13,7 @@ standard CSV. It no longer does. A fee is a posting with `type=INVEXPENSE`, not 
 column: that is already how Fidelity's separately-reported charges arrive, and
 columns would express the same money twice. See
 adr/0021-converters-own-transaction-grouping.md. What remains is the converter-side
-work for brokers that do not report charges separately.
+work for brokers that fold the charge into one cash total.
 
 ## Motivation
 
@@ -24,38 +24,76 @@ in `Imbalance` (0038) whenever the price and the cash total disagree.
 
 ## Design
 
-- The converter derives the fee as `|Amount| - quantity * price` and emits it as an
-  `INVEXPENSE` posting in the same group as the trade.
+- The converter takes the fee from what the broker reported separately -- `<COMMISSION>`
+  and `<TAXES>` in OFX, `Fees & Comm` in a Schwab CSV -- and emits it as an
+  `INVEXPENSE` posting in the same group as the trade, paired with its `EXPENSE`
+  mirror. The consideration leg is then `total + commission`, so the two cash legs
+  add back up to the total the broker reported. See
+  adr/0025-netted-cash-totals-are-split-into-legs.md.
 - Where a broker reports charges as their own rows on their own dates (Fidelity),
   they stay separate single-posting groups. Do not fold them into the trade group;
   they are separate cash events and grouping them would misdate them.
-- The currency qualifier matters. Derive the fee only after the price and the cash
-  total are in the same currency.
+- Deriving the fee as `|Amount| - quantity * price` was the original design and was
+  rejected -- see the measurement below. It is only the commission when the price
+  and the cash total are already in the same currency and the price is exact.
 
-## Sequencing
+## Delivered
 
-Prioritise converter updates using the imbalance report from 0039 -- fix the
-broker with the largest residual first. The Fidelity converter (0013) is the
-existing worked example.
+Shared helpers in `client/lib/csv/postings.ts` (`counterLeg`, `feeLeg`,
+`counterLegs`, `refPrefix`), the Fidelity CSV and JSON converters emitting income
+and expense counter-legs, and the OFX parser splitting IBKR's netted `<TOTAL>`.
+Then the manual test data under `local/scripts`, which had four defects that made
+the 0039 report unusable as the sequencing evidence this issue asks for:
 
-## Manual test data
+- `check-balance.py` did not weigh an option leg by its 100x contract size, which
+  `balance.go` has applied since 0072. It reported IBKR option residuals about 100x
+  too large, which pointed the report at options rather than at the FX bug below.
+  `client/lib/csv/group-balance.test-utils.ts` had the same omission.
+- `convert-ibkr.py` parsed `Amount` without stripping thousands separators, so 87
+  trades were silently dropped from both the FX rate sample and the price
+  conversion and kept a base-currency price against an instrument-currency cash
+  total. This was the dominant IBKR residual.
+- `convert-ibkr.py` dropped 44 rows outright: 20 `Withholding Tax`, 13 `Broker
+  Interest Received`, 11 `Broker Interest Paid`. These are the `EXPENSE` and
+  `INCOME` postings 0071 exists to report.
+- `convert-ibkr.py` typed `Deposits/Withdrawals` as `CASHFLOW`, so 3,779,387 of
+  external funding routed to `IMBALANCE` rather than `TRANSFER_CLEARING`.
+  `convert-fidelity.py` types the same events as `JRNLFUND`.
 
-The broker CSVs under `local/standard-format` carry no fee postings, so every
-conflated fee shows up as `Imbalance` until they are regenerated. Doing that is part
-of this work: the scripts that produce them live in `local/scripts` and have to emit
-the fee postings alongside the client converters.
+IBKR's residual after the four: 320.97 USD across 250 trade groups, from 1.35m
+before.
 
-Whether the source data supports it varies by broker, so check before assuming a
-regeneration is mechanical. The IBKR master (`local/masters/Lee-IBKR-CWSY.csv`)
-has no commission column at all -- only `Amount`, the cash total with commission
-already in it. Two ways round that:
+## Why IBKR's CSV keeps its commission in the residual
 
-- Take fees from the OFX/QFX export of the same account, which does carry
-  `<COMMISSION>` per transaction alongside `UNITPRICE` and `TOTAL`.
-- Derive them as `|Amount| - quantity * multiplier * unit_price`, which is what
-  the residual is once the price is in the instrument's currency.
+`local/masters/Lee-IBKR-CWSY.csv` has no commission column, and its `Price` is
+IBKR's own intraday conversion into the account's base currency while `Amount` is
+in the instrument's. Both candidate rates for the conversion were measured against
+the 599 trades in that master, and neither yields a commission:
 
-That currency qualifier matters. The IBKR export quotes `Price` in the account's
-base currency while `Amount` is in the instrument's, so the conversion has to
-happen before any fee is derived from the difference. `convert-ibkr.py` already
-does it and documents why.
+- The rate `convert-ibkr.py` estimates from `|Amount| / (quantity * multiplier *
+  Price)` is solved from the trade itself on any row at or above its threshold, so
+  the subtraction is zero by construction -- for 333 of 599 trades. The whole
+  master leaves -318.47 USD, which is not a plausible commission bill for 383
+  option trades.
+- A real daily `USDGBP` close, which the price master carries, leaves 235 of 599
+  derived fees negative -- a commission that pays you -- with a tail to 1901% of
+  notional.
+
+So the number is not weakly-attributed commission, it is unattributable, and it
+stays in the residual where it is honest about being unexplained. This costs
+nothing in the product: there is no client-side IBKR CSV converter, and the
+shipped IBKR path is OFX/QFX, which reports `<COMMISSION>` on 326 of 326 trades
+and is split properly. The QFX cannot backfill the CSV's history either -- the two
+masters are disjoint, the CSV ending 2025-01-06 and the QFX starting 2025-01-23.
+
+## Residuals left behind, and where they belong
+
+- Fidelity `JRNLFUND` and `TRANSFER` single-posting groups, about 636k and 200k --
+  external transfers, matched by 0068.
+- Helen-Fidelity's 23 unpaired `BUYSTOCK` groups and one `SELLSTOCK` -- trade and
+  cash pairing failures, 0065 and 0069.
+- Schwab's three groups worth 667,750 -- the export's quantities are split adjusted
+  while its prices are as traded, so pre-split GOOG and TSLA rows cannot balance.
+  That is 0057.
+- Schwab has no client-side converter to update, only `local/scripts/convert-schwab.py`,
+  which already splits `Fees & Comm`. Writing one is 0073.

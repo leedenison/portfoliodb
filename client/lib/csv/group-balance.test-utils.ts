@@ -5,9 +5,9 @@
  * A group's postings are in different commodities, so a plain sum says nothing
  * -- a buy is +10 AAPL and -1855 USD. This mirrors weightOf in
  * server/service/ingestion/balance.go, reduced to the cases a converter can
- * produce: a security leg converts to money at its price, and everything else
- * weighs its own quantity in the settlement currency. It does not model a
- * securities journal, whose commodity is neither.
+ * produce: a security leg converts to money at its price times its contract
+ * size, and everything else weighs its own quantity in the settlement currency.
+ * It does not model a securities journal, whose commodity is neither.
  *
  * Not a test file itself -- the name keeps it out of vitest's include glob.
  */
@@ -15,7 +15,7 @@
 import { expect } from "vitest";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import { Big } from "@/lib/decimal";
-import { TxType } from "@/gen/api/v1/api_pb";
+import { IdentifierType, TxType } from "@/gen/api/v1/api_pb";
 
 /** Types whose counter-leg is money, so the posting converts at its price. */
 const EXCHANGE_TYPES = new Set<TxType>([
@@ -47,6 +47,23 @@ const EXCHANGE_TYPES = new Set<TxType>([
  */
 const TOLERANCE = new Big("0.005");
 
+/**
+ * The OCC standard deliverable, matching optionContractSize in balance.go.
+ *
+ * balance.go reads the size off the resolved instrument's asset class; a
+ * converter has resolved nothing yet, so an OCC hint stands in for one. The
+ * symbology exists only for a standardised contract, so the hint and the asset
+ * class agree. A contract_multiplier left behind by a corporate action does not,
+ * but a converter cannot know one either.
+ */
+const OPTION_CONTRACT_SIZE = new Big(100);
+
+/** What one unit of quantity delivers: 100 for an option contract, else 1. */
+function contractSize(tx: Tx): Big {
+  const isOption = tx.identifierHints.some((h) => h.type === IdentifierType.OCC);
+  return isOption ? OPTION_CONTRACT_SIZE : new Big(1);
+}
+
 /** What a posting contributes to its group's balance, and in what commodity. */
 export function weigh(tx: Tx): { amount: Big; commodity: string } {
   const settle = (tx.settlementCurrency || tx.tradingCurrency).toUpperCase();
@@ -57,7 +74,7 @@ export function weigh(tx: Tx): { amount: Big; commodity: string } {
     if (tx.unitPrice === undefined || !settle) {
       return { amount: qty, commodity: tx.instrumentDescription };
     }
-    return { amount: qty.times(tx.unitPrice), commodity: settle };
+    return { amount: qty.times(tx.unitPrice).times(contractSize(tx)), commodity: settle };
   }
   return { amount: qty, commodity: settle || tx.instrumentDescription };
 }

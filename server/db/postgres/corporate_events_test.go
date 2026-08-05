@@ -1395,10 +1395,10 @@ func insertTxWithBasis(t *testing.T, p *Postgres, userID, instID string, ts time
 	var id string
 	err := p.q.QueryRowContext(context.Background(), `
 		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
-			tx_type, quantity, instrument_id, share_count_basis)
-		VALUES ($1::uuid, 'IBKR', '', $2, 'AAPL', 'BUYSTOCK', $3, $4::uuid, $5::date)
+			tx_type, quantity, instrument_id, share_count_basis, group_id)
+		VALUES ($1::uuid, 'IBKR', '', $2, 'AAPL', 'BUYSTOCK', $3, $4::uuid, $5::date, $6::uuid)
 		RETURNING id
-	`, userID, ts, qty, instID, basis).Scan(&id)
+	`, userID, ts, qty, instID, basis, newTxGroup(t, p, userID)).Scan(&id)
 	if err != nil {
 		t.Fatalf("insert tx: %v", err)
 	}

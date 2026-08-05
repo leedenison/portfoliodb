@@ -84,9 +84,9 @@ func TestGetPortfolioValuation_UnpricedInstruments(t *testing.T) {
 	// Insert tx with NULL instrument_id directly (unidentified instrument).
 	buyDate := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
 	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, instrument_id)
-		VALUES ($1, 'IBKR', 'main', $2, 'MYSTERY CORP', 'BUYSTOCK', 5, NULL)
-	`, userID, buyDate)
+		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, instrument_id, group_id)
+		VALUES ($1, 'IBKR', 'main', $2, 'MYSTERY CORP', 'BUYSTOCK', 5, NULL, $3::uuid)
+	`, userID, buyDate, newTxGroup(t, p, userID))
 	if err != nil {
 		t.Fatalf("insert tx: %v", err)
 	}

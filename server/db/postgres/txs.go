@@ -111,18 +111,6 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 		if err != nil {
 			return fmt.Errorf("delete tx groups in period: %w", err)
 		}
-		// Postings written without a group (raw-SQL test fixtures) have no group to
-		// cascade from and are cleared directly.
-		_, err = exec.ExecContext(ctx, `
-			DELETE FROM txs
-			WHERE user_id = $1 AND broker = $2
-			  AND timestamp >= $3 AND timestamp < $4
-			  AND synthetic_purpose IS NULL
-			  AND group_id IS NULL
-		`, userUUID, broker, fromT, beforeT)
-		if err != nil {
-			return fmt.Errorf("delete ungrouped txs in period: %w", err)
-		}
 		return insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, shareCountBasis, "")
 	})
 }

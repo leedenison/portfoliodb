@@ -195,7 +195,7 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 	// from the other. See docs/spec/postings.md and
 	// docs/adr/0022-typed-per-account-cash-flow-boundary.md.
 	return p.runInTx(ctx, func(exec queryable) error {
-		var groupID uuid.NullUUID
+		var groupID uuid.UUID
 		err := exec.QueryRowContext(ctx, `
 			SELECT group_id FROM txs
 			WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
@@ -204,13 +204,11 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 		`, userUUID, broker, account, instUUID).Scan(&groupID)
 		switch {
 		case err == sql.ErrNoRows:
-			var newGroupID uuid.UUID
 			if err := exec.QueryRowContext(ctx, `
 				INSERT INTO tx_groups (user_id, timestamp) VALUES ($1, $2) RETURNING id
-			`, userUUID, timestamp).Scan(&newGroupID); err != nil {
+			`, userUUID, timestamp).Scan(&groupID); err != nil {
 				return fmt.Errorf("insert initialize tx group: %w", err)
 			}
-			groupID = uuid.NullUUID{UUID: newGroupID, Valid: true}
 		case err != nil:
 			return fmt.Errorf("find initialize tx: %w", err)
 		}
@@ -240,12 +238,9 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 				return fmt.Errorf("upsert initialize %s posting: %w", leg.accountType, err)
 			}
 		}
-		if !groupID.Valid {
-			return nil
-		}
 		if _, err := exec.ExecContext(ctx, `
 			UPDATE tx_groups SET timestamp = $2 WHERE id = $1
-		`, groupID.UUID, timestamp); err != nil {
+		`, groupID, timestamp); err != nil {
 			return fmt.Errorf("update initialize tx group: %w", err)
 		}
 		return nil
@@ -262,8 +257,8 @@ func (p *Postgres) DeleteInitializeTx(ctx context.Context, userID, broker, accou
 	if err != nil {
 		return fmt.Errorf("invalid instrument id: %w", err)
 	}
-	// Delete the group and let the FK cascade take the posting, so no empty group
-	// is left behind. Postings written without a group are cleared directly.
+	// Delete the group and let the FK cascade take both legs of the pad, so neither
+	// an empty group nor a lone counterparty is left behind.
 	return p.runInTx(ctx, func(exec queryable) error {
 		_, err := exec.ExecContext(ctx, `
 			DELETE FROM tx_groups g
@@ -277,15 +272,6 @@ func (p *Postgres) DeleteInitializeTx(ctx context.Context, userID, broker, accou
 		`, userUUID, broker, account, instUUID)
 		if err != nil {
 			return fmt.Errorf("delete initialize tx group: %w", err)
-		}
-		_, err = exec.ExecContext(ctx, `
-			DELETE FROM txs
-			WHERE user_id = $1 AND broker = $2 AND account = $3 AND instrument_id = $4
-			  AND synthetic_purpose = 'INITIALIZE'
-			  AND group_id IS NULL
-		`, userUUID, broker, account, instUUID)
-		if err != nil {
-			return fmt.Errorf("delete initialize tx: %w", err)
 		}
 		return nil
 	})

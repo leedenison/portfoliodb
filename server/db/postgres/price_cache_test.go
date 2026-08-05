@@ -222,9 +222,9 @@ func TestHeldRanges_UnidentifiedExcluded(t *testing.T) {
 
 	// Insert a tx with NULL instrument_id directly via SQL.
 	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity)
-		VALUES ($1::uuid, 'TEST', 'A', $2, 'UNKNOWN', 'BUYSTOCK', 100)
-	`, userID, d(2024, 6, 1))
+		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, group_id)
+		VALUES ($1::uuid, 'TEST', 'A', $2, 'UNKNOWN', 'BUYSTOCK', 100, $3::uuid)
+	`, userID, d(2024, 6, 1), newTxGroup(t, p, userID))
 	if err != nil {
 		t.Fatalf("insert tx: %v", err)
 	}

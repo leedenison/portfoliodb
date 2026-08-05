@@ -102,10 +102,11 @@ func TestListBrokersAndAccounts_excludesNonUser(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|ba-acct-type", "U", "u@ba.com")
 	if _, err := p.q.ExecContext(ctx, `
 		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
-		                 tx_type, quantity, split_adjusted_quantity, share_count_basis, account_type)
-		VALUES ($1, 'IBKR', 'A', now(), 'X', 'BUYSTOCK', 1, 1, current_date, 'USER'),
-		       ($1, 'IBKR', 'CLEARING', now(), 'X', 'TRANSFER', 1, 1, current_date, 'TRANSFER_CLEARING')
-	`, userID); err != nil {
+		                 tx_type, quantity, split_adjusted_quantity, share_count_basis,
+		                 account_type, group_id)
+		VALUES ($1, 'IBKR', 'A', now(), 'X', 'BUYSTOCK', 1, 1, current_date, 'USER', $2::uuid),
+		       ($1, 'IBKR', 'CLEARING', now(), 'X', 'TRANSFER', 1, 1, current_date, 'TRANSFER_CLEARING', $2::uuid)
+	`, userID, newTxGroup(t, p, userID)); err != nil {
 		t.Fatalf("insert txs: %v", err)
 	}
 	got, err := p.ListBrokersAndAccounts(ctx, userID)

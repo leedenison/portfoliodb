@@ -60,8 +60,10 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 
 -- Transactions. No natural key (broker statements often supply date only). Bulk idempotency
 -- by replace-by-period (user_id, broker, period). Single-tx ingestion is append-only.
--- group_id is the economic event this row is a posting of. Deleting a group deletes
--- its postings, which makes the group the unit of deletion for replace-by-period.
+-- group_id is the economic event this row is a posting of. Every posting belongs to
+-- exactly one group -- a lone posting is a group of one -- so that the balance
+-- invariant has no rows it cannot reach. Deleting a group deletes its postings, which
+-- makes the group the unit of deletion for replace-by-period.
 -- account_type classifies the account this row lands in. USER is an ordinary broker
 -- account posting; the others are the non-asset side of an event that is one-sided in
 -- the source data and keep the broker and account of the event they belong to, so a
@@ -107,7 +109,7 @@ CREATE TABLE txs (
                               CHECK (account_type IN ('USER', 'EQUITY', 'INCOME', 'EXPENSE',
                                                       'IMBALANCE', 'TRANSFER_CLEARING',
                                                       'SOURCE_ROUNDING')),
-  group_id                  UUID REFERENCES tx_groups (id) ON DELETE CASCADE,
+  group_id                  UUID NOT NULL REFERENCES tx_groups (id) ON DELETE CASCADE,
   created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

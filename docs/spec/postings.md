@@ -112,9 +112,10 @@ lossiness measurable.
 ever pruned by age the id still distinguishes one creation from another and still
 groups everything written by the same upload.
 
-Every posting belongs to exactly one group. `txs.group_id` is nullable only so that
-raw fixtures can write a posting without one; no production write path leaves it
-unset.
+Every posting belongs to exactly one group, and `txs.group_id` is `NOT NULL` so that
+none can be written without one. A lone posting is a group of one. The balance
+invariant is stated per group, so a posting outside every group would be a row it
+could not reach.
 
 ## Balancing
 

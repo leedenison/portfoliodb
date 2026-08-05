@@ -873,6 +873,19 @@ message GetPortfolioValuationResponse {
   repeated ValuationPoint points = 1;
 }
 
+// DeclarationKind distinguishes the declaration that seeds an opening balance from
+// the ones that are checked against it. It is derived from the declaration dates for
+// a holding, not chosen: the earliest is the pad and the rest are assertions.
+enum DeclarationKind {
+  DECLARATION_KIND_UNSPECIFIED = 0;
+  // The earliest declaration for a holding. It generates the INITIALIZE transaction
+  // that makes the declared quantity true, so it is true by construction.
+  DECLARATION_KIND_PAD = 1;
+  // A later declaration. It generates nothing and is checked against the computed
+  // holding at its as_of_date.
+  DECLARATION_KIND_ASSERT = 2;
+}
+
 // HoldingDeclaration is a user-provided statement of known holding quantity at a date.
 message HoldingDeclaration {
   string id = 1;
@@ -887,6 +900,8 @@ message HoldingDeclaration {
   // was read off a current holdings view. Always populated on read.
   // See docs/spec/bitemporality.md.
   google.type.Date share_count_basis = 8;
+  // Read-only; derived from the declaration dates for this holding.
+  DeclarationKind kind = 9;
 }
 
 message ListHoldingDeclarationsRequest {}

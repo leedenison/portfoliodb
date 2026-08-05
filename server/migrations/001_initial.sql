@@ -873,6 +873,15 @@ $$;
 -- it and the postings it is reconciled against can be in different units, and a
 -- correct portfolio disagrees with itself by the split factor.
 -- See docs/spec/bitemporality.md.
+--
+-- The unique key carries as_of_date, so a holding may hold several declarations at
+-- different dates. The earliest is the pad: it generates the INITIALIZE transaction
+-- that makes the declared quantity true, and it is true by construction, so it can
+-- never catch an error. The later ones are assertions -- statements the computed
+-- holding is checked against, which is where the safety comes from. The
+-- discriminator is not stored: deriving it from MIN(as_of_date) leaves nothing to
+-- drift out of step with the rows.
+-- See docs/spec/fixed-point.md and docs/adr/0011-synthetic-initialize-transactions.md.
 CREATE TABLE holding_declarations (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -884,7 +893,7 @@ CREATE TABLE holding_declarations (
   share_count_basis DATE NOT NULL,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (user_id, broker, account, instrument_id)
+  UNIQUE (user_id, broker, account, instrument_id, as_of_date)
 );
 
 -- The default lives here rather than in the application so that every path into the

@@ -12,7 +12,7 @@ import {
   listBrokersAndAccounts,
   protoDateToStr,
 } from "@/lib/portfolio-api";
-import { IdentifierType } from "@/gen/api/v1/api_pb";
+import { DeclarationKind, IdentifierType } from "@/gen/api/v1/api_pb";
 import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
 import { DeclarationForm } from "./declaration-form";
 
@@ -109,8 +109,10 @@ export function OpeningBalances() {
             </button>
           </div>
           <p className="text-sm text-text-muted">
-            Set checkpoints for known holding quantities at a point in time. The system will
-            calculate an opening balance so that your records show this quantity on the date you specify.
+            Set checkpoints for known holding quantities at a point in time. The earliest
+            checkpoint for a holding becomes its opening balance: the system calculates one so
+            that your records show this quantity on the date you specify. Later checkpoints are
+            checked against what your transactions add up to.
           </p>
           <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-xs">
             <table className="w-full min-w-[480px] border-collapse text-sm">
@@ -134,6 +136,9 @@ export function OpeningBalances() {
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                     Share Count
                   </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
+                    Role
+                  </th>
                   <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-muted">
                     Actions
                   </th>
@@ -143,7 +148,7 @@ export function OpeningBalances() {
                 {declarations.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-4 py-8 text-center text-text-muted"
                     >
                       No opening balance checkpoints.
@@ -176,6 +181,9 @@ export function OpeningBalances() {
                         </td>
                         <td className="px-4 py-3 text-text-muted">
                           {shareCountLabel(d)}
+                        </td>
+                        <td className="px-4 py-3 text-text-muted">
+                          {d.kind === DeclarationKind.PAD ? "Opening balance" : "Checked"}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button

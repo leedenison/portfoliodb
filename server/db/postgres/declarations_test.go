@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"maps"
 	"testing"
 	"time"
@@ -50,20 +51,90 @@ func TestCreateHoldingDeclaration(t *testing.T) {
 	}
 }
 
-func TestCreateHoldingDeclaration_DuplicateRejected(t *testing.T) {
+// TestCreateHoldingDeclaration_ManyPerHolding pins the widened key: a holding may
+// carry a declaration at each of several dates -- the earliest seeding its opening
+// balance and the later ones checked against it -- but not two at one date, which
+// would be two answers to the same question with nothing to choose between them.
+func TestCreateHoldingDeclaration_ManyPerHolding(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|decl2", "U", "u@u.com")
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil, nil)
 
 	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	_, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, time.Time{})
-	if err != nil {
+	later := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, time.Time{}); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	_, err = p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "200", asOf, time.Time{})
-	if err == nil {
-		t.Fatal("expected duplicate error")
+	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "200", later, time.Time{}); err != nil {
+		t.Fatalf("second create at a later date: %v", err)
+	}
+
+	_, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "300", asOf, time.Time{})
+	if !errors.Is(err, db.ErrDuplicate) {
+		t.Fatalf("second create at the same date: want db.ErrDuplicate, got %v", err)
+	}
+}
+
+// TestListHoldingDeclarations_DerivesKind checks the pad/assert discriminator, which
+// is computed from the dates rather than stored. The earliest declaration for a
+// holding is its pad; every later one is an assertion. Two holdings are seeded so a
+// query that partitioned wrongly would call both earliest rows pads, or neither.
+func TestListHoldingDeclarations_DerivesKind(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-kind", "U", "u@k.com")
+	instA, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "KA", Canonical: false}}, "", nil, nil, nil)
+	instB, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "KB", Canonical: false}}, "", nil, nil, nil)
+
+	d2021 := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+	d2022 := time.Date(2022, 12, 31, 0, 0, 0, 0, time.UTC)
+	d2023 := time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC)
+	// Inserted newest first, so the answer cannot come from insertion order.
+	for _, seed := range []struct {
+		inst string
+		asOf time.Time
+		qty  string
+	}{
+		{instA, d2023, "650"},
+		{instA, d2022, "500"},
+		{instA, d2021, "500"},
+		{instB, d2022, "10"},
+	} {
+		if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", seed.inst, seed.qty, seed.asOf, time.Time{}); err != nil {
+			t.Fatalf("seed %s at %s: %v", seed.inst, seed.asOf.Format("2006-01-02"), err)
+		}
+	}
+
+	rows, err := p.ListHoldingDeclarations(ctx, userID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	got := map[string]apiv1.DeclarationKind{}
+	for _, r := range rows {
+		got[r.InstrumentID+"@"+r.AsOfDate.Format("2006-01-02")] = r.Kind
+	}
+	want := map[string]apiv1.DeclarationKind{
+		instA + "@2021-01-01": apiv1.DeclarationKind_DECLARATION_KIND_PAD,
+		instA + "@2022-12-31": apiv1.DeclarationKind_DECLARATION_KIND_ASSERT,
+		instA + "@2023-12-31": apiv1.DeclarationKind_DECLARATION_KIND_ASSERT,
+		// Earliest for its own holding, so a pad despite being later than instA's.
+		instB + "@2022-12-31": apiv1.DeclarationKind_DECLARATION_KIND_PAD,
+	}
+	if !maps.Equal(got, want) {
+		t.Fatalf("derived kinds: got %v, want %v", got, want)
+	}
+
+	// A single-row read has to reach the same answer, which is why the derivation is
+	// a correlated subquery and not a window over the rows the query returns.
+	for _, r := range rows {
+		one, err := p.GetHoldingDeclaration(ctx, r.ID)
+		if err != nil {
+			t.Fatalf("get %s: %v", r.ID, err)
+		}
+		if one.Kind != r.Kind {
+			t.Errorf("kind for %s: list says %v, get says %v", r.ID, r.Kind, one.Kind)
+		}
 	}
 }
 
@@ -496,6 +567,51 @@ func TestComputeRunningBalance_ConvertsToDeclarationBasis(t *testing.T) {
 				t.Fatalf("running balance = %v, want %s", bal, tc.want)
 			}
 		})
+	}
+}
+
+// TestDeleteDeclarationWithInitializeTx_KeepsThePadForSurvivors covers what deleting
+// one of a holding's declarations does to the pad. Deleting one that leaves others
+// behind rewrites the pad from whichever now pads the holding; deleting the last one
+// takes the pad with it, since there is nothing left to pad to.
+func TestDeleteDeclarationWithInitializeTx_KeepsThePadForSurvivors(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-del-pad", "U", "u@d.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "DP1", Canonical: false}}, "", nil, nil, nil)
+
+	pad := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+	next := time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC)
+	padRow, err := p.CreateDeclarationWithInitializeTx(ctx, userID, "IBKR", "acct1", instID, "500", pad, time.Time{}, initTx(pad, 500))
+	if err != nil {
+		t.Fatalf("create pad declaration: %v", err)
+	}
+	nextRow, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "650", next, time.Time{})
+	if err != nil {
+		t.Fatalf("create assertion: %v", err)
+	}
+
+	// Delete the pad's declaration, promoting the assertion behind it.
+	promoted := initTx(next, 650)
+	if err := p.DeleteDeclarationWithInitializeTx(ctx, padRow.ID, userID, "IBKR", "acct1", instID, &promoted); err != nil {
+		t.Fatalf("delete pad declaration: %v", err)
+	}
+	if got := initQtyByAccountType(t, p, userID); !maps.Equal(got, map[apiv1.AccountType]string{
+		apiv1.AccountType_ACCOUNT_TYPE_USER:   "650",
+		apiv1.AccountType_ACCOUNT_TYPE_EQUITY: "-650",
+	}) {
+		t.Fatalf("INITIALIZE legs after promoting: got %v", got)
+	}
+
+	// Delete the last declaration and the pad goes with it.
+	if err := p.DeleteDeclarationWithInitializeTx(ctx, nextRow.ID, userID, "IBKR", "acct1", instID, nil); err != nil {
+		t.Fatalf("delete last declaration: %v", err)
+	}
+	if got := initQtyByAccountType(t, p, userID); len(got) != 0 {
+		t.Fatalf("INITIALIZE legs after deleting the last declaration: want none, got %v", got)
+	}
+	if got := countOrphanGroups(t, p, userID); got != 0 {
+		t.Errorf("orphan tx_groups after delete: want 0, got %d", got)
 	}
 }
 

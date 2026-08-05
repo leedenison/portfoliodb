@@ -131,9 +131,24 @@ Each posting **stores** what it contributes to that balance, in two columns:
 | `weight`           | The amount contributed. `NUMERIC`, exact.                           |
 | `weight_commodity` | What it is contributed in: `cur:<code>`, `inst:<uuid>` or `desc:<text>`. Never empty. |
 
-A group balances when `SUM(weight)` is zero for each `weight_commodity`. The database
-constraint that enforces it is not switched on yet, but the columns it reads are
-written now.
+A group balances when `SUM(weight)` is zero for each `weight_commodity`, and a
+`DEFERRABLE INITIALLY DEFERRED` constraint trigger enforces exactly that. Enforcing it
+in the database rather than the application makes it unbypassable: no code path, no bad
+import and no manual psql session can leave an unbalanced group behind.
+
+The check is deferred to COMMIT because the legs of a group can be written in any
+order, and each leg on its own leaves the group unbalanced. A group deleted whole
+matches no rows and passes vacuously, which is what lets replace-by-period delete
+groups and let the cascade take their postings; deleting a single leg does not.
+
+The exactness is what makes the check arguable-free. There is no tolerance in it,
+because every non-zero residual is routed at ingest -- including the sub-tolerance ones,
+which go to `SOURCE_ROUNDING` -- so a group sums to zero by construction. It reads the
+raw `quantity` and `unit_price`, never the split-adjusted pair, which carries a rounding
+an exact check would reject.
+
+It costs about 5% of an import: 21us per posting at COMMIT against 413us to insert one
+(see `server/db/postgres/balance_bench_test.go`).
 
 The weight is stored rather than re-derived on read because instrument state moves
 under a posting after ingest: a merge rewrites `instrument_id` wholesale and

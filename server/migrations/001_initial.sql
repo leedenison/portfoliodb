@@ -44,8 +44,8 @@ CREATE INDEX idx_portfolio_filters_portfolio ON portfolio_filters (portfolio_id)
 -- It is deliberately not a foreign key: a group must outlive its job, and if job
 -- rows are ever pruned by age the id still distinguishes one creation from another
 -- and still groups everything written by the same upload.
--- Groups hold a single posting until ingestion emits grouped legs, at which point
--- the postings of a group are required to sum to zero.
+-- The postings of a group are required to sum to zero in every commodity they weigh
+-- in, enforced by check_tx_group_balance() at COMMIT.
 -- See docs/spec/postings.md.
 CREATE TABLE tx_groups (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -632,6 +632,76 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_default_split_adjusted_tx
   BEFORE INSERT OR UPDATE ON txs
   FOR EACH ROW EXECUTE FUNCTION default_split_adjusted_tx();
+
+-- The postings of a tx group must sum to zero in every commodity they weigh in.
+--
+-- Enforcing this here rather than in the application makes it unbypassable: no code
+-- path, no bad import and no manual psql session can leave an unbalanced group
+-- behind. It is affordable because ingestion routes every non-zero residual to an
+-- explicit counterparty, so balance is satisfiable by construction and turning the
+-- check on cannot reject otherwise-valid data.
+--
+-- It reads the stored weight rather than re-deriving one. The weight rules live in
+-- server/service/ingestion/balance.go, and a second copy in PL/pgSQL would both drift
+-- from the Go one and re-derive at COMMIT from instrument state that has moved under
+-- the posting since it was written -- which could reject a group that was balanced
+-- when it was written, on an update that has nothing to do with it. See
+-- docs/adr/0029-posting-weight-is-stored.md.
+--
+-- TG_OP branching rather than a CASE over NEW/OLD, because referencing NEW in a
+-- DELETE raises whether or not the branch is taken. A wholly deleted group matches no
+-- rows and passes vacuously, which is what lets replace-by-period delete groups and
+-- let the cascade take their postings.
+CREATE OR REPLACE FUNCTION check_tx_group_balance() RETURNS TRIGGER AS $$
+DECLARE
+  gids UUID[] := ARRAY[]::UUID[];
+  gid  UUID;
+  bad  RECORD;
+BEGIN
+  IF TG_OP <> 'INSERT' THEN
+    gids := gids || OLD.group_id;
+  END IF;
+  IF TG_OP <> 'DELETE' THEN
+    gids := gids || NEW.group_id;
+  END IF;
+  FOREACH gid IN ARRAY gids LOOP
+    SELECT weight_commodity, SUM(weight) AS residual INTO bad
+    FROM txs
+    WHERE group_id = gid
+    GROUP BY weight_commodity
+    HAVING SUM(weight) <> 0
+    LIMIT 1;
+    IF FOUND THEN
+      RAISE EXCEPTION 'tx group % does not balance: % left over in %',
+        gid, bad.residual, bad.weight_commodity
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END LOOP;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Deferred to COMMIT so the legs of a group can be inserted in any order within one
+-- transaction: a group is only ever balanced once all of it is written. There is
+-- precedent for DEFERRABLE in this schema -- exchanges.operating_mic and the
+-- plugin_config precedence uniqueness both use it.
+CREATE CONSTRAINT TRIGGER trg_tx_group_balance
+  AFTER INSERT OR DELETE ON txs
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION check_tx_group_balance();
+
+-- Split into a second trigger because WHEN cannot reference OLD on an INSERT. The
+-- guard is what keeps the split-adjustment recompute cheap: with no instrument filter
+-- it rewrites split_adjusted_* for every posting in the table and leaves weight alone,
+-- so without this every such row would queue a deferred check.
+CREATE CONSTRAINT TRIGGER trg_tx_group_balance_update
+  AFTER UPDATE ON txs
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW
+  WHEN (OLD.weight IS DISTINCT FROM NEW.weight
+     OR OLD.weight_commodity IS DISTINCT FROM NEW.weight_commodity
+     OR OLD.group_id IS DISTINCT FROM NEW.group_id)
+  EXECUTE FUNCTION check_tx_group_balance();
 
 -- Same defaulting trigger for eod_prices. close (NOT NULL) implies
 -- split_adjusted_close (NOT NULL); the OHLV columns are nullable on both

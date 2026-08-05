@@ -9,6 +9,11 @@
 -- because the postings reference them. Every residual here is a cash posting with no
 -- price, so it weighs its own quantity in the currency it is denominated in.
 --
+-- Each residual gets an equal and opposite EQUITY counterparty, because the balance
+-- constraint is on and a residual alone in its group does not sum to zero. In
+-- production that counterparty is the posting the residual was routed against;
+-- EQUITY keeps it out of holdings and valuation, which this fixture is not about.
+--
 -- Timestamps are relative to now() so the age assertions do not rot.
 
 INSERT INTO tx_groups (id, user_id, timestamp)
@@ -79,4 +84,23 @@ SELECT 'e2e00000-0000-0000-0000-000000000001', 'IBKR', 'U-NEW',
        now() - INTERVAL '2 days', 'USD', 'JRNLFUND', 250.00, 'USD', 'USD', i.instrument_id, 'TRANSFER_CLEARING',
        250.00, 'cur:USD', 'e2e00000-0000-0000-0000-000000000306'
 FROM (SELECT instrument_id FROM instrument_identifiers
+      WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;
+
+-- The counterparties. One per group, equal and opposite, so every group above sums
+-- to zero in cur:USD. The report reads only the residual account types, so these are
+-- invisible to it.
+INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
+                 quantity, trading_currency, settlement_currency, instrument_id, account_type,
+                 weight, weight_commodity, group_id)
+SELECT 'e2e00000-0000-0000-0000-000000000001', v.broker, v.account,
+       now() - (v.days || ' days')::INTERVAL, 'USD', v.tx_type, v.qty, 'USD', 'USD',
+       i.instrument_id, 'EQUITY', v.qty, 'cur:USD', v.group_id::uuid
+FROM (VALUES ('FIDELITY', 'ACC-1', '5',  'INCOME',   137.08,   'e2e00000-0000-0000-0000-000000000301'),
+             ('FIDELITY', 'ACC-1', '6',  'BUYSTOCK', -4.95,    'e2e00000-0000-0000-0000-000000000302'),
+             ('SCHB',     'SCH-1', '60', 'JRNLFUND', -1000.00, 'e2e00000-0000-0000-0000-000000000303'),
+             ('SCHB',     'SCH-2', '59', 'JRNLFUND', 1000.00,  'e2e00000-0000-0000-0000-000000000304'),
+             ('IBKR',     'U-OLD', '40', 'JRNLFUND', -500.00,  'e2e00000-0000-0000-0000-000000000305'),
+             ('IBKR',     'U-NEW', '2',  'JRNLFUND', -250.00,  'e2e00000-0000-0000-0000-000000000306'))
+     AS v(broker, account, days, tx_type, qty, group_id),
+     (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;

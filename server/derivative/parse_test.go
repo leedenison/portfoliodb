@@ -3,6 +3,8 @@ package derivative
 import (
 	"testing"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 func TestParseOptionTicker(t *testing.T) {
@@ -13,7 +15,7 @@ func TestParseOptionTicker(t *testing.T) {
 		wantSymbol  string
 		wantExpiry  time.Time
 		wantPutCall string
-		wantStrike  float64
+		wantStrike  string
 		ok          bool
 	}{
 		{
@@ -23,7 +25,7 @@ func TestParseOptionTicker(t *testing.T) {
 			wantSymbol:  "AAPL",
 			wantExpiry:  time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC),
 			wantPutCall: "C",
-			wantStrike:  150,
+			wantStrike:  "150",
 			ok:          true,
 		},
 		{
@@ -33,7 +35,7 @@ func TestParseOptionTicker(t *testing.T) {
 			wantSymbol:  "SPY",
 			wantExpiry:  time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC),
 			wantPutCall: "P",
-			wantStrike:  600,
+			wantStrike:  "600",
 			ok:          true,
 		},
 		{
@@ -43,7 +45,7 @@ func TestParseOptionTicker(t *testing.T) {
 			wantSymbol:  "IBM",
 			wantExpiry:  time.Date(2010, 3, 20, 0, 0, 0, 0, time.UTC),
 			wantPutCall: "C",
-			wantStrike:  105,
+			wantStrike:  "105",
 			ok:          true,
 		},
 		{
@@ -53,7 +55,7 @@ func TestParseOptionTicker(t *testing.T) {
 			wantSymbol:  "IBM",
 			wantExpiry:  time.Date(2010, 3, 20, 0, 0, 0, 0, time.UTC),
 			wantPutCall: "P",
-			wantStrike:  105,
+			wantStrike:  "105",
 			ok:          true,
 		},
 		{
@@ -63,7 +65,7 @@ func TestParseOptionTicker(t *testing.T) {
 			wantSymbol:  "AAPL",
 			wantExpiry:  time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC),
 			wantPutCall: "C",
-			wantStrike:  200,
+			wantStrike:  "200",
 			ok:          true,
 		},
 		{
@@ -73,7 +75,7 @@ func TestParseOptionTicker(t *testing.T) {
 			wantSymbol:  "AAPL",
 			wantExpiry:  time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC),
 			wantPutCall: "C",
-			wantStrike:  150,
+			wantStrike:  "150",
 			ok:          true,
 		},
 		{
@@ -83,7 +85,7 @@ func TestParseOptionTicker(t *testing.T) {
 			wantSymbol:  "A",
 			wantExpiry:  time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC),
 			wantPutCall: "C",
-			wantStrike:  150,
+			wantStrike:  "150",
 			ok:          true,
 		},
 		{
@@ -92,13 +94,13 @@ func TestParseOptionTicker(t *testing.T) {
 			wantFormat:  FormatOCC,
 			wantSymbol:  "AAPL",
 			wantPutCall: "C",
-			wantStrike:  150,
+			wantStrike:  "150",
 			ok:          true,
 		},
-		{"empty", "", "", "", time.Time{}, "", 0, false},
-		{"whitespace only", "  \t  ", "", "", time.Time{}, "", 0, false},
-		{"garbage", "XYZ???", "", "", time.Time{}, "", 0, false},
-		{"too short for OCC", "AAPL 250117C0015000", "", "", time.Time{}, "", 0, false},
+		{"empty", "", "", "", time.Time{}, "", "0", false},
+		{"whitespace only", "  \t  ", "", "", time.Time{}, "", "0", false},
+		{"garbage", "XYZ???", "", "", time.Time{}, "", "0", false},
+		{"too short for OCC", "AAPL 250117C0015000", "", "", time.Time{}, "", "0", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -122,7 +124,7 @@ func TestParseOptionTicker(t *testing.T) {
 			if got.PutCall != tt.wantPutCall {
 				t.Errorf("PutCall = %q, want %q", got.PutCall, tt.wantPutCall)
 			}
-			if got.Strike != tt.wantStrike {
+			if got.Strike.String() != tt.wantStrike {
 				t.Errorf("Strike = %v, want %v", got.Strike, tt.wantStrike)
 			}
 		})
@@ -135,25 +137,30 @@ func TestBuildOCCCompact(t *testing.T) {
 		symbol  string
 		expiry  time.Time
 		putCall string
-		strike  float64
+		strike  string
 		want    string
 		ok      bool
 	}{
-		{"call", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", 200, "AAPL251219C00200000", true},
-		{"put", "SPY", time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC), "P", 600, "SPY250117P00600000", true},
-		{"fractional strike", "IBM", time.Date(2025, 3, 20, 0, 0, 0, 0, time.UTC), "C", 105.5, "IBM250320C00105500", true},
-		{"1-char symbol", "A", time.Date(2025, 6, 20, 0, 0, 0, 0, time.UTC), "C", 50, "A250620C00050000", true},
-		{"6-char symbol", "BRKB12", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "P", 230, "BRKB12251219P00230000", true},
-		{"lowercase input", "aapl", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "c", 200, "AAPL251219C00200000", true},
-		{"empty symbol", "", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", 200, "", false},
-		{"symbol too long", "TOOLONG", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", 200, "", false},
-		{"bad putCall", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "X", 200, "", false},
-		{"zero expiry", "AAPL", time.Time{}, "C", 200, "", false},
-		{"negative strike", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", -1, "", false},
+		{"call", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", "200", "AAPL251219C00200000", true},
+		{"put", "SPY", time.Date(2025, 1, 17, 0, 0, 0, 0, time.UTC), "P", "600", "SPY250117P00600000", true},
+		{"fractional strike", "IBM", time.Date(2025, 3, 20, 0, 0, 0, 0, time.UTC), "C", "105.5", "IBM250320C00105500", true},
+		{"1-char symbol", "A", time.Date(2025, 6, 20, 0, 0, 0, 0, time.UTC), "C", "50", "A250620C00050000", true},
+		{"6-char symbol", "BRKB12", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "P", "230", "BRKB12251219P00230000", true},
+		{"lowercase input", "aapl", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "c", "200", "AAPL251219C00200000", true},
+		{"empty symbol", "", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", "200", "", false},
+		{"symbol too long", "TOOLONG", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", "200", "", false},
+		{"bad putCall", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "X", "200", "", false},
+		{"zero expiry", "AAPL", time.Time{}, "C", "200", "", false},
+		{"negative strike", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", "-1", "", false},
+		// The strike field is eight digits of thousandths, so 99999.999 is the
+		// largest contract the format can name and anything above it has no
+		// symbol to be written as.
+		{"largest encodable strike", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", "99999.999", "AAPL251219C99999999", true},
+		{"strike too large to encode", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", "100000", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := BuildOCCCompact(tt.symbol, tt.expiry, tt.putCall, tt.strike)
+			got, ok := BuildOCCCompact(tt.symbol, tt.expiry, tt.putCall, decimal.RequireFromString(tt.strike))
 			if ok != tt.ok {
 				t.Errorf("BuildOCCCompact() ok = %v, want %v", ok, tt.ok)
 			}
@@ -166,7 +173,8 @@ func TestBuildOCCCompact(t *testing.T) {
 
 func TestBuildOCCCompact_RoundTrip(t *testing.T) {
 	// Build a compact OCC, then parse it back directly — fields should match.
-	sym, expiry, pc, strike := "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", 200.0
+	sym, expiry, pc := "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C"
+	strike := decimal.RequireFromString("200")
 	occ, ok := BuildOCCCompact(sym, expiry, pc, strike)
 	if !ok {
 		t.Fatal("BuildOCCCompact failed")
@@ -185,7 +193,7 @@ func TestBuildOCCCompact_RoundTrip(t *testing.T) {
 	if parsed.PutCall != pc {
 		t.Errorf("PutCall = %q, want %q", parsed.PutCall, pc)
 	}
-	if parsed.Strike != strike {
+	if !parsed.Strike.Equal(strike) {
 		t.Errorf("Strike = %v, want %v", parsed.Strike, strike)
 	}
 }
@@ -245,6 +253,50 @@ func TestOCCPadded(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("OCCPadded(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAdjustStrike pins the OCC round trip across a split. The strike is a
+// component of option identity, so an adjusted one has to land on a value an OCC
+// symbol can encode -- three decimal places -- and a forward split has to land
+// there exactly.
+func TestAdjustStrike(t *testing.T) {
+	tests := []struct {
+		name     string
+		strike   string
+		num, den string
+		want     string
+		wantOCC  string
+	}{
+		// 4:1 forward: the strike quarters, exactly.
+		{"forward 4:1", "200", "4", "1", "50", "AAPL251219C00050000"},
+		// 3:2: 200 * 2 / 3 is 133.333..., which no strike can be. It rounds to
+		// the scale OCC encodes rather than to whatever a division picked.
+		{"fractional 3:2", "200", "3", "2", "133.333", "AAPL251219C00133333"},
+		// A reverse split multiplies the strike, which is always exact.
+		{"reverse 1:3", "50", "1", "3", "150", "AAPL251219C00150000"},
+		// No splits: 1/1 leaves the strike alone, trailing zeros and all.
+		{"identity", "105.5", "1", "1", "105.5", "AAPL251219C00105500"},
+	}
+	expiry := time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := AdjustStrike(
+				decimal.RequireFromString(tt.strike),
+				decimal.RequireFromString(tt.num),
+				decimal.RequireFromString(tt.den),
+			)
+			if got.String() != tt.want {
+				t.Errorf("AdjustStrike = %v, want %v", got, tt.want)
+			}
+			occ, ok := BuildOCCCompact("AAPL", expiry, "C", got)
+			if !ok {
+				t.Fatalf("BuildOCCCompact failed for strike %v", got)
+			}
+			if occ != tt.wantOCC {
+				t.Errorf("OCC = %q, want %q", occ, tt.wantOCC)
 			}
 		})
 	}

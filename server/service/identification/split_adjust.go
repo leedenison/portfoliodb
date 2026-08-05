@@ -2,7 +2,6 @@ package identification
 
 import (
 	"context"
-	"math"
 	"math/big"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/shopspring/decimal"
 )
 
 // AdjustOCCForKnownSplits checks whether the underlying ticker parsed from an
@@ -50,7 +50,7 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 			continue
 		}
 		parsed, ok := derivative.ParseOptionTicker(compact)
-		if !ok || parsed.Symbol == "" || parsed.Strike <= 0 {
+		if !ok || parsed.Symbol == "" || !parsed.Strike.IsPositive() {
 			adjusted = append(adjusted, h)
 			vintage = hintsValidAt
 			continue
@@ -68,17 +68,17 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 		// when the option expired.
 		expiry := parsed.Expiry.Truncate(24 * time.Hour)
 		if !expiry.After(now) {
-			factorAtExpiry := splitFactorBetween(splits, *hintsValidAt, expiry)
-			expiryStrike := parsed.Strike / factorAtExpiry
+			num, den := splitFactorBetween(splits, *hintsValidAt, expiry)
+			expiryStrike := derivative.AdjustStrike(parsed.Strike, num, den)
 			if expiryOCC, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, expiryStrike); ok {
 				adjusted = append(adjusted, identifier.Identifier{Type: identifier.InternalHintTypeOCCAtExpiry, Domain: h.Domain, Value: expiryOCC})
 			}
 		}
 
 		// Adjust the OCC hint for DB lookups (splits up to now).
-		factor := splitFactorSince(splits, *hintsValidAt, timer)
-		if factor != 1.0 {
-			newStrike := parsed.Strike / factor
+		num, den := splitFactorSince(splits, *hintsValidAt, timer)
+		if !num.Equal(den) {
+			newStrike := derivative.AdjustStrike(parsed.Strike, num, den)
 			if newOCC, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, newStrike); ok {
 				adjusted = append(adjusted, identifier.Identifier{Type: h.Type, Domain: h.Domain, Value: newOCC})
 				continue
@@ -92,34 +92,33 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 
 // splitFactorSince computes the cumulative split factor for splits that
 // occurred after since and on or before today: ex_date > since AND
-// ex_date <= now. Returns 1.0 when no applicable splits. timer may be
-// nil (uses time.Now).
-func splitFactorSince(splits []db.StockSplit, since time.Time, timer *clock.Timer) float64 {
+// ex_date <= now. timer may be nil (uses time.Now).
+func splitFactorSince(splits []db.StockSplit, since time.Time, timer *clock.Timer) (num, den decimal.Decimal) {
 	return splitFactorBetween(splits, since, timer.Now().Truncate(24*time.Hour))
 }
 
 // splitFactorBetween computes the cumulative split factor for splits where
-// ex_date > since AND ex_date <= until. Returns 1.0 when no applicable splits.
-func splitFactorBetween(splits []db.StockSplit, since, until time.Time) float64 {
-	factor := 1.0
+// ex_date > since AND ex_date <= until, as an exact rational: the numerator and
+// denominator are returned separately so the caller multiplies first and divides
+// once. Returns 1/1 when no splits apply. This is the Go twin of the SQL
+// split_factor_at; see adr/0028-cumulative-split-factor-is-an-exact-rational.md.
+func splitFactorBetween(splits []db.StockSplit, since, until time.Time) (num, den decimal.Decimal) {
+	num, den = decimal.NewFromInt(1), decimal.NewFromInt(1)
 	sinceDate := since.Truncate(24 * time.Hour)
 	untilDate := until.Truncate(24 * time.Hour)
 	for _, s := range splits {
 		if s.ExDate.After(untilDate) || !s.ExDate.After(sinceDate) {
 			continue
 		}
-		from, okF := new(big.Rat).SetString(s.SplitFrom)
-		to, okT := new(big.Rat).SetString(s.SplitTo)
-		if !okF || !okT || from.Sign() <= 0 {
+		from, errF := decimal.NewFromString(s.SplitFrom)
+		to, errT := decimal.NewFromString(s.SplitTo)
+		if errF != nil || errT != nil || !from.IsPositive() || !to.IsPositive() {
 			continue
 		}
-		ratio := new(big.Rat).Quo(to, from)
-		f, _ := ratio.Float64()
-		if f > 0 && !math.IsInf(f, 0) {
-			factor *= f
-		}
+		num = num.Mul(to)
+		den = den.Mul(from)
 	}
-	return factor
+	return num, den
 }
 
 // IsWholeForwardSplit returns true if the split factor (split_to/split_from)

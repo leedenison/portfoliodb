@@ -678,7 +678,7 @@ func optionFieldsFromIdentifiers(ids []identifier.Identifier) *db.OptionFields {
 		if !ok {
 			continue
 		}
-		if parsed.Strike <= 0 || parsed.Expiry.IsZero() || parsed.PutCall == "" {
+		if !parsed.Strike.IsPositive() || parsed.Expiry.IsZero() || parsed.PutCall == "" {
 			continue
 		}
 		return &db.OptionFields{

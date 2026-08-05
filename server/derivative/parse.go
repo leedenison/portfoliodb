@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 // Format names returned by ParseOptionTicker.
@@ -21,12 +23,12 @@ const (
 // ParsedOption holds the result of parsing an option-style ticker.
 // Expiry, PutCall, and Strike may be zero/empty when not parsed or not applicable.
 type ParsedOption struct {
-	Format       string    // OCC, Classic, Compact (or "" if unknown)
-	Symbol       string    // Underlying ticker (e.g. "AAPL", "IBM")
-	ExchangeHint string    // Optional exchange code hint when inferable; often empty
-	Expiry       time.Time // Expiration date; zero when unknown
-	PutCall      string    // "C" or "P"; empty when unknown
-	Strike       float64   // Strike price; 0 when unknown
+	Format       string          // OCC, Classic, Compact (or "" if unknown)
+	Symbol       string          // Underlying ticker (e.g. "AAPL", "IBM")
+	ExchangeHint string          // Optional exchange code hint when inferable; often empty
+	Expiry       time.Time       // Expiration date; zero when unknown
+	PutCall      string          // "C" or "P"; empty when unknown
+	Strike       decimal.Decimal // Strike price; zero when unknown
 }
 
 // OCC (Options Clearing Corporation) 21-character symbol.
@@ -66,7 +68,9 @@ func ParseOptionTicker(optionTicker string) (*ParsedOption, bool) {
 		if err != nil {
 			return nil, false
 		}
-		strike := float64(strikeCents) / 1000
+		// OCC encodes the strike as thousandths, so this is a scale shift and
+		// not a division: the value is exact by construction.
+		strike := decimal.New(int64(strikeCents), -StrikeScale)
 		return &ParsedOption{
 			Format:  FormatOCC,
 			Symbol:  root,
@@ -91,7 +95,7 @@ func ParseOptionTicker(optionTicker string) (*ParsedOption, bool) {
 					Symbol:  root,
 					Expiry:  expiry,
 					PutCall: string(suffix[6]),
-					Strike:  float64(strikeCents) / 1000,
+					Strike:  decimal.New(int64(strikeCents), -StrikeScale),
 				}, true
 			}
 		}
@@ -111,7 +115,7 @@ func ParseOptionTicker(optionTicker string) (*ParsedOption, bool) {
 			}
 		}
 		expiry := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
-		strike, _ := strconv.ParseFloat(m[6], 64)
+		strike, _ := decimal.NewFromString(m[6])
 		return &ParsedOption{
 			Format:  FormatClassic,
 			Symbol:  m[1],
@@ -127,7 +131,7 @@ func ParseOptionTicker(optionTicker string) (*ParsedOption, bool) {
 		if !ok {
 			return nil, false
 		}
-		strike, _ := strconv.ParseFloat(m[4], 64)
+		strike, _ := decimal.NewFromString(m[4])
 		return &ParsedOption{
 			Format:  FormatCompact,
 			Symbol:  m[1],
@@ -140,8 +144,31 @@ func ParseOptionTicker(optionTicker string) (*ParsedOption, bool) {
 	return nil, false
 }
 
+// StrikeScale is the number of decimal places an OCC symbol encodes a strike to:
+// it carries eight digits of thousandths. It is the scale a strike is rounded to
+// after a split adjustment, because a strike that will not fit an OCC symbol
+// names no real contract.
+const StrikeScale = 3
+
+// AdjustStrike applies a cumulative split factor, supplied as the exact rational
+// the factor is (see adr/0028-cumulative-split-factor-is-an-exact-rational.md).
+// A strike moves inversely to the share count, so the numerator and denominator
+// swap places: the multiplication happens first and the single division last,
+// rounded to StrikeScale.
+func AdjustStrike(strike, num, den decimal.Decimal) decimal.Decimal {
+	if num.IsZero() {
+		return strike
+	}
+	return strike.Mul(den).DivRound(num, StrikeScale)
+}
+
 // occSuffixLen is the fixed length of the OCC suffix: expiry(6) + C/P(1) + strike(8).
 const occSuffixLen = 15
+
+// maxOCCStrike is the largest strike an OCC symbol can carry, in the thousandths
+// the field is encoded in: eight digits, so 99999.999 in price terms. A strike
+// above it names no contract the format can express.
+const maxOCCStrike = 99_999_999
 
 var occSuffixRe = regexp.MustCompile(`^\d{6}[CP]\d{8}$`)
 
@@ -186,7 +213,7 @@ func OCCPadded(occ string) (string, bool) {
 // Symbol must be 1-6 uppercase letters/digits. PutCall must be "C" or "P".
 // Strike is encoded as price*1000 zero-padded to 8 digits.
 // Returns ("", false) if the inputs are invalid.
-func BuildOCCCompact(symbol string, expiry time.Time, putCall string, strike float64) (string, bool) {
+func BuildOCCCompact(symbol string, expiry time.Time, putCall string, strike decimal.Decimal) (string, bool) {
 	sym := strings.TrimSpace(strings.ToUpper(symbol))
 	if len(sym) < 1 || len(sym) > 6 {
 		return "", false
@@ -195,11 +222,13 @@ func BuildOCCCompact(symbol string, expiry time.Time, putCall string, strike flo
 	if pc != "C" && pc != "P" {
 		return "", false
 	}
-	if expiry.IsZero() || strike < 0 {
+	if expiry.IsZero() || strike.IsNegative() {
 		return "", false
 	}
-	strikeCents := int(strike*1000 + 0.5)
-	if strikeCents > 99999999 {
+	// Shift rather than multiply-and-round: a strike quoted to three places or
+	// fewer -- which is every strike OCC can encode -- lands exactly.
+	strikeCents := strike.Shift(StrikeScale).Round(0).IntPart()
+	if strikeCents > maxOCCStrike {
 		return "", false
 	}
 	yy := expiry.Year() % 100

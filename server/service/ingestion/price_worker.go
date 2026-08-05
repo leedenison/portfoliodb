@@ -376,7 +376,7 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 			if err == nil && len(resolved) == 1 {
 				underlyingID = resolved[0].ID
 			}
-			if parsed.Strike > 0 && !parsed.Expiry.IsZero() && parsed.PutCall != "" {
+			if parsed.Strike.IsPositive() && !parsed.Expiry.IsZero() && parsed.PutCall != "" {
 				optFields = &db.OptionFields{
 					Strike:  parsed.Strike,
 					Expiry:  parsed.Expiry,

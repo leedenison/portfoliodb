@@ -130,10 +130,18 @@ message Instrument {
   string cik = 12;            // SEC Central Index Key (optional).
   string sic_code = 13;       // SIC industry classification code (optional).
   // Option fields (denormalized from OCC identifier).
-  double strike = 14;             // Strike price; 0 for non-options.
+  // strike is a component of option identity, decoded from the OCC symbol's
+  // eight digits of thousandths, so it is an exact decimal string rather than a
+  // double: comparing identity components as floats is a latent bug. Optional
+  // rather than sentinel-zero, because a non-option has no strike and
+  // ImportInstruments would otherwise have to send one.
+  optional string strike = 14 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   string expiry = 15;             // YYYY-MM-DD expiry date; empty for non-options.
   string put_call = 16;           // "C" or "P"; empty for non-options.
-  double contract_multiplier = 17; // Deliverable multiplier; 1 = standard.
+  // Deliverable multiplier as a decimal string; unset means the column default
+  // of 1. A non-standard split leaves a fraction here (3:2 gives 1.5), and it
+  // multiplies a posting's weight, so it stays exact.
+  optional string contract_multiplier = 17 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // The point in market time this identity reflects. Carried on export and
   // restored on import so a round trip does not make an already-adjusted option
   // look unadjusted. Unset means the identity predates every split.

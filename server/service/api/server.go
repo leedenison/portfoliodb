@@ -128,16 +128,14 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	if row.SICCode != nil {
 		out.SicCode = *row.SICCode
 	}
-	if row.Strike != nil {
-		out.Strike = *row.Strike
-	}
+	out.Strike = decStrPtr(row.Strike)
 	if row.Expiry != nil {
 		out.Expiry = row.Expiry.Format("2006-01-02")
 	}
 	if row.PutCall != nil {
 		out.PutCall = *row.PutCall
 	}
-	out.ContractMultiplier = row.ContractMultiplier
+	out.ContractMultiplier = decStrPtr(&row.ContractMultiplier)
 	return out
 }
 

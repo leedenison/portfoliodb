@@ -219,7 +219,7 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 	// Create option with underlying_id and valid dates (empty exchange -- SMART is not a MIC).
 	optionID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "AAPL Call", "", "", []db.IdentifierInput{
 		{Type: "IBKR", Value: "AAPL 20250117C200", Canonical: false},
-	}, underlyingID, &validFrom, &validBefore, &db.OptionFields{Strike: 230, Expiry: time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), PutCall: "C"})
+	}, underlyingID, &validFrom, &validBefore, &db.OptionFields{Strike: decf(230), Expiry: time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), PutCall: "C"})
 	if err != nil {
 		t.Fatalf("ensure option: %v", err)
 	}

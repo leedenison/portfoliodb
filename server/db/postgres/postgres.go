@@ -13,6 +13,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -259,25 +260,25 @@ func inClauseUUIDs(ids []uuid.UUID) (string, []interface{}) {
 
 // instrumentRow is the sqlx-scannable shape of an instruments row with optional exchange JOIN fields.
 type instrumentRow struct {
-	ID                  uuid.UUID  `db:"id"`
-	AssetClass          *string    `db:"asset_class"`
-	ExchangeMIC         *string    `db:"exchange_mic"`
-	Currency            *string    `db:"currency"`
-	Name                *string    `db:"name"`
-	Exchange            string     `db:"exchange"`
-	UnderlyingID        *string    `db:"underlying_id"`
-	ValidFrom           *time.Time `db:"valid_from"`
-	ValidBefore         *time.Time `db:"valid_before"`
-	CIK                 *string    `db:"cik"`
-	SICCode             *string    `db:"sic_code"`
-	Strike              *float64   `db:"strike"`
-	Expiry              *time.Time `db:"expiry"`
-	PutCall             *string    `db:"put_call"`
-	ContractMultiplier  float64    `db:"contract_multiplier"`
-	IdentityAsOf        *time.Time `db:"identity_as_of"`
-	ExchangeName        *string    `db:"exchange_name"`
-	ExchangeAcronym     *string    `db:"exchange_acronym"`
-	ExchangeCountryCode *string    `db:"exchange_country_code"`
+	ID                  uuid.UUID        `db:"id"`
+	AssetClass          *string          `db:"asset_class"`
+	ExchangeMIC         *string          `db:"exchange_mic"`
+	Currency            *string          `db:"currency"`
+	Name                *string          `db:"name"`
+	Exchange            string           `db:"exchange"`
+	UnderlyingID        *string          `db:"underlying_id"`
+	ValidFrom           *time.Time       `db:"valid_from"`
+	ValidBefore         *time.Time       `db:"valid_before"`
+	CIK                 *string          `db:"cik"`
+	SICCode             *string          `db:"sic_code"`
+	Strike              *decimal.Decimal `db:"strike"`
+	Expiry              *time.Time       `db:"expiry"`
+	PutCall             *string          `db:"put_call"`
+	ContractMultiplier  decimal.Decimal  `db:"contract_multiplier"`
+	IdentityAsOf        *time.Time       `db:"identity_as_of"`
+	ExchangeName        *string          `db:"exchange_name"`
+	ExchangeAcronym     *string          `db:"exchange_acronym"`
+	ExchangeCountryCode *string          `db:"exchange_country_code"`
 }
 
 func (r *instrumentRow) toDBRow() *db.InstrumentRow {

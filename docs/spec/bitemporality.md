@@ -188,7 +188,9 @@ the split chain -- stay exact and can be recomputed from at any time.
    derives itself.
 6. **Lots inherit the share count basis of the acquisition that created them.**
    A lot-aware equivalent of `split_factor_at` reads `share_count_basis` from the
-   acquiring transaction, not from the disposal or the query date.
+   acquiring transaction, not from the disposal or the query date. A Section 104
+   pool has many acquisitions and so none to inherit from, and declares its own
+   (see adr/0031-lots-are-derived-and-unknown-basis-is-a-value.md).
 7. **`as_of` on read APIs is valid time.** `GetHoldings(as_of)` rewinds the
    world, not our knowledge of it: it returns the transactions that had occurred
    by that date, with quantities expressed in **today's** share count.
@@ -211,6 +213,7 @@ passed. It is normal, not exceptional.
 | A bulk upload replaces a period | Every transaction in that broker and period | Holdings and valuation follow from the transaction set; nothing is materialised |
 | A transaction earlier than the current earliest arrives, or history between the start date and a declaration changes | The derived INITIALIZE transaction | See [fixed-point.md](fixed-point.md) |
 | Instrument identity changes or two instruments merge | Which transactions roll up to which instrument | Holdings and valuation follow; the prior identity is not retained -- see [identifiers.md](identifiers.md) |
+| An acquisition arrives within 30 days after a recorded disposal | Which lots that disposal matched, under Section 104's forward-looking 30-day rule | Re-derive the disposal's matches -- see 0044 |
 
 Restatement of a user-visible quantity should be surfaced rather than applied
 silently -- see [fixed-point.md](fixed-point.md), which sets the same requirement

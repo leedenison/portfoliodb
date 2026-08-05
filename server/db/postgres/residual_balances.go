@@ -10,11 +10,17 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// residualBalanceAgg aggregates the residual postings -- the IMBALANCE and
-// TRANSFER_CLEARING legs routed to balance groups whose source data was one-sided
-// -- across every user. $1/$2 are a half-open [from, before) window over the
-// posting timestamp, either of which may be NULL for an open bound; $3 restricts to
-// one account type, or is the empty string for both.
+// residualBalanceAgg aggregates the residual postings -- the IMBALANCE,
+// TRANSFER_CLEARING and SOURCE_ROUNDING legs routed to balance groups whose source
+// data was one-sided or disagreed with itself -- across every user. $1/$2 are a
+// half-open [from, before) window over the posting timestamp, either of which may be
+// NULL for an open bound; $3 restricts to one account type, or is the empty string
+// for all of them.
+//
+// SOURCE_ROUNDING is reported rather than hidden: one such posting is noise, but the
+// aggregate says how much a broker's rounding costs and over how many postings, which
+// is the only place that is visible. It is deliberately absent from the dashboard
+// counts below, which ask whether something is wrong.
 //
 // The commodity is the instrument's name, not its currency: for money the two
 // agree, but a residual left by an unpaired JRNLSEC is a quantity of shares whose
@@ -37,7 +43,7 @@ const residualBalanceAgg = `
 		MAX(t.timestamp)  AS newest
 	FROM txs t
 	LEFT JOIN instruments i ON i.id = t.instrument_id
-	WHERE t.account_type IN ('IMBALANCE', 'TRANSFER_CLEARING')
+	WHERE t.account_type IN ('IMBALANCE', 'TRANSFER_CLEARING', 'SOURCE_ROUNDING')
 		-- Routing drops a residual it cannot resolve an instrument for, so this
 		-- excludes nothing in practice; it is here so a NULL commodity cannot
 		-- reach the scan.
@@ -107,7 +113,8 @@ func (p *Postgres) ListResidualBalances(ctx context.Context, opts db.ResidualBal
 
 // CountResidualBalances implements db.ResidualBalanceDB. It counts over all of
 // history: the dashboard asks whether anything is wrong, not what was wrong during
-// some window.
+// some window. SOURCE_ROUNDING is not counted -- the source rounding its own cash
+// figures is not a fault, and counting it would make the dashboard permanently red.
 func (p *Postgres) CountResidualBalances(ctx context.Context, staleBefore time.Time) (int32, int32, error) {
 	q := "WITH r AS (" + residualBalanceAgg + `
 		)

@@ -145,14 +145,36 @@ func TestRouteResiduals(t *testing.T) {
 		},
 		want: nil,
 	}, {
-		// 456.7872 against a cash row rounded to 456.79. The residual is real but
-		// is an artefact of the source being written to 2dp.
-		name: "sub-cent rounding is within tolerance",
+		// 456.7872 against a cash row rounded to 456.79. The residual is real but is
+		// an artefact of the source being written to 2dp, so it is routed as rounding
+		// rather than as a leg the converter missed. It is still routed: leaving it
+		// unposted is what would stop the group summing to exactly zero.
+		name: "sub-cent difference routes as source rounding",
 		postings: []posting{
 			{desc: "AAPL", typ: apiv1.TxType_BUYSTOCK, qty: "37", price: price("12.3456"), settle: "USD", instID: aaplID, groupRef: "t1"},
 			{desc: "USD", typ: apiv1.TxType_BUYSTOCK, qty: "-456.79", settle: "USD", trading: "USD", instID: usdID, groupRef: "t1"},
 		},
-		want: nil,
+		want: []routed{{commodity: "USD", quantity: "0.0028", accountType: apiv1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING}},
+	}, {
+		// Half a cent is the boundary and the tolerance is exclusive, so this is a
+		// missing leg rather than rounding. The pair of cases either side of it is
+		// what pins the comparison down.
+		name: "a residual at the tolerance is an imbalance, not rounding",
+		postings: []posting{
+			{desc: "AAPL", typ: apiv1.TxType_BUYSTOCK, qty: "1", price: price("100"), settle: "USD", instID: aaplID, groupRef: "t1"},
+			{desc: "USD", typ: apiv1.TxType_BUYSTOCK, qty: "-99.995", settle: "USD", trading: "USD", instID: usdID, groupRef: "t1"},
+		},
+		want: []routed{{commodity: "USD", quantity: "-0.005", accountType: apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE}},
+	}, {
+		// A journal whose two sides disagree by a fraction of a cent disagrees because
+		// one statement rounded, not because a side is missing, so rounding beats the
+		// transfer classification rather than the other way round.
+		name: "sub-cent difference on a journal routes as rounding, not clearing",
+		postings: []posting{
+			{desc: "USD", typ: apiv1.TxType_JRNLFUND, qty: "1000.001", settle: "USD", trading: "USD", instID: usdID, groupRef: "j1"},
+			{desc: "USD", typ: apiv1.TxType_JRNLFUND, qty: "-1000", settle: "USD", trading: "USD", instID: usdID, groupRef: "j1"},
+		},
+		want: []routed{{commodity: "USD", quantity: "-0.001", accountType: apiv1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING}},
 	}, {
 		name: "dividend with its income leg routes nothing",
 		postings: []posting{

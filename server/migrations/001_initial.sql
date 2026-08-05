@@ -105,7 +105,8 @@ CREATE TABLE txs (
   synthetic_purpose         TEXT CHECK (synthetic_purpose IS NULL OR synthetic_purpose = 'INITIALIZE'),
   account_type              TEXT NOT NULL DEFAULT 'USER'
                               CHECK (account_type IN ('USER', 'EQUITY', 'INCOME', 'EXPENSE',
-                                                      'IMBALANCE', 'TRANSFER_CLEARING')),
+                                                      'IMBALANCE', 'TRANSFER_CLEARING',
+                                                      'SOURCE_ROUNDING')),
   group_id                  UUID REFERENCES tx_groups (id) ON DELETE CASCADE,
   created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -364,14 +365,14 @@ ALTER TABLE txs ADD COLUMN instrument_id UUID REFERENCES instruments (id);
 
 CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);
 
--- Residual postings -- the IMBALANCE and TRANSFER_CLEARING legs routed to balance a
--- group its source data left one-sided -- are a small minority of txs, and the report
--- that aggregates them reads every one across all users. A partial index over just
--- those rows answers it without carrying the USER postings that dominate the table.
--- Column order follows the report's GROUP BY.
+-- Residual postings -- the IMBALANCE, TRANSFER_CLEARING and SOURCE_ROUNDING legs
+-- routed to balance a group its source data left one-sided -- are a small minority of
+-- txs, and the report that aggregates them reads every one across all users. A partial
+-- index over just those rows answers it without carrying the USER postings that
+-- dominate the table. Column order follows the report's GROUP BY.
 CREATE INDEX idx_txs_residual_postings
   ON txs (account_type, user_id, broker, account, instrument_id, tx_type)
-  WHERE account_type IN ('IMBALANCE', 'TRANSFER_CLEARING');
+  WHERE account_type IN ('IMBALANCE', 'TRANSFER_CLEARING', 'SOURCE_ROUNDING');
 
 -- At most one INITIALIZE posting per holding per account type. account_type is part of
 -- the key because the pad's counterparty is an equal-and-opposite posting of the same

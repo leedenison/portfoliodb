@@ -59,18 +59,26 @@ var transferTypes = map[apiv1.TxType]bool{
 	apiv1.TxType_JRNLSEC:  true,
 }
 
-// Tolerances below which a residual is not worth a posting. A trade of 37 shares
-// at 12.3456 costs 456.7872 against a broker cash row of -456.79: the 0.0028 is
-// an artefact of the source being written to 2dp, not a real discrepancy.
-// Beancount infers half the last significant digit for exactly this case, and
-// half a cent is what it would infer for 2dp money.
+// Tolerances below which a residual is the source disagreeing with itself rather
+// than a leg it left out. A trade of 37 shares at 12.3456 costs 456.7872 against a
+// broker cash row of -456.79: the 0.0028 is an artefact of the source being
+// written to 2dp, not a real discrepancy. Beancount infers half the last
+// significant digit for exactly this case, and half a cent is what it would infer
+// for 2dp money.
 //
 // Quantities are exact decimals now, so this is no longer absorbing arithmetic
 // error -- it is the disagreement between two figures the source rounded
 // differently, which exactness does not remove. Both beancount and ledger keep a
 // tolerance for the same reason. Inferring it from the scale of the contributing
-// amounts, rather than fixing it, is a change to which residuals get routed and
+// amounts, rather than fixing it, is a change to how residuals get classified and
 // is deliberately not made here.
+//
+// The tolerance decides the account type a residual is routed to, not whether it
+// is routed at all. Suppressing the small ones would leave the group summing to a
+// small non-zero value, which is exactly what the balance constraint rejects; and
+// dropping them into IMBALANCE alongside genuinely missing legs would throw away
+// the one thing already known about them. See
+// docs/adr/0024-group-balance-is-checked-on-weight.md.
 var (
 	moneyTolerance     = decimal.RequireFromString("0.005")
 	commodityTolerance = decimal.New(1, -6)
@@ -131,7 +139,8 @@ func (c commodity) key() string {
 	}
 }
 
-// tolerance returns the residual below which this commodity counts as balanced.
+// tolerance returns the residual below which a difference in this commodity reads
+// as the source's own rounding rather than as a leg it omitted.
 func (c commodity) tolerance() decimal.Decimal {
 	if c.currency != "" {
 		return moneyTolerance
@@ -244,9 +253,12 @@ func groupPostings(txs []*apiv1.Tx) ([]string, map[string][]int) {
 }
 
 // routeResiduals returns the counterparty postings that make every group balance.
-// Groups that already balance produce none. A group can produce more than one when
-// its residual spans commodities, as beancount's residual inventory and ledger's
-// Imbalance:<CUR> both can.
+// Only a group that already sums to exactly zero produces none. A group can produce
+// more than one when its residual spans commodities, as beancount's residual
+// inventory and ledger's Imbalance:<CUR> both can. The account type says which kind
+// of residual it is: IMBALANCE for a leg the source omitted, TRANSFER_CLEARING for
+// the unmatched side of a journal, and SOURCE_ROUNDING for a difference small
+// enough to be the source's own rounding.
 //
 // It assigns a synthetic group_ref to any posting that has none, so that a routed
 // counterparty is stored in the same group as the posting it balances.
@@ -296,14 +308,24 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 		// the map iteration gave.
 		sort.Strings(keys)
 		first := txs[idxs[0]]
-		accountType := apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE
+		residual := apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE
 		if transfer {
-			accountType = apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING
+			residual = apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING
 		}
 		for _, k := range keys {
 			c := commodities[k]
-			if sums[k].Abs().LessThan(c.tolerance()) {
+			if sums[k].IsZero() {
 				continue
+			}
+			// Below tolerance the residual is the source disagreeing with itself
+			// rather than a leg the source left out, and saying so is worth more
+			// than leaving it unposted: it keeps the group summing to exactly zero
+			// while classifying the difference as what it is. A sub-tolerance
+			// residual on a journal is rounding too, so this beats the transfer
+			// case rather than the other way round.
+			accountType := residual
+			if sums[k].Abs().LessThan(c.tolerance()) {
+				accountType = apiv1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING
 			}
 			out = append(out, routedFor(first, ref, c, descs[k], sums[k].Neg(), accountType))
 		}

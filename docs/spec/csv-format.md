@@ -39,7 +39,7 @@ Grouping is the converter's job. The server persists what it is given: it does n
 
 **Fees are postings, not a column.** A commission, levy or duty is a row with `type=INVEXPENSE` and a negative `quantity` in the settlement currency, paired with an `account_type=EXPENSE` row for the same money. Put the pair in the trade's group when the broker charges it as part of the trade; give it a group of its own when the broker reports it as a separate cash event on its own date. Where a broker folds the commission into a single cash total, the converter splits that total into a consideration row and a fee row rather than posting it as one (see adr/0025-netted-cash-totals-are-split-into-legs.md).
 
-A group whose postings do not sum to zero is accepted, not rejected. The server routes whatever is left over to an `IMBALANCE` posting -- or `TRANSFER_CLEARING` for a journal -- so the residual is made visible rather than silently absorbed. See [postings.md](postings.md#balancing).
+A group whose postings do not sum to zero is accepted, not rejected. The server routes whatever is left over to an `IMBALANCE` posting -- `TRANSFER_CLEARING` for a journal, or `SOURCE_ROUNDING` when the difference is small enough to be the source rounding its own figures -- so the residual is made visible rather than silently absorbed. See [postings.md](postings.md#balancing).
 
 ### Transaction types (type column)
 
@@ -52,7 +52,7 @@ Allowed values for `type` (OFX-style):
 ### Account types (account_type column)
 
 Allowed values for `account_type`:
-`USER`, `EQUITY`, `INCOME`, `EXPENSE`, `IMBALANCE`, `TRANSFER_CLEARING`.
+`USER`, `EQUITY`, `INCOME`, `EXPENSE`, `IMBALANCE`, `TRANSFER_CLEARING`, `SOURCE_ROUNDING`.
 
 An absent column or an empty cell means `USER`, so an ordinary export needs no such
 column. An unrecognised value is a row error rather than a silent fall back to `USER`.

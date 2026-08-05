@@ -13,7 +13,7 @@ import { listResidualBalances, type ResidualBalance } from "@/lib/portfolio-api"
 import { ageInDays, groupByBroker, isMoney, transferAgeBucket } from "@/lib/residual-balance";
 import { AccountType, AssetClass, TxType, type Broker } from "@/gen/api/v1/api_pb";
 
-type Tab = "imbalance" | "transfers";
+type Tab = "imbalance" | "transfers" | "rounding";
 
 function TabButton({
   active,
@@ -76,6 +76,7 @@ export default function AdminImbalancePage() {
 
   const error = loadError ? errorMessage(loadError, "Failed to load residual balances") : null;
   const imbalances = balances.filter((b) => b.accountType === AccountType.IMBALANCE);
+  const rounding = balances.filter((b) => b.accountType === AccountType.SOURCE_ROUNDING);
   const transfers = balances
     .filter((b) => b.accountType === AccountType.TRANSFER_CLEARING)
     .sort((a, b) => (a.oldestTimestamp?.getTime() ?? Infinity) - (b.oldestTimestamp?.getTime() ?? Infinity));
@@ -87,7 +88,9 @@ export default function AdminImbalancePage() {
         What each broker converter failed to capture. A group whose postings do not sum
         to zero has its residual routed to {ACCOUNT_TYPE_LABEL[AccountType.IMBALANCE]},
         so the size of these balances is a direct measure of how lossy each converter
-        is. Balances are per commodity and are never converted between them.
+        is -- unless it is small enough to be the source rounding its own figures, which
+        is separated out under {ACCOUNT_TYPE_LABEL[AccountType.SOURCE_ROUNDING]}.
+        Balances are per commodity and are never converted between them.
       </p>
 
       {error && <ErrorAlert>{error}</ErrorAlert>}
@@ -132,43 +135,79 @@ export default function AdminImbalancePage() {
         <TabButton active={tab === "transfers"} onClick={() => setTab("transfers")}>
           Unmatched transfers
         </TabButton>
+        <TabButton active={tab === "rounding"} onClick={() => setTab("rounding")}>
+          Source rounding
+        </TabButton>
       </div>
 
       {tab === "imbalance" && (
-        <ImbalanceTab rows={imbalances} loading={loading} hasError={error !== null} />
+        <ResidualTab
+          rows={imbalances}
+          loading={loading}
+          hasError={error !== null}
+          empty="No imbalances. Every group balances."
+          blurb={
+            <>
+              Expect uncategorised income to dominate until each converter emits the income
+              and expense legs of its single-row dividends and charges. The tx type separates
+              the two: an {TX_TYPE_LABEL[TxType.INCOME]} balance is a dividend we do not
+              categorise yet, a trade balance is a fee the broker did not report. A negative
+              balance is value arriving from outside the ledger, which is what an
+              uncategorised dividend looks like.
+            </>
+          }
+        />
       )}
       {tab === "transfers" && (
         <TransfersTab rows={transfers} loading={loading} hasError={error !== null} />
+      )}
+      {tab === "rounding" && (
+        <ResidualTab
+          rows={rounding}
+          loading={loading}
+          hasError={error !== null}
+          empty="No rounding residuals. Every source agrees with itself."
+          blurb={
+            <>
+              What each source&apos;s own rounding costs. A broker quoting a price to four
+              places and a cash amount to two disagrees with itself by a fraction of a cent
+              per trade; the difference is exact and real, but it is an artefact of how the
+              statement was written rather than a leg the converter missed. One posting here
+              is noise -- the total and the posting count are the point.
+            </>
+          }
+        />
       )}
     </div>
   );
 }
 
-function ImbalanceTab({
+// ResidualTab renders one account type's balances, grouped by broker with per-commodity
+// subtotals. Imbalance and source rounding differ only in what they mean, not in shape:
+// both are a signed total per (account, commodity, event) with a posting count, so they
+// share a table and take their own blurb and empty message.
+function ResidualTab({
   rows,
   loading,
   hasError,
+  blurb,
+  empty,
 }: {
   rows: ResidualBalance[];
   loading: boolean;
   hasError: boolean;
+  blurb: React.ReactNode;
+  empty: string;
 }) {
   if (loading && rows.length === 0) return <p className="text-text-muted">Loading balances...</p>;
   if (rows.length === 0 && !hasError) {
-    return <p className="text-text-muted">No imbalances. Every group balances.</p>;
+    return <p className="text-text-muted">{empty}</p>;
   }
 
   const groups = groupByBroker(rows);
   return (
     <div className="space-y-3">
-      <p className="max-w-3xl text-xs text-text-muted">
-        Expect uncategorised income to dominate until each converter emits the income
-        and expense legs of its single-row dividends and charges. The tx type separates
-        the two: an {TX_TYPE_LABEL[TxType.INCOME]} balance is a dividend we do not categorise yet,
-        a trade balance is a fee the broker did not report. A negative balance is value
-        arriving from outside the ledger, which is what an uncategorised dividend looks
-        like.
-      </p>
+      <p className="max-w-3xl text-xs text-text-muted">{blurb}</p>
       <table data-testid="imbalance-table" className="w-full text-left text-sm">
         <thead>
           <tr className="border-b border-border text-text-muted">

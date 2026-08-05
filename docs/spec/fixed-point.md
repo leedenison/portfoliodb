@@ -226,4 +226,4 @@ The declaration form should:
 ## Future Extensions
 
 - **TRUE_UP synthetic transactions:** Additional fixed points after portfolio inception that insert corrective transactions at their own dates, for a user who wants a disagreeing assertion plugged rather than reported. The `synthetic_purpose` field is already designed to accommodate this.
-- **Cost basis on INITIALIZE transactions:** Allowing users to optionally declare cost basis alongside units, for gain/loss reporting.
+- **Cost basis on INITIALIZE transactions:** Allowing users to optionally declare cost basis alongside units, for gain/loss reporting. A declared cost is an input to the lot derivation rather than a leg, so nothing above changes: the pad and its `EQUITY` counterparty go on weighing in shares. See adr/0031-lots-are-derived-and-unknown-basis-is-a-value.md; the work is 0075.

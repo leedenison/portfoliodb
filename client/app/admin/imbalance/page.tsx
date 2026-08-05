@@ -43,9 +43,14 @@ function TabButton({
  * A balance in a currency is money; one in a security is a quantity of shares.
  * They are formatted differently and never added together.
  */
-function amount(b: { balance: number; commodity: string; assetClass: AssetClass }): string {
+function amount(b: { balance: string; commodity: string; assetClass: AssetClass }): string {
   if (isMoney(b)) return formatCurrency(b.balance, b.commodity);
-  return `${b.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${b.commodity}`;
+  // Grouped for readability, but formatted from the string so the digits are the
+  // ones the server sent.
+  const qty = new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(
+    b.balance as unknown as number,
+  );
+  return `${qty} ${b.commodity}`;
 }
 
 export default function AdminImbalancePage() {

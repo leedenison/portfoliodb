@@ -96,7 +96,7 @@ func TestListResidualBalances_GroupsByTxType(t *testing.T) {
 		t.Fatalf("expected 2 rows, got %d: %+v", len(rows), rows)
 	}
 	income := findBalance(t, rows, apiv1.Broker_IBKR, "A1", apiv1.TxType_INCOME)
-	if income.Balance != -150 {
+	if income.Balance.String() != "-150" {
 		t.Errorf("income balance = %v, want -150", income.Balance)
 	}
 	if income.PostingCount != 2 {
@@ -112,7 +112,7 @@ func TestListResidualBalances_GroupsByTxType(t *testing.T) {
 		t.Errorf("income account type = %v, want IMBALANCE", income.AccountType)
 	}
 	buy := findBalance(t, rows, apiv1.Broker_IBKR, "A1", apiv1.TxType_BUYSTOCK)
-	if buy.Balance != 3.5 {
+	if buy.Balance.String() != "3.5" {
 		t.Errorf("buy balance = %v, want 3.5", buy.Balance)
 	}
 }
@@ -192,7 +192,7 @@ func TestListResidualBalances_SettledTransferIsStillReported(t *testing.T) {
 		t.Fatalf("expected both sides reported, got %+v", rows)
 	}
 	out := findBalance(t, rows, apiv1.Broker_IBKR, "A1", apiv1.TxType_JRNLFUND)
-	if out.Balance != 500 {
+	if out.Balance.String() != "500" {
 		t.Errorf("A1 balance = %v, want 500", out.Balance)
 	}
 	if out.Oldest == nil || out.Newest == nil {

@@ -360,7 +360,7 @@ func TestUpsertInitializeTx_WritesTheEquityCounterparty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("holdings: %v", err)
 	}
-	if len(holdings) != 1 || holdings[0].Quantity != 50 {
+	if len(holdings) != 1 || holdings[0].Quantity != "50" {
 		t.Fatalf("holdings: want a single holding of 50, got %+v", holdings)
 	}
 }

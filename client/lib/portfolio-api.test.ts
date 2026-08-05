@@ -292,7 +292,7 @@ describe("portfolio-api", () => {
                 commodity: "USD",
                 assetClass: AssetClass.CASH,
                 txType: TxType.INCOME,
-                balance: -1234.56,
+                balance: "-1234.56",
                 postingCount: 7,
                 oldestTimestamp: timestampFromDate(oldest),
               },
@@ -311,7 +311,7 @@ describe("portfolio-api", () => {
         commodity: "USD",
         assetClass: AssetClass.CASH,
         txType: TxType.INCOME,
-        balance: -1234.56,
+        balance: "-1234.56",
         postingCount: 7,
       });
       expect(balances[0].oldestTimestamp?.getTime()).toBe(oldest.getTime());

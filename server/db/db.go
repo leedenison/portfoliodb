@@ -680,7 +680,7 @@ type IgnoredAssetClass struct {
 type InflationIndex struct {
 	Currency     string
 	Month        time.Time // 1st of month, UTC
-	IndexValue   float64
+	IndexValue   decimal.Decimal
 	BaseYear     int
 	DataProvider string
 }
@@ -989,7 +989,7 @@ type ResidualBalance struct {
 	Commodity    string
 	AssetClass   string
 	TxType       apiv1.TxType
-	Balance      float64
+	Balance      decimal.Decimal
 	PostingCount int32
 	// Oldest and Newest bound the postings that contribute to the balance. For a
 	// transfer they are not the age of a missing side: nothing pairs the two sides

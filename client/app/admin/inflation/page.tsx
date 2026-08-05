@@ -178,7 +178,7 @@ function InflationRow({ index: idx }: { index: InflationIndexProto }) {
       </td>
       <td className="px-4 py-2 text-text-muted">{idx.month}</td>
       <td className="px-4 py-2 text-right font-mono text-text-primary">
-        {idx.indexValue.toFixed(1)}
+        {idx.indexValue}
       </td>
       <td className="px-4 py-2 text-right font-mono text-text-muted">
         {idx.baseYear}

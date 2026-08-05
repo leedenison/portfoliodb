@@ -11,6 +11,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/worker"
+	"github.com/shopspring/decimal"
 )
 
 const DefaultInflationPluginTimeout = 60 * time.Second
@@ -226,9 +227,12 @@ func toDBIndices(currency, provider string, indices []MonthlyIndex) []db.Inflati
 	out := make([]db.InflationIndex, len(indices))
 	for i, idx := range indices {
 		out[i] = db.InflationIndex{
-			Currency:     currency,
-			Month:        idx.Month,
-			IndexValue:   idx.IndexValue,
+			Currency: currency,
+			Month:    idx.Month,
+			// The plugin seam: ONS publishes index values as JSON numbers, so
+			// this is where one becomes exact. Matches how the price fetcher
+			// converts a provider bar.
+			IndexValue:   decimal.NewFromFloat(idx.IndexValue),
 			BaseYear:     idx.BaseYear,
 			DataProvider: provider,
 		}

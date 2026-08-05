@@ -42,14 +42,14 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 	if asOf == nil {
 		t.Fatal("asOf should be set")
 	}
-	var aaplQty float64
+	var aaplQty string
 	for _, h := range holdings {
 		if h.InstrumentDescription == "AAPL" {
 			aaplQty = h.Quantity
 			break
 		}
 	}
-	if aaplQty != 7 {
+	if aaplQty != "7" {
 		t.Fatalf("expected AAPL quantity 7 (10 + -3), got %v", aaplQty)
 	}
 }
@@ -519,7 +519,7 @@ func TestCreateTx_AppendOnly(t *testing.T) {
 	}
 	holdings, _, _ := p.ComputeHoldings(ctx, userID, nil, "", nil)
 	for _, h := range holdings {
-		if h.InstrumentDescription == "GOOG" && h.Quantity != 15 {
+		if h.InstrumentDescription == "GOOG" && h.Quantity != "15" {
 			t.Fatalf("append-only: expected total quantity 15, got %v", h.Quantity)
 		}
 	}
@@ -757,14 +757,14 @@ func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 	if asOf == nil {
 		t.Fatal("asOf should be set")
 	}
-	var aaplQty float64
+	var aaplQty string
 	for _, h := range holdings {
 		if h.InstrumentDescription == "AAPL" {
 			aaplQty = h.Quantity
 			break
 		}
 	}
-	if aaplQty != 7 {
+	if aaplQty != "7" {
 		t.Fatalf("expected AAPL quantity 7 (10-3), got %v", aaplQty)
 	}
 }
@@ -817,11 +817,11 @@ func TestListTxsByPortfolio_ANDBetweenCategories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ComputeHoldingsForPortfolio: %v", err)
 	}
-	var totalQty float64
+	var totalQty string
 	for _, h := range holdings {
 		totalQty += h.Quantity
 	}
-	if totalQty != 3 {
+	if totalQty != "3" {
 		t.Fatalf("expected total quantity 3, got %v", totalQty)
 	}
 }

@@ -12,7 +12,7 @@ import (
 
 func TestGetHoldings_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
-	holdings := []*apiv1.Holding{{InstrumentDescription: "AAPL", Quantity: 10}}
+	holdings := []*apiv1.Holding{{InstrumentDescription: "AAPL", Quantity: "10"}}
 	asOf := timestamppb.Now()
 	db.EXPECT().
 		ComputeHoldings(gomock.Any(), "user-1", (*apiv1.Broker)(nil), "", (*timestamppb.Timestamp)(nil)).
@@ -32,7 +32,7 @@ func TestGetHoldings_Success(t *testing.T) {
 
 func TestGetHoldings_WithPortfolioId_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
-	holdings := []*apiv1.Holding{{InstrumentDescription: "AAPL", Quantity: 10}}
+	holdings := []*apiv1.Holding{{InstrumentDescription: "AAPL", Quantity: "10"}}
 	asOf := timestamppb.Now()
 	db.EXPECT().
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").

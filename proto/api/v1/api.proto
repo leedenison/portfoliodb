@@ -451,13 +451,17 @@ message ListTxsResponse {
 message Holding {
   Broker broker = 1;
   string instrument_description = 2;
-  double quantity = 3;
+  // A sum of the contributing postings' quantities, as a decimal string. Sums
+  // are closed, so the holding is exact.
+  string quantity = 3 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // Resolved instrument id (UUID). Set when identification ran for the underlying txs.
   string instrument_id = 4;
   Instrument instrument = 5;  // optional; set when instrument_id was resolved
   string account = 6;  // account string from txs; holdings are grouped by (broker, account, instrument)
-  // Split-adjusted quantity (sum of split_adjusted_quantity across txs).
-  double split_adjusted_quantity = 7;
+  // Split-adjusted quantity (sum of split_adjusted_quantity across txs). Exact
+  // to the columns' declared rounding scale rather than exact outright, with the
+  // bound growing in the number of contributing postings; see spec/performance.md.
+  string split_adjusted_quantity = 7 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
 }
 
 message GetHoldingsRequest {
@@ -1011,7 +1015,7 @@ message ListPriceGapsResponse {
 message InflationIndexProto {
   string currency = 1;        // ISO 4217 (e.g. "GBP")
   string month = 2;           // "YYYY-MM-DD" (1st of month)
-  double index_value = 3;
+  string index_value = 3 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"]; // decimal, relative to base_year July=100
   int32 base_year = 4;
   string data_provider = 5;
 }
@@ -1256,7 +1260,9 @@ message ResidualBalance {
   string commodity = 5;          // instrument name: the ISO code for money, the ticker for a security
   AssetClass asset_class = 6;    // CASH means the balance is money; anything else is a quantity
   TxType tx_type = 7;            // the kind of event that left the balance
-  double balance = 8;            // signed sum over the contributing postings
+  // Decimal; a signed sum over the contributing postings' weights, which are
+  // exact, so a residual reported here is real rather than an artefact.
+  string balance = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   int32 posting_count = 9;
   // The oldest and newest postings contributing to the balance. For a transfer
   // these are not the age of a missing side: see the note above.

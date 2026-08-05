@@ -69,6 +69,22 @@ func createTx(ctx context.Context, p *Postgres, userID, broker, account, jobID s
 	return p.CreateTxGroup(ctx, userID, broker, account, jobID, []*apiv1.Tx{tx}, []string{instrumentID}, shareCountBasis)
 }
 
+// newTxGroup creates an empty tx group and returns its id, for the fixtures that
+// write a posting with raw SQL because the normal path cannot produce it -- an
+// account_type outside the vocabulary, or a NULL instrument_id. Every posting
+// belongs to a group, so those fixtures need one too.
+func newTxGroup(t *testing.T, p *Postgres, userID string) string {
+	t.Helper()
+	var id string
+	err := p.q.QueryRowContext(context.Background(), `
+		INSERT INTO tx_groups (user_id, timestamp) VALUES ($1::uuid, now()) RETURNING id
+	`, userID).Scan(&id)
+	if err != nil {
+		t.Fatalf("create tx group: %v", err)
+	}
+	return id
+}
+
 // decf builds a decimal from a float literal, which is what a price test fixture
 // is naturally written as. Production code never converts this way -- the
 // provider seam in server/pricefetcher does it once, deliberately.

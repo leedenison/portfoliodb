@@ -888,9 +888,10 @@ func TestTxs_AccountTypeCheckConstraint(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|acct-check", "U", "u@check.com")
 	_, err := p.q.ExecContext(ctx, `
 		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
-		                 tx_type, quantity, split_adjusted_quantity, share_count_basis, account_type)
-		VALUES ($1, 'IBKR', 'A', now(), 'X', 'BUYSTOCK', 1, 1, current_date, 'Imbalance.USD')
-	`, userID)
+		                 tx_type, quantity, split_adjusted_quantity, share_count_basis,
+		                 account_type, group_id)
+		VALUES ($1, 'IBKR', 'A', now(), 'X', 'BUYSTOCK', 1, 1, current_date, 'Imbalance.USD', $2::uuid)
+	`, userID, newTxGroup(t, p, userID))
 	if err == nil {
 		t.Fatal("insert with an account_type outside the vocabulary: want error, got none")
 	}

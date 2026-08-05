@@ -239,20 +239,26 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	// explicit counterparty. This runs after filtering, so a dropped SPLIT leg
 	// cannot contribute a residual, and after resolution, because telling a
 	// currency commodity from a security one is a property of the instrument.
-	routed := routeResiduals(txsToProcess, instrumentIDs, balanceInstruments(instByID))
-	routedTxs, routedIDs, unresolved := resolveRouted(ctx, database, routed)
+	balanceInsts := balanceInstruments(instByID)
+	routed := routeResiduals(txsToProcess, instrumentIDs, balanceInsts)
+	routedTxs, routedIDs, routedWeights, unresolved := resolveRouted(ctx, database, routed)
 	for _, cur := range unresolved {
 		log.Printf("ingestion job %s: no currency instrument for %q; residual left unrouted", j.JobID, cur)
 	}
+	// Weighed after routing, which is what assigns a synthetic group_ref to a posting
+	// that had none, and before the routed postings are appended, since those carry
+	// the weight of the residual they negate rather than one derived from the tx.
+	txWeights := weights(txsToProcess, instrumentIDs, balanceInsts)
 	txsToProcess = append(txsToProcess, routedTxs...)
 	instrumentIDs = append(instrumentIDs, routedIDs...)
+	txWeights = append(txWeights, routedWeights...)
 
 	// Store transactions.
 	var storeErr error
 	if bulk {
-		storeErr = database.ReplaceTxsInPeriod(ctx, userID, broker, j.JobID, req.PeriodFrom, req.PeriodBefore, txsToProcess, instrumentIDs, shareCountBasis)
+		storeErr = database.ReplaceTxsInPeriod(ctx, userID, broker, j.JobID, req.PeriodFrom, req.PeriodBefore, txsToProcess, instrumentIDs, txWeights, shareCountBasis)
 	} else {
-		storeErr = database.CreateTxGroup(ctx, userID, broker, txsToProcess[0].GetAccount(), j.JobID, txsToProcess, instrumentIDs, shareCountBasis)
+		storeErr = database.CreateTxGroup(ctx, userID, broker, txsToProcess[0].GetAccount(), j.JobID, txsToProcess, instrumentIDs, txWeights, shareCountBasis)
 	}
 	if storeErr != nil {
 		log.Printf("ingestion job %s: %v", j.JobID, storeErr)

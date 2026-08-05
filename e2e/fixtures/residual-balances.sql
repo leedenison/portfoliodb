@@ -6,7 +6,8 @@
 -- rather than about the converters.
 --
 -- Every posting belongs to a group, so each residual gets one. The ids are explicit
--- because the postings reference them.
+-- because the postings reference them. Every residual here is a cash posting with no
+-- price, so it weighs its own quantity in the currency it is denominated in.
 --
 -- Timestamps are relative to now() so the age assertions do not rot.
 
@@ -24,20 +25,22 @@ ON CONFLICT (id) DO NOTHING;
 -- the whole value lands in Imbalance. Negative: value arriving from outside the
 -- ledger.
 INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
-                 quantity, trading_currency, settlement_currency, instrument_id, account_type, group_id)
+                 quantity, trading_currency, settlement_currency, instrument_id, account_type,
+                 weight, weight_commodity, group_id)
 SELECT 'e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1',
        now() - INTERVAL '5 days', 'USD', 'INCOME', -137.08, 'USD', 'USD', i.instrument_id, 'IMBALANCE',
-       'e2e00000-0000-0000-0000-000000000301'
+       -137.08, 'cur:USD', 'e2e00000-0000-0000-0000-000000000301'
 FROM (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;
 
 -- A trade whose price and cash total disagree: the commission the broker netted
 -- into the total and did not report separately.
 INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
-                 quantity, trading_currency, settlement_currency, instrument_id, account_type, group_id)
+                 quantity, trading_currency, settlement_currency, instrument_id, account_type,
+                 weight, weight_commodity, group_id)
 SELECT 'e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1',
        now() - INTERVAL '6 days', 'USD', 'BUYSTOCK', 4.95, 'USD', 'USD', i.instrument_id, 'IMBALANCE',
-       'e2e00000-0000-0000-0000-000000000302'
+       4.95, 'cur:USD', 'e2e00000-0000-0000-0000-000000000302'
 FROM (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;
 
@@ -46,10 +49,11 @@ FROM (SELECT instrument_id FROM instrument_identifiers
 -- other; neither should appear. They arrive in separate statements, so they are
 -- separate groups -- pairing them is 0068.
 INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
-                 quantity, trading_currency, settlement_currency, instrument_id, account_type, group_id)
+                 quantity, trading_currency, settlement_currency, instrument_id, account_type,
+                 weight, weight_commodity, group_id)
 SELECT 'e2e00000-0000-0000-0000-000000000001', 'SCHB', v.account,
        now() - (v.days || ' days')::INTERVAL, 'USD', 'JRNLFUND', v.qty, 'USD', 'USD',
-       i.instrument_id, 'TRANSFER_CLEARING', v.group_id::uuid
+       i.instrument_id, 'TRANSFER_CLEARING', v.qty, 'cur:USD', v.group_id::uuid
 FROM (VALUES ('SCH-1', 1000.00, '60', 'e2e00000-0000-0000-0000-000000000303'),
              ('SCH-2', -1000.00, '59', 'e2e00000-0000-0000-0000-000000000304')) AS v(account, qty, days, group_id),
      (SELECT instrument_id FROM instrument_identifiers
@@ -58,19 +62,21 @@ FROM (VALUES ('SCH-1', 1000.00, '60', 'e2e00000-0000-0000-0000-000000000303'),
 -- One side of a transfer out of an IBKR account, long enough ago that the other
 -- side is not coming.
 INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
-                 quantity, trading_currency, settlement_currency, instrument_id, account_type, group_id)
+                 quantity, trading_currency, settlement_currency, instrument_id, account_type,
+                 weight, weight_commodity, group_id)
 SELECT 'e2e00000-0000-0000-0000-000000000001', 'IBKR', 'U-OLD',
        now() - INTERVAL '40 days', 'USD', 'JRNLFUND', 500.00, 'USD', 'USD', i.instrument_id, 'TRANSFER_CLEARING',
-       'e2e00000-0000-0000-0000-000000000305'
+       500.00, 'cur:USD', 'e2e00000-0000-0000-0000-000000000305'
 FROM (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;
 
 -- A transfer imported two days ago whose other side may still be on its way. It
 -- must stay quiet.
 INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
-                 quantity, trading_currency, settlement_currency, instrument_id, account_type, group_id)
+                 quantity, trading_currency, settlement_currency, instrument_id, account_type,
+                 weight, weight_commodity, group_id)
 SELECT 'e2e00000-0000-0000-0000-000000000001', 'IBKR', 'U-NEW',
        now() - INTERVAL '2 days', 'USD', 'JRNLFUND', 250.00, 'USD', 'USD', i.instrument_id, 'TRANSFER_CLEARING',
-       'e2e00000-0000-0000-0000-000000000306'
+       250.00, 'cur:USD', 'e2e00000-0000-0000-0000-000000000306'
 FROM (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;

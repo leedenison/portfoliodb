@@ -24,7 +24,21 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	if survivor == mergedAway {
 		return nil
 	}
-	if _, err := exec.ExecContext(ctx, `UPDATE txs SET instrument_id = $1 WHERE instrument_id = $2`, survivor, mergedAway); err != nil {
+	// weight_commodity moves with instrument_id, in the same statement: a posting
+	// weighing in its own security names it by instrument, so leaving the name behind
+	// would split one commodity into two and unbalance the group. Only the 'inst:'
+	// form needs rewriting -- a converted or cash leg is named by its currency code,
+	// which the merge does not change. Both legs of a same-instrument group move
+	// together, so the group stays balanced across the merge. See
+	// docs/adr/0029-posting-weight-is-stored.md.
+	if _, err := exec.ExecContext(ctx, `
+		UPDATE txs
+		SET instrument_id = $1::uuid,
+		    weight_commodity = CASE WHEN weight_commodity = 'inst:' || $2::uuid::text
+		                            THEN 'inst:' || $1::uuid::text
+		                            ELSE weight_commodity END
+		WHERE instrument_id = $2::uuid
+	`, survivor, mergedAway); err != nil {
 		return fmt.Errorf("update txs: %w", err)
 	}
 	rows, err := exec.QueryContext(ctx, `SELECT identifier_type, domain, value, canonical FROM instrument_identifiers WHERE instrument_id = $1`, mergedAway)

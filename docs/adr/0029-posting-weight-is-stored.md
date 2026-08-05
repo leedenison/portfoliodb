@@ -19,6 +19,34 @@ instrument for an unconverted security leg, and the posting's description when
 its instrument never resolved. The fallback is a real value and never NULL, so an
 unresolved posting still balances against itself.
 
+## The encoding
+
+The three kinds are not the same kind of thing, so they are prefixed rather than
+stored bare: `cur:USD`, `inst:<uuid>`, `desc:<description>`. Without a prefix a
+description that happened to read `USD` would be the same commodity as the currency,
+and the merge would have no way to rewrite instrument names without also matching a
+description that looked like a uuid. It is the same string `commodity.key()` in
+`server/service/ingestion/balance.go` already produced to accumulate the sums, so the
+stored value is the key the residual was computed against rather than a second
+spelling of it.
+
+A uuid column referencing `instruments` was considered and rejected. Currencies are
+instruments, so `cur:USD` could have been the currency instrument's id -- but that
+means resolving the settlement currency to an instrument for every converted posting
+rather than only for the routed ones, and it leaves the `desc:` fallback with nowhere
+to go on a posting whose instrument never resolved. A nullable commodity would then
+be a group the constraint cannot check.
+
+## Weights the caller does not supply
+
+`db.TxDB` takes weights as a slice parallel to the postings, and a nil slice means
+the caller has none. Each posting then weighs its own quantity in its own instrument,
+which is not a placeholder: it is exactly what the weight rule returns for a posting
+with no price. The fixtures that write postings directly are therefore writing a
+defensible weight rather than a filler value, and a caller that forgets to supply
+weights produces a group that fails the constraint rather than one that silently
+passes.
+
 ## Considered options
 
 - **Reimplementing the weight rules in PL/pgSQL.** Rejected on two counts. It is

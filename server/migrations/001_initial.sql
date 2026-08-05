@@ -80,6 +80,20 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 -- instrument. They equal the raw quantity/unit_price when no later split exists.
 -- They are recomputed idempotently from the raw columns whenever splits change
 -- (see RecomputeTxSplitAdjustments).
+-- weight is what this posting contributes to its group's balance and weight_commodity
+-- names what that contribution is denominated in: 'cur:<code>' for money,
+-- 'inst:<uuid>' for a security, 'desc:<text>' when the instrument never resolved. A
+-- group balances when SUM(weight) is zero for each weight_commodity. The weight rules
+-- live in server/service/ingestion/balance.go and are evaluated once at ingest; the
+-- result is stored rather than re-derived here, because instrument state moves under a
+-- posting afterwards -- a merge rewrites instrument_id and contract_multiplier records
+-- what a corporate action left behind -- so a re-derived weight could disagree with the
+-- one the group was balanced on. Computed from the raw quantity and unit_price, never
+-- from the split-adjusted pair, which carries a rounding an exact check would reject.
+-- The merge in server/db/postgres/instruments.go is the only thing that maintains
+-- these after ingest, and it rewrites weight_commodity alongside instrument_id.
+-- See docs/adr/0029-posting-weight-is-stored.md and
+-- docs/adr/0024-group-balance-is-checked-on-weight.md.
 -- quantity and unit_price are transcribed decimals and are exact, so they are
 -- bare NUMERIC. The split-adjusted pair is not: the cumulative split factor is a
 -- rational and a reverse /3 has no finite decimal form, so the pair declares a
@@ -109,6 +123,8 @@ CREATE TABLE txs (
                               CHECK (account_type IN ('USER', 'EQUITY', 'INCOME', 'EXPENSE',
                                                       'IMBALANCE', 'TRANSFER_CLEARING',
                                                       'SOURCE_ROUNDING')),
+  weight                    NUMERIC NOT NULL,
+  weight_commodity          TEXT NOT NULL,
   group_id                  UUID NOT NULL REFERENCES tx_groups (id) ON DELETE CASCADE,
   created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
 );

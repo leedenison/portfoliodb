@@ -151,10 +151,16 @@ func (c commodity) tolerance() decimal.Decimal {
 // routedPosting is a counterparty the server writes to make a group balance.
 // currency is set when the commodity is money and its instrument still has to be
 // looked up; instrumentID is set when it is carried over from the leg balanced.
+//
+// weight is carried rather than recomputed from the finished tx. Weighing it again
+// would give the same answer -- a routed posting has no price, so it weighs its own
+// quantity in its own commodity -- but the residual it negates is the value the group
+// has to be balanced against, and carrying it means the two cannot drift.
 type routedPosting struct {
 	tx           *apiv1.Tx
 	currency     string
 	instrumentID string
+	weight       db.Weight
 }
 
 // settleCurrency is the currency a converted weight is denominated in. Settlement
@@ -225,6 +231,40 @@ func weightOf(tx *apiv1.Tx, qty decimal.Decimal, price *decimal.Decimal, instID 
 	}
 }
 
+// weighPosting parses a posting's decimals and applies the weight rule. ok is false
+// when either is malformed, which leaves the posting out of its group's sums rather
+// than failing the batch -- routing exists so imperfect source data still lands, and
+// the group is then left unbalanced, the same state it was in before routing existed.
+// The protovalidate patterns reject a malformed value at the interceptor for every
+// unary RPC, so this is reachable only from an internal caller.
+func weighPosting(tx *apiv1.Tx, instID string, inst balanceInstrument) (decimal.Decimal, commodity, bool) {
+	qty, err := decimal.NewFromString(tx.GetQuantity())
+	if err != nil {
+		return decimal.Decimal{}, ownCommodity(tx, instID, inst), false
+	}
+	price, err := parseOptDec(tx.UnitPrice)
+	if err != nil {
+		return decimal.Decimal{}, ownCommodity(tx, instID, inst), false
+	}
+	amount, c := weightOf(tx, qty, price, instID, inst)
+	return amount, c, true
+}
+
+// weights returns what each posting contributes to its group's balance, parallel to
+// txs, for storing alongside them. It applies the same rule routeResiduals sums on,
+// so a stored weight and the residual routed against it cannot disagree.
+//
+// A posting the rule cannot weigh contributes zero in its own commodity, which is the
+// stored form of routeResiduals leaving it out of the sums.
+func weights(txs []*apiv1.Tx, instrumentIDs []string, instruments map[string]balanceInstrument) []db.Weight {
+	out := make([]db.Weight, len(txs))
+	for i, t := range txs {
+		amount, c, _ := weighPosting(t, instrumentIDs[i], instruments[instrumentIDs[i]])
+		out[i] = db.Weight{Amount: amount, Commodity: c.key()}
+	}
+	return out
+}
+
 // groupPostings returns the indices of each group's postings in input order,
 // and the group refs in a stable order. Postings with no ref are each their own
 // group, and are given a synthetic ref so a routed counterparty can join them.
@@ -286,15 +326,10 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 			if transferTypes[t.GetType()] {
 				transfer = true
 			}
-			qty, err := decimal.NewFromString(t.GetQuantity())
-			if err != nil {
+			amount, c, ok := weighPosting(t, instrumentIDs[i], instruments[instrumentIDs[i]])
+			if !ok {
 				continue
 			}
-			price, err := parseOptDec(t.UnitPrice)
-			if err != nil {
-				continue
-			}
-			amount, c := weightOf(t, qty, price, instrumentIDs[i], instruments[instrumentIDs[i]])
 			k := c.key()
 			if _, seen := sums[k]; !seen {
 				keys = append(keys, k)
@@ -346,18 +381,21 @@ func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount dec
 		GroupRef:    ref,
 		AccountType: accountType,
 	}
+	// The routed posting weighs the residual it negates, in the commodity that
+	// residual accumulated in. That is what makes the group sum to zero.
+	weight := db.Weight{Amount: amount, Commodity: c.key()}
 	if c.currency != "" {
 		// A currency posting's description is the code, matching how an ordinary
 		// cash row arrives, so nothing downstream has to treat it specially.
 		tx.InstrumentDescription = c.currency
 		tx.TradingCurrency = c.currency
 		tx.SettlementCurrency = c.currency
-		return routedPosting{tx: tx, currency: c.currency}
+		return routedPosting{tx: tx, currency: c.currency, weight: weight}
 	}
 	tx.InstrumentDescription = desc
 	tx.TradingCurrency = first.GetTradingCurrency()
 	tx.SettlementCurrency = first.GetSettlementCurrency()
-	return routedPosting{tx: tx, instrumentID: c.instrumentID}
+	return routedPosting{tx: tx, instrumentID: c.instrumentID, weight: weight}
 }
 
 // balanceInstruments reduces the resolved instruments to what balancing needs:
@@ -392,16 +430,18 @@ func balanceInstruments(byID map[string]*db.InstrumentRow) map[string]balanceIns
 // resolveRouted turns the routed postings into txs with a resolved instrument,
 // ready to store alongside the postings they balance. A residual in a currency
 // resolves through the seeded currency instruments; one in a security carries the
-// instrument of the leg it balances. The third return names the commodities whose
-// residual could not be given an instrument.
+// instrument of the leg it balances. It returns the txs, their instruments and their
+// weights in step, and last the commodities whose residual could not be given an
+// instrument.
 //
 // A residual with nowhere to go is dropped rather than failed: routing exists so
 // that imperfect source data still lands, and refusing an import because its
 // residual has no instrument would defeat that. The group is then left unbalanced,
 // which is the same state it was in before routing existed.
-func resolveRouted(ctx context.Context, database db.InstrumentDB, routed []routedPosting) ([]*apiv1.Tx, []string, []string) {
+func resolveRouted(ctx context.Context, database db.InstrumentDB, routed []routedPosting) ([]*apiv1.Tx, []string, []db.Weight, []string) {
 	var txs []*apiv1.Tx
 	var ids []string
+	var ws []db.Weight
 	var unresolved []string
 	byCurrency := map[string]string{}
 	for _, r := range routed {
@@ -431,6 +471,7 @@ func resolveRouted(ctx context.Context, database db.InstrumentDB, routed []route
 		}
 		txs = append(txs, r.tx)
 		ids = append(ids, id)
+		ws = append(ws, r.weight)
 	}
-	return txs, ids, unresolved
+	return txs, ids, ws, unresolved
 }

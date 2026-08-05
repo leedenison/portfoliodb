@@ -162,6 +162,7 @@ export function DeclarationForm({
                 Broker
               </label>
               <select
+                data-testid="declaration-broker"
                 value={broker}
                 onChange={(e) => { setBroker(e.target.value); setAccount(""); }}
                 className={inputClass}
@@ -179,6 +180,7 @@ export function DeclarationForm({
                 Account
               </label>
               <select
+                data-testid="declaration-account"
                 value={account}
                 onChange={(e) => setAccount(e.target.value)}
                 className={inputClass}
@@ -212,6 +214,7 @@ export function DeclarationForm({
             ) : (
               <>
                 <input
+                  data-testid="declaration-instrument-search"
                   type="text"
                   value={instrumentSearch}
                   onChange={(e) => setInstrumentSearch(e.target.value)}
@@ -230,6 +233,7 @@ export function DeclarationForm({
                       return (
                         <button
                           key={inst.id}
+                          data-testid="declaration-instrument-option"
                           type="button"
                           onClick={() => selectInstrument(inst)}
                           className="block w-full px-3 py-2 text-left text-sm hover:bg-primary-light/10"
@@ -257,6 +261,7 @@ export function DeclarationForm({
             Units Held
           </label>
           <input
+            data-testid="declaration-qty"
             type="number"
             step="any"
             value={declaredQty}
@@ -270,6 +275,7 @@ export function DeclarationForm({
             As Of Date
           </label>
           <input
+            data-testid="declaration-as-of-date"
             type="date"
             value={asOfDate}
             onChange={(e) => setAsOfDate(e.target.value)}
@@ -310,6 +316,7 @@ export function DeclarationForm({
 
       <div className="flex gap-3">
         <button
+          data-testid="declaration-submit"
           type="submit"
           disabled={submitting}
           className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-dark disabled:opacity-50"

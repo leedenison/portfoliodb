@@ -31,9 +31,29 @@ const declarationKind = `CASE WHEN d.as_of_date = (
 	      AND e.account = d.account AND e.instrument_id = d.instrument_id)
 	  THEN 'PAD' ELSE 'ASSERT' END AS kind`
 
-// declarationReadCols is the projection for reads, qualified for declarationKind.
+// declarationVerify computes what the transactions actually add up to at a
+// declaration's as_of_date, in the declaration's own share count. This is what turns
+// a stored statement into a checked one.
+//
+// It is computed on read rather than stored. A holding's computed quantity moves
+// under an ingestion, an instrument merge, an option split application and a split
+// recompute alike, and there is no single place all of those pass through -- so a
+// materialised verdict would need invalidating from each of them and would be stale
+// the moment one was missed. Derived here it is current by construction, and it
+// closes on its own when the data comes back into agreement.
+//
+// The pad is included (p_include_synthetic is true): an assertion checks the holding
+// as the user sees it, opening balance and all. That is also why a pad's own
+// assertion always reconciles -- the INITIALIZE tx is what makes it true.
+const declarationVerify = `LATERAL holding_qty_in_basis(
+	    d.user_id, d.broker, d.account, d.instrument_id,
+	    NULL, (d.as_of_date + 1)::timestamptz, d.share_count_basis, true) v`
+
+// declarationReadCols is the projection for reads, qualified for declarationKind and
+// declarationVerify.
 const declarationReadCols = `d.id, d.user_id, d.broker, d.account, d.instrument_id,
-	d.declared_qty, d.as_of_date, d.share_count_basis, ` + declarationKind
+	d.declared_qty, d.as_of_date, d.share_count_basis,
+	v.qty AS computed_qty, v.posting_count, v.inexact_bases, ` + declarationKind
 
 type declarationRow struct {
 	ID              uuid.UUID `db:"id"`
@@ -44,7 +64,11 @@ type declarationRow struct {
 	DeclaredQty     string    `db:"declared_qty"`
 	AsOfDate        time.Time `db:"as_of_date"`
 	ShareCountBasis time.Time `db:"share_count_basis"`
-	Kind            *string   `db:"kind"` // absent from the write paths' projection
+	// The verification columns and kind are absent from the write paths' projection.
+	ComputedQty  *decimal.Decimal `db:"computed_qty"`
+	PostingCount *int32           `db:"posting_count"`
+	InexactBases *int32           `db:"inexact_bases"`
+	Kind         *string          `db:"kind"`
 }
 
 func (r *declarationRow) toRow() *db.HoldingDeclarationRow {
@@ -61,7 +85,21 @@ func (r *declarationRow) toRow() *db.HoldingDeclarationRow {
 	if r.Kind != nil {
 		out.Kind = strToDeclarationKind(*r.Kind)
 	}
+	if r.ComputedQty != nil {
+		out.Verified = &db.DeclarationCheck{
+			ComputedQty:  *r.ComputedQty,
+			PostingCount: derefInt32(r.PostingCount),
+			InexactBases: derefInt32(r.InexactBases),
+		}
+	}
 	return out
+}
+
+func derefInt32(v *int32) int32 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 func strToDeclarationKind(s string) apiv1.DeclarationKind {
@@ -162,7 +200,8 @@ func (p *Postgres) GetHoldingDeclaration(ctx context.Context, id string) (*db.Ho
 	var row declarationRow
 	err = p.q.QueryRowxContext(ctx, `
 		SELECT `+declarationReadCols+`
-		FROM holding_declarations d WHERE d.id = $1
+		FROM holding_declarations d, `+declarationVerify+`
+		WHERE d.id = $1
 	`, declID).StructScan(&row)
 	if err != nil {
 		return nil, fmt.Errorf("get holding declaration: %w", err)
@@ -179,7 +218,8 @@ func (p *Postgres) ListHoldingDeclarations(ctx context.Context, userID string) (
 	var rows []declarationRow
 	err = p.q.SelectContext(ctx, &rows, `
 		SELECT `+declarationReadCols+`
-		FROM holding_declarations d WHERE d.user_id = $1
+		FROM holding_declarations d, `+declarationVerify+`
+		WHERE d.user_id = $1
 		ORDER BY d.broker, d.account, d.instrument_id, d.as_of_date
 	`, userUUID)
 	if err != nil {

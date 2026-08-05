@@ -624,6 +624,27 @@ type HoldingDeclarationRow struct {
 	// Kind is derived, not stored: the earliest declaration for a holding is the
 	// pad and the rest are assertions. Reads populate it; writes ignore it.
 	Kind apiv1.DeclarationKind
+	// Verified is what the transactions add up to at AsOfDate, computed on read.
+	// Nil on the write paths, which return the stored row only.
+	Verified *DeclarationCheck
+}
+
+// DeclarationCheck is a declaration measured against the holding it describes.
+//
+// It carries the two counts the comparison needs to bound its own rounding rather
+// than a verdict, because the tolerance is a policy question -- how much
+// disagreement is worth reporting -- and belongs with the handler that answers it,
+// not with the query that measures.
+type DeclarationCheck struct {
+	// ComputedQty is the sum of the holding's USER postings up to and including
+	// AsOfDate, converted into the declaration's ShareCountBasis. Includes the pad.
+	ComputedQty decimal.Decimal
+	// PostingCount is how many postings contributed.
+	PostingCount int32
+	// InexactBases is how many share count bases contributed a conversion that is
+	// not 1/1 -- the only places the sum can carry a rounding. Zero means the
+	// comparison against DeclaredQty is exact.
+	InexactBases int32
 }
 
 // InitializeTx is the derived pad for a holding declaration: the synthetic posting

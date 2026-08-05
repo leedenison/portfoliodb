@@ -223,5 +223,4 @@ The model above is normative. These parts of the system do not yet comply:
 | Divergence | Issue |
 | --- | --- |
 | No daily scheduler fires the blanket recompute, so a stored future-dated split never activates when its `ex_date` crosses | 0050 |
-| Holding declarations permit one assertion per holding, so a corrected declaration destroys the prior one | 0043 |
 | Corporate actions adjust totals rather than lots | 0044 |

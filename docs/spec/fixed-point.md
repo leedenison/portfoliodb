@@ -22,7 +22,7 @@ The **earliest** declaration for a holding is its **pad**. The INITIALIZE transa
 
 Every **later** declaration is an **assertion**. It generates nothing. It is checked against what the transactions add up to at its own date, and a disagreement means something is wrong with the data: a misparsed broker CSV, a missed transfer, a converter that silently dropped a row. That check is where the safety comes from; the pad is what makes a portfolio with incomplete history usable in the first place. The pair is beancount's `pad` and `balance`.
 
-The role is derived from the declaration dates, not stored. Adding a declaration earlier than the current pad makes it the pad and demotes the incumbent to an assertion; deleting the pad promotes the next-earliest. Nothing has to be kept in step, because there is no stored discriminator to disagree with the rows.
+The role is derived from the declaration dates, not stored. Adding a declaration earlier than the current pad makes it the pad and demotes the incumbent to an assertion; deleting the pad promotes the next-earliest. Nothing has to be kept in step, because there is no stored discriminator to disagree with the rows. See adr/0030-declarations-are-padded-then-asserted.md.
 
 ### INITIALIZE Transaction
 
@@ -134,6 +134,22 @@ The user may edit the declared quantity, the `as_of_date` or the `share_count_ba
 
 Deleting an **assertion** leaves the pad alone. Deleting the **pad** promotes the next-earliest declaration, and the INITIALIZE transaction is recalculated from it. Only deleting a holding's last declaration removes the INITIALIZE group: deleting the group takes both postings, so no path can leave the counterparty behind without the pad it balances, and the holding's history reverts to showing only real transactions with an implied zero balance at portfolio inception.
 
+### Verification
+
+An assertion is compared against the holding it describes. The comparison is computed on read, not stored: a holding's computed quantity moves under an ingestion, an instrument merge, an option split application and a split recompute alike, so a stored verdict would need invalidating from each of them. Derived at read time it is current after all of them with no trigger, and it clears on its own when the data comes back into agreement. See adr/0030-declarations-are-padded-then-asserted.md.
+
+The computed side is the sum of the holding's `USER` postings up to and including `as_of_date`, **including the pad** -- an assertion checks the holding as the user sees it, opening balance and all. Each posting is converted from its own `share_count_basis` into the declaration's, so both sides of the comparison are in one share count.
+
+**Tolerance.** Postings are grouped by their own basis and summed before conversion, so the division happens once per denomination rather than once per posting. A group whose conversion factor is not `1/1` can round once, at the declared scale of the split-adjusted columns. The assertion reconciles when
+
+```
+abs(computed_qty - declared_qty) <= inexact_bases * 10^-12
+```
+
+where `inexact_bases` is the number of contributing bases converting by something other than `1/1`. When no split falls in the window -- the common case -- that count is zero and the comparison is exact.
+
+A pad always reconciles: the INITIALIZE transaction is what makes it true, so its own check can only pass and reporting it as a result would suggest it had found something out.
+
 ### Recalculation Triggers
 
 INITIALIZE transactions are derived data. They must be recalculated when the inputs to their calculation change. There are two categories of change that require recalculation.
@@ -188,7 +204,7 @@ INITIALIZE transactions should not be directly editable through the normal trans
 
 ### Visibility of Declarations
 
-The holding declaration UI lives as an "Opening Balances" tab alongside the "Holdings" tab on the Holdings page. It shows each declaration's role, so a user can see which of a holding's checkpoints seeds the opening balance and which are checked.
+The holding declaration UI lives as an "Opening Balances" tab alongside the "Holdings" tab on the Holdings page. Each row shows its status: the pad reads as the opening balance, an assertion that reconciles reads as matching, and one that does not says by how much -- the size of the gap is what identifies the missing transaction. The tab itself carries a count of the assertions that disagree, so a user not looking at it still learns there is something to look at.
 
 ### Transaction List
 

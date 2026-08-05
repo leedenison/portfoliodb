@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { useAuthedQuery } from "@/hooks/use-authed-query";
+import { usePortfolio } from "@/contexts/portfolio-context";
 import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import {
@@ -28,8 +29,25 @@ function shareCountLabel(decl: HoldingDeclaration): string {
   return `As of ${basis}`;
 }
 
+/**
+ * What the check says about a declaration. A pad is true by construction, so it
+ * reports what it is rather than that it passed -- calling it "matches" would suggest
+ * it had found something out. An assertion that disagrees says by how much, because
+ * the size of the gap is what identifies the missing transaction.
+ */
+function checkStatus(decl: HoldingDeclaration): { label: string; alert: boolean } {
+  if (decl.kind === DeclarationKind.PAD) return { label: "Opening balance", alert: false };
+  if (!decl.computedQty) return { label: "—", alert: false };
+  if (decl.matched) return { label: "Matches", alert: false };
+  const delta = Number(decl.delta);
+  const sign = delta > 0 ? "+" : "";
+  return { label: `Off by ${sign}${parseFloat(delta.toFixed(4))}`, alert: true };
+}
+
 export function OpeningBalances() {
   const queryClient = useQueryClient();
+  const { selected: selectedPortfolio } = usePortfolio();
+  const portfolioId = selectedPortfolio?.id;
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingDecl, setEditingDecl] = useState<HoldingDeclaration | null>(null);
@@ -59,8 +77,17 @@ export function OpeningBalances() {
   const loadError = declError ?? brokersError;
   const error = deleteError ?? (loadError ? errorMessage(loadError) : null);
 
-  const refreshDeclarations = () =>
-    queryClient.invalidateQueries({ queryKey: qk.holdingDeclarations() });
+  // Writing a declaration writes the pad it derives, which is a posting -- so the
+  // holdings the sibling tab shows move with it. Invalidating only the declaration
+  // list left that tab reading the figure from before the opening balance existed,
+  // because it shares this page and never remounts. Every other view of the pad is
+  // on a page of its own and refetches when it mounts.
+  const refreshDeclarations = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: qk.holdingDeclarations() }),
+      queryClient.invalidateQueries({ queryKey: qk.holdings(portfolioId) }),
+    ]);
+  };
 
   const handleDelete = async (id: string) => {
     setDeleteError(null);
@@ -102,6 +129,7 @@ export function OpeningBalances() {
           <div className="flex justify-end">
             <button
               type="button"
+              data-testid="add-declaration"
               onClick={() => setShowForm(true)}
               className="rounded-md bg-accent px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark"
             >
@@ -112,10 +140,11 @@ export function OpeningBalances() {
             Set checkpoints for known holding quantities at a point in time. The earliest
             checkpoint for a holding becomes its opening balance: the system calculates one so
             that your records show this quantity on the date you specify. Later checkpoints are
-            checked against what your transactions add up to.
+            checked against what your transactions add up to, and a disagreement means a
+            transaction is missing or wrong.
           </p>
           <div className="overflow-x-auto rounded-md border border-border bg-surface shadow-xs">
-            <table className="w-full min-w-[480px] border-collapse text-sm">
+            <table data-testid="declarations-table" className="w-full min-w-[480px] border-collapse text-sm">
               <thead>
                 <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/3">
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
@@ -137,7 +166,7 @@ export function OpeningBalances() {
                     Share Count
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
-                    Role
+                    Status
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-muted">
                     Actions
@@ -162,6 +191,7 @@ export function OpeningBalances() {
                     return (
                       <tr
                         key={d.id}
+                        data-testid="declaration-row"
                         className="border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10"
                       >
                         <td className="px-4 py-3 text-text-muted">
@@ -182,8 +212,15 @@ export function OpeningBalances() {
                         <td className="px-4 py-3 text-text-muted">
                           {shareCountLabel(d)}
                         </td>
-                        <td className="px-4 py-3 text-text-muted">
-                          {d.kind === DeclarationKind.PAD ? "Opening balance" : "Checked"}
+                        <td
+                          className={
+                            checkStatus(d).alert
+                              ? "px-4 py-3 font-medium text-amber-700 dark:text-amber-400"
+                              : "px-4 py-3 text-text-muted"
+                          }
+                          data-testid="declaration-status"
+                        >
+                          {checkStatus(d).label}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button

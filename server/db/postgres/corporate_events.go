@@ -688,25 +688,31 @@ func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID s
 	}
 
 	return p.runInTx(ctx, func(exec queryable) error {
-		// Prices: compute the factor once per (instrument, date) in a
-		// FROM-subquery, then reference f.factor in all SET clauses.
-		// open/high/low/close are NUMERIC; volume is BIGINT (multiplied).
+		// Prices: compute the factor once per (instrument, date) in a LATERAL,
+		// then reference f.num and f.den in all SET clauses. LATERAL rather than
+		// a plain subquery selecting (split_factor_at(...)).*, which would call
+		// the function once per output column.
+		//
+		// The factor is a rational and divides last: a price adjusts by its
+		// reciprocal, so the multiplication is by den and the division by num.
+		// open/high/low/close are NUMERIC; volume is BIGINT and adjusts the other
+		// way (more shares trade in adjusted-share terms).
 		priceSQL := fmt.Sprintf(`
 			UPDATE eod_prices ep SET
 				split_adjusted_open    = CASE WHEN ep.open   IS NULL THEN NULL
-					ELSE ep.open   / f.factor::numeric END,
+					ELSE ep.open   * f.den / f.num END,
 				split_adjusted_high    = CASE WHEN ep.high   IS NULL THEN NULL
-					ELSE ep.high   / f.factor::numeric END,
+					ELSE ep.high   * f.den / f.num END,
 				split_adjusted_low     = CASE WHEN ep.low    IS NULL THEN NULL
-					ELSE ep.low    / f.factor::numeric END,
-				split_adjusted_close   = ep.close / f.factor::numeric,
+					ELSE ep.low    * f.den / f.num END,
+				split_adjusted_close   = ep.close * f.den / f.num,
 				split_adjusted_volume  = CASE WHEN ep.volume IS NULL THEN NULL
-					ELSE round(ep.volume::numeric * f.factor::numeric)::bigint END
+					ELSE round(ep.volume::numeric * f.num / f.den)::bigint END
 			FROM (
-				SELECT instrument_id, price_date,
-					split_factor_at(instrument_id, share_count_basis) AS factor
-				FROM eod_prices
-				WHERE instrument_id %s
+				SELECT p.instrument_id, p.price_date, f.num, f.den
+				FROM eod_prices p,
+					LATERAL split_factor_at(p.instrument_id, p.share_count_basis) f
+				WHERE p.instrument_id %s
 			) f
 			WHERE ep.instrument_id = f.instrument_id
 			  AND ep.price_date = f.price_date
@@ -715,17 +721,22 @@ func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID s
 			return fmt.Errorf("recompute split adjustments (prices): %w", err)
 		}
 
-		// Txs: factor is already double precision so no cast is needed.
+		// Txs: a quantity adjusts by the factor and a price by its reciprocal, so
+		// the two invert each other and the cost-basis invariant
+		// quantity * unit_price == split_adjusted_quantity * split_adjusted_unit_price
+		// holds. Both multiply before the single division; the result rounds to
+		// the columns' declared scale, which is where a reverse /3 lands.
 		txSQL := fmt.Sprintf(`
 			UPDATE txs t SET
-				split_adjusted_quantity   = t.quantity * f.factor,
+				split_adjusted_quantity   = t.quantity * f.num / f.den,
 				split_adjusted_unit_price = CASE WHEN t.unit_price IS NULL THEN NULL
-					ELSE t.unit_price / f.factor END
+					ELSE t.unit_price * f.den / f.num END
 			FROM (
-				SELECT id, split_factor_at(instrument_id, share_count_basis) AS factor
-				FROM txs
-				WHERE instrument_id IS NOT NULL
-				  AND instrument_id %s
+				SELECT x.id, f.num, f.den
+				FROM txs x,
+					LATERAL split_factor_at(x.instrument_id, x.share_count_basis) f
+				WHERE x.instrument_id IS NOT NULL
+				  AND x.instrument_id %s
 			) f
 			WHERE t.id = f.id
 		`, instFilter)

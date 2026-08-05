@@ -702,6 +702,94 @@ func TestRecomputeSplitAdjustments_NoSplits(t *testing.T) {
 	}
 }
 
+// TestRecomputeSplitAdjustments_ForwardSplitIsExact asserts on the stored text of
+// the adjusted columns rather than on a float64, because the point of the num/den
+// factor is that a forward split leaves no rounding at all. A 7:1 then 4:1 chain
+// on 100 shares at 280 is 2800 shares at 10 exactly -- the old exp(sum(ln(...)))
+// factor reached 27.999999999999996 and both adjusted values inherited it.
+func TestRecomputeSplitAdjustments_ForwardSplitIsExact(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+	instID := setupInstrument(t, p, "AAPL")
+
+	insertTxs(t, p, userID, instID, []*apiv1.Tx{{
+		Type:                  apiv1.TxType_BUYSTOCK,
+		Timestamp:             ts(2010, 6, 1),
+		Quantity:              100,
+		UnitPrice:             proto.Float64(280),
+		InstrumentDescription: "AAPL",
+	}})
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+		{InstrumentID: instID, ExDate: d(2014, 6, 9), SplitFrom: "1", SplitTo: "7", DataProvider: "test"},
+		{InstrumentID: instID, ExDate: d(2020, 8, 31), SplitFrom: "1", SplitTo: "4", DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert splits: %v", err)
+	}
+	if err := p.RecomputeSplitAdjustments(ctx, instID); err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+
+	// Read as text so the assertion is on the stored decimal, not on a value the
+	// driver has already rounded into a float64.
+	var saQty, saUnitPrice string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT trim_scale(split_adjusted_quantity)::text,
+		       trim_scale(split_adjusted_unit_price)::text
+		FROM txs WHERE instrument_id = $1::uuid
+	`, instID).Scan(&saQty, &saUnitPrice); err != nil {
+		t.Fatalf("read tx: %v", err)
+	}
+	if saQty != "2800" {
+		t.Errorf("split_adjusted_quantity: got %q want %q", saQty, "2800")
+	}
+	if saUnitPrice != "10" {
+		t.Errorf("split_adjusted_unit_price: got %q want %q", saUnitPrice, "10")
+	}
+}
+
+// TestRecomputeSplitAdjustments_ReverseSplitRoundsToDeclaredScale covers the case
+// the declared scale exists for. A 1:3 reverse split on 100 shares is 33.333...,
+// which has no finite decimal form, so the column rounds it at 12 places. The
+// price moves the other way and 280 * 3 is exact, so only one side of the pair
+// rounds -- which is why the cost-basis invariant is checked on the raw columns.
+func TestRecomputeSplitAdjustments_ReverseSplitRoundsToDeclaredScale(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := setupUser(t, p)
+	instID := setupInstrument(t, p, "RVRS")
+
+	insertTxs(t, p, userID, instID, []*apiv1.Tx{{
+		Type:                  apiv1.TxType_BUYSTOCK,
+		Timestamp:             ts(2020, 1, 2),
+		Quantity:              100,
+		UnitPrice:             proto.Float64(280),
+		InstrumentDescription: "RVRS",
+	}})
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+		{InstrumentID: instID, ExDate: d(2021, 3, 1), SplitFrom: "3", SplitTo: "1", DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert splits: %v", err)
+	}
+	if err := p.RecomputeSplitAdjustments(ctx, instID); err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+
+	var saQty, saUnitPrice string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT split_adjusted_quantity::text, trim_scale(split_adjusted_unit_price)::text
+		FROM txs WHERE instrument_id = $1::uuid
+	`, instID).Scan(&saQty, &saUnitPrice); err != nil {
+		t.Fatalf("read tx: %v", err)
+	}
+	if saQty != "33.333333333333" {
+		t.Errorf("split_adjusted_quantity: got %q want %q (12dp)", saQty, "33.333333333333")
+	}
+	if saUnitPrice != "840" {
+		t.Errorf("split_adjusted_unit_price: got %q want %q", saUnitPrice, "840")
+	}
+}
+
 // TestListStockSplitsForExport_BestIdentifier verifies that the export query
 // joins each split with the highest-priority identifier for the instrument.
 // MIC_TICKER beats ISIN beats BROKER_DESCRIPTION.

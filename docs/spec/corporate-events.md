@@ -100,15 +100,22 @@ For why these are excluded, see adr/0005-corporate-events-design.md.
 
 The `eod_prices` and `txs` tables carry `split_adjusted_*` columns alongside the raw values. The columns are populated at insert time (defaulting to the raw counterpart via a BEFORE trigger) and recomputed by `RecomputeSplitAdjustments` whenever new splits arrive.
 
-The adjustment factor for a row with reference date `R` and instrument `I` is:
+The adjustment factor for a row with reference date `R` and instrument `I` is a
+rational, returned as a numerator and a denominator rather than as their quotient:
 
 ```
-factor = product over splits where
+over splits where
   split.instrument_id = I
   AND split.ex_date > R
   AND split.ex_date <= current_date
-  of (split.split_to / split.split_from)
+
+num = product of split.split_to
+den = product of split.split_from
 ```
+
+Both products are exact, and callers multiply by `num` before dividing by `den` so
+the single division comes last. That ordering is what keeps the exact part exact
+for as long as possible; see adr/0028-cumulative-split-factor-is-an-exact-rational.md.
 
 The reference date `R` is the row's **share count basis** -- the date at which the share count its raw values are denominated in was current. It is declared by whoever supplied the row and stored on the row itself, not inferred from when the row was fetched; see [bitemporality.md](bitemporality.md#share-count-basis).
 
@@ -116,14 +123,17 @@ The `ex_date <= current_date` clause is the future-date guard: without it a futu
 
 Because the guard is evaluated against the wall clock, the `split_adjusted_*` columns are as-of now rather than as-of any stored date. Arithmetic must never mix the two share counts: raw quantity multiplies raw price, split-adjusted quantity multiplies split-adjusted price. Mixing them across a split scales the result by the split factor.
 
-Adjustment math:
+Adjustment math. A quantity adjusts by the factor and a price by its reciprocal,
+so `num` and `den` swap places between the two:
 
-- `split_adjusted_close = close / factor` (and same for open / high / low)
-- `split_adjusted_volume = round(volume * factor)` (more shares trade in adjusted-share terms)
-- `split_adjusted_quantity = quantity * factor` (more shares held)
-- `split_adjusted_unit_price = unit_price / factor` (per-share price drops)
+- `split_adjusted_close = close * den / num` (and same for open / high / low)
+- `split_adjusted_volume = round(volume * num / den)` (more shares trade in adjusted-share terms)
+- `split_adjusted_quantity = quantity * num / den` (more shares held)
+- `split_adjusted_unit_price = unit_price * den / num` (per-share price drops)
 
 The cost-basis invariant `qty × price == split_adjusted_quantity × split_adjusted_unit_price` is preserved by construction.
+
+The quotient is exact whenever `den` divides the product -- every forward split, and every ratio whose denominator factors into 2s and 5s (2:1, 3:2, 5:4). It is not exact for a genuine reverse `/3`, so the `split_adjusted_*` columns declare a rounding scale of 12 decimal places, recorded in the schema alongside them. The rounding is confined to that derived cache: the raw columns stay exact and the adjusted pair is recomputable from them at any time. An exact check -- a group balance, a checked holding declaration -- reads the raw columns instead.
 
 ### Option contracts
 

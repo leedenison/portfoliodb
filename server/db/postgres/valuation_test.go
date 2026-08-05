@@ -1200,3 +1200,66 @@ func unpricedOn(t *testing.T, points []db.ValuationPoint, want time.Time) bool {
 	t.Fatalf("no valuation point for %s", want.Format("2006-01-02"))
 	return false
 }
+
+// TestGetUserValuation_ExcludesDatesBeforeFirstTx covers qty_is_zero's NULL
+// branch, which is the only reason the function still exists now that quantities
+// are exact and there is no residual to absorb. daily_holdings forward-fills the
+// last known position with a LIMIT 1 correlated subquery, so on every grid day
+// before an instrument's first tx the position is NULL rather than zero. The NULL
+// branch classifies that as "not held", so the row leaves the valued CTE and the
+// day drops out of the series entirely -- priced days before the first purchase
+// are absent rather than zero, and the instrument is never reported as unpriced
+// on them.
+func TestGetUserValuation_ExcludesDatesBeforeFirstTx(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|nullqty", "U", "u@nullqty.com")
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "NULLQ", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "NULLQ", Canonical: false},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+
+	// Bought on Jan 3, but the valuation window opens on Jan 1.
+	buyDate := time.Date(2025, 1, 3, 12, 0, 0, 0, time.UTC)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "NULLQ", Type: apiv1.TxType_BUYSTOCK, Quantity: 10, Account: "main"},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "",
+		timestamppb.New(buyDate.Add(-time.Hour)), timestamppb.New(buyDate.Add(time.Hour)),
+		txs, []string{instID}, nil); err != nil {
+		t.Fatalf("replace txs: %v", err)
+	}
+	prices := []db.EODPrice{
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), Close: 100.0, DataProvider: "test"},
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), Close: 100.0, DataProvider: "test"},
+		{InstrumentID: instID, PriceDate: time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), Close: 150.0, DataProvider: "test"},
+	}
+	if err := p.UpsertPrices(ctx, prices); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	points, err := p.GetUserValuation(ctx, userID,
+		time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC), "USD")
+	if err != nil {
+		t.Fatalf("get user valuation: %v", err)
+	}
+	// Jan 1 and Jan 2 are priced but not held, so they are not in the series at
+	// all. Only Jan 3 survives.
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	if got := points[0].Date.Format("2006-01-02"); got != "2025-01-03" {
+		t.Errorf("point date: got %s want 2025-01-03", got)
+	}
+	if points[0].TotalValue != 1500 {
+		t.Errorf("total value: got %v want 1500", points[0].TotalValue)
+	}
+	// A NULL position is not an unpriced one: the instrument simply was not held.
+	if len(points[0].UnpricedInstruments) != 0 {
+		t.Errorf("expected no unpriced instruments, got %v", points[0].UnpricedInstruments)
+	}
+}

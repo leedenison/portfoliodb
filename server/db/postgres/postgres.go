@@ -27,8 +27,11 @@ type queryable interface {
 	GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
 }
 
-// qtyIsZero mirrors the SQL qty_is_zero function: true when a quantity is
-// effectively zero, absorbing floating-point residuals from summed buys/sells.
+// qtyIsZero is true when a running position is closed. Its SQL counterpart no
+// longer needs an epsilon -- the quantity columns are NUMERIC and buys sum
+// against sells exactly -- but this one still reads a float64 position out of the
+// HeldRanges window, so it keeps absorbing that sum's residual until the scan
+// type follows the column.
 func qtyIsZero(q float64) bool {
 	return q > -1e-9 && q < 1e-9
 }

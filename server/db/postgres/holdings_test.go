@@ -95,6 +95,56 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	}
 }
 
+// TestComputeHoldings_fractionalQuantitiesSumExactly pins the reason the quantity
+// columns are NUMERIC. Ten buys of 0.1 sum to exactly 1 in decimal; in binary
+// floating point they sum to 0.9999999999999999, and that residual reached the
+// user as the holding quantity. qty_is_zero's old epsilon hid the closed-position
+// case but nothing guarded the open one.
+func TestComputeHoldings_fractionalQuantitiesSumExactly(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|exact", "U", "u@u.com")
+	now := time.Now()
+	from := timestamppb.New(now.Add(-1 * time.Hour))
+	to := timestamppb.New(now)
+	at := timestamppb.New(now.Add(-30 * time.Minute))
+
+	txs := make([]*apiv1.Tx, 0, 10)
+	instIDs := make([]string, 0, 10)
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "FRAC", Canonical: false},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	for i := 0; i < 10; i++ {
+		txs = append(txs, &apiv1.Tx{
+			Timestamp: at, InstrumentDescription: "FRAC",
+			Type: apiv1.TxType_BUYSTOCK, Quantity: 0.1,
+		})
+		instIDs = append(instIDs, instID)
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, instIDs, nil); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	holdings, _, err := p.ComputeHoldings(ctx, userID, nil, "", nil)
+	if err != nil {
+		t.Fatalf("holdings: %v", err)
+	}
+	var got float64
+	for _, h := range holdings {
+		if h.InstrumentDescription == "FRAC" {
+			got = h.Quantity
+			break
+		}
+	}
+	// Exact equality, not approxEq: that is the whole point.
+	if got != 1 {
+		t.Fatalf("ten buys of 0.1: got %v want exactly 1", got)
+	}
+}
+
 // TestComputeHoldings_excludesNonUserAccountTypes verifies the counterparty leg of a
 // one-sided event does not net against the holding it balances. The EQUITY leg here is
 // what an INITIALIZE pad's counterparty looks like: same instrument, same broker

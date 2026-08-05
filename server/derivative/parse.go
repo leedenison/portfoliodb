@@ -70,7 +70,7 @@ func ParseOptionTicker(optionTicker string) (*ParsedOption, bool) {
 		}
 		// OCC encodes the strike as thousandths, so this is a scale shift and
 		// not a division: the value is exact by construction.
-		strike := decimal.New(int64(strikeCents), -3)
+		strike := decimal.New(int64(strikeCents), -StrikeScale)
 		return &ParsedOption{
 			Format:  FormatOCC,
 			Symbol:  root,
@@ -95,7 +95,7 @@ func ParseOptionTicker(optionTicker string) (*ParsedOption, bool) {
 					Symbol:  root,
 					Expiry:  expiry,
 					PutCall: string(suffix[6]),
-					Strike:  decimal.New(int64(strikeCents), -3),
+					Strike:  decimal.New(int64(strikeCents), -StrikeScale),
 				}, true
 			}
 		}
@@ -165,6 +165,11 @@ func AdjustStrike(strike, num, den decimal.Decimal) decimal.Decimal {
 // occSuffixLen is the fixed length of the OCC suffix: expiry(6) + C/P(1) + strike(8).
 const occSuffixLen = 15
 
+// maxOCCStrike is the largest strike an OCC symbol can carry, in the thousandths
+// the field is encoded in: eight digits, so 99999.999 in price terms. A strike
+// above it names no contract the format can express.
+const maxOCCStrike = 99_999_999
+
 var occSuffixRe = regexp.MustCompile(`^\d{6}[CP]\d{8}$`)
 
 // OCCCompact strips spaces from an OCC identifier and returns the compact form
@@ -222,8 +227,8 @@ func BuildOCCCompact(symbol string, expiry time.Time, putCall string, strike dec
 	}
 	// Shift rather than multiply-and-round: a strike quoted to three places or
 	// fewer -- which is every strike OCC can encode -- lands exactly.
-	strikeCents := strike.Shift(3).Round(0).IntPart()
-	if strikeCents > 99999999 {
+	strikeCents := strike.Shift(StrikeScale).Round(0).IntPart()
+	if strikeCents > maxOCCStrike {
 		return "", false
 	}
 	yy := expiry.Year() % 100

@@ -152,6 +152,11 @@ func TestBuildOCCCompact(t *testing.T) {
 		{"bad putCall", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "X", "200", "", false},
 		{"zero expiry", "AAPL", time.Time{}, "C", "200", "", false},
 		{"negative strike", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", "-1", "", false},
+		// The strike field is eight digits of thousandths, so 99999.999 is the
+		// largest contract the format can name and anything above it has no
+		// symbol to be written as.
+		{"largest encodable strike", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", "99999.999", "AAPL251219C99999999", true},
+		{"strike too large to encode", "AAPL", time.Date(2025, 12, 19, 0, 0, 0, 0, time.UTC), "C", "100000", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

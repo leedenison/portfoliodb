@@ -434,10 +434,11 @@ func balanceInstruments(byID map[string]*db.InstrumentRow) map[string]balanceIns
 // weights in step, and last the commodities whose residual could not be given an
 // instrument.
 //
-// A residual with nowhere to go is dropped rather than failed: routing exists so
-// that imperfect source data still lands, and refusing an import because its
-// residual has no instrument would defeat that. The group is then left unbalanced,
-// which is the same state it was in before routing existed.
+// A residual with nowhere to go is left out and named in the last return. The
+// caller fails the job on it: the group would otherwise be stored unbalanced, and
+// the balance constraint rejects that at COMMIT, taking the whole upload with it.
+// Naming the commodity is the only way the failure says anything useful. Currencies
+// are seeded, so this is a safety net rather than a live path.
 func resolveRouted(ctx context.Context, database db.InstrumentDB, routed []routedPosting) ([]*apiv1.Tx, []string, []db.Weight, []string) {
 	var txs []*apiv1.Tx
 	var ids []string

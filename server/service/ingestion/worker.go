@@ -242,8 +242,24 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	balanceInsts := balanceInstruments(instByID)
 	routed := routeResiduals(txsToProcess, instrumentIDs, balanceInsts)
 	routedTxs, routedIDs, routedWeights, unresolved := resolveRouted(ctx, database, routed)
-	for _, cur := range unresolved {
-		log.Printf("ingestion job %s: no currency instrument for %q; residual left unrouted", j.JobID, cur)
+	// A residual with no instrument to post it against used to be dropped with a log
+	// line, leaving its group unbalanced. The balance constraint now rejects that
+	// group at COMMIT, taking the whole upload with it, so failing the job here names
+	// the commodity instead of surfacing a constraint violation that does not.
+	// Currencies are seeded, so this is a safety net rather than a live path.
+	if len(unresolved) > 0 {
+		errs := make([]*apiv1.ValidationError, len(unresolved))
+		for i, cur := range unresolved {
+			log.Printf("ingestion job %s: no instrument for residual commodity %q", j.JobID, cur)
+			errs[i] = &apiv1.ValidationError{
+				RowIndex: -1,
+				Field:    "instrument_description",
+				Message:  fmt.Sprintf("no instrument for residual commodity %q; the group it balances cannot be stored", cur),
+			}
+		}
+		_ = database.AppendValidationErrors(ctx, j.JobID, errs)
+		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		return false, ""
 	}
 	// Weighed after routing, which is what assigns a synthetic group_ref to a posting
 	// that had none, and before the routed postings are appended, since those carry

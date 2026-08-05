@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Enforce posting balance with a deferred constraint trigger
 milestone: M12
 dependencies: [0038, 0042]
@@ -86,3 +86,41 @@ than what lands. 0029 records why that is the right trade anyway.
 
 Requires 0038 and 0042. Best landed after 0040, when residuals are small and
 the `Imbalance` postings being written are few and explainable.
+
+## What landed
+
+Ahead of 0040 after all. Nothing in the constraint depends on residuals being
+small: it rejects a group that does not sum to zero, not one whose residual is
+large, and routing makes every group sum to zero whatever the source data looks
+like. Landing it earlier means the invariant holds while 0040 is being written
+rather than after.
+
+**The tolerance was a gap in the design.** adr/0024 claimed routing leaves a
+group summing to zero by construction, and that held only for residuals at or
+above the routing tolerance. A residual below half a cent was suppressed rather
+than routed, so the group summed to a small non-zero value -- which is exactly
+what an exact check rejects, on exactly the ordinary 2dp-rounded trade groups.
+The tolerance now selects the account type rather than deciding whether to route,
+and a sub-tolerance residual becomes a `SOURCE_ROUNDING` posting. adr/0024 records
+the two rejected alternatives.
+
+**`txs.group_id` became `NOT NULL`.** The invariant is stated per group, so a
+posting outside every group was a row the constraint could not reach. The spec
+already claimed every posting belongs to one.
+
+**`weight_commodity` is prefixed** -- `cur:USD`, `inst:<uuid>`, `desc:<text>` --
+which is the string `commodity.key()` already produced to accumulate the sums.
+Recorded in adr/0029 along with why a uuid column referencing `instruments` does
+not work.
+
+**An unresolvable residual now fails the job.** It used to be dropped with a log
+line, leaving the group unbalanced; the constraint turns that into an aborted
+upload, so the failure has to name the commodity to say anything useful.
+
+**Cost, measured** (`server/db/postgres/balance_bench_test.go`, 10,000 postings):
+21us per posting at COMMIT against 413us to insert one -- about 5%. The row-level
+trigger is affordable and needs no per-transaction deduplication. The `WHEN` guard
+on the update trigger is worth 170ms on a whole-table split recompute at that size.
+
+Landed as four PRs: `SOURCE_ROUNDING`, `group_id NOT NULL`, the stored weight, and
+the trigger.

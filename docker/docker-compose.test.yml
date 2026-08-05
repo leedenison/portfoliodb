@@ -38,6 +38,11 @@ services:
       GOCACHE: /app/.cache/go-build
       GOMODCACHE: /app/.gomodcache
       TEST_DATABASE_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb_test?sslmode=disable
+      # Opt-in performance tests. Passed through from the host with no default so
+      # that `BENCH_BALANCE=1 make db-test` reaches the container, and an unset one
+      # leaves the test skipped.
+      BENCH_BALANCE: "${BENCH_BALANCE:-}"
+      BENCH_VALUATION: "${BENCH_VALUATION:-}"
     volumes:
       - ..:/app
     working_dir: /app

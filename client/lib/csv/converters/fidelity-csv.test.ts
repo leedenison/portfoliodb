@@ -196,6 +196,91 @@ describe("convertFidelityToStandard", () => {
     expect(result.txs[0]!.quantity).toBe("1.26");
   });
 
+  // Fidelity reports money leaving an account as a sale of the account's cash.
+  // Mapping on the transaction type alone made each one a security position sold
+  // in units of money, and left the account's balance short by the amount that
+  // moved. Rows from the Lee export, 2023-03-01, AG10041188, with the completion
+  // date in the format the broker's own download carries.
+  describe("a Buy or Sell of cash", () => {
+    const CASH_ASSET_HEADER =
+      "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,Exchange,Symbol,Type,Action";
+    const TRANSFER =
+      "2023-03-01,01 Mar 2023,Transfer To Cash Management Account,Cash,Investment Account,AG10041188,,-401,401,1,730492674,Completed,,GBP,CASH,Cash";
+    const SELL =
+      "2023-03-01,01 Mar 2023,Sell,Cash,Investment Account,AG10041188,,-401,401,1,730492678,Completed,,GBP,CASH,Cash";
+    const CASH_IN =
+      "2023-03-01,01 Mar 2023,Cash In From Sell,Cash,Investment Account,AG10041188,,401,401,1,730492680,Completed,,GBP,CASH,Cash";
+
+    const convert = (rows: string[]) =>
+      convertFidelityToStandard([CASH_ASSET_HEADER, ...rows].join("\n"), { currency: "GBP" });
+
+    it("is a cash movement, not a security trade", () => {
+      const result = convert([SELL]);
+      expect(result.errors).toEqual([]);
+      expect(result.txs).toHaveLength(1);
+      expect(result.txs[0]!.type).toBe(TxType.CASHFLOW);
+      // The signed Amount, not the unsigned share count the row also carries.
+      expect(result.txs[0]!.quantity).toBe("-401");
+      expect(result.txs[0]!.tradingCurrency).toBe("GBP");
+    });
+
+    it("groups with its cash in, and the pair weighs nothing", () => {
+      const result = convert([SELL, CASH_IN]);
+      expect(result.txs[0]!.groupRef).toBe("730492678");
+      expect(result.txs[1]!.groupRef).toBe("730492678");
+      expectGroupsBalance(result.txs);
+    });
+
+    it("leaves the transfer beside it as the money that moved", () => {
+      // All three rows are the same 401. Only the transfer is a movement: the
+      // other two are the broker converting its own cash position, and net to
+      // zero. The account must end 401 down, matching the credit the cash
+      // management account records against it.
+      const result = convert([TRANSFER, SELL, CASH_IN]);
+      expect(result.errors).toEqual([]);
+      const total = result.txs.reduce((sum, tx) => sum.plus(tx.quantity), new Big(0));
+      expect(total.eq(-401)).toBe(true);
+      expect(result.txs.some((tx) => tx.type === TxType.SELLSTOCK)).toBe(false);
+    });
+
+    it("still reads a security sale as one", () => {
+      const result = convert([
+        '2022-02-08,10 Feb 2022,Sell,"WISE PLC, CLS A ORD GBP0.01 (WISE)",SIPP - Pension Savings Account,AP10013127,,-7266.49,1242,5.85,563466569,Completed,LON,WISE,STOCK,Sell',
+      ]);
+      expect(result.txs[0]!.type).toBe(TxType.SELLSTOCK);
+      expect(result.txs[0]!.quantity).toBe("-1242");
+    });
+
+    it("does not let a sale of cash claim a security sale's cash in", () => {
+      // Both settle in the same account on the same day. Amount separates them,
+      // and a security sale picks first regardless of export order.
+      const result = convert([
+        "2024-04-10,10 Apr 2024,Sell,Cash,Investment Account,AG10041188,,-19999,19999,1,917882556,Completed,,GBP,CASH,Cash",
+        "2024-04-10,10 Apr 2024,Cash In From Sell,Cash,Investment Account,AG10041188,,19999,19999,1,917882557,Completed,,GBP,CASH,Cash",
+        '2024-04-10,10 Apr 2024,Sell,"VANGUARD FUNDS PLC, S&P 500 (VUSA)",Investment Account,AG10041188,,-19502.15,325,60.0066,913741900,Completed,LON,VUSA,ETF,Sell',
+        "2024-04-10,10 Apr 2024,Cash In From Sell,Cash,Investment Account,AG10041188,,19502.15,19502.15,1,913741902,Completed,,GBP,CASH,Cash",
+      ]);
+
+      expect(result.txs[0]!.groupRef).toBe("917882556");
+      expect(result.txs[1]!.groupRef).toBe("917882556");
+      expect(result.txs[2]!.groupRef).toBe("913741900");
+      expect(result.txs[3]!.groupRef).toBe("913741900");
+    });
+
+    // The map-completeness test above feeds security rows through a header with
+    // no Type column, so the fallback has to keep them out of this rule.
+    it("falls back to the instrument description when the export omits Type", () => {
+      const csv = [
+        HEADER,
+        "8 Feb 2022,10 Feb 2022,Sell,Cash,AG10041188,401,1",
+        "8 Feb 2022,10 Feb 2022,Sell,ISHARES II PLC INRG,AG10041188,100,7.16",
+      ].join("\n");
+      const result = convertFidelityToStandard(csv, { currency: "GBP" });
+      expect(result.txs[0]!.type).toBe(TxType.CASHFLOW);
+      expect(result.txs[1]!.type).toBe(TxType.SELLSTOCK);
+    });
+  });
+
   it("parses Buy with positive quantity", () => {
     const csv = [
       "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit",

@@ -7,6 +7,7 @@ import { Big } from "@/lib/decimal";
 import { describe, expect, it } from "vitest";
 import { AccountType, IdentifierType, TxType } from "@/gen/api/v1/api_pb";
 import { convertFidelityJson, isValidIsin } from "./fidelity-json";
+import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 
 const BUY = {
   accountNumber: "ACC-1",
@@ -171,6 +172,107 @@ describe("convertFidelityJson", () => {
   it("rejects a payload that is not a JSON array", () => {
     expect(convertFidelityJson("<html>signed out</html>").errors[0]!.message).toContain("not JSON");
     expect(convertFidelityJson('{"error":"nope"}').errors[0]!.message).toContain("array");
+  });
+});
+
+// Fidelity models an account's cash as a tradable asset, so money moving in or
+// out is reported as a Buy or Sell of it against a pseudo-ISIN. Mapping on the
+// transaction type alone made each one a security trade in units of money, and
+// lost the movement the third row of the sequence records. Rows from the
+// captured payload, AP10013127 on 18/05/2026 and AG10041188 on 15/04/2025.
+describe("convertFidelityJson cash-asset rows", () => {
+  const cash = (fields: Record<string, unknown>) => ({
+    accountNumber: "AP10013127",
+    assetName: "Cash",
+    isin: "AA00R0000000",
+    sedol: "R000000",
+    pricePerUnit: 1,
+    currency: "GBP",
+    status: "Completed",
+    dealDate: "18/05/2026",
+    settlementDate: "18/05/2026",
+    units: 12772.83,
+    valuation: 12772.83,
+    ...fields,
+  });
+
+  const BUY_CASH = cash({
+    transactionType: "Buy",
+    debitCreditIndicator: "CREDIT",
+    referenceId: "1288903396",
+  });
+  const CASH_OUT = cash({
+    transactionType: "Cash Out For Buy From Transfer",
+    debitCreditIndicator: "DEBIT",
+    referenceId: "1288903394",
+  });
+  const ARRIVAL = cash({
+    transactionType: "Cash In For Transfer",
+    debitCreditIndicator: "CREDIT",
+    referenceId: "1288903395",
+  });
+
+  it("is a cash movement, not a security trade", () => {
+    const result = convertFidelityJson(json(BUY_CASH));
+    expect(result.errors).toEqual([]);
+    const tx = result.txs[0]!;
+    expect(tx.type).toBe(TxType.CASHFLOW);
+    expect(tx.quantity).toBe("12772.83");
+    expect(tx.tradingCurrency).toBe("GBP");
+    expect(tx.identifierHints).toEqual([]);
+  });
+
+  it("groups a purchase of cash with the cash out beside it", () => {
+    const result = convertFidelityJson(json(CASH_OUT, BUY_CASH));
+    expect(result.txs[0]!.groupRef).toBe("1288903396");
+    expect(result.txs[1]!.groupRef).toBe("1288903396");
+    expectGroupsBalance(result.txs);
+  });
+
+  it("leaves the transfer beside it as the money that arrived", () => {
+    // All three rows are the same 12,772.83. Only the arrival is a movement;
+    // the other two are the broker converting its own cash position and net to
+    // zero, so the account must end that much up rather than level.
+    const result = convertFidelityJson(json(CASH_OUT, ARRIVAL, BUY_CASH));
+    expect(result.errors).toEqual([]);
+    const total = result.txs.reduce((sum, tx) => sum.plus(tx.quantity), new Big(0));
+    expect(total.eq(12772.83)).toBe(true);
+    expect(result.txs.some((tx) => tx.type === TxType.BUYSTOCK)).toBe(false);
+  });
+
+  it("reads a sale of cash the same way", () => {
+    const sell = cash({
+      accountNumber: "AG10041188",
+      isin: "AA00S0000000",
+      sedol: "S000000",
+      transactionType: "Sell",
+      debitCreditIndicator: "DEBIT",
+      units: 20000,
+      valuation: 20000,
+      referenceId: "1093663529",
+    });
+    const cashIn = cash({
+      accountNumber: "AG10041188",
+      isin: "AA00S0000000",
+      sedol: "S000000",
+      transactionType: "Cash In From Sell",
+      debitCreditIndicator: "CREDIT",
+      units: 20000,
+      valuation: 20000,
+      referenceId: "1093663530",
+    });
+
+    const result = convertFidelityJson(json(sell, cashIn));
+    expect(result.txs[0]!.type).toBe(TxType.CASHFLOW);
+    expect(result.txs[0]!.quantity).toBe("-20000");
+    expect(result.txs[0]!.groupRef).toBe("1093663529");
+    expect(result.txs[1]!.groupRef).toBe("1093663529");
+    expectGroupsBalance(result.txs);
+  });
+
+  it("still reads a purchase carrying a real identifier as a security trade", () => {
+    const result = convertFidelityJson(json(BUY));
+    expect(result.txs[0]!.type).toBe(TxType.BUYSTOCK);
   });
 });
 

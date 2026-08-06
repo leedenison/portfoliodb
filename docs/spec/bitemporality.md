@@ -209,7 +209,7 @@ passed. It is normal, not exceptional.
 | Trigger | Restates | Recompute |
 | --- | --- | --- |
 | A new split arrives, or a stored split's `ex_date` crosses today | `split_adjusted_*` on every price and tx for the instrument | `RecomputeSplitAdjustments` per instrument, plus a daily blanket pass for crossings -- see [corporate-events.md](corporate-events.md#daily-scheduler-planned) |
-| A split arrives for an option's underlying, or a stored one's `ex_date` crosses today | The option's OCC symbol, strike and contract terms | `ProcessPendingOptionSplits`, driven by `identity_as_of` vs `ex_date` |
+| A split arrives for an option's underlying, or a stored one's `ex_date` crosses today | The OCC symbol, strike and contract terms of the options listed on the ex_date | `ProcessPendingOptionSplits`, driven by `identity_as_of` vs `ex_date`, bounded at the option's `expiry` |
 | A bulk upload replaces a period | Every transaction in that broker and period | Holdings and valuation follow from the transaction set; nothing is materialised |
 | A transaction earlier than the current earliest arrives, or history between the start date and a declaration changes | The derived INITIALIZE transaction | See [fixed-point.md](fixed-point.md) |
 | Instrument identity changes or two instruments merge | Which transactions roll up to which instrument | Holdings and valuation follow; the prior identity is not retained -- see [identifiers.md](identifiers.md) |

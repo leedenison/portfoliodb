@@ -215,8 +215,12 @@ CREATE TABLE instruments (
   -- against stock_splits.ex_date to decide whether an option still needs
   -- retroactive adjustment: providers list the pre-split OCC symbol until the
   -- ex_date, so an identity derived before then does not reflect the split.
-  -- NULL means the identity predates every split. See docs/spec/bitemporality.md
-  -- and docs/adr/0017-option-identity-reflects-ex-date.md.
+  -- NULL means the identity predates every split. Bounded by expiry: a split
+  -- restates only the contracts listed on its effective date, so a split with
+  -- ex_date after expiry never reached this contract. See
+  -- docs/spec/bitemporality.md,
+  -- docs/adr/0017-option-identity-reflects-ex-date.md and
+  -- docs/adr/0036-expired-options-are-not-restated.md.
   identity_as_of TIMESTAMPTZ,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT chk_underlying_required CHECK (

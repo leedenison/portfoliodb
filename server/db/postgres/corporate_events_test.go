@@ -8,6 +8,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/derivative"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -1417,11 +1418,18 @@ func adjustedQty(t *testing.T, p *Postgres, txID string) float64 {
 }
 
 // setupOption creates an option on the given underlying with an OCC identifier
-// and option fields. identityAsOf nil leaves identity_as_of NULL.
+// and option fields. identityAsOf nil leaves identity_as_of NULL. The expiry is
+// read out of the OCC rather than passed separately, so a test that wants a
+// contract expiring on a particular date says so in the symbol and the two
+// cannot drift apart -- the pending-split predicate reads the column.
 func setupOption(t *testing.T, p *Postgres, underlyingID, occ string, strike float64, identityAsOf *time.Time) string {
 	t.Helper()
 	ctx := context.Background()
-	optFields := &db.OptionFields{Strike: decf(strike), Expiry: d(2025, 1, 17), PutCall: "C"}
+	expiry, ok := derivative.OCCExpiry(occ)
+	if !ok {
+		t.Fatalf("setupOption: unparseable OCC %q", occ)
+	}
+	optFields := &db.OptionFields{Strike: decf(strike), Expiry: expiry, PutCall: "C"}
 	id, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", occ, "", "", []db.IdentifierInput{
 		{Type: "OCC", Value: occ, Canonical: true},
 	}, underlyingID, nil, nil, optFields)
@@ -1442,10 +1450,15 @@ func setupOption(t *testing.T, p *Postgres, underlyingID, occ string, strike flo
 // symbol until the ex_date, so an identity derived before then does not reflect
 // the split however long the split had been known. See
 // docs/adr/0017-option-identity-reflects-ex-date.md.
+//
+// The expiry cases are the other half of the rule: a split only restates the
+// contracts listed on its effective date, and a contract expiring that day is
+// one of them. See docs/adr/0036-expired-options-are-not-restated.md.
 func TestListPendingOptionSplits_Predicate(t *testing.T) {
 	past := d(2024, 6, 1)
 	tests := []struct {
 		name         string
+		occ          string // empty uses an option expiring well after every ex_date
 		identityAsOf *time.Time
 		exDate       time.Time
 		wantPending  bool
@@ -1480,14 +1493,32 @@ func TestListPendingOptionSplits_Predicate(t *testing.T) {
 			exDate:       time.Now().UTC().AddDate(1, 0, 0).Truncate(24 * time.Hour),
 			wantPending:  false,
 		},
+		{
+			name:         "option expired before ex_date was never restated",
+			occ:          "AAPL  240315C00200000",
+			identityAsOf: timePtrCE(d(2024, 1, 1)),
+			exDate:       past,
+			wantPending:  false,
+		},
+		{
+			name:         "option expiring on ex_date is restated",
+			occ:          "AAPL  240601C00200000",
+			identityAsOf: timePtrCE(d(2024, 1, 1)),
+			exDate:       past,
+			wantPending:  true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := testDBTx(t)
 			ctx := context.Background()
 
+			occ := tc.occ
+			if occ == "" {
+				occ = "AAPL  250117C00200000"
+			}
 			underlyingID := setupInstrument(t, p, "PRED-UNDERLYING")
-			optID := setupOption(t, p, underlyingID, "AAPL  250117C00200000", 200, tc.identityAsOf)
+			optID := setupOption(t, p, underlyingID, occ, 200, tc.identityAsOf)
 			if err := p.UpsertStockSplits(ctx, []db.StockSplit{
 				{InstrumentID: underlyingID, ExDate: tc.exDate, SplitFrom: "1", SplitTo: "2", DataProvider: "massive"},
 			}); err != nil {
@@ -1542,6 +1573,71 @@ func TestListPendingOptionSplits_KnownBeforeButNotYetEffective(t *testing.T) {
 	}
 	if len(pending) != 1 || pending[0].Option.ID != optID {
 		t.Fatalf("pending = %v, want the option to still need adjusting", pending)
+	}
+}
+
+// TestListPendingOptionSplits_ExpiredBeforeSplit is the regression test for
+// issue 0058, in the shape that made it reachable: a pre-split price file stamps
+// identity_as_of before the ex_date by design, which is how genuinely restated
+// contracts get picked up. The two NVDA puts expired in March and the split took
+// effect in June, so OCC never restated them and the pass must leave strikes 420
+// and 510 alone. The option expiring after the split is the control.
+func TestListPendingOptionSplits_ExpiredBeforeSplit(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID := setupInstrument(t, p, "NVDA-UNDERLYING")
+	priceFile := d(2024, 5, 1) // exported_at of a pre-split price file
+	setupOption(t, p, underlyingID, "NVDA  240315P00420000", 420, &priceFile)
+	setupOption(t, p, underlyingID, "NVDA  240315P00510000", 510, &priceFile)
+	liveID := setupOption(t, p, underlyingID, "NVDA  250117P00420000", 420, &priceFile)
+
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{{
+		InstrumentID: underlyingID,
+		ExDate:       d(2024, 6, 10),
+		SplitFrom:    "1",
+		SplitTo:      "10",
+		DataProvider: "massive",
+	}}); err != nil {
+		t.Fatalf("upsert split: %v", err)
+	}
+
+	pending, err := p.ListPendingOptionSplits(ctx, "")
+	if err != nil {
+		t.Fatalf("ListPendingOptionSplits: %v", err)
+	}
+	if len(pending) != 1 || pending[0].Option.ID != liveID {
+		t.Fatalf("pending = %v, want only the option that outlived the split", pending)
+	}
+}
+
+// TestListPendingOptionSplits_SplitsBoundedByExpiry covers the guard applying
+// per split rather than per option: an option that lived through the first split
+// and expired before the second is pending for the first alone, so the pass
+// compounds only that one.
+func TestListPendingOptionSplits_SplitsBoundedByExpiry(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	underlyingID := setupInstrument(t, p, "BOUNDED-UNDERLYING")
+	optID := setupOption(t, p, underlyingID, "AAPL  240315C00400000", 400, nil)
+
+	if err := p.UpsertStockSplits(ctx, []db.StockSplit{
+		{InstrumentID: underlyingID, ExDate: d(2024, 1, 10), SplitFrom: "1", SplitTo: "2", DataProvider: "massive"},
+		{InstrumentID: underlyingID, ExDate: d(2024, 6, 10), SplitFrom: "1", SplitTo: "5", DataProvider: "massive"},
+	}); err != nil {
+		t.Fatalf("upsert splits: %v", err)
+	}
+
+	pending, err := p.ListPendingOptionSplits(ctx, "")
+	if err != nil {
+		t.Fatalf("ListPendingOptionSplits: %v", err)
+	}
+	if len(pending) != 1 || pending[0].Option.ID != optID {
+		t.Fatalf("pending = %v, want the option pending for one split", pending)
+	}
+	if len(pending[0].Splits) != 1 || !pending[0].Splits[0].ExDate.Equal(d(2024, 1, 10)) {
+		t.Errorf("splits = %v, want only the 2024-01-10 split", pending[0].Splits)
 	}
 }
 

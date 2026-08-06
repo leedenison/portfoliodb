@@ -472,6 +472,130 @@ describe("transaction grouping", () => {
   });
 });
 
+// Money paid into a product account is reported as a run of three rows of the
+// same amount -- the subscription credited, spent, and credited again as the
+// money that lands -- with no security anywhere in it. Every row below is
+// verbatim from the master exports. Left ungrouped the run is three
+// single-posting groups, two of them JRNLFUND, so the account reports twice the
+// contribution it received and a residual the size of the deposit lands in
+// IMBALANCE.
+describe("deposits into a product account", () => {
+  const FULL =
+    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,Exchange,Symbol,Type,Action";
+  const convert = (rows: string[]) =>
+    convertFidelityToStandard([FULL, ...rows].join("\n"), { currency: "GBP" });
+
+  // The 2025-04-15 lump sum into Lee's ISA, and the cash management account row
+  // that paid for it.
+  const LUMP_SUM =
+    "2025-04-15,2025-04-15,Cash In Lump Sum,Cash,Investment ISA,AS10110796,,20000,20000,1,1093663545,Completed,,GBP,CASH,Cash";
+  const SPEND =
+    "2025-04-15,2025-04-15,Cash Out For Buy,Cash,Investment ISA,AS10110796,,-20000,20000,1,1093663546,Completed,,GBP,CASH,Cash";
+  const DEPARTURE =
+    "2025-04-15,2025-04-15,Transfer Out From Cash Management Account,Cash,Cash Management Account,AW10075724,,-20000,20000,1,1093663547,Completed,,GBP,CASH,Cash";
+  const ARRIVAL =
+    "2025-04-15,2025-04-15,Cash In,Cash,Investment ISA,AS10110796,,20000,20000,1,1093663548,Completed,,GBP,CASH,Cash";
+
+  it("groups the run so one deposit leaves one residual, not three", () => {
+    const result = convert([LUMP_SUM, SPEND, DEPARTURE, ARRIVAL]);
+
+    expect(result.errors).toEqual([]);
+    expect(result.txs.map((tx) => tx.groupRef)).toEqual([
+      "1093663545",
+      "1093663545",
+      "",
+      "1093663545",
+    ]);
+    // What each account is left with: the arrival and the departure it answers,
+    // equal and opposite, which is the pair 0068 has to match. Ungrouped the ISA
+    // offered two identical credits and an unexplained debit instead.
+    expect(residuals(result.txs)).toEqual({
+      "1093663545": { GBP: "20000" },
+      "#2": { GBP: "-20000" },
+    });
+  });
+
+  it("keeps the run's journals so its residual reads as a transfer", () => {
+    // The group has to carry a JRNLFUND for the server to route its residual to
+    // TRANSFER_CLEARING rather than IMBALANCE, so nothing here is retyped the way
+    // a trade's cash leg is.
+    const result = convert([LUMP_SUM, SPEND, ARRIVAL]);
+
+    expect(result.txs.map((tx) => tx.type)).toEqual([
+      TxType.JRNLFUND,
+      TxType.CASHFLOW,
+      TxType.JRNLFUND,
+    ]);
+  });
+
+  it("leaves a lump sum with no run to post on its own", () => {
+    // A deposit straight into the cash management account is money from outside
+    // with nothing beside it to cancel. All three in the sample are this shape.
+    const result = convert([
+      "2024-05-30,2024-05-30,Cash In Lump Sum,Cash,Cash Management Account,AW10075724,,19999,19999,1,944992689,Completed,,GBP,CASH,Cash",
+    ]);
+
+    expect(result.txs).toHaveLength(1);
+    expect(result.txs[0]!.groupRef).toBe("");
+    expect(result.txs[0]!.type).toBe(TxType.JRNLFUND);
+  });
+
+  it("groups a run whose rows settled on different days", () => {
+    // From the Helen export: the subscription and its spend completed on the 11th
+    // and the arrival on the 14th, so the settlement date the trade passes group
+    // on would split this run. The reference run does not.
+    const result = convert([
+      "2022-11-14,11 Nov 2022,Cash In Lump Sum,Cash,Investment Account,AG10045534,,19996,19996,1,681655048,Completed,,GBP,CASH,Cash",
+      "2022-11-14,11 Nov 2022,Cash Out For Buy,Cash,Investment Account,AG10045534,,-19996,19996,1,681655049,Completed,,GBP,CASH,Cash",
+      "2022-11-14,14 Nov 2022,Cash In,Cash,Investment Account,AG10045534,,19996,19996,1,681655050,Completed,,GBP,CASH,Cash",
+    ]);
+
+    expect(result.txs.map((tx) => tx.groupRef)).toEqual([
+      "681655048",
+      "681655048",
+      "681655048",
+    ]);
+  });
+
+  it("separates two runs of nearly equal amount in one account", () => {
+    // Both completed on the 14th, 19,996 and 19,995, references interleaved. Only
+    // the amount agreeing to the penny keeps one run's rows out of the other's.
+    const result = convert([
+      "2022-11-14,14 Nov 2022,Cash In Lump Sum,Cash,Investment Account,AG10045534,,19995,19995,1,681727827,Completed,,GBP,CASH,Cash",
+      "2022-11-14,14 Nov 2022,Cash In,Cash,Investment Account,AG10045534,,19996,19996,1,681655050,Completed,,GBP,CASH,Cash",
+      "2022-11-14,14 Nov 2022,Cash Out For Buy,Cash,Investment Account,AG10045534,,-19995,19995,1,681727828,Completed,,GBP,CASH,Cash",
+      "2022-11-14,14 Nov 2022,Cash In,Cash,Investment Account,AG10045534,,19995,19995,1,681727829,Completed,,GBP,CASH,Cash",
+    ]);
+
+    expect(result.txs.map((tx) => tx.groupRef)).toEqual([
+      "681727827",
+      "",
+      "681727827",
+      "681727827",
+    ]);
+  });
+
+  it("does not take a cash row the day's trade needs", () => {
+    // The same day's ISA buy, with its own cash row 40.8k references away. A run
+    // is built only from what the trade passes left, so neither claims the other's.
+    const result = convert([
+      LUMP_SUM,
+      SPEND,
+      ARRIVAL,
+      "2025-04-15,2025-04-17,Cash Out For Buy,Cash,Investment ISA,AS10110796,,-19969.2,19969.2,1,1093663610,Completed,,GBP,CASH,Cash",
+      '2025-04-15,2025-04-17,Buy,"VANECK UCITS ETFS PLC, SEMICONDUCTOR UCITS ETF A GBP ACC (SMGB)",Investment ISA,AS10110796,,19976.7,769,25.97,1093663611,Completed,LON,SMGB,ETF,Buy',
+    ]);
+
+    expect(result.txs.map((tx) => tx.groupRef)).toEqual([
+      "1093663545",
+      "1093663545",
+      "1093663545",
+      "1093663611",
+      "1093663611",
+    ]);
+  });
+});
+
 // Fidelity names a trade for the reason it happened, and names its cash leg to
 // match. Every row below is verbatim from the Helen export; before these types
 // were mapped the client rejected each one while the conversion script kept it,

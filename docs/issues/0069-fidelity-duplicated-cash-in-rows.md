@@ -1,48 +1,81 @@
 ---
-status: open
-title: Investigate duplicated cash-in rows on Fidelity transfers
+status: closed
+title: Group the run a Fidelity deposit into a product account is reported through
 milestone: M12
 ---
 
-A transfer arriving in a Fidelity product account is reported as two credit rows
-of the same amount against a single departure, and the converter maps both to
-`JRNLFUND`, so the arrival is posted twice.
+Money paid into a Fidelity product account is reported as three rows of the same
+amount and the converter left all three ungrouped, so the account reported twice
+the contribution it received.
 
 ## Evidence
 
-`local/HAR/transactions-long-window.json` contains the pattern twice,
-identically. A lump sum leaves the cash management account once and arrives as
-two credits of the same amount. Accounts are named here by product type, and
-references by their offset from the first row of the sequence:
+The sequence below is verbatim from `local/HAR/transactions-long-window.json` and
+from both master CSV exports (2025-04-15, every row `Type=CASH`, every amount
+GBP 20,000). Accounts are named by product type; references by their last three
+digits.
 
-| account                 | ref  | type                                      | dr/cr  |
-| ----------------------- | ---- | ----------------------------------------- | ------ |
-| Investment Fund         | n    | Transfer To Cash Management Account        | DEBIT  |
-| Cash Management Account | n+3  | Transfer Into Account                      | CREDIT |
-| ISA                     | n+17 | Cash In Lump Sum                           | CREDIT |
-| Cash Management Account | n+19 | Transfer Out From Cash Management Account  | DEBIT  |
-| ISA                     | n+20 | Cash In                                    | CREDIT |
+| ref  | account         | type                                      | dr/cr  | emitted  |
+| ---- | --------------- | ----------------------------------------- | ------ | -------- |
+| ...528 | Investment Acct | Transfer To Cash Management Account      | DEBIT  | TRANSFER |
+| ...529 | Investment Acct | Sell (of Cash)                           | DEBIT  | CASHFLOW |
+| ...530 | Investment Acct | Cash In From Sell                        | CREDIT | CASHFLOW |
+| ...531 | Cash Mgmt       | Transfer Into Account                    | CREDIT | TRANSFER |
+| ...545 | ISA             | Cash In Lump Sum                         | CREDIT | JRNLFUND |
+| ...546 | ISA             | Cash Out For Buy                         | DEBIT  | CASHFLOW |
+| ...547 | Cash Mgmt       | Transfer Out From Cash Management Account | DEBIT  | TRANSFER |
+| ...548 | ISA             | Cash In                                  | CREDIT | JRNLFUND |
 
-Every row carries the same amount. The sequence recurs a year later with the
-same shape and the same two duplicated credits.
+No security appears anywhere in it. The `Cash Out For Buy` at ...546 has no `Buy`:
+the ISA's real trade that day is a `Buy` of SMGB for 19,976.70 (...611) with its
+own `Cash Out For Buy` of 19,969.20 (...610), both settling two days later, so the
+trade pairing already keeps them apart.
 
-Both `Cash In` and `Cash In Lump Sum` map to `TxType.JRNLFUND` in
-client/lib/csv/converters/fidelity-csv.ts, so both post and the receiving account
-gains twice the transferred amount. Since 0065 a `Cash In` that pairs with a trade
-is retyped to `CASHFLOW`, which does not touch these: neither of the two pairs
-with anything.
+The cash was never doubled. The ISA nets +20000 - 20000 + 20000, the cash
+management account nets zero, the investment account nets -20000. What was wrong
+was the grouping: the three ISA rows carried no `group_ref`, so each was a
+single-posting group with a full-size residual, and `routeResiduals` sent ...545
+and ...548 to `TRANSFER_CLEARING` and ...546 to `IMBALANCE`. An unmatched
+`TRANSFER_CLEARING` posting is an external flow
+(adr/0022-typed-per-account-cash-flow-boundary.md), so the ISA reported 40,000 of
+contribution for a 20,000 deposit and dropped a spurious -20,000 into the
+converter-lossiness report.
 
-## What to establish
+## What was established
 
-- Whether the two rows are genuinely the same money. The likely reading is that
-  one is the cash movement and the other is an ISA subscription record kept for
-  allowance tracking, in which case only one should post. Confirm against the
-  account's reported cash balance rather than inferring it from the row types.
-- Whether the CSV export carries the same duplication as the JSON, since the two
-  converters share the type mapping but not the source.
-- Which row to keep, if one is to be dropped. `Cash In Lump Sum` carries the
-  subscription semantics and `Cash In` the movement, but the reference ordering
-  is the opposite of that reading and the two are not consistently ordered.
+- **The two credits are not the same money posted twice.** They are two of three
+  rows recording one deposit, and the third cancels one of them. Confirmed by
+  arithmetic across all three accounts rather than by reading the row names; the
+  export carries no running balance to check against.
+- **The CSV carries the same shape as the JSON.** The pattern occurs 21 times
+  across the two master exports and is the ordinary shape of a deposit into a
+  wrapper, not something the JSON route invents.
+- **No row should be dropped.** All three are real postings and all three are
+  needed for the account's cash to come out right. They belong in one group.
+
+## Fix
+
+A deposit pass in `assignFidelityGroups`, after the trade passes so it only ever
+sees cash rows no trade wanted. It anchors on `Cash In Lump Sum` and takes the
+nearest unclaimed `Cash Out For Buy` and `Cash In` in the same account, equal in
+amount to the penny, at a higher reference within `DEPOSIT_REF_SPAN`.
+
+It keys on the reference run rather than on the `(account, dateKey)` bucket the
+trade passes use, because one run in the sample settles across two days while the
+reference run holds in all 21.
+
+Across both masters: 21 of 24 `Cash In Lump Sum` rows group into a run, no trade
+group is disturbed, and no `Cash In` or `Cash Out For Buy` is left unexplained.
+The three that stay alone are deposits straight into the cash management account
+-- money from outside with nothing beside it to cancel -- and they still post as a
+single `JRNLFUND`. Every field of the converted masters except `group_ref` is
+unchanged.
+
+The group keeps its `JRNLFUND` legs, so its residual routes to
+`TRANSFER_CLEARING`: one arrival of the deposit amount against the cash management
+account's equal and opposite departure, which is the pair 0068 has to match. It is
+the same shape a lone `Transfer Out` already produces, so both sides of the hop
+look alike.
 
 ## Adjacent, explained by 0065
 
@@ -52,11 +85,12 @@ each sits in a triplet with a `Buy` row against Fidelity's cash pseudo-ISIN, and
 it is that `Buy` the `Cash Out For Buy From Transfer` cancels. 0065 types the
 `Buy` as the cash movement it is and groups the two, which leaves the
 `Cash In For Transfer` posting once, as the arrival it is. Nothing here is a
-duplicate.
+duplicate, and the deposit pass does not touch it.
 
-## Why it matters here
+## Left as it is
 
-Any inflated cash balance flows straight into money-weighted return as a spurious
-external contribution. It also blocks calibration of 0068: the sample data is the
-only material available for measuring a transfer-matching rule, and a transfer
-whose arrival is recorded twice has no single counterpart to match against.
+`routedFor` stamps a residual with the type of the group's first posting, which
+for a deposit is whichever of the three the export listed first -- often the
+`Cash Out For Buy`. So the routed posting can read `CASHFLOW` while its account
+type is `TRANSFER_CLEARING`. The account type is what classifies the flow, so this
+only affects the `tx_type` column the imbalance report groups by.

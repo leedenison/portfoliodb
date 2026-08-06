@@ -405,6 +405,57 @@ describe("convertFidelityJson grouping", () => {
     expect(result.txs[1]!.accountType).toBe(AccountType.EXPENSE);
   });
 
+  it("groups the run a deposit into a product account is reported through", () => {
+    // The same shape the CSV route sees, since both call assignFidelityGroups:
+    // the subscription credited, spent, and credited again as the money that
+    // lands. Grouped, the account is left with one residual for one deposit.
+    const deposit = (fields: Record<string, unknown>) =>
+      trade({
+        accountNumber: "AS10110796",
+        assetName: "Cash",
+        isin: "AA00S0000000",
+        units: 20000,
+        valuation: 20000,
+        pricePerUnit: 1,
+        dealDate: "15/04/2025",
+        settlementDate: "15/04/2025",
+        ...fields,
+      });
+    const result = convertFidelityJson(
+      json(
+        deposit({
+          transactionType: "Cash In Lump Sum",
+          debitCreditIndicator: "CREDIT",
+          referenceId: "1093663545",
+        }),
+        deposit({
+          transactionType: "Cash Out For Buy",
+          debitCreditIndicator: "DEBIT",
+          referenceId: "1093663546",
+        }),
+        deposit({
+          transactionType: "Cash In",
+          debitCreditIndicator: "CREDIT",
+          referenceId: "1093663548",
+        })
+      )
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.txs.map((tx) => tx.groupRef)).toEqual([
+      "1093663545",
+      "1093663545",
+      "1093663545",
+    ]);
+    // The journals stay journals, which is what routes the group's residual to
+    // TRANSFER_CLEARING rather than IMBALANCE.
+    expect(result.txs.map((tx) => tx.type)).toEqual([
+      TxType.JRNLFUND,
+      TxType.CASHFLOW,
+      TxType.JRNLFUND,
+    ]);
+  });
+
   it("leaves rows ungrouped when the payload carries no reference", () => {
     const result = convertFidelityJson(
       json(

@@ -21,6 +21,7 @@ import {
   FIDELITY_TYPE_TO_OFX,
   isCashMovement,
   isCashTxType,
+  typeForAsset,
 } from "@/lib/csv/converters/fidelity-csv";
 import type { ParseError, StandardParseResult } from "@/lib/csv/standard";
 import { counterLegs } from "@/lib/csv/postings";
@@ -58,7 +59,8 @@ interface FidelityRow {
  * rows as well as cash ones, so the transaction type cannot be used to tell them
  * apart. They fail the check digit, and every genuine identifier in the sample
  * passes it, so validating is what keeps three fictional instruments out of the
- * security master.
+ * security master -- and, through typeForAsset, what stops a Buy or Sell of cash
+ * being posted as a security trade.
  */
 export function isValidIsin(value: string): boolean {
   if (!/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(value)) return false;
@@ -121,8 +123,8 @@ export function convertFidelityJson(
     }
 
     const typeStr = row.transactionType ?? "";
-    const ofxType = typeStr ? FIDELITY_TYPE_TO_OFX[typeStr] : undefined;
-    if (ofxType === undefined) {
+    const mappedType = typeStr ? FIDELITY_TYPE_TO_OFX[typeStr] : undefined;
+    if (mappedType === undefined) {
       errors.push({
         rowIndex,
         field: "type",
@@ -130,6 +132,14 @@ export function convertFidelityJson(
       });
       return;
     }
+
+    const isin = row.isin ?? "";
+    // The check digit is what separates a cash pseudo-identifier from a real one,
+    // so the same test that keeps them out of the security master says whether the
+    // row transacted cash. There is no equivalent of the CSV export's Type column
+    // here; a row carrying no identifier at all falls back to the asset name.
+    const cashAsset = isin ? !isValidIsin(isin) : row.assetName === "Cash";
+    const ofxType = typeForAsset(mappedType, cashAsset);
 
     // units and valuation are both unsigned; direction lives only in the
     // indicator. For a cash movement the transacted value is the money, and
@@ -140,7 +150,6 @@ export function convertFidelityJson(
     const quantity = (row.debitCreditIndicator === "DEBIT" ? signed.times(-1) : signed).toString();
 
     const currency = row.currency ?? "";
-    const isin = row.isin ?? "";
     const sedol = row.sedol ?? "";
     const identifierHints = isValidIsin(isin)
       ? [
@@ -180,6 +189,7 @@ export function convertFidelityJson(
         .abs()
         .toNumber(),
       ref: parseInt(row.referenceId ?? "", 10),
+      cashAsset,
     });
     txs.push(
       create(TxSchema, {

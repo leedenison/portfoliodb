@@ -93,6 +93,44 @@ export function isCashMovement(type: TxType): boolean {
   return isCashTxType(type) || type === TxType.JRNLFUND;
 }
 
+/** Security sale types, whose quantity is a share count to be negated. */
+const SELL_TYPES = new Set<TxType>([
+  TxType.SELLSTOCK,
+  TxType.SELLMF,
+  TxType.SELLDEBT,
+  TxType.SELLOPT,
+  TxType.SELLOTHER,
+]);
+
+/** Security purchase types, the mirror of SELL_TYPES. */
+const BUY_TYPES = new Set<TxType>([
+  TxType.BUYSTOCK,
+  TxType.BUYMF,
+  TxType.BUYDEBT,
+  TxType.BUYOPT,
+  TxType.BUYOTHER,
+]);
+
+/**
+ * The type a row carries once the asset it transacted is known.
+ *
+ * Fidelity models an account's cash as a tradable asset, so money leaving an
+ * account is reported as a sale of cash and money arriving as a purchase of it.
+ * Those rows carry `Buy` or `Sell` in the transaction type against an instrument
+ * named "Cash", and the type map alone turns them into a security position sold
+ * or bought in units of money.
+ *
+ * They are cash movements, and they settle inside the account against the
+ * `Cash In From Sell` or `Cash Out For Buy From Transfer` row Fidelity reports
+ * beside them, so they are the same CASHFLOW as any other trade's cash leg. The
+ * third row of the sequence -- a withdrawal or a transfer -- is the money that
+ * actually moved, and it stands on its own.
+ */
+export function typeForAsset(type: TxType, cashAsset: boolean): TxType {
+  if (!cashAsset) return type;
+  return BUY_TYPES.has(type) || SELL_TYPES.has(type) ? TxType.CASHFLOW : type;
+}
+
 /**
  * One row of a Fidelity export, reduced to what pairing needs. Shared by the CSV
  * and JSON converters so the two cannot disagree about how a trade is grouped.
@@ -113,6 +151,12 @@ export interface FidelityLeg {
   consideration: number;
   /** Broker reference number. NaN when the source did not supply one. */
   ref: number;
+  /**
+   * Whether the row transacted cash rather than a security. A cash `Buy` or
+   * `Sell` pairs against a different cash row than a security one does, so
+   * pairing needs this as well as typeForAsset.
+   */
+  cashAsset: boolean;
 }
 
 const AMOUNT_EPSILON = 0.005;
@@ -138,7 +182,13 @@ const CONSIDERATION_BAND = 0.005;
  * Fidelity reports the cash side of a trade as a separate row, so the two legs are
  * paired here rather than a cash leg being derived, which would post the money
  * twice. Both rules are measured against the sample exports in local/masters: sells
- * pair 91/91 and buys 78/78.
+ * pair 91/91 -- 69 of a security and 22 of cash -- and buys 78/78.
+ *
+ * A cash leg pairs with the row that names the same money, and the broker names it
+ * differently either side of the asset: a security sale settles through
+ * `Cash In From Sell` and so does a sale of cash, while a security purchase settles
+ * through `Cash Out For Buy` and a purchase of cash through
+ * `Cash Out For Buy From Transfer`.
  *
  * Charges (dealing fee, PTM levy, stamp duty, FX charge) are never grouped with a
  * trade. Fidelity dates them on the order date while the trade settles later, so
@@ -153,6 +203,14 @@ export function assignFidelityGroups(legs: FidelityLeg[]): string[] {
   const bucket = (l: FidelityLeg) => `${l.account}\u0000${l.dateKey}`;
   const indices = (type: string) =>
     legs.map((l, i) => (l.type === type && Number.isFinite(l.ref) ? i : -1)).filter((i) => i >= 0);
+  // Security trades pick their cash row first. Nothing in the sample exports needs
+  // it -- no bucket holds a cash and a security trade of equal amount -- but five
+  // hold both kinds, so this keeps which one wins from depending on the order the
+  // broker happened to export them in.
+  const securityFirst = (idx: number[]) => [
+    ...idx.filter((i) => !legs[i].cashAsset),
+    ...idx.filter((i) => legs[i].cashAsset),
+  ];
 
   const pair = (securityIdx: number, cashIdx: number) => {
     const ref = String(legs[securityIdx].ref);
@@ -177,7 +235,7 @@ export function assignFidelityGroups(legs: FidelityLeg[]): string[] {
   // Sells: the cash in equals the proceeds exactly, so the amount identifies it.
   const usedCash = new Set<number>();
   const cashIn = indices("Cash In From Sell");
-  for (const s of indices("Sell")) {
+  for (const s of securityFirst(indices("Sell"))) {
     const match = cashIn.find(
       (c) =>
         !usedCash.has(c) &&
@@ -196,11 +254,14 @@ export function assignFidelityGroups(legs: FidelityLeg[]): string[] {
   // out the cash row of a larger trade in the same bucket; among what survives, the
   // nearest reference number wins. Candidates are ranked globally rather than taken
   // in row order so that one buy cannot strand another by claiming its cash row.
+  // No ordering needed here as there is for sells: the two kinds of buy draw from
+  // disjoint pools of cash rows, so neither can claim the other's.
   const buys = indices("Buy");
   const cashOut = indices("Cash Out For Buy");
+  const cashOutTransfer = indices("Cash Out For Buy From Transfer");
   const candidates: Array<{ distance: number; buy: number; cash: number }> = [];
   for (const b of buys) {
-    for (const c of cashOut) {
+    for (const c of legs[b].cashAsset ? cashOutTransfer : cashOut) {
       if (bucket(legs[c]) !== bucket(legs[b])) continue;
       if (Math.abs(legs[b].amount) - Math.abs(legs[c].amount) < -AMOUNT_EPSILON) continue;
       if (!consistent(legs[b], legs[c])) continue;
@@ -278,6 +339,11 @@ export function convertFidelityToStandard(
   const amountCol = col("amount");
   const priceCol = col("price_per_unit");
   const refCol = col("reference_number");
+  // The asset class of the row's instrument (CASH, ETF, STOCK, FUND), which is
+  // what says whether a Buy or Sell transacted a security or the account's cash.
+  // Distinct from "Transaction type"; an export without it falls back to the
+  // instrument description, which is a required column.
+  const assetClassCol = col("type");
 
   if (orderDateCol < 0 || txTypeCol < 0 || investmentsCol < 0) {
     return {
@@ -308,13 +374,18 @@ export function convertFidelityToStandard(
     }
 
     const txTypeStr = get(txTypeCol);
-    const ofxType = txTypeStr ? FIDELITY_TYPE_TO_OFX[txTypeStr] : undefined;
-    if (ofxType === undefined) {
+    const mappedType = txTypeStr ? FIDELITY_TYPE_TO_OFX[txTypeStr] : undefined;
+    if (mappedType === undefined) {
       errors.push({ rowIndex, field: "type", message: txTypeStr ? `Unknown transaction type: ${txTypeStr}` : "Missing transaction type" });
       continue;
     }
 
-    const instrumentDescription = get(investmentsCol) || "Cash";
+    const investments = get(investmentsCol);
+    const assetClass = assetClassCol >= 0 ? get(assetClassCol) : "";
+    const cashAsset = assetClass ? assetClass === "CASH" : investments === "Cash";
+    const ofxType = typeForAsset(mappedType, cashAsset);
+
+    const instrumentDescription = investments || "Cash";
     const account = accountCol >= 0 ? get(accountCol) : "";
     const qtyStr = get(qtyCol);
     const amountStr = amountCol >= 0 ? get(amountCol) : "";
@@ -329,7 +400,7 @@ export function convertFidelityToStandard(
       // (Tax On Interest reports 0 against an Amount of -0.20), so for cash the
       // transacted value is Amount itself rather than a sign-corrected Quantity.
       quantity = amountDec;
-    } else if (ofxType === TxType.SELLSTOCK || ofxType === TxType.SELLMF || ofxType === TxType.SELLDEBT || ofxType === TxType.SELLOPT || ofxType === TxType.SELLOTHER) {
+    } else if (SELL_TYPES.has(ofxType)) {
       quantity = quantity.abs().times(-1);
     }
     const priceStr = priceCol >= 0 ? get(priceCol) : "";
@@ -355,6 +426,7 @@ export function convertFidelityToStandard(
           ? rawQtyDec.times(unitPriceDec).abs().toNumber()
           : 0,
       ref: refCol >= 0 ? parseInt(get(refCol), 10) : NaN,
+      cashAsset,
     });
     txs.push(
       create(TxSchema, {

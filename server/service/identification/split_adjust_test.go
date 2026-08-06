@@ -204,10 +204,14 @@ func TestAdjustOCCForKnownSplits_NonOCCHintUnchanged(t *testing.T) {
 }
 
 // TestAdjustOCCForKnownSplits_Vintage covers the market time the returned
-// hints reflect, which is what the caller stamps as identity_as_of. A hint
-// rebased onto today reflects now; one left alone still reflects its own
-// vintage, and a split learned of later must find it that way or the
-// retroactive option adjustment is skipped for a symbol that never had it.
+// hints reflect, which is what the caller stamps as identity_as_of. A rebased
+// hint reflects now; one left alone still reflects its own vintage, and a split
+// learned of later must find it that way or the retroactive option adjustment is
+// skipped for a symbol that never had it.
+//
+// The rebased case uses an expired contract, which is carried only to its expiry
+// and still reports now: it will not be restated again, so that is as current as
+// its identity gets.
 func TestAdjustOCCForKnownSplits_Vintage(t *testing.T) {
 	validAt := d(2024, 6, 15)
 	occ := []identifier.Identifier{{Type: "OCC", Value: "AAPL250117C00760000"}}
@@ -220,7 +224,7 @@ func TestAdjustOCCForKnownSplits_Vintage(t *testing.T) {
 		want   *time.Time
 	}{
 		{
-			name:   "rebased onto today reflects now",
+			name:   "rebased as far as it can go reflects now",
 			hints:  occ,
 			ticker: "AAPL",
 			splits: []db.StockSplit{{ExDate: d(2024, 8, 1), SplitFrom: "1", SplitTo: "4"}},

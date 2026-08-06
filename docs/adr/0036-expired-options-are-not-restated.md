@@ -36,6 +36,13 @@ to match the over-rebased hint -- agreeing on the wrong answer.
 - An expired option's identity is final. Only splits effective during its life
   can make it pending, which is what `identity_as_of` versus `ex_date` (see
   [0017](0017-option-identity-reflects-ex-date.md)) already decides.
+- 0017 says a rebased hint stamps `now()` "when every OCC hint was rebased onto
+  today". Read against this bound that is "as far forward as it can go" -- today
+  for a listed contract, expiry for an expired one. An expired contract will not
+  be restated again, so its expiry *is* the most current its identity gets. The
+  distinction is unobservable in any case: the pending-split query requires
+  `ex_date <= expiry`, so a stamp of either expiry or `now()` sits on or after
+  every ex_date that could select the option.
 - Nothing changes for a live option: `min(now, expiry)` is `now`, and the pass
   selects it exactly as before.
 

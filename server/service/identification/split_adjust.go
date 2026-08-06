@@ -19,13 +19,19 @@ import (
 // hintsValidAt is nil, no splits found, underlying not in DB, or not an OCC
 // hint. timer may be nil (uses time.Now).
 //
+// Rebasing stops at the option's expiry. A contract is restated only while it is
+// listed, so a split with an ex_date after expiry produces a symbol and strike
+// that never traded, and the stored row it would be looked up against does not
+// carry them either. See adr/0036-expired-options-are-not-restated.md.
+//
 // The second return value is the market time the returned OCC hints reflect,
 // and it is nil for "now". An OCC lookup is identity-by-value: the provider
 // answers about the contract it was named, so an identity derived from these
-// hints is only as current as the hints themselves. Rebasing carries a hint to
-// now, but only across splits already stored -- a split we have not yet learned
-// of leaves the hint at its original vintage, which is what this reports so the
-// caller can stamp identity_as_of honestly. See
+// hints is only as current as the hints themselves. Rebasing carries a hint as
+// far forward as it can go -- today, or expiry for a contract that is no longer
+// listed -- but only across splits already stored. A split we have not yet
+// learned of leaves the hint at its original vintage, which is what this reports
+// so the caller can stamp identity_as_of honestly. See
 // adr/0017-option-identity-reflects-ex-date.md.
 func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, hints []identifier.Identifier, hintsValidAt *time.Time, timer *clock.Timer) ([]identifier.Identifier, *time.Time) {
 	if hintsValidAt == nil {
@@ -36,6 +42,13 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 	// Set by any OCC hint left at its original vintage. Hints that were rebased
 	// reflect now and do not constrain the stamp; the pessimistic case wins
 	// because a single stale OCC is enough to make the identity stale.
+	//
+	// An expired contract counts as reflecting now even though it was only
+	// rebased to its expiry: it will never be restated again, so that is as
+	// current as its identity can get. Both stamps read the same to the only
+	// consumer anyway -- the pending-split query already requires
+	// ex_date <= expiry, so a stamp of either expiry or now sits on or after
+	// every ex_date that could select the option.
 	var vintage *time.Time
 
 	for _, h := range hints {
@@ -63,20 +76,15 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 			continue
 		}
 
-		// Compute OCC_AT_EXPIRY for expired options: apply splits only
-		// up to the expiry date so OpenFIGI receives the OCC as it was
-		// when the option expired.
-		expiry := parsed.Expiry.Truncate(24 * time.Hour)
-		if !expiry.After(now) {
-			num, den := splitFactorBetween(splits, *hintsValidAt, expiry)
-			expiryStrike := derivative.AdjustStrike(parsed.Strike, num, den)
-			if expiryOCC, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, expiryStrike); ok {
-				adjusted = append(adjusted, identifier.Identifier{Type: identifier.InternalHintTypeOCCAtExpiry, Domain: h.Domain, Value: expiryOCC})
-			}
+		// A contract is only restated while it is listed: OCC adjusts it on the
+		// effective date, so a split after expiry never touched it and the
+		// furthest forward its symbol can be carried is its own expiry. For a
+		// live option that bound is today and rebasing is unaffected.
+		until := now
+		if expiry := parsed.Expiry.Truncate(24 * time.Hour); expiry.Before(until) {
+			until = expiry
 		}
-
-		// Adjust the OCC hint for DB lookups (splits up to now).
-		num, den := splitFactorSince(splits, *hintsValidAt, timer)
+		num, den := splitFactorBetween(splits, *hintsValidAt, until)
 		if !num.Equal(den) {
 			newStrike := derivative.AdjustStrike(parsed.Strike, num, den)
 			if newOCC, ok := derivative.BuildOCCCompact(parsed.Symbol, parsed.Expiry, parsed.PutCall, newStrike); ok {
@@ -88,13 +96,6 @@ func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, 
 		vintage = hintsValidAt
 	}
 	return adjusted, vintage
-}
-
-// splitFactorSince computes the cumulative split factor for splits that
-// occurred after since and on or before today: ex_date > since AND
-// ex_date <= now. timer may be nil (uses time.Now).
-func splitFactorSince(splits []db.StockSplit, since time.Time, timer *clock.Timer) (num, den decimal.Decimal) {
-	return splitFactorBetween(splits, since, timer.Now().Truncate(24*time.Hour))
 }
 
 // splitFactorBetween computes the cumulative split factor for splits where

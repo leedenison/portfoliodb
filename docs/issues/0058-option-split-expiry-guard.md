@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Do not retroactively restate options that expired before the split
 ---
 
@@ -24,12 +24,28 @@ the genuinely-restated contracts get picked up. Two NVDA puts expiring
 Distinct from 0055, which concerned which clock the guard compares rather than
 which options it selects.
 
-## Design
+## Resolution
 
-Add the expiry to the predicate. `instruments.expiry` is already NOT NULL for
-options via the check constraint in 001_initial.sql, so no schema change is
-needed.
+`ListPendingOptionSplits` gained a third guard, `s.ex_date <= o.expiry`. It sits
+alongside the future-date guard and the correctness guard and needed no schema
+change: `chk_option_fields` already makes `expiry` NOT NULL for every option. The
+comparison is inclusive because OCC restates a contract on the morning of the
+effective date and it remains exercisable that day. Because the guard applies per
+joined row, an option that lived through one split and expired before the next is
+returned pending for the first alone.
 
-Consider whether an option expiring on the ex_date itself should be adjusted:
-OCC restates it, and it can still be exercised that day, so the comparison is
-likely `expiry >= ex_date` rather than `expiry > ex_date`.
+The same bound was applied to `AdjustOCCForKnownSplits`, which rebased an OCC
+hint by every split between the hint's vintage and today regardless of expiry.
+Fixing only the query would have been worse than fixing neither: the rebased hint
+is what `ResolveByHintsDBOnly` looks up, so a later broker import would have
+searched for a post-split symbol, missed the stored row the pass now correctly
+leaves alone, and created a duplicate instrument. Rebasing now stops at
+`min(now, expiry)`.
+
+That made the `OCC_AT_EXPIRY` internal hint redundant -- it existed to give
+OpenFIGI the symbol an expired contract wore at expiry while the ordinary OCC
+hint ran on to today -- so it was removed along with the resolver skip clauses,
+its OpenFIGI id-type mapping, and the block that overwrote a returned OCC with
+the rebased one.
+
+Recorded in docs/adr/0036-expired-options-are-not-restated.md.

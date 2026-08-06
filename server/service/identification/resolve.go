@@ -66,9 +66,6 @@ func ResolveByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hints [
 		if h.Type == "" || h.Value == "" {
 			continue
 		}
-		if h.Type == identifier.InternalHintTypeOCCAtExpiry {
-			continue
-		}
 		// Normalize OCC to compact form (DB stores compact).
 		value := h.Value
 		if h.Type == "OCC" {
@@ -108,9 +105,6 @@ func ResolveIDsByHintsDBOnly(ctx context.Context, database db.InstrumentDB, hint
 	var ids []string
 	for _, h := range hints {
 		if h.Type == "" || h.Value == "" {
-			continue
-		}
-		if h.Type == identifier.InternalHintTypeOCCAtExpiry {
 			continue
 		}
 		value := h.Value

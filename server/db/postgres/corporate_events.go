@@ -88,11 +88,18 @@ func (p *Postgres) ListStockSplits(ctx context.Context, instrumentID string) ([]
 //
 // The predicate is the whole of the pass's state. ex_date <= CURRENT_DATE is the
 // future-date guard: a split fetched by the lookahead sits inert until it takes
-// effect, and is picked up by the first run after it does. identity_as_of <
-// ex_date is the correctness guard: the stored OCC symbol reflects a split only
-// if it was derived on or after the split took effect, and a NULL predates every
-// split. Together they make the work list self-describing, so the pass needs no
-// record of which cycle a split arrived in and re-running it is a no-op.
+// effect, and is picked up by the first run after it does. ex_date <= expiry is
+// the scope guard: OCC restates a contract on the effective date, so a split
+// only reaches the contracts still listed that day and one that had already
+// expired was never restated. identity_as_of < ex_date is the correctness guard:
+// the stored OCC symbol reflects a split only if it was derived on or after the
+// split took effect, and a NULL predates every split. Together they make the
+// work list self-describing, so the pass needs no record of which cycle a split
+// arrived in and re-running it is a no-op.
+//
+// The scope guard is per joined row, not per option, so an option that lived
+// through one split and expired before the next comes back pending for the first
+// alone and the pass compounds only that one.
 func (p *Postgres) ListPendingOptionSplits(ctx context.Context, underlyingID string) ([]db.PendingOptionSplits, error) {
 	var (
 		filter string
@@ -113,6 +120,7 @@ func (p *Postgres) ListPendingOptionSplits(ctx context.Context, underlyingID str
 		JOIN stock_splits s ON s.instrument_id = o.underlying_id
 		WHERE o.asset_class = 'OPTION'
 		  AND s.ex_date <= CURRENT_DATE
+		  AND s.ex_date <= o.expiry
 		  AND (o.identity_as_of IS NULL OR o.identity_as_of < s.ex_date)
 		  %s
 		ORDER BY o.id, s.ex_date

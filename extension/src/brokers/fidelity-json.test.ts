@@ -129,13 +129,24 @@ describe("convertFidelityJson", () => {
     expect(total.eq(0)).toBe(true);
   });
 
-  it("emits no identifier hint for a cash pseudo-ISIN", () => {
-    // These appear on Buy and Sell rows too, so the transaction type cannot be
-    // used to decide whether a row names a real security.
+  it("resolves a cash posting to its currency, never to a pseudo-ISIN", () => {
+    // The pseudo-identifiers appear on Buy and Sell rows too, so the transaction
+    // type cannot be used to decide whether a row names a real security. Nothing
+    // is passed on that would resolve to a fictional instrument.
+    const result = convertFidelityJson(json(SERVICE_FEE));
+    expect(result.txs[0]!.instrumentDescription).toBe("GBP");
+    expect(result.txs[0]!.identifierHints.map((h) => [h.type, h.value])).toEqual([
+      [IdentifierType.CURRENCY, "GBP"],
+    ]);
+  });
+
+  it("describes a cash posting by its currency even when the row names a payer", () => {
+    // assetName carries "Relationship Cash Source" on some rows and the paying
+    // security's name on others. Either would resolve the money into a holding.
     const result = convertFidelityJson(
-      json({ ...BUY, isin: "AA00S0000000", sedol: "S000000", assetName: "Cash" })
+      json({ ...SERVICE_FEE, transactionType: "Cash Dividend", assetName: "Relationship Cash Source", isin: "AA00K0000000", debitCreditIndicator: "CREDIT" })
     );
-    expect(result.txs[0]!.identifierHints).toEqual([]);
+    expect(result.txs[0]!.instrumentDescription).toBe("GBP");
   });
 
   it("falls back to the order date when a transaction has not settled", () => {
@@ -219,7 +230,11 @@ describe("convertFidelityJson cash-asset rows", () => {
     expect(tx.type).toBe(TxType.CASHFLOW);
     expect(tx.quantity).toBe("12772.83");
     expect(tx.tradingCurrency).toBe("GBP");
-    expect(tx.identifierHints).toEqual([]);
+    // Money, so it resolves to the currency and never to the pseudo-ISIN the row
+    // carries.
+    expect(tx.identifierHints.map((h) => [h.type, h.value])).toEqual([
+      [IdentifierType.CURRENCY, "GBP"],
+    ]);
   });
 
   it("groups a purchase of cash with the cash out beside it", () => {

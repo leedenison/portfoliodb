@@ -25,7 +25,7 @@ import {
   typeForAsset,
 } from "@/lib/csv/converters/fidelity-csv";
 import type { ParseError, StandardParseResult } from "@/lib/csv/standard";
-import { counterLegs } from "@/lib/csv/postings";
+import { counterLegs, currencyHint } from "@/lib/csv/postings";
 import { Big, decimalFromNumber } from "@/lib/decimal";
 import { parseSlashDate } from "../lib/dates";
 
@@ -152,24 +152,31 @@ export function convertFidelityJson(
 
     const currency = row.currency ?? "";
     const sedol = row.sedol ?? "";
-    const identifierHints = isValidIsin(isin)
-      ? [
-          create(InstrumentIdentifierSchema, {
-            type: IdentifierType.ISIN,
-            value: isin,
-            canonical: false,
-          }),
-          ...(sedol
-            ? [
-                create(InstrumentIdentifierSchema, {
-                  type: IdentifierType.SEDOL,
-                  value: sedol,
-                  canonical: false,
-                }),
-              ]
-            : []),
-        ]
-      : [];
+    // A cash movement resolves to its currency; anything else to the security its
+    // identifiers name. The pseudo-identifiers a cash row carries would resolve to
+    // a fictional instrument, so they are never passed on.
+    const identifierHints = isCashMovement(ofxType)
+      ? currency
+        ? [currencyHint(currency)]
+        : []
+      : isValidIsin(isin)
+        ? [
+            create(InstrumentIdentifierSchema, {
+              type: IdentifierType.ISIN,
+              value: isin,
+              canonical: false,
+            }),
+            ...(sedol
+              ? [
+                  create(InstrumentIdentifierSchema, {
+                    type: IdentifierType.SEDOL,
+                    value: sedol,
+                    canonical: false,
+                  }),
+                ]
+              : []),
+          ]
+        : [];
 
     const ts = date.getTime();
     if (ts < minTime) minTime = ts;
@@ -195,7 +202,13 @@ export function convertFidelityJson(
     txs.push(
       create(TxSchema, {
         timestamp: timestampFromDate(date),
-        instrumentDescription: row.assetName || "Cash",
+        // A cash posting is described by its currency, which is what resolves it
+        // to the currency instrument rather than to a holding named after the
+        // broker's wording -- the payload says "Cash" in the same field it names
+        // a security in. See docs/spec/csv-format.md.
+        instrumentDescription: isCashMovement(ofxType)
+          ? currency || typeStr
+          : row.assetName || typeStr,
         type: ofxType,
         quantity,
         account: row.accountNumber ?? "",

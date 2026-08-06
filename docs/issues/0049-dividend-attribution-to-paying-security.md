@@ -3,12 +3,18 @@ status: open
 title: Attribute cash dividends to the security that paid them
 ---
 
-A cash dividend currently resolves to the cash instrument with the description
-"Cash", losing which holding generated it. The spec says an income transaction
-should carry the description of the generating security
-(see spec/portfoliodb-spec.md), and Fidelity supplies it: the CSV has a
-`Source investment` column, and the underlying JSON carries `linkedAssetName`
-together with a real `linkedAssetIsin`.
+A cash dividend resolves to the cash instrument and carries no record of which
+holding generated it. The spec says an income transaction should carry the
+description of the generating security (see spec/portfoliodb-spec.md), and
+Fidelity supplies it: the CSV has a `Source investment` column, and the
+underlying JSON carries `linkedAssetName` together with a real `linkedAssetIsin`.
+
+The Fidelity converters now describe a cash posting by its currency and hint at
+the currency, so the payer is not merely unused -- it is dropped. Before 0065 the
+conversion script put `Source investment` in the description, which is one of the
+options below taken by accident rather than by decision, and the client never
+carried it at all. Whichever option is chosen has to put the payer somewhere
+deliberately.
 
 The decision to make is how income is modelled. The dividend increases **cash**,
 so the paying security must not become the transaction's instrument or the payout

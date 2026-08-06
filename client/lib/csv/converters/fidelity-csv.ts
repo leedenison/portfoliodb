@@ -10,13 +10,24 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "@/lib/dates";
 import type { Tx } from "@/gen/api/v1/api_pb";
-import { TxSchema, TxType } from "@/gen/api/v1/api_pb";
+import { IdentifierType, InstrumentIdentifierSchema, TxSchema, TxType } from "@/gen/api/v1/api_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/standard";
 import { parseCSVLine } from "@/lib/csv/standard";
-import { counterLegs } from "@/lib/csv/postings";
+import { counterLegs, currencyHint } from "@/lib/csv/postings";
 import { Big, parseDecimal } from "@/lib/decimal";
 
 const ZERO = new Big(0);
+
+/**
+ * Fidelity exchange name to ISO 10383 MIC. These three are what the sample exports
+ * use; a symbol whose exchange is not named here is passed on without a domain
+ * rather than under a guess.
+ */
+const MIC_BY_EXCHANGE: Record<string, string> = {
+  LON: "XLON",
+  ETR: "XETR",
+  EPA: "XPAR",
+};
 
 const FIDELITY_DATE_FORMAT = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/;
 const ISO_DATE_FORMAT = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -448,6 +459,8 @@ export function convertFidelityToStandard(
   const priceCol = col("price_per_unit");
   const refCol = col("reference_number");
   const statusCol = col("status");
+  const symbolCol = col("symbol");
+  const exchangeCol = col("exchange");
   // The asset class of the row's instrument (CASH, ETF, STOCK, FUND), which is
   // what says whether a Buy or Sell transacted a security or the account's cash.
   // Distinct from "Transaction type"; an export without it falls back to the
@@ -499,7 +512,14 @@ export function convertFidelityToStandard(
     const cashAsset = assetClass ? assetClass === "CASH" : investments === "Cash";
     const ofxType = typeForAsset(mappedType, cashAsset);
 
-    const instrumentDescription = investments || "Cash";
+    // A cash posting is described by its currency, which is what resolves it to
+    // the currency instrument rather than to a holding named after the broker's
+    // wording. The export says "Cash" in the same column it names a security in,
+    // so reading it through produced a security called Cash. See
+    // docs/spec/csv-format.md.
+    const instrumentDescription = isCashMovement(ofxType)
+      ? currency
+      : investments || txTypeStr;
     const account = accountCol >= 0 ? get(accountCol) : "";
     const qtyStr = get(qtyCol);
     const amountStr = amountCol >= 0 ? get(amountCol) : "";
@@ -519,6 +539,28 @@ export function convertFidelityToStandard(
     }
     const priceStr = priceCol >= 0 ? get(priceCol) : "";
     const unitPriceDec = parseDecimal(priceStr);
+
+    // A cash posting resolves to its currency; a security one to its ticker, which
+    // the export gives against an exchange name. A fund has no ticker and the export
+    // repeats its name in the symbol column instead, which would resolve to nothing
+    // and pollute the security master, so only a listed asset class offers one.
+    const symbol = symbolCol >= 0 ? get(symbolCol) : "";
+    const exchange = exchangeCol >= 0 ? get(exchangeCol) : "";
+    const listed = assetClass !== "FUND";
+    const identifierHints = isCashMovement(ofxType)
+      ? currency
+        ? [currencyHint(currency)]
+        : []
+      : symbol && exchange && listed
+        ? [
+            create(InstrumentIdentifierSchema, {
+              type: IdentifierType.MIC_TICKER,
+              value: symbol,
+              canonical: false,
+              ...(MIC_BY_EXCHANGE[exchange] ? { domain: MIC_BY_EXCHANGE[exchange] } : {}),
+            }),
+          ]
+        : [];
 
     const ts = date.getTime();
     if (ts < minTime) minTime = ts;
@@ -553,6 +595,7 @@ export function convertFidelityToStandard(
         ...(isCashTxType(ofxType) ? { tradingCurrency: currency } : {}),
         // Presence, not truthiness: a reported price of zero is a price.
         ...(unitPriceDec !== undefined ? { unitPrice: unitPriceDec.toString() } : {}),
+        ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })
     );
   }

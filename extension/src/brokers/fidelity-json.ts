@@ -18,6 +18,7 @@ import { IdentifierType, InstrumentIdentifierSchema, TxSchema } from "@/gen/api/
 import type { FidelityLeg } from "@/lib/csv/converters/fidelity-csv";
 import {
   assignFidelityGroups,
+  asTradeCashLeg,
   FIDELITY_TYPE_TO_OFX,
   isCashMovement,
   isCashTxType,
@@ -209,8 +210,12 @@ export function convertFidelityJson(
     );
   });
 
-  assignFidelityGroups(legs).forEach((ref, i) => {
+  const groups = assignFidelityGroups(legs);
+  groups.refs.forEach((ref, i) => {
     if (ref) txs[i].groupRef = ref;
+  });
+  groups.cashLegs.forEach((paired, i) => {
+    if (paired) asTradeCashLeg(txs[i], txs[i].settlementCurrency);
   });
   // After the refs are stamped, since that loop is index-parallel with legs.
   txs.push(...counterLegs(txs));

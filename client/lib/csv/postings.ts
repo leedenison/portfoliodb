@@ -64,27 +64,22 @@ export function counterLeg(tx: Tx): Tx | undefined {
 }
 
 /**
- * The cash posting for a commission a broker folded into a trade's total.
+ * A money posting derived beside one the source reported, in the same group.
  *
- * `fee` is the charge as the broker reports it, positive; the posting is
- * negative because the money leaves the account. Its counter-leg comes from
- * counterLeg, so a derived fee and a separately reported one end up identical.
- * Returns undefined below FEE_EPSILON.
+ * The instrument description is the currency code, matching how an ordinary cash
+ * row arrives, so nothing downstream has to treat a derived posting specially.
  */
-export function feeLeg(from: Tx, fee: Big | undefined): Tx | undefined {
-  if (fee === undefined || fee.abs().lt(FEE_EPSILON)) return undefined;
+function moneyLeg(from: Tx, type: TxType, accountType: AccountType, quantity: Big): Tx {
   const currency = from.settlementCurrency || from.tradingCurrency;
   return create(TxSchema, {
     ...(from.timestamp ? { timestamp: clone(TimestampSchema, from.timestamp) } : {}),
-    // The currency code, matching how an ordinary cash row arrives, so nothing
-    // downstream has to treat a derived fee specially.
     instrumentDescription: currency,
-    type: TxType.INVEXPENSE,
-    quantity: fee.abs().times(-1).toString(),
+    type,
+    quantity: quantity.toString(),
     unitPrice: "1",
     account: from.account,
     groupRef: from.groupRef,
-    accountType: AccountType.USER,
+    accountType,
     ...(currency
       ? {
           tradingCurrency: currency,
@@ -99,6 +94,40 @@ export function feeLeg(from: Tx, fee: Big | undefined): Tx | undefined {
         }
       : {}),
   });
+}
+
+/**
+ * The cash posting for a commission a broker folded into a trade's total.
+ *
+ * `fee` is the charge as the broker reports it, positive; the posting is
+ * negative because the money leaves the account. Its counter-leg comes from
+ * counterLeg, so a derived fee and a separately reported one end up identical.
+ * Returns undefined below FEE_EPSILON.
+ */
+export function feeLeg(from: Tx, fee: Big | undefined): Tx | undefined {
+  if (fee === undefined || fee.abs().lt(FEE_EPSILON)) return undefined;
+  return moneyLeg(from, TxType.INVEXPENSE, AccountType.USER, fee.abs().times(-1));
+}
+
+/**
+ * The income a reinvestment consumed.
+ *
+ * A REINVEST posting increases a holding with no cash row beside it: the income
+ * buys the units without ever arriving as money, so there is nothing for the
+ * source to have reported and nothing to pair with. Its other side is therefore
+ * derived, and unlike counterLeg's it is not a sign flip -- the posting's
+ * quantity is a share count, and what balances it is money.
+ *
+ * The money is the posting's own weight, quantity times unit price, rather than
+ * the total the broker printed on the row. The two differ by the rounding in the
+ * quoted price, and taking the broker's would leave the group short by a residual
+ * of our choosing rather than one the source has.
+ */
+export function reinvestLeg(from: Tx): Tx | undefined {
+  if (from.type !== TxType.REINVEST) return undefined;
+  const value = new Big(from.quantity).times(from.unitPrice || "0");
+  if (value.abs().lt(FEE_EPSILON)) return undefined;
+  return moneyLeg(from, TxType.INCOME, AccountType.INCOME, value.times(-1));
 }
 
 /**
@@ -123,7 +152,9 @@ export function counterLegs(txs: Tx[]): Tx[] {
   const prefix = refPrefix(txs);
   const legs: Tx[] = [];
   txs.forEach((tx, i) => {
-    const leg = counterLeg(tx);
+    // A reinvestment's other side is money it never held, so it is built rather
+    // than mirrored; everything else that has one is a sign flip.
+    const leg = reinvestLeg(tx) ?? counterLeg(tx);
     if (!leg) return;
     if (!tx.groupRef) {
       tx.groupRef = `${prefix}${i}`;

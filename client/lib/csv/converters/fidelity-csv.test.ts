@@ -1,6 +1,6 @@
 import { Big } from "@/lib/decimal";
 import { describe, it, expect } from "vitest";
-import { AccountType, TxType } from "@/gen/api/v1/api_pb";
+import { AccountType, IdentifierType, TxType } from "@/gen/api/v1/api_pb";
 import { convertFidelityToStandard, FIDELITY_TYPE_TO_OFX } from "./fidelity-csv";
 import { expectGroupsBalance, residuals } from "@/lib/csv/group-balance.test-utils";
 
@@ -583,6 +583,77 @@ describe("trades the broker names for their reason", () => {
     // The fee and its expense leg; nothing from the trade that never happened.
     expect(result.txs).toHaveLength(2);
     expect(result.txs[0]!.type).toBe(TxType.INVEXPENSE);
+  });
+});
+
+// The export says "Cash" in the same column it names a security in, so reading it
+// through described money as an instrument. A posting is described by, and carries
+// the identifier of, whatever resolves it. See docs/spec/csv-format.md.
+describe("what a posting resolves to", () => {
+  const FULL =
+    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,Exchange,Symbol,Type,Action";
+  const convert = (rows: string[]) =>
+    convertFidelityToStandard([FULL, ...rows].join("\n"), { currency: "GBP" });
+
+  it("describes a cash posting by its currency and hints at it", () => {
+    const result = convert([
+      "2022-01-11,11 Jan 2022,Service Fee,Cash,Cash Management Account,AW10075724,,-3.24,3.24,1,550895422,Completed,,GBP,CASH,Cash",
+    ]);
+
+    expect(result.txs[0]!.instrumentDescription).toBe("GBP");
+    expect(result.txs[0]!.identifierHints.map((h) => [h.type, h.value])).toEqual([
+      [IdentifierType.CURRENCY, "GBP"],
+    ]);
+    // Including the expense leg it balances against, which was already money.
+    expect(result.txs[1]!.instrumentDescription).toBe("GBP");
+  });
+
+  it("describes a dividend by the currency it paid, not the payer", () => {
+    // Source investment names the security that paid it. Describing the posting
+    // by the payer would resolve the money into that holding; carrying the payer
+    // elsewhere is 0049's to decide.
+    const result = convert([
+      '2022-02-11,11 Feb 2022,Cash Dividend,Cash,Investment ISA,AS10123702,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",22.67,22.67,1,564233724,Completed,,GBP,CASH,Cash',
+    ]);
+
+    expect(result.txs[0]!.instrumentDescription).toBe("GBP");
+    expect(result.txs[0]!.type).toBe(TxType.INCOME);
+  });
+
+  it("keeps a security's own description and offers its ticker", () => {
+    const result = convert([
+      '2022-02-08,10 Feb 2022,Sell,"WISE PLC, CLS A ORD GBP0.01 (WISE)",SIPP - Pension Savings Account,AP10013127,,-7266.49,1242,5.85,563466569,Completed,LON,WISE,STOCK,Sell',
+    ]);
+
+    expect(result.txs[0]!.instrumentDescription).toContain("WISE PLC");
+    expect(result.txs[0]!.identifierHints.map((h) => [h.type, h.value, h.domain])).toEqual([
+      [IdentifierType.MIC_TICKER, "WISE", "XLON"],
+    ]);
+  });
+
+  it("offers no ticker for a fund, which has none to offer", () => {
+    // The export repeats the fund's name in the symbol column, against a real
+    // exchange. Passing that on as a ticker would resolve to nothing and leave the
+    // name in the security master twice, so the row goes on its description alone.
+    const result = convert([
+      "2022-03-24,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10123702,,31.65,21.09,1.5,582193319,Completed,LON,Baillie Gifford Responsible Global Equity Income B Inc,FUND,Buy",
+    ]);
+
+    expect(result.txs[0]!.identifierHints).toEqual([]);
+    expect(result.txs[0]!.instrumentDescription).toContain("Baillie Gifford");
+  });
+
+  it("names the exchange a ticker belongs to, where it knows the MIC", () => {
+    // A ticker identifies an instrument only within an exchange. An exchange with
+    // no MIC here is passed on bare rather than under a guess.
+    const result = convert([
+      '2024-06-03,05 Jun 2024,Buy,"RHEINMETALL AG, ORD NPV (RHM)",Investment Account,AG10041188,,5000,10,500,1000000001,Completed,ETR,RHM,STOCK,Buy',
+      '2024-06-03,05 Jun 2024,Buy,"SAFRAN SA, ORD EUR0.20 (SAF)",Investment Account,AG10041188,,5000,25,200,1000000002,Completed,XXX,SAF,STOCK,Buy',
+    ]);
+
+    expect(result.txs[0]!.identifierHints[0]!.domain).toBe("XETR");
+    expect(result.txs[1]!.identifierHints[0]!.value).toBe("SAF");
+    expect(result.txs[1]!.identifierHints[0]!.domain).toBe("");
   });
 });
 

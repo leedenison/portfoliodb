@@ -64,6 +64,18 @@ export function counterLeg(tx: Tx): Tx | undefined {
 }
 
 /**
+ * The hint that resolves a posting to a currency rather than to a holding named
+ * after its description.
+ */
+export function currencyHint(currency: string) {
+  return create(InstrumentIdentifierSchema, {
+    type: IdentifierType.CURRENCY,
+    value: currency,
+    canonical: false,
+  });
+}
+
+/**
  * A money posting derived beside one the source reported, in the same group.
  *
  * The instrument description is the currency code, matching how an ordinary cash
@@ -84,13 +96,7 @@ function moneyLeg(from: Tx, type: TxType, accountType: AccountType, quantity: Bi
       ? {
           tradingCurrency: currency,
           settlementCurrency: currency,
-          identifierHints: [
-            create(InstrumentIdentifierSchema, {
-              type: IdentifierType.CURRENCY,
-              value: currency,
-              canonical: false,
-            }),
-          ],
+          identifierHints: [currencyHint(currency)],
         }
       : {}),
   });

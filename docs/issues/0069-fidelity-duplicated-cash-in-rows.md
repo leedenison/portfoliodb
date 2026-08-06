@@ -28,7 +28,9 @@ same shape and the same two duplicated credits.
 
 Both `Cash In` and `Cash In Lump Sum` map to `TxType.JRNLFUND` in
 client/lib/csv/converters/fidelity-csv.ts, so both post and the receiving account
-gains twice the transferred amount.
+gains twice the transferred amount. Since 0065 a `Cash In` that pairs with a trade
+is retyped to `CASHFLOW`, which does not touch these: neither of the two pairs
+with anything.
 
 ## What to establish
 
@@ -42,12 +44,15 @@ gains twice the transferred amount.
   subscription semantics and `Cash In` the movement, but the reference ordering
   is the opposite of that reading and the two are not consistently ordered.
 
-## Adjacent, probably not the same problem
+## Adjacent, explained by 0065
 
 `Cash In For Transfer` and `Cash Out For Buy From Transfer` appear as equal and
-opposite same-account, same-day pairs, twice, in the SIPP. They net to zero so
-they do not inflate a balance, but both are also mapped to `JRNLFUND` and they
-should be understood before the mapping is changed.
+opposite same-account, same-day pairs, twice, in the SIPP. They are not a pair:
+each sits in a triplet with a `Buy` row against Fidelity's cash pseudo-ISIN, and
+it is that `Buy` the `Cash Out For Buy From Transfer` cancels. 0065 types the
+`Buy` as the cash movement it is and groups the two, which leaves the
+`Cash In For Transfer` posting once, as the arrival it is. Nothing here is a
+duplicate.
 
 ## Why it matters here
 

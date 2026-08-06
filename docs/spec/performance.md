@@ -28,9 +28,20 @@ error of its own. Its inputs are `split_adjusted_quantity`, though, which carrie
 the split adjustment's declared rounding scale (see
 [Share count](#share-count) below), so the position is exact to that scale rather
 than exact outright, with the bound growing in the number of contributing
-postings. For valuation that rounding is immaterial and is tolerated rather than
-tracked; where it is not tolerable -- the balance constraint, a checked holding
-declaration -- the raw columns are read instead.
+postings. Summing the raw column instead is not an option: each posting is
+denominated in its own `share_count_basis`, and postings recorded either side of
+a split do not add.
+
+In the value that rounding is immaterial and is tolerated. It is tracked in one
+place: the test that decides whether a position is closed, which an error of one
+unit in the last place is enough to fail. `qty_is_zero` therefore takes the count
+of contributing postings that may have rounded -- those whose adjusted quantity
+differs from their raw one -- and allows one unit in the last place for each,
+which makes the test exact when no split falls in the window. The same test gates
+holdings, the valuation day grid and the residual balance report. Where the
+rounding is not tolerable at all -- the balance constraint, a checked holding
+declaration -- the raw columns are read instead, per basis
+(`holding_qty_in_basis`).
 
 Valuing the position is approximate for a stronger reason: it multiplies by a
 market price and divides by an FX rate, and a division has no exact decimal

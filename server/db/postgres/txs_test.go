@@ -46,7 +46,7 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 	var aaplQty string
 	for _, h := range holdings {
 		if h.InstrumentDescription == "AAPL" {
-			aaplQty = h.Quantity
+			aaplQty = h.SplitAdjustedQuantity
 			break
 		}
 	}
@@ -522,8 +522,8 @@ func TestCreateTx_AppendOnly(t *testing.T) {
 	}
 	holdings, _, _ := p.ComputeHoldings(ctx, userID, nil, "", nil)
 	for _, h := range holdings {
-		if h.InstrumentDescription == "GOOG" && h.Quantity != "15" {
-			t.Fatalf("append-only: expected total quantity 15, got %v", h.Quantity)
+		if h.InstrumentDescription == "GOOG" && h.SplitAdjustedQuantity != "15" {
+			t.Fatalf("append-only: expected total quantity 15, got %v", h.SplitAdjustedQuantity)
 		}
 	}
 }
@@ -763,7 +763,7 @@ func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 	var aaplQty string
 	for _, h := range holdings {
 		if h.InstrumentDescription == "AAPL" {
-			aaplQty = h.Quantity
+			aaplQty = h.SplitAdjustedQuantity
 			break
 		}
 	}
@@ -822,7 +822,7 @@ func TestListTxsByPortfolio_ANDBetweenCategories(t *testing.T) {
 	}
 	var totalQty string
 	for _, h := range holdings {
-		totalQty += h.Quantity
+		totalQty += h.SplitAdjustedQuantity
 	}
 	if totalQty != "3" {
 		t.Fatalf("expected total quantity 3, got %v", totalQty)

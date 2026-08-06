@@ -344,3 +344,68 @@ func TestCountResidualBalances_StalenessBoundary(t *testing.T) {
 		t.Errorf("stale transfers = %d, want 1 (the 8-day-old side, not the 6-day-old one)", stale)
 	}
 }
+
+// TestListResidualBalances_ShareResidualAcrossSplit is why the aggregate reads the
+// split-adjusted column. A residual left by an unpaired JRNLSEC is a quantity of
+// shares, and the two postings below straddle a 2:1 split, so their raw quantities
+// are in different share counts. Added raw they net to -100 and the report claims a
+// share residual nobody left behind; converted, the transfer balances and there is
+// nothing to report.
+func TestListResidualBalances_ShareResidualAcrossSplit(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := newUser(t, p, "sub|residual-split")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "JRN", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	// 400 days ago is before the split, 10 days ago after it.
+	addSplit(t, p, instID, time.Now().UTC().AddDate(0, 0, -200), 1, 2)
+	seedResiduals(t, p, userID,
+		residualSeed{"IBKR", "A1", instID, apiv1.TxType_JRNLSEC, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, "100", 400},
+		residualSeed{"IBKR", "A1", instID, apiv1.TxType_JRNLSEC, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, "-200", 10},
+	)
+	if err := p.RecomputeSplitAdjustments(ctx, instID); err != nil {
+		t.Fatalf("recompute split adjustments: %v", err)
+	}
+
+	rows, err := p.ListResidualBalances(ctx, db.ResidualBalanceOpts{})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected no residual balances, got %+v", rows)
+	}
+}
+
+// TestListResidualBalances_ShareResidualReportedInTodaysShareCount is the other
+// half: a real residual is reported, and in the share count the rest of the system
+// uses. Half the transferred position came back, which is 100 of today's shares.
+func TestListResidualBalances_ShareResidualReportedInTodaysShareCount(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID := newUser(t, p, "sub|residual-split-open")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "JRN2", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	addSplit(t, p, instID, time.Now().UTC().AddDate(0, 0, -200), 1, 2)
+	seedResiduals(t, p, userID,
+		residualSeed{"IBKR", "A1", instID, apiv1.TxType_JRNLSEC, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, "100", 400},
+		residualSeed{"IBKR", "A1", instID, apiv1.TxType_JRNLSEC, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, "-100", 10},
+	)
+	if err := p.RecomputeSplitAdjustments(ctx, instID); err != nil {
+		t.Fatalf("recompute split adjustments: %v", err)
+	}
+
+	rows, err := p.ListResidualBalances(ctx, db.ResidualBalanceOpts{})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	got := findBalance(t, rows, apiv1.Broker_IBKR, "A1", apiv1.TxType_JRNLSEC)
+	if got.Balance.String() != "100" {
+		t.Errorf("balance = %v, want 100 (200 post-split shares in, 100 out)", got.Balance)
+	}
+}

@@ -42,7 +42,13 @@ WITH portfolio_txs AS (
         t.instrument_id,
         t.instrument_description,
         t.timestamp::date AS tx_date,
-        SUM(t.split_adjusted_quantity) AS daily_qty` + txSource + `
+        SUM(t.split_adjusted_quantity) AS daily_qty,
+        -- How many of these postings may have rounded when they were converted
+        -- into today's share count, which is what bounds the running position's
+        -- test against zero further down. A row whose adjusted quantity equals
+        -- its raw one converted by 1/1 and cannot have rounded at all. See
+        -- qty_is_zero.
+        COUNT(*) FILTER (WHERE t.split_adjusted_quantity <> t.quantity)::int AS daily_inexact` + txSource + `
     GROUP BY t.instrument_id, t.instrument_description, t.timestamp::date
 ),
 -- Merge transactions by instrument_id for identified instruments so that
@@ -53,7 +59,8 @@ merged_txs AS (
         instrument_id,
         CASE WHEN instrument_id IS NULL THEN instrument_description END AS instrument_description,
         tx_date,
-        SUM(daily_qty) AS daily_qty
+        SUM(daily_qty) AS daily_qty,
+        SUM(daily_inexact)::int AS daily_inexact
     FROM portfolio_txs
     GROUP BY instrument_id,
              CASE WHEN instrument_id IS NULL THEN instrument_description END,
@@ -68,7 +75,15 @@ cumulative AS (
             PARTITION BY instrument_id, instrument_description
             ORDER BY tx_date
             ROWS UNBOUNDED PRECEDING
-        ) AS position
+        ) AS position,
+        -- Accumulated over the same window as the position it bounds: every
+        -- posting that has entered the running sum can have contributed a
+        -- rounding to it.
+        SUM(daily_inexact) OVER (
+            PARTITION BY instrument_id, instrument_description
+            ORDER BY tx_date
+            ROWS UNBOUNDED PRECEDING
+        )::int AS inexact
     FROM merged_txs
 ),
 date_series AS (
@@ -84,17 +99,22 @@ daily_holdings AS (
         ds.val_date,
         i.instrument_id,
         i.instrument_description,
-        (
-            SELECT c.position
-            FROM cumulative c
-            WHERE c.instrument_id IS NOT DISTINCT FROM i.instrument_id
-              AND c.instrument_description IS NOT DISTINCT FROM i.instrument_description
-              AND c.tx_date <= ds.val_date
-            ORDER BY c.tx_date DESC
-            LIMIT 1
-        ) AS qty
+        c.position AS qty,
+        c.inexact
     FROM date_series ds
     CROSS JOIN inst_list i
+    -- LEFT JOIN, so a date before the instrument's first transaction has a NULL
+    -- position rather than no row: qty_is_zero reads that as closed, which is
+    -- what keeps the day grid from starting a series before its history does.
+    LEFT JOIN LATERAL (
+        SELECT cu.position, cu.inexact
+        FROM cumulative cu
+        WHERE cu.instrument_id IS NOT DISTINCT FROM i.instrument_id
+          AND cu.instrument_description IS NOT DISTINCT FROM i.instrument_description
+          AND cu.tx_date <= ds.val_date
+        ORDER BY cu.tx_date DESC
+        LIMIT 1
+    ) c ON true
 ),
 -- Map held instruments to their FX pair instrument IDs (for currencies != display).
 fx_instruments AS (
@@ -299,7 +319,7 @@ valued AS (
     LEFT JOIN fx_rates fr
         ON fr.base_currency = inst.currency AND fr.val_date = dh.val_date
     LEFT JOIN display_fx_rate dfr ON dfr.val_date = dh.val_date
-    WHERE NOT qty_is_zero(dh.qty)
+    WHERE NOT qty_is_zero(dh.qty, dh.inexact)
 )
 SELECT
     val_date,

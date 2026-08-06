@@ -37,7 +37,11 @@ const residualBalanceAgg = `
 		COALESCE(i.name, t.instrument_id::text) AS commodity,
 		COALESCE(i.asset_class, '')             AS asset_class,
 		t.tx_type,
-		SUM(t.quantity)   AS balance,
+		-- The split-adjusted column, not the raw one: money never splits and the
+		-- two agree for it, but a residual left by an unpaired JRNLSEC is a
+		-- quantity of shares, and raw quantities recorded either side of a split
+		-- are in different denominations and do not sum. See qty_is_zero.
+		SUM(t.split_adjusted_quantity) AS balance,
 		COUNT(*)::int     AS posting_count,
 		MIN(t.timestamp)  AS oldest,
 		MAX(t.timestamp)  AS newest
@@ -52,7 +56,9 @@ const residualBalanceAgg = `
 		AND ($2::timestamptz IS NULL OR t.timestamp <  $2)
 		AND ($3 = '' OR t.account_type = $3)
 	GROUP BY t.account_type, t.broker, t.account, t.instrument_id, i.name, i.asset_class, t.tx_type
-	HAVING NOT qty_is_zero(SUM(t.quantity))`
+	HAVING NOT qty_is_zero(
+		SUM(t.split_adjusted_quantity),
+		COUNT(*) FILTER (WHERE t.split_adjusted_quantity <> t.quantity)::int)`
 
 // residualBalanceRow is the sqlx-scannable shape for a residual balance.
 type residualBalanceRow struct {

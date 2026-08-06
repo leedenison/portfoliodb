@@ -178,12 +178,11 @@ export default function UserHoldingsPage() {
                                   {ticker || h.instrument?.name || h.instrumentDescription || "\u2014"}
                                 </td>
                                 <td className="px-4 py-3 text-right font-mono tabular-nums text-text-primary">
-                                  {/* Decimal strings render as supplied; "0" is the
-                                      unadjusted sentinel this has always used. */}
-                                  <div>{h.splitAdjustedQuantity && h.splitAdjustedQuantity !== "0" ? h.splitAdjustedQuantity : h.quantity}</div>
-                                  {h.splitAdjustedQuantity && h.splitAdjustedQuantity !== "0" && h.splitAdjustedQuantity !== h.quantity && (
-                                    <div className="text-xs text-text-muted">(raw: {h.quantity})</div>
-                                  )}
+                                  {/* Decimal strings render as supplied. The position is
+                                      in today's share count and is the only quantity a
+                                      holding has; the as-traded figures are per posting
+                                      and live in the transaction list. */}
+                                  {h.splitAdjustedQuantity}
                                 </td>
                               </tr>
                             );

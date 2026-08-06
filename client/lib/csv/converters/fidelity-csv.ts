@@ -19,14 +19,32 @@ import { Big, parseDecimal } from "@/lib/decimal";
 const ZERO = new Big(0);
 
 const FIDELITY_DATE_FORMAT = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/;
+const ISO_DATE_FORMAT = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MONTHS: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
   Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
 };
 
+/**
+ * Both date formats a Fidelity export uses.
+ *
+ * The download writes "10 Feb 2022" in the completion date and an ISO date in the
+ * order date, and some exports are ISO throughout. Reading only the first rejected
+ * every row of such a file, which is a whole export lost to a date format the
+ * source itself uses in the column beside it.
+ *
+ * Local midnight either way, matching how a date with no time is read everywhere
+ * else here.
+ */
 function parseFidelityDate(value: string): Date | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
+  const iso = trimmed.match(ISO_DATE_FORMAT);
+  if (iso) {
+    const [, year, month, day] = iso;
+    const d = new Date(parseInt(year!, 10), parseInt(month!, 10) - 1, parseInt(day!, 10));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
   const m = trimmed.match(FIDELITY_DATE_FORMAT);
   if (!m) return null;
   const [, day, monthStr, year] = m;
@@ -44,8 +62,26 @@ function parseFidelityDate(value: string): Date | null {
 export const FIDELITY_TYPE_TO_OFX: Record<string, TxType> = {
   "Buy": TxType.BUYSTOCK,
   "Sell": TxType.SELLSTOCK,
+  // Fidelity names a trade for the reason it happened. All of these are ordinary
+  // trades that settle through a cash row of their own; only the reinvestment is
+  // different, and it is different in kind rather than in name.
+  "Buy From Dividend": TxType.BUYSTOCK,
+  "Buy From Rebate": TxType.BUYSTOCK,
+  "Buy For Switch": TxType.BUYSTOCK,
+  "Sell For Switch": TxType.SELLSTOCK,
+  // The only trade in the sample exports with no cash row anywhere beside it: the
+  // income buys the units without ever arriving as money, which is what REINVEST
+  // means. Its income leg is derived, since the source reports none.
+  "Reinvestment From Income": TxType.REINVEST,
   "Cash Interest": TxType.INCOME,
   "Cash Dividend": TxType.INCOME,
+  "Income Received": TxType.INCOME,
+  "Rebate": TxType.INCOME,
+  // A correction to interest already paid, and in the sample a credit of 0.02.
+  "Interest Adjustment": TxType.INCOME,
+  // Reverses a withdrawal in the same account on the same day, so it is the same
+  // kind of movement as the row it undoes.
+  "Adjustment": TxType.JRNLFUND,
   "Tax On Interest": TxType.INVEXPENSE,
   "Dealing Fee": TxType.INVEXPENSE,
   "Service Fee": TxType.INVEXPENSE,
@@ -58,6 +94,10 @@ export const FIDELITY_TYPE_TO_OFX: Record<string, TxType> = {
   "Transfer Out From Cash Management Account": TxType.TRANSFER,
   "Transfer Into Account": TxType.TRANSFER,
   "Cash In Ring-fenced For Fees": TxType.TRANSFER,
+  // Money arriving from outside the account. `Cash In` also settles the sale side
+  // of a switch, which no type map can express: whether a row is a journal or a
+  // trade's cash leg shows in whether it paired, so a paired one is retyped after
+  // grouping. See asTradeCashLeg.
   "Cash In": TxType.JRNLFUND,
   "Cash In Lump Sum": TxType.JRNLFUND,
   "Cash In For Transfer": TxType.JRNLFUND,
@@ -68,15 +108,25 @@ export const FIDELITY_TYPE_TO_OFX: Record<string, TxType> = {
   // lossiness. The types above keep JRNLFUND because their other side really is
   // outside the account.
   "Cash In From Sell": TxType.CASHFLOW,
+  "Cash Out": TxType.CASHFLOW,
   "Cash Out For Buy": TxType.CASHFLOW,
   "Cash Out For Buy From Transfer": TxType.CASHFLOW,
+  "Cash Out For Dividend Reinvestment": TxType.CASHFLOW,
 };
 
+/**
+ * Types whose posting is money, so it carries a currency on both sides.
+ *
+ * REINVEST is not one of them, though it names an income event: the posting is
+ * the units the income bought, and the server weighs it at quantity times price
+ * like any other security leg (transferTypes in
+ * server/service/ingestion/balance.go). Reading its money total as a quantity
+ * would post the dividend as a share count.
+ */
 export function isCashTxType(type: TxType): boolean {
   return (
     type === TxType.INCOME ||
     type === TxType.INVEXPENSE ||
-    type === TxType.REINVEST ||
     type === TxType.TRANSFER ||
     type === TxType.MARGININTEREST ||
     type === TxType.RETOFCAP ||
@@ -165,57 +215,103 @@ const AMOUNT_EPSILON = 0.005;
  * Widest relative gap tolerated between a cash leg and its trade's
  * quantity * unit price.
  *
- * The two never agree exactly: the export rounds the unit price, so the product's
- * error grows with the quantity. Across the sample exports the worst correctly
- * paired trade is 0.16% out, so 0.5% clears every real pairing while rejecting a
- * swapped cash row, which is off by whole percentage points.
+ * The two never agree exactly: the export rounds the unit price, and the error that
+ * leaves is the half-digit it dropped as a fraction of the price. That is worst on
+ * a cheap unit, since the same half-digit is a larger share of a smaller number --
+ * the widest correctly paired trade in the sample exports is a fund rebate of 9.24
+ * units at a price printed as 0.85, 0.56% out. 0.75% clears every real pairing
+ * while rejecting a swapped cash row, which is off by whole percentage points.
  *
  * This cannot replace the fee rule below. A fee gap is around 0.02% of a trade, far
  * inside this band, so two similar trades settling the same day would both pass it.
  */
-const CONSIDERATION_BAND = 0.005;
+const CONSIDERATION_BAND = 0.0075;
+
+/** Trade rows whose cash leg is money coming in. */
+const SELL_ROWS = ["Sell", "Sell For Switch"];
+
+/** Trade rows whose cash leg is money going out. */
+const BUY_ROWS = ["Buy", "Buy From Dividend", "Buy From Rebate", "Buy For Switch"];
 
 /**
- * Assigns a group_ref to each leg, returning refs parallel to the input. An empty
- * string means the leg is its own single-posting group.
+ * The broker type of the cash row a trade settles through, or "" for a row that
+ * is not a trade.
+ *
+ * Fidelity names the cash leg after the reason the trade happened rather than
+ * after the trade, so each variant settles through a row type of its own. A
+ * purchase of the account's own cash is the one that also turns on the asset: it
+ * arrives through a transfer, and the broker says so in the name.
+ */
+function cashLegType(leg: FidelityLeg): string {
+  switch (leg.type) {
+    case "Sell":
+      return "Cash In From Sell";
+    case "Sell For Switch":
+      return "Cash In";
+    case "Buy":
+      return leg.cashAsset ? "Cash Out For Buy From Transfer" : "Cash Out For Buy";
+    case "Buy From Dividend":
+      return "Cash Out For Dividend Reinvestment";
+    case "Buy From Rebate":
+    case "Buy For Switch":
+      return "Cash Out";
+    default:
+      return "";
+  }
+}
+
+/** What assignFidelityGroups worked out about each leg, parallel to its input. */
+export interface FidelityGroups {
+  /** Group ref. An empty string means the leg is its own single-posting group. */
+  refs: string[];
+  /** Whether the leg was paired as a trade's cash leg. */
+  cashLegs: boolean[];
+}
+
+/**
+ * Assigns a group_ref to each leg.
  *
  * Fidelity reports the cash side of a trade as a separate row, so the two legs are
  * paired here rather than a cash leg being derived, which would post the money
  * twice. Both rules are measured against the sample exports in local/masters: sells
  * pair 91/91 -- 69 of a security and 22 of cash -- and buys 78/78.
  *
- * A cash leg pairs with the row that names the same money, and the broker names it
- * differently either side of the asset: a security sale settles through
- * `Cash In From Sell` and so does a sale of cash, while a security purchase settles
- * through `Cash Out For Buy` and a purchase of cash through
- * `Cash Out For Buy From Transfer`.
+ * Which cash row a trade pairs with is cashLegType's to say.
  *
  * Charges (dealing fee, PTM levy, stamp duty, FX charge) are never grouped with a
  * trade. Fidelity dates them on the order date while the trade settles later, so
  * folding them in would misdate them, and their money is already accounted for by
  * their own rows.
  */
-export function assignFidelityGroups(legs: FidelityLeg[]): string[] {
+export function assignFidelityGroups(legs: FidelityLeg[]): FidelityGroups {
   const refs = legs.map(() => "");
+  const cashLegs = legs.map(() => false);
   // NUL separator, written as an escape so this file stays plain text. A Fidelity
   // date is "10 Feb 2022", so a separator a date could contain risks two different
   // (account, date) pairs collapsing onto one key.
   const bucket = (l: FidelityLeg) => `${l.account}\u0000${l.dateKey}`;
-  const indices = (type: string) =>
-    legs.map((l, i) => (l.type === type && Number.isFinite(l.ref) ? i : -1)).filter((i) => i >= 0);
+  const byType = new Map<string, number[]>();
+  legs.forEach((l, i) => {
+    if (!Number.isFinite(l.ref)) return;
+    const seen = byType.get(l.type);
+    if (seen) seen.push(i);
+    else byType.set(l.type, [i]);
+  });
+  const indices = (type: string) => byType.get(type) ?? [];
   // Security trades pick their cash row first. Nothing in the sample exports needs
   // it -- no bucket holds a cash and a security trade of equal amount -- but five
   // hold both kinds, so this keeps which one wins from depending on the order the
   // broker happened to export them in.
-  const securityFirst = (idx: number[]) => [
-    ...idx.filter((i) => !legs[i].cashAsset),
-    ...idx.filter((i) => legs[i].cashAsset),
-  ];
+  const tradeRows = (types: string[]) => {
+    const idx = types.flatMap(indices);
+    return [...idx.filter((i) => !legs[i].cashAsset), ...idx.filter((i) => legs[i].cashAsset)];
+  };
 
   const pair = (securityIdx: number, cashIdx: number) => {
     const ref = String(legs[securityIdx].ref);
     refs[securityIdx] = ref;
     refs[cashIdx] = ref;
+    cashLegs[cashIdx] = true;
   };
 
   // Both rules below match one broker-supplied total against another, so neither
@@ -234,9 +330,8 @@ export function assignFidelityGroups(legs: FidelityLeg[]): string[] {
 
   // Sells: the cash in equals the proceeds exactly, so the amount identifies it.
   const usedCash = new Set<number>();
-  const cashIn = indices("Cash In From Sell");
-  for (const s of securityFirst(indices("Sell"))) {
-    const match = cashIn.find(
+  for (const s of tradeRows(SELL_ROWS)) {
+    const match = indices(cashLegType(legs[s])).find(
       (c) =>
         !usedCash.has(c) &&
         bucket(legs[c]) === bucket(legs[s]) &&
@@ -254,14 +349,9 @@ export function assignFidelityGroups(legs: FidelityLeg[]): string[] {
   // out the cash row of a larger trade in the same bucket; among what survives, the
   // nearest reference number wins. Candidates are ranked globally rather than taken
   // in row order so that one buy cannot strand another by claiming its cash row.
-  // No ordering needed here as there is for sells: the two kinds of buy draw from
-  // disjoint pools of cash rows, so neither can claim the other's.
-  const buys = indices("Buy");
-  const cashOut = indices("Cash Out For Buy");
-  const cashOutTransfer = indices("Cash Out For Buy From Transfer");
   const candidates: Array<{ distance: number; buy: number; cash: number }> = [];
-  for (const b of buys) {
-    for (const c of legs[b].cashAsset ? cashOutTransfer : cashOut) {
+  for (const b of tradeRows(BUY_ROWS)) {
+    for (const c of indices(cashLegType(legs[b]))) {
       if (bucket(legs[c]) !== bucket(legs[b])) continue;
       if (Math.abs(legs[b].amount) - Math.abs(legs[c].amount) < -AMOUNT_EPSILON) continue;
       if (!consistent(legs[b], legs[c])) continue;
@@ -277,7 +367,25 @@ export function assignFidelityGroups(legs: FidelityLeg[]): string[] {
     pair(buy, cash);
   }
 
-  return refs;
+  return { refs, cashLegs };
+}
+
+/**
+ * Retypes a journal that turned out to be a trade's cash leg.
+ *
+ * `Cash In` is normally money arriving from outside the account, but a switch
+ * settles its sale through the same row type, and no lookup on the broker's own
+ * name can tell the two apart. Whether the row paired with a trade can: a leg
+ * that did settles inside the account, which is what CASHFLOW says. Left as
+ * JRNLFUND it would make the trade group read as a transfer, so the group's
+ * residual would be routed to TRANSFER_CLEARING rather than IMBALANCE.
+ */
+export function asTradeCashLeg(tx: Tx, currency: string): void {
+  if (tx.type !== TxType.JRNLFUND) return;
+  tx.type = TxType.CASHFLOW;
+  // isCashTxType covers CASHFLOW but not JRNLFUND, so the currency the row was
+  // denied as a journal is owed to it as a cash leg.
+  if (currency) tx.tradingCurrency = currency;
 }
 
 export function convertFidelityToStandard(
@@ -339,6 +447,7 @@ export function convertFidelityToStandard(
   const amountCol = col("amount");
   const priceCol = col("price_per_unit");
   const refCol = col("reference_number");
+  const statusCol = col("status");
   // The asset class of the row's instrument (CASH, ETF, STOCK, FUND), which is
   // what says whether a Buy or Sell transacted a security or the account's cash.
   // Distinct from "Transaction type"; an export without it falls back to the
@@ -363,6 +472,11 @@ export function convertFidelityToStandard(
     const rowIndex = i + 1;
     const values = parseCSVLine(lines[i]);
     const get = (idx: number) => (idx >= 0 && idx < values.length ? values[idx].trim() : "");
+
+    // A cancelled transaction reports zero units against zero value, so it adds
+    // nothing, and its cash row is cancelled beside it. Skipping it also keeps a
+    // trade that never happened from claiming a live trade's cash row.
+    if (statusCol >= 0 && get(statusCol) === "Cancelled") continue;
 
     const completionDateStr = completionDateCol >= 0 ? get(completionDateCol) : "";
     const orderDateStr = get(orderDateCol);
@@ -443,8 +557,12 @@ export function convertFidelityToStandard(
     );
   }
 
-  assignFidelityGroups(legs).forEach((ref, i) => {
+  const groups = assignFidelityGroups(legs);
+  groups.refs.forEach((ref, i) => {
     if (ref) txs[i].groupRef = ref;
+  });
+  groups.cashLegs.forEach((paired, i) => {
+    if (paired) asTradeCashLeg(txs[i], currency);
   });
   // After the refs are stamped, since that loop is index-parallel with legs.
   // Fidelity nets nothing into a trade total, so no fee is derived here: its

@@ -4,7 +4,7 @@ import type { MessageInitShape } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import { AccountType, IdentifierType, TxSchema, TxType } from "@/gen/api/v1/api_pb";
-import { counterLeg, counterLegs, feeLeg, refPrefix, FEE_EPSILON } from "./postings";
+import { counterLeg, counterLegs, feeLeg, refPrefix, reinvestLeg, FEE_EPSILON } from "./postings";
 import { Big } from "@/lib/decimal";
 import { expectGroupsBalance } from "./group-balance.test-utils";
 
@@ -131,6 +131,46 @@ describe("feeLeg", () => {
       .filter((l) => l.accountType !== AccountType.EXPENSE && l.type !== TxType.BUYSTOCK)
       .reduce((sum, l) => sum.plus(l.quantity), new Big(0));
     expect(cash.toString()).toBe("-23092.22034");
+  });
+});
+
+describe("reinvestLeg", () => {
+  // Quantities from the one reinvestment in the sample exports: 21.09 units of a
+  // fund at 1.50, against a printed total of 31.65.
+  const reinvest = tx({
+    type: TxType.REINVEST,
+    instrumentDescription: "Baillie Gifford Responsible Global Equity Income B Inc",
+    quantity: "21.09",
+    unitPrice: "1.5",
+    groupRef: "582193319",
+  });
+
+  it("names the income the units cost, in the income account", () => {
+    const leg = reinvestLeg(reinvest)!;
+    expect(leg.type).toBe(TxType.INCOME);
+    expect(leg.accountType).toBe(AccountType.INCOME);
+    // Quantity times price, not the total the broker printed: it is the weight of
+    // the posting this balances, so the group comes out at exactly zero.
+    expect(leg.quantity).toBe("-31.635");
+    expect(leg.unitPrice).toBe("1");
+    expect(leg.groupRef).toBe("582193319");
+    // Money, so it resolves to the currency rather than to the fund.
+    expect(leg.instrumentDescription).toBe("GBP");
+    expect(leg.identifierHints.map((h) => [h.type, h.value])).toEqual([
+      [IdentifierType.CURRENCY, "GBP"],
+    ]);
+    expectGroupsBalance([reinvest, leg]);
+  });
+
+  it("leaves every other type to counterLeg", () => {
+    expect(reinvestLeg(tx({ type: TxType.BUYSTOCK, quantity: "10", unitPrice: "5" }))).toBeUndefined();
+    expect(reinvestLeg(tx({ type: TxType.INCOME, quantity: "10" }))).toBeUndefined();
+  });
+
+  it("posts nothing for a reinvestment worth less than a rounding", () => {
+    expect(reinvestLeg(tx({ type: TxType.REINVEST, quantity: "0.001", unitPrice: "1" }))).toBeUndefined();
+    // A reinvestment reporting no price has no money to name.
+    expect(reinvestLeg(tx({ type: TxType.REINVEST, quantity: "21.09" }))).toBeUndefined();
   });
 });
 

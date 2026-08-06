@@ -274,6 +274,34 @@ describe("convertFidelityJson cash-asset rows", () => {
     const result = convertFidelityJson(json(BUY));
     expect(result.txs[0]!.type).toBe(TxType.BUYSTOCK);
   });
+
+  it("retypes a Cash In that paired with a sale, keeping the row's own currency", () => {
+    // The payload names a currency per row rather than taking one from an upload
+    // option, so the retyped leg has to read it off the posting.
+    const sale = cash({
+      transactionType: "Sell For Switch",
+      assetName: "M&G European Index Tracker",
+      isin: "GB0002634946",
+      sedol: "0263494",
+      debitCreditIndicator: "DEBIT",
+      units: 12147.03,
+      valuation: 12091.15,
+      referenceId: "783688687",
+    });
+    const proceeds = cash({
+      transactionType: "Cash In",
+      debitCreditIndicator: "CREDIT",
+      units: 12091.15,
+      valuation: 12091.15,
+      referenceId: "783688691",
+    });
+
+    const result = convertFidelityJson(json(sale, proceeds));
+    expect(result.txs[0]!.type).toBe(TxType.SELLSTOCK);
+    expect(result.txs[1]!.type).toBe(TxType.CASHFLOW);
+    expect(result.txs[1]!.tradingCurrency).toBe("GBP");
+    expect(result.txs[1]!.groupRef).toBe("783688687");
+  });
 });
 
 describe("convertFidelityJson grouping", () => {

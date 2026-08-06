@@ -2,7 +2,7 @@ import { Big } from "@/lib/decimal";
 import { describe, it, expect } from "vitest";
 import { AccountType, TxType } from "@/gen/api/v1/api_pb";
 import { convertFidelityToStandard, FIDELITY_TYPE_TO_OFX } from "./fidelity-csv";
-import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
+import { expectGroupsBalance, residuals } from "@/lib/csv/group-balance.test-utils";
 
 const HEADER =
   "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit";
@@ -58,6 +58,19 @@ describe("convertFidelityToStandard", () => {
     expect(result.periodFrom.getFullYear()).toBe(2026);
     expect(result.periodFrom.getMonth()).toBe(0); // Jan
     expect(result.periodFrom.getDate()).toBe(21);
+  });
+
+  it("reads an ISO completion date, which some exports carry throughout", () => {
+    // The order date is ISO in every export and the completion date usually is
+    // not, but one of the two sample exports is ISO in both. Reading only the
+    // broker's own format rejected every row of that file.
+    const csv = [
+      "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit",
+      "2026-01-21,2026-01-23,Buy,ISHARES II PLC INRG,SIPP,100,7.16",
+    ].join("\n");
+    const result = convertFidelityToStandard(csv, { currency: "GBP" });
+    expect(result.errors).toEqual([]);
+    expect(result.periodFrom).toEqual(new Date(2026, 0, 23));
   });
 
   it("parses Cash Interest as INCOME", () => {
@@ -456,6 +469,120 @@ describe("transaction grouping", () => {
     expect(result.errors).toHaveLength(0);
     expect(result.txs).toHaveLength(1);
     expect(result.txs[0].groupRef).toBe("");
+  });
+});
+
+// Fidelity names a trade for the reason it happened, and names its cash leg to
+// match. Every row below is verbatim from the Helen export; before these types
+// were mapped the client rejected each one while the conversion script kept it,
+// so the two disagreed about which rows survived.
+describe("trades the broker names for their reason", () => {
+  const FULL =
+    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,Exchange,Symbol,Type,Action";
+  const convert = (rows: string[]) =>
+    convertFidelityToStandard([FULL, ...rows].join("\n"), { currency: "GBP" });
+
+  it("pairs a dividend reinvestment with the cash out that funded it", () => {
+    const result = convert([
+      '2022-02-11,15 Feb 2022,Buy From Dividend,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",Investment ISA,AS10123702,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",21.75,17,1.19,564234496,Completed,LON,BGEU,ETF,Buy',
+      '2022-02-11,15 Feb 2022,Cash Out For Dividend Reinvestment,Cash,Investment ISA,AS10123702,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",-20.15,20.15,1,564234491,Completed,,GBP,CASH,Cash',
+    ]);
+
+    expect(result.errors).toEqual([]);
+    // A plain purchase: the dividend has already posted as its own Cash Dividend
+    // row, so typing this REINVEST would count the income twice.
+    expect(result.txs[0]!.type).toBe(TxType.BUYSTOCK);
+    expect(result.txs[0]!.quantity).toBe("17");
+    expect(result.txs[1]!.type).toBe(TxType.CASHFLOW);
+    expect(result.txs[0]!.groupRef).toBe("564234496");
+    expect(result.txs[1]!.groupRef).toBe("564234496");
+  });
+
+  it("pairs a rebate reinvestment with its cash out", () => {
+    const result = convert([
+      "2022-03-04,10 Mar 2022,Cash Out,Cash,SIPP - Pension Savings Account,AP10024612,M&G European Index Tracker,-7.81,7.81,1,574652308,Completed,,GBP,CASH,Cash",
+      "2022-03-04,10 Mar 2022,Buy From Rebate,M&G European Index Tracker,SIPP - Pension Savings Account,AP10024612,M&G European Index Tracker,7.81,9.24,0.85,574652321,Completed,LON,M&G European Index Tracker,FUND,Buy",
+    ]);
+
+    expect(result.errors).toEqual([]);
+    expect(result.txs[1]!.type).toBe(TxType.BUYSTOCK);
+    expect(result.txs[0]!.groupRef).toBe("574652321");
+    expect(result.txs[1]!.groupRef).toBe("574652321");
+    // The group does not weigh zero, and cannot: 9.24 units at the printed price
+    // of 0.85 is 7.854 against a cash out of 7.81. The price is rounded to the
+    // penny and the units are not, so the 0.044 is the source disagreeing with
+    // itself. The imbalance report is where that belongs.
+    expect(residuals(result.txs)).toEqual({ "574652321": { GBP: "0.044" } });
+  });
+
+  it("derives the income a reinvestment consumed, since no row reports it", () => {
+    // The one trade in either export with no cash row anywhere beside it: the
+    // income buys the units without arriving as money first.
+    const result = convert([
+      "2022-03-24,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10123702,Baillie Gifford Responsible Global Equity Income B Inc,31.65,21.09,1.5,582193319,Completed,LON,Baillie Gifford Responsible Global Equity Income B Inc,FUND,Buy",
+    ]);
+
+    expect(result.errors).toEqual([]);
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs[0]!.type).toBe(TxType.REINVEST);
+    expect(result.txs[0]!.quantity).toBe("21.09");
+    expect(result.txs[1]!.accountType).toBe(AccountType.INCOME);
+    // The posting's own weight, not the 31.65 the broker printed: taking that
+    // would leave the group short by the rounding in the quoted price.
+    expect(result.txs[1]!.quantity).toBe("-31.635");
+    expect(result.txs[1]!.instrumentDescription).toBe("GBP");
+    expect(result.txs[1]!.groupRef).toBe(result.txs[0]!.groupRef);
+    expectGroupsBalance(result.txs);
+  });
+
+  it("settles a switch through the rows the broker used for it", () => {
+    const result = convert([
+      "2023-06-28,29 Jun 2023,Cash Out,Cash,SIPP - Pension Savings Account,AP10024612,,-12091.15,12091.15,1,783688689,Completed,,GBP,CASH,Cash",
+      "2023-06-28,04 Jul 2023,Sell For Switch,M&G European Index Tracker,SIPP - Pension Savings Account,AP10024612,,-12091.15,12147.03,1,783688687,Completed,LON,M&G European Index Tracker,FUND,Sell",
+      "2023-06-28,29 Jun 2023,Buy For Switch,Cash,SIPP - Pension Savings Account,AP10024612,,12091.15,12091.15,1,783688692,Completed,,GBP,CASH,Cash",
+      "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10024612,,12091.15,12091.15,1,783688691,Completed,,GBP,CASH,Cash",
+    ]);
+
+    expect(result.errors).toEqual([]);
+    // The buy side names cash as the asset, so it is a movement of money rather
+    // than a purchase of a security called Cash, and it nets against its cash out.
+    expect(result.txs[2]!.type).toBe(TxType.CASHFLOW);
+    expect(result.txs[0]!.groupRef).toBe("783688692");
+    expect(result.txs[2]!.groupRef).toBe("783688692");
+    // The sale side is a real disposal, and its proceeds arrive as a Cash In.
+    expect(result.txs[1]!.type).toBe(TxType.SELLSTOCK);
+    expect(result.txs[1]!.groupRef).toBe("783688687");
+    expect(result.txs[3]!.groupRef).toBe("783688687");
+  });
+
+  it("retypes a Cash In that turned out to be a sale's proceeds", () => {
+    // Cash In is normally money from outside the account, and no lookup on the
+    // broker's name can tell the two apart -- only whether the row paired.
+    const paired = convert([
+      "2023-06-28,04 Jul 2023,Sell For Switch,M&G European Index Tracker,SIPP - Pension Savings Account,AP10024612,,-12091.15,12147.03,1,783688687,Completed,LON,M&G European Index Tracker,FUND,Sell",
+      "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10024612,,12091.15,12091.15,1,783688691,Completed,,GBP,CASH,Cash",
+    ]);
+    expect(paired.txs[1]!.type).toBe(TxType.CASHFLOW);
+    expect(paired.txs[1]!.tradingCurrency).toBe("GBP");
+
+    const alone = convert([
+      "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10024612,,12091.15,12091.15,1,783688691,Completed,,GBP,CASH,Cash",
+    ]);
+    expect(alone.txs[0]!.type).toBe(TxType.JRNLFUND);
+    expect(alone.txs[0]!.groupRef).toBe("");
+  });
+
+  it("skips a cancelled transaction and its cancelled cash row", () => {
+    const result = convert([
+      '2024-07-22,22 Jul 2024,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ (EQQQ)",Investment Account,AG10041188,,0,0,373.51,969683719,Cancelled,LON,EQQQ,ETF,Sell',
+      "2024-07-22,22 Jul 2024,Cash In From Sell,Cash,Investment Account,AG10041188,,0,0,1,969683721,Cancelled,,GBP,CASH,Cash",
+      "2024-07-22,22 Jul 2024,Dealing Fee,Cash,Investment Account,AG10041188,,-7.5,0,0,222050117,Completed,,GBP,CASH,Cash",
+    ]);
+
+    expect(result.errors).toEqual([]);
+    // The fee and its expense leg; nothing from the trade that never happened.
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs[0]!.type).toBe(TxType.INVEXPENSE);
   });
 });
 

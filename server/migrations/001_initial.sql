@@ -929,12 +929,30 @@ CREATE TABLE ignored_asset_classes (
 
 CREATE INDEX idx_ignored_asset_classes_user ON ignored_asset_classes (user_id);
 
--- qty_is_zero is a null-safe test for a closed position. Quantities are exact
--- decimals, so summing buys against sells lands on zero and there is no residual
--- to absorb -- what the function still carries is the NULL branch, which the
--- valuation day grid depends on: a holding has no position on a date before its
--- instrument's first tx, and that reads as closed rather than as unknown.
-CREATE FUNCTION qty_is_zero(q numeric) RETURNS boolean
+-- qty_is_zero is a null-safe test for a closed position, applied to a sum of
+-- split_adjusted_quantity. Raw quantities cannot be summed at all: each is
+-- denominated in its own row's share_count_basis, so a buy recorded before a
+-- split and a sell recorded after it are in different units and adding them
+-- scales the total by part of the split factor. The split-adjusted column is
+-- already converted to today's share count, so the sum is in one denomination.
+--
+-- What that costs is exactness. The column declares a rounding scale of 12, so a
+-- row whose conversion did not land on a representable decimal rounds once, and a
+-- genuinely closed position sums to something near zero rather than to zero.
+-- inexact_postings is how many contributing rows may carry such a rounding, and
+-- one unit in the last place each is the most the sum can differ from a true
+-- zero. Callers count the rows whose adjusted quantity differs from their raw
+-- one: a row that converted by 1/1 cannot have rounded, and counting the rest
+-- overstates by the ones that converted exactly, which is the safe direction for
+-- a bound. Passing zero is an exact test.
+--
+-- The NULL branch is what the valuation day grid depends on: a holding has no
+-- position on a date before its instrument's first tx, and that reads as closed
+-- rather than as unknown.
+--
+-- See docs/spec/bitemporality.md, adr/0026-exact-decimals-bounded-by-closure.md
+-- and adr/0028-cumulative-split-factor-is-an-exact-rational.md.
+CREATE FUNCTION qty_is_zero(q numeric, inexact_postings int) RETURNS boolean
     LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-    SELECT q IS NULL OR q = 0
+    SELECT q IS NULL OR abs(q) <= COALESCE(inexact_postings, 0) * 1e-12
 $$;

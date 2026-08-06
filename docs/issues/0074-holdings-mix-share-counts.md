@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Compute holdings in one share count rather than summing raw quantities
 dependencies: [0043]
 ---
@@ -39,23 +39,38 @@ Two things read that sum:
 one, grouping by basis so the division happens once per denomination, and
 returns the counts needed to bound its own rounding.
 
-## Design
+## Resolution
 
-Decide what the raw column on `Holding` is for. There are two readings and they
-lead to different work:
+The raw column was settled as a diagnostic and dropped from the API. Rule 7 of
+bitemporality.md already fixes the holdings API's denomination as today's share
+count, so `split_adjusted_quantity` *is* the position and a second aggregate
+beside it is either a restatement of the same number or a figure in no share
+count at all. `Holding.quantity` is gone, the two queries no longer select
+`SUM(t.quantity)`, and the holdings table renders one figure. Nothing about
+per-row raw quantity changed: `txs.quantity` and its `share_count_basis` are what
+the recompute pass and `holding_qty_in_basis` read, and the transaction list
+still shows them where they mean something.
 
-- It is a *diagnostic* -- what the source actually said, before adjustment. Then
-  it is not a quantity that may be summed at all, and the fix is to stop
-  aggregating it: report it per basis, or drop it from the API and the table.
-- It is a *position in as-traded terms*. Then it needs a stated basis like a
-  declaration has, and `holding_qty_in_basis` computes it.
+`qty_is_zero` took a second argument rather than being replaced. It now tests a
+sum of `split_adjusted_quantity` against zero to within one unit in the last
+place per contributing posting that may have rounded. Callers count those as the
+postings whose adjusted quantity differs from their raw one: a row that converted
+by 1/1 cannot have rounded, and counting the rest overstates only by the ones
+that converted exactly, which is the safe direction for a bound. When no split
+falls in the window the count is zero and the test is exact. The NULL branch
+stayed as it was.
 
-The closed-position test is not ambiguous either way: it should read the
-split-adjusted sum, where every row is already in one denomination. `qty_is_zero`
-is exact since 0042, but the adjusted columns carry the declared rounding scale
-that ADR 0028 explains, so the test needs the same kind of bound the assertion
-comparison uses rather than an equality against zero.
+The tighter per-basis count `holding_qty_in_basis` returns was not used. It
+bounds a sum computed from the raw column once per denomination, not a sum of
+values already rounded per row, and two of the three queries could not call that
+function anyway -- it is keyed by user and hardcodes `account_type = 'USER'`.
 
-`ListResidualBalances` sums raw `quantity` the same way. Money is unaffected, but
-a residual left by an unpaired `JRNLSEC` is a quantity of shares and is exposed
-to the same error.
+`ListResidualBalances` and `CountResidualBalances` share one aggregate and were
+fixed with it. Money is unaffected because currency instruments never split, so
+only share residuals move, and they now report in today's share count.
+
+`GetUserValuation` was folded in although this issue did not name it: its day
+grid gated on `NOT qty_is_zero(dh.qty)` over a cumulative split-adjusted sum,
+which is the same equality against zero on a rounded number. The per-day count of
+inexact postings accumulates over the same window as the position it bounds, and
+`daily_holdings` became a lateral join so one lookup returns both.

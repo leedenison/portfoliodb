@@ -11,6 +11,19 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// holdingClosedTest drops the holdings that are closed. It reads the
+// split-adjusted sum because that is the only one denominated in a single share
+// count: raw quantity is in its own row's share_count_basis, so a buy recorded
+// before a split and a sell recorded after it are in different units, and their
+// sum is neither zero when the position closed nor the position when it did not.
+//
+// The adjusted column is exact only to its declared rounding scale, so the test
+// is bounded rather than an equality against zero, by the count of rows that may
+// have rounded. See qty_is_zero in the schema.
+const holdingClosedTest = `HAVING NOT qty_is_zero(
+		SUM(t.split_adjusted_quantity),
+		COUNT(*) FILTER (WHERE t.split_adjusted_quantity <> t.quantity)::int)`
+
 // ComputeHoldings implements db.HoldingsDB.
 func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *apiv1.Broker, account string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error) {
 	userUUID, err := uuid.Parse(userID)
@@ -23,7 +36,7 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *a
 	}
 	qb := psql.Select("t.broker", "t.account",
 		"COALESCE(i.name, MAX(t.instrument_description)) AS instrument_description",
-		"t.instrument_id", "SUM(t.quantity) AS quantity",
+		"t.instrument_id",
 		"SUM(t.split_adjusted_quantity) AS split_adjusted_quantity").
 		From("txs t").
 		LeftJoin("instruments i ON i.id = t.instrument_id").
@@ -34,7 +47,7 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *a
 		Where(sq.Eq{"t.account_type": "USER"}).
 		Where(sq.LtOrEq{"t.timestamp": asOfT}).
 		GroupBy("t.broker", "t.account", "t.instrument_id", "i.name").
-		Suffix("HAVING NOT qty_is_zero(SUM(t.quantity))")
+		Suffix(holdingClosedTest)
 	if broker != nil {
 		brokerStr, err := brokerToStr(*broker)
 		if err != nil {
@@ -74,15 +87,14 @@ func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID 
 	err = p.q.SelectContext(ctx, &hrows, `
 		SELECT t.broker, t.account,
 			COALESCE(i.name, MAX(t.instrument_description)) AS instrument_description,
-			t.instrument_id, SUM(t.quantity) AS quantity,
+			t.instrument_id,
 			SUM(t.split_adjusted_quantity) AS split_adjusted_quantity
 		FROM txs t
 		INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
 		LEFT JOIN instruments i ON i.id = t.instrument_id
 		WHERE t.timestamp <= $2 AND t.account_type = 'USER'
 		GROUP BY t.broker, t.account, t.instrument_id, i.name
-		HAVING NOT qty_is_zero(SUM(t.quantity))
-	`, portUUID, asOfT)
+		`+holdingClosedTest, portUUID, asOfT)
 	if err != nil {
 		return nil, nil, fmt.Errorf("compute holdings for portfolio: %w", err)
 	}

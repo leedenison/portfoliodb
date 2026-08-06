@@ -1203,14 +1203,12 @@ func unpricedOn(t *testing.T, points []db.ValuationPoint, want time.Time) bool {
 }
 
 // TestGetUserValuation_ExcludesDatesBeforeFirstTx covers qty_is_zero's NULL
-// branch, which is the only reason the function still exists now that quantities
-// are exact and there is no residual to absorb. daily_holdings forward-fills the
-// last known position with a LIMIT 1 correlated subquery, so on every grid day
-// before an instrument's first tx the position is NULL rather than zero. The NULL
-// branch classifies that as "not held", so the row leaves the valued CTE and the
-// day drops out of the series entirely -- priced days before the first purchase
-// are absent rather than zero, and the instrument is never reported as unpriced
-// on them.
+// branch. daily_holdings forward-fills the last known position with a LIMIT 1
+// lateral, so on every grid day before an instrument's first tx there is no row to
+// carry forward and the position is NULL rather than zero. The NULL branch
+// classifies that as "not held", so the row leaves the valued CTE and the day drops
+// out of the series entirely -- priced days before the first purchase are absent
+// rather than zero, and the instrument is never reported as unpriced on them.
 func TestGetUserValuation_ExcludesDatesBeforeFirstTx(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -1262,5 +1260,81 @@ func TestGetUserValuation_ExcludesDatesBeforeFirstTx(t *testing.T) {
 	// A NULL position is not an unpriced one: the instrument simply was not held.
 	if len(points[0].UnpricedInstruments) != 0 {
 		t.Errorf("expected no unpriced instruments, got %v", points[0].UnpricedInstruments)
+	}
+}
+
+// TestGetUserValuation_ExcludesDatesAfterCloseAcrossInexactSplit covers the other
+// branch of the same test: the position is closed, but a reverse split converted its
+// postings by a third and each rounded at the split-adjusted columns' declared
+// scale, so the running sum lands 1e-12 from zero rather than on it. Tested against
+// exact zero the instrument stays "held" forever and every later grid day is valued
+// at a fraction of a share; bounded by the roundings that could have produced it,
+// the series ends where the position did.
+func TestGetUserValuation_ExcludesDatesAfterCloseAcrossInexactSplit(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|closedsplit", "U", "u@closedsplit.com")
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "REVQ", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "REVQ", Canonical: false},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+
+	buyDate := time.Date(2025, 1, 3, 12, 0, 0, 0, time.UTC)
+	sellDate := time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC)
+	addSplit(t, p, instID, time.Date(2025, 1, 5, 0, 0, 0, 0, time.UTC), 3, 1)
+
+	// Two buys of 10 pre-split are 3.333333333333 each afterwards; the
+	// 6.666666666667 the broker then sold is what the position actually was.
+	for _, q := range []string{"10", "10"} {
+		buy := &apiv1.Tx{Timestamp: timestamppb.New(buyDate), InstrumentDescription: "REVQ",
+			Type: apiv1.TxType_BUYSTOCK, Quantity: q, Account: "main"}
+		if err := createTx(ctx, p, userID, "IBKR", "main", "", buy, instID, nil); err != nil {
+			t.Fatalf("create buy: %v", err)
+		}
+	}
+	sell := &apiv1.Tx{Timestamp: timestamppb.New(sellDate), InstrumentDescription: "REVQ",
+		Type: apiv1.TxType_SELLSTOCK, Quantity: "-6.666666666667", Account: "main"}
+	if err := createTx(ctx, p, userID, "IBKR", "main", "", sell, instID, nil); err != nil {
+		t.Fatalf("create sell: %v", err)
+	}
+	if err := p.RecomputeSplitAdjustments(ctx, instID); err != nil {
+		t.Fatalf("recompute split adjustments: %v", err)
+	}
+
+	var prices []db.EODPrice
+	for d := 3; d <= 9; d++ {
+		prices = append(prices, db.EODPrice{
+			InstrumentID: instID,
+			PriceDate:    time.Date(2025, 1, d, 0, 0, 0, 0, time.UTC),
+			Close:        decf(100.0),
+			DataProvider: "test",
+		})
+	}
+	if err := p.UpsertPrices(ctx, prices); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	points, err := p.GetUserValuation(ctx, userID,
+		time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC),
+		time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC), "USD")
+	if err != nil {
+		t.Fatalf("get user valuation: %v", err)
+	}
+	// Held from the buy up to the day before the sell, and nothing after it.
+	var dates []string
+	for _, pt := range points {
+		dates = append(dates, pt.Date.Format("2006-01-02"))
+	}
+	want := []string{"2025-01-03", "2025-01-04", "2025-01-05", "2025-01-06"}
+	if len(dates) != len(want) {
+		t.Fatalf("valued dates = %v, want %v", dates, want)
+	}
+	for i := range want {
+		if dates[i] != want[i] {
+			t.Fatalf("valued dates = %v, want %v", dates, want)
+		}
 	}
 }

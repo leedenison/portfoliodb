@@ -102,7 +102,7 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	totalQty := decimal.Zero
 	for _, h := range holdings {
 		if h.InstrumentId == survivor {
-			totalQty = totalQty.Add(decimal.RequireFromString(h.Quantity))
+			totalQty = totalQty.Add(decimal.RequireFromString(h.SplitAdjustedQuantity))
 		}
 	}
 	if !totalQty.Equal(decimal.NewFromInt(15)) {

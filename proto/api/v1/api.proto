@@ -453,16 +453,19 @@ message ListTxsResponse {
 message Holding {
   Broker broker = 1;
   string instrument_description = 2;
-  // A sum of the contributing postings' quantities, as a decimal string. Sums
-  // are closed, so the holding is exact.
-  string quantity = 3 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // Resolved instrument id (UUID). Set when identification ran for the underlying txs.
   string instrument_id = 4;
   Instrument instrument = 5;  // optional; set when instrument_id was resolved
   string account = 6;  // account string from txs; holdings are grouped by (broker, account, instrument)
-  // Split-adjusted quantity (sum of split_adjusted_quantity across txs). Exact
-  // to the columns' declared rounding scale rather than exact outright, with the
-  // bound growing in the number of contributing postings; see spec/performance.md.
+  // The position, in today's share count: a sum of the contributing postings'
+  // split_adjusted_quantity, which is the only denomination they share. The raw
+  // quantities are each in their own posting's share_count_basis and are not
+  // summable at all, so no as-traded figure is reported here; the transaction
+  // list carries them per posting. See spec/bitemporality.md.
+  //
+  // Exact to the columns' declared rounding scale rather than exact outright,
+  // with the bound growing in the number of contributing postings; see
+  // spec/performance.md.
   string split_adjusted_quantity = 7 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
 }
 
@@ -1306,8 +1309,11 @@ message ResidualBalance {
   string commodity = 5;          // instrument name: the ISO code for money, the ticker for a security
   AssetClass asset_class = 6;    // CASH means the balance is money; anything else is a quantity
   TxType tx_type = 7;            // the kind of event that left the balance
-  // Decimal; a signed sum over the contributing postings' weights, which are
-  // exact, so a residual reported here is real rather than an artefact.
+  // Decimal; a signed sum over the contributing postings' split-adjusted
+  // quantities, which is the only denomination they share. Money never splits,
+  // so a cash residual is exact and one reported here is real rather than an
+  // artefact; a share residual carries the adjustment's declared rounding scale
+  // and is measured against that bound before it is reported at all.
   string balance = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   int32 posting_count = 9;
   // The oldest and newest postings contributing to the balance. For a transfer

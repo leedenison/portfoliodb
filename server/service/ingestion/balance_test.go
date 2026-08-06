@@ -248,6 +248,19 @@ func TestRouteResiduals(t *testing.T) {
 			{commodity: "USD", quantity: "-25", accountType: apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE},
 			{commodity: aaplID, quantity: "-10", accountType: apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE},
 		},
+	}, {
+		// The shape a deposit into a Fidelity product account arrives in: three legs
+		// in one account, only two of them journals, netting to the money that
+		// landed. One transfer-typed leg is enough to classify the group, because
+		// the residual is the other side of the movement and that is in another
+		// account. Were it read leg by leg the deposit would route to imbalance.
+		name: "one transfer leg routes a mixed group's residual to clearing",
+		postings: []posting{
+			{desc: "USD", typ: apiv1.TxType_JRNLFUND, qty: "20000", settle: "USD", trading: "USD", instID: usdID, groupRef: "d1"},
+			{desc: "USD", typ: apiv1.TxType_CASHFLOW, qty: "-20000", settle: "USD", trading: "USD", instID: usdID, groupRef: "d1"},
+			{desc: "USD", typ: apiv1.TxType_JRNLFUND, qty: "20000", settle: "USD", trading: "USD", instID: usdID, groupRef: "d1"},
+		},
+		want: []routed{{commodity: "USD", quantity: "-20000", accountType: apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING}},
 	}}
 
 	for _, tc := range cases {

@@ -87,9 +87,13 @@ designed for is real in principle -- a cross-broker transfer -- but there is no
 sample of one, so it cannot be calibrated against the masters the way the
 existing converter pairing rules were.
 
-The last two rows of that table are two credits into one account against a single
-arrival, which may be a double count. That is 0069, not this issue, but matching
-cannot be calibrated against the sample until it is settled.
+The last two rows of that table are two of the three rows a deposit into a product
+account is reported through, the third being a debit that cancels one of them.
+0069 settles that: the three are one group, so the ISA offers this issue a single
+`TRANSFER_CLEARING` arrival against the cash management account's equal and
+opposite departure. Before it the account offered two identical arrivals, either
+of which the matcher could have taken, leaving the other unmatched and therefore
+external for good.
 
 ## Design
 

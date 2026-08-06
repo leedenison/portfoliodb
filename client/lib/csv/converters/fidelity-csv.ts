@@ -245,6 +245,34 @@ const SELL_ROWS = ["Sell", "Sell For Switch"];
 const BUY_ROWS = ["Buy", "Buy From Dividend", "Buy From Rebate", "Buy For Switch"];
 
 /**
+ * The rows a deposit into a product account is reported through, after the
+ * `Cash In Lump Sum` that opens it.
+ *
+ * Money paid into a wrapper arrives as a run of three rows of the same amount:
+ * the subscription is credited, spent, and credited again as the money that
+ * lands. No security is involved -- the `Cash Out For Buy` here has no `Buy`
+ * anywhere beside it -- and the three are one event, so they belong in one group.
+ * Left ungrouped they are three single-posting groups, two of them JRNLFUND, so
+ * the account reports twice the contribution it received and a residual the size
+ * of the deposit lands in IMBALANCE.
+ */
+const DEPOSIT_ROWS = ["Cash Out For Buy", "Cash In"];
+
+/**
+ * Widest reference-number gap tolerated between the row that opens a deposit and
+ * a member of it.
+ *
+ * The run ascends from the `Cash In Lump Sum` and is usually consecutive. The
+ * widest in the sample exports is 7, where a cash management account leg is
+ * numbered inside the run. What actually separates one deposit from another is
+ * the account, the amount agreeing to the penny, and the trade passes having
+ * already taken the cash rows they need: every span from 7 to 1000 groups the
+ * same 21 runs across both masters. So this is a guard against a distant
+ * coincidence rather than a discriminator.
+ */
+const DEPOSIT_REF_SPAN = 8;
+
+/**
  * The broker type of the cash row a trade settles through, or "" for a row that
  * is not a trade.
  *
@@ -376,6 +404,45 @@ export function assignFidelityGroups(legs: FidelityLeg[]): FidelityGroups {
     usedBuy.add(buy);
     usedCash.add(cash);
     pair(buy, cash);
+  }
+
+  // Deposits, last: a run is only ever built from cash rows the trade passes did
+  // not want, which is what stops a deposit taking the cash row of a trade of the
+  // same amount on the same day.
+  //
+  // Identified by account, amount and reference proximity rather than by
+  // bucket(). One run in the sample exports settles across two days -- the lump
+  // sum and its spend complete on the 11th, the arrival on the 14th -- so the
+  // date the trade passes group on would split it, while the reference run holds
+  // in all 21.
+  for (const s of indices("Cash In Lump Sum")) {
+    const members: number[] = [];
+    for (const type of DEPOSIT_ROWS) {
+      let best: number | undefined;
+      for (const c of indices(type)) {
+        if (usedCash.has(c)) continue;
+        if (legs[c].account !== legs[s].account) continue;
+        const gap = legs[c].ref - legs[s].ref;
+        if (gap <= 0 || gap > DEPOSIT_REF_SPAN) continue;
+        if (Math.abs(Math.abs(legs[c].amount) - Math.abs(legs[s].amount)) >= AMOUNT_EPSILON) {
+          continue;
+        }
+        if (best === undefined || legs[c].ref < legs[best].ref) best = c;
+      }
+      if (best !== undefined) {
+        members.push(best);
+        usedCash.add(best);
+      }
+    }
+    // A lump sum with no run is money paid in from outside -- the sample has
+    // three, all into a cash management account -- and stands on its own.
+    if (members.length === 0) continue;
+    // Only the group ref. None of these is a trade's cash leg, and the group
+    // needs to keep its JRNLFUND legs: they are what routes its residual to
+    // TRANSFER_CLEARING, where the departure it answers is also waiting.
+    const ref = String(legs[s].ref);
+    refs[s] = ref;
+    for (const m of members) refs[m] = ref;
   }
 
   return { refs, cashLegs };

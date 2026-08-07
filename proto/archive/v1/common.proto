@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+// The archive format: the one file schema every PortfolioDB export writes and
+// every import reads. It replaces the standard transaction CSV, the price CSV,
+// the instrument JSON and the corporate event JSON, and is serialised as
+// protojson.
+//
+// It is deliberately separate from portfoliodb.api.v1 and imports nothing from
+// it. An archive is written today and read by a server that does not exist yet,
+// so it cannot be bound to a schema that is free to break while the project is
+// pre-release. The controlled vocabularies it shares with the API come from
+// portfoliodb.type.v1, which is not free to break either. See
+// docs/adr/0034-archive-format-is-its-own-proto-package.md and
+// docs/adr/0038-controlled-vocabularies-are-shared.md.
+//
+// Conventions holding for every message in this package:
+//
+//   - Encoding is protojson written with proto field names, so keys are
+//     snake_case and enums are written by name. docs/spec/archive-format.md
+//     states the options in full.
+//   - Dates are "YYYY-MM-DD" strings; instants are google.protobuf.Timestamp,
+//     which protojson writes as RFC 3339.
+//   - Every date interval is half-open [from, before) and names its exclusive
+//     bound "before". See docs/adr/0018-half-open-date-intervals.md.
+//   - Quantities, prices and money are exact decimals carried as canonical
+//     decimal strings, never as double. See
+//     docs/adr/0027-decimal-values-cross-the-wire-as-strings.md.
+//   - A field is `optional` wherever absent differs from zero: an absent unit
+//     price is not a price of zero.
+//   - An archive carries inputs, not derived state. Anything the importing
+//     instance recomputes is left out. See
+//     docs/adr/0032-archive-preserves-inputs-not-derived-state.md.
+//   - There is no inheritance or override between the file, group and row
+//     levels. Each states its own scope in full, because a precedence rule has
+//     to be implemented identically by every reader and a disagreement between
+//     two readers is silent. See
+//     docs/adr/0035-archive-nests-by-aggregate-root.md.
+package portfoliodb.archive.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+import "type/v1/type.proto";
+
+option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
+
+// ArchiveKind says which of the two archives a document is, so a reader can
+// refuse a user archive handed to the admin importer. The document's message
+// type says the same thing, but protojson records no type name, so the envelope
+// has to carry it.
+// See docs/adr/0033-admin-and-user-archives-are-separate.md.
+enum ArchiveKind {
+  ARCHIVE_KIND_UNSPECIFIED = 0;
+  ARCHIVE_KIND_ADMIN = 1; // shared reference data; no user data
+  ARCHIVE_KIND_USER = 2;  // one user's own data; no admin data
+}
+
+// Envelope carries only what cannot differ between two rows of a valid file.
+// Anything that can differ between rows belongs on a group or on a row.
+message Envelope {
+  // The schema version this document was written against. It is bumped only by
+  // a change an older reader cannot survive -- a field removed, renamed or
+  // retyped, or a semantic change to one that stays. Adding a field does not
+  // bump it. A reader refuses a document whose format_version exceeds its own
+  // and accepts any lower one, which turns "written by a later PortfolioDB"
+  // from a confusing parse error into a sentence the user can act on.
+  uint32 format_version = 1 [(buf.validate.field).uint32.gte = 1];
+  // Knowledge time: when the data in this file was current. Imported price rows
+  // and coverage record it as last_fetched_at, corporate events without their
+  // own first_known_at fall back to it, and option identity is adjusted to it
+  // during instrument resolution. It says nothing about which share count a
+  // value is denominated in -- that is share_count_basis, and it is a different
+  // question. See docs/spec/bitemporality.md.
+  google.protobuf.Timestamp exported_at = 2 [(buf.validate.field).required = true];
+  // Opaque label for whatever produced the file, for a reader's benefit only.
+  // Nothing keys off it. e.g. "portfoliodb.example.com" or "recover-prices.py".
+  string source_instance = 3;
+  ArchiveKind kind = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}
+
+// InstrumentRef names one instrument by a single identifier. It is the only way
+// an archive refers to an instrument: a server UUID means nothing in another
+// instance and is never written.
+//
+// An export writes the identifier chosen by bestIdentifierJoin (see
+// server/db/postgres/identifier_priority.go), so every export that surfaces one
+// identifier per instrument agrees on which one it is.
+message InstrumentRef {
+  portfoliodb.type.v1.IdentifierType type = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  string value = 2 [(buf.validate.field).string.min_len = 1];
+  // MIC for MIC_TICKER, exchange code for OPENFIGI_TICKER, source for
+  // BROKER_DESCRIPTION; empty otherwise. Absent and empty mean the same thing.
+  string domain = 3;
+}
+
+// Identifier is an InstrumentRef plus the canonical flag, used where a file
+// states an instrument's whole identifier set rather than referring to it.
+// canonical is false only for broker-description identifiers.
+message Identifier {
+  portfoliodb.type.v1.IdentifierType type = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  string value = 2 [(buf.validate.field).string.min_len = 1];
+  string domain = 3;
+  bool canonical = 4;
+}
+
+// DateInterval is a half-open [from, before) interval of calendar days. To cover
+// through 31 December 2024, write before = "2025-01-01".
+message DateInterval {
+  option (buf.validate.message).cel = {
+    id: "date_interval.before_after_from"
+    message: "before must be after from; the interval is half-open [from, before)"
+    expression: "this.before > this.from"
+  };
+  string from = 1 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];   // inclusive
+  string before = 2 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"]; // exclusive
+}

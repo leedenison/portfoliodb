@@ -101,7 +101,10 @@ Whenever you begin work in a new worktree you should:
 
 The informantion architecture of the user interface is described in docs/spec/information-architecture.md.  It describes key concepts for users (and admin users), how they relate to each other, the relative importance they carry for the user and gives the example of how the information architecture should impact global navigation.
 
-The file formats for transaction, price and corporate event imports are documented in docs/spec/csv-format.md.
+The archive format -- the single import and export format that replaces the
+transaction CSV, the price CSV, the instrument JSON and the corporate event JSON
+-- is documented in docs/spec/archive-format.md. The formats it has not yet
+replaced are documented in docs/spec/csv-format.md.
 
 Automated transaction import via the browser extension is specified in docs/spec/broker-import-extension.md.
 

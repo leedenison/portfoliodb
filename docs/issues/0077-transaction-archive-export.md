@@ -45,10 +45,10 @@ Nesting also removes the problem a flat file would have had. There is no
 `group_ref` to synthesise, and `tx_groups.id`, `job_id` and `created_at` are
 generated and simply not written.
 
-Open question: whether `tx_groups.timestamp` can diverge from `txs.timestamp`.
-If ingest can set them differently -- trade date on the group, settlement date on
-a posting -- the group timestamp is real data and belongs on the group object.
-If not, it is derived and is dropped. Check the ingest path rather than assuming.
+`tx_groups.timestamp` is dropped too. It cannot diverge from its postings:
+`insertPostings` in server/db/postgres/txs.go creates the group from the first
+leg that names it, using that leg's timestamp for both rows, and no other path
+writes the column. It is derived, so 0078 gives `TxGroup` no timestamp field.
 
 ### Identity
 

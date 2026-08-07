@@ -293,3 +293,132 @@ stored value only ever moves backwards.
 Coverage is stored per instrument and plugin, but an import records every span
 against the `import` sentinel, so the file carries spans merged across plugins.
 The per-plugin distinction cannot survive a round trip and is not written.
+
+## The user archive
+
+`UserArchive` has the same shape as the admin archive and the same rules about
+present-but-empty versus absent. Sections are written in restore order:
+preferences first, because which asset classes are ignored changes what a later
+transaction import keeps; declarations last, because a checked declaration is
+compared against what the transactions add up to.
+
+```json
+{"envelope": {"format_version": 1, "exported_at": "2026-07-30T00:00:00Z",
+              "source_instance": "portfoliodb.example.com",
+              "kind": "ARCHIVE_KIND_USER"},
+ "preferences": {"display_currency": "GBP", "ignored_asset_classes": {"rules": []}},
+ "txs": {"windows": [...]},
+ "declarations": {"statements": [...]}}
+```
+
+A user archive does not name its user. Restoring one into a different account is
+therefore a feature rather than an accident.
+
+### Preferences
+
+`display_currency` is ISO 4217. `ignored_asset_classes` is wrapped in a message
+rather than being a bare list, so that "the user has no rules" -- an empty
+`rules`, which import applies -- stays distinguishable from "the file does not
+state them", which import ignores. Each rule is `{broker, account, asset_class}`,
+where an empty `account` means every account for that broker.
+
+### Transactions
+
+`txs.windows[]` is one window per (broker, period). A window is a replacement
+scope: import replaces the period rather than appending to it, because
+transactions have no natural key -- broker statements often supply a date and
+nothing else. See `docs/adr/0002-transaction-ingestion-model.md`.
+
+The window has to state its own period rather than have one inferred from the
+postings it holds, because **a window holding no groups is a valid instruction to
+clear that period**, and an inferred window could never say that.
+
+| Level | Field | Notes |
+| --- | --- | --- |
+| window | `broker` | |
+| window | `period_from`, `period_before` | half-open, instants |
+| window | `source` | `"<broker>:<client>:<source>"`; the domain of the fallback description identifier |
+| window | `share_count_basis` | optional; absent means as-traded |
+| group | `postings[]` | at least one |
+| posting | `timestamp`, `instrument_description`, `type`, `quantity` | |
+| posting | `account`, `account_type` | `account_type` absent reads as `ACCOUNT_TYPE_USER` |
+| posting | `identifier_hints[]` | zero or more identifier triples |
+| posting | `unit_price`, `trading_currency`, `settlement_currency` | optional |
+| posting | `broker_ref`, `counterparty_account` | optional |
+
+Grouping is structural: a group is a list of postings, not a shared key. It is
+the converter's output and nothing can rebuild it -- the server does not pair
+rows or infer a missing leg -- so an archive that dropped it would lose the
+balance invariant, residual attribution and the association between a fee and
+its trade, permanently. See
+`docs/adr/0021-converters-own-transaction-grouping.md`.
+
+That structure is what replaces `group_ref`. The CSV needed an opaque key
+because a flat file cannot nest; it was scoped to one upload and never stored,
+which is exactly what a nested list expresses directly.
+
+A posting may carry several `identifier_hints`, which the CSV could not express
+-- it had one `symbol_type`/`symbol` pair per row. The paired
+`exchange_type`/`exchange` columns are gone with it: `identifier_type` already
+says whether a domain is a MIC or an OpenFIGI exchange code, so `exchange_type`
+was restating it, and the validation that the two were present or absent
+together goes too.
+
+A group whose postings do not sum to zero is accepted rather than rejected; the
+server routes the residual to an `ACCOUNT_TYPE_IMBALANCE`,
+`ACCOUNT_TYPE_TRANSFER_CLEARING` or `ACCOUNT_TYPE_SOURCE_ROUNDING` posting. A
+group exported with its routed residual already sums to zero, so nothing is
+routed a second time.
+
+**Not carried:** the server UUIDs; `tx_groups.id`, `job_id` and `created_at`,
+which the importing instance generates; `tx_groups.timestamp`, which is the
+timestamp of the first posting that names the group; the split-adjusted quantity
+and price and the posting weights, all recomputed; and the synthetic opening
+postings with their counterparties, which follow from the declarations they were
+derived from.
+
+### Holding declarations
+
+`declarations.statements[]` is one statement per (account, date): the aggregate
+root a set of declarations comes from. `broker` and `account` are in the file
+rather than in the request, because an archive has to be self-describing.
+
+| Level | Field | Notes |
+| --- | --- | --- |
+| statement | `broker`, `account`, `as_of_date` | |
+| declaration | `instrument` | identifier triple |
+| declaration | `declared_qty` | signed decimal |
+| declaration | `share_count_basis` | optional; absent means the statement's `as_of_date` |
+
+**Absence is not deletion**, and this is the one place the archive deliberately
+differs from the transaction part. A declaration missing from an imported file is
+left alone: a file assembled from one statement covers one account and one date,
+and treating everything outside it as retracted would delete the user's other
+checkpoints. Import is an upsert on (broker, account, instrument, `as_of_date`).
+
+The file carries no pad-or-assert discriminator. Which one a declaration is
+follows from the declaration dates for its holding -- the earliest pads, the rest
+are checked -- so a stored copy could only ever disagree with them. See
+`docs/adr/0030-declarations-are-padded-then-asserted.md`.
+
+## Restore order
+
+Within a document, the sections are written in the order they are applied, and a
+reader walks them in that order:
+
+- **Admin:** instruments, then prices, then corporate events. Prices and events
+  reference instruments.
+- **User:** preferences, then transactions, then declarations. Preferences first
+  because ignored asset classes change what a transaction import keeps;
+  declarations last because a checked declaration is compared against what the
+  transactions add up to.
+
+Between documents, restoring the admin archive before the user archive is a
+recommendation and not a constraint. A user archive restored into an instance
+with no instruments loaded resolves its postings through the normal identifier
+path: correct, merely expensive. That is not an error and must not be reported
+as one.
+
+Order in the file is a convenience, not a contract. A reader applies the parts in
+its own order, so a hand-written document whose keys appear in some other order
+restores identically.

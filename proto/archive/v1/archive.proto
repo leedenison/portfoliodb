@@ -4,8 +4,11 @@ package portfoliodb.archive.v1;
 
 import "archive/v1/common.proto";
 import "archive/v1/corporate_events.proto";
+import "archive/v1/declarations.proto";
 import "archive/v1/instruments.proto";
+import "archive/v1/preferences.proto";
 import "archive/v1/prices.proto";
+import "archive/v1/txs.proto";
 import "buf/validate/validate.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
@@ -45,5 +48,9 @@ message AdminArchive {
 // transactions add up to.
 message UserArchive {
   Envelope envelope = 1 [(buf.validate.field).required = true];
-  // 2 to 9 are the parts: preferences, transactions, declarations, portfolios.
+  PreferencePart preferences = 2;
+  TxPart txs = 3;
+  DeclarationPart declarations = 4;
+  // 5 is portfolio definitions, which need identifier translation on the way
+  // out and resolution on the way back in.
 }

@@ -30,9 +30,11 @@ and `splitsToJson` / `parseSplitsJson` in client/lib/json/corporate-events.ts,
 along with their duplicated `IDENTIFIER_TYPE_NAME` and `IDENTIFIER_TYPE_BY_NAME`
 tables, and the corporate event JSON section of docs/spec/csv-format.md.
 
-The instrument format keeps positional references for underlyings rather than
-nesting them, so a shared underlying appears once. The archive never carries
-server UUIDs, and never carries `exchange_info`, which is a join result the SPA
-needs and a file does not.
+An underlying is named by identifier rather than nested, so a shared underlying
+appears once. 0078 settled this as an identifier reference rather than the
+`underlying_index` position the current JSON uses: a reference is order
+independent and survives an edit in the middle of the list. The archive never
+carries server UUIDs, and never carries `exchange_info`, which is a join result
+the SPA needs and a file does not.
 
 What the instrument part should additionally carry is 0083.

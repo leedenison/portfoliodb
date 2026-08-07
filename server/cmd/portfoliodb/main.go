@@ -51,6 +51,7 @@ import (
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
 	"github.com/leedenison/portfoliodb/server/service/ingestion"
 	"github.com/leedenison/portfoliodb/server/telemetry"
+	"github.com/leedenison/portfoliodb/server/transfermatch"
 	"github.com/leedenison/portfoliodb/server/worker"
 	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
@@ -247,6 +248,7 @@ func main() {
 	inflationTrigger := make(chan struct{}, 1)
 	priceTrigger := make(chan struct{}, 1)
 	corporateEventTrigger := make(chan struct{}, 1)
+	transferMatchTrigger := make(chan struct{}, 1)
 	queue := make(chan *ingestion.JobRequest, 256)
 	workers := worker.NewRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -261,11 +263,13 @@ func main() {
 		Logger:                ingestionLogger,
 		PriceTrigger:          priceTrigger,
 		CorporateEventTrigger: corporateEventTrigger,
+		TransferMatchTrigger:  transferMatchTrigger,
 		Workers:               workers,
 	})
 	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
 	go inflationfetcher.RunWorker(ctx, database, inflationRegistry, counter, logger.WithCategory(serverLogger, "server/inflationfetcher"), inflationTrigger, workers)
 	go corporateevents.RunWorker(ctx, database, corporateEventRegistry, counter, logger.WithCategory(serverLogger, "server/corporateevents"), corporateEventTrigger, workers)
+	go transfermatch.RunWorker(ctx, database, counter, logger.WithCategory(serverLogger, "server/transfermatch"), transferMatchTrigger, workers)
 	// Re-enqueue incomplete jobs from a previous run.
 	if pending, err := database.ListPendingJobs(ctx); err == nil {
 		for _, p := range pending {

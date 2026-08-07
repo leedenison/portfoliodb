@@ -90,7 +90,9 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 		return
 	}
 	if counter != nil {
-		counter.IncrBy(ctx, "transfer_match.matched", int64(written))
+		// Pairs, not sides, which is why this is not called ".matched": next to
+		// ".sides" a reader would divide one by the other and get half the ratio.
+		counter.IncrBy(ctx, "transfer_match.pairs", int64(written))
 	}
 	if log != nil {
 		// The residue is the point of the number, not a shortfall: a deposit from

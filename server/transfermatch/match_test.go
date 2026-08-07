@@ -23,7 +23,6 @@ func side(group, account, amount string, day int, refs ...string) db.TransferSid
 		Broker:       apiv1.Broker_FIDELITY,
 		Account:      account,
 		InstrumentID: "gbp",
-		TxType:       apiv1.TxType_TRANSFER,
 		Amount:       decimal.RequireFromString(amount),
 		Timestamp:    day0.AddDate(0, 0, day),
 		BrokerRefs:   refs,

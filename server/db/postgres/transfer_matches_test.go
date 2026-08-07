@@ -2,12 +2,12 @@ package postgres
 
 import (
 	"context"
-	"testing"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"testing"
+	"time"
 )
 
 // transferFixture stands up the two sides of one transfer hop as ingestion would
@@ -26,14 +26,14 @@ func transferFixture(t *testing.T, p *Postgres, userID, instID string) (from, to
 	}
 	side := func(account, qty, ref, counterparty string) []*apiv1.Tx {
 		return []*apiv1.Tx{
-			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: apiv1.TxType_TRANSFER,
+			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: typev1.TxType_TRANSFER,
 				Quantity: qty, Account: account, GroupRef: ref, BrokerRef: ref,
 				CounterpartyAccount: counterparty},
 			// The clearing counterparty, equal and opposite, as routing writes it:
 			// no reference of its own, because it was transcribed from no row.
-			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: apiv1.TxType_TRANSFER,
+			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: typev1.TxType_TRANSFER,
 				Quantity: negate(t, qty), Account: account, GroupRef: ref,
-				AccountType: apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING},
+				AccountType: typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING},
 		}
 	}
 	f, b := period()

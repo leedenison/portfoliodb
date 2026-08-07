@@ -7,7 +7,7 @@
  * -- no CSRF token and none of the fingerprint headers the page also sends.
  */
 
-import { Broker } from "@/gen/api/v1/api_pb";
+import { Broker } from "@/gen/type/v1/type_pb";
 import { convertFidelityJson } from "./fidelity-json";
 import type { BrokerRecipe } from "./types";
 

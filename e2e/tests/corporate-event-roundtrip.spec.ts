@@ -7,12 +7,8 @@ import {
   exportCorporateEvents,
   importCorporateEventsAndWait,
 } from "../helpers/api";
-import {
-  AssetClass,
-  ImportCorporateEventRowSchema,
-  JobStatus,
-  SplitRowSchema,
-} from "../gen/api/v1/api_pb";
+import { ImportCorporateEventRowSchema, JobStatus, SplitRowSchema } from "../gen/api/v1/api_pb";
+import { AssetClass } from "../gen/type/v1/type_pb";
 
 // ---------------------------------------------------------------------------
 // A PortfolioDB-to-PortfolioDB round trip must not restamp knowledge time.

@@ -11,7 +11,7 @@ import { exportInstruments, listInstruments } from "@/lib/portfolio-api";
 import { instrumentsToJson } from "@/lib/json/instruments";
 import { useDebounce } from "@/hooks/use-debounce";
 import { ImportInstrumentsModal } from "./import-modal";
-import { AssetClass, IdentifierType } from "@/gen/api/v1/api_pb";
+import { AssetClass, IdentifierType } from "@/gen/type/v1/type_pb";
 import type { Instrument, InstrumentIdentifier } from "@/gen/api/v1/api_pb";
 import { ALL_ASSET_CLASSES, DEFAULT_ASSET_CLASSES, ASSET_CLASS_LABELS } from "@/lib/asset-class";
 
@@ -354,7 +354,7 @@ function ExpandedDetail({ inst }: { inst: Instrument }) {
 
       {/* Metadata row */}
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-text-muted">
-        {inst.assetClass !== AssetClass.UNSPECIFIED && (
+        {inst.assetClass !== AssetClass.ASSET_CLASS_UNSPECIFIED && (
           <span>
             <span className="font-semibold uppercase tracking-wider">
               Class

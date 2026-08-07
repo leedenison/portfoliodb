@@ -2,17 +2,17 @@ package ingestion
 
 import (
 	"context"
-	"strings"
-	"testing"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"strings"
+	"testing"
+	"time"
 )
 
 // TestProcessCorporateEventImport_HappyPath verifies that a mixed split +
@@ -39,7 +39,7 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 				IdentifierType:   "MIC_TICKER",
 				IdentifierDomain: "XNAS",
 				IdentifierValue:  "AAPL",
-				AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
+				AssetClass:       typev1.AssetClass_STOCK,
 				Event: &apiv1.ImportCorporateEventRow_Split{Split: &apiv1.SplitRow{
 					ExDate: "2020-08-31", SplitFrom: "1", SplitTo: "4",
 					FirstKnownAt: timestamppb.New(splitKnownAt),
@@ -49,7 +49,7 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 				IdentifierType:   "MIC_TICKER",
 				IdentifierDomain: "XNAS",
 				IdentifierValue:  "AAPL",
-				AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
+				AssetClass:       typev1.AssetClass_STOCK,
 				Event: &apiv1.ImportCorporateEventRow_Dividend{Dividend: &apiv1.CashDividendRow{
 					ExDate:    "2024-02-09",
 					PayDate:   "2024-02-15",
@@ -163,7 +163,7 @@ func TestProcessCorporateEventImport_RejectsBadSplitRatio(t *testing.T) {
 				IdentifierType:   "MIC_TICKER",
 				IdentifierDomain: "XNAS",
 				IdentifierValue:  "AAPL",
-				AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
+				AssetClass:       typev1.AssetClass_STOCK,
 				Event: &apiv1.ImportCorporateEventRow_Split{Split: &apiv1.SplitRow{
 					ExDate: "2020-08-31", SplitFrom: "1", SplitTo: "0",
 				}},
@@ -217,7 +217,7 @@ func TestProcessCorporateEventImport_DividendOnlyDoesNotRecompute(t *testing.T) 
 				IdentifierType:   "MIC_TICKER",
 				IdentifierDomain: "XNAS",
 				IdentifierValue:  "MSFT",
-				AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
+				AssetClass:       typev1.AssetClass_STOCK,
 				Event: &apiv1.ImportCorporateEventRow_Dividend{Dividend: &apiv1.CashDividendRow{
 					ExDate: "2024-02-15", Amount: "0.75", Currency: "USD",
 				}},
@@ -357,7 +357,7 @@ func TestProcessCorporateEventImport_AcceptsHighPrecisionDecimal(t *testing.T) {
 				IdentifierType:   "MIC_TICKER",
 				IdentifierDomain: "XNAS",
 				IdentifierValue:  "MSFT",
-				AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
+				AssetClass:       typev1.AssetClass_STOCK,
 				Event: &apiv1.ImportCorporateEventRow_Dividend{Dividend: &apiv1.CashDividendRow{
 					ExDate: "2024-02-15", Amount: "0.1", Currency: "USD",
 				}},
@@ -402,7 +402,7 @@ func TestProcessCorporateEventImport_RejectsInvalidDecimal(t *testing.T) {
 				IdentifierType:   "MIC_TICKER",
 				IdentifierDomain: "XNAS",
 				IdentifierValue:  "MSFT",
-				AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
+				AssetClass:       typev1.AssetClass_STOCK,
 				Event: &apiv1.ImportCorporateEventRow_Dividend{Dividend: &apiv1.CashDividendRow{
 					ExDate: "2024-02-15", Amount: "abc", Currency: "USD",
 				}},
@@ -451,7 +451,7 @@ func TestProcessCorporateEventImport_RejectsHintDiff(t *testing.T) {
 				IdentifierType:   "MIC_TICKER",
 				IdentifierDomain: "XNAS",
 				IdentifierValue:  "AAPL",
-				AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
+				AssetClass:       typev1.AssetClass_STOCK,
 				Event: &apiv1.ImportCorporateEventRow_Split{Split: &apiv1.SplitRow{
 					ExDate: "2020-08-31", SplitFrom: "1", SplitTo: "4",
 				}},

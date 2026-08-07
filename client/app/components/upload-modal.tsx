@@ -10,7 +10,8 @@ import { qk } from "@/lib/query-keys";
 import { getJob } from "@/lib/portfolio-api";
 import { upsertTxs } from "@/lib/ingestion-api";
 import { parseStandardCSV } from "@/lib/csv/standard";
-import { Broker, JobStatus } from "@/gen/api/v1/api_pb";
+import { JobStatus } from "@/gen/api/v1/api_pb";
+import { Broker } from "@/gen/type/v1/type_pb";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { lastCoveredDay } from "@/lib/dates";
 import {

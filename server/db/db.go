@@ -5,12 +5,11 @@ package db
 import (
 	"context"
 	"errors"
-	"strings"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"time"
 )
 
 // ErrDuplicate reports that a write collided with a uniqueness constraint. The db
@@ -262,13 +261,13 @@ type TxDB interface {
 	// It takes a slice rather than a tx so that the append path can carry a routed
 	// counterparty, without which its groups could never balance.
 	CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis *time.Time) error
-	ListTxs(ctx context.Context, userID string, broker *apiv1.Broker, account string, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
-	ListTxsByPortfolio(ctx context.Context, portfolioID string, broker *apiv1.Broker, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
+	ListTxs(ctx context.Context, userID string, broker *typev1.Broker, account string, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
+	ListTxsByPortfolio(ctx context.Context, portfolioID string, broker *typev1.Broker, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 }
 
 // HoldingsDB computes holdings at a point in time.
 type HoldingsDB interface {
-	ComputeHoldings(ctx context.Context, userID string, broker *apiv1.Broker, account string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error)
+	ComputeHoldings(ctx context.Context, userID string, broker *typev1.Broker, account string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error)
 	ComputeHoldingsForPortfolio(ctx context.Context, portfolioID string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error)
 }
 
@@ -467,44 +466,46 @@ var ValidAssetClasses = map[string]bool{
 	AssetClassOption: true, AssetClassFuture: true, AssetClassCash: true, AssetClassFX: true, AssetClassUnknown: true,
 }
 
-// AssetClassToStr converts a proto AssetClass enum to its DB string (e.g. ASSET_CLASS_STOCK -> "STOCK").
-// ASSET_CLASS_UNSPECIFIED maps to "".
-func AssetClassToStr(ac apiv1.AssetClass) string {
-	if ac == apiv1.AssetClass_ASSET_CLASS_UNSPECIFIED {
+// AssetClassToStr converts a proto AssetClass enum to its DB string. The enum
+// value names are the stored vocabulary, so this is the identity apart from
+// ASSET_CLASS_UNSPECIFIED, which maps to "".
+func AssetClassToStr(ac typev1.AssetClass) string {
+	if ac == typev1.AssetClass_ASSET_CLASS_UNSPECIFIED {
 		return ""
 	}
-	return strings.TrimPrefix(ac.String(), "ASSET_CLASS_")
+	return ac.String()
 }
 
-// StrToAssetClass converts a DB asset class string to its proto enum (e.g. "STOCK" -> ASSET_CLASS_STOCK).
-func StrToAssetClass(s string) apiv1.AssetClass {
-	v, ok := apiv1.AssetClass_value["ASSET_CLASS_"+s]
+// StrToAssetClass converts a DB asset class string to its proto enum. An
+// unrecognised string maps to ASSET_CLASS_UNSPECIFIED.
+func StrToAssetClass(s string) typev1.AssetClass {
+	v, ok := typev1.AssetClass_value[s]
 	if !ok {
-		return apiv1.AssetClass_ASSET_CLASS_UNSPECIFIED
+		return typev1.AssetClass_ASSET_CLASS_UNSPECIFIED
 	}
-	return apiv1.AssetClass(v)
+	return typev1.AssetClass(v)
 }
 
 // TxTypeToAssetClass maps a TxType to its asset class. Used for filtering and ignore rules.
-func TxTypeToAssetClass(t apiv1.TxType) string {
+func TxTypeToAssetClass(t typev1.TxType) string {
 	switch t {
-	case apiv1.TxType_BUYDEBT, apiv1.TxType_SELLDEBT:
+	case typev1.TxType_BUYDEBT, typev1.TxType_SELLDEBT:
 		return AssetClassFixedIncome
-	case apiv1.TxType_BUYMF, apiv1.TxType_SELLMF:
+	case typev1.TxType_BUYMF, typev1.TxType_SELLMF:
 		return AssetClassMutualFund
-	case apiv1.TxType_BUYOPT, apiv1.TxType_SELLOPT, apiv1.TxType_CLOSUREOPT:
+	case typev1.TxType_BUYOPT, typev1.TxType_SELLOPT, typev1.TxType_CLOSUREOPT:
 		return AssetClassOption
-	case apiv1.TxType_BUYOTHER, apiv1.TxType_SELLOTHER:
+	case typev1.TxType_BUYOTHER, typev1.TxType_SELLOTHER:
 		return AssetClassUnknown
-	case apiv1.TxType_BUYSTOCK, apiv1.TxType_SELLSTOCK:
+	case typev1.TxType_BUYSTOCK, typev1.TxType_SELLSTOCK:
 		return AssetClassStock
-	case apiv1.TxType_BUYFUTURE, apiv1.TxType_SELLFUTURE:
+	case typev1.TxType_BUYFUTURE, typev1.TxType_SELLFUTURE:
 		return AssetClassFuture
-	case apiv1.TxType_INCOME, apiv1.TxType_INVEXPENSE,
-		apiv1.TxType_MARGININTEREST, apiv1.TxType_RETOFCAP, apiv1.TxType_JRNLFUND,
-		apiv1.TxType_CASHFLOW:
+	case typev1.TxType_INCOME, typev1.TxType_INVEXPENSE,
+		typev1.TxType_MARGININTEREST, typev1.TxType_RETOFCAP, typev1.TxType_JRNLFUND,
+		typev1.TxType_CASHFLOW:
 		return AssetClassCash
-	case apiv1.TxType_TRANSFER, apiv1.TxType_REINVEST, apiv1.TxType_JRNLSEC, apiv1.TxType_SPLIT:
+	case typev1.TxType_TRANSFER, typev1.TxType_REINVEST, typev1.TxType_JRNLSEC, typev1.TxType_SPLIT:
 		return AssetClassUnknown
 	default:
 		return AssetClassUnknown
@@ -558,11 +559,11 @@ const (
 // TxTypeToInstrumentKind maps a TxType to its instrument kind. CASH kinds are
 // cash-flow transactions (dividends, fees, etc). SECURITY kinds represent
 // positions in instruments that need identification and pricing.
-func TxTypeToInstrumentKind(t apiv1.TxType) string {
+func TxTypeToInstrumentKind(t typev1.TxType) string {
 	switch t {
-	case apiv1.TxType_INCOME, apiv1.TxType_INVEXPENSE,
-		apiv1.TxType_MARGININTEREST, apiv1.TxType_RETOFCAP, apiv1.TxType_JRNLFUND,
-		apiv1.TxType_CASHFLOW:
+	case typev1.TxType_INCOME, typev1.TxType_INVEXPENSE,
+		typev1.TxType_MARGININTEREST, typev1.TxType_RETOFCAP, typev1.TxType_JRNLFUND,
+		typev1.TxType_CASHFLOW:
 		return InstrumentKindCash
 	default:
 		return InstrumentKindSecurity
@@ -572,9 +573,9 @@ func TxTypeToInstrumentKind(t apiv1.TxType) string {
 // AssetClassToTxTypeStrings returns the tx_type DB strings that map to the given asset class.
 func AssetClassToTxTypeStrings(assetClass string) []string {
 	var strs []string
-	for i := range apiv1.TxType_name {
-		t := apiv1.TxType(i)
-		if t == apiv1.TxType_TX_TYPE_UNSPECIFIED {
+	for i := range typev1.TxType_name {
+		t := typev1.TxType(i)
+		if t == typev1.TxType_TX_TYPE_UNSPECIFIED {
 			continue
 		}
 		if TxTypeToAssetClass(t) == assetClass {
@@ -1058,8 +1059,8 @@ type ExportCashDividend struct {
 // It carries no user identity: the report measures how lossy each broker converter
 // is, not what is in any one portfolio.
 type ResidualBalance struct {
-	AccountType  apiv1.AccountType
-	Broker       apiv1.Broker
+	AccountType  typev1.AccountType
+	Broker       typev1.Broker
 	Account      string
 	InstrumentID string
 	// Commodity is the instrument's name: the ISO code for money, the ticker for a
@@ -1067,7 +1068,7 @@ type ResidualBalance struct {
 	// identified.
 	Commodity    string
 	AssetClass   string
-	TxType       apiv1.TxType
+	TxType       typev1.TxType
 	Balance      decimal.Decimal
 	PostingCount int32
 	// Oldest and Newest bound the postings that contribute to the balance. For a
@@ -1084,7 +1085,7 @@ type ResidualBalance struct {
 type ResidualBalanceOpts struct {
 	From        *time.Time
 	Before      *time.Time
-	AccountType apiv1.AccountType
+	AccountType typev1.AccountType
 }
 
 // ResidualBalanceDB aggregates the residual postings -- the IMBALANCE and
@@ -1118,7 +1119,7 @@ const (
 type TransferSide struct {
 	UserID       string
 	GroupID      string
-	Broker       apiv1.Broker
+	Broker       typev1.Broker
 	Account      string
 	InstrumentID string
 	// Amount is the residual's split-adjusted quantity, signed. Positive means the

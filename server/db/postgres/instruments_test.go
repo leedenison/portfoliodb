@@ -2,13 +2,13 @@ package postgres
 
 import (
 	"context"
-	"testing"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"testing"
+	"time"
 )
 
 // TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch verifies that when multiple identifiers
@@ -38,8 +38,8 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	ts1 := timestamppb.New(now.Add(-90 * time.Minute))
 	ts2 := timestamppb.New(now.Add(-30 * time.Minute))
 	txs := []*apiv1.Tx{
-		{Timestamp: ts1, InstrumentDescription: "StockA", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
-		{Timestamp: ts2, InstrumentDescription: "StockB", Type: apiv1.TxType_BUYSTOCK, Quantity: "5", Account: ""},
+		{Timestamp: ts1, InstrumentDescription: "StockA", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
+		{Timestamp: ts2, InstrumentDescription: "StockB", Type: typev1.TxType_BUYSTOCK, Quantity: "5", Account: ""},
 	}
 	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, nil, nil)
 	if err != nil {
@@ -806,8 +806,8 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 	// A journal leg against A and its clearing counterparty against B: two names for
 	// what the merge is about to decide is one commodity.
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "StockA", Type: apiv1.TxType_JRNLSEC, Quantity: "-10", GroupRef: "j1"},
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "StockB", Type: apiv1.TxType_JRNLSEC, Quantity: "10", GroupRef: "j1"},
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "StockA", Type: typev1.TxType_JRNLSEC, Quantity: "-10", GroupRef: "j1"},
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "StockB", Type: typev1.TxType_JRNLSEC, Quantity: "10", GroupRef: "j1"},
 	}
 	ws := []db.Weight{
 		{Amount: decf(-10), Commodity: "inst:" + idA},

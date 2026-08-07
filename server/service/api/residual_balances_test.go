@@ -1,10 +1,8 @@
 package api
 
 import (
-	"testing"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/testutil"
@@ -12,6 +10,8 @@ import (
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"testing"
+	"time"
 )
 
 func TestListResidualBalances_NonAdmin_PermissionDenied(t *testing.T) {
@@ -45,13 +45,13 @@ func TestListResidualBalances_Success(t *testing.T) {
 	newest := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
 	db.EXPECT().ListResidualBalances(gomock.Any(), gomock.Any()).Return([]dbpkg.ResidualBalance{
 		{
-			AccountType:  apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE,
-			Broker:       apiv1.Broker_FIDELITY,
+			AccountType:  typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
+			Broker:       typev1.Broker_FIDELITY,
 			Account:      "X123",
 			InstrumentID: "inst-1",
 			Commodity:    "USD",
 			AssetClass:   "CASH",
-			TxType:       apiv1.TxType_INCOME,
+			TxType:       typev1.TxType_INCOME,
 			Balance:      decimal.RequireFromString("-1234.56"),
 			PostingCount: 7,
 			Oldest:       &oldest,
@@ -59,13 +59,13 @@ func TestListResidualBalances_Success(t *testing.T) {
 		},
 		{
 			// A transfer with no posting on the outstanding side reports no age.
-			AccountType:  apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
-			Broker:       apiv1.Broker_IBKR,
+			AccountType:  typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
+			Broker:       typev1.Broker_IBKR,
 			Account:      "U9",
 			InstrumentID: "inst-2",
 			Commodity:    "AAPL",
 			AssetClass:   "STOCK",
-			TxType:       apiv1.TxType_JRNLSEC,
+			TxType:       typev1.TxType_JRNLSEC,
 			Balance:      decimal.RequireFromString("50"),
 			PostingCount: 1,
 		},
@@ -80,10 +80,10 @@ func TestListResidualBalances_Success(t *testing.T) {
 	}
 
 	got := resp.GetBalances()[0]
-	if got.GetAccountType() != apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE {
+	if got.GetAccountType() != typev1.AccountType_ACCOUNT_TYPE_IMBALANCE {
 		t.Errorf("account type = %v, want IMBALANCE", got.GetAccountType())
 	}
-	if got.GetBroker() != apiv1.Broker_FIDELITY {
+	if got.GetBroker() != typev1.Broker_FIDELITY {
 		t.Errorf("broker = %v, want FIDELITY", got.GetBroker())
 	}
 	if got.GetAccount() != "X123" || got.GetInstrumentId() != "inst-1" {
@@ -92,10 +92,10 @@ func TestListResidualBalances_Success(t *testing.T) {
 	if got.GetCommodity() != "USD" {
 		t.Errorf("commodity = %q, want USD", got.GetCommodity())
 	}
-	if got.GetAssetClass() != apiv1.AssetClass_ASSET_CLASS_CASH {
+	if got.GetAssetClass() != typev1.AssetClass_CASH {
 		t.Errorf("asset class = %v, want CASH", got.GetAssetClass())
 	}
-	if got.GetTxType() != apiv1.TxType_INCOME {
+	if got.GetTxType() != typev1.TxType_INCOME {
 		t.Errorf("tx type = %v, want INCOME", got.GetTxType())
 	}
 	if got.GetBalance() != "-1234.56" {
@@ -116,7 +116,7 @@ func TestListResidualBalances_Success(t *testing.T) {
 		t.Errorf("expected unset timestamps for a balance with none, got %v/%v",
 			second.GetOldestTimestamp(), second.GetNewestTimestamp())
 	}
-	if second.GetAssetClass() != apiv1.AssetClass_ASSET_CLASS_STOCK {
+	if second.GetAssetClass() != typev1.AssetClass_STOCK {
 		t.Errorf("asset class = %v, want STOCK (a quantity, not money)", second.GetAssetClass())
 	}
 }
@@ -139,7 +139,7 @@ func TestListResidualBalances_Filters(t *testing.T) {
 	_, err := srv.ListResidualBalances(adminCtx("user-1", "sub|1"), &apiv1.ListResidualBalancesRequest{
 		PeriodFrom:   timestamppb.New(from),
 		PeriodBefore: timestamppb.New(before),
-		AccountType:  apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
+		AccountType:  typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
 	})
 	if err != nil {
 		t.Fatalf("ListResidualBalances: %v", err)
@@ -150,7 +150,7 @@ func TestListResidualBalances_Filters(t *testing.T) {
 	if got.Before == nil || !got.Before.Equal(before) {
 		t.Errorf("before = %v, want %v", got.Before, before)
 	}
-	if got.AccountType != apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING {
+	if got.AccountType != typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING {
 		t.Errorf("account type = %v, want TRANSFER_CLEARING", got.AccountType)
 	}
 }

@@ -15,7 +15,7 @@ import {
   getHoldings,
 } from "@/lib/portfolio-api";
 import type { BrokerAccounts, PortfolioFilter } from "@/lib/portfolio-api";
-import { AssetClass } from "@/gen/api/v1/api_pb";
+import { AssetClass } from "@/gen/type/v1/type_pb";
 import type { Instrument } from "@/gen/api/v1/api_pb";
 import { ALL_ASSET_CLASSES, ASSET_CLASS_LABELS } from "@/lib/asset-class";
 

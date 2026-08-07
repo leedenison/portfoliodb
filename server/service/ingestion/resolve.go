@@ -6,17 +6,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
-	"slices"
-	"strings"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
 	"github.com/leedenison/portfoliodb/server/service/identification"
 	"github.com/leedenison/portfoliodb/server/telemetry"
+	"log/slog"
+	"slices"
+	"strings"
+	"time"
 )
 
 // identifierHintsFromTx converts proto identifier_hints to []identifier.Identifier for Resolve.
@@ -27,10 +27,10 @@ func identifierHintsFromTx(ctx context.Context, tx *apiv1.Tx) []identifier.Ident
 	}
 	var raw []identifier.Identifier
 	for _, h := range tx.IdentifierHints {
-		if h.GetType() == apiv1.IdentifierType_IDENTIFIER_TYPE_UNSPECIFIED || h.GetValue() == "" {
+		if h.GetType() == typev1.IdentifierType_IDENTIFIER_TYPE_UNSPECIFIED || h.GetValue() == "" {
 			continue
 		}
-		typeStr := apiv1.IdentifierType_name[int32(h.GetType())]
+		typeStr := typev1.IdentifierType_name[int32(h.GetType())]
 		raw = append(raw, identifier.Identifier{Type: typeStr, Domain: h.GetDomain(), Value: h.GetValue()})
 	}
 	return identification.FilterIdentifierHints(ctx, raw, ingestionLogger())

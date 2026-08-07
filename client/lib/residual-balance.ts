@@ -1,4 +1,4 @@
-import { AssetClass } from "@/gen/api/v1/api_pb";
+import { AssetClass } from "@/gen/type/v1/type_pb";
 import type { ResidualBalance } from "./portfolio-api";
 import { Big } from "@/lib/decimal";
 

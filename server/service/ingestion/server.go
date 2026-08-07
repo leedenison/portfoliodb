@@ -3,9 +3,9 @@ package ingestion
 import (
 	"context"
 	"fmt"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/grpc/codes"
@@ -113,11 +113,11 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 }
 
 // brokerToString returns the stored form of a broker: its enum name.
-func brokerToString(b apiv1.Broker) (string, error) {
-	if b == apiv1.Broker_BROKER_UNSPECIFIED {
+func brokerToString(b typev1.Broker) (string, error) {
+	if b == typev1.Broker_BROKER_UNSPECIFIED {
 		return "", fmt.Errorf("broker unspecified")
 	}
-	s, ok := apiv1.Broker_name[int32(b)]
+	s, ok := typev1.Broker_name[int32(b)]
 	if !ok {
 		return "", fmt.Errorf("unknown broker")
 	}

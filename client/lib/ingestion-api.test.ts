@@ -1,6 +1,6 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { Broker } from "@/gen/api/v1/api_pb";
+import { Broker } from "@/gen/type/v1/type_pb";
 import { TxSchema } from "@/gen/api/v1/api_pb";
 import {
   IngestionResponseSchema,

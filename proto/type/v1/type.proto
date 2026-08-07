@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+// The controlled vocabularies PortfolioDB stores and transmits: asset classes,
+// identifier types, transaction types, account types and brokers. They live in
+// their own package because both the API and the archive format need them, and
+// the archive cannot import portfoliodb.api.v1 -- an archive is written today
+// and read by a server that does not exist yet, so it cannot be bound to a
+// schema that is deliberately free to break while the project is pre-release.
+// See docs/adr/0034-archive-format-is-its-own-proto-package.md and
+// docs/adr/0038-controlled-vocabularies-are-shared.md.
+//
+// This package is the one part of proto/ that is not free to break. A value is
+// never renumbered and never removed, and a value name never changes, because
+// these names are the stored vocabulary -- txs.type holds "BUYSTOCK",
+// instrument_identifiers.identifier_type holds "ISIN" -- and they are what an
+// archive written years ago spells on disk. Adding a value is the only
+// backwards-compatible change, and even that makes a file naming it unreadable
+// to an older server, which is what the archive's format_version is for.
+//
+// Value names are unprefixed wherever the enum name is not needed to
+// disambiguate, so that a name is the same in the proto, in the database and in
+// an archive file, with no prefix stripping in between. AccountType is the
+// exception and is documented at its declaration.
+package portfoliodb.type.v1;
+
+option go_package = "github.com/leedenison/portfoliodb/proto/type/v1;typev1";
+
+// Broker identifies the data source so that the same canonical value is used
+// across users uploading data from the same broker.
+enum Broker {
+  BROKER_UNSPECIFIED = 0;
+  IBKR = 1;  // Interactive Brokers
+  SCHB = 2;  // Charles Schwab
+  FIDELITY = 3;
+}
+
+// OFX-style transaction types for investments.
+enum TxType {
+  TX_TYPE_UNSPECIFIED = 0;
+  // Buys
+  BUYDEBT  = 1;
+  BUYMF    = 2;
+  BUYOPT   = 3;
+  BUYOTHER = 4;
+  BUYSTOCK = 5;
+  // Sells
+  SELLDEBT  = 6;
+  SELLMF    = 7;
+  SELLOPT   = 8;
+  SELLOTHER = 9;
+  SELLSTOCK = 10;
+  // Other
+  INCOME         = 11;
+  INVEXPENSE     = 12;
+  REINVEST       = 13;
+  RETOFCAP       = 14;
+  SPLIT          = 15;
+  TRANSFER       = 16;
+  JRNLFUND       = 17;
+  JRNLSEC        = 18;
+  MARGININTEREST = 19;
+  CLOSUREOPT     = 20;
+  CASHFLOW       = 21;
+  BUYFUTURE      = 22;
+  SELLFUTURE     = 23;
+}
+
+// AccountType classifies the account a posting lands in, so that the non-asset side
+// of an event that is one-sided in the source data has somewhere to go. A posting
+// keeps the broker and account of the event it belongs to; the type says what kind
+// of leg it is. Values are prefixed because proto enum values share package scope
+// and TxType already defines INCOME and TRANSFER.
+// See docs/adr/0022-typed-per-account-cash-flow-boundary.md.
+enum AccountType {
+  ACCOUNT_TYPE_UNSPECIFIED = 0;       // Unset on upload; stored as USER.
+  ACCOUNT_TYPE_USER = 1;              // An ordinary broker account posting.
+  ACCOUNT_TYPE_EQUITY = 2;            // Value entering or leaving the user's holdings entirely.
+  ACCOUNT_TYPE_INCOME = 3;            // Dividends, interest and other income.
+  ACCOUNT_TYPE_EXPENSE = 4;           // Commissions, levies, custody and service charges, taxes.
+  ACCOUNT_TYPE_IMBALANCE = 5;         // The residual of a group that does not sum to zero.
+  ACCOUNT_TYPE_TRANSFER_CLEARING = 6; // One side of a transfer whose other side is not yet known.
+  ACCOUNT_TYPE_SOURCE_ROUNDING = 7;   // A residual small enough to be the source rounding, not missing data.
+}
+
+// IdentifierType is the controlled vocabulary for instrument identifier types.
+// Stored in instrument_identifiers.identifier_type. Broker description identifiers use BROKER_DESCRIPTION with domain = source (e.g. "Fidelity:web:fidelity-csv").
+enum IdentifierType {
+  IDENTIFIER_TYPE_UNSPECIFIED = 0;
+  ISIN = 1;
+  CUSIP = 2;
+  SEDOL = 3;
+  CINS = 4;
+  WERTPAPIER = 5;
+  OCC = 6;
+  OPRA = 7;
+  FUT_OPT = 8;
+  OPENFIGI_GLOBAL = 9;
+  OPENFIGI_SHARE_CLASS = 10;
+  OPENFIGI_COMPOSITE = 11;
+  BROKER_DESCRIPTION = 12;
+  CURRENCY = 13;
+  FX_PAIR = 14;
+  MIC_TICKER = 15;
+  OPENFIGI_TICKER = 16;
+}
+
+// AssetClass is the controlled vocabulary for instrument asset classes.
+// Stored in instruments.asset_class. Values are unprefixed so that the name
+// in the proto, the name in the column and the name in an archive file are
+// the same string, with no prefix stripping between them.
+enum AssetClass {
+  ASSET_CLASS_UNSPECIFIED = 0;
+  STOCK = 1;
+  ETF = 2;
+  FIXED_INCOME = 3;
+  MUTUAL_FUND = 4;
+  OPTION = 5;
+  FUTURE = 6;
+  CASH = 7;
+  FX = 8;
+  UNKNOWN = 9;
+}

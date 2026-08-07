@@ -13,7 +13,7 @@ import { qk } from "@/lib/query-keys";
 import { listTxs } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
 import { ACCOUNT_TYPE_LABEL, TX_TYPE_LABEL } from "@/lib/tx-type";
-import { IdentifierType } from "@/gen/api/v1/api_pb";
+import { IdentifierType } from "@/gen/type/v1/type_pb";
 import type { PortfolioTx } from "@/gen/api/v1/api_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 

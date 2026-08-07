@@ -1,10 +1,10 @@
 package ingestion
 
 import (
-	"testing"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"testing"
 )
 
 func TestValidateTx(t *testing.T) {
@@ -16,10 +16,10 @@ func TestValidateTx(t *testing.T) {
 		want   int
 	}{
 		{"nil tx", nil, 0, 1},
-		{"missing timestamp", &apiv1.Tx{InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: "1"}, 0, 1},
-		{"missing instrument_description", &apiv1.Tx{Timestamp: validTs, Type: apiv1.TxType_BUYSTOCK, Quantity: "1"}, 0, 1},
+		{"missing timestamp", &apiv1.Tx{InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "1"}, 0, 1},
+		{"missing instrument_description", &apiv1.Tx{Timestamp: validTs, Type: typev1.TxType_BUYSTOCK, Quantity: "1"}, 0, 1},
 		{"missing type", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", Quantity: "1"}, 0, 1},
-		{"valid", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: "10"}, 0, 0},
+		{"valid", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "10"}, 0, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -34,14 +34,14 @@ func TestValidateTx(t *testing.T) {
 func TestValidateBroker(t *testing.T) {
 	tests := []struct {
 		name    string
-		broker  apiv1.Broker
+		broker  typev1.Broker
 		wantErr bool
 	}{
-		{"unspecified", apiv1.Broker_BROKER_UNSPECIFIED, true},
-		{"IBKR", apiv1.Broker_IBKR, false},
-		{"SCHB", apiv1.Broker_SCHB, false},
-		{"FIDELITY", apiv1.Broker_FIDELITY, false},
-		{"unknown broker", apiv1.Broker(99), true},
+		{"unspecified", typev1.Broker_BROKER_UNSPECIFIED, true},
+		{"IBKR", typev1.Broker_IBKR, false},
+		{"SCHB", typev1.Broker_SCHB, false},
+		{"FIDELITY", typev1.Broker_FIDELITY, false},
+		{"unknown broker", typev1.Broker(99), true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,8 +90,8 @@ func TestValidateTxs_sameTimestampAndDescriptionAllowed(t *testing.T) {
 	// No natural key: same (timestamp, instrument_description) in one batch is allowed.
 	ts := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: ts, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: "10"},
-		{Timestamp: ts, InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: "5"},
+		{Timestamp: ts, InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "10"},
+		{Timestamp: ts, InstrumentDescription: "AAPL", Type: typev1.TxType_SELLSTOCK, Quantity: "5"},
 	}
 	errs := ValidateTxs(txs)
 	if len(errs) != 0 {
@@ -113,7 +113,7 @@ func TestValidateTxs_empty(t *testing.T) {
 func TestValidateTxs_perTxErrors(t *testing.T) {
 	validTs := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: validTs, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: "10"},
+		{Timestamp: validTs, InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "10"},
 		{Timestamp: validTs, InstrumentDescription: "GOOG", Quantity: "5"}, // missing type
 	}
 	errs := ValidateTxs(txs)

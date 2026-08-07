@@ -1,6 +1,7 @@
 ---
 status: open
 title: Define the archive format in its own proto package
+dependencies: [0092]
 ---
 
 Define the schema every export and import speaks, in `proto/archive/v1/`,

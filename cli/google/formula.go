@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 )
 
@@ -44,7 +44,7 @@ func generateFormulas(priceGaps, fxGaps []*apiv1.PriceGap) formulaResult {
 func gapToColumns(pg *apiv1.PriceGap) ([]sheetColumn, error) {
 	ident := pg.GetIdentifier()
 	exchangeMIC := pg.GetExchange()
-	if ident.GetType() == apiv1.IdentifierType_MIC_TICKER && ident.GetDomain() != "" {
+	if ident.GetType() == typev1.IdentifierType_MIC_TICKER && ident.GetDomain() != "" {
 		exchangeMIC = ident.GetDomain()
 	}
 	ticker, err := gfTicker(ident, exchangeMIC)

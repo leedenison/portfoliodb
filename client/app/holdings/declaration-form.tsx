@@ -13,7 +13,7 @@ import {
   protoDateToStr,
 } from "@/lib/portfolio-api";
 import type { BrokerAccounts } from "@/lib/portfolio-api";
-import { IdentifierType } from "@/gen/api/v1/api_pb";
+import { IdentifierType } from "@/gen/type/v1/type_pb";
 import type { HoldingDeclaration, Instrument } from "@/gen/api/v1/api_pb";
 
 function todayStr(): string {

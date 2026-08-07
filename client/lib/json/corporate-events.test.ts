@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { AssetClass, ExportCorporateEventRowSchema, ExportCoverageSchema, SplitRowSchema } from "@/gen/api/v1/api_pb";
+import { ExportCorporateEventRowSchema, ExportCoverageSchema, SplitRowSchema } from "@/gen/api/v1/api_pb";
+import { AssetClass } from "@/gen/type/v1/type_pb";
 import type { ExportCorporateEventRow } from "@/gen/api/v1/api_pb";
 import { splitsToJson, parseSplitsJson } from "./corporate-events";
 

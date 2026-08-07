@@ -1,9 +1,8 @@
 package postgres
 
 import (
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"testing"
-
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 )
 
 // The stored form of a broker is its enum name, and every defined broker must
@@ -11,9 +10,9 @@ import (
 // strToBroker recognised but the e2e fixtures did not -- fixture rows spelled
 // "FIDELITY" came back as BROKER_UNSPECIFIED.
 func TestBrokerStorageRoundTrip(t *testing.T) {
-	for value, name := range apiv1.Broker_name {
-		broker := apiv1.Broker(value)
-		if broker == apiv1.Broker_BROKER_UNSPECIFIED {
+	for value, name := range typev1.Broker_name {
+		broker := typev1.Broker(value)
+		if broker == typev1.Broker_BROKER_UNSPECIFIED {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {
@@ -34,10 +33,10 @@ func TestBrokerStorageRoundTrip(t *testing.T) {
 func TestBrokerToStr_Rejects(t *testing.T) {
 	cases := []struct {
 		name   string
-		broker apiv1.Broker
+		broker typev1.Broker
 	}{
-		{"unspecified", apiv1.Broker_BROKER_UNSPECIFIED},
-		{"undefined value", apiv1.Broker(99)},
+		{"unspecified", typev1.Broker_BROKER_UNSPECIFIED},
+		{"undefined value", typev1.Broker(99)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -51,7 +50,7 @@ func TestBrokerToStr_Rejects(t *testing.T) {
 func TestStrToBroker_UnknownIsUnspecified(t *testing.T) {
 	// "Fidelity" was the old stored spelling; it must not resolve any more.
 	for _, s := range []string{"", "Fidelity", "NOPE", "BROKER_UNSPECIFIED"} {
-		if got := strToBroker(s); got != apiv1.Broker_BROKER_UNSPECIFIED {
+		if got := strToBroker(s); got != typev1.Broker_BROKER_UNSPECIFIED {
 			t.Errorf("strToBroker(%q): want BROKER_UNSPECIFIED, got %v", s, got)
 		}
 	}

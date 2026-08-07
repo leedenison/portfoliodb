@@ -2,13 +2,13 @@ package api
 
 import (
 	"context"
-	"testing"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/testutil"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
+	"testing"
 )
 
 func strPtr(s string) *string { return &s }
@@ -81,7 +81,7 @@ func TestListInstruments_AssetClassFilter(t *testing.T) {
 		ListInstruments(gomock.Any(), "", []string{"STOCK", "ETF"}, int32(30), "").
 		Return(nil, int32(0), "", nil)
 	ctx := authCtx("user-1", "sub|1")
-	_, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{AssetClasses: []apiv1.AssetClass{apiv1.AssetClass_ASSET_CLASS_STOCK, apiv1.AssetClass_ASSET_CLASS_ETF}})
+	_, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{AssetClasses: []typev1.AssetClass{typev1.AssetClass_STOCK, typev1.AssetClass_ETF}})
 	if err != nil {
 		t.Fatalf("ListInstruments: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestListInstruments_UnknownAssetClassFilter(t *testing.T) {
 		ListInstruments(gomock.Any(), "", []string{"UNKNOWN"}, int32(30), "").
 		Return(nil, int32(0), "", nil)
 	ctx := authCtx("user-1", "sub|1")
-	_, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{AssetClasses: []apiv1.AssetClass{apiv1.AssetClass_ASSET_CLASS_UNKNOWN}})
+	_, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{AssetClasses: []typev1.AssetClass{typev1.AssetClass_UNKNOWN}})
 	if err != nil {
 		t.Fatalf("ListInstruments: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestExportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
 func TestImportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
 	ctx := authCtx("user-1", "sub|1")
-	_, err := srv.ImportInstruments(ctx, &apiv1.ImportInstrumentsRequest{Instruments: []*apiv1.Instrument{{Identifiers: []*apiv1.InstrumentIdentifier{{Type: apiv1.IdentifierType_ISIN, Value: "x", Canonical: true}}}}})
+	_, err := srv.ImportInstruments(ctx, &apiv1.ImportInstrumentsRequest{Instruments: []*apiv1.Instrument{{Identifiers: []*apiv1.InstrumentIdentifier{{Type: typev1.IdentifierType_ISIN, Value: "x", Canonical: true}}}}})
 	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 }
 
@@ -175,10 +175,10 @@ func TestImportInstruments_Success(t *testing.T) {
 	ctx := adminCtx("user-1", "sub|1")
 	req := &apiv1.ImportInstrumentsRequest{
 		Instruments: []*apiv1.Instrument{{
-			AssetClass: apiv1.AssetClass_ASSET_CLASS_STOCK, Exchange: "XNAS", Currency: "USD", Name: "Apple Inc.",
+			AssetClass: typev1.AssetClass_STOCK, Exchange: "XNAS", Currency: "USD", Name: "Apple Inc.",
 			Identifiers: []*apiv1.InstrumentIdentifier{
-				{Type: apiv1.IdentifierType_ISIN, Value: "US0378331005", Canonical: true},
-				{Type: apiv1.IdentifierType_BROKER_DESCRIPTION, Domain: "IBKR", Value: "AAPL", Canonical: false},
+				{Type: typev1.IdentifierType_ISIN, Value: "US0378331005", Canonical: true},
+				{Type: typev1.IdentifierType_BROKER_DESCRIPTION, Domain: "IBKR", Value: "AAPL", Canonical: false},
 			},
 		}},
 	}
@@ -218,8 +218,8 @@ func TestImportInstruments_DuplicateTypeValueInPayload(t *testing.T) {
 	ctx := adminCtx("user-1", "sub|1")
 	req := &apiv1.ImportInstrumentsRequest{
 		Instruments: []*apiv1.Instrument{
-			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: apiv1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
-			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: apiv1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
+			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
+			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
 		},
 	}
 	resp, err := srv.ImportInstruments(ctx, req)

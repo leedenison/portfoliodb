@@ -5,7 +5,7 @@
  * import extension can reuse it.
  */
 
-import { Broker } from "@/gen/api/v1/api_pb";
+import { Broker } from "@/gen/type/v1/type_pb";
 import { convertFidelityToStandard } from "./fidelity-csv";
 import { register } from "./registry";
 import type { ConverterOptionsProps } from "./registry";

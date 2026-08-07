@@ -8,12 +8,8 @@ import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { uploadCSVAndWait } from "../helpers/upload";
 import { triggerCorporateEventFetch, importCorporateEventsAndWait } from "../helpers/api";
 import { getCounter, closeCountersRedis } from "../helpers/counters";
-import {
-  AssetClass,
-  ImportCorporateEventRowSchema,
-  JobStatus,
-  SplitRowSchema,
-} from "../gen/api/v1/api_pb";
+import { ImportCorporateEventRowSchema, JobStatus, SplitRowSchema } from "../gen/api/v1/api_pb";
+import { AssetClass } from "../gen/type/v1/type_pb";
 
 // ---------------------------------------------------------------------------
 // Case 1: Transactions uploaded BEFORE the split is discovered.

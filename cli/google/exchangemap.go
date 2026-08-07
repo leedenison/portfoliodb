@@ -5,8 +5,8 @@ import (
 	_ "embed"
 	"fmt"
 	"strings"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 )
 
 //go:embed gf_exchanges.csv
@@ -47,10 +47,10 @@ func parseExchangeCSV(data string) map[string]string {
 // For FX_PAIR, it uses the "CURRENCY:" prefix.
 func gfTicker(ident *apiv1.InstrumentIdentifier, exchangeMIC string) (string, error) {
 	switch ident.GetType() {
-	case apiv1.IdentifierType_FX_PAIR:
+	case typev1.IdentifierType_FX_PAIR:
 		return "CURRENCY:" + ident.GetValue(), nil
 
-	case apiv1.IdentifierType_MIC_TICKER:
+	case typev1.IdentifierType_MIC_TICKER:
 		mic := ident.GetDomain()
 		if mic == "" {
 			mic = exchangeMIC
@@ -61,7 +61,7 @@ func gfTicker(ident *apiv1.InstrumentIdentifier, exchangeMIC string) (string, er
 		}
 		return gf + ":" + ident.GetValue(), nil
 
-	case apiv1.IdentifierType_OPENFIGI_TICKER:
+	case typev1.IdentifierType_OPENFIGI_TICKER:
 		// OPENFIGI_TICKER domain is a Bloomberg exchange code, not a MIC.
 		// Fall back to the instrument's exchange MIC.
 		if exchangeMIC == "" {

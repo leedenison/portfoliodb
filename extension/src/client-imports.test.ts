@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 import { parseStandardCSV } from "@/lib/csv/standard";
-import { TxType } from "@/gen/api/v1/api_pb";
+import { TxType } from "@/gen/type/v1/type_pb";
 
 describe("client module imports", () => {
   it("parses a standard CSV row into a Tx", () => {

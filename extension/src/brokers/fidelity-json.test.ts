@@ -5,7 +5,7 @@
 
 import { Big } from "@/lib/decimal";
 import { describe, expect, it } from "vitest";
-import { AccountType, IdentifierType, TxType } from "@/gen/api/v1/api_pb";
+import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 import { convertFidelityJson, isValidIsin } from "./fidelity-json";
 import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 

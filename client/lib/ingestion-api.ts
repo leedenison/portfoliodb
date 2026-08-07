@@ -8,7 +8,8 @@ import {
   IngestionResponseSchema,
   UpsertTxsRequestSchema,
 } from "@/gen/ingestion/v1/ingestion_pb";
-import type { Broker, Tx } from "@/gen/api/v1/api_pb";
+import type { Tx } from "@/gen/api/v1/api_pb";
+import type { Broker } from "@/gen/type/v1/type_pb";
 import type { IngestionResponse } from "@/gen/ingestion/v1/ingestion_pb";
 import { unaryFetch } from "./grpc-web";
 

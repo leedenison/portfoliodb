@@ -2,17 +2,17 @@ package ingestion
 
 import (
 	"context"
-	"strings"
-	"testing"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"strings"
+	"testing"
+	"time"
 )
 
 func TestProcessPriceImport_RejectsUnknownIdentifierType(t *testing.T) {
@@ -382,7 +382,7 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 				IdentifierValue: "EURGBP",
 				PriceDate:       "2021-12-31",
 				Close:           "0.84",
-				AssetClass:      apiv1.AssetClass_ASSET_CLASS_FX,
+				AssetClass:      typev1.AssetClass_FX,
 				Currency:        "EUR",
 			},
 		},
@@ -451,7 +451,7 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 				IdentifierValue: "NVDA240315P00510000",
 				PriceDate:       "2024-03-01",
 				Close:           "12.50",
-				AssetClass:      apiv1.AssetClass_ASSET_CLASS_OPTION,
+				AssetClass:      typev1.AssetClass_OPTION,
 				Currency:        "USD",
 			},
 		},
@@ -533,7 +533,7 @@ func TestProcessPriceImport_OptionFallbackStampsExportedAt(t *testing.T) {
 				IdentifierValue: "NVDA240315P00510000",
 				PriceDate:       "2024-03-01",
 				Close:           "12.50",
-				AssetClass:      apiv1.AssetClass_ASSET_CLASS_OPTION,
+				AssetClass:      typev1.AssetClass_OPTION,
 				Currency:        "USD",
 			},
 		},

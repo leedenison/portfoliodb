@@ -3,11 +3,10 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"time"
-
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
+	"time"
 )
 
 // residualBalanceAgg aggregates the residual postings -- the IMBALANCE,
@@ -107,7 +106,7 @@ func (r *residualBalanceRow) toDomain() db.ResidualBalance {
 // ListResidualBalances implements db.ResidualBalanceDB.
 func (p *Postgres) ListResidualBalances(ctx context.Context, opts db.ResidualBalanceOpts) ([]db.ResidualBalance, error) {
 	accountType := ""
-	if opts.AccountType != apiv1.AccountType_ACCOUNT_TYPE_UNSPECIFIED {
+	if opts.AccountType != typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED {
 		s, err := accountTypeToStr(opts.AccountType)
 		if err != nil {
 			return nil, err

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import type { MessageInitShape } from "@bufbuild/protobuf";
-import { AssetClass, ExportCoverageSchema, ExportPriceRowSchema } from "@/gen/api/v1/api_pb";
+import { ExportCoverageSchema, ExportPriceRowSchema } from "@/gen/api/v1/api_pb";
+import { AssetClass } from "@/gen/type/v1/type_pb";
 import type { ExportPriceRow } from "@/gen/api/v1/api_pb";
 import { pricesToCsv, csvToPrices } from "./prices";
 
@@ -183,7 +184,7 @@ describe("csvToPrices", () => {
     const csv = `${HEADER}\nMIC_TICKER,AAPL,XNAS,2024-01-15,,,,185.9,,`;
     const result = csvToPrices(csv);
     expect(result.errors).toHaveLength(0);
-    expect(result.prices[0].assetClass).toBe(AssetClass.UNSPECIFIED);
+    expect(result.prices[0].assetClass).toBe(AssetClass.ASSET_CLASS_UNSPECIFIED);
   });
 
   it("parses currency column", () => {

@@ -3,12 +3,9 @@ package ingestion
 import (
 	"context"
 	"fmt"
-	"log"
-	"log/slog"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
@@ -16,6 +13,9 @@ import (
 	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/worker"
 	"google.golang.org/protobuf/proto"
+	"log"
+	"log/slog"
+	"time"
 )
 
 // ingestionLog is the logger for resolution and plugin orchestration
@@ -418,11 +418,11 @@ func resolveInstruments(ctx context.Context, database db.DB, registry *identifie
 
 // brokerToStr converts a proto Broker enum to its string representation.
 // brokerToStr returns the stored form of a broker: its enum name.
-func brokerToStr(b apiv1.Broker) (string, error) {
-	if b == apiv1.Broker_BROKER_UNSPECIFIED {
+func brokerToStr(b typev1.Broker) (string, error) {
+	if b == typev1.Broker_BROKER_UNSPECIFIED {
 		return "", fmt.Errorf("broker unspecified")
 	}
-	s, ok := apiv1.Broker_name[int32(b)]
+	s, ok := typev1.Broker_name[int32(b)]
 	if !ok {
 		return "", fmt.Errorf("unknown broker")
 	}

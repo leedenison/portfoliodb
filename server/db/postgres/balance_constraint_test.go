@@ -2,13 +2,13 @@ package postgres
 
 import (
 	"context"
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/db"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"strings"
 	"testing"
 	"time"
-
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	"github.com/leedenison/portfoliodb/server/db"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // The balance constraint is DEFERRABLE INITIALLY DEFERRED, so it fires at COMMIT --
@@ -195,9 +195,9 @@ func TestTxGroupBalance_SplitRecomputeIsNotAffected(t *testing.T) {
 	now := time.Now()
 	from, to := timestamppb.New(now.Add(-time.Hour)), timestamppb.New(now.Add(time.Hour))
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "SPLT", Type: apiv1.TxType_BUYSTOCK,
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "SPLT", Type: typev1.TxType_BUYSTOCK,
 			Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD", GroupRef: "g1"},
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "USD", Type: apiv1.TxType_BUYSTOCK,
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "USD", Type: typev1.TxType_BUYSTOCK,
 			Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD", GroupRef: "g1"},
 	}
 	ws := []db.Weight{{Amount: decf(1000), Commodity: "cur:USD"}, {Amount: decf(-1000), Commodity: "cur:USD"}}

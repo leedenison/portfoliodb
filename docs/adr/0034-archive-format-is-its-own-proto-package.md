@@ -46,6 +46,11 @@ rather than inheriting a library default, because it decides whether an older
 server can read a newer archive. A `format_version` in the envelope is the
 escape hatch if the schema ever stops fitting.
 
+The controlled vocabularies both packages need are shared rather than
+re-declared: they moved to `proto/type/v1/` so the archive can import them
+without importing `api/v1`. See
+adr/0038-controlled-vocabularies-are-shared.md.
+
 Export and import message pairs such as `ExportPriceRow` and `ImportPriceRow`
 collapse into one archive message carried in both directions, so this is a net
 reduction in message count rather than an addition.

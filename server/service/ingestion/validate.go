@@ -3,8 +3,8 @@ package ingestion
 import (
 	"context"
 	"fmt"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -21,18 +21,18 @@ func ValidateTx(tx *apiv1.Tx, rowIndex int32) []*apiv1.ValidationError {
 	if tx.InstrumentDescription == "" {
 		errs = append(errs, &apiv1.ValidationError{RowIndex: rowIndex, Field: "instrument_description", Message: "required"})
 	}
-	if tx.Type == apiv1.TxType_TX_TYPE_UNSPECIFIED {
+	if tx.Type == typev1.TxType_TX_TYPE_UNSPECIFIED {
 		errs = append(errs, &apiv1.ValidationError{RowIndex: rowIndex, Field: "type", Message: "required"})
 	}
 	return errs
 }
 
 // ValidateBroker returns an error if broker is unspecified or unknown.
-func ValidateBroker(b apiv1.Broker) *apiv1.ValidationError {
-	if b == apiv1.Broker_BROKER_UNSPECIFIED {
+func ValidateBroker(b typev1.Broker) *apiv1.ValidationError {
+	if b == typev1.Broker_BROKER_UNSPECIFIED {
 		return &apiv1.ValidationError{RowIndex: -1, Field: "broker", Message: "required"}
 	}
-	if b != apiv1.Broker_IBKR && b != apiv1.Broker_SCHB && b != apiv1.Broker_FIDELITY {
+	if b != typev1.Broker_IBKR && b != typev1.Broker_SCHB && b != typev1.Broker_FIDELITY {
 		return &apiv1.ValidationError{RowIndex: -1, Field: "broker", Message: "unknown broker"}
 	}
 	return nil

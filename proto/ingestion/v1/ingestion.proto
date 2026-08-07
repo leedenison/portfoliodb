@@ -5,6 +5,7 @@ package portfoliodb.ingestion.v1;
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 import "api/v1/api.proto";
+import "type/v1/type.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/ingestion/v1;ingestionv1";
 
@@ -25,7 +26,7 @@ service IngestionService {
 // given period with the supplied list. User from auth.
 message UpsertTxsRequest {
   // Broker. All transactions in this request are for this broker.
-  portfoliodb.api.v1.Broker broker = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  portfoliodb.type.v1.Broker broker = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution.
   string source = 2 [(buf.validate.field).string.min_len = 1];
   // Half-open [period_from, period_before) period of transactions covered. Only
@@ -51,7 +52,7 @@ message UpsertTxsRequest {
 // CreateTxRequest appends one transaction.
 message CreateTxRequest {
   // Broker for this transaction.
-  portfoliodb.api.v1.Broker broker = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  portfoliodb.type.v1.Broker broker = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution.
   string source = 2 [(buf.validate.field).string.min_len = 1];
   // The transaction (must include account).

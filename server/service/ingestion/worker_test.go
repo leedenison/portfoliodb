@@ -2,17 +2,17 @@ package ingestion
 
 import (
 	"context"
-	"testing"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"testing"
+	"time"
 )
 
 // marshalPayload serializes an UpsertTxsRequest for test fixtures.
@@ -47,10 +47,10 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: from, InstrumentDescription: "UNKNOWN", Type: apiv1.TxType_BUYSTOCK, Quantity: "1", Account: ""},
+		{Timestamp: from, InstrumentDescription: "UNKNOWN", Type: typev1.TxType_BUYSTOCK, Quantity: "1", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
-		Broker:       apiv1.Broker_IBKR,
+		Broker:       typev1.Broker_IBKR,
 		Source:       "IBKR:test:statement",
 		PeriodFrom:   from,
 		PeriodBefore: before,
@@ -121,11 +121,11 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(from.AsTime().Add(-1)), InstrumentDescription: "CACHED", Type: apiv1.TxType_BUYSTOCK, Quantity: "1", Account: ""},
-		{Timestamp: timestamppb.New(from.AsTime().Add(1)), InstrumentDescription: "CACHED", Type: apiv1.TxType_BUYSTOCK, Quantity: "2", Account: ""},
+		{Timestamp: timestamppb.New(from.AsTime().Add(-1)), InstrumentDescription: "CACHED", Type: typev1.TxType_BUYSTOCK, Quantity: "1", Account: ""},
+		{Timestamp: timestamppb.New(from.AsTime().Add(1)), InstrumentDescription: "CACHED", Type: typev1.TxType_BUYSTOCK, Quantity: "2", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
-		Broker:       apiv1.Broker_IBKR,
+		Broker:       typev1.Broker_IBKR,
 		Source:       "IBKR:test:statement",
 		PeriodFrom:   from,
 		PeriodBefore: before,
@@ -183,11 +183,11 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: from, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "", GroupRef: "ref-1"},
-		{Timestamp: from, InstrumentDescription: "SPLIT", Type: apiv1.TxType_SPLIT, Quantity: "1", Account: "", GroupRef: "ref-1"},
+		{Timestamp: from, InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "", GroupRef: "ref-1"},
+		{Timestamp: from, InstrumentDescription: "SPLIT", Type: typev1.TxType_SPLIT, Quantity: "1", Account: "", GroupRef: "ref-1"},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
-		Broker:       apiv1.Broker_IBKR,
+		Broker:       typev1.Broker_IBKR,
 		Source:       "IBKR:test:statement",
 		PeriodFrom:   from,
 		PeriodBefore: before,
@@ -221,7 +221,7 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-split", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _, _, _ string, _, _ *timestamppb.Timestamp, storedTxs []*apiv1.Tx, ids []string, ws []db.Weight, _ *time.Time) error {
 			supplied := userPostings(storedTxs)
-			if len(supplied) != 1 || supplied[0].InstrumentDescription != "AAPL" || supplied[0].Type != apiv1.TxType_BUYSTOCK {
+			if len(supplied) != 1 || supplied[0].InstrumentDescription != "AAPL" || supplied[0].Type != typev1.TxType_BUYSTOCK {
 				t.Errorf("ReplaceTxsInPeriod called with %d supplied txs, expected 1 (AAPL BUYSTOCK)", len(supplied))
 			}
 			// Dropping a leg must not lose the surviving legs' grouping.
@@ -257,8 +257,8 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 func userPostings(txs []*apiv1.Tx) []*apiv1.Tx {
 	var out []*apiv1.Tx
 	for _, t := range txs {
-		if t.GetAccountType() == apiv1.AccountType_ACCOUNT_TYPE_UNSPECIFIED ||
-			t.GetAccountType() == apiv1.AccountType_ACCOUNT_TYPE_USER {
+		if t.GetAccountType() == typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED ||
+			t.GetAccountType() == typev1.AccountType_ACCOUNT_TYPE_USER {
 			out = append(out, t)
 		}
 	}
@@ -285,11 +285,11 @@ func TestProcessBulk_BuystockIncomeSameDescriptionFails(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: from, InstrumentDescription: "MICROSOFT INC", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
-		{Timestamp: from, InstrumentDescription: "MICROSOFT INC", Type: apiv1.TxType_INCOME, Quantity: "0", Account: ""},
+		{Timestamp: from, InstrumentDescription: "MICROSOFT INC", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
+		{Timestamp: from, InstrumentDescription: "MICROSOFT INC", Type: typev1.TxType_INCOME, Quantity: "0", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
-		Broker:       apiv1.Broker_IBKR,
+		Broker:       typev1.Broker_IBKR,
 		Source:       "IBKR:test:statement",
 		PeriodFrom:   from,
 		PeriodBefore: before,
@@ -354,10 +354,10 @@ func TestProcessBulk_StockEtfEquivalence(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: from, InstrumentDescription: "SPY", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
+		{Timestamp: from, InstrumentDescription: "SPY", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
-		Broker:       apiv1.Broker_IBKR,
+		Broker:       typev1.Broker_IBKR,
 		Source:       "IBKR:test:statement",
 		PeriodFrom:   from,
 		PeriodBefore: before,
@@ -415,10 +415,10 @@ func TestProcessBulk_StockMutualFundNotEquivalent(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: from, InstrumentDescription: "VFIAX", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
+		{Timestamp: from, InstrumentDescription: "VFIAX", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
-		Broker:       apiv1.Broker_IBKR,
+		Broker:       typev1.Broker_IBKR,
 		Source:       "IBKR:test:statement",
 		PeriodFrom:   from,
 		PeriodBefore: before,
@@ -474,10 +474,10 @@ func TestProcessBulk_TransferToCashRejected(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: from, InstrumentDescription: "USD CASH", Type: apiv1.TxType_TRANSFER, Quantity: "10", Account: ""},
+		{Timestamp: from, InstrumentDescription: "USD CASH", Type: typev1.TxType_TRANSFER, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
-		Broker:       apiv1.Broker_IBKR,
+		Broker:       typev1.Broker_IBKR,
 		Source:       "IBKR:test:statement",
 		PeriodFrom:   from,
 		PeriodBefore: before,
@@ -528,10 +528,10 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: from, InstrumentDescription: "MSFT", Type: apiv1.TxType_TRANSFER, Quantity: "10", Account: ""},
+		{Timestamp: from, InstrumentDescription: "MSFT", Type: typev1.TxType_TRANSFER, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
-		Broker:       apiv1.Broker_IBKR,
+		Broker:       typev1.Broker_IBKR,
 		Source:       "IBKR:test:statement",
 		PeriodFrom:   from,
 		PeriodBefore: before,
@@ -584,9 +584,9 @@ func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
 
 	ctx := context.Background()
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
-		Broker: apiv1.Broker_IBKR,
+		Broker: typev1.Broker_IBKR,
 		Source: "IBKR:test:statement",
-		Txs:    []*apiv1.Tx{{Timestamp: timestamppb.Now(), InstrumentDescription: "SPLIT", Type: apiv1.TxType_SPLIT, Quantity: "1", Account: ""}},
+		Txs:    []*apiv1.Tx{{Timestamp: timestamppb.Now(), InstrumentDescription: "SPLIT", Type: typev1.TxType_SPLIT, Quantity: "1", Account: ""}},
 	})
 	j := &JobRequest{JobID: "job-single-split", JobType: "tx"}
 

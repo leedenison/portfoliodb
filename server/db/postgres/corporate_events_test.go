@@ -2,14 +2,14 @@ package postgres
 
 import (
 	"context"
-	"math"
-	"testing"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"google.golang.org/protobuf/proto"
+	"math"
+	"testing"
+	"time"
 )
 
 // approxEq compares two floats with relative tolerance suitable for the
@@ -559,7 +559,7 @@ func TestRecomputeSplitAdjustments_Txs(t *testing.T) {
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
 		{
-			Type:                  apiv1.TxType_BUYSTOCK,
+			Type:                  typev1.TxType_BUYSTOCK,
 			Timestamp:             ts(2010, 6, 1),
 			Quantity:              "100",
 			UnitPrice:             proto.String("280"),
@@ -715,7 +715,7 @@ func TestRecomputeSplitAdjustments_ForwardSplitIsExact(t *testing.T) {
 	instID := setupInstrument(t, p, "AAPL")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{{
-		Type:                  apiv1.TxType_BUYSTOCK,
+		Type:                  typev1.TxType_BUYSTOCK,
 		Timestamp:             ts(2010, 6, 1),
 		Quantity:              "100",
 		UnitPrice:             proto.String("280"),
@@ -761,7 +761,7 @@ func TestRecomputeSplitAdjustments_ReverseSplitRoundsToDeclaredScale(t *testing.
 	instID := setupInstrument(t, p, "RVRS")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{{
-		Type:                  apiv1.TxType_BUYSTOCK,
+		Type:                  typev1.TxType_BUYSTOCK,
 		Timestamp:             ts(2020, 1, 2),
 		Quantity:              "100",
 		UnitPrice:             proto.String("280"),
@@ -997,7 +997,7 @@ func TestApplyOptionSplit(t *testing.T) {
 	// something to adjust.
 	userID := setupUser(t, p)
 	insertTxs(t, p, userID, optID, []*apiv1.Tx{{
-		Type:                  apiv1.TxType_BUYSTOCK,
+		Type:                  typev1.TxType_BUYSTOCK,
 		Timestamp:             ts(2024, 6, 1),
 		Quantity:              "1",
 		UnitPrice:             proto.String("150"),

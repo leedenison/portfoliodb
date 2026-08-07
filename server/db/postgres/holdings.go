@@ -3,12 +3,12 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"time"
-
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"time"
 )
 
 // holdingClosedTest drops the holdings that are closed. It reads the
@@ -25,7 +25,7 @@ const holdingClosedTest = `HAVING NOT qty_is_zero(
 		COUNT(*) FILTER (WHERE t.split_adjusted_quantity <> t.quantity)::int)`
 
 // ComputeHoldings implements db.HoldingsDB.
-func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *apiv1.Broker, account string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error) {
+func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *typev1.Broker, account string, asOf *timestamppb.Timestamp) ([]*apiv1.Holding, *timestamppb.Timestamp, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid user id: %w", err)

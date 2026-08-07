@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { convertIbkrOfx } from "./ibkr-ofx";
-import { AccountType, IdentifierType, TxType } from "@/gen/api/v1/api_pb";
+import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 
 /**

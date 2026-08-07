@@ -14,7 +14,8 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "../lib/dates";
 import type { Tx } from "@/gen/api/v1/api_pb";
-import { IdentifierType, InstrumentIdentifierSchema, TxSchema } from "@/gen/api/v1/api_pb";
+import { InstrumentIdentifierSchema, TxSchema } from "@/gen/api/v1/api_pb";
+import { IdentifierType } from "@/gen/type/v1/type_pb";
 import type { FidelityLeg } from "@/lib/csv/converters/fidelity-csv";
 import {
   assignFidelityGroups,

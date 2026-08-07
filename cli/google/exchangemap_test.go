@@ -2,8 +2,8 @@ package main
 
 import (
 	"testing"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 )
 
 func TestParseExchangeCSV(t *testing.T) {
@@ -51,39 +51,39 @@ func TestGfTicker(t *testing.T) {
 	}{
 		{
 			name:  "MIC_TICKER with domain",
-			ident: &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_MIC_TICKER, Domain: "XNAS", Value: "AAPL"},
+			ident: &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_MIC_TICKER, Domain: "XNAS", Value: "AAPL"},
 			want:  "NASDAQ:AAPL",
 		},
 		{
 			name:        "MIC_TICKER without domain falls back to exchange",
-			ident:       &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_MIC_TICKER, Value: "VOD"},
+			ident:       &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_MIC_TICKER, Value: "VOD"},
 			exchangeMIC: "XLON",
 			want:        "LON:VOD",
 		},
 		{
 			name:    "MIC_TICKER unknown MIC",
-			ident:   &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_MIC_TICKER, Domain: "XXXX", Value: "FOO"},
+			ident:   &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_MIC_TICKER, Domain: "XXXX", Value: "FOO"},
 			wantErr: true,
 		},
 		{
 			name:  "FX_PAIR",
-			ident: &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_FX_PAIR, Value: "GBPUSD"},
+			ident: &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_FX_PAIR, Value: "GBPUSD"},
 			want:  "CURRENCY:GBPUSD",
 		},
 		{
 			name:        "OPENFIGI_TICKER with exchange MIC",
-			ident:       &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_OPENFIGI_TICKER, Domain: "US", Value: "MSFT"},
+			ident:       &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_OPENFIGI_TICKER, Domain: "US", Value: "MSFT"},
 			exchangeMIC: "XNAS",
 			want:        "NASDAQ:MSFT",
 		},
 		{
 			name:    "OPENFIGI_TICKER without exchange MIC",
-			ident:   &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_OPENFIGI_TICKER, Domain: "US", Value: "MSFT"},
+			ident:   &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_OPENFIGI_TICKER, Domain: "US", Value: "MSFT"},
 			wantErr: true,
 		},
 		{
 			name:    "unsupported identifier type",
-			ident:   &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_ISIN, Value: "US0378331005"},
+			ident:   &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_ISIN, Value: "US0378331005"},
 			wantErr: true,
 		},
 	}

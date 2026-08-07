@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import {
-  AssetClass,
-  IdentifierType,
-  InstrumentIdentifierSchema,
-  InstrumentSchema,
-} from "@/gen/api/v1/api_pb";
+import { InstrumentIdentifierSchema, InstrumentSchema } from "@/gen/api/v1/api_pb";
+import { AssetClass, IdentifierType } from "@/gen/type/v1/type_pb";
 import type { Instrument } from "@/gen/api/v1/api_pb";
 import { instrumentsToJson, jsonToInstruments } from "./instruments";
 
@@ -21,7 +17,7 @@ function makeInstrument(
 ): Instrument {
   return create(InstrumentSchema, {
     id,
-    assetClass: fields.assetClass ?? AssetClass.UNSPECIFIED,
+    assetClass: fields.assetClass ?? AssetClass.ASSET_CLASS_UNSPECIFIED,
     exchange: fields.exchange ?? "",
     currency: fields.currency ?? "",
     name: fields.name ?? "",

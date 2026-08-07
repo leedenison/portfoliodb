@@ -1,4 +1,4 @@
-import { AccountType, TxType } from "@/gen/api/v1/api_pb";
+import { AccountType, TxType } from "@/gen/type/v1/type_pb";
 
 /** Human-readable labels for each tx type. */
 export const TX_TYPE_LABEL: Record<number, string> = {

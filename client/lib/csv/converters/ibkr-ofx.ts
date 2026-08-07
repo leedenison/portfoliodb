@@ -4,11 +4,8 @@
  */
 
 import { create } from "@bufbuild/protobuf";
-import {
-  Broker,
-  IdentifierType,
-  InstrumentIdentifierSchema,
-} from "@/gen/api/v1/api_pb";
+import { InstrumentIdentifierSchema } from "@/gen/api/v1/api_pb";
+import { Broker, IdentifierType } from "@/gen/type/v1/type_pb";
 import type { StandardParseResult } from "@/lib/csv/standard";
 import { parseOfxStatement } from "@/lib/ofx/parser";
 import { register } from "./registry";

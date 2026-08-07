@@ -1,7 +1,7 @@
 import { Big } from "@/lib/decimal";
 import { describe, it, expect } from "vitest";
 import { parseOfxStatement, parseOfxDate } from "./parser";
-import { AccountType, TxType, IdentifierType } from "@/gen/api/v1/api_pb";
+import { AccountType, TxType, IdentifierType } from "@/gen/type/v1/type_pb";
 import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 
 describe("parseOfxDate", () => {

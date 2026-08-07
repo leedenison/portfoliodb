@@ -12,7 +12,7 @@
  * structure is a code change.
  */
 
-import type { Broker } from "@/gen/api/v1/api_pb";
+import type { Broker } from "@/gen/type/v1/type_pb";
 import type { StandardParseResult } from "@/lib/csv/standard";
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Broker } from "@/gen/api/v1/api_pb";
+import { Broker } from "@/gen/type/v1/type_pb";
 import { getRecipe, getRecipeForBroker, listRecipes, renderExport, sourceFor } from "./index";
 
 describe("recipe registry", () => {

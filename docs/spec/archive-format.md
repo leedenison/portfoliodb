@@ -156,7 +156,7 @@ Every archive is one protojson object whose first member is the envelope:
 {"envelope": {"format_version": 1,
               "exported_at": "2026-07-30T00:00:00Z",
               "source_instance": "portfoliodb.example.com",
-              "kind": "ARCHIVE_KIND_ADMIN"}}
+              "kind": "ADMIN"}}
 ```
 
 - `format_version` is bumped only by a change an older reader cannot survive: a
@@ -169,7 +169,7 @@ Every archive is one protojson object whose first member is the envelope:
   `share_count_basis`, and it is a different question entirely.
 - `source_instance` is an opaque label for whatever produced the file, for a
   reader's benefit only. Nothing keys off it.
-- `kind` is `ARCHIVE_KIND_ADMIN` or `ARCHIVE_KIND_USER`. The document's message
+- `kind` is `ADMIN` or `USER`. The document's message
   type says the same thing, but protojson records no type name, so the envelope
   has to carry it -- without it, an importer cannot refuse a user archive handed
   to the admin page.
@@ -185,7 +185,7 @@ to them.
 ```json
 {"envelope": {"format_version": 1, "exported_at": "2026-07-30T00:00:00Z",
               "source_instance": "portfoliodb.example.com",
-              "kind": "ARCHIVE_KIND_ADMIN"},
+              "kind": "ADMIN"},
  "instruments": {"instruments": [...]},
  "prices": {"groups": [...]},
  "corporate_events": {"groups": [...]}}
@@ -305,7 +305,7 @@ compared against what the transactions add up to.
 ```json
 {"envelope": {"format_version": 1, "exported_at": "2026-07-30T00:00:00Z",
               "source_instance": "portfoliodb.example.com",
-              "kind": "ARCHIVE_KIND_USER"},
+              "kind": "USER"},
  "preferences": {"display_currency": "GBP", "ignored_asset_classes": {"rules": []}},
  "txs": {"windows": [...]},
  "declarations": {"statements": [...]}}
@@ -422,3 +422,94 @@ as one.
 Order in the file is a convenience, not a contract. A reader applies the parts in
 its own order, so a hand-written document whose keys appear in some other order
 restores identically.
+
+## Encoding and versioning
+
+An archive is one protojson document in a `.json` file, served and uploaded as
+`application/json`. The options that decide what it looks like on disk are fixed
+in one place per language -- `server/archive/codec.go` and
+`client/lib/archive/codec.ts` -- rather than at each call site, because a caller
+that forgot one of them would silently write a different format.
+
+| | Go | TypeScript |
+| --- | --- | --- |
+| snake_case keys | `UseProtoNames: true` | `useProtoFieldName: true` |
+| enums by name | `UseEnumNumbers: false` | `enumAsInteger: false` |
+| absent stays absent | `EmitUnpopulated: false` | `alwaysEmitImplicit: false` |
+| unknown fields ignored | `DiscardUnknown: true` | `ignoreUnknownFields: true` |
+
+Three consequences worth stating:
+
+- Those write options affect **writing only**. Both runtimes accept either
+  casing on read, so a hand-written file using `priceDate` parses as readily as
+  one using `price_date`.
+- Go's protojson injects unstable whitespace deliberately, so that callers
+  cannot depend on its exact bytes. The codec normalises its output, which makes
+  two exports of the same data byte-identical and therefore diffable. Both
+  runtimes emit fields in field-number order, so a document written by the
+  server and one written by the browser agree key for key -- there is a test
+  that holds them to it.
+- A 64-bit integer is written as a quoted string: `"volume": "48088700"`. That
+  is protojson's rule for 64-bit types, not a decision of this format.
+
+### format_version
+
+`format_version` is bumped only by a change an older reader cannot survive: a
+field removed, renamed or retyped, or a semantic change to one that stays.
+Adding a field does not bump it.
+
+A reader refuses a document whose `format_version` is higher than its own, and
+accepts any lower one. That check runs **before** the document is parsed,
+because the parse is what a mismatch would break -- without it the user gets a
+confusing parse error where they should get a sentence telling them the file was
+written by a later PortfolioDB.
+
+Its job is not migration. Nothing here lets an old reader read a genuinely
+breaking new file; it makes the refusal legible. If forward compatibility is
+ever wanted, that is a different mechanism and an ADR of its own.
+
+### What the unknown-field policy does and does not cover
+
+Ignoring unknown fields is what lets an additive change land without making
+existing files unreadable, and it is safe only because `format_version` catches
+the changes that are not additive.
+
+It does **not** extend to unrecognised enum values. A file naming a broker
+outside the vocabulary is refused, because that value is not representable
+anywhere in PortfolioDB and not merely in this file. Accepting it would leave a
+zero, which reads as a different value rather than as nothing.
+
+Note also that **protojson cannot preserve unknown fields**. Unlike binary
+protobuf, which keeps them and re-emits them, neither runtime can round-trip a
+field it does not understand. Reading a newer archive and writing it back is
+therefore never lossless, at any setting, and tools must not rewrite an archive
+they only partly understand.
+
+## Writing an archive by hand
+
+protojson is plain JSON, so nothing needs a protobuf runtime to produce an
+archive. The price recovery scripts in `local/scripts/` write one with
+`json.dump`.
+
+The minimum valid admin document is an envelope and one part:
+
+```json
+{"envelope": {"format_version": 1,
+              "exported_at": "2026-07-30T00:00:00Z",
+              "source_instance": "recover-prices.py",
+              "kind": "ADMIN"},
+ "prices": {"groups": [
+   {"instrument": {"type": "MIC_TICKER", "value": "AAPL", "domain": "XNAS"},
+    "asset_class": "STOCK", "currency": "USD",
+    "coverage": [{"from": "2010-01-04", "before": "2024-06-11"}],
+    "rows": [{"price_date": "2010-01-04", "close": "30.57"}]}]}}
+```
+
+Points a hand-written file usually gets wrong:
+
+- Decimals are strings. `"close": 30.57` is a JSON number and is rejected.
+- `before` is exclusive. A span ending on the last day of 2024 has
+  `"before": "2025-01-01"`.
+- Omit a field rather than writing an empty string or a zero for it.
+- Set `share_count_basis` on a group only for a back-adjusted series. Setting it
+  where the rows are as-traded makes every price wrong by the split factor.

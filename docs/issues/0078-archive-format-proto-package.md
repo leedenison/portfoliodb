@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Define the archive format in its own proto package
 dependencies: [0092]
 ---

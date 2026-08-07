@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Move the controlled vocabularies into a shared proto package
 ---
 

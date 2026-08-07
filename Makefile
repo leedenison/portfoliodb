@@ -48,7 +48,7 @@ GENERATE_DEPS := $(PROTO_FILES) buf.gen.go.yaml buf.gen.ts.yaml buf.gen.e2e.yaml
 
 $(STAMP_DIR)/generate: $(GENERATE_DEPS) | $(STAMP_DIR)
 	$(COMPOSE_TOOLS) sh -c 'buf generate --template buf.gen.go.yaml && go generate ./server/db'
-	$(COMPOSE_TOOLS_CLIENT) sh -c 'buf generate --template buf.gen.ts.yaml --include-imports && buf generate --template buf.gen.e2e.yaml --include-imports --path proto/e2e --path proto/api'
+	$(COMPOSE_TOOLS_CLIENT) sh -c 'buf generate --template buf.gen.ts.yaml --include-imports && buf generate --template buf.gen.e2e.yaml --include-imports --path proto/e2e --path proto/api --path proto/archive'
 	@touch $@
 
 # PHONY alias so 'make generate' still works directly.

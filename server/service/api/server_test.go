@@ -44,8 +44,8 @@ type exportStreamMock struct {
 
 func (e *exportStreamMock) Context() context.Context    { return e.ctx }
 func (e *exportStreamMock) RecvMsg(m interface{}) error { return nil }
-func (e *exportStreamMock) Send(m *apiv1.Instrument) error {
-	e.sent = append(e.sent, m)
+func (e *exportStreamMock) Send(m *apiv1.ExportInstrumentsResponse) error {
+	e.sent = append(e.sent, m.GetInstrument())
 	return nil
 }
 func (e *exportStreamMock) SendHeader(m metadata.MD) error { return nil }

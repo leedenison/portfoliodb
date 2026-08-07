@@ -172,7 +172,7 @@ service ApiService {
   rpc ListInstruments(ListInstrumentsRequest) returns (ListInstrumentsResponse);
 
   // Instrument export/import (admin-only). Export streams instruments with at least one canonical identifier; optional exchange filter.
-  rpc ExportInstruments(ExportInstrumentsRequest) returns (stream Instrument);
+  rpc ExportInstruments(ExportInstrumentsRequest) returns (stream ExportInstrumentsResponse);
   rpc ImportInstruments(ImportInstrumentsRequest) returns (ImportInstrumentsResponse);
 
   // Identifier plugin config (admin-only). List all plugins; update enabled, precedence, and config JSON (including API keys).
@@ -496,6 +496,11 @@ message ExportInstrumentsRequest {
 }
 
 // ImportInstruments ensures the given instruments exist (find-or-create by identifiers, merge on conflict). No overwrite of canonical fields for existing.
+// ExportInstrumentsResponse is one instrument of the export stream.
+message ExportInstrumentsResponse {
+  Instrument instrument = 1;
+}
+
 message ImportInstrumentsRequest {
   repeated Instrument instruments = 1;
 }

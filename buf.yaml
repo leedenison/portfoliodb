@@ -7,3 +7,15 @@ deps:
 lint:
   use:
     - STANDARD
+  except:
+    # Enum value names are the stored and transmitted vocabulary, not just proto
+    # identifiers: txs.type holds "BUYSTOCK", instrument_identifiers holds
+    # "ISIN", instruments.asset_class holds "STOCK", and an archive file spells
+    # the same strings. Prefixing them would put a TrimPrefix between the enum
+    # and every one of those. See docs/adr/0038-controlled-vocabularies-are-shared.md.
+    - ENUM_VALUE_PREFIX
+    # Satisfying this means moving proto/api/v1/ to proto/portfoliodb/api/v1/ and
+    # rewriting every proto import, go_package, generated output path and
+    # TypeScript import across the client, the extension and the e2e suite. The
+    # current layout already mirrors the package minus the organisation segment.
+    - PACKAGE_DIRECTORY_MATCH

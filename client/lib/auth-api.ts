@@ -1,8 +1,10 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { EmptySchema } from "@bufbuild/protobuf/wkt";
 import {
   AuthUserRequestSchema,
   AuthUserResponseSchema,
+  GetSessionRequestSchema,
+  GetSessionResponseSchema,
+  LogoutRequestSchema,
 } from "@/gen/auth/v1/auth_pb";
 import {
   AuthUserServiceMethod,
@@ -45,18 +47,18 @@ export async function auth(googleIdToken: string): Promise<AuthResponsePayload> 
 /** Returns current user when the request has a valid session cookie; throws if unauthenticated. */
 export async function getSession(): Promise<AuthResponsePayload> {
   const base = getBaseUrl();
-  const req = create(EmptySchema, {});
-  const resBytes = await unaryFetch(base, GetSessionServiceMethod, toBinary(EmptySchema, req), {
+  const req = create(GetSessionRequestSchema, {});
+  const resBytes = await unaryFetch(base, GetSessionServiceMethod, toBinary(GetSessionRequestSchema, req), {
     credentials: "include",
   });
-  const res = fromBinary(AuthUserResponseSchema, resBytes);
+  const res = fromBinary(GetSessionResponseSchema, resBytes);
   return authUserResponseToPayload(res);
 }
 
 export async function logout(): Promise<void> {
   const base = getBaseUrl();
-  const req = create(EmptySchema, {});
-  await unaryFetch(base, LogoutServiceMethod, toBinary(EmptySchema, req), {
+  const req = create(LogoutRequestSchema, {});
+  await unaryFetch(base, LogoutServiceMethod, toBinary(LogoutRequestSchema, req), {
     credentials: "include",
   });
 }

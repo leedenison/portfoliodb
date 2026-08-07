@@ -26,7 +26,7 @@ func NewServer(database db.DB, queue chan<- *JobRequest) *Server {
 }
 
 // UpsertTxs creates a job and enqueues it for async processing.
-func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsRequest) (*ingestionv1.IngestionResponse, error) {
+func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsRequest) (*ingestionv1.UpsertTxsResponse, error) {
 	u, authErr := auth.RequireUser(ctx)
 	if authErr != nil {
 		return nil, authErr
@@ -64,11 +64,11 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 	default:
 		return nil, status.Error(codes.Unavailable, "job queue full")
 	}
-	return &ingestionv1.IngestionResponse{JobId: jobID}, nil
+	return &ingestionv1.UpsertTxsResponse{JobId: jobID}, nil
 }
 
 // CreateTx creates a job and enqueues it for async processing.
-func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest) (*ingestionv1.IngestionResponse, error) {
+func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest) (*ingestionv1.CreateTxResponse, error) {
 	u, authErr := auth.RequireUser(ctx)
 	if authErr != nil {
 		return nil, authErr
@@ -109,7 +109,7 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 	default:
 		return nil, status.Error(codes.Unavailable, "job queue full")
 	}
-	return &ingestionv1.IngestionResponse{JobId: jobID}, nil
+	return &ingestionv1.CreateTxResponse{JobId: jobID}, nil
 }
 
 // brokerToString returns the stored form of a broker: its enum name.

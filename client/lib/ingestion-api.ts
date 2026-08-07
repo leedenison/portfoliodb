@@ -5,12 +5,12 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import {
-  IngestionResponseSchema,
+  UpsertTxsResponseSchema,
   UpsertTxsRequestSchema,
 } from "@/gen/ingestion/v1/ingestion_pb";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import type { Broker } from "@/gen/type/v1/type_pb";
-import type { IngestionResponse } from "@/gen/ingestion/v1/ingestion_pb";
+import type { UpsertTxsResponse } from "@/gen/ingestion/v1/ingestion_pb";
 import { unaryFetch } from "./grpc-web";
 
 const IngestionServicePrefix = "portfoliodb.ingestion.v1.IngestionService/";
@@ -37,7 +37,7 @@ export interface UpsertTxsParams {
   shareCountBasis?: string;
 }
 
-export async function upsertTxs(params: UpsertTxsParams): Promise<IngestionResponse> {
+export async function upsertTxs(params: UpsertTxsParams): Promise<UpsertTxsResponse> {
   const base = getBaseUrl();
   const req = create(UpsertTxsRequestSchema, {
     broker: params.broker,
@@ -54,5 +54,5 @@ export async function upsertTxs(params: UpsertTxsParams): Promise<IngestionRespo
     toBinary(UpsertTxsRequestSchema, req),
     { credentials: "include" }
   );
-  return fromBinary(IngestionResponseSchema, resBytes);
+  return fromBinary(UpsertTxsResponseSchema, resBytes);
 }

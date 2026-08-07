@@ -3,7 +3,7 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { JobStatus, GetJobResponseSchema, ListTxsResponseSchema } from "@/gen/api/v1/api_pb";
 import { Broker } from "@/gen/type/v1/type_pb";
-import { IngestionResponseSchema } from "@/gen/ingestion/v1/ingestion_pb";
+import { UpsertTxsResponseSchema } from "@/gen/ingestion/v1/ingestion_pb";
 import type { RunLogEntry } from "../lib/run-log";
 
 const loadConfig = vi.fn();
@@ -72,7 +72,7 @@ describe("sync", () => {
     getSessionId.mockResolvedValue("session-abc");
     withLatest(new Date(2026, 6, 20));
     captureExport.mockResolvedValue({ status: 200, body: JSON.stringify([row()]) });
-    upsertTxs.mockResolvedValue(create(IngestionResponseSchema, { jobId: "job-1" }));
+    upsertTxs.mockResolvedValue(create(UpsertTxsResponseSchema, { jobId: "job-1" }));
     getJob.mockResolvedValue(create(GetJobResponseSchema, { status: JobStatus.SUCCESS }));
   });
 

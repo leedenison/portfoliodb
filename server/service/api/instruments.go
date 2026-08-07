@@ -92,7 +92,7 @@ func (s *Server) ExportInstruments(req *apiv1.ExportInstrumentsRequest, stream a
 				protoInst.Underlying = instrumentRowToProto(u)
 			}
 		}
-		if err := stream.Send(protoInst); err != nil {
+		if err := stream.Send(&apiv1.ExportInstrumentsResponse{Instrument: protoInst}); err != nil {
 			return err
 		}
 	}

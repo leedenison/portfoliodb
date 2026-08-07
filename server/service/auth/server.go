@@ -19,7 +19,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -201,12 +200,12 @@ func (s *Server) AuthMachine(ctx context.Context, req *authv1.AuthMachineRequest
 }
 
 // GetSession returns the current user when the request has a valid session cookie.
-func (s *Server) GetSession(ctx context.Context, _ *emptypb.Empty) (*authv1.AuthUserResponse, error) {
+func (s *Server) GetSession(ctx context.Context, _ *authv1.GetSessionRequest) (*authv1.GetSessionResponse, error) {
 	u := authpkg.FromContext(ctx)
 	if u == nil {
 		return nil, status.Error(codes.Unauthenticated, "missing or invalid session")
 	}
-	return &authv1.AuthUserResponse{
+	return &authv1.GetSessionResponse{
 		User: &authv1.User{
 			Id:    u.ID,
 			Email: u.Email,
@@ -221,13 +220,13 @@ func (s *Server) GetSession(ctx context.Context, _ *emptypb.Empty) (*authv1.Auth
 }
 
 // Logout deletes the session and clears the cookie.
-func (s *Server) Logout(ctx context.Context, _ *emptypb.Empty) (*emptypb.Empty, error) {
+func (s *Server) Logout(ctx context.Context, _ *authv1.LogoutRequest) (*authv1.LogoutResponse, error) {
 	sessionID := getSessionIDFromContext(ctx, s.cookie.Name)
 	if sessionID != "" {
 		_ = s.sessionStore.Delete(ctx, sessionID)
 	}
 	clearSessionCookie(ctx, s.cookie)
-	return &emptypb.Empty{}, nil
+	return &authv1.LogoutResponse{}, nil
 }
 
 // sendSetCookieHeader sends Set-Cookie via gRPC response header (for gRPC-Web gateway to pass through).

@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package portfoliodb.archive.v1;
+
+import "archive/v1/common.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+import "type/v1/type.proto";
+
+option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
+
+// InstrumentPart is the security-master section of an admin archive.
+message InstrumentPart {
+  repeated Instrument instruments = 1;
+}
+
+// Instrument is security-master data as a file carries it: no server UUIDs, no
+// joined exchange reference data, and no nested underlying subtree. A derivative
+// names its underlying by identifier, so a shared underlying appears once and
+// the order instruments are written in carries no meaning.
+message Instrument {
+  portfoliodb.type.v1.AssetClass asset_class = 1 [(buf.validate.field).enum.defined_only = true];
+  // Display name. The importing instance recomputes it from the identifiers, so
+  // this is advisory: it survives only where no ticker-like identifier exists to
+  // derive one from, which is the case a plugin-supplied name would otherwise be
+  // lost in.
+  optional string name = 2;
+  string currency = 3; // ISO 4217
+  // ISO 10383 MIC. The instruments.exchange column is derived from this and from
+  // the identifiers, and is not carried.
+  optional string exchange_mic = 4;
+  repeated Identifier identifiers = 5 [(buf.validate.field).repeated.min_items = 1];
+  // Provider-scoped identifiers recorded by the identifier plugins. These are
+  // the output of the paid, rate-limited lookups the archive exists to avoid
+  // repeating, so an instrument restored with them is indistinguishable from a
+  // resolved one and no plugin is called for it.
+  repeated ProviderIdentifier provider_identifiers = 6;
+  // The underlying of an OPTION or FUTURE, which must itself appear in this
+  // part. Absent for everything else.
+  optional InstrumentRef underlying = 7;
+  optional string cik = 8;      // SEC Central Index Key; an identifier plugin lookup result
+  optional string sic_code = 9; // SIC industry classification; likewise
+  // The half-open [valid_from, valid_before) interval the instrument was
+  // available to trade in; an absent bound is open-ended. Descriptive -- no
+  // query filters on it -- and derivable from nothing, so a file that drops it
+  // loses it for good.
+  optional string valid_from = 10 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
+  optional string valid_before = 11 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
+  // Option terms, denormalized from the OCC identifier and absent for anything
+  // that is not an option. strike is a component of option identity, decoded
+  // from the symbol's eight digits of thousandths, so it is an exact decimal:
+  // comparing identity components as floats is a latent bug.
+  optional string strike = 12 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string expiry = 13 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
+  optional string put_call = 14 [(buf.validate.field).string = {in: ["C", "P"]}];
+  // Deliverable multiplier; absent means the column default of 1. A non-standard
+  // split leaves a fraction here -- 3:2 gives 1.5 -- and it multiplies a
+  // posting's weight, so it stays exact.
+  optional string contract_multiplier = 15 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  // The point in market time this identity reflects. Restored on import so that
+  // a round trip cannot make an already-adjusted option look unadjusted; absent
+  // means the identity predates every split.
+  // See docs/adr/0017-option-identity-reflects-ex-date.md.
+  optional google.protobuf.Timestamp identity_as_of = 16;
+}
+
+// ProviderIdentifier is one provider-scoped identifier for an instrument.
+// identifier_type is free-form and specific to the provider, so it is not the
+// IdentifierType vocabulary.
+message ProviderIdentifier {
+  string provider = 1 [(buf.validate.field).string.min_len = 1];
+  string identifier_type = 2 [(buf.validate.field).string.min_len = 1];
+  string value = 3 [(buf.validate.field).string.min_len = 1];
+  string domain = 4; // optional; absent and empty mean the same thing
+}

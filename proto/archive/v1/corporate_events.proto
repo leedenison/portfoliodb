@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package portfoliodb.archive.v1;
+
+import "archive/v1/common.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+import "type/v1/type.proto";
+
+option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
+
+// CorporateEventPart is the corporate-event section of an admin archive.
+message CorporateEventPart {
+  repeated CorporateEventGroup groups = 1;
+}
+
+// CorporateEventGroup is one instrument's events with the coverage saying which
+// dates were asked about. Events are sparse, so the absence of an event says
+// nothing about whether the range was ever queried; only coverage does.
+message CorporateEventGroup {
+  InstrumentRef instrument = 1 [(buf.validate.field).required = true];
+  // Security type hint for identifier plugin routing when the importing
+  // instance does not know the instrument.
+  portfoliodb.type.v1.AssetClass asset_class = 2 [(buf.validate.field).enum.defined_only = true];
+  // Coverage is stored per (instrument, plugin), but an import records every
+  // span against the "import" sentinel, so these are merged across plugins: the
+  // per-plugin distinction cannot survive a round trip and is not written.
+  repeated DateInterval coverage = 3;
+  repeated CorporateEvent events = 4;
+}
+
+// CorporateEvent is one event on the group's instrument.
+message CorporateEvent {
+  oneof event {
+    Split split = 1;
+    CashDividend dividend = 2;
+  }
+}
+
+// Split is one stock split. The factor is split_to / split_from, so a 2:1 split
+// is split_from = "1", split_to = "2".
+message Split {
+  // Valid time: when the split took effect, not when it was announced or learned
+  // of.
+  string ex_date = 1 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
+  // Positive decimals; the stored columns carry CHECK (> 0).
+  string split_from = 2 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
+  string split_to = 3 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
+  // Knowledge time: when the exporting instance first learned of this split. It
+  // gates retroactive adjustment of options on the underlying, so a round trip
+  // that drops it re-adjusts symbols that were already correct. Absent falls
+  // back to the envelope's exported_at and then to storage time; a stored value
+  // only ever moves backwards.
+  optional google.protobuf.Timestamp first_known_at = 4;
+}
+
+// CashDividend is one cash dividend. amount is per share, in currency, which may
+// differ from the instrument's own currency for a cross-listed security.
+message CashDividend {
+  string ex_date = 1 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
+  optional string pay_date = 2 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
+  optional string record_date = 3 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
+  // The issuer's announcement date. The world's knowledge time, but
+  // PortfolioDB's valid time: what is known is that the announcement happened on
+  // that date.
+  optional string declaration_date = 4 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
+  string amount = 5 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
+  string currency = 6; // ISO 4217
+  // Provider-supplied and often absent: "annual", "semi-annual", "quarterly",
+  // "monthly". Free-form because it is transcribed rather than interpreted.
+  optional string frequency = 7;
+  DividendType type = 8 [(buf.validate.field).enum.defined_only = true];
+  optional google.protobuf.Timestamp first_known_at = 9;
+}
+
+// DividendType uses the stored two-letter vocabulary rather than a friendlier
+// name, so the file and the column agree without a mapping table. It is local to
+// this package because the API carries dividend type as a bare string.
+enum DividendType {
+  DIVIDEND_TYPE_UNSPECIFIED = 0; // read as CD
+  CD = 1;                        // regular cash dividend
+  SC = 2;                        // special cash dividend
+}

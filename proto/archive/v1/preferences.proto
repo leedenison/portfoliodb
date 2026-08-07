@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package portfoliodb.archive.v1;
+
+import "buf/validate/validate.proto";
+import "type/v1/type.proto";
+
+option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
+
+// PreferencePart is the settings section of a user archive: choices the user
+// made that nothing can recover. A rebuild that silently reset the display
+// currency to the column default and re-ingested the transactions the user had
+// chosen to ignore would be a rebuild that changed their data.
+message PreferencePart {
+  // ISO 4217. Absent means the file does not state it and the importing
+  // instance's value is left alone.
+  optional string display_currency = 1;
+  // Wrapped rather than a bare repeated field so that "the user has no rules" --
+  // an empty list, which import applies -- stays distinguishable from "the file
+  // does not state them", which import ignores. A bare repeated field cannot
+  // tell the two apart.
+  optional IgnoredAssetClasses ignored_asset_classes = 2;
+}
+
+message IgnoredAssetClasses {
+  repeated IgnoredAssetClassRule rules = 1;
+}
+
+// IgnoredAssetClassRule skips transactions mapping to an asset class during
+// ingestion, per broker or per broker and account.
+message IgnoredAssetClassRule {
+  portfoliodb.type.v1.Broker broker = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  string account = 2; // empty means every account for the broker
+  portfoliodb.type.v1.AssetClass asset_class = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}

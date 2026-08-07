@@ -93,3 +93,28 @@ func timePtrToTs(t *time.Time) *timestamppb.Timestamp {
 	}
 	return timestamppb.New(*t)
 }
+
+// TriggerTransferMatch signals the transfer matcher to run a cycle. Admin only.
+// Returns immediately; the pass runs asynchronously.
+//
+// This is the endpoint an external cron job or CLI calls, and it is how matching is
+// expected to run on a cadence. The ingestion worker fires the same trigger after a
+// tx import, so a pair whose second side has just landed is matched without waiting
+// for the next tick; the two are the same channel, buffered to one, so a burst of
+// either collapses into a single pass.
+//
+// Calling it more often than needed is cheap. A cycle reads every side no match
+// names, bounded by the partial index over residual postings, so a corpus with
+// nothing outstanding costs one query and writes nothing.
+func (s *Server) TriggerTransferMatch(ctx context.Context, req *apiv1.TriggerTransferMatchRequest) (*apiv1.TriggerTransferMatchResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	if s.transferMatchTrigger != nil {
+		select {
+		case s.transferMatchTrigger <- struct{}{}:
+		default:
+		}
+	}
+	return &apiv1.TriggerTransferMatchResponse{}, nil
+}

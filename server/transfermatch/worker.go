@@ -20,9 +20,13 @@ const name = "transfer_match"
 // upload's payload. Inline it would also have to fail an otherwise-correct import to
 // report a failure, or swallow one inside a success path.
 //
-// Triggered rather than scheduled. transfer_matches is a pure function of the
-// postings, and only ingestion changes those, so a clock would add cycles that can
-// find nothing.
+// Two things signal it, both on the same channel, as the price fetcher has. The
+// TriggerTransferMatch RPC is the one an external cron job or CLI calls, and is how
+// matching runs on a cadence -- there is no clock in this process. The ingestion
+// worker fires it too, after a tx import commits, so a pair whose second side has
+// just landed does not wait for the next tick. Neither is redundant: a cadence alone
+// would leave a just-imported transfer reported as unmatched until it came round,
+// and the ingestion nudge alone would never retry a cycle that failed.
 func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
 	if workers != nil {
 		workers.SetIdle(name)

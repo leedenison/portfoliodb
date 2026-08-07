@@ -110,5 +110,12 @@ members, both read this table and neither lands with it.
 
 Matching is a post-ingest job rather than part of ingestion, because the second side
 can arrive in a later import: it is a function of all stored state, not of one job's
-payload. It is triggered by ingestion rather than scheduled, since nothing else
-changes the state it reads.
+payload.
+
+Two things signal it, on one buffered channel, as the price fetcher has. An admin RPC
+is what an external cron job or CLI calls, and is how matching runs on a cadence --
+there is no clock in the process. Ingestion fires the same trigger once an import
+commits. Neither is redundant: a cadence alone would leave a just-imported transfer
+reported as unmatched until it came round, and the ingestion nudge alone would never
+retry a cycle that failed. Running it more often than needed is cheap, since a cycle
+reads every side no match names and writes nothing when there is nothing new.

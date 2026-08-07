@@ -326,6 +326,7 @@ func main() {
 		InflationTrigger:       inflationTrigger,
 		CorporateEventRegistry: corporateEventRegistry,
 		CorporateEventTrigger:  corporateEventTrigger,
+		TransferMatchTrigger:   transferMatchTrigger,
 		WorkerRegistry:         workers,
 		EnqueueJob:             api.JobEnqueuer(enqueueJob),
 	}))

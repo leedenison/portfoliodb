@@ -60,6 +60,12 @@ export function counterLeg(tx: Tx): Tx | undefined {
   const leg = clone(TxSchema, tx);
   leg.quantity = new Big(tx.quantity).times(-1).toString();
   leg.accountType = accountType;
+  // A derived leg names no source row, because the source wrote none for it. The
+  // clone above would otherwise hand it the reference of the posting it mirrors,
+  // making an invention indistinguishable from a transcription. moneyLeg builds
+  // from scratch and needs no such reset. See docs/spec/postings.md.
+  leg.brokerRef = "";
+  leg.counterpartyAccount = "";
   return leg;
 }
 

@@ -417,6 +417,15 @@ describe("groups and charges", () => {
     expect(refs).toEqual(new Set(["20251015U70330348371888432"]));
   });
 
+  // The same id says two different things: which postings are one event, and
+  // which statement record this one was transcribed from. Only the security leg
+  // is that record -- the cash and fee legs are derived from TOTAL and COMMISSION.
+  it("keeps the FITID as the transcribed leg's source reference", () => {
+    const result = parse(GBP_BUY);
+    const refs = result.txs.map((t) => t.brokerRef);
+    expect(refs.filter((r) => r !== "")).toEqual(["20251015U70330348371888432"]);
+  });
+
   it("splits the commission out of the netted total", () => {
     const result = parse(GBP_BUY);
 

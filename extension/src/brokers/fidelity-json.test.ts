@@ -481,3 +481,78 @@ describe("convertFidelityJson grouping", () => {
     }
   });
 });
+
+describe("source references", () => {
+  const base = {
+    accountNumber: "AW10075724",
+    assetName: "Cash",
+    isin: "AA00K0000000",
+    currency: "GBP",
+    status: "Completed",
+    pricePerUnit: 1,
+    dealDate: "15/04/2025",
+    settlementDate: "15/04/2025",
+  };
+
+  it("carries the reference and the account the source names as the other side", () => {
+    const result = convertFidelityJson(
+      json({
+        ...base,
+        transactionType: "Transfer Into Account",
+        debitCreditIndicator: "CREDIT",
+        units: 20000,
+        valuation: 20000,
+        referenceId: "1093663531",
+        sourceOrTargetAccount: "AG10041188",
+      })
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.txs[0]!.brokerRef).toBe("1093663531");
+    expect(result.txs[0]!.counterpartyAccount).toBe("AG10041188");
+  });
+
+  it("leaves the counterparty empty where the source names none", () => {
+    const result = convertFidelityJson(
+      json({
+        ...base,
+        transactionType: "Transfer Out From Cash Management Account",
+        debitCreditIndicator: "DEBIT",
+        units: 20000,
+        valuation: 20000,
+        referenceId: "1093663547",
+      })
+    );
+
+    expect(result.txs[0]!.brokerRef).toBe("1093663547");
+    expect(result.txs[0]!.counterpartyAccount).toBe("");
+  });
+
+  // Fidelity puts the product account a fee was charged for in the same field it
+  // names a transfer's source in. It is kept as the source wrote it: which of the
+  // two it means is not the converter's call, and a Service Fee is an INVEXPENSE
+  // whose group balances against an EXPENSE leg, so it never reaches the transfer
+  // matching that reads this as a pointer.
+  it("keeps a service fee's attribution, which is not a transfer counterparty", () => {
+    const result = convertFidelityJson(
+      json({
+        ...base,
+        assetName: "Relationship Cash Source",
+        transactionType: "Service Fee",
+        debitCreditIndicator: "DEBIT",
+        units: 5.13,
+        valuation: 5.13,
+        referenceId: "1299133228",
+        sourceOrTargetAccount: "AP10013127",
+      })
+    );
+
+    const fee = result.txs[0]!;
+    expect(fee.type).toBe(TxType.INVEXPENSE);
+    expect(fee.counterpartyAccount).toBe("AP10013127");
+    // The derived expense leg is the converter's own, so it names no source row.
+    const expense = result.txs.find((tx) => tx.accountType === AccountType.EXPENSE)!;
+    expect(expense.brokerRef).toBe("");
+    expect(expense.counterpartyAccount).toBe("");
+  });
+});

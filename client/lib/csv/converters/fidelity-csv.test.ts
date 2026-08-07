@@ -869,3 +869,59 @@ describe("trade cash legs", () => {
     expect(result.txs[1].quantity).toBe("7265.7");
   });
 });
+
+describe("source references", () => {
+  const HEAD =
+    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
+  const convert = (rows: string[]) =>
+    convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
+
+  // The two sides of one transfer hop, verbatim from the master export. Their
+  // references differ by 3, which is what tells this month's fee transfer from
+  // last month's when the amounts are identical.
+  it("carries the broker's reference onto every transcribed posting", () => {
+    const result = convert([
+      "2022-05-06,2022-05-06,Transfer To Cash Management Account For Fees,Cash,SIPP,AP1,,-2.19,2.19,1,603102266,Completed",
+      "2022-05-06,2022-05-06,Cash In Ring-fenced For Fees,Cash,Cash Management Account,AW1,,2.19,2.19,1,603102269,Completed",
+    ]);
+
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs[0].brokerRef).toBe("603102266");
+    expect(result.txs[1].brokerRef).toBe("603102269");
+  });
+
+  // The export's "Source investment" column holds an asset name rather than an
+  // account, so this file names no counterparty anywhere and the converter must
+  // not pretend otherwise.
+  it("names no counterparty, because the CSV export carries none", () => {
+    const result = convert([
+      "8 Feb 2022,10 Feb 2022,Sell,\"WISE PLC (WISE)\",Investment Account,AG1,Cash,-7266.49,1242,5.85,563466569,Completed",
+    ]);
+
+    expect(result.txs[0].counterpartyAccount).toBe("");
+  });
+
+  it("leaves a posting the source gave no reference for unreferenced", () => {
+    const result = convert([
+      "8 Feb 2022,10 Feb 2022,Cash Interest,Cash,Investment Account,AG1,,1.18,1.18,1,,Completed",
+    ]);
+
+    expect(result.txs[0].brokerRef).toBe("");
+  });
+
+  // A dividend's income leg is the converter's invention: the source wrote one
+  // row and we write two. Handing the second the first's reference would make an
+  // invention indistinguishable from a transcription.
+  it("does not give a derived counter-leg a reference it never had", () => {
+    const result = convert([
+      "8 Feb 2022,10 Feb 2022,Cash Dividend,Cash,Investment Account,AG1,,23.40,23.40,1,563466600,Completed",
+    ]);
+
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs[0].brokerRef).toBe("563466600");
+    expect(result.txs[1].accountType).toBe(AccountType.INCOME);
+    expect(result.txs[1].brokerRef).toBe("");
+    // Both legs still belong to one event.
+    expect(result.txs[1].groupRef).toBe(result.txs[0].groupRef);
+  });
+});

@@ -6,6 +6,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/testutil"
 	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
@@ -234,5 +235,57 @@ func TestCountResidualBalances_StaleWindow(t *testing.T) {
 				t.Errorf("staleBefore = %v, want ~%v (%d days back)", got, want, tc.wantDays)
 			}
 		})
+	}
+}
+
+func TestTriggerTransferMatch_RequiresAdmin(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	ctx := authCtx("user-1", "sub|user")
+	_, err := srv.TriggerTransferMatch(ctx, &apiv1.TriggerTransferMatchRequest{})
+	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
+}
+
+func TestTriggerTransferMatch_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(func() { ctrl.Finish() })
+	mockDB := mock.NewMockDB(ctrl)
+	trigger := make(chan struct{}, 1)
+	srv := NewServer(ServerConfig{DB: mockDB, TransferMatchTrigger: trigger})
+
+	ctx := adminCtx("admin-1", "sub|admin")
+	if _, err := srv.TriggerTransferMatch(ctx, &apiv1.TriggerTransferMatchRequest{}); err != nil {
+		t.Fatalf("TriggerTransferMatch: %v", err)
+	}
+	select {
+	case <-trigger:
+	default:
+		t.Error("expected a signal on the trigger channel")
+	}
+}
+
+// TestTriggerTransferMatch_NonBlocking verifies a cron job calling this while a pass
+// is already pending returns rather than waiting. The channel is buffered to one, so
+// a burst of calls collapses into a single cycle.
+func TestTriggerTransferMatch_NonBlocking(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(func() { ctrl.Finish() })
+	mockDB := mock.NewMockDB(ctrl)
+	trigger := make(chan struct{}, 1)
+	trigger <- struct{}{}
+	srv := NewServer(ServerConfig{DB: mockDB, TransferMatchTrigger: trigger})
+
+	ctx := adminCtx("admin-1", "sub|admin")
+	if _, err := srv.TriggerTransferMatch(ctx, &apiv1.TriggerTransferMatchRequest{}); err != nil {
+		t.Fatalf("TriggerTransferMatch should not block: %v", err)
+	}
+}
+
+// TestTriggerTransferMatch_NilTrigger verifies the RPC is a no-op rather than an
+// error where no worker is wired, matching the other trigger endpoints.
+func TestTriggerTransferMatch_NilTrigger(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	ctx := adminCtx("admin-1", "sub|admin")
+	if _, err := srv.TriggerTransferMatch(ctx, &apiv1.TriggerTransferMatchRequest{}); err != nil {
+		t.Fatalf("TriggerTransferMatch with nil trigger should succeed: %v", err)
 	}
 }

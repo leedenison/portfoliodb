@@ -343,6 +343,12 @@ service ApiService {
   rpc UpdateCorporateEventPlugin(UpdateCorporateEventPluginRequest) returns (UpdateCorporateEventPluginResponse);
   rpc TriggerCorporateEventFetch(TriggerCorporateEventFetchRequest) returns (TriggerCorporateEventFetchResponse);
 
+  // Trigger a transfer matching cycle (admin-only). Returns immediately; the pass
+  // runs async. For use by an external cron job or CLI, and after a manual
+  // correction. A cycle reads every unmatched side rather than a window, so
+  // running it more often than needed costs one query and finds nothing new.
+  rpc TriggerTransferMatch(TriggerTransferMatchRequest) returns (TriggerTransferMatchResponse);
+
   // Corporate event import / export. Mirrors the price import/export RPCs:
   // import is async via the job queue, export streams every event with the
   // best identifier per instrument.
@@ -1166,6 +1172,10 @@ message UpdateCorporateEventPluginResponse {
 message TriggerCorporateEventFetchRequest {}
 
 message TriggerCorporateEventFetchResponse {}
+
+message TriggerTransferMatchRequest {}
+
+message TriggerTransferMatchResponse {}
 
 // SplitRow is one stock split row used by both export and import. SplitFrom
 // and SplitTo are decimal strings (e.g. "1" and "2" for a 2:1 split). The

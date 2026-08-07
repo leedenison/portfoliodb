@@ -32,6 +32,7 @@ type Server struct {
 	inflationTrigger       chan<- struct{}
 	corporateEventRegistry *corporateevents.Registry
 	corporateEventTrigger  chan<- struct{}
+	transferMatchTrigger   chan<- struct{}
 	workerRegistry         *worker.Registry
 	enqueueJob             JobEnqueuer
 }
@@ -49,6 +50,7 @@ type ServerConfig struct {
 	InflationTrigger       chan<- struct{}            // optional; when set, TriggerInflationFetch sends on it
 	CorporateEventRegistry *corporateevents.Registry  // optional; enables display_name in corporate event plugin list
 	CorporateEventTrigger  chan<- struct{}            // optional; when set, TriggerCorporateEventFetch sends on it
+	TransferMatchTrigger   chan<- struct{}            // optional; when set, TriggerTransferMatch sends on it
 	WorkerRegistry         *worker.Registry           // optional; when set, ListWorkers returns worker status
 	EnqueueJob             JobEnqueuer                // optional; when set, ImportPrices enqueues async jobs
 }
@@ -67,6 +69,7 @@ func NewServer(cfg ServerConfig) *Server {
 		inflationTrigger:       cfg.InflationTrigger,
 		corporateEventRegistry: cfg.CorporateEventRegistry,
 		corporateEventTrigger:  cfg.CorporateEventTrigger,
+		transferMatchTrigger:   cfg.TransferMatchTrigger,
 		workerRegistry:         cfg.WorkerRegistry,
 		enqueueJob:             cfg.EnqueueJob,
 	}

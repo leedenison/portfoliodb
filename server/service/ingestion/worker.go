@@ -51,6 +51,9 @@ type WorkerOptions struct {
 	// CorporateEventTrigger is fired after a successful corporate event
 	// import; nil disables corporate-event-fetcher nudging.
 	CorporateEventTrigger chan<- struct{}
+	// TransferMatchTrigger is fired after a tx import that produced new state;
+	// nil disables transfer-matcher nudging.
+	TransferMatchTrigger chan<- struct{}
 	// Workers is the per-process worker status registry shown in the admin
 	// UI; nil disables status reporting.
 	Workers *worker.Registry
@@ -98,11 +101,15 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			if err := recalcAfterIngestion(ctx, opts.DB, userID); err != nil {
 				log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
 			}
-			// Only the price fetcher is triggered here. The corporate event
-			// fetcher is not nudged because splits are not time-critical --
-			// the daily corporate event fetch cycle is sufficient for any
-			// newly resolved instruments.
+			// The corporate event fetcher is not nudged because splits are
+			// not time-critical -- the daily corporate event fetch cycle is
+			// sufficient for any newly resolved instruments.
 			pluginutil.Trigger(opts.PriceTrigger)
+			// Fired after the store has committed, which is what the matcher
+			// needs: it reads stored postings, not this job's payload. The
+			// import may also have supplied the second side of a transfer
+			// whose first side arrived months ago.
+			pluginutil.Trigger(opts.TransferMatchTrigger)
 		}
 	case db.JobTypePrice:
 		if processPriceImport(ctx, opts.DB, opts.IdentifierRegistry, j) {

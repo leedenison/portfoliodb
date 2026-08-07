@@ -332,6 +332,11 @@ export function parseOfxStatement(text: string): OfxParseResult {
         tradingCurrency,
         settlementCurrency: tradingCurrency,
         groupRef: fitId,
+        // The same id in both fields, saying two different things: which postings
+        // are one event, and which statement record this one was transcribed from.
+        // Only this leg carries the reference -- the cash and fee legs below are
+        // derived from TOTAL and COMMISSION rather than from rows of their own.
+        ...(fitId ? { brokerRef: fitId } : {}),
         ...(unitPrice !== undefined ? { unitPrice } : {}),
         ...(hintProtos.length > 0 ? { identifierHints: hintProtos } : {}),
       });

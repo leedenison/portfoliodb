@@ -50,6 +50,19 @@ interface FidelityRow {
   dealDate?: string;
   /** Completion date. Absent while a transaction has not settled. */
   settlementDate?: string | null;
+  /**
+   * The account Fidelity names as the other side of this row. Populated on a
+   * transfer arrival, naming where the money came from -- and also on a Service
+   * Fee, where it names the product account the fee was charged for, which is
+   * attribution rather than a transfer counterparty.
+   *
+   * Carried through either way, because the field says what the source said and
+   * which of the two it means is not the converter's call. A Service Fee is an
+   * INVEXPENSE whose group balances against an EXPENSE leg, so it never produces
+   * the TRANSFER_CLEARING residual that transfer matching reads a pointer for;
+   * the fee attribution is left for whatever wants it. See docs/spec/postings.md.
+   */
+  sourceOrTargetAccount?: string | null;
 }
 
 /**
@@ -218,6 +231,11 @@ export function convertFidelityJson(
         ...(row.pricePerUnit !== undefined
           ? { unitPrice: (decimalFromNumber(row.pricePerUnit) ?? ZERO).toString() }
           : {}),
+        // The string, not the number the leg carries: broker_ref is opaque, so a
+        // reference the source wrote in some other shape survives rather than
+        // becoming NaN.
+        ...(row.referenceId ? { brokerRef: row.referenceId } : {}),
+        ...(row.sourceOrTargetAccount ? { counterpartyAccount: row.sourceOrTargetAccount } : {}),
         ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })
     );

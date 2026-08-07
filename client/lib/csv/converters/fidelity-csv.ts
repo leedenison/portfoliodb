@@ -651,6 +651,14 @@ export function convertFidelityToStandard(
       ref: refCol >= 0 ? parseInt(get(refCol), 10) : NaN,
       cashAsset,
     });
+    // The cell, not the parsed number the leg carries: broker_ref is opaque and a
+    // reference the source wrote in some other shape should survive rather than
+    // become NaN. Nothing here parses it -- that is the matcher's problem.
+    //
+    // No counterpartyAccount. The export's "Source investment" column holds an
+    // asset name, not an account, so this file names no counterparty anywhere.
+    // Only the JSON the extension reads does.
+    const brokerRef = refCol >= 0 ? get(refCol) : "";
     txs.push(
       create(TxSchema, {
         timestamp: timestampFromDate(date),
@@ -662,6 +670,7 @@ export function convertFidelityToStandard(
         ...(isCashTxType(ofxType) ? { tradingCurrency: currency } : {}),
         // Presence, not truthiness: a reported price of zero is a price.
         ...(unitPriceDec !== undefined ? { unitPrice: unitPriceDec.toString() } : {}),
+        ...(brokerRef ? { brokerRef } : {}),
         ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })
     );

@@ -35,7 +35,7 @@ import (
 // service fee is an INVEXPENSE whose group balances against an EXPENSE leg and
 // routes nothing to clearing.
 const unmatchedTransferSidesSQL = `
-	SELECT t.user_id, t.group_id, t.broker, t.account, t.instrument_id, t.tx_type,
+	SELECT t.user_id, t.group_id, t.broker, t.account, t.instrument_id,
 		-- The split-adjusted column, not the raw one: money never splits and the two
 		-- agree for it, but the two sides of a securities journal recorded either
 		-- side of a split are in different denominations and would not cancel.
@@ -72,7 +72,6 @@ type transferSideRow struct {
 	Broker               string          `db:"broker"`
 	Account              string          `db:"account"`
 	InstrumentID         string          `db:"instrument_id"`
-	TxType               string          `db:"tx_type"`
 	Amount               decimal.Decimal `db:"amount"`
 	Timestamp            time.Time       `db:"timestamp"`
 	BrokerRefs           pq.StringArray  `db:"broker_refs"`
@@ -86,7 +85,6 @@ func (r *transferSideRow) toDomain() db.TransferSide {
 		Broker:               strToBroker(r.Broker),
 		Account:              r.Account,
 		InstrumentID:         r.InstrumentID,
-		TxType:               strToTxType(r.TxType),
 		Amount:               r.Amount,
 		Timestamp:            r.Timestamp,
 		BrokerRefs:           []string(r.BrokerRefs),
@@ -154,31 +152,38 @@ func (p *Postgres) CreateTransferMatches(ctx context.Context, matches []db.Trans
 	return written, nil
 }
 
+// transferMatchRow is the sqlx-scannable shape for one link.
+type transferMatchRow struct {
+	UserID       string `db:"user_id"`
+	FromGroupID  string `db:"from_group_id"`
+	ToGroupID    string `db:"to_group_id"`
+	InstrumentID string `db:"instrument_id"`
+	Method       string `db:"method"`
+}
+
+func (r *transferMatchRow) toDomain() db.TransferMatch {
+	return db.TransferMatch{
+		UserID:       r.UserID,
+		FromGroupID:  r.FromGroupID,
+		ToGroupID:    r.ToGroupID,
+		InstrumentID: r.InstrumentID,
+		Method:       r.Method,
+	}
+}
+
 // ListTransferMatches implements db.TransferMatchDB.
 func (p *Postgres) ListTransferMatches(ctx context.Context, userID string) ([]db.TransferMatch, error) {
-	var rows []struct {
-		UserID       string `db:"user_id"`
-		FromGroupID  string `db:"from_group_id"`
-		ToGroupID    string `db:"to_group_id"`
-		InstrumentID string `db:"instrument_id"`
-		Method       string `db:"method"`
-	}
 	q := `
 		SELECT user_id, from_group_id, to_group_id, instrument_id, method
 		FROM transfer_matches WHERE user_id = $1::uuid
 		ORDER BY matched_at DESC, id`
+	var rows []transferMatchRow
 	if err := p.q.SelectContext(ctx, &rows, q, userID); err != nil {
 		return nil, fmt.Errorf("list transfer matches: %w", err)
 	}
 	out := make([]db.TransferMatch, len(rows))
-	for i, r := range rows {
-		out[i] = db.TransferMatch{
-			UserID:       r.UserID,
-			FromGroupID:  r.FromGroupID,
-			ToGroupID:    r.ToGroupID,
-			InstrumentID: r.InstrumentID,
-			Method:       r.Method,
-		}
+	for i := range rows {
+		out[i] = rows[i].toDomain()
 	}
 	return out, nil
 }

@@ -491,6 +491,13 @@ CREATE UNIQUE INDEX idx_txs_initialize_unique
 -- Neither the quantity nor the ingestion job is stored. The two sides are equal and
 -- opposite by construction, so a stored amount could only disagree with them, and a
 -- match is not made by an ingestion job.
+--
+-- user_id must be the owner of both groups, and both groups must have the same owner.
+-- Neither is checked here: a CHECK cannot reach another table and a trigger to enforce
+-- it would run on every insert to catch a case no caller can produce. The matcher
+-- partitions its candidates by user before proposing anything, so a cross-user pair
+-- cannot be built. The column is a denormalisation for query scoping -- deleting a
+-- user already cascades through tx_groups -- and the invariant is the caller's.
 CREATE TABLE transfer_matches (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,

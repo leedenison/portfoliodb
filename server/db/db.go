@@ -1122,7 +1122,6 @@ type TransferSide struct {
 	Broker       apiv1.Broker
 	Account      string
 	InstrumentID string
-	TxType       apiv1.TxType
 	// Amount is the residual's split-adjusted quantity, signed. Positive means the
 	// value left this account -- the group's own leg is negative and the clearing
 	// leg holds what is owed out -- and negative means it arrived. A pair is two

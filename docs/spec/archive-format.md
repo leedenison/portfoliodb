@@ -173,3 +173,123 @@ Every archive is one protojson object whose first member is the envelope:
   type says the same thing, but protojson records no type name, so the envelope
   has to carry it -- without it, an importer cannot refuse a user archive handed
   to the admin page.
+
+## The admin archive
+
+`AdminArchive` is one protojson object: the envelope, then one optional section
+per entity. A section present but empty means the export included it and there
+was nothing; a section absent means it was not included at all. Sections are
+written in restore order -- instruments first, because every other part refers
+to them.
+
+```json
+{"envelope": {"format_version": 1, "exported_at": "2026-07-30T00:00:00Z",
+              "source_instance": "portfoliodb.example.com",
+              "kind": "ARCHIVE_KIND_ADMIN"},
+ "instruments": {"instruments": [...]},
+ "prices": {"groups": [...]},
+ "corporate_events": {"groups": [...]}}
+```
+
+### Instruments
+
+`instruments.instruments[]` is a flat list. A derivative names its underlying by
+identifier rather than by position, so a shared underlying appears once and the
+order the list is written in carries no meaning.
+
+| Field | Notes |
+| --- | --- |
+| `asset_class` | |
+| `name` | optional; advisory, see below |
+| `currency` | ISO 4217 |
+| `exchange_mic` | optional; ISO 10383 |
+| `identifiers[]` | at least one; `{type, value, domain, canonical}` |
+| `provider_identifiers[]` | `{provider, identifier_type, value, domain}`; `identifier_type` is the provider's own vocabulary, not `IdentifierType` |
+| `underlying` | optional; an identifier triple naming an instrument in the same part |
+| `cik`, `sic_code` | optional |
+| `valid_from`, `valid_before` | optional; half-open, either bound open-ended |
+| `strike`, `expiry`, `put_call`, `contract_multiplier` | optional; options only |
+| `identity_as_of` | optional; the point in market time the identity reflects |
+
+`name` is advisory because the importing instance recomputes it from the
+identifiers. It survives only where no ticker-like identifier exists to derive
+one from, which is exactly the case where a plugin-supplied name would otherwise
+be lost.
+
+`provider_identifiers` are the recorded output of the paid, rate-limited lookups
+the archive exists to avoid repeating. An instrument restored with them is
+indistinguishable from a resolved one, and no plugin is called for it.
+
+**Not carried:** the server UUID, which means nothing in another instance; the
+`exchange` column, which is derived from `exchange_mic` and the identifiers; the
+nested underlying subtree and the joined exchange reference data, both of which
+exist so the SPA need not fetch them separately and neither of which belongs in
+a file.
+
+### Prices
+
+`prices.groups[]` is one group per instrument, or one group per
+`share_count_basis` where an instrument's rows are not all denominated in one
+share count -- which is how a single file carries a back-adjusted series
+alongside an as-traded one.
+
+| Level | Field | Notes |
+| --- | --- | --- |
+| group | `instrument` | identifier triple |
+| group | `asset_class` | hint for identifier plugin routing on an unknown instrument |
+| group | `currency` | ISO 4217; validation hint |
+| group | `share_count_basis` | optional; absent means as-traded |
+| group | `coverage[]` | half-open intervals |
+| row | `price_date` | |
+| row | `open`, `high`, `low`, `adjusted_close`, `volume` | optional |
+| row | `close` | |
+
+```json
+{"instrument": {"type": "MIC_TICKER", "value": "AAPL", "domain": "XNAS"},
+ "asset_class": "STOCK", "currency": "USD",
+ "coverage": [{"from": "2022-01-01", "before": "2025-07-07"}],
+ "rows": [{"price_date": "2024-01-15", "close": "185.9", "volume": "48088700"}]}
+```
+
+That group is what the price CSV spelled as a `# coverage=` comment line plus a
+row, and it is why the comment syntax goes. Coverage is a field of the group it
+applies to, so a file needs no global declaration, no rule for a specific
+declaration overriding a global one, no rule for several specifics applying at
+once, and no error case for a half-written identifier. An instrument that was
+covered but has no rows is simply a group with an empty `rows`.
+
+**Not carried:** the split-adjusted close, which the importing instance derives;
+`last_fetched_at`, which comes from the envelope's `exported_at`; and the
+originating data provider, because an import records every row and every span
+against the `import` sentinel, so provenance cannot survive a round trip.
+
+`share_count_basis` on the group is new. The price CSV could state it on import
+but not on export, so a back-adjusted series exported and reimported came back
+as as-traded and was adjusted a second time.
+
+### Corporate events
+
+`corporate_events.groups[]` is one group per instrument, carrying coverage and a
+list of events, each of which is a `split` or a `dividend`.
+
+| Level | Field | Notes |
+| --- | --- | --- |
+| group | `instrument`, `asset_class` | |
+| group | `coverage[]` | merged across plugins; see below |
+| split | `ex_date`, `split_from`, `split_to` | factor is `split_to / split_from` |
+| split | `first_known_at` | optional; knowledge time |
+| dividend | `ex_date`, `amount`, `currency`, `type` | `type` is `CD` or `SC` |
+| dividend | `pay_date`, `record_date`, `declaration_date`, `frequency`, `first_known_at` | optional |
+
+Events are sparse, so the absence of an event says nothing about whether a range
+was queried. Only coverage says that, which is why a group with no events is
+still worth writing.
+
+`first_known_at` gates retroactive adjustment of options on the underlying: a
+round trip that dropped it would re-adjust symbols that were already correct. It
+falls back to the envelope's `exported_at` and then to storage time, and a
+stored value only ever moves backwards.
+
+Coverage is stored per instrument and plugin, but an import records every span
+against the `import` sentinel, so the file carries spans merged across plugins.
+The per-plugin distinction cannot survive a round trip and is not written.

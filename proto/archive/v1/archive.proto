@@ -3,6 +3,9 @@ syntax = "proto3";
 package portfoliodb.archive.v1;
 
 import "archive/v1/common.proto";
+import "archive/v1/corporate_events.proto";
+import "archive/v1/instruments.proto";
+import "archive/v1/prices.proto";
 import "buf/validate/validate.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
@@ -21,8 +24,11 @@ option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev
 // See docs/adr/0033-admin-and-user-archives-are-separate.md.
 message AdminArchive {
   Envelope envelope = 1 [(buf.validate.field).required = true];
-  // 2 to 9 are the parts: instruments, prices, corporate events, fetch blocks
-  // and resolutions, plugin config, inflation indices.
+  InstrumentPart instruments = 2;
+  PricePart prices = 3;
+  CorporateEventPart corporate_events = 4;
+  // 5 to 9 are the remaining parts: fetch blocks and resolutions, plugin
+  // config, inflation indices.
 }
 
 // UserArchive is one user archive document: one user's own data, and no admin

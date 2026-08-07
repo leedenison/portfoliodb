@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Match the two sides of a transfer and clear them from in-flight
 milestone: M12
 dependencies: [0037, 0038]

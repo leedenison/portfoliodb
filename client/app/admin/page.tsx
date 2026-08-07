@@ -134,10 +134,12 @@ export default function AdminOverviewPage() {
     queryKey: qk.residualBalanceCounts(),
     queryFn: () => countResidualBalances(),
   });
-  // Only imbalances draw attention. The transfer count includes settled
-  // transfers -- nothing pairs the two sides of a journal yet -- so it is
-  // reported as a fact rather than as something to act on.
-  const residualAttention = (residualCounts?.imbalanceCount ?? 0) > 0;
+  // Both draw attention now. A stale transfer count is of transfers whose second
+  // side never arrived -- a settled pair is matched and excluded -- so it is
+  // something to act on rather than a restatement of how many were imported.
+  const residualAttention =
+    (residualCounts?.imbalanceCount ?? 0) > 0 ||
+    (residualCounts?.staleTransferCount ?? 0) > 0;
 
   function pluginSummary(
     id: string
@@ -163,11 +165,15 @@ export default function AdminOverviewPage() {
     }
     if (id === "imbalance") {
       if (!residualCounts) return null;
-      const imbalanced = residualAttention
-        ? `${residualCounts.imbalanceCount} imbalanced`
-        : "Everything balances";
+      const stale = residualCounts.staleTransferCount;
+      if (residualCounts.imbalanceCount === 0 && stale === 0) return "Everything balances";
+      const parts: string[] = [];
+      if (residualCounts.imbalanceCount > 0) {
+        parts.push(`${residualCounts.imbalanceCount} imbalanced`);
+      }
       // The count is bounded by age, so the window is named rather than implied.
-      return `${imbalanced}, ${residualCounts.staleTransferCount} transfers in flight over ${TRANSFER_STALE_DAYS}d`;
+      if (stale > 0) parts.push(`${stale} unmatched over ${TRANSFER_STALE_DAYS}d`);
+      return parts.join(", ");
     }
     return null;
   }

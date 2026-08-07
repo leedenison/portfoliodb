@@ -169,13 +169,15 @@ func TestListResidualBalances_SecurityCommodity(t *testing.T) {
 	}
 }
 
-// TestListResidualBalances_SettledTransferIsStillReported pins the limitation this
-// report has until transfers are matched (0068): both sides of a completed journal
-// are TRANSFER_CLEARING postings in different accounts, nothing pairs them, and the
-// report cannot tell a settled transfer from one whose second side never arrived.
-// Both sides are reported. Update this test when 0068 makes them distinguishable.
-func TestListResidualBalances_SettledTransferIsStillReported(t *testing.T) {
+// TestListResidualBalances_MatchedTransferIsSettled verifies a paired journal drops
+// out of the report. Both sides are TRANSFER_CLEARING postings in different accounts,
+// so before matching a settled transfer and one whose second side never arrived were
+// the same shape and both were listed -- which is why the page carried a caveat
+// saying it listed every imported transfer. A matched side is settled: the value is
+// in the other account and the balance is an artefact of the two statements.
+func TestListResidualBalances_MatchedTransferIsSettled(t *testing.T) {
 	p := testDBTx(t)
+	ctx := context.Background()
 	userID := newUser(t, p, "sub|settled")
 	usd := usdInstrument(t, p)
 
@@ -184,12 +186,13 @@ func TestListResidualBalances_SettledTransferIsStillReported(t *testing.T) {
 		residualSeed{"IBKR", "A2", usd, apiv1.TxType_JRNLFUND, apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING, "-500", 38},
 	)
 
-	rows, err := p.ListResidualBalances(context.Background(), db.ResidualBalanceOpts{})
+	// Unmatched, both sides are reported: nothing yet says they belong together.
+	rows, err := p.ListResidualBalances(ctx, db.ResidualBalanceOpts{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(rows) != 2 {
-		t.Fatalf("expected both sides reported, got %+v", rows)
+		t.Fatalf("before matching: expected both sides reported, got %+v", rows)
 	}
 	out := findBalance(t, rows, apiv1.Broker_IBKR, "A1", apiv1.TxType_JRNLFUND)
 	if out.Balance.String() != "500" {
@@ -198,6 +201,44 @@ func TestListResidualBalances_SettledTransferIsStillReported(t *testing.T) {
 	if out.Oldest == nil || out.Newest == nil {
 		t.Error("expected the contributing postings to be dated")
 	}
+
+	from, to := groupOf(t, p, userID, "A1"), groupOf(t, p, userID, "A2")
+	if _, err := p.CreateTransferMatches(ctx, []db.TransferMatch{{
+		UserID: userID, FromGroupID: from, ToGroupID: to, InstrumentID: usd,
+		Method: db.TransferMatchReference,
+	}}); err != nil {
+		t.Fatalf("create match: %v", err)
+	}
+
+	rows, err = p.ListResidualBalances(ctx, db.ResidualBalanceOpts{})
+	if err != nil {
+		t.Fatalf("list after matching: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("after matching: expected the settled pair to drop out, got %+v", rows)
+	}
+
+	// And the dashboard stops counting it, so a number above zero is something to
+	// act on rather than a restatement of how many transfers were imported.
+	_, stale, err := p.CountResidualBalances(ctx, time.Now().AddDate(0, 0, -7))
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if stale != 0 {
+		t.Errorf("stale transfer count = %d, want 0: the pair is settled", stale)
+	}
+}
+
+// groupOf returns the tx group of the residual posting seeded into one account.
+func groupOf(t *testing.T, p *Postgres, userID, account string) string {
+	t.Helper()
+	var id string
+	err := p.q.QueryRowContext(context.Background(),
+		`SELECT group_id FROM txs WHERE user_id = $1::uuid AND account = $2`, userID, account).Scan(&id)
+	if err != nil {
+		t.Fatalf("group of %s: %v", account, err)
+	}
+	return id
 }
 
 // TestListResidualBalances_ImbalancesDoNotNetAcrossAccounts verifies imbalances are

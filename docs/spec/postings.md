@@ -91,7 +91,7 @@ outside A, and `account_type` says what kind of outside:
 - Another `USER` account is external to A, and nets against the other side when both
   accounts belong to the portfolio being measured.
 - `TRANSFER_CLEARING` is external while unmatched, because one half is all we know. It
-  nets once the pair is matched and both accounts are members.
+  nets once the pair is [matched](#transfers) and both accounts are members.
 
 Membership decides internal versus external; there is no per-portfolio user override.
 Membership already expresses the intent, and a toggle would be a second place to say the
@@ -112,7 +112,9 @@ in portfolio value and a fake return blip. Holding value in transit is what a cl
 account is for. So: exclude from holdings display always; include in valuation only for
 matched pairs where both accounts are members. Including an unmatched in-flight balance
 would assert the money is coming back to a member account, which is the thing we do not
-know. Valuation reads `USER` only until transfer matching supplies the pairing.
+know. Matching now supplies the pairing this rule needs, but nothing reads it yet:
+valuation still reads `USER` only, and netting a matched pair in portfolio cash flows
+is a separate change (0090).
 
 The transaction list is not filtered. It is a ledger view, and hiding the counterparty
 legs would make groups look unbalanced and hide the residuals that make a converter's
@@ -258,11 +260,46 @@ An INITIALIZE pad is balanced by an `EQUITY` counterparty instead; see
 ### Transfers
 
 The two sides of a journal (`TRANSFER`, `JRNLFUND`, `JRNLSEC`) are not paired at
-ingest. Brokers report them in separate statements and matching is unreliable, so
-each side is balanced by a `TRANSFER_CLEARING` counterparty in the same commodity,
-which holds the value in transit. A non-zero `TRANSFER_CLEARING` balance means a
-side whose pair has not arrived. Matching them is a later change; until then an
-unmatched balance is surfaced for review.
+ingest. Brokers report them in separate statements and sometimes in separate imports,
+so each side is balanced by a `TRANSFER_CLEARING` counterparty in the same commodity,
+which holds the value in transit.
+
+They are paired afterwards, by a background job. Two things run it, on one buffered
+channel: an admin RPC, which is what an external cron job or CLI calls and is how
+matching runs on a cadence, and the ingestion worker once an import commits, so a
+transfer whose second side has just landed does not wait for the next tick. A cycle
+reads every side no match names and writes nothing when there is nothing new, so
+running it often is cheap.
+
+A match is a link between the two tx groups -- both group ids, the commodity, how they were matched and
+when -- rather than a status on the posting or a third group closing both sides out.
+It records which group, and so which account, holds the other side, because that is
+what the membership test above consumes. The link is derived and disposable: it
+cascades when a re-upload replaces one side's groups, and the job rebuilds it. See
+adr/0037-transfer-matches-are-links-not-postings.md.
+
+A pair is found on evidence that identifies the occurrence, in this order:
+
+1. **An explicit pointer** -- the source names the other account outright, in
+   `counterparty_account`.
+2. **Reference proximity** -- the two sides' `broker_ref` values are near, a broker
+   issuing the references of one movement together.
+
+Both additionally require an exactly equal and opposite amount in the same commodity,
+two different accounts of the same user, and a date window. The window exists because
+the two sides are dated by their own statements and need not agree, and is bounded
+above by the staleness threshold of the report below, so that a pair still within the
+matcher's reach is never reported as missing. A pointer is narrowing evidence rather
+than a decision: it names the counterparty account, not the occurrence, so it needs
+the window and the ambiguity test like anything else.
+
+**Ambiguity is left unmatched.** Where two candidates are equally good on the
+evidence, neither is taken. There is no rule that pairs on an amount and a date alone,
+so a transfer between two brokers -- the case with no sample to calibrate against --
+stays unmatched and visible.
+
+A residual `TRANSFER_CLEARING` balance therefore means a side whose pair has not
+arrived, and its age is the age of something missing.
 
 ## Naming a group on upload
 

@@ -50,9 +50,9 @@ FROM (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;
 
 -- A journal between two Schwab accounts whose second side did arrive. Both sides
--- are TRANSFER_CLEARING postings, so the report has to consume them against each
--- other; neither should appear. They arrive in separate statements, so they are
--- separate groups -- pairing them is 0068.
+-- are TRANSFER_CLEARING postings in separate groups, because they arrived in
+-- separate statements; the transfer_matches row at the bottom of this file pairs
+-- them, and neither should appear in the report.
 INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
                  quantity, trading_currency, settlement_currency, instrument_id, account_type,
                  weight, weight_commodity, group_id)
@@ -103,4 +103,14 @@ FROM (VALUES ('FIDELITY', 'ACC-1', '5',  'INCOME',   137.08,   'e2e00000-0000-00
              ('IBKR',     'U-NEW', '2',  'JRNLFUND', -250.00,  'e2e00000-0000-0000-0000-000000000306'))
      AS v(broker, account, days, tx_type, qty, group_id),
      (SELECT instrument_id FROM instrument_identifiers
+      WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;
+
+-- The pairing for the settled Schwab journal. SCH-1's residual is positive, so that
+-- is the side the value left. With this row both sides are settled and drop out of
+-- the report, leaving only the two IBKR sides whose counterparts never arrived.
+INSERT INTO transfer_matches (user_id, from_group_id, to_group_id, instrument_id, method)
+SELECT 'e2e00000-0000-0000-0000-000000000001',
+       'e2e00000-0000-0000-0000-000000000303', 'e2e00000-0000-0000-0000-000000000304',
+       i.instrument_id, 'REFERENCE'
+FROM (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;

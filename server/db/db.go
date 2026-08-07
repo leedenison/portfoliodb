@@ -1071,8 +1071,8 @@ type ResidualBalance struct {
 	Balance      decimal.Decimal
 	PostingCount int32
 	// Oldest and Newest bound the postings that contribute to the balance. For a
-	// transfer they are not the age of a missing side: nothing pairs the two sides
-	// of a journal until 0068, so a settled transfer is reported like an open one.
+	// transfer that is the age of a missing side: a matched pair is excluded from
+	// the report, so what remains is a side whose counterpart never arrived.
 	Oldest *time.Time
 	Newest *time.Time
 }
@@ -1093,9 +1093,8 @@ type ResidualBalanceOpts struct {
 type ResidualBalanceDB interface {
 	ListResidualBalances(ctx context.Context, opts ResidualBalanceOpts) ([]ResidualBalance, error)
 	// CountResidualBalances returns the number of non-zero IMBALANCE balances and
-	// the number of TRANSFER_CLEARING balances older than staleBefore, over all of
-	// history. The transfer count includes settled transfers, and will until
-	// matching (0068) makes the two distinguishable.
+	// the number of unmatched TRANSFER_CLEARING balances older than staleBefore,
+	// over all of history. A matched pair is settled and is not counted.
 	CountResidualBalances(ctx context.Context, staleBefore time.Time) (imbalances, staleTransfers int32, err error)
 }
 

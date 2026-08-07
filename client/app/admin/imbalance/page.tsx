@@ -276,24 +276,12 @@ function TransfersTab({
 }) {
   if (loading && rows.length === 0) return <p className="text-text-muted">Loading transfers...</p>;
   if (rows.length === 0 && !hasError) {
-    return <p className="text-text-muted">No transfer balances.</p>;
+    return <p className="text-text-muted">No unmatched transfers.</p>;
   }
 
   const now = new Date();
   return (
     <div className="space-y-3">
-      <div className="max-w-3xl rounded-md border border-border bg-surface p-3 text-xs text-text-muted">
-        <p className="font-semibold text-text-primary">
-          These are every imported transfer, not the unmatched ones.
-        </p>
-        <p className="mt-1">
-          Each side of a journal is posted against a clearing account and nothing
-          pairs the two, so a completed transfer is indistinguishable from one whose
-          second side never arrived. Both are listed here. Until transfer matching
-          lands, a balance below says a transfer was imported, and its age is the age
-          of the posting rather than of anything missing.
-        </p>
-      </div>
       <table data-testid="transfers-table" className="w-full text-left text-sm">
         <thead>
           <tr className="border-b border-border text-text-muted">

@@ -2,6 +2,14 @@
 
 Three file formats feed the import APIs: a transaction CSV, a price CSV, and a corporate event JSON. They share the conventions for comment metadata and for [coverage declarations](#coverage-declarations).
 
+> **These formats are being replaced.** One schema, specified in
+> archive-format.md, covers everything below and the instrument JSON that was
+> never documented here. The standard transaction CSV migrates under issue 0084,
+> the price CSV and its coverage declarations under 0081, and the corporate
+> event JSON under 0082; each section goes as its format does, and this file is
+> deleted once it documents nothing. Broker-specific files -- the Fidelity CSV,
+> the IBKR OFX, the Schwab CSV -- are not affected.
+
 ## Standard transaction CSV
 
 The **Standard** format is a CSV that directly represents the transaction fields expected by the API. Users can produce this CSV manually or use a broker-specific converter (when available) that outputs Standard format.

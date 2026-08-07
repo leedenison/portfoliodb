@@ -50,8 +50,8 @@ option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev
 // See docs/adr/0033-admin-and-user-archives-are-separate.md.
 enum ArchiveKind {
   ARCHIVE_KIND_UNSPECIFIED = 0;
-  ARCHIVE_KIND_ADMIN = 1; // shared reference data; no user data
-  ARCHIVE_KIND_USER = 2;  // one user's own data; no admin data
+  ADMIN = 1; // shared reference data; no user data
+  USER = 2;  // one user's own data; no admin data
 }
 
 // Envelope carries only what cannot differ between two rows of a valid file.

@@ -41,6 +41,23 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	`, survivor, mergedAway); err != nil {
 		return fmt.Errorf("update txs: %w", err)
 	}
+	// A transfer match is keyed on the commodity in flight, so it moves with the
+	// postings it links. Left behind it would point at an instrument the delete
+	// below is about to remove, and the pair would look unmatched again.
+	//
+	// This can in principle collide with idx_transfer_matches_from/_to, which are
+	// unique per (group, instrument): one group would have to hold matched
+	// residuals in both instruments being merged, which needs a JRNLSEC group whose
+	// two securities turn out to be the same one. No converter emits that. It is
+	// left to fail the merge loudly rather than resolved with ON CONFLICT DO
+	// NOTHING, because silently dropping one of the two links would leave a side
+	// unmatched with nothing to say why -- and a merge that aborts is recoverable,
+	// where a quietly wrong ledger is not.
+	if _, err := exec.ExecContext(ctx, `
+		UPDATE transfer_matches SET instrument_id = $1::uuid WHERE instrument_id = $2::uuid
+	`, survivor, mergedAway); err != nil {
+		return fmt.Errorf("update transfer matches: %w", err)
+	}
 	rows, err := exec.QueryContext(ctx, `SELECT identifier_type, domain, value, canonical FROM instrument_identifiers WHERE instrument_id = $1`, mergedAway)
 	if err != nil {
 		return fmt.Errorf("list identifiers: %w", err)

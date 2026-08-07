@@ -41,6 +41,14 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	`, survivor, mergedAway); err != nil {
 		return fmt.Errorf("update txs: %w", err)
 	}
+	// A transfer match is keyed on the commodity in flight, so it moves with the
+	// postings it links. Left behind it would point at an instrument the delete
+	// below is about to remove, and the pair would look unmatched again.
+	if _, err := exec.ExecContext(ctx, `
+		UPDATE transfer_matches SET instrument_id = $1::uuid WHERE instrument_id = $2::uuid
+	`, survivor, mergedAway); err != nil {
+		return fmt.Errorf("update transfer matches: %w", err)
+	}
 	rows, err := exec.QueryContext(ctx, `SELECT identifier_type, domain, value, canonical FROM instrument_identifiers WHERE instrument_id = $1`, mergedAway)
 	if err != nil {
 		return fmt.Errorf("list identifiers: %w", err)

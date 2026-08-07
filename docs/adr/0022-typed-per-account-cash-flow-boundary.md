@@ -62,7 +62,9 @@ place to say the same thing that can disagree with the first.
 Matching the two sides of a transfer becomes a correctness requirement rather than
 housekeeping. Until a pair is matched, a transfer between two accounts of one
 portfolio reads as a withdrawal and an unrelated deposit, so money-weighted return
-is wrong for any multi-account portfolio.
+is wrong for any multi-account portfolio. A match is recorded as a link between the
+two tx groups, which is what supplies the account identity the membership test above
+asks for; see [0037](0037-transfer-matches-are-links-not-postings.md).
 
 Converters, not the server, emit income and expense legs
 (see [0021](0021-converters-own-transaction-grouping.md)). The server cannot

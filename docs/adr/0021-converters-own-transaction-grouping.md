@@ -31,3 +31,10 @@ converter, a CSV column and a server-side rule. The cost is that a converter whi
 supplies neither a cash row nor a unit price produces an unbalanced group; that
 residual is routed to an explicit imbalance account rather than rejected, so
 coverage tightens per broker over time instead of in a single cut-over.
+
+The rule against pairing is about ledger content, not about pairing as such. The
+server pairs the two sides of a transfer after the fact, which creates no posting and
+no group and spans uploads no converter can see. The premise above -- that the
+broker's reference numbers are gone by the time data reaches the standard format --
+no longer holds either: they are stored on the posting. See
+[0037](0037-transfer-matches-are-links-not-postings.md).

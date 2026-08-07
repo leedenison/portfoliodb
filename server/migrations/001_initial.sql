@@ -456,6 +456,62 @@ CREATE UNIQUE INDEX idx_txs_initialize_unique
   ON txs (user_id, broker, account, instrument_id, account_type)
   WHERE synthetic_purpose = 'INITIALIZE';
 
+-- The two sides of a transfer, paired after the fact.
+--
+-- Each side of a journal is balanced by a TRANSFER_CLEARING counterparty and the two
+-- are deliberately not paired at ingest, because brokers report them in separate
+-- statements and sometimes in separate imports. This is the pairing. It records which
+-- group -- and so which account -- holds the other side, because that identity is what
+-- the portfolio membership test in docs/adr/0022-typed-per-account-cash-flow-boundary.md
+-- consumes; that a match merely exists would not answer it.
+--
+-- A link rather than a status column on the posting, which could say that a side was
+-- matched but not what it matched with. And not a synthetic third group closing both
+-- sides out, which would fabricate an economic event that never happened and have to be
+-- unpicked on rematch. Both alternatives are also unreachable: check_tx_group_balance()
+-- rejects mutating or deleting a single leg of a group.
+--
+-- Derived and disposable. A re-upload replaces one side's groups
+-- (docs/adr/0002-transaction-ingestion-model.md), the cascade takes the link with them,
+-- the surviving side reappears as unmatched and the matcher runs again. It is never
+-- authoritative and is always cheap to rebuild.
+--
+-- Directed. from_group_id is the side the value left: its TRANSFER_CLEARING residual is
+-- positive, because the group's own leg is negative and the clearing leg holds what is
+-- owed out. to_group_id is where it arrived. The direction costs nothing to record --
+-- it is the sign of the residual -- and a link that did not carry it would read the
+-- same for a transfer in either direction.
+--
+-- Keyed per (group, commodity) rather than per group, which is what the two unique
+-- indexes say. Balancing emits one residual per commodity, so an unpaired JRNLSEC group
+-- can have a security side and a cash side in flight independently and each pairs with
+-- a different group. instrument_id moves with an instrument merge, alongside
+-- txs.instrument_id.
+--
+-- Neither the quantity nor the ingestion job is stored. The two sides are equal and
+-- opposite by construction, so a stored amount could only disagree with them, and a
+-- match is not made by an ingestion job.
+CREATE TABLE transfer_matches (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  from_group_id UUID NOT NULL REFERENCES tx_groups (id) ON DELETE CASCADE,
+  to_group_id   UUID NOT NULL REFERENCES tx_groups (id) ON DELETE CASCADE,
+  instrument_id UUID NOT NULL REFERENCES instruments (id),
+  -- How the pair was found. POINTER is the source naming the other account outright;
+  -- REFERENCE is the proximity of the two sides' broker references; MANUAL is a person
+  -- saying so. There is no amount-and-window-alone value: a pair with no evidence
+  -- beyond an equal and opposite amount is left unmatched rather than guessed at.
+  method        TEXT NOT NULL CHECK (method IN ('POINTER', 'REFERENCE', 'MANUAL')),
+  matched_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (from_group_id <> to_group_id)
+);
+
+-- One match per side per commodity, in both directions. These are the uniqueness
+-- constraint and the lookup index at once: what holds the other side of a group is
+-- (from_group_id = g OR to_group_id = g), and neither side can be matched twice.
+CREATE UNIQUE INDEX idx_transfer_matches_from ON transfer_matches (from_group_id, instrument_id);
+CREATE UNIQUE INDEX idx_transfer_matches_to   ON transfer_matches (to_group_id, instrument_id);
+
 -- Portfolio filter matching view: returns (portfolio_id, tx_id) pairs for txs
 -- matching the portfolio's filters. Semantics: AND between categories (broker,
 -- account, instrument), OR within each category. Categories with no filters are

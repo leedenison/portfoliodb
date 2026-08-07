@@ -65,6 +65,7 @@ type DB interface {
 	InflationIndexDB
 	CorporateEventDB
 	ResidualBalanceDB
+	TransferMatchDB
 }
 
 // PriceFetchBlockDB manages permanently blocked (instrument, plugin) pairs.
@@ -1096,4 +1097,79 @@ type ResidualBalanceDB interface {
 	// history. The transfer count includes settled transfers, and will until
 	// matching (0068) makes the two distinguishable.
 	CountResidualBalances(ctx context.Context, staleBefore time.Time) (imbalances, staleTransfers int32, err error)
+}
+
+// Match methods for the transfer_matches table, mirroring its CHECK constraint.
+// There is no amount-and-window-alone method: a pair with no evidence beyond an
+// equal and opposite amount is left unmatched rather than guessed at.
+const (
+	// TransferMatchPointer -- the source named the other account outright.
+	TransferMatchPointer = "POINTER"
+	// TransferMatchReference -- the two sides' broker references are adjacent.
+	TransferMatchReference = "REFERENCE"
+	// TransferMatchManual -- a person said so. Nothing produces one yet; the
+	// matcher only ever inserts, so one will survive every rebuild.
+	TransferMatchManual = "MANUAL"
+)
+
+// TransferSide is one unmatched side of a transfer: the TRANSFER_CLEARING residual
+// of a journal group, carrying the evidence the rest of its group holds. One row per
+// (group, commodity), because balancing emits one residual per commodity and that
+// pair is what a match is keyed on.
+type TransferSide struct {
+	UserID       string
+	GroupID      string
+	Broker       apiv1.Broker
+	Account      string
+	InstrumentID string
+	TxType       apiv1.TxType
+	// Amount is the residual's split-adjusted quantity, signed. Positive means the
+	// value left this account -- the group's own leg is negative and the clearing
+	// leg holds what is owed out -- and negative means it arrived. A pair is two
+	// sides summing to exactly zero.
+	Amount    decimal.Decimal
+	Timestamp time.Time
+	// BrokerRefs are the distinct source references of the group's postings, and
+	// CounterpartyAccounts the distinct accounts they name as the other side. Sets
+	// rather than single values: a group is several source rows, the evidence can
+	// sit on any of them, and the nearest reference over the whole set is what the
+	// sample data supports. Either may be empty, for a source that supplied none.
+	BrokerRefs           []string
+	CounterpartyAccounts []string
+}
+
+// TransferMatch links the two sides of one transfer in one commodity. FromGroupID is
+// the side the value left and ToGroupID where it arrived.
+type TransferMatch struct {
+	UserID       string
+	FromGroupID  string
+	ToGroupID    string
+	InstrumentID string
+	Method       string
+}
+
+// TransferSideOpts filters the unmatched sides read for matching. An empty UserID
+// reads every user's, which is what a whole-corpus pass wants.
+type TransferSideOpts struct {
+	UserID string
+}
+
+// TransferMatchDB records which tx group holds the other side of a transfer.
+//
+// The links are derived and disposable: they cascade on group delete, so a re-upload
+// leaves the surviving side unmatched and the matcher rebuilds it. Nothing here
+// updates or deletes a link, which is what lets a MANUAL match survive a rebuild.
+type TransferMatchDB interface {
+	// ListUnmatchedTransferSides returns every TRANSFER_CLEARING residual that no
+	// match names, with the evidence its group carries. Ordered by
+	// (user_id, instrument_id, timestamp, group_id) so a matching pass is
+	// deterministic.
+	ListUnmatchedTransferSides(ctx context.Context, opts TransferSideOpts) ([]TransferSide, error)
+	// CreateTransferMatches inserts links and returns how many were written. It
+	// skips any link whose either side is already matched in that commodity, so a
+	// re-run over unchanged data writes nothing.
+	CreateTransferMatches(ctx context.Context, matches []TransferMatch) (int, error)
+	// ListTransferMatches returns one user's links, newest first. For the report
+	// and for tests; the matching path itself reads none.
+	ListTransferMatches(ctx context.Context, userID string) ([]TransferMatch, error)
 }

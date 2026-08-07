@@ -19,6 +19,7 @@ jobs:
             fmt-check,
             vet,
             lint-go,
+            lint-proto,
             lint-ts,
             client-typecheck,
             extension-typecheck,

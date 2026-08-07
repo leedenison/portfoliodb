@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create, toBinary } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { AuthUserResponseSchema } from "@/gen/auth/v1/auth_pb";
+import { GetSessionResponseSchema } from "@/gen/auth/v1/auth_pb";
 import { ListTxsRequestSchema, ListTxsResponseSchema } from "@/gen/api/v1/api_pb";
 import { Broker, TxType } from "@/gen/type/v1/type_pb";
-import { IngestionResponseSchema, UpsertTxsRequestSchema } from "@/gen/ingestion/v1/ingestion_pb";
+import { UpsertTxsResponseSchema, UpsertTxsRequestSchema } from "@/gen/ingestion/v1/ingestion_pb";
 import { fromBinary } from "@bufbuild/protobuf";
 import { getSession, listTxs, upsertTxs } from "./api";
 
@@ -37,8 +37,8 @@ describe("api", () => {
   });
 
   it("sends the session as a bearer token and omits credentials", async () => {
-    const res = create(AuthUserResponseSchema, { user: { email: "lee@example.com" } });
-    const spy = mockFetch(toBinary(AuthUserResponseSchema, res));
+    const res = create(GetSessionResponseSchema, { user: { email: "lee@example.com" } });
+    const spy = mockFetch(toBinary(GetSessionResponseSchema, res));
 
     const got = await getSession(ORIGIN, SESSION);
 
@@ -63,7 +63,7 @@ describe("api", () => {
   });
 
   it("encodes the period and source on UpsertTxs", async () => {
-    const spy = mockFetch(toBinary(IngestionResponseSchema, create(IngestionResponseSchema, { jobId: "job-1" })));
+    const spy = mockFetch(toBinary(UpsertTxsResponseSchema, create(UpsertTxsResponseSchema, { jobId: "job-1" })));
     const from = new Date("2026-07-01T00:00:00Z");
     const before = new Date("2026-07-27T00:00:00Z");
 

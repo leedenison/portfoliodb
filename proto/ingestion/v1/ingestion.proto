@@ -15,11 +15,11 @@ service IngestionService {
   // UpsertTxs replaces all transactions for the given broker in the given
   // period with the supplied list. Processed asynchronously; returns a job_id
   // for status and validation errors via the front-end API.
-  rpc UpsertTxs(UpsertTxsRequest) returns (IngestionResponse);
+  rpc UpsertTxs(UpsertTxsRequest) returns (UpsertTxsResponse);
   // CreateTx appends one transaction. No natural key; not idempotent (duplicate
   // submissions create duplicate rows). Source required for instrument resolution. Processed
   // asynchronously; returns a job_id for status.
-  rpc CreateTx(CreateTxRequest) returns (IngestionResponse);
+  rpc CreateTx(CreateTxRequest) returns (CreateTxResponse);
 }
 
 // UpsertTxsRequest replaces all transactions for the given broker in the
@@ -63,9 +63,16 @@ message CreateTxRequest {
   string share_count_basis = 4;
 }
 
-// IngestionResponse returned by UpsertTxs and CreateTx. Job status and
+// UpsertTxsResponse identifies the async job the upload became. Job status and
 // validation errors are available via the front-end/back-end API using job_id.
-message IngestionResponse {
+message UpsertTxsResponse {
+  // Identifier for the async ingestion job. Use with front-end API to poll
+  // status and retrieve validation errors.
+  string job_id = 1;
+}
+
+// CreateTxResponse identifies the async job the transaction became.
+message CreateTxResponse {
   // Identifier for the async ingestion job. Use with front-end API to poll
   // status and retrieve validation errors.
   string job_id = 1;

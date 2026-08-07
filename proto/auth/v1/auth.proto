@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package portfoliodb.auth.v1;
 
-import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/auth/v1;authv1";
@@ -40,13 +39,28 @@ message AuthMachineResponse {
   Session session = 1;
 }
 
+message GetSessionRequest {}
+
+// GetSessionResponse is the current session's user. user_exists is always true
+// -- holding a session implies the user exists -- and is carried so the SPA can
+// read one shape whether it just authenticated or is restoring on load.
+message GetSessionResponse {
+  User user = 1;
+  bool user_exists = 2;
+  Session session = 3;
+}
+
+message LogoutRequest {}
+
+message LogoutResponse {}
+
 service AuthService {
   // AuthUser verifies the Google ID token, provisions the user if allowlisted, creates a session, and sets the session cookie on the response.
   rpc AuthUser(AuthUserRequest) returns (AuthUserResponse);
   // GetSession returns the current user when the request has a valid session cookie. Used by the SPA to restore auth state on load.
-  rpc GetSession(google.protobuf.Empty) returns (AuthUserResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
   // Logout deletes the server-side session and clears the session cookie.
-  rpc Logout(google.protobuf.Empty) returns (google.protobuf.Empty);
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
   // AuthMachine authenticates a service account by client_id and client_secret.
   rpc AuthMachine(AuthMachineRequest) returns (AuthMachineResponse);
 }

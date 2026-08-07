@@ -3,7 +3,7 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Broker } from "@/gen/type/v1/type_pb";
 import { TxSchema } from "@/gen/api/v1/api_pb";
 import {
-  IngestionResponseSchema,
+  UpsertTxsResponseSchema,
   UpsertTxsRequestSchema,
 } from "@/gen/ingestion/v1/ingestion_pb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -29,8 +29,8 @@ describe("ingestion-api", () => {
     it("sends UpsertTxs request and returns job_id", async () => {
       mockUnaryFetch.mockResolvedValue(
         toBinary(
-          IngestionResponseSchema,
-          create(IngestionResponseSchema, { jobId: "job-abc" })
+          UpsertTxsResponseSchema,
+          create(UpsertTxsResponseSchema, { jobId: "job-abc" })
         )
       );
 

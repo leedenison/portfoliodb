@@ -12,8 +12,7 @@
  */
 
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { EmptySchema } from "@bufbuild/protobuf/wkt";
-import { AuthUserResponseSchema } from "@/gen/auth/v1/auth_pb";
+import { GetSessionRequestSchema, GetSessionResponseSchema } from "@/gen/auth/v1/auth_pb";
 import { GetSessionServiceMethod, unaryFetch } from "@/lib/grpc-web";
 import type { SessionBootstrapped } from "../lib/messages";
 
@@ -22,10 +21,10 @@ async function bootstrap(): Promise<SessionBootstrapped> {
     const bytes = await unaryFetch(
       window.location.origin,
       GetSessionServiceMethod,
-      toBinary(EmptySchema, create(EmptySchema)),
+      toBinary(GetSessionRequestSchema, create(GetSessionRequestSchema)),
       { credentials: "include" }
     );
-    const res = fromBinary(AuthUserResponseSchema, bytes);
+    const res = fromBinary(GetSessionResponseSchema, bytes);
     const sessionId = res.session?.sessionId ?? "";
     if (!sessionId) {
       return { type: "session-bootstrapped", sessionId: "", error: "no session in response" };

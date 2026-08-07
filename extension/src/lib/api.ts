@@ -14,9 +14,8 @@
 
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import type { DescMessage, MessageInitShape, MessageShape } from "@bufbuild/protobuf";
-import { EmptySchema } from "@bufbuild/protobuf/wkt";
-import type { AuthUserResponse } from "@/gen/auth/v1/auth_pb";
-import { AuthUserResponseSchema } from "@/gen/auth/v1/auth_pb";
+import type { GetSessionResponse } from "@/gen/auth/v1/auth_pb";
+import { GetSessionRequestSchema, GetSessionResponseSchema } from "@/gen/auth/v1/auth_pb";
 import type { GetJobResponse, ListTxsResponse } from "@/gen/api/v1/api_pb";
 import {
   GetJobRequestSchema,
@@ -24,8 +23,8 @@ import {
   ListTxsRequestSchema,
   ListTxsResponseSchema,
 } from "@/gen/api/v1/api_pb";
-import type { IngestionResponse } from "@/gen/ingestion/v1/ingestion_pb";
-import { IngestionResponseSchema, UpsertTxsRequestSchema } from "@/gen/ingestion/v1/ingestion_pb";
+import type { UpsertTxsResponse } from "@/gen/ingestion/v1/ingestion_pb";
+import { UpsertTxsResponseSchema, UpsertTxsRequestSchema } from "@/gen/ingestion/v1/ingestion_pb";
 import { GetSessionServiceMethod, unaryFetch } from "@/lib/grpc-web";
 
 const API_SERVICE = "portfoliodb.api.v1.ApiService/";
@@ -52,14 +51,14 @@ async function call<Req extends DescMessage, Res extends DescMessage>(
  * token works from the service worker, which is a different code path from the
  * cookie-authenticated call the bootstrap makes.
  */
-export function getSession(origin: string, sessionId: string): Promise<AuthUserResponse> {
+export function getSession(origin: string, sessionId: string): Promise<GetSessionResponse> {
   return call(
     origin,
     sessionId,
     GetSessionServiceMethod,
-    EmptySchema,
+    GetSessionRequestSchema,
     {},
-    AuthUserResponseSchema
+    GetSessionResponseSchema
   );
 }
 
@@ -75,14 +74,14 @@ export function upsertTxs(
   origin: string,
   sessionId: string,
   req: MessageInitShape<typeof UpsertTxsRequestSchema>
-): Promise<IngestionResponse> {
+): Promise<UpsertTxsResponse> {
   return call(
     origin,
     sessionId,
     `${INGESTION_SERVICE}UpsertTxs`,
     UpsertTxsRequestSchema,
     req,
-    IngestionResponseSchema
+    UpsertTxsResponseSchema
   );
 }
 

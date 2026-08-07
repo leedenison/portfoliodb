@@ -8,7 +8,7 @@
  * React-free, so the browser extension can import it through its path alias.
  */
 
-import { create, fromJsonString, toJsonString } from "@bufbuild/protobuf";
+import { create, fromJson, toJsonString } from "@bufbuild/protobuf";
 import type { DescEnum, DescMessage, MessageInitShape, MessageShape } from "@bufbuild/protobuf";
 import {
   AdminArchiveSchema,
@@ -76,16 +76,12 @@ export function marshalUser(archive: MessageInitShape<typeof UserArchiveSchema>)
 
 /** Read an admin archive. Throws ArchiveVersionError or ArchiveKindError. */
 export function unmarshalAdmin(json: string): AdminArchive {
-  probe(json, ArchiveKind.ADMIN);
-  assertKnownEnums(AdminArchiveSchema, JSON.parse(json), "");
-  return fromJsonString(AdminArchiveSchema, json, readOpts);
+  return unmarshal(AdminArchiveSchema, json, ArchiveKind.ADMIN);
 }
 
 /** Read a user archive. */
 export function unmarshalUser(json: string): UserArchive {
-  probe(json, ArchiveKind.USER);
-  assertKnownEnums(UserArchiveSchema, JSON.parse(json), "");
-  return fromJsonString(UserArchiveSchema, json, readOpts);
+  return unmarshal(UserArchiveSchema, json, ArchiveKind.USER);
 }
 
 function marshal<Desc extends DescMessage>(
@@ -97,30 +93,47 @@ function marshal<Desc extends DescMessage>(
     envelope?: { formatVersion: number; kind: ArchiveKind };
   };
   // Stamped rather than taken from the caller, so no call site can write a
-  // document that misdescribes its own version or kind.
-  if (msg.envelope) {
-    msg.envelope.formatVersion = FORMAT_VERSION;
-    msg.envelope.kind = kind;
+  // document that misdescribes its own version or kind. Created when absent, so
+  // a caller cannot write one with no envelope at all either.
+  const envelopeField = schema.fields.find((f) => f.name === "envelope");
+  if (!msg.envelope && envelopeField?.fieldKind === "message") {
+    (msg as { envelope?: unknown }).envelope = create(envelopeField.message);
   }
+  const envelope = msg.envelope as { formatVersion: number; kind: ArchiveKind };
+  envelope.formatVersion = FORMAT_VERSION;
+  envelope.kind = kind;
   return toJsonString(schema, msg, writeOpts);
 }
 
-/**
- * Read the envelope with JSON.parse before the real parse, because the real
- * parse is what a version mismatch would break: a reader that failed on an
- * unknown field would report a confusing parse error where it should report
- * that the file was written by a later PortfolioDB.
- *
- * Both spellings of the key are accepted: protobuf-es writes snake_case and
- * reads either, so a hand-written document using lowerCamelCase parses.
- */
-function probe(json: string, want: ArchiveKind): void {
+// The document is parsed once and the parsed value is reused: the envelope
+// probe, the enum check and the message decode would otherwise each walk it,
+// and a price archive is megabytes.
+function unmarshal<Desc extends DescMessage>(
+  schema: Desc,
+  json: string,
+  kind: ArchiveKind
+): MessageShape<Desc> {
   let doc: unknown;
   try {
     doc = JSON.parse(json);
   } catch (e) {
     throw new Error(`not an archive document: ${e instanceof Error ? e.message : String(e)}`);
   }
+  probe(doc, kind);
+  assertKnownEnums(schema, doc, "");
+  return fromJson(schema, doc as never, readOpts);
+}
+
+/**
+ * Check the envelope before decoding the document, because decoding is what a
+ * version mismatch would break: a reader that failed part-way would report a
+ * confusing parse error where it should report that the file was written by a
+ * later PortfolioDB.
+ *
+ * Both spellings of the key are accepted: protobuf-es writes snake_case and
+ * reads either, so a hand-written document using lowerCamelCase parses.
+ */
+function probe(doc: unknown, want: ArchiveKind): void {
   const envelope = (doc as { envelope?: Record<string, unknown> } | null)?.envelope;
   if (!envelope) throw new Error("archive has no envelope");
 

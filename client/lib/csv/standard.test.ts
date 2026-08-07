@@ -391,6 +391,45 @@ describe("group_ref", () => {
   });
 });
 
+describe("source references", () => {
+  it("carries the broker's own reference and the account it names", () => {
+    const csv = `date,instrument_description,type,quantity,account,group_ref,broker_ref,counterparty_account
+2025-04-15,GBP,TRANSFER,-20000,AG10041188,,1093663528,
+2025-04-15,GBP,TRANSFER,20000,AW10075724,,1093663531,AG10041188`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs[0].brokerRef).toBe("1093663528");
+    // Only the receiving side names the counterparty; the departure does not.
+    expect(result.txs[0].counterpartyAccount).toBe("");
+    expect(result.txs[1].brokerRef).toBe("1093663531");
+    expect(result.txs[1].counterpartyAccount).toBe("AG10041188");
+  });
+
+  it("is opaque: a reference that is not a number survives verbatim", () => {
+    const csv = `date,instrument_description,type,quantity,broker_ref
+2024-03-01,AAPL,BUYSTOCK,10,20240301U1234567`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs[0].brokerRef).toBe("20240301U1234567");
+  });
+
+  it("defaults to empty when the columns are absent", () => {
+    const csv = `date,instrument_description,type,quantity
+2024-03-01,AAPL,BUYSTOCK,10`;
+
+    const result = parseStandardCSV(csv);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.txs[0].brokerRef).toBe("");
+    expect(result.txs[0].counterpartyAccount).toBe("");
+  });
+});
+
 describe("account_type", () => {
   it("types the non-asset leg of a group", () => {
     const csv = `date,instrument_description,type,quantity,account,group_ref,account_type

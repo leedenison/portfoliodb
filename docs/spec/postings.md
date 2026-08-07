@@ -14,6 +14,26 @@ A posting is a signed amount of one commodity in one account at one point in tim
 | Commodity | `instrument_id`               |
 | Amount    | `quantity` (signed)           |
 | Date      | `timestamp`                   |
+| Source id | `broker_ref`                  |
+| Other side| `counterparty_account`        |
+
+The last two are what the source said about the row, kept rather than discarded.
+`broker_ref` is the source's own identifier for it -- a Fidelity `Reference Number`, an OFX
+`FITID` -- and `counterparty_account` is the account the source names as the other side,
+in the same broker. Both are set only on postings **transcribed from a source row**: a
+converter's derived counter-leg carries neither, and neither does a routed residual, so a
+value that is present always names something the source itself issued.
+
+`broker_ref` is not a natural key and carries no uniqueness constraint. Ingestion is
+idempotent by replacement (adr/0002-transaction-ingestion-model.md) and one source
+transaction can produce several postings sharing a reference. It is kept because a broker
+issues the two sides of one transfer adjacent references, which is what
+[matching](#transfers) reads.
+
+`counterparty_account` is advisory. A source can use the same field for something else --
+Fidelity puts the product account a service fee was charged for in it, which is attribution
+rather than a transfer counterparty -- so it is read as a pointer only for a group that
+produced a `TRANSFER_CLEARING` residual.
 
 Currencies are instruments, so a cash movement is an ordinary posting and needs no
 separate representation. Nothing in the read path distinguishes a cash posting from a

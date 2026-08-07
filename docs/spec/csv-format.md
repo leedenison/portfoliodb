@@ -26,6 +26,8 @@ Header names are case-insensitive. Supported column names:
 | `exchange`               | No       | Exchange code value (e.g. "XNAS" for MIC, "US" for OPENFIGI). Populates the domain field on the identifier hint. Required when `exchange_type` is present. |
 | `group_ref`              | No       | Opaque grouping key. Rows sharing a non-empty value are postings of one economic event. See [Transaction groups](#transaction-groups). |
 | `account_type`           | No       | What kind of leg the row is. Defaults to `USER`. See allowed values below. |
+| `broker_ref`             | No       | The source's own identifier for this row. See [Source references](#source-references). |
+| `counterparty_account`   | No       | The account the source names as the other side of this row, in the same broker. Advisory; see [Source references](#source-references). |
 
 `quantity` and `unit_price` are parsed as exact decimals and stored to the precision the file supplies, with no limit on decimal places. A converter deriving one leg from another must not round to reach a fixed scale. See adr/0026-exact-decimals-bounded-by-closure.md.
 
@@ -36,6 +38,23 @@ Each row is a **posting**: a signed amount of one commodity in one account (see 
 `group_ref` is opaque and scoped to one upload. Any value works as long as it is distinct per event within the file; a broker's own order or reference number is the natural choice. It is not stored and carries no meaning across uploads, so re-uploading a period produces new groups.
 
 Grouping is the converter's job. The server persists what it is given: it does not infer a missing leg, pair rows, or fold a fee into a cash amount (see adr/0021-converters-own-transaction-grouping.md).
+
+### Source references
+
+`broker_ref` is the source's own identifier for the row: a Fidelity `Reference Number`, an OFX `FITID`. Unlike `group_ref` it **is** stored, and it means the same thing across uploads. The two are easy to confuse and are opposites in every respect that matters:
+
+| | `group_ref` | `broker_ref` |
+| --- | --- | --- |
+| Whose | PortfolioDB's, invented by the converter | the broker's, transcribed |
+| Scope | one upload | durable |
+| Stored | no | yes |
+| Says | these rows are one event | this row is that row of the statement |
+
+`broker_ref` is not a natural key and nothing deduplicates on it. Idempotency is by replacement (see adr/0002-transaction-ingestion-model.md), and one source transaction can produce several postings that share a reference -- a trade and its cash leg, for instance. It exists because a broker issues the two sides of one transfer adjacent references, which is what lets the two be matched later.
+
+`counterparty_account` is the account the source names as the other side, in the same broker. It is **advisory**: a source can use the same field for something else -- Fidelity puts the product account a service fee was charged for in it, which is attribution rather than a transfer counterparty -- so it is read as a pointer only where the group turns out to be a transfer.
+
+Both are set only on rows transcribed from a source row. A converter's derived counter-leg carries neither, and neither does the counterparty the server routes to balance a group, so a value that is present always names something the source itself issued.
 
 **Fees are postings, not a column.** A commission, levy or duty is a row with `type=INVEXPENSE` and a negative `quantity` in the settlement currency, paired with an `account_type=EXPENSE` row for the same money. Put the pair in the trade's group when the broker charges it as part of the trade; give it a group of its own when the broker reports it as a separate cash event on its own date. Where a broker folds the commission into a single cash total, the converter splits that total into a consideration row and a fee row rather than posting it as one (see adr/0025-netted-cash-totals-are-split-into-legs.md).
 

@@ -111,7 +111,7 @@ export function parseCSVLine(line: string): string[] {
  * Parse standard-format CSV text into Tx array and period.
  * Header names are case-insensitive. Required: date (or timestamp), instrument_description, type, quantity.
  * Optional: trading_currency, settlement_currency, unit_price, account, symbol_type, symbol, exchange_type,
- * exchange, group_ref, account_type.
+ * exchange, group_ref, account_type, broker_ref, counterparty_account.
  */
 export function parseStandardCSV(csvText: string): StandardParseResult {
   const errors: ParseError[] = [];
@@ -161,6 +161,8 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
   const exchangeCol = col("exchange");
   const groupRefCol = col("group_ref");
   const accountTypeCol = col("account_type");
+  const brokerRefCol = col("broker_ref");
+  const counterpartyAccountCol = col("counterparty_account");
 
   if (dateCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: date or timestamp" });
   if (descCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: instrument_description" });
@@ -216,6 +218,10 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
 
     const account = accountCol >= 0 ? get(accountCol) : "";
     const groupRef = groupRefCol >= 0 ? get(groupRefCol) : "";
+    // Opaque, and carried through verbatim. Both are what the source called this
+    // row and its other side, so there is nothing here to validate or normalise.
+    const brokerRef = brokerRefCol >= 0 ? get(brokerRefCol) : "";
+    const counterpartyAccount = counterpartyAccountCol >= 0 ? get(counterpartyAccountCol) : "";
 
     const accountTypeStr = accountTypeCol >= 0 ? get(accountTypeCol) : "";
     const accountType = parseAccountType(accountTypeStr);
@@ -271,6 +277,8 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
         account,
         accountType,
         ...(groupRef ? { groupRef } : {}),
+        ...(brokerRef ? { brokerRef } : {}),
+        ...(counterpartyAccount ? { counterpartyAccount } : {}),
         ...(tradingCurrency ? { tradingCurrency } : {}),
         ...(settlementCurrency ? { settlementCurrency } : {}),
         ...(unitPrice !== undefined ? { unitPrice } : {}),

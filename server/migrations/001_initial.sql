@@ -58,28 +58,51 @@ CREATE TABLE tx_groups (
 CREATE INDEX idx_tx_groups_user_time ON tx_groups (user_id, timestamp);
 CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 
--- Transactions. No natural key (broker statements often supply date only). Bulk idempotency
--- by replace-by-period (user_id, broker, period). Single-tx ingestion is append-only.
--- group_id is the economic event this row is a posting of. Every posting belongs to
--- exactly one group -- a lone posting is a group of one -- so that the balance
--- invariant has no rows it cannot reach. Deleting a group deletes its postings, which
--- makes the group the unit of deletion for replace-by-period.
+-- Transactions. Each row is a posting: a signed amount of one commodity in one account
+-- at one point in time. See docs/spec/postings.md. The sections below follow the column
+-- order of the table.
+--
+-- Ingestion and identity.
+-- No natural key (broker statements often supply date only). Bulk idempotency is by
+-- replace-by-period (user_id, broker, period); single-tx ingestion is append-only.
+-- See docs/adr/0002-transaction-ingestion-model.md.
+--
+-- What moved: instrument_description, instrument_id, tx_type.
+-- instrument_id is added by an ALTER further down, because instruments is created after
+-- this table and the foreign key needs it to exist. The column itself is declared here,
+-- where it belongs.
+--
+-- The amounts as the source wrote them: quantity, unit_price, trading_currency,
+-- settlement_currency. Transcribed and exact; see Numeric types below.
+--
+-- What the source called this row: broker_ref, counterparty_account.
+-- broker_ref is the source's own identifier for the row a posting was transcribed from:
+-- Fidelity's Reference Number, OFX's FITID. counterparty_account is the account the
+-- source named as the other side, in the same broker. Both are set only on postings
+-- transcribed from a source row -- never on a converter's derived counter-leg and never
+-- on a routed residual -- so a non-null value always names something the source itself
+-- issued.
+-- broker_ref is not a natural key and carries no uniqueness constraint: ingestion
+-- idempotency is by replacement, and one source transaction can produce several
+-- postings that share a reference. Transfer matching reads it as a proximity signal,
+-- because a broker issues the two sides of one transfer adjacent references.
+-- counterparty_account is advisory rather than authoritative. A source can reuse the
+-- same field for something else -- Fidelity puts the product account a service fee was
+-- charged for in it, which is attribution and not a transfer counterparty -- so it is
+-- read as a pointer only for a group that produced a TRANSFER_CLEARING residual.
+--
+-- What kind of leg it is: account_type, synthetic_purpose.
 -- account_type classifies the account this row lands in. USER is an ordinary broker
 -- account posting; the others are the non-asset side of an event that is one-sided in
 -- the source data and keep the broker and account of the event they belong to, so a
 -- residual stays attributable to the account that produced it. Holdings and the other
 -- quantity aggregations read USER only. See docs/adr/0022-typed-per-account-cash-flow-boundary.md.
--- share_count_basis is the date at which the share count the raw quantity and
--- unit_price are denominated in was current. It defaults to timestamp::date --
--- the as-traded assumption, that a broker log line accounts only for events
--- prior to the trade. A source that restates historical rows (a broker's live
--- web UI showing post-split quantities) declares its own on the upload.
--- See docs/spec/bitemporality.md.
--- split_adjusted_quantity / split_adjusted_unit_price hold the values that result
--- from applying every stock split with ex_date > share_count_basis for the tx's
--- instrument. They equal the raw quantity/unit_price when no later split exists.
--- They are recomputed idempotently from the raw columns whenever splits change
--- (see RecomputeTxSplitAdjustments).
+--
+-- The event and its balance: group_id, weight, weight_commodity.
+-- group_id is the economic event this row is a posting of. Every posting belongs to
+-- exactly one group -- a lone posting is a group of one -- so that the balance
+-- invariant has no rows it cannot reach. Deleting a group deletes its postings, which
+-- makes the group the unit of deletion for replace-by-period.
 -- weight is what this posting contributes to its group's balance and weight_commodity
 -- names what that contribution is denominated in: 'cur:<code>' for money,
 -- 'inst:<uuid>' for a security, 'desc:<text>' when the instrument never resolved. A
@@ -94,6 +117,21 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 -- these after ingest, and it rewrites weight_commodity alongside instrument_id.
 -- See docs/adr/0029-posting-weight-is-stored.md and
 -- docs/adr/0024-group-balance-is-checked-on-weight.md.
+--
+-- Share counts: share_count_basis, split_adjusted_quantity, split_adjusted_unit_price.
+-- share_count_basis is the date at which the share count the raw quantity and
+-- unit_price are denominated in was current. It defaults to timestamp::date --
+-- the as-traded assumption, that a broker log line accounts only for events
+-- prior to the trade. A source that restates historical rows (a broker's live
+-- web UI showing post-split quantities) declares its own on the upload.
+-- See docs/spec/bitemporality.md.
+-- split_adjusted_quantity / split_adjusted_unit_price hold the values that result
+-- from applying every stock split with ex_date > share_count_basis for the tx's
+-- instrument. They equal the raw quantity/unit_price when no later split exists.
+-- They are recomputed idempotently from the raw columns whenever splits change
+-- (see RecomputeTxSplitAdjustments).
+--
+-- Numeric types.
 -- quantity and unit_price are transcribed decimals and are exact, so they are
 -- bare NUMERIC. The split-adjusted pair is not: the cumulative split factor is a
 -- rational and a reverse /3 has no finite decimal form, so the pair declares a
@@ -106,26 +144,37 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 CREATE TABLE txs (
   id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id                   UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+
   broker                    TEXT NOT NULL,
   account                   TEXT NOT NULL,
   timestamp                 TIMESTAMPTZ NOT NULL,
+
   instrument_description    TEXT NOT NULL,
+  instrument_id             UUID,
   tx_type                   TEXT NOT NULL,
+
   quantity                  NUMERIC NOT NULL,
-  split_adjusted_quantity   NUMERIC(38, 12) NOT NULL,
+  unit_price                NUMERIC,
   trading_currency          TEXT,
   settlement_currency       TEXT,
-  unit_price                NUMERIC,
-  split_adjusted_unit_price NUMERIC(38, 12),
-  share_count_basis         DATE NOT NULL,
-  synthetic_purpose         TEXT CHECK (synthetic_purpose IS NULL OR synthetic_purpose = 'INITIALIZE'),
+
+  broker_ref                TEXT,
+  counterparty_account      TEXT,
+
   account_type              TEXT NOT NULL DEFAULT 'USER'
                               CHECK (account_type IN ('USER', 'EQUITY', 'INCOME', 'EXPENSE',
                                                       'IMBALANCE', 'TRANSFER_CLEARING',
                                                       'SOURCE_ROUNDING')),
+  synthetic_purpose         TEXT CHECK (synthetic_purpose IS NULL OR synthetic_purpose = 'INITIALIZE'),
+
+  group_id                  UUID NOT NULL REFERENCES tx_groups (id) ON DELETE CASCADE,
   weight                    NUMERIC NOT NULL,
   weight_commodity          TEXT NOT NULL,
-  group_id                  UUID NOT NULL REFERENCES tx_groups (id) ON DELETE CASCADE,
+
+  share_count_basis         DATE NOT NULL,
+  split_adjusted_quantity   NUMERIC(38, 12) NOT NULL,
+  split_adjusted_unit_price NUMERIC(38, 12),
+
   created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -383,7 +432,10 @@ CREATE TABLE identification_errors (
 CREATE INDEX idx_identification_errors_job_id ON identification_errors (job_id);
 
 -- Link txs to instruments. Every tx has an instrument (plugin-resolved or broker description only).
-ALTER TABLE txs ADD COLUMN instrument_id UUID REFERENCES instruments (id);
+-- The column is declared with the rest of txs; only the foreign key waits until here,
+-- because instruments is created after txs.
+ALTER TABLE txs ADD CONSTRAINT txs_instrument_id_fkey
+  FOREIGN KEY (instrument_id) REFERENCES instruments (id);
 
 CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);
 

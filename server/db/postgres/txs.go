@@ -23,14 +23,14 @@ var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 const insertPostingSQL = `
 	WITH g AS (
 		INSERT INTO tx_groups (user_id, timestamp, job_id)
-		VALUES ($1, $4, $16)
+		VALUES ($1, $4, $18)
 		RETURNING id
 	)
 	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 instrument_id, share_count_basis, account_type,
-	                 weight, weight_commodity, group_id)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, g.id FROM g
+	                 weight, weight_commodity, broker_ref, counterparty_account, group_id)
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, $16, $17, g.id FROM g
 	RETURNING group_id
 `
 
@@ -40,8 +40,8 @@ const insertPostingInGroupSQL = `
 	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 instrument_id, share_count_basis, account_type,
-	                 weight, weight_commodity, group_id)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, $16)
+	                 weight, weight_commodity, broker_ref, counterparty_account, group_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, $16, $17, $18)
 `
 
 // groupResolver hands out the tx group for a tx's group_ref. An empty group_ref
@@ -169,6 +169,10 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 			userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, qty,
 			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullDecimal(price),
 			instUUID, shareCountBasis, acctTypeStr, w.Amount, w.Commodity,
+			// Stored as the source wrote them, and NULL where it wrote nothing:
+			// absent evidence is not the same as an empty reference, and only a
+			// derived posting is expected to carry none at all.
+			nullStr(t.GetBrokerRef()), nullStr(t.GetCounterpartyAccount()),
 		}
 		ref := t.GetGroupRef()
 		if groupID, ok := resolver.group(ref); ok {

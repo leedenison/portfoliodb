@@ -1,4 +1,4 @@
-import { AssetClass } from "@/gen/api/v1/api_pb";
+import { AssetClass } from "@/gen/type/v1/type_pb";
 
 /** All asset classes except UNSPECIFIED, ordered for UI display. */
 export const ALL_ASSET_CLASSES = [
@@ -34,7 +34,7 @@ export const DEFAULT_ASSET_CLASSES = new Set([
 
 /** Human-readable labels for each asset class. */
 export const ASSET_CLASS_LABELS: Record<AssetClass, string> = {
-  [AssetClass.UNSPECIFIED]: "",
+  [AssetClass.ASSET_CLASS_UNSPECIFIED]: "",
   [AssetClass.STOCK]: "Stock",
   [AssetClass.ETF]: "ETF",
   [AssetClass.FIXED_INCOME]: "Fixed Income",
@@ -46,37 +46,17 @@ export const ASSET_CLASS_LABELS: Record<AssetClass, string> = {
   [AssetClass.UNKNOWN]: "Other",
 };
 
-const strToEnum: Record<string, AssetClass> = {
-  STOCK: AssetClass.STOCK,
-  ETF: AssetClass.ETF,
-  FIXED_INCOME: AssetClass.FIXED_INCOME,
-  MUTUAL_FUND: AssetClass.MUTUAL_FUND,
-  OPTION: AssetClass.OPTION,
-  FUTURE: AssetClass.FUTURE,
-  CASH: AssetClass.CASH,
-  FX: AssetClass.FX,
-  UNKNOWN: AssetClass.UNKNOWN,
-};
-
-const enumToStr: Record<AssetClass, string> = {
-  [AssetClass.UNSPECIFIED]: "",
-  [AssetClass.STOCK]: "STOCK",
-  [AssetClass.ETF]: "ETF",
-  [AssetClass.FIXED_INCOME]: "FIXED_INCOME",
-  [AssetClass.MUTUAL_FUND]: "MUTUAL_FUND",
-  [AssetClass.OPTION]: "OPTION",
-  [AssetClass.FUTURE]: "FUTURE",
-  [AssetClass.CASH]: "CASH",
-  [AssetClass.FX]: "FX",
-  [AssetClass.UNKNOWN]: "UNKNOWN",
-};
-
 /** Convert a DB/CSV asset class string to the proto enum. */
 export function assetClassFromStr(s: string): AssetClass {
-  return strToEnum[s] ?? AssetClass.UNSPECIFIED;
+  // The enum value names are the stored vocabulary, so the generated enum's own
+  // reverse mapping is the whole conversion. Numeric keys resolve to a name
+  // rather than a number and are rejected by the typeof guard.
+  const v = (AssetClass as unknown as Record<string, unknown>)[s];
+  return typeof v === "number" ? (v as AssetClass) : AssetClass.ASSET_CLASS_UNSPECIFIED;
 }
 
-/** Convert a proto AssetClass enum to its DB/CSV string. */
+/** Convert a proto AssetClass enum to its DB/CSV string. UNSPECIFIED maps to "". */
 export function assetClassToStr(ac: AssetClass): string {
-  return enumToStr[ac] ?? "";
+  if (ac === AssetClass.ASSET_CLASS_UNSPECIFIED) return "";
+  return AssetClass[ac] ?? "";
 }

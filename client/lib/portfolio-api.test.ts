@@ -1,18 +1,6 @@
 import { create, toBinary } from "@bufbuild/protobuf";
-import {
-  CountResidualBalancesResponseSchema,
-  CreatePortfolioResponseSchema,
-  GetJobResponseSchema,
-  ListInstrumentsResponseSchema,
-  ListPortfoliosResponseSchema,
-  ListResidualBalancesResponseSchema,
-  UpdatePortfolioResponseSchema,
-  AccountType,
-  AssetClass,
-  Broker,
-  IdentifierType,
-  TxType,
-} from "@/gen/api/v1/api_pb";
+import { CountResidualBalancesResponseSchema, CreatePortfolioResponseSchema, GetJobResponseSchema, ListInstrumentsResponseSchema, ListPortfoliosResponseSchema, ListResidualBalancesResponseSchema, UpdatePortfolioResponseSchema } from "@/gen/api/v1/api_pb";
+import { AccountType, AssetClass, Broker, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { JobStatus } from "@/gen/api/v1/api_pb";
 import { beforeEach, describe, expect, it, vi } from "vitest";

@@ -1,14 +1,14 @@
 package api
 
 import (
-	"testing"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/testutil"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
+	"testing"
+	"time"
 )
 
 func TestListPriceGaps_NonAdmin_PermissionDenied(t *testing.T) {
@@ -102,7 +102,7 @@ func TestListPriceGaps_Success(t *testing.T) {
 	if pg.GetInstrumentId() != "inst-1" {
 		t.Fatalf("expected instrument_id=inst-1, got %s", pg.GetInstrumentId())
 	}
-	if pg.GetIdentifier().GetType() != apiv1.IdentifierType_MIC_TICKER {
+	if pg.GetIdentifier().GetType() != typev1.IdentifierType_MIC_TICKER {
 		t.Fatalf("expected MIC_TICKER identifier, got %s", pg.GetIdentifier().GetType())
 	}
 	if pg.GetIdentifier().GetValue() != "AAPL" {
@@ -111,7 +111,7 @@ func TestListPriceGaps_Success(t *testing.T) {
 	if pg.GetIdentifier().GetDomain() != "XNAS" {
 		t.Fatalf("expected domain=XNAS, got %s", pg.GetIdentifier().GetDomain())
 	}
-	if pg.GetAssetClass() != apiv1.AssetClass_ASSET_CLASS_STOCK {
+	if pg.GetAssetClass() != typev1.AssetClass_STOCK {
 		t.Fatalf("expected STOCK, got %s", pg.GetAssetClass())
 	}
 	if pg.GetName() != "Apple Inc" {
@@ -128,7 +128,7 @@ func TestListPriceGaps_Success(t *testing.T) {
 		t.Fatalf("expected 1 fx gap, got %d", len(resp.GetFxGaps()))
 	}
 	fx := resp.GetFxGaps()[0]
-	if fx.GetIdentifier().GetType() != apiv1.IdentifierType_FX_PAIR {
+	if fx.GetIdentifier().GetType() != typev1.IdentifierType_FX_PAIR {
 		t.Fatalf("expected FX_PAIR identifier, got %s", fx.GetIdentifier().GetType())
 	}
 	if fx.GetIdentifier().GetValue() != "GBPUSD" {
@@ -161,7 +161,7 @@ func TestListPriceGaps_AssetClassFilter(t *testing.T) {
 	db.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(instruments, nil)
 
 	resp, err := srv.ListPriceGaps(adminCtx("user-1", "sub|1"), &apiv1.ListPriceGapsRequest{
-		AssetClasses: []apiv1.AssetClass{apiv1.AssetClass_ASSET_CLASS_ETF},
+		AssetClasses: []typev1.AssetClass{typev1.AssetClass_ETF},
 	})
 	if err != nil {
 		t.Fatalf("ListPriceGaps: %v", err)

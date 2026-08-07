@@ -2,15 +2,15 @@ package api
 
 import (
 	"context"
-	"testing"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/testutil"
 	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
+	"testing"
+	"time"
 )
 
 func TestExportPrices_NonAdmin_PermissionDenied(t *testing.T) {
@@ -61,7 +61,7 @@ func TestExportPrices_Success(t *testing.T) {
 	if row.GetIdentifierType() != "MIC_TICKER" || row.GetIdentifierValue() != "AAPL" {
 		t.Fatalf("got identifier %s %s", row.GetIdentifierType(), row.GetIdentifierValue())
 	}
-	if row.GetAssetClass() != apiv1.AssetClass_ASSET_CLASS_STOCK {
+	if row.GetAssetClass() != typev1.AssetClass_STOCK {
 		t.Fatalf("expected asset_class=ASSET_CLASS_STOCK, got %s", row.GetAssetClass())
 	}
 	if row.GetPriceDate() != "2024-01-15" {

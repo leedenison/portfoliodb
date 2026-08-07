@@ -1,9 +1,8 @@
 package api
 
 import (
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -13,6 +12,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/worker"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"time"
 )
 
 // JobEnqueuer enqueues a job for async processing. Returns an error if the queue is full.
@@ -76,11 +76,11 @@ func NewServer(cfg ServerConfig) *Server {
 }
 
 // identifierTypeFromString maps DB identifier_type string to proto enum; returns UNSPECIFIED for unknown.
-func identifierTypeFromString(s string) apiv1.IdentifierType {
-	if v, ok := apiv1.IdentifierType_value[s]; ok {
-		return apiv1.IdentifierType(v)
+func identifierTypeFromString(s string) typev1.IdentifierType {
+	if v, ok := typev1.IdentifierType_value[s]; ok {
+		return typev1.IdentifierType(v)
 	}
-	return apiv1.IdentifierType_IDENTIFIER_TYPE_UNSPECIFIED
+	return typev1.IdentifierType_IDENTIFIER_TYPE_UNSPECIFIED
 }
 
 func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {

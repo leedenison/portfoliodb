@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseStandardCSV } from "./standard";
-import { AccountType, IdentifierType, TxType } from "@/gen/api/v1/api_pb";
+import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 
 describe("parseStandardCSV", () => {
   it("parses valid CSV and derives period from min/max dates", () => {

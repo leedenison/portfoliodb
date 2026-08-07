@@ -1,6 +1,6 @@
 /** Recipe registry and the generic interpreter that renders a recipe's request. */
 
-import type { Broker } from "@/gen/api/v1/api_pb";
+import type { Broker } from "@/gen/type/v1/type_pb";
 import { formatDate, lastCoveredDay } from "../lib/dates";
 import { fidelityUk } from "./fidelity-uk";
 import type { BrokerRecipe, DateWindow, ExportRequest } from "./types";

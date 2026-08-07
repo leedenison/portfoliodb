@@ -21,6 +21,11 @@ Use proto version 3. See [Numeric values](#numeric-values) for choosing between
 - Every file sets `option go_package = ".../proto/<area>/v1;<area>v1"`.
 - `v1` is the stability boundary. This project is pre-release, so evolve `v1` in
   place rather than adding migrations or `v2` -- no backwards-compatibility shims.
+- `portfoliodb.type.v1` is the one exception. It holds the controlled
+  vocabularies every other package shares, its value names are what the database
+  stores and what an archive file spells on disk, and it does not break: a value
+  is never renumbered or removed and a name never changes. See
+  adr/0038-controlled-vocabularies-are-shared.md.
 
 ## Naming
 
@@ -66,6 +71,13 @@ The one strict rule: every enum's zero value is the enum-name-prefixed
 `*_UNSPECIFIED = 0` (e.g. `ASSET_CLASS_UNSPECIFIED = 0`, `TX_TYPE_UNSPECIFIED = 0`).
 Use `optional` for nullable scalar fields, and `oneof` for mutually-exclusive
 payloads.
+
+Non-zero values are otherwise *unprefixed* (`STOCK`, `ISIN`, `BUYSTOCK`), so the
+name in the proto, the name in the column and the name in an archive file are
+one string with no prefix stripping between them. `AccountType` is the exception
+and says so at its declaration: its values collide with `TxType` in package
+scope. This means `buf lint`'s `ENUM_VALUE_PREFIX` is wrong for this repo and
+`buf.yaml` excepts it.
 
 ## Documentation
 

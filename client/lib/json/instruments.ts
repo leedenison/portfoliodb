@@ -6,11 +6,8 @@
  */
 
 import { create } from "@bufbuild/protobuf";
-import {
-  IdentifierType,
-  InstrumentIdentifierSchema,
-  InstrumentSchema,
-} from "@/gen/api/v1/api_pb";
+import { InstrumentIdentifierSchema, InstrumentSchema } from "@/gen/api/v1/api_pb";
+import { IdentifierType } from "@/gen/type/v1/type_pb";
 import type { Instrument } from "@/gen/api/v1/api_pb";
 import type { ParseError } from "@/lib/csv/standard";
 import { assetClassToStr, assetClassFromStr } from "@/lib/asset-class";

@@ -9,13 +9,8 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "@/lib/dates";
 import { parseDecimal } from "@/lib/decimal";
 import type { Tx } from "@/gen/api/v1/api_pb";
-import {
-  AccountType,
-  IdentifierType,
-  InstrumentIdentifierSchema,
-  TxSchema,
-  TxType,
-} from "@/gen/api/v1/api_pb";
+import { InstrumentIdentifierSchema, TxSchema } from "@/gen/api/v1/api_pb";
+import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 
 export interface ParseError {
   rowIndex: number;

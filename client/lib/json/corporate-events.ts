@@ -9,7 +9,8 @@
 
 import { create } from "@bufbuild/protobuf";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
-import { AssetClass, ImportCorporateEventCoverageSchema } from "@/gen/api/v1/api_pb";
+import { ImportCorporateEventCoverageSchema } from "@/gen/api/v1/api_pb";
+import { AssetClass } from "@/gen/type/v1/type_pb";
 import type { ExportCorporateEventRow, ExportCoverage, ImportCorporateEventCoverage, SplitRow } from "@/gen/api/v1/api_pb";
 import type { CorporateSplitImportRow } from "@/lib/portfolio-api";
 import { assetClassToStr, assetClassFromStr } from "@/lib/asset-class";
@@ -215,7 +216,7 @@ export function parseSplitsJson(json: string): SplitParseResult {
     const domain = String(obj.identifier_domain ?? "");
     if (domain) row.identifierDomain = domain;
     const ac = assetClassFromStr(String(obj.asset_class ?? ""));
-    if (ac !== AssetClass.UNSPECIFIED) row.assetClass = ac;
+    if (ac !== AssetClass.ASSET_CLASS_UNSPECIFIED) row.assetClass = ac;
 
     // Knowledge time is optional: a file that omits it is imported with the
     // server's fallback rather than rejected. An unparseable value is an

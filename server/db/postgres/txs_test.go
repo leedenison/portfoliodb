@@ -2,15 +2,15 @@ package postgres
 
 import (
 	"context"
-	"strconv"
-	"testing"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"strconv"
+	"testing"
+	"time"
 )
 
 func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
@@ -24,8 +24,8 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 	ts1 := timestamppb.New(now.Add(-90 * time.Minute))
 	ts2 := timestamppb.New(now.Add(-30 * time.Minute))
 	txs := []*apiv1.Tx{
-		{Timestamp: ts1, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
-		{Timestamp: ts2, InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: "-3", Account: ""},
+		{Timestamp: ts1, InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
+		{Timestamp: ts2, InstrumentDescription: "AAPL", Type: typev1.TxType_SELLSTOCK, Quantity: "-3", Account: ""},
 	}
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
 	if err != nil {
@@ -73,7 +73,7 @@ func TestReplaceTxsInPeriod_PeriodBeforeIsExclusive(t *testing.T) {
 		{boundary.Add(-time.Hour), "1"},
 		{boundary, "2"},
 	} {
-		tx := &apiv1.Tx{Timestamp: timestamppb.New(seed.at), InstrumentDescription: "BND", Type: apiv1.TxType_BUYSTOCK, Quantity: seed.qty, Account: ""}
+		tx := &apiv1.Tx{Timestamp: timestamppb.New(seed.at), InstrumentDescription: "BND", Type: typev1.TxType_BUYSTOCK, Quantity: seed.qty, Account: ""}
 		if err := createTx(ctx, p, userID, "IBKR", "", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx: %v", err)
 		}
@@ -120,7 +120,7 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 		t.Fatalf("upsert initialize: %v", err)
 	}
 	oldTx := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now.Add(-80 * time.Minute)), InstrumentDescription: "MSFT", Type: apiv1.TxType_BUYSTOCK, Quantity: "5", Account: ""},
+		{Timestamp: timestamppb.New(now.Add(-80 * time.Minute)), InstrumentDescription: "MSFT", Type: typev1.TxType_BUYSTOCK, Quantity: "5", Account: ""},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, oldTx, []string{instID}, nil, nil); err != nil {
 		t.Fatalf("seed real tx: %v", err)
@@ -128,8 +128,8 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 
 	// Replace real txs in the same period with a fresh set; synthetic must survive.
 	newTxs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now.Add(-60 * time.Minute)), InstrumentDescription: "MSFT", Type: apiv1.TxType_BUYSTOCK, Quantity: "7", Account: ""},
-		{Timestamp: timestamppb.New(now.Add(-20 * time.Minute)), InstrumentDescription: "MSFT", Type: apiv1.TxType_SELLSTOCK, Quantity: "-2", Account: ""},
+		{Timestamp: timestamppb.New(now.Add(-60 * time.Minute)), InstrumentDescription: "MSFT", Type: typev1.TxType_BUYSTOCK, Quantity: "7", Account: ""},
+		{Timestamp: timestamppb.New(now.Add(-20 * time.Minute)), InstrumentDescription: "MSFT", Type: typev1.TxType_SELLSTOCK, Quantity: "-2", Account: ""},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, newTxs, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
@@ -147,7 +147,7 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 		// The pad and its EQUITY counterparty are one group, so a replace has to
 		// spare both or neither.
 		case r.GetTx().GetSyntheticPurpose() == "INITIALIZE" &&
-			r.GetTx().GetAccountType() == apiv1.AccountType_ACCOUNT_TYPE_EQUITY:
+			r.GetTx().GetAccountType() == typev1.AccountType_ACCOUNT_TYPE_EQUITY:
 			sawInitEquity = true
 			if r.GetTx().GetQuantity() != "-42" {
 				t.Errorf("synthetic counterparty qty: want -42, got %v", r.GetTx().GetQuantity())
@@ -222,7 +222,7 @@ func TestCreateTx_CreatesGroup(t *testing.T) {
 		t.Fatalf("create job: %v", err)
 	}
 	at := time.Date(2025, 6, 2, 14, 30, 0, 0, time.UTC)
-	tx := &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "NVDA", Type: apiv1.TxType_BUYSTOCK, Quantity: "4", Account: "A"}
+	tx := &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "NVDA", Type: typev1.TxType_BUYSTOCK, Quantity: "4", Account: "A"}
 	if err := createTx(ctx, p, userID, "IBKR", "A", jobID, tx, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -260,8 +260,8 @@ func TestCreateTxGroup_PutsEveryPostingInOneGroup(t *testing.T) {
 	// The two carry different refs on the way in; the append path is one group
 	// regardless, so neither can split it.
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(at), InstrumentDescription: "NFLX", Type: apiv1.TxType_BUYSTOCK, Quantity: "4", Account: "A", GroupRef: "a"},
-		{Timestamp: timestamppb.New(at), InstrumentDescription: "NFLX", Type: apiv1.TxType_BUYSTOCK, Quantity: "-4", Account: "A", GroupRef: "b", AccountType: apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE},
+		{Timestamp: timestamppb.New(at), InstrumentDescription: "NFLX", Type: typev1.TxType_BUYSTOCK, Quantity: "4", Account: "A", GroupRef: "a"},
+		{Timestamp: timestamppb.New(at), InstrumentDescription: "NFLX", Type: typev1.TxType_BUYSTOCK, Quantity: "-4", Account: "A", GroupRef: "b", AccountType: typev1.AccountType_ACCOUNT_TYPE_IMBALANCE},
 	}
 	if err := p.CreateTxGroup(ctx, userID, "IBKR", "A", "", txs, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("create tx group: %v", err)
@@ -298,8 +298,8 @@ func TestReplaceTxsInPeriod_DeletesRoutedPostingsWithTheirGroup(t *testing.T) {
 	base := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "A", GroupRef: "t1"},
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", Type: apiv1.TxType_BUYSTOCK, Quantity: "-10", Account: "A", GroupRef: "t1", AccountType: apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A", GroupRef: "t1"},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", Type: typev1.TxType_BUYSTOCK, Quantity: "-10", Account: "A", GroupRef: "t1", AccountType: typev1.AccountType_ACCOUNT_TYPE_IMBALANCE},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -329,9 +329,9 @@ func TestReplaceTxsInPeriod_CreatesGroupPerTx(t *testing.T) {
 	}
 	base := time.Date(2025, 5, 1, 0, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "TSLA", Type: apiv1.TxType_BUYSTOCK, Quantity: "1", Account: ""},
-		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "TSLA", Type: apiv1.TxType_BUYSTOCK, Quantity: "2", Account: ""},
-		{Timestamp: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "TSLA", Type: apiv1.TxType_SELLSTOCK, Quantity: "-1", Account: ""},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "TSLA", Type: typev1.TxType_BUYSTOCK, Quantity: "1", Account: ""},
+		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "TSLA", Type: typev1.TxType_BUYSTOCK, Quantity: "2", Account: ""},
+		{Timestamp: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "TSLA", Type: typev1.TxType_SELLSTOCK, Quantity: "-1", Account: ""},
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID, instID}, nil, nil); err != nil {
@@ -363,9 +363,9 @@ func TestReplaceTxsInPeriod_GroupsByGroupRef(t *testing.T) {
 	base := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
 	// A trade and its cash leg share a ref; a separately-reported fee names none.
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "VOD", Type: apiv1.TxType_SELLSTOCK, Quantity: "-100", Account: "", GroupRef: "ref-1"},
-		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "VOD", Type: apiv1.TxType_CASHFLOW, Quantity: "125", Account: "", GroupRef: "ref-1"},
-		{Timestamp: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "VOD", Type: apiv1.TxType_INVEXPENSE, Quantity: "-7.5", Account: ""},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "VOD", Type: typev1.TxType_SELLSTOCK, Quantity: "-100", Account: "", GroupRef: "ref-1"},
+		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "VOD", Type: typev1.TxType_CASHFLOW, Quantity: "125", Account: "", GroupRef: "ref-1"},
+		{Timestamp: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "VOD", Type: typev1.TxType_INVEXPENSE, Quantity: "-7.5", Account: ""},
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	ids := []string{instID, instID, instID}
@@ -408,8 +408,8 @@ func TestReplaceTxsInPeriod_GroupRefScopedToUpload(t *testing.T) {
 	upload := func(period time.Time) {
 		t.Helper()
 		txs := []*apiv1.Tx{
-			{Timestamp: timestamppb.New(period.Add(time.Hour)), InstrumentDescription: "BP", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "", GroupRef: "same-ref"},
-			{Timestamp: timestamppb.New(period.Add(time.Hour)), InstrumentDescription: "BP", Type: apiv1.TxType_CASHFLOW, Quantity: "-50", Account: "", GroupRef: "same-ref"},
+			{Timestamp: timestamppb.New(period.Add(time.Hour)), InstrumentDescription: "BP", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "", GroupRef: "same-ref"},
+			{Timestamp: timestamppb.New(period.Add(time.Hour)), InstrumentDescription: "BP", Type: typev1.TxType_CASHFLOW, Quantity: "-50", Account: "", GroupRef: "same-ref"},
 		}
 		from, to := timestamppb.New(period), timestamppb.New(period.Add(24*time.Hour))
 		if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
@@ -445,8 +445,8 @@ func TestReplaceTxsInPeriod_DeletesWholeGroups(t *testing.T) {
 	base := time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC)
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	seed := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: "", GroupRef: "r"},
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", Type: apiv1.TxType_CASHFLOW, Quantity: "-50", Account: "", GroupRef: "r"},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "", GroupRef: "r"},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", Type: typev1.TxType_CASHFLOW, Quantity: "-50", Account: "", GroupRef: "r"},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, seed, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -480,14 +480,14 @@ func TestReplaceTxsInPeriod_DeletesGroupsInPeriod(t *testing.T) {
 	base := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	seed := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "AMD", Type: apiv1.TxType_BUYSTOCK, Quantity: "1", Account: ""},
-		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "AMD", Type: apiv1.TxType_BUYSTOCK, Quantity: "2", Account: ""},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "AMD", Type: typev1.TxType_BUYSTOCK, Quantity: "1", Account: ""},
+		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "AMD", Type: typev1.TxType_BUYSTOCK, Quantity: "2", Account: ""},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, seed, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	replacement := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "AMD", Type: apiv1.TxType_BUYSTOCK, Quantity: "9", Account: ""},
+		{Timestamp: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "AMD", Type: typev1.TxType_BUYSTOCK, Quantity: "9", Account: ""},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, replacement, []string{instID}, nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
@@ -508,8 +508,8 @@ func TestCreateTx_AppendOnly(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|up", "U", "u@u.com")
 	_, _ = p.CreatePortfolio(ctx, userID, "P")
 	ts := timestamppb.Now()
-	tx1 := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_BUYSTOCK, Quantity: "5", Account: ""}
-	tx2 := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "GOOG", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: ""}
+	tx1 := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "GOOG", Type: typev1.TxType_BUYSTOCK, Quantity: "5", Account: ""}
+	tx2 := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "GOOG", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: ""}
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
@@ -539,13 +539,13 @@ func TestListTxs_BrokerFilterAndOrder(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	// Quantity doubles as an identity marker so ordering can be asserted.
 	seed := []struct {
-		broker apiv1.Broker
+		broker typev1.Broker
 		offset time.Duration
 		qty    string
 	}{
-		{apiv1.Broker_IBKR, -3 * time.Hour, "1"},
-		{apiv1.Broker_FIDELITY, -2 * time.Hour, "2"},
-		{apiv1.Broker_IBKR, -1 * time.Hour, "3"},
+		{typev1.Broker_IBKR, -3 * time.Hour, "1"},
+		{typev1.Broker_FIDELITY, -2 * time.Hour, "2"},
+		{typev1.Broker_IBKR, -1 * time.Hour, "3"},
 	}
 	for _, s := range seed {
 		// Seed through the same enum-to-string mapping the filter uses, rather than
@@ -554,7 +554,7 @@ func TestListTxs_BrokerFilterAndOrder(t *testing.T) {
 		if err != nil {
 			t.Fatalf("broker to str: %v", err)
 		}
-		tx := &apiv1.Tx{Timestamp: timestamppb.New(now.Add(s.offset)), InstrumentDescription: "ORD", Type: apiv1.TxType_BUYSTOCK, Quantity: s.qty}
+		tx := &apiv1.Tx{Timestamp: timestamppb.New(now.Add(s.offset)), InstrumentDescription: "ORD", Type: typev1.TxType_BUYSTOCK, Quantity: s.qty}
 		if err := createTx(ctx, p, userID, brokerStr, "", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx: %v", err)
 		}
@@ -567,11 +567,11 @@ func TestListTxs_BrokerFilterAndOrder(t *testing.T) {
 		}
 		return out
 	}
-	fidelity := apiv1.Broker_FIDELITY.Enum()
+	fidelity := typev1.Broker_FIDELITY.Enum()
 
 	cases := []struct {
 		name       string
-		broker     *apiv1.Broker
+		broker     *typev1.Broker
 		descending bool
 		want       []string
 	}{
@@ -599,7 +599,7 @@ func TestListTxs_BrokerFilterAndOrder(t *testing.T) {
 
 	// The most recent transaction for one broker in a single row -- the query the
 	// import extension issues to size its fetch window.
-	rows, _, err := p.ListTxs(ctx, userID, apiv1.Broker_IBKR.Enum(), "", nil, nil, true, 1, "")
+	rows, _, err := p.ListTxs(ctx, userID, typev1.Broker_IBKR.Enum(), "", nil, nil, true, 1, "")
 	if err != nil {
 		t.Fatalf("latest tx: %v", err)
 	}
@@ -616,7 +616,7 @@ func TestListTxs_PeriodBeforeIsExclusive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
-	brokerStr, err := brokerToStr(apiv1.Broker_IBKR)
+	brokerStr, err := brokerToStr(typev1.Broker_IBKR)
 	if err != nil {
 		t.Fatalf("broker to str: %v", err)
 	}
@@ -629,7 +629,7 @@ func TestListTxs_PeriodBeforeIsExclusive(t *testing.T) {
 		{boundary.Add(-time.Second), "1"},
 		{boundary, "2"},
 	} {
-		tx := &apiv1.Tx{Timestamp: timestamppb.New(seed.at), InstrumentDescription: "PER", Type: apiv1.TxType_BUYSTOCK, Quantity: seed.qty}
+		tx := &apiv1.Tx{Timestamp: timestamppb.New(seed.at), InstrumentDescription: "PER", Type: typev1.TxType_BUYSTOCK, Quantity: seed.qty}
 		if err := createTx(ctx, p, userID, brokerStr, "", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx: %v", err)
 		}
@@ -661,7 +661,7 @@ func TestListTxs_TiedTimestampsPageBoundary(t *testing.T) {
 	ts := timestamppb.New(time.Now().Truncate(24 * time.Hour))
 	const total = 6
 	for i := 0; i < total; i++ {
-		tx := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "TIE", Type: apiv1.TxType_BUYSTOCK, Quantity: strconv.Itoa(i + 1)}
+		tx := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "TIE", Type: typev1.TxType_BUYSTOCK, Quantity: strconv.Itoa(i + 1)}
 		if err := createTx(ctx, p, userID, "IBKR", "", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx %d: %v", i, err)
 		}
@@ -736,8 +736,8 @@ func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 	ts1 := timestamppb.New(now.Add(-90 * time.Minute))
 	ts2 := timestamppb.New(now.Add(-30 * time.Minute))
 	txList := []*apiv1.Tx{
-		{Timestamp: ts1, InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
-		{Timestamp: ts2, InstrumentDescription: "AAPL", Type: apiv1.TxType_SELLSTOCK, Quantity: "-3", Account: ""},
+		{Timestamp: ts1, InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
+		{Timestamp: ts2, InstrumentDescription: "AAPL", Type: typev1.TxType_SELLSTOCK, Quantity: "-3", Account: ""},
 	}
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
 	if err != nil {
@@ -795,15 +795,15 @@ func TestListTxsByPortfolio_ANDBetweenCategories(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	// Tx1: IBKR, account "B" -> matches broker but NOT account -> excluded
-	if err := createTx(ctx, p, userID, "IBKR", "B", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: "1", Account: "B"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "B", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: typev1.TxType_BUYSTOCK, Quantity: "1", Account: "B"}, instID, nil); err != nil {
 		t.Fatalf("create tx1: %v", err)
 	}
 	// Tx2: SCHB, account "A" -> matches account but NOT broker -> excluded
-	if err := createTx(ctx, p, userID, "SCHB", "A", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: "2", Account: "A"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "SCHB", "A", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: typev1.TxType_BUYSTOCK, Quantity: "2", Account: "A"}, instID, nil); err != nil {
 		t.Fatalf("create tx2: %v", err)
 	}
 	// Tx3: IBKR, account "A" -> matches both -> included
-	if err := createTx(ctx, p, userID, "IBKR", "A", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: apiv1.TxType_BUYSTOCK, Quantity: "3", Account: "A"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "A", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", Type: typev1.TxType_BUYSTOCK, Quantity: "3", Account: "A"}, instID, nil); err != nil {
 		t.Fatalf("create tx3: %v", err)
 	}
 	txs, _, err := p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, nil, false, 50, "")
@@ -845,8 +845,8 @@ func TestReplaceTxsInPeriod_RoundTripsAccountType(t *testing.T) {
 	// A dividend as a balanced group: cash into the account, and the income it
 	// came from. Both legs keep the same broker and account.
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "USD", Type: apiv1.TxType_INCOME, Quantity: "23.4", Account: "A", GroupRef: "div-1"},
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "USD", Type: apiv1.TxType_INCOME, Quantity: "-23.4", Account: "A", GroupRef: "div-1", AccountType: apiv1.AccountType_ACCOUNT_TYPE_INCOME},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "USD", Type: typev1.TxType_INCOME, Quantity: "23.4", Account: "A", GroupRef: "div-1"},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "USD", Type: typev1.TxType_INCOME, Quantity: "-23.4", Account: "A", GroupRef: "div-1", AccountType: typev1.AccountType_ACCOUNT_TYPE_INCOME},
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
@@ -874,11 +874,11 @@ func TestReplaceTxsInPeriod_RoundTripsAccountType(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("ListTxs returned %d postings, want both legs", len(got))
 	}
-	seen := map[apiv1.AccountType]bool{}
+	seen := map[typev1.AccountType]bool{}
 	for _, ptx := range got {
 		seen[ptx.GetTx().GetAccountType()] = true
 	}
-	if !seen[apiv1.AccountType_ACCOUNT_TYPE_USER] || !seen[apiv1.AccountType_ACCOUNT_TYPE_INCOME] {
+	if !seen[typev1.AccountType_ACCOUNT_TYPE_USER] || !seen[typev1.AccountType_ACCOUNT_TYPE_INCOME] {
 		t.Errorf("ListTxs account types: want USER and INCOME, got %v", seen)
 	}
 }
@@ -901,9 +901,9 @@ func TestReplaceTxsInPeriod_RoundTripsSourceReferences(t *testing.T) {
 	// The two sides of one transfer hop, as Fidelity reports them: adjacent
 	// references, and only the receiving side naming where the money came from.
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: apiv1.TxType_TRANSFER,
+		{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: typev1.TxType_TRANSFER,
 			Quantity: "-20000", Account: "AG10041188", BrokerRef: "1093663528"},
-		{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: apiv1.TxType_TRANSFER,
+		{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: typev1.TxType_TRANSFER,
 			Quantity: "20000", Account: "AW10075724", BrokerRef: "1093663531", CounterpartyAccount: "AG10041188"},
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
@@ -988,8 +988,8 @@ func TestReplaceTxsInPeriod_RoundTripsZeroUnitPrice(t *testing.T) {
 	}
 	base := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "OPT", Type: apiv1.TxType_CLOSUREOPT, Quantity: "-1", Account: "A", UnitPrice: proto.String("0")},
-		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "OPT", Type: apiv1.TxType_BUYOPT, Quantity: "1", Account: "A"},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "OPT", Type: typev1.TxType_CLOSUREOPT, Quantity: "-1", Account: "A", UnitPrice: proto.String("0")},
+		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "OPT", Type: typev1.TxType_BUYOPT, Quantity: "1", Account: "A"},
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
@@ -1015,7 +1015,7 @@ func TestReplaceTxsInPeriod_RoundTripsZeroUnitPrice(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("ListTxs returned %d postings, want 2", len(got))
 	}
-	byType := map[apiv1.TxType]*apiv1.Tx{}
+	byType := map[typev1.TxType]*apiv1.Tx{}
 	for _, ptx := range got {
 		byType[ptx.GetTx().GetType()] = ptx.GetTx()
 	}
@@ -1023,10 +1023,10 @@ func TestReplaceTxsInPeriod_RoundTripsZeroUnitPrice(t *testing.T) {
 	// as in the column: optional string keeps the explicit presence that optional
 	// double had, so an option expiring worthless still converts at zero and its
 	// group balances.
-	if p := byType[apiv1.TxType_CLOSUREOPT].UnitPrice; p == nil || *p != "0" {
+	if p := byType[typev1.TxType_CLOSUREOPT].UnitPrice; p == nil || *p != "0" {
 		t.Errorf("expired option unit_price: want a present zero, got %v", p)
 	}
-	if p := byType[apiv1.TxType_BUYOPT].UnitPrice; p != nil {
+	if p := byType[typev1.TxType_BUYOPT].UnitPrice; p != nil {
 		t.Errorf("unpriced buy unit_price: want absent, got %v", *p)
 	}
 }
@@ -1048,9 +1048,9 @@ func TestReplaceTxsInPeriod_StoresWeight(t *testing.T) {
 	now := time.Now()
 	from, to := timestamppb.New(now.Add(-time.Hour)), timestamppb.New(now.Add(time.Hour))
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "AAPL", Type: apiv1.TxType_BUYSTOCK,
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK,
 			Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD", GroupRef: "g1"},
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "USD", Type: apiv1.TxType_BUYSTOCK,
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "USD", Type: typev1.TxType_BUYSTOCK,
 			Quantity: "-1855", SettlementCurrency: "USD", TradingCurrency: "USD", GroupRef: "g1"},
 	}
 	ws := []db.Weight{
@@ -1089,7 +1089,7 @@ func TestReplaceTxsInPeriod_DefaultsWeightWhenAbsent(t *testing.T) {
 	now := time.Now()
 	from, to := timestamppb.New(now.Add(-time.Hour)), timestamppb.New(now.Add(time.Hour))
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "MSFT", Type: apiv1.TxType_BUYSTOCK, Quantity: "7"},
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "MSFT", Type: typev1.TxType_BUYSTOCK, Quantity: "7"},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)

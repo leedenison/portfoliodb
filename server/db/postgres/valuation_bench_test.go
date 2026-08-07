@@ -3,14 +3,14 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"os"
-	"testing"
-	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"os"
+	"testing"
+	"time"
 )
 
 // seedValuationLoad builds a portfolio of instruments each holding years of
@@ -43,7 +43,7 @@ func seedValuationLoad(t testing.TB, p *Postgres, instruments, years int) (strin
 		}
 		txs = append(txs, &apiv1.Tx{
 			Timestamp: timestamppb.New(buy), InstrumentDescription: desc,
-			Type: apiv1.TxType_BUYSTOCK, Quantity: "100", Account: "main",
+			Type: typev1.TxType_BUYSTOCK, Quantity: "100", Account: "main",
 		})
 		instIDs = append(instIDs, instID)
 	}

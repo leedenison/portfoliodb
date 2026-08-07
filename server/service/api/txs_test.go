@@ -2,20 +2,20 @@ package api
 
 import (
 	"errors"
-	"testing"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/testutil"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"testing"
 )
 
 func TestListTxs_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
-	txs := []*apiv1.PortfolioTx{{Broker: apiv1.Broker_IBKR, Tx: &apiv1.Tx{InstrumentDescription: "AAPL"}}}
+	txs := []*apiv1.PortfolioTx{{Broker: typev1.Broker_IBKR, Tx: &apiv1.Tx{InstrumentDescription: "AAPL"}}}
 	db.EXPECT().
-		ListTxs(gomock.Any(), "user-1", (*apiv1.Broker)(nil), "", (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), false, int32(50), "").
+		ListTxs(gomock.Any(), "user-1", (*typev1.Broker)(nil), "", (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), false, int32(50), "").
 		Return(txs, "", nil)
 	ctx := authCtx("user-1", "sub|1")
 	resp, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{})
@@ -29,12 +29,12 @@ func TestListTxs_Success(t *testing.T) {
 
 func TestListTxs_WithPortfolioId_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
-	txs := []*apiv1.PortfolioTx{{Broker: apiv1.Broker_IBKR, Tx: &apiv1.Tx{InstrumentDescription: "AAPL"}}}
+	txs := []*apiv1.PortfolioTx{{Broker: typev1.Broker_IBKR, Tx: &apiv1.Tx{InstrumentDescription: "AAPL"}}}
 	db.EXPECT().
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
 		Return(true, nil)
 	db.EXPECT().
-		ListTxsByPortfolio(gomock.Any(), "port-1", (*apiv1.Broker)(nil), (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), false, int32(50), "").
+		ListTxsByPortfolio(gomock.Any(), "port-1", (*typev1.Broker)(nil), (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), false, int32(50), "").
 		Return(txs, "", nil)
 	ctx := authCtx("user-1", "sub|1")
 	resp, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "port-1"})
@@ -64,7 +64,7 @@ func TestListTxs_WithPortfolioId_DBError(t *testing.T) {
 		PortfolioBelongsToUser(gomock.Any(), "port-1", "user-1").
 		Return(true, nil)
 	db.EXPECT().
-		ListTxsByPortfolio(gomock.Any(), "port-1", (*apiv1.Broker)(nil), (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), false, int32(50), "").
+		ListTxsByPortfolio(gomock.Any(), "port-1", (*typev1.Broker)(nil), (*timestamppb.Timestamp)(nil), (*timestamppb.Timestamp)(nil), false, int32(50), "").
 		Return(nil, "", errors.New("boom"))
 	ctx := authCtx("user-1", "sub|1")
 	_, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{PortfolioId: "port-1"})
@@ -76,12 +76,12 @@ func TestListTxs_WithPortfolioId_DBError(t *testing.T) {
 func TestListTxs_BrokerAndDescending(t *testing.T) {
 	cases := []struct {
 		name       string
-		broker     apiv1.Broker
+		broker     typev1.Broker
 		descending bool
-		want       *apiv1.Broker
+		want       *typev1.Broker
 	}{
-		{"unspecified broker is no filter", apiv1.Broker_BROKER_UNSPECIFIED, false, nil},
-		{"broker filter with descending", apiv1.Broker_FIDELITY, true, apiv1.Broker_FIDELITY.Enum()},
+		{"unspecified broker is no filter", typev1.Broker_BROKER_UNSPECIFIED, false, nil},
+		{"broker filter with descending", typev1.Broker_FIDELITY, true, typev1.Broker_FIDELITY.Enum()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

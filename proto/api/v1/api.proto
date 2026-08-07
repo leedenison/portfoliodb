@@ -5,108 +5,16 @@ package portfoliodb.api.v1;
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 import "google/type/date.proto";
+import "type/v1/type.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/api/v1;apiv1";
-
-// Broker identifies the data source so that the same canonical value is used
-// across users uploading data from the same broker.
-enum Broker {
-  BROKER_UNSPECIFIED = 0;
-  IBKR        = 1;  // Interactive Brokers
-  SCHB        = 2;  // Charles Schwab
-  FIDELITY    = 3;
-}
-
-// OFX-style transaction types for investments.
-enum TxType {
-  TX_TYPE_UNSPECIFIED = 0;
-  // Buys
-  BUYDEBT  = 1;
-  BUYMF    = 2;
-  BUYOPT   = 3;
-  BUYOTHER = 4;
-  BUYSTOCK = 5;
-  // Sells
-  SELLDEBT  = 6;
-  SELLMF    = 7;
-  SELLOPT   = 8;
-  SELLOTHER = 9;
-  SELLSTOCK = 10;
-  // Other
-  INCOME         = 11;
-  INVEXPENSE     = 12;
-  REINVEST       = 13;
-  RETOFCAP       = 14;
-  SPLIT          = 15;
-  TRANSFER       = 16;
-  JRNLFUND       = 17;
-  JRNLSEC        = 18;
-  MARGININTEREST = 19;
-  CLOSUREOPT     = 20;
-  CASHFLOW       = 21;
-  BUYFUTURE      = 22;
-  SELLFUTURE     = 23;
-}
-
-// AccountType classifies the account a posting lands in, so that the non-asset side
-// of an event that is one-sided in the source data has somewhere to go. A posting
-// keeps the broker and account of the event it belongs to; the type says what kind
-// of leg it is. Values are prefixed because proto enum values share package scope
-// and TxType already defines INCOME and TRANSFER.
-// See docs/adr/0022-typed-per-account-cash-flow-boundary.md.
-enum AccountType {
-  ACCOUNT_TYPE_UNSPECIFIED = 0;       // Unset on upload; stored as USER.
-  ACCOUNT_TYPE_USER = 1;              // An ordinary broker account posting.
-  ACCOUNT_TYPE_EQUITY = 2;            // Value entering or leaving the user's holdings entirely.
-  ACCOUNT_TYPE_INCOME = 3;            // Dividends, interest and other income.
-  ACCOUNT_TYPE_EXPENSE = 4;           // Commissions, levies, custody and service charges, taxes.
-  ACCOUNT_TYPE_IMBALANCE = 5;         // The residual of a group that does not sum to zero.
-  ACCOUNT_TYPE_TRANSFER_CLEARING = 6; // One side of a transfer whose other side is not yet known.
-  ACCOUNT_TYPE_SOURCE_ROUNDING = 7;   // A residual small enough to be the source rounding, not missing data.
-}
-
-// IdentifierType is the controlled vocabulary for instrument identifier types.
-// Stored in instrument_identifiers.identifier_type. Broker description identifiers use BROKER_DESCRIPTION with domain = source (e.g. "Fidelity:web:fidelity-csv").
-enum IdentifierType {
-  IDENTIFIER_TYPE_UNSPECIFIED = 0;
-  ISIN = 1;
-  CUSIP = 2;
-  SEDOL = 3;
-  CINS = 4;
-  WERTPAPIER = 5;
-  OCC = 6;
-  OPRA = 7;
-  FUT_OPT = 8;
-  OPENFIGI_GLOBAL = 9;
-  OPENFIGI_SHARE_CLASS = 10;
-  OPENFIGI_COMPOSITE = 11;
-  BROKER_DESCRIPTION = 12;
-  CURRENCY = 13;
-  FX_PAIR = 14;
-  MIC_TICKER = 15;
-  OPENFIGI_TICKER = 16;
-}
-
-// AssetClass is the controlled vocabulary for instrument asset classes.
-enum AssetClass {
-  ASSET_CLASS_UNSPECIFIED = 0;
-  ASSET_CLASS_STOCK       = 1;
-  ASSET_CLASS_ETF         = 2;
-  ASSET_CLASS_FIXED_INCOME = 3;
-  ASSET_CLASS_MUTUAL_FUND = 4;
-  ASSET_CLASS_OPTION      = 5;
-  ASSET_CLASS_FUTURE      = 6;
-  ASSET_CLASS_CASH        = 7;
-  ASSET_CLASS_FX          = 8;
-  ASSET_CLASS_UNKNOWN     = 9;
-}
 
 // InstrumentIdentifier is one (type, domain, value) for an instrument.
 // For BROKER_DESCRIPTION, domain is the source (e.g. "Fidelity:web:fidelity-csv") and value is the instrument_description.
 // For MIC_TICKER, domain is an ISO 10383 MIC code (or empty when unknown). For OPENFIGI_TICKER, domain is a Bloomberg/OpenFIGI exchange code (e.g. "US").
 // canonical = false only for broker-description identifiers.
 message InstrumentIdentifier {
-  IdentifierType type = 1;
+  portfoliodb.type.v1.IdentifierType type = 1;
   string value = 2;
   bool canonical = 3;
   string domain = 4; // optional; MIC for MIC_TICKER, exchange code for OPENFIGI_TICKER, source for BROKER_DESCRIPTION
@@ -116,7 +24,7 @@ message InstrumentIdentifier {
 // When asset_class is OPTION or FUTURE, underlying_id must be set.
 message Instrument {
   string id = 1;
-  AssetClass asset_class = 2;
+  portfoliodb.type.v1.AssetClass asset_class = 2;
   string exchange = 3;
   string currency = 4;
   string name = 5;
@@ -164,7 +72,7 @@ message Tx {
   // Broker's instrument description string. Required.
   string instrument_description = 2 [(buf.validate.field).string.min_len = 1];
   // OFX transaction type. Required.
-  TxType type = 3 [(buf.validate.field).enum.defined_only = true];
+  portfoliodb.type.v1.TxType type = 3 [(buf.validate.field).enum.defined_only = true];
   // Signed quantity as a decimal string: positive for buys/adds, negative for
   // sells/reductions. Exact, because a holding is a sum of these and a group's
   // balance is a sum of their weights.
@@ -212,7 +120,7 @@ message Tx {
   // thing that knows whether a row is the user's cash or the income it came from.
   // Unset means USER, so an upload that says nothing about kind reads as an ordinary
   // broker account posting.
-  AccountType account_type = 15 [(buf.validate.field).enum.defined_only = true];
+  portfoliodb.type.v1.AccountType account_type = 15 [(buf.validate.field).enum.defined_only = true];
   // The source's own identifier for the row this posting was transcribed from:
   // Fidelity's Reference Number, OFX's FITID. Set by the broker converter and
   // stored, so unlike group_ref it is durable and means the same thing across
@@ -454,7 +362,7 @@ message ListBrokersAndAccountsResponse {
 
 // PortfolioTx pairs a transaction with its broker, account, and optional resolved instrument for list responses.
 message PortfolioTx {
-  Broker broker = 1;
+  portfoliodb.type.v1.Broker broker = 1;
   Tx tx = 2;
   Instrument instrument = 3;  // optional; set when instrument_id was resolved
   string account = 4;  // from Tx; echoed for convenience when listing
@@ -469,7 +377,7 @@ message ListTxsRequest {
   string page_token = 5;
   // Restrict to one broker. BROKER_UNSPECIFIED = all brokers. Applies to both
   // the portfolio view and the all-transactions listing.
-  Broker broker = 6 [(buf.validate.field).enum = {defined_only: true}];
+  portfoliodb.type.v1.Broker broker = 6 [(buf.validate.field).enum = {defined_only: true}];
   // Order by timestamp descending (newest first). Default is ascending.
   bool descending = 7;
 }
@@ -481,7 +389,7 @@ message ListTxsResponse {
 
 // Holding is the aggregate quantity of an instrument in a portfolio (or per account for user/portfolio views).
 message Holding {
-  Broker broker = 1;
+  portfoliodb.type.v1.Broker broker = 1;
   string instrument_description = 2;
   // Resolved instrument id (UUID). Set when identification ran for the underlying txs.
   string instrument_id = 4;
@@ -572,7 +480,7 @@ message ListInstrumentsRequest {
   string search = 1;       // optional; matched against display name (ticker, name, or broker description)
   int32 page_size = 2;
   string page_token = 3;
-  repeated AssetClass asset_classes = 4;  // optional; filter by asset class. Empty = all.
+  repeated portfoliodb.type.v1.AssetClass asset_classes = 4;  // optional; filter by asset class. Empty = all.
 }
 
 message ListInstrumentsResponse {
@@ -584,7 +492,7 @@ message ListInstrumentsResponse {
 // ExportInstruments streams all instruments that have at least one canonical identifier. Optional exchange filter.
 message ExportInstrumentsRequest {
   string exchange = 1;              // optional; empty = all exchanges
-  repeated AssetClass asset_classes = 2;  // optional; empty = server default (excludes CASH/FX)
+  repeated portfoliodb.type.v1.AssetClass asset_classes = 2;  // optional; empty = server default (excludes CASH/FX)
 }
 
 // ImportInstruments ensures the given instruments exist (find-or-create by identifiers, merge on conflict). No overwrite of canonical fields for existing.
@@ -816,7 +724,7 @@ message ExportPriceRow {
   string close = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   optional string adjusted_close = 9 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   optional int64 volume = 10;
-  AssetClass asset_class = 11;   // denormalized from instrument
+  portfoliodb.type.v1.AssetClass asset_class = 11;   // denormalized from instrument
   google.protobuf.Timestamp exported_at = 12; // when the export was generated
   string currency = 13;          // ISO 4217 currency code; denormalized from instrument
 }
@@ -837,7 +745,7 @@ message ImportPriceRow {
   string close = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   optional string adjusted_close = 9 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   optional int64 volume = 10;
-  AssetClass asset_class = 11;   // optional; security type hint for plugin routing on unknown instruments
+  portfoliodb.type.v1.AssetClass asset_class = 11;   // optional; security type hint for plugin routing on unknown instruments
   string currency = 12;          // optional; ISO 4217 currency code used as hint for validation
   // The share count these raw values are denominated in, as "YYYY-MM-DD".
   // Optional; defaults to price_date, meaning the row is as-traded. Set it only
@@ -1033,7 +941,7 @@ message ListWorkersResponse {
 message IgnoredAssetClassRule {
   string broker = 1;
   string account = 2;      // empty = all accounts for broker
-  AssetClass asset_class = 3;
+  portfoliodb.type.v1.AssetClass asset_class = 3;
 }
 
 message GetIgnoredAssetClassesRequest {}
@@ -1061,14 +969,14 @@ message CountIgnoredTxsResponse {
 // Filters by asset class; empty = all. Includes both instrument price gaps
 // and FX rate gaps.
 message ListPriceGapsRequest {
-  repeated AssetClass asset_classes = 1;
+  repeated portfoliodb.type.v1.AssetClass asset_classes = 1;
 }
 
 // PriceGap is one instrument with its missing price date ranges.
 message PriceGap {
   string instrument_id = 1;
   InstrumentIdentifier identifier = 2;
-  AssetClass asset_class = 3;
+  portfoliodb.type.v1.AssetClass asset_class = 3;
   string exchange = 4;
   string currency = 5;
   string name = 6;
@@ -1220,7 +1128,7 @@ message ExportCorporateEventRow {
   string identifier_type = 1;
   string identifier_value = 2;
   string identifier_domain = 3;
-  AssetClass asset_class = 4;
+  portfoliodb.type.v1.AssetClass asset_class = 4;
   string data_provider = 5;
   oneof event {
     SplitRow split = 10;
@@ -1248,7 +1156,7 @@ message ImportCorporateEventRow {
   string identifier_type = 1;
   string identifier_value = 2;
   string identifier_domain = 3;
-  AssetClass asset_class = 4;
+  portfoliodb.type.v1.AssetClass asset_class = 4;
   oneof event {
     SplitRow split = 10;
     CashDividendRow dividend = 11;
@@ -1336,13 +1244,13 @@ message ResolveUnhandledCorporateEventResponse {}
 // one in a security is a quantity of shares, and the two are not summed. See
 // docs/spec/postings.md.
 message ResidualBalance {
-  AccountType account_type = 1;  // IMBALANCE, TRANSFER_CLEARING or SOURCE_ROUNDING
-  Broker broker = 2;
+  portfoliodb.type.v1.AccountType account_type = 1;  // IMBALANCE, TRANSFER_CLEARING or SOURCE_ROUNDING
+  portfoliodb.type.v1.Broker broker = 2;
   string account = 3;
   string instrument_id = 4;
   string commodity = 5;          // instrument name: the ISO code for money, the ticker for a security
-  AssetClass asset_class = 6;    // CASH means the balance is money; anything else is a quantity
-  TxType tx_type = 7;            // the kind of event that left the balance
+  portfoliodb.type.v1.AssetClass asset_class = 6;    // CASH means the balance is money; anything else is a quantity
+  portfoliodb.type.v1.TxType tx_type = 7;            // the kind of event that left the balance
   // Decimal; a signed sum over the contributing postings' split-adjusted
   // quantities, which is the only denomination they share. Money never splits,
   // so a cash residual is exact and one reported here is real rather than an
@@ -1366,7 +1274,7 @@ message ListResidualBalancesRequest {
   google.protobuf.Timestamp period_before = 2;  // exclusive
   // Restrict to one account type. ACCOUNT_TYPE_UNSPECIFIED returns IMBALANCE,
   // TRANSFER_CLEARING and SOURCE_ROUNDING alike.
-  AccountType account_type = 3 [(buf.validate.field).enum.defined_only = true];
+  portfoliodb.type.v1.AccountType account_type = 3 [(buf.validate.field).enum.defined_only = true];
 }
 
 message ListResidualBalancesResponse {

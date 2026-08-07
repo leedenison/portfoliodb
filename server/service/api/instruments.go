@@ -2,8 +2,8 @@ package api
 
 import (
 	"context"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/grpc/codes"
@@ -112,7 +112,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 	// Pass 1: ensure all non-derivatives (and ensure nested underlyings from derivatives).
 	for i, inst := range instruments {
 		ac := inst.GetAssetClass()
-		isDerivative := ac == apiv1.AssetClass_ASSET_CLASS_OPTION || ac == apiv1.AssetClass_ASSET_CLASS_FUTURE
+		isDerivative := ac == typev1.AssetClass_OPTION || ac == typev1.AssetClass_FUTURE
 		if isDerivative {
 			continue
 		}
@@ -122,7 +122,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 		}
 		dup := false
 		for _, idf := range inst.GetIdentifiers() {
-			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
+			typeStr := typev1.IdentifierType_name[int32(idf.GetType())]
 			key := typeStr + "\x00" + idf.GetValue()
 			if _, ok := seenKeys[key]; ok {
 				errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: "duplicate (type, value) in payload"})
@@ -136,7 +136,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 		}
 		idns := make([]db.IdentifierInput, 0, len(inst.GetIdentifiers()))
 		for _, idf := range inst.GetIdentifiers() {
-			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
+			typeStr := typev1.IdentifierType_name[int32(idf.GetType())]
 			idns = append(idns, db.IdentifierInput{Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
 		id, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, "", protoValidFrom(inst.GetValidFrom()), protoValidBefore(inst.GetValidBefore()), nil)
@@ -155,7 +155,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 	underlyingIDByIndex := make(map[int32]string) // index -> resolved underlying_id for derivatives
 	for i, inst := range instruments {
 		ac := inst.GetAssetClass()
-		if ac != apiv1.AssetClass_ASSET_CLASS_OPTION && ac != apiv1.AssetClass_ASSET_CLASS_FUTURE {
+		if ac != typev1.AssetClass_OPTION && ac != typev1.AssetClass_FUTURE {
 			continue
 		}
 		if inst.GetUnderlying() == nil || len(inst.GetUnderlying().GetIdentifiers()) == 0 {
@@ -165,7 +165,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 		u := inst.GetUnderlying()
 		uIdns := make([]db.IdentifierInput, 0, len(u.GetIdentifiers()))
 		for _, idf := range u.GetIdentifiers() {
-			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
+			typeStr := typev1.IdentifierType_name[int32(idf.GetType())]
 			uIdns = append(uIdns, db.IdentifierInput{Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
 		underlyingID, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(u.GetAssetClass()), u.GetExchange(), u.GetCurrency(), u.GetName(), u.GetCik(), u.GetSicCode(), uIdns, "", protoValidFrom(u.GetValidFrom()), protoValidBefore(u.GetValidBefore()), nil)
@@ -183,7 +183,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 	// Pass 2: ensure derivatives (underlyings already ensured).
 	for i, inst := range instruments {
 		ac := inst.GetAssetClass()
-		if ac != apiv1.AssetClass_ASSET_CLASS_OPTION && ac != apiv1.AssetClass_ASSET_CLASS_FUTURE {
+		if ac != typev1.AssetClass_OPTION && ac != typev1.AssetClass_FUTURE {
 			continue
 		}
 		underlyingID, ok := underlyingIDByIndex[int32(i)]
@@ -196,7 +196,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 		}
 		dup := false
 		for _, idf := range inst.GetIdentifiers() {
-			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
+			typeStr := typev1.IdentifierType_name[int32(idf.GetType())]
 			key := typeStr + "\x00" + idf.GetValue()
 			if _, ok := seenKeys[key]; ok {
 				errs = append(errs, &apiv1.ImportInstrumentError{Index: int32(i), Message: "duplicate (type, value) in payload"})
@@ -210,7 +210,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 		}
 		idns := make([]db.IdentifierInput, 0, len(inst.GetIdentifiers()))
 		for _, idf := range inst.GetIdentifiers() {
-			typeStr := apiv1.IdentifierType_name[int32(idf.GetType())]
+			typeStr := typev1.IdentifierType_name[int32(idf.GetType())]
 			idns = append(idns, db.IdentifierInput{Type: typeStr, Domain: idf.GetDomain(), Value: idf.GetValue(), Canonical: idf.GetCanonical()})
 		}
 		id, err := s.db.EnsureInstrument(ctx, db.AssetClassToStr(inst.GetAssetClass()), inst.GetExchange(), inst.GetCurrency(), inst.GetName(), inst.GetCik(), inst.GetSicCode(), idns, underlyingID, protoValidFrom(inst.GetValidFrom()), protoValidBefore(inst.GetValidBefore()), nil)

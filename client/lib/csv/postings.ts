@@ -14,13 +14,8 @@ import { clone, create } from "@bufbuild/protobuf";
 import { Big } from "@/lib/decimal";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import type { Tx } from "@/gen/api/v1/api_pb";
-import {
-  AccountType,
-  IdentifierType,
-  InstrumentIdentifierSchema,
-  TxSchema,
-  TxType,
-} from "@/gen/api/v1/api_pb";
+import { InstrumentIdentifierSchema, TxSchema } from "@/gen/api/v1/api_pb";
+import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 
 /**
  * Where the other side of a one-sided cash event came from or went to. A

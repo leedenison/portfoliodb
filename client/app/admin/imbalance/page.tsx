@@ -11,7 +11,8 @@ import { ACCOUNT_TYPE_LABEL, TX_TYPE_LABEL } from "@/lib/tx-type";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { listResidualBalances, type ResidualBalance } from "@/lib/portfolio-api";
 import { ageInDays, groupByBroker, isMoney, transferAgeBucket } from "@/lib/residual-balance";
-import { AccountType, AssetClass, TxType, type Broker } from "@/gen/api/v1/api_pb";
+import { type Broker } from "@/gen/type/v1/type_pb";
+import { AccountType, AssetClass, TxType } from "@/gen/type/v1/type_pb";
 
 type Tab = "imbalance" | "transfers" | "rounding";
 

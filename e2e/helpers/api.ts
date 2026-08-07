@@ -4,14 +4,8 @@
 
 import { createClient } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-node";
-import {
-  ApiService,
-  AssetClass,
-  JobStatus,
-  type ExportCorporateEventRow,
-  type GetJobResponse,
-  type ImportCorporateEventRow,
-} from "../gen/api/v1/api_pb";
+import { ApiService, JobStatus, type ExportCorporateEventRow, type GetJobResponse, type ImportCorporateEventRow } from "../gen/api/v1/api_pb";
+import { AssetClass } from "../gen/type/v1/type_pb";
 
 const COOKIE_NAME = "portfoliodb_session";
 

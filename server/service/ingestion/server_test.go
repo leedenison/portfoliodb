@@ -2,10 +2,9 @@ package ingestion
 
 import (
 	"context"
-	"testing"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
@@ -13,6 +12,7 @@ import (
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"testing"
 )
 
 func authCtx(userID string) context.Context {
@@ -37,25 +37,25 @@ func TestUpsertTxs(t *testing.T) {
 		wantCode codes.Code
 	}{
 		{"Unauthenticated", context.Background(), &ingestionv1.UpsertTxsRequest{
-			Broker:       apiv1.Broker_IBKR,
+			Broker:       typev1.Broker_IBKR,
 			Source:       "IBKR:test:statement",
 			PeriodFrom:   now,
 			PeriodBefore: now,
 		}, codes.Unauthenticated},
 		{"InvalidArgument_broker", authCtx("user-1"), &ingestionv1.UpsertTxsRequest{
-			Broker:       apiv1.Broker_BROKER_UNSPECIFIED,
+			Broker:       typev1.Broker_BROKER_UNSPECIFIED,
 			Source:       "IBKR:test:statement",
 			PeriodFrom:   now,
 			PeriodBefore: now,
 		}, codes.InvalidArgument},
 		{"InvalidArgument_source", authCtx("user-1"), &ingestionv1.UpsertTxsRequest{
-			Broker:       apiv1.Broker_IBKR,
+			Broker:       typev1.Broker_IBKR,
 			Source:       "",
 			PeriodFrom:   now,
 			PeriodBefore: now,
 		}, codes.InvalidArgument},
 		{"InvalidArgument_period", authCtx("user-1"), &ingestionv1.UpsertTxsRequest{
-			Broker:       apiv1.Broker_IBKR,
+			Broker:       typev1.Broker_IBKR,
 			Source:       "IBKR:test:statement",
 			PeriodBefore: now,
 		}, codes.InvalidArgument},
@@ -90,7 +90,7 @@ func TestUpsertTxs_Success(t *testing.T) {
 		})
 	ctx := authCtx("user-1")
 	resp, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
-		Broker:       apiv1.Broker_IBKR,
+		Broker:       typev1.Broker_IBKR,
 		Source:       "IBKR:test:statement",
 		PeriodFrom:   periodFrom,
 		PeriodBefore: periodBefore,

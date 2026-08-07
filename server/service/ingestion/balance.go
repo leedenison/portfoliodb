@@ -3,13 +3,13 @@ package ingestion
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strings"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/proto"
+	"sort"
+	"strings"
 )
 
 // Balancing a tx group.
@@ -32,31 +32,31 @@ import (
 // all have their counter-leg in the units they are already in -- and converting
 // one would move its residual into the wrong commodity, which for a JRNLSEC means
 // losing the transferred shares.
-var exchangeTypes = map[apiv1.TxType]bool{
-	apiv1.TxType_BUYDEBT:    true,
-	apiv1.TxType_BUYFUTURE:  true,
-	apiv1.TxType_BUYMF:      true,
-	apiv1.TxType_BUYOPT:     true,
-	apiv1.TxType_BUYOTHER:   true,
-	apiv1.TxType_BUYSTOCK:   true,
-	apiv1.TxType_SELLDEBT:   true,
-	apiv1.TxType_SELLFUTURE: true,
-	apiv1.TxType_SELLMF:     true,
-	apiv1.TxType_SELLOPT:    true,
-	apiv1.TxType_SELLOTHER:  true,
-	apiv1.TxType_SELLSTOCK:  true,
-	apiv1.TxType_REINVEST:   true,
-	apiv1.TxType_CLOSUREOPT: true,
+var exchangeTypes = map[typev1.TxType]bool{
+	typev1.TxType_BUYDEBT:    true,
+	typev1.TxType_BUYFUTURE:  true,
+	typev1.TxType_BUYMF:      true,
+	typev1.TxType_BUYOPT:     true,
+	typev1.TxType_BUYOTHER:   true,
+	typev1.TxType_BUYSTOCK:   true,
+	typev1.TxType_SELLDEBT:   true,
+	typev1.TxType_SELLFUTURE: true,
+	typev1.TxType_SELLMF:     true,
+	typev1.TxType_SELLOPT:    true,
+	typev1.TxType_SELLOTHER:  true,
+	typev1.TxType_SELLSTOCK:  true,
+	typev1.TxType_REINVEST:   true,
+	typev1.TxType_CLOSUREOPT: true,
 }
 
 // transferTypes are the journals whose other side is a different account. Their
 // residual is an unmatched transfer rather than a data-quality problem, so it is
 // routed to TRANSFER_CLEARING and holds the value in transit until the pair is
 // matched.
-var transferTypes = map[apiv1.TxType]bool{
-	apiv1.TxType_TRANSFER: true,
-	apiv1.TxType_JRNLFUND: true,
-	apiv1.TxType_JRNLSEC:  true,
+var transferTypes = map[typev1.TxType]bool{
+	typev1.TxType_TRANSFER: true,
+	typev1.TxType_JRNLFUND: true,
+	typev1.TxType_JRNLSEC:  true,
 }
 
 // Tolerances below which a residual is the source disagreeing with itself rather
@@ -343,9 +343,9 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 		// the map iteration gave.
 		sort.Strings(keys)
 		first := txs[idxs[0]]
-		residual := apiv1.AccountType_ACCOUNT_TYPE_IMBALANCE
+		residual := typev1.AccountType_ACCOUNT_TYPE_IMBALANCE
 		if transfer {
-			residual = apiv1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING
+			residual = typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING
 		}
 		for _, k := range keys {
 			c := commodities[k]
@@ -360,7 +360,7 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 			// case rather than the other way round.
 			accountType := residual
 			if sums[k].Abs().LessThan(c.tolerance()) {
-				accountType = apiv1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING
+				accountType = typev1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING
 			}
 			out = append(out, routedFor(first, ref, c, descs[k], sums[k].Neg(), accountType))
 		}
@@ -372,7 +372,7 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 // the broker account, date and tx type of the group it balances, so the residual
 // stays attributable to the account that produced it and to the kind of event that
 // left it -- which is what the imbalance report reads.
-func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount decimal.Decimal, accountType apiv1.AccountType) routedPosting {
+func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount decimal.Decimal, accountType typev1.AccountType) routedPosting {
 	tx := &apiv1.Tx{
 		Timestamp:   proto.CloneOf(first.GetTimestamp()),
 		Type:        first.GetType(),

@@ -7,7 +7,8 @@
  */
 
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { JobStatus, type Broker } from "@/gen/api/v1/api_pb";
+import { JobStatus } from "@/gen/api/v1/api_pb";
+import { type Broker } from "@/gen/type/v1/type_pb";
 import { getRecipeForBroker, sourceFor } from "../brokers";
 import type { BrokerRecipe } from "../brokers/types";
 import { loadConfig } from "../config";

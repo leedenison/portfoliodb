@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AccountType, AssetClass, Broker, TxType } from "@/gen/api/v1/api_pb";
+import { AccountType, AssetClass, Broker, TxType } from "@/gen/type/v1/type_pb";
 import type { ResidualBalance } from "./portfolio-api";
 import { ageInDays, groupByBroker, isMoney, transferAgeBucket } from "./residual-balance";
 
@@ -64,7 +64,7 @@ describe("isMoney", () => {
   });
 
   it("is false for an unidentified instrument, which we cannot call money", () => {
-    expect(isMoney(balance({ assetClass: AssetClass.UNSPECIFIED }))).toBe(false);
+    expect(isMoney(balance({ assetClass: AssetClass.ASSET_CLASS_UNSPECIFIED }))).toBe(false);
   });
 });
 

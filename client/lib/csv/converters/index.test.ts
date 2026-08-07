@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { Broker } from "@/gen/api/v1/api_pb";
+import { Broker } from "@/gen/type/v1/type_pb";
 import {
   getBrokerEntry,
   getBrokerOptionsForUpload,

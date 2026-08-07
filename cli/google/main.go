@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"google.golang.org/api/sheets/v4"
 )
 
@@ -84,10 +84,10 @@ func main() {
 
 func runCreateSheet(ctx, rpcCtx context.Context, sheetsSrv *sheets.Service, apiClient apiv1.ApiServiceClient, configDir string, forceNew bool) {
 	resp, err := apiClient.ListPriceGaps(rpcCtx, &apiv1.ListPriceGapsRequest{
-		AssetClasses: []apiv1.AssetClass{
-			apiv1.AssetClass_ASSET_CLASS_STOCK,
-			apiv1.AssetClass_ASSET_CLASS_ETF,
-			apiv1.AssetClass_ASSET_CLASS_FX,
+		AssetClasses: []typev1.AssetClass{
+			typev1.AssetClass_STOCK,
+			typev1.AssetClass_ETF,
+			typev1.AssetClass_FX,
 		},
 	})
 	if err != nil {
@@ -170,10 +170,10 @@ func runImport(ctx, rpcCtx context.Context, sheetsSrv *sheets.Service, apiClient
 // ImportCoverage entries so the server fills non-trading day gaps.
 func buildCoverage(rpcCtx context.Context, apiClient apiv1.ApiServiceClient) []*apiv1.ImportCoverage {
 	resp, err := apiClient.ListPriceGaps(rpcCtx, &apiv1.ListPriceGapsRequest{
-		AssetClasses: []apiv1.AssetClass{
-			apiv1.AssetClass_ASSET_CLASS_STOCK,
-			apiv1.AssetClass_ASSET_CLASS_ETF,
-			apiv1.AssetClass_ASSET_CLASS_FX,
+		AssetClasses: []typev1.AssetClass{
+			typev1.AssetClass_STOCK,
+			typev1.AssetClass_ETF,
+			typev1.AssetClass_FX,
 		},
 	})
 	if err != nil {

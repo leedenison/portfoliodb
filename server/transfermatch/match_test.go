@@ -1,15 +1,14 @@
 package transfermatch
 
 import (
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 	"math/rand"
 	"reflect"
 	"sort"
 	"testing"
 	"time"
-
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	"github.com/leedenison/portfoliodb/server/db"
-	"github.com/shopspring/decimal"
 )
 
 var day0 = time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC)
@@ -20,7 +19,7 @@ func side(group, account, amount string, day int, refs ...string) db.TransferSid
 	return db.TransferSide{
 		UserID:       "u1",
 		GroupID:      group,
-		Broker:       apiv1.Broker_FIDELITY,
+		Broker:       typev1.Broker_FIDELITY,
 		Account:      account,
 		InstrumentID: "gbp",
 		Amount:       decimal.RequireFromString(amount),
@@ -182,7 +181,7 @@ func TestMatch(t *testing.T) {
 			side("g-fid", "AG10041188", "20000", 0, "1093663528"),
 			func() db.TransferSide {
 				s := side("g-ibkr", "U7033034", "-20000", 0, "1093663531")
-				s.Broker = apiv1.Broker_IBKR
+				s.Broker = typev1.Broker_IBKR
 				return s
 			}(),
 		},
@@ -195,7 +194,7 @@ func TestMatch(t *testing.T) {
 			side("g-fid", "AG10041188", "20000", 0, "1093663528"),
 			func() db.TransferSide {
 				s := pointing(side("g-ibkr", "U7033034", "-20000", 0, "9999999999"), "AG10041188")
-				s.Broker = apiv1.Broker_IBKR
+				s.Broker = typev1.Broker_IBKR
 				return s
 			}(),
 		},

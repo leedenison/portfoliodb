@@ -10,7 +10,8 @@ import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import { getHoldings, listHoldingDeclarations } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
-import { DeclarationKind, IdentifierType } from "@/gen/api/v1/api_pb";
+import { DeclarationKind } from "@/gen/api/v1/api_pb";
+import { IdentifierType } from "@/gen/type/v1/type_pb";
 import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
 import { OpeningBalances } from "./opening-balances";
 

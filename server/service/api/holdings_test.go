@@ -1,13 +1,13 @@
 package api
 
 import (
-	"testing"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/testutil"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"testing"
 )
 
 func TestGetHoldings_Success(t *testing.T) {
@@ -15,7 +15,7 @@ func TestGetHoldings_Success(t *testing.T) {
 	holdings := []*apiv1.Holding{{InstrumentDescription: "AAPL", SplitAdjustedQuantity: "10"}}
 	asOf := timestamppb.Now()
 	db.EXPECT().
-		ComputeHoldings(gomock.Any(), "user-1", (*apiv1.Broker)(nil), "", (*timestamppb.Timestamp)(nil)).
+		ComputeHoldings(gomock.Any(), "user-1", (*typev1.Broker)(nil), "", (*timestamppb.Timestamp)(nil)).
 		Return(holdings, asOf, nil)
 	ctx := authCtx("user-1", "sub|1")
 	resp, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{})

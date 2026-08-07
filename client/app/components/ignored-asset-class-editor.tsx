@@ -13,7 +13,7 @@ import {
   listBrokersAndAccounts,
 } from "@/lib/portfolio-api";
 import type { IgnoredAssetClassRule, BrokerAccounts } from "@/lib/portfolio-api";
-import { AssetClass } from "@/gen/api/v1/api_pb";
+import { AssetClass } from "@/gen/type/v1/type_pb";
 import { IGNORABLE_ASSET_CLASSES, ASSET_CLASS_LABELS } from "@/lib/asset-class";
 
 // Key for a rule: "broker::assetClass" or "broker:account:assetClass"

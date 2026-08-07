@@ -35,7 +35,10 @@ Protobuf source only; generated `.pb.go` files under `proto/` are build outputs 
 - **proto/**  
   `.proto` files, organized by package path.  
   Example: `proto/api/v1/api.proto`, `proto/ingestion/v1/ingestion.proto`.  
-  These define the gRPC services used by the front end and by transaction ingestion.
+  These define the gRPC services used by the front end and by transaction ingestion.  
+  `proto/type/v1/type.proto` holds the controlled vocabularies shared by every
+  other package; unlike the rest of `proto/` it is not free to break, and
+  `docs/adr/0038-controlled-vocabularies-are-shared.md` says why.
 
 Generated bindings are produced by buf/protoc: Go code under **proto/** (e.g. `proto/api/v1/*.pb.go`), TypeScript under **client/gen**. Those outputs are in `.gitignore`. See the `protobuf` skill (`.claude/skills/protobuf/`) for generation rules.
 

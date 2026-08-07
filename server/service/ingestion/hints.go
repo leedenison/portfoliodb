@@ -2,14 +2,15 @@ package ingestion
 
 import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
 // TxTypeStored returns whether transactions of this type are stored. When false (e.g. SPLIT), the transaction is dropped before resolution.
-func TxTypeStored(t apiv1.TxType) bool {
+func TxTypeStored(t typev1.TxType) bool {
 	switch t {
-	case apiv1.TxType_SPLIT:
+	case typev1.TxType_SPLIT:
 		return false
 	default:
 		return true
@@ -18,13 +19,13 @@ func TxTypeStored(t apiv1.TxType) bool {
 
 // TxTypeToSecurityTypeHint maps transaction type to the security type hint vocabulary (identifier package constants).
 // Delegates to db.TxTypeToAssetClass since the vocabularies are identical.
-func TxTypeToSecurityTypeHint(t apiv1.TxType) string {
+func TxTypeToSecurityTypeHint(t typev1.TxType) string {
 	return db.TxTypeToAssetClass(t)
 }
 
 // TxTypeToInstrumentKind maps transaction type to instrument kind (CASH or SECURITY).
 // Delegates to db.TxTypeToInstrumentKind.
-func TxTypeToInstrumentKind(t apiv1.TxType) string {
+func TxTypeToInstrumentKind(t typev1.TxType) string {
 	return db.TxTypeToInstrumentKind(t)
 }
 

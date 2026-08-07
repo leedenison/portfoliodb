@@ -3,14 +3,14 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"github.com/google/uuid"
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/db"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"os"
 	"testing"
 	"time"
-
-	"github.com/google/uuid"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	"github.com/leedenison/portfoliodb/server/db"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // seedBalancedGroups writes groups balanced two-leg trades, the shape a broker export
@@ -47,9 +47,9 @@ func seedBalancedGroups(t testing.TB, p *Postgres, groups int) (string, string) 
 		ref := fmt.Sprintf("g%d", i)
 		at := timestamppb.New(base.Add(time.Duration(i) * time.Minute))
 		txs = append(txs,
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "BENCH", Type: apiv1.TxType_BUYSTOCK,
+			&apiv1.Tx{Timestamp: at, InstrumentDescription: "BENCH", Type: typev1.TxType_BUYSTOCK,
 				Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD", GroupRef: ref},
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "USD", Type: apiv1.TxType_BUYSTOCK,
+			&apiv1.Tx{Timestamp: at, InstrumentDescription: "USD", Type: typev1.TxType_BUYSTOCK,
 				Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD", GroupRef: ref})
 		ids = append(ids, instID, usd)
 		ws = append(ws,
@@ -96,8 +96,8 @@ func seedPairedJournals(t testing.TB, p *Postgres, groups int) (string, string, 
 		ref := fmt.Sprintf("j%d", i)
 		at := timestamppb.New(base.Add(time.Duration(i) * time.Minute))
 		txs = append(txs,
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", Type: apiv1.TxType_JRNLSEC, Quantity: "-10", GroupRef: ref},
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", Type: apiv1.TxType_JRNLSEC, Quantity: "10", GroupRef: ref})
+			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", Type: typev1.TxType_JRNLSEC, Quantity: "-10", GroupRef: ref},
+			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", Type: typev1.TxType_JRNLSEC, Quantity: "10", GroupRef: ref})
 		ids = append(ids, mergedAway, mergedAway)
 		ws = append(ws,
 			db.Weight{Amount: decf(-10), Commodity: commodity},

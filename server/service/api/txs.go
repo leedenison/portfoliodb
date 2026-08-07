@@ -2,8 +2,8 @@ package api
 
 import (
 	"context"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
@@ -26,8 +26,8 @@ func (s *Server) ListTxs(ctx context.Context, req *apiv1.ListTxsRequest) (*apiv1
 	if pageSize > 100 {
 		pageSize = 100
 	}
-	var broker *apiv1.Broker
-	if b := req.GetBroker(); b != apiv1.Broker_BROKER_UNSPECIFIED {
+	var broker *typev1.Broker
+	if b := req.GetBroker(); b != typev1.Broker_BROKER_UNSPECIFIED {
 		broker = &b
 	}
 	var txs []*apiv1.PortfolioTx

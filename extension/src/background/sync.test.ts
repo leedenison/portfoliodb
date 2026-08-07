@@ -1,12 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import {
-  Broker,
-  JobStatus,
-  GetJobResponseSchema,
-  ListTxsResponseSchema,
-} from "@/gen/api/v1/api_pb";
+import { JobStatus, GetJobResponseSchema, ListTxsResponseSchema } from "@/gen/api/v1/api_pb";
+import { Broker } from "@/gen/type/v1/type_pb";
 import { IngestionResponseSchema } from "@/gen/ingestion/v1/ingestion_pb";
 import type { RunLogEntry } from "../lib/run-log";
 

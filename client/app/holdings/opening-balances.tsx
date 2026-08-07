@@ -13,7 +13,8 @@ import {
   listBrokersAndAccounts,
   protoDateToStr,
 } from "@/lib/portfolio-api";
-import { DeclarationKind, IdentifierType } from "@/gen/api/v1/api_pb";
+import { DeclarationKind } from "@/gen/api/v1/api_pb";
+import { IdentifierType } from "@/gen/type/v1/type_pb";
 import type { HoldingDeclaration } from "@/gen/api/v1/api_pb";
 import { DeclarationForm } from "./declaration-form";
 

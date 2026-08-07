@@ -15,7 +15,7 @@
 import { expect } from "vitest";
 import type { Tx } from "@/gen/api/v1/api_pb";
 import { Big } from "@/lib/decimal";
-import { IdentifierType, TxType } from "@/gen/api/v1/api_pb";
+import { IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 
 /** Types whose counter-leg is money, so the posting converts at its price. */
 const EXCHANGE_TYPES = new Set<TxType>([

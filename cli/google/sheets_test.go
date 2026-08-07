@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 )
 
 func TestParseHeader(t *testing.T) {
@@ -172,7 +172,7 @@ func TestParseOutputData(t *testing.T) {
 	if prices[0].GetClose() != "185.5" {
 		t.Fatalf("expected close 185.5, got %v", prices[0].GetClose())
 	}
-	if prices[0].GetAssetClass() != apiv1.AssetClass_ASSET_CLASS_STOCK {
+	if prices[0].GetAssetClass() != typev1.AssetClass_STOCK {
 		t.Fatalf("expected STOCK, got %s", prices[0].GetAssetClass())
 	}
 }
@@ -233,7 +233,7 @@ func TestImportPriceRowSerialization(t *testing.T) {
 		IdentifierDomain: "XNAS",
 		PriceDate:        "2024-01-15",
 		Close:            "185.5",
-		AssetClass:       apiv1.AssetClass_ASSET_CLASS_STOCK,
+		AssetClass:       typev1.AssetClass_STOCK,
 	}
 	data, err := json.Marshal(row)
 	if err != nil {

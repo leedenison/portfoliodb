@@ -5,16 +5,16 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
-
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // queryable is satisfied by *sqlx.DB and *sqlx.Tx.
@@ -49,27 +49,27 @@ var _ db.DB = (*Postgres)(nil)
 // brokerToStr returns the stored form of a broker: its enum name. Derived rather
 // than mapped by hand so a new broker cannot be stored under a spelling that
 // strToBroker does not recognise.
-func brokerToStr(b apiv1.Broker) (string, error) {
-	if b == apiv1.Broker_BROKER_UNSPECIFIED {
+func brokerToStr(b typev1.Broker) (string, error) {
+	if b == typev1.Broker_BROKER_UNSPECIFIED {
 		return "", fmt.Errorf("broker unspecified")
 	}
-	s, ok := apiv1.Broker_name[int32(b)]
+	s, ok := typev1.Broker_name[int32(b)]
 	if !ok {
 		return "", fmt.Errorf("unknown broker: %v", b)
 	}
 	return s, nil
 }
 
-func strToBroker(s string) apiv1.Broker {
-	v, ok := apiv1.Broker_value[s]
+func strToBroker(s string) typev1.Broker {
+	v, ok := typev1.Broker_value[s]
 	if !ok {
-		return apiv1.Broker_BROKER_UNSPECIFIED
+		return typev1.Broker_BROKER_UNSPECIFIED
 	}
-	return apiv1.Broker(v)
+	return typev1.Broker(v)
 }
 
-func txTypeToStr(t apiv1.TxType) (string, error) {
-	if t == apiv1.TxType_TX_TYPE_UNSPECIFIED {
+func txTypeToStr(t typev1.TxType) (string, error) {
+	if t == typev1.TxType_TX_TYPE_UNSPECIFIED {
 		return "", fmt.Errorf("tx type unspecified")
 	}
 	s := t.String()
@@ -79,12 +79,12 @@ func txTypeToStr(t apiv1.TxType) (string, error) {
 	return s, nil
 }
 
-func strToTxType(s string) apiv1.TxType {
-	v, ok := apiv1.TxType_value[s]
+func strToTxType(s string) typev1.TxType {
+	v, ok := typev1.TxType_value[s]
 	if !ok {
-		return apiv1.TxType_TX_TYPE_UNSPECIFIED
+		return typev1.TxType_TX_TYPE_UNSPECIFIED
 	}
-	return apiv1.TxType(v)
+	return typev1.TxType(v)
 }
 
 // accountTypePrefix is stripped from the enum name to get the stored form. The proto
@@ -98,23 +98,23 @@ const accountTypePrefix = "ACCOUNT_TYPE_"
 // about a posting's kind is an ordinary broker account posting, which is what almost
 // every row is. Derived from the generated names rather than mapped by hand so a new
 // type cannot be stored under a spelling that strToAccountType does not recognise.
-func accountTypeToStr(a apiv1.AccountType) (string, error) {
-	if a == apiv1.AccountType_ACCOUNT_TYPE_UNSPECIFIED {
+func accountTypeToStr(a typev1.AccountType) (string, error) {
+	if a == typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED {
 		return "USER", nil
 	}
-	s, ok := apiv1.AccountType_name[int32(a)]
+	s, ok := typev1.AccountType_name[int32(a)]
 	if !ok {
 		return "", fmt.Errorf("unknown account type: %v", a)
 	}
 	return strings.TrimPrefix(s, accountTypePrefix), nil
 }
 
-func strToAccountType(s string) apiv1.AccountType {
-	v, ok := apiv1.AccountType_value[accountTypePrefix+s]
+func strToAccountType(s string) typev1.AccountType {
+	v, ok := typev1.AccountType_value[accountTypePrefix+s]
 	if !ok {
-		return apiv1.AccountType_ACCOUNT_TYPE_UNSPECIFIED
+		return typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED
 	}
-	return apiv1.AccountType(v)
+	return typev1.AccountType(v)
 }
 
 func jobStatusToStr(s apiv1.JobStatus) string {

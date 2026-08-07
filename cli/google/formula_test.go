@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
-
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 )
 
 func TestChunkRange(t *testing.T) {
@@ -117,8 +117,8 @@ func TestGenerateFormulas_StockAndFX(t *testing.T) {
 	priceGaps := []*apiv1.PriceGap{
 		{
 			InstrumentId: "inst-1",
-			Identifier:   &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_MIC_TICKER, Domain: "XNAS", Value: "AAPL"},
-			AssetClass:   apiv1.AssetClass_ASSET_CLASS_STOCK,
+			Identifier:   &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_MIC_TICKER, Domain: "XNAS", Value: "AAPL"},
+			AssetClass:   typev1.AssetClass_STOCK,
 			Name:         "Apple Inc",
 			Gaps: []*apiv1.DateRange{
 				{From: "2024-01-01", Before: "2024-07-01"},
@@ -128,8 +128,8 @@ func TestGenerateFormulas_StockAndFX(t *testing.T) {
 	fxGaps := []*apiv1.PriceGap{
 		{
 			InstrumentId: "inst-fx",
-			Identifier:   &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_FX_PAIR, Value: "GBPUSD"},
-			AssetClass:   apiv1.AssetClass_ASSET_CLASS_FX,
+			Identifier:   &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_FX_PAIR, Value: "GBPUSD"},
+			AssetClass:   typev1.AssetClass_FX,
 			Name:         "GBPUSD",
 			Gaps: []*apiv1.DateRange{
 				{From: "2024-01-01", Before: "2024-04-01"},
@@ -168,8 +168,8 @@ func TestGenerateFormulas_YearChunking(t *testing.T) {
 	gaps := []*apiv1.PriceGap{
 		{
 			InstrumentId: "inst-1",
-			Identifier:   &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_MIC_TICKER, Domain: "XNYS", Value: "IBM"},
-			AssetClass:   apiv1.AssetClass_ASSET_CLASS_STOCK,
+			Identifier:   &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_MIC_TICKER, Domain: "XNYS", Value: "IBM"},
+			AssetClass:   typev1.AssetClass_STOCK,
 			Name:         "IBM",
 			Gaps: []*apiv1.DateRange{
 				{From: "2023-01-01", Before: "2024-12-31"}, // ~2 years, fits in 2 chunks
@@ -191,8 +191,8 @@ func TestGenerateFormulas_SkipsUnmappable(t *testing.T) {
 	gaps := []*apiv1.PriceGap{
 		{
 			InstrumentId: "inst-1",
-			Identifier:   &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_ISIN, Value: "US0378331005"},
-			AssetClass:   apiv1.AssetClass_ASSET_CLASS_STOCK,
+			Identifier:   &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_ISIN, Value: "US0378331005"},
+			AssetClass:   typev1.AssetClass_STOCK,
 			Name:         "Apple ISIN",
 			Gaps: []*apiv1.DateRange{
 				{From: "2024-01-01", Before: "2024-07-01"},
@@ -213,8 +213,8 @@ func TestGenerateFormulas_MultipleGapRanges(t *testing.T) {
 	gaps := []*apiv1.PriceGap{
 		{
 			InstrumentId: "inst-1",
-			Identifier:   &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_MIC_TICKER, Domain: "XNAS", Value: "TSLA"},
-			AssetClass:   apiv1.AssetClass_ASSET_CLASS_STOCK,
+			Identifier:   &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_MIC_TICKER, Domain: "XNAS", Value: "TSLA"},
+			AssetClass:   typev1.AssetClass_STOCK,
 			Gaps: []*apiv1.DateRange{
 				{From: "2024-01-01", Before: "2024-03-01"},
 				{From: "2024-06-01", Before: "2024-09-01"},
@@ -264,8 +264,8 @@ func TestGenerateFormulas_OpenfIGITickerWithExchange(t *testing.T) {
 	gaps := []*apiv1.PriceGap{
 		{
 			InstrumentId: "inst-1",
-			Identifier:   &apiv1.InstrumentIdentifier{Type: apiv1.IdentifierType_OPENFIGI_TICKER, Domain: "US", Value: "MSFT"},
-			AssetClass:   apiv1.AssetClass_ASSET_CLASS_STOCK,
+			Identifier:   &apiv1.InstrumentIdentifier{Type: typev1.IdentifierType_OPENFIGI_TICKER, Domain: "US", Value: "MSFT"},
+			AssetClass:   typev1.AssetClass_STOCK,
 			Exchange:     "XNAS",
 			Name:         "Microsoft",
 			Gaps:         []*apiv1.DateRange{{From: "2024-01-01", Before: "2024-04-01"}},

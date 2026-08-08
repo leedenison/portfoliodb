@@ -1,6 +1,7 @@
 ---
 status: open
 title: Carry the expensive identifier lookup results in the instrument archive
+milestone: M14
 ---
 
 Export everything identifier resolution produced, so a rebuild does not pay for

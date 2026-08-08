@@ -1,6 +1,7 @@
 ---
 status: open
 title: Carry user preferences in the user archive
+milestone: M14
 dependencies: [0078]
 ---
 

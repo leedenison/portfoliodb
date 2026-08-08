@@ -110,7 +110,7 @@ export function parseCSVLine(line: string): string[] {
  */
 export function parseStandardCSV(csvText: string): StandardParseResult {
   const errors: ParseError[] = [];
-  // Metadata rides on comment lines, matching the price CSV's exported_at.
+  // Metadata rides on comment lines, since a CSV has nowhere else to put it.
   let shareCountBasis: string | undefined;
   const lines: string[] = [];
   for (const raw of csvText.split(/\r?\n/)) {

@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Move price import and export to the archive schema
 dependencies: [0078]
 ---

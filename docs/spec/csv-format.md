@@ -1,14 +1,14 @@
 # Import formats
 
-Three file formats feed the import APIs: a transaction CSV, a price CSV, and a corporate event JSON. They share the conventions for comment metadata and for [coverage declarations](#coverage-declarations).
+Two file formats feed the import APIs: a transaction CSV and a corporate event JSON.
 
 > **These formats are being replaced.** One schema, specified in
-> archive-format.md, covers everything below and the instrument JSON that was
-> never documented here. The standard transaction CSV migrates under issue 0084,
-> the price CSV and its coverage declarations under 0081, and the corporate
-> event JSON under 0082; each section goes as its format does, and this file is
-> deleted once it documents nothing. Broker-specific files -- the Fidelity CSV,
-> the IBKR OFX, the Schwab CSV -- are not affected.
+> archive-format.md, covers everything below, the price CSV that has already
+> gone, and the instrument JSON that was never documented here. The standard
+> transaction CSV migrates under issue 0084 and the corporate event JSON under
+> 0082; each section goes as its format does, and this file is deleted once it
+> documents nothing. Broker-specific files -- the Fidelity CSV, the IBKR OFX,
+> the Schwab CSV -- are not affected.
 
 ## Standard transaction CSV
 
@@ -148,57 +148,6 @@ Lines beginning with `#` are metadata or commentary and are not parsed as rows. 
 
 It declares the share count the file's quantities and unit prices are denominated in. Omit it for an ordinary export, where each row reflects the splits that happened before its own transaction date and nothing after -- the as-traded convention the server assumes. Set it only when the source has post-adjusted historical rows for splits that happened *after* the transaction, in which case it is the date those quantities are current as of. See [bitemporality.md](bitemporality.md#share-count-basis).
 
-## Price CSV
-
-A CSV of EOD prices imported via the `ImportPrices` API, and the format `ExportPrices` writes.
-
-A file holds only the days its source actually reported. Its [coverage declarations](#coverage-declarations) say which ranges were answered for, which the rows cannot: a declared range holding no rows records that a provider was asked and had nothing. Dropping them loses that, and leaves valuation treating the days between reported bars as unpriced.
-
-### Columns
-
-Header names are case-insensitive. Column order is not significant.
-
-| Column | Required | Description |
-| ------ | -------- | ----------- |
-| `identifier_type` | Yes | Identifier type used to resolve the instrument. Any IdentifierType enum value. |
-| `identifier_value` | Yes | Identifier value (e.g. `AAPL`, `NVDA250620P00110000`). |
-| `identifier_domain` | No | Domain for the identifier: MIC for `MIC_TICKER`, exchange code for `OPENFIGI_TICKER`, source for `BROKER_DESCRIPTION`, empty otherwise. |
-| `price_date` | Yes | `YYYY-MM-DD` trading date. |
-| `open` | No | Opening price. |
-| `high` | No | High price. |
-| `low` | No | Low price. |
-| `close` | Yes | Closing price, as the source supplied it. |
-| `adjusted_close` | No | The provider's own adjusted close. Never an input to valuation; it exists to cross-check the value PortfolioDB derives. See [prices.md](prices.md). |
-| `volume` | No | Integer trading volume. |
-| `asset_class` | No | Security type hint used to route identifier plugins when the instrument is unknown. |
-| `currency` | No | ISO 4217 currency code, used as a validation hint. |
-
-Prices are stored as supplied. `split_adjusted_close` is derived by PortfolioDB from `close` and the known splits, and is what performance math uses.
-
-Price values are parsed and emitted as exact decimals, so a file written by `ExportPrices` reimports to the same stored values, to the digit. Trailing zeroes are the one thing not preserved: `1.50` and `1.5` are the same price. See adr/0026-exact-decimals-bounded-by-closure.md.
-
-### Comment lines
-
-Lines beginning with `#` are metadata or commentary and are not parsed as rows. Two keys are recognised:
-
-    # exported_at=2024-05-01T00:00:00.000Z
-    # coverage=2022-01-01,2025-07-07
-
-`exported_at` is knowledge time: when the supplied data was current. OCC symbols are split-adjusted to this point during instrument resolution, and imported rows record it as `last_fetched_at`. It does **not** say which share count the prices are denominated in. See [bitemporality.md](bitemporality.md#knowledge-time).
-
-`coverage` is described under [Coverage declarations](#coverage-declarations).
-
-### Example
-
-```csv
-# exported_at=2026-07-30T00:00:00.000Z
-# coverage=2022-01-01,2025-07-07
-# coverage=MIC_TICKER,ATVI,XNAS,2021-12-31,2023-10-14
-identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class,currency
-MIC_TICKER,AAPL,XNAS,2024-01-15,,,,185.9,,,STOCK,USD
-OCC,NVDA250620P00110000,,2024-06-11,,,,13.42,,,OPTION,USD
-```
-
 ## Corporate event JSON
 
 Stock splits are imported via the `ImportCorporateEvents` API as JSON, and `ExportCorporateEvents` writes the same shape. Cash dividends are part of the API but are not yet carried by this file format.
@@ -240,14 +189,11 @@ When the importer sees an unknown `(identifier_type, identifier_domain, identifi
 
 ## Coverage declarations
 
-A coverage declaration records that the caller has authoritative coverage of a date interval. Both the price CSV and the corporate event JSON accept them, with the same semantics and the same fields; only the syntax differs.
+A coverage declaration records that the caller has authoritative coverage of a date interval. The corporate event JSON accepts them, storing a `corporate_event_coverage` row tagged as coming from an import, so the background fetcher does not re-query the same interval from a plugin and cannot overwrite hand-curated data with provider data.
 
-Both store the declaration, tagged as coming from an import so the background fetcher does not re-query the same interval from a plugin and cannot overwrite hand-curated data with provider data.
+A declared interval containing nothing is meaningful, and is the only way a file can say the caller asked about those dates and there was nothing to report. See adr/0023-price-coverage-is-stored-not-inferred.md.
 
-- **Prices** -- a `price_coverage` row. Valuation carries the last close forward across the non-trading days inside the interval, so a file can carry only the days its source actually moved on. Without a declaration each row covers only its own date, so any gap between rows stays a gap.
-- **Corporate events** -- a `corporate_event_coverage` row.
-
-In both cases a declared interval containing nothing is meaningful, and is the only way a file can say the caller asked about those dates and there was nothing to report. See adr/0023-price-coverage-is-stored-not-inferred.md.
+The archive states coverage inside the group it applies to, so it needs no global declaration and none of the precedence rules below. Prices moved there under 0081; this section goes when corporate events follow.
 
 ### Fields
 
@@ -270,18 +216,13 @@ A declaration carrying no identifier at all is **global**: it applies to every i
 - Several specific declarations for one instrument are all applied, so an instrument can carry more than one interval.
 - A partly-written identifier -- a type with no value, or a domain alone -- is an error rather than a global declaration.
 
-Most files need one global and a handful of exceptions: instruments that started or stopped trading partway through the period the file covers. That is what the export writes -- the span most instruments share as the global, then the exceptions.
+Most files need one global and a handful of exceptions: instruments that started or stopped trading partway through the period the file covers.
 
-Two cases the export always writes out in full, both following from the override rule above. An instrument carrying more than one span writes all of them, since a specific declaration replaces the global rather than adding to it. An instrument that is covered but has no rows in the file also writes its own, since the global is expanded against the instruments the file names and would never reach it.
+Two cases an export always writes out in full, both following from the override rule above. An instrument carrying more than one span writes all of them, since a specific declaration replaces the global rather than adding to it. An instrument that is covered but has no events in the file also writes its own, since the global is expanded against the instruments the file names and would never reach it.
 
 ### Syntax
 
-In the **price CSV**, a comment line in one of two forms, told apart by field count. The five-field form's order matches the data columns.
-
-    # coverage=<from>,<before>
-    # coverage=<identifier_type>,<identifier_value>,<identifier_domain>,<from>,<before>
-
-In the **corporate event JSON**, an entry in the top-level `coverage` array. Identifier keys are omitted or empty for a global declaration.
+An entry in the top-level `coverage` array. Identifier keys are omitted or empty for a global declaration.
 
 ```json
 "coverage": [

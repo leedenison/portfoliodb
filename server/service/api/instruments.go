@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -13,8 +12,6 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
-	"github.com/leedenison/portfoliodb/server/archive"
-	"github.com/leedenison/portfoliodb/server/archiveimport"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 )
@@ -48,45 +45,6 @@ func (s *Server) ListInstruments(ctx context.Context, req *apiv1.ListInstruments
 		NextPageToken: nextToken,
 		TotalCount:    totalCount,
 	}, nil
-}
-
-// ExportInstruments streams the instrument part of a system archive: the
-// envelope first, then one instrument per row. Admin only.
-//
-// A derivative names its underlying by identifier rather than nesting it, so a
-// shared underlying appears once and the order the list is written in carries no
-// meaning. The query guarantees every named underlying is itself in the stream,
-// including one the caller's asset-class filter would have excluded.
-func (s *Server) ExportInstruments(req *apiv1.ExportInstrumentsRequest, stream apiv1.ApiService_ExportInstrumentsServer) error {
-	ctx := stream.Context()
-	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
-		return authErr
-	}
-	var acStrs []string
-	for _, ac := range req.GetAssetClasses() {
-		acStrs = append(acStrs, db.AssetClassToStr(ac))
-	}
-	rows, err := s.db.ListInstrumentsForExport(ctx, req.GetExchange(), acStrs)
-	if err != nil {
-		return status.Error(codes.Internal, err.Error())
-	}
-	// source_instance is left empty: nothing keys off it, and this build has no
-	// configured identity to put there.
-	if err := stream.Send(&apiv1.ExportInstrumentsResponse{
-		Item: &apiv1.ExportInstrumentsResponse_Envelope{
-			Envelope: archive.NewEnvelope("", archivev1.ArchiveKind_SYSTEM),
-		},
-	}); err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if err := stream.Send(&apiv1.ExportInstrumentsResponse{
-			Item: &apiv1.ExportInstrumentsResponse_Instrument{Instrument: archiveInstrument(row)},
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // archiveInstrument converts one export row to its archive form.
@@ -156,40 +114,4 @@ func optDate(t *time.Time) *string {
 		return nil
 	}
 	return proto.String(t.Format("2006-01-02"))
-}
-
-// ImportInstruments ensures the instruments of an archive's instrument part
-// exist, finding or creating each by its identifiers. Admin only.
-//
-// It applies the part synchronously and reports per-instrument problems in its
-// own response, so it reports through a detached reporter: there is no job to
-// record them against.
-func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrumentsRequest) (*apiv1.ImportInstrumentsResponse, error) {
-	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
-		return nil, authErr
-	}
-	if err := archive.CheckEnvelope(req.GetEnvelope(), archivev1.ArchiveKind_SYSTEM); err != nil {
-		var ve *archive.VersionError
-		if errors.As(err, &ve) {
-			// The request is well formed and this server is the thing that is out
-			// of date, which is a precondition rather than a bad argument.
-			return nil, status.Error(codes.FailedPrecondition, err.Error())
-		}
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	part := req.GetInstruments()
-	if len(part.GetInstruments()) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "no instruments provided")
-	}
-
-	rep := archiveimport.NewDetachedReporter()
-	ensured, err := archiveimport.InstrumentPart(ctx, s.db, part, rep)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	errs := make([]*apiv1.ImportInstrumentError, 0, len(rep.Errors()))
-	for _, e := range rep.Errors() {
-		errs = append(errs, &apiv1.ImportInstrumentError{Index: e.GetRowIndex(), Message: e.GetMessage()})
-	}
-	return &apiv1.ImportInstrumentsResponse{EnsuredCount: ensured, Errors: errs}, nil
 }

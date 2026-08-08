@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Consolidated system export and import page
 dependencies: [0078]
 ---
@@ -36,3 +36,15 @@ to do it. Update docs/spec/information-architecture.md.
 
 The user archive has its own page under 0080. The two never mix: no user data is
 reachable from this page.
+
+Closed. `/admin/archive` exports and imports the system archive, and the three
+per-entity affordances are gone.
+
+Two things landed differently from the description. The three parts the archive
+format does not carry yet -- inflation indices, fetch blocks, unhandled event
+resolutions, plugin config -- ship as disabled menu rows rather than as working
+entries; 0086 enables them, and the note about plugin config carrying live API
+keys lives on the row until it does. And the per-entity export and import
+endpoints were replaced rather than merely hidden: there is now one export RPC
+taking a menu of parts and one import RPC taking a whole document and sequencing
+it server-side, so an import survives the admin closing the tab.

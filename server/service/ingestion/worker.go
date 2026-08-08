@@ -112,18 +112,6 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			// whose first side arrived months ago.
 			pluginutil.Trigger(opts.TransferMatchTrigger)
 		}
-	case db.JobTypePrice:
-		if processPriceImport(ctx, opts.DB, opts.IdentifierRegistry, j) {
-			pluginutil.Trigger(opts.PriceTrigger)
-		}
-	case db.JobTypeCorporateEvent:
-		if processCorporateEventImport(ctx, opts.DB, opts.IdentifierRegistry, j) {
-			// Only the corporate event fetcher is triggered here. The price
-			// fetcher is not nudged because instruments resolved during
-			// corporate event import cannot by definition create new holding
-			// gaps that would require price data.
-			pluginutil.Trigger(opts.CorporateEventTrigger)
-		}
 	case db.JobTypeSystemArchive:
 		res := processSystemImport(ctx, opts.DB, opts.IdentifierRegistry, j)
 		// Nudged once for the whole import rather than per part. Instruments

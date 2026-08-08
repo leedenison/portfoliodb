@@ -13,6 +13,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/archiveimport"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -21,20 +22,18 @@ import (
 // eventPayload builds the persisted job payload for a corporate event import.
 // exportedAt is nil only to exercise the worker's guard for a payload written
 // before the envelope was required.
-func eventPayload(t *testing.T, exportedAt *time.Time, groups ...*archivev1.CorporateEventGroup) []byte {
+func eventPart(groups ...*archivev1.CorporateEventGroup) *archivev1.CorporateEventPart {
+	return &archivev1.CorporateEventPart{Groups: groups}
+}
+
+// runEventPart applies a corporate event part with a detached reporter and
+// returns what it persisted along with the problems it recorded.
+func runEventPart(t *testing.T, database db.DB, registry *identifier.Registry,
+	part *archivev1.CorporateEventPart, asOf *time.Time) (bool, []*apiv1.ValidationError, error) {
 	t.Helper()
-	env := &archivev1.Envelope{FormatVersion: 1, Kind: archivev1.ArchiveKind_SYSTEM}
-	if exportedAt != nil {
-		env.ExportedAt = timestamppb.New(*exportedAt)
-	}
-	payload, err := proto.Marshal(&apiv1.ImportCorporateEventsRequest{
-		Envelope:        env,
-		CorporateEvents: &archivev1.CorporateEventPart{Groups: groups},
-	})
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	return payload
+	rep := archiveimport.NewDetachedReporter()
+	persisted, err := importCorporateEventPart(context.Background(), database, registry, part, asOf, newResolveCache(), rep)
+	return persisted, rep.Errors(), err
 }
 
 // tickerGroup is one group naming an instrument by MIC ticker.
@@ -86,20 +85,13 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 			Type:      archivev1.DividendType_SC,
 		}),
 	}
-	payload := eventPayload(t, &exportedAt, g)
-	j := &JobRequest{JobID: "job-ce-1", JobType: db.JobTypeCorporateEvent}
-
-	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-1").Return(payload, nil)
-	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-1").Return(nil)
-	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-1", int32(2)).Return(nil)
+	part := eventPart(g)
 
 	// Resolution: one cache miss for the group, and the coverage pass reuses
 	// it rather than resolving the same instrument a second time.
 	database.EXPECT().
 		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", "STOCK", "XNAS", "USD", nil)
-
-	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-1").Return(nil).Times(2)
 
 	database.EXPECT().UpsertStockSplits(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, splits []db.StockSplit) error {
@@ -150,9 +142,12 @@ func TestProcessCorporateEventImport_HappyPath(t *testing.T) {
 	// The option pass runs once for the import, across all underlyings, and
 	// derives its own work rather than being handed this instrument's splits.
 	database.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
-	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-1", apiv1.JobStatus_SUCCESS).Return(nil)
 
-	if !processCorporateEventImport(context.Background(), database, registry, j) {
+	persisted, _, err := runEventPart(t, database, registry, part, &exportedAt)
+	if err != nil {
+		t.Fatalf("importCorporateEventPart: %v", err)
+	}
+	if !persisted {
 		t.Error("expected persisted=true after a successful upsert")
 	}
 }
@@ -171,20 +166,19 @@ func TestProcessCorporateEventImport_CoverageWithNoEvents(t *testing.T) {
 	exportedAt := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	g := tickerGroup("AAPL", typev1.AssetClass_STOCK)
 	g.Coverage = []*archivev1.DateInterval{{From: "2014-01-01", Before: "2025-01-01"}}
-	payload := eventPayload(t, &exportedAt, g)
-	j := &JobRequest{JobID: "job-ce-cov0", JobType: db.JobTypeCorporateEvent}
+	part := eventPart(g)
 
-	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-cov0").Return(payload, nil)
-	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-cov0").Return(nil)
-	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-cov0", int32(0)).Return(nil)
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", "STOCK", "XNAS", "USD", nil)
 	database.EXPECT().UpsertCorporateEventCoverage(gomock.Any(), "inst-aapl", db.CorporateEventProviderImport,
 		time.Date(2014, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), &exportedAt).Return(nil)
-	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-cov0", apiv1.JobStatus_SUCCESS).Return(nil)
 
-	if !processCorporateEventImport(context.Background(), database, registry, j) {
+	persisted, _, err := runEventPart(t, database, registry, part, &exportedAt)
+	if err != nil {
+		t.Fatalf("importCorporateEventPart: %v", err)
+	}
+	if !persisted {
 		t.Error("expected persisted=true after a coverage-only import")
 	}
 }
@@ -202,25 +196,17 @@ func TestProcessCorporateEventImport_RejectsBadSplitRatio(t *testing.T) {
 
 	g := tickerGroup("AAPL", typev1.AssetClass_STOCK)
 	g.Events = []*archivev1.CorporateEvent{splitEvent(&archivev1.Split{ExDate: "2020-08-31", SplitFrom: "1", SplitTo: "0"})}
-	payload := eventPayload(t, nil, g)
-	j := &JobRequest{JobID: "job-ce-2", JobType: db.JobTypeCorporateEvent}
+	part := eventPart(g)
 
-	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-2").Return(payload, nil)
-	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-2").Return(nil)
-	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-2", int32(1)).Return(nil)
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("inst-aapl", "STOCK", "XNAS", "USD", nil)
-	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-2").Return(nil)
 
-	var capturedErrs []*apiv1.ValidationError
-	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-2", gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
-			capturedErrs = errs
-			return nil
-		})
 	// No upserts and no recompute (no valid splits landed).
-	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-2", apiv1.JobStatus_SUCCESS).Return(nil)
 
-	if processCorporateEventImport(context.Background(), database, registry, j) {
+	persisted, capturedErrs, err := runEventPart(t, database, registry, part, nil)
+	if err != nil {
+		t.Fatalf("importCorporateEventPart: %v", err)
+	}
+	if persisted {
 		t.Error("expected persisted=false when every event was rejected")
 	}
 
@@ -247,19 +233,17 @@ func TestProcessCorporateEventImport_DividendOnlyDoesNotRecompute(t *testing.T) 
 
 	g := tickerGroup("MSFT", typev1.AssetClass_STOCK)
 	g.Events = []*archivev1.CorporateEvent{dividendEvent(&archivev1.CashDividend{ExDate: "2024-02-15", Amount: "0.75", Currency: "USD"})}
-	payload := eventPayload(t, nil, g)
-	j := &JobRequest{JobID: "job-ce-3", JobType: db.JobTypeCorporateEvent}
+	part := eventPart(g)
 
-	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-3").Return(payload, nil)
-	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-3").Return(nil)
-	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-3", int32(1)).Return(nil)
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", "XNAS", "USD", nil)
-	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-3").Return(nil)
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).Return(nil)
 	// Critically: NO RecomputeSplitAdjustments call.
-	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-3", apiv1.JobStatus_SUCCESS).Return(nil)
 
-	if !processCorporateEventImport(context.Background(), database, registry, j) {
+	persisted, _, err := runEventPart(t, database, registry, part, nil)
+	if err != nil {
+		t.Fatalf("importCorporateEventPart: %v", err)
+	}
+	if !persisted {
 		t.Error("expected persisted=true after a successful dividend upsert")
 	}
 }
@@ -277,24 +261,16 @@ func TestProcessCorporateEventImport_RejectsBadCoverageDate(t *testing.T) {
 
 	g := tickerGroup("AAPL", typev1.AssetClass_STOCK)
 	g.Coverage = []*archivev1.DateInterval{{From: "2024-13-01", Before: "2025-01-01"}} // invalid month
-	payload := eventPayload(t, nil, g)
-	j := &JobRequest{JobID: "job-ce-cov", JobType: db.JobTypeCorporateEvent}
+	part := eventPart(g)
 
-	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-cov").Return(payload, nil)
-	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-cov").Return(nil)
-	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-cov", int32(0)).Return(nil)
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", "STOCK", "XNAS", "USD", nil)
 
-	var capturedErrs []*apiv1.ValidationError
-	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-cov", gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
-			capturedErrs = errs
-			return nil
-		})
-	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-cov", apiv1.JobStatus_SUCCESS).Return(nil)
-
-	if processCorporateEventImport(context.Background(), database, registry, j) {
+	persisted, capturedErrs, err := runEventPart(t, database, registry, part, nil)
+	if err != nil {
+		t.Fatalf("importCorporateEventPart: %v", err)
+	}
+	if persisted {
 		t.Error("expected persisted=false when no events or coverage spans succeeded")
 	}
 
@@ -318,24 +294,16 @@ func TestProcessCorporateEventImport_EmptyCoverageInterval(t *testing.T) {
 
 	g := tickerGroup("AAPL", typev1.AssetClass_STOCK)
 	g.Coverage = []*archivev1.DateInterval{{From: "2024-01-01", Before: "2024-01-01"}}
-	payload := eventPayload(t, nil, g)
-	j := &JobRequest{JobID: "job-ce-empty", JobType: db.JobTypeCorporateEvent}
+	part := eventPart(g)
 
-	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-empty").Return(payload, nil)
-	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-empty").Return(nil)
-	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-empty", int32(0)).Return(nil)
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", "STOCK", "XNAS", "USD", nil)
 
-	var capturedErrs []*apiv1.ValidationError
-	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-empty", gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
-			capturedErrs = errs
-			return nil
-		})
-	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-empty", apiv1.JobStatus_SUCCESS).Return(nil)
-
-	if processCorporateEventImport(context.Background(), database, registry, j) {
+	persisted, capturedErrs, err := runEventPart(t, database, registry, part, nil)
+	if err != nil {
+		t.Fatalf("importCorporateEventPart: %v", err)
+	}
+	if persisted {
 		t.Error("expected persisted=false when the only coverage span was rejected")
 	}
 	if len(capturedErrs) != 1 {
@@ -360,14 +328,9 @@ func TestProcessCorporateEventImport_AcceptsHighPrecisionDecimal(t *testing.T) {
 
 	g := tickerGroup("MSFT", typev1.AssetClass_STOCK)
 	g.Events = []*archivev1.CorporateEvent{dividendEvent(&archivev1.CashDividend{ExDate: "2024-02-15", Amount: "0.1", Currency: "USD"})}
-	payload := eventPayload(t, nil, g)
-	j := &JobRequest{JobID: "job-ce-prec", JobType: db.JobTypeCorporateEvent}
+	part := eventPart(g)
 
-	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-prec").Return(payload, nil)
-	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-prec").Return(nil)
-	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-prec", int32(1)).Return(nil)
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", "XNAS", "USD", nil)
-	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-prec").Return(nil)
 	database.EXPECT().UpsertCashDividends(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, divs []db.CashDividend) error {
 			if divs[0].Amount != "0.1" {
@@ -375,9 +338,12 @@ func TestProcessCorporateEventImport_AcceptsHighPrecisionDecimal(t *testing.T) {
 			}
 			return nil
 		})
-	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-prec", apiv1.JobStatus_SUCCESS).Return(nil)
 
-	if !processCorporateEventImport(context.Background(), database, registry, j) {
+	persisted, _, err := runEventPart(t, database, registry, part, nil)
+	if err != nil {
+		t.Fatalf("importCorporateEventPart: %v", err)
+	}
+	if !persisted {
 		t.Error("expected persisted=true")
 	}
 }
@@ -394,24 +360,15 @@ func TestProcessCorporateEventImport_RejectsInvalidDecimal(t *testing.T) {
 
 	g := tickerGroup("MSFT", typev1.AssetClass_STOCK)
 	g.Events = []*archivev1.CorporateEvent{dividendEvent(&archivev1.CashDividend{ExDate: "2024-02-15", Amount: "abc", Currency: "USD"})}
-	payload := eventPayload(t, nil, g)
-	j := &JobRequest{JobID: "job-ce-bad", JobType: db.JobTypeCorporateEvent}
+	part := eventPart(g)
 
-	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-bad").Return(payload, nil)
-	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-bad").Return(nil)
-	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-bad", int32(1)).Return(nil)
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "MSFT").Return("inst-msft", "STOCK", "XNAS", "USD", nil)
-	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-bad").Return(nil)
 
-	var capturedErrs []*apiv1.ValidationError
-	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-bad", gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
-			capturedErrs = errs
-			return nil
-		})
-	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-bad", apiv1.JobStatus_SUCCESS).Return(nil)
-
-	if processCorporateEventImport(context.Background(), database, registry, j) {
+	persisted, capturedErrs, err := runEventPart(t, database, registry, part, nil)
+	if err != nil {
+		t.Fatalf("importCorporateEventPart: %v", err)
+	}
+	if persisted {
 		t.Error("expected persisted=false")
 	}
 	if len(capturedErrs) != 1 || capturedErrs[0].Field != "events[0].amount" {
@@ -433,27 +390,17 @@ func TestProcessCorporateEventImport_RejectsHintDiff(t *testing.T) {
 
 	g := tickerGroup("AAPL", typev1.AssetClass_STOCK)
 	g.Events = []*archivev1.CorporateEvent{splitEvent(&archivev1.Split{ExDate: "2020-08-31", SplitFrom: "1", SplitTo: "4"})}
-	payload := eventPayload(t, nil, g)
-	j := &JobRequest{JobID: "job-ce-diff", JobType: db.JobTypeCorporateEvent}
-
-	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ce-diff").Return(payload, nil)
-	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ce-diff").Return(nil)
-	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-ce-diff", int32(1)).Return(nil)
+	part := eventPart(g)
 
 	// Instrument found but has asset class ETF, not STOCK.
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
 		Return("inst-aapl", "ETF", "XNAS", "USD", nil)
-	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-diff").Return(nil)
 
-	var capturedErrs []*apiv1.ValidationError
-	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-diff", gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
-			capturedErrs = errs
-			return nil
-		})
-	database.EXPECT().SetJobStatus(gomock.Any(), "job-ce-diff", apiv1.JobStatus_SUCCESS).Return(nil)
-
-	if processCorporateEventImport(context.Background(), database, registry, j) {
+	persisted, capturedErrs, err := runEventPart(t, database, registry, part, nil)
+	if err != nil {
+		t.Fatalf("importCorporateEventPart: %v", err)
+	}
+	if persisted {
 		t.Error("expected persisted=false when the group was rejected for a hint diff")
 	}
 	if len(capturedErrs) != 1 {

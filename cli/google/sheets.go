@@ -389,12 +389,17 @@ func importPrices(ctx context.Context, client apiv1.ApiServiceClient, groups []*
 			rows += len(groups[end].GetRows())
 			end++
 		}
-		resp, err := client.ImportPrices(ctx, &apiv1.ImportPricesRequest{
-			Envelope: archive.NewEnvelope("google-finance-cli", archivev1.ArchiveKind_SYSTEM),
-			Prices:   &archivev1.PricePart{Groups: groups[i:end]},
+		// A document carrying only a price part: there is one import endpoint,
+		// and asking it for one kind of data means sending one kind of part.
+		resp, err := client.ImportSystemArchive(ctx, &apiv1.ImportSystemArchiveRequest{
+			Archive: &archivev1.SystemArchive{
+				Envelope: archive.NewEnvelope("google-finance-cli", archivev1.ArchiveKind_SYSTEM),
+				Prices:   &archivev1.PricePart{Groups: groups[i:end]},
+			},
+			Filename: "google-finance-cli",
 		})
 		if err != nil {
-			return fmt.Errorf("ImportPrices groups %d-%d: %w", i, end-1, err)
+			return fmt.Errorf("ImportSystemArchive groups %d-%d: %w", i, end-1, err)
 		}
 		fmt.Fprintf(os.Stderr, "  Submitted %d group(s), %d prices (job %s)\n", end-i, rows, resp.GetJobId())
 		i = end

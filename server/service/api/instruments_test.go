@@ -12,7 +12,6 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
-	"github.com/leedenison/portfoliodb/server/archive"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/testutil"
 )
@@ -115,17 +114,23 @@ func TestListInstruments_DBError(t *testing.T) {
 	testutil.RequireGRPCCode(t, err, codes.Internal)
 }
 
-func TestExportInstruments_SendsEnvelopeFirst(t *testing.T) {
+func TestExportSystemArchive_Instruments_SendsEnvelopeFirst(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "", []string(nil)).Return(nil, nil)
-	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	if err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream); err != nil {
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportSystemArchive(instrumentExportReq(), stream); err != nil {
 		t.Fatalf("ExportInstruments: %v", err)
 	}
 	// The envelope goes out even when there is nothing to say: a file with an
 	// empty instrument part means the export included it and there was nothing.
-	if len(stream.sent) != 1 {
-		t.Fatalf("expected exactly the envelope, got %d messages", len(stream.sent))
+	// The envelope and the part marker go out even when there is nothing to
+	// say: a part present and empty means the export included it and there
+	// was nothing, which a reader has to tell apart from a part left out.
+	if len(stream.sent) != 2 {
+		t.Fatalf("expected the envelope and the part marker, got %d messages", len(stream.sent))
+	}
+	if stream.sent[1].GetPartBegin().GetPart() != archivev1.ArchivePart_INSTRUMENTS {
+		t.Fatalf("expected the part marker second, got %+v", stream.sent[1])
 	}
 	env := stream.sent[0].GetEnvelope()
 	if env == nil {
@@ -139,7 +144,7 @@ func TestExportInstruments_SendsEnvelopeFirst(t *testing.T) {
 	}
 }
 
-func TestExportInstruments_Success(t *testing.T) {
+func TestExportSystemArchive_Instruments_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	rows := []*dbpkg.InstrumentRow{
 		{ID: "id-1", Name: strPtr("Apple"), AssetClass: strPtr("STOCK"), ExchangeMIC: strPtr("XNAS"), Currency: strPtr("USD"),
@@ -150,8 +155,8 @@ func TestExportInstruments_Success(t *testing.T) {
 			}},
 	}
 	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "", []string(nil)).Return(rows, nil)
-	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	if err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream); err != nil {
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportSystemArchive(instrumentExportReq(), stream); err != nil {
 		t.Fatalf("ExportInstruments: %v", err)
 	}
 	got := stream.instruments()
@@ -178,7 +183,7 @@ func TestExportInstruments_Success(t *testing.T) {
 	}
 }
 
-func TestExportInstruments_CarriesWhatNothingRecomputes(t *testing.T) {
+func TestExportSystemArchive_Instruments_CarriesWhatNothingRecomputes(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	expiry := time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC)
 	validFrom := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
@@ -197,8 +202,8 @@ func TestExportInstruments_CarriesWhatNothingRecomputes(t *testing.T) {
 		},
 	}
 	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "", []string(nil)).Return(rows, nil)
-	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	if err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream); err != nil {
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportSystemArchive(instrumentExportReq(), stream); err != nil {
 		t.Fatalf("ExportInstruments: %v", err)
 	}
 	inst := stream.instruments()[0]
@@ -224,11 +229,11 @@ func TestExportInstruments_CarriesWhatNothingRecomputes(t *testing.T) {
 	}
 }
 
-func TestExportInstruments_WithExchangeFilter(t *testing.T) {
+func TestExportSystemArchive_Instruments_WithExchangeFilter(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "XNAS", []string(nil)).Return(nil, nil)
-	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	if err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{Exchange: "XNAS"}, stream); err != nil {
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_INSTRUMENTS}, Exchange: "XNAS"}, stream); err != nil {
 		t.Fatalf("ExportInstruments: %v", err)
 	}
 	if got := stream.instruments(); len(got) != 0 {
@@ -236,55 +241,15 @@ func TestExportInstruments_WithExchangeFilter(t *testing.T) {
 	}
 }
 
-func TestExportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
+func TestExportSystemArchive_Instruments_NonAdmin_PermissionDenied(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
-	stream := &exportStreamMock{ctx: authCtx("user-1", "sub|1")}
-	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream)
+	stream := &exportArchiveStreamMock{ctx: authCtx("user-1", "sub|1")}
+	err := srv.ExportSystemArchive(instrumentExportReq(), stream)
 	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 }
 
-// systemInstrumentPart wraps instruments as a system archive's instrument part,
-// with the envelope a file carries in.
-func systemInstrumentPart(insts ...*archivev1.Instrument) *apiv1.ImportInstrumentsRequest {
-	return &apiv1.ImportInstrumentsRequest{
-		Envelope:    archive.NewEnvelope("portfoliodb.example.com", archivev1.ArchiveKind_SYSTEM),
-		Instruments: &archivev1.InstrumentPart{Instruments: insts},
-	}
-}
-
-func TestImportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
-	srv, _ := newAPIServerWithMock(t)
-	req := systemInstrumentPart(&archivev1.Instrument{
-		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "x", Canonical: true}},
-	})
-	_, err := srv.ImportInstruments(authCtx("user-1", "sub|1"), req)
-	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
-}
-
-func TestImportInstruments_Empty_ReturnsError(t *testing.T) {
-	srv, _ := newAPIServerWithMock(t)
-	_, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), systemInstrumentPart())
-	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
-}
-
-func TestImportInstruments_NewerFormatVersion_Refused(t *testing.T) {
-	srv, _ := newAPIServerWithMock(t)
-	req := systemInstrumentPart(&archivev1.Instrument{
-		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "x", Canonical: true}},
-	})
-	req.Envelope.FormatVersion = archive.FormatVersion + 1
-	// The request is well formed and this server is the thing that is out of
-	// date, so this is a precondition rather than a bad argument.
-	_, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), req)
-	testutil.RequireGRPCCode(t, err, codes.FailedPrecondition)
-}
-
-func TestImportInstruments_UserArchive_Refused(t *testing.T) {
-	srv, _ := newAPIServerWithMock(t)
-	req := systemInstrumentPart(&archivev1.Instrument{
-		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "x", Canonical: true}},
-	})
-	req.Envelope.Kind = archivev1.ArchiveKind_USER
-	_, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), req)
-	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
+// instrumentExportReq asks for the instrument part only, which is what these
+// tests are about.
+func instrumentExportReq() *apiv1.ExportSystemArchiveRequest {
+	return &apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_INSTRUMENTS}}
 }

@@ -70,6 +70,30 @@ describe("assembleSystemArchive", () => {
     expect(doc.prices?.groups[0].rows[0].close).toBe("185.90");
     expect(doc.corporateEvents).toBeUndefined();
   });
+
+  // Inflation groups are keyed by currency rather than by an instrument, so
+  // they are the one part whose group carries no identifier.
+  it("files inflation groups by currency", () => {
+    const doc = assembleSystemArchive(
+      stream(
+        { item: { case: "envelope", value: ENVELOPE } },
+        { item: { case: "partBegin", value: { part: ArchivePart.INFLATION_INDICES } } },
+        {
+          item: {
+            case: "inflationGroup",
+            value: {
+              currency: "GBP",
+              rows: [{ month: "2024-01-01", indexValue: "131.5", baseYear: 2015 }],
+            },
+          },
+        },
+      ),
+    );
+    expect(doc.inflationIndices?.groups).toHaveLength(1);
+    expect(doc.inflationIndices?.groups[0].currency).toBe("GBP");
+    expect(doc.inflationIndices?.groups[0].rows[0].baseYear).toBe(2015);
+    expect(partCounts(doc)).toEqual([{ label: "inflation index values", count: 1 }]);
+  });
 });
 
 describe("partCounts", () => {

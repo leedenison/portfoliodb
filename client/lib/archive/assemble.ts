@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { ArchivePart } from "@/gen/archive/v1/common_pb";
 import { CorporateEventPartSchema } from "@/gen/archive/v1/corporate_events_pb";
+import { InflationPartSchema } from "@/gen/archive/v1/inflation_pb";
 import { InstrumentPartSchema } from "@/gen/archive/v1/instruments_pb";
 import { PricePartSchema } from "@/gen/archive/v1/prices_pb";
 import type { ExportSystemArchiveResponse } from "@/gen/api/v1/api_pb";
@@ -33,6 +34,9 @@ export function assembleSystemArchive(items: ExportSystemArchiveResponse[]): Sys
           case ArchivePart.CORPORATE_EVENTS:
             doc.corporateEvents ??= create(CorporateEventPartSchema, {});
             break;
+          case ArchivePart.INFLATION_INDICES:
+            doc.inflationIndices ??= create(InflationPartSchema, {});
+            break;
         }
         break;
       case "instrument":
@@ -43,6 +47,9 @@ export function assembleSystemArchive(items: ExportSystemArchiveResponse[]): Sys
         break;
       case "corporateEventGroup":
         doc.corporateEvents?.groups.push(item.item.value);
+        break;
+      case "inflationGroup":
+        doc.inflationIndices?.groups.push(item.item.value);
         break;
     }
   }
@@ -65,6 +72,10 @@ export function partCounts(archive: SystemArchive): { label: string; count: numb
   if (archive.corporateEvents) {
     const events = archive.corporateEvents.groups.reduce((n, g) => n + g.events.length, 0);
     out.push({ label: "corporate events", count: events });
+  }
+  if (archive.inflationIndices) {
+    const rows = archive.inflationIndices.groups.reduce((n, g) => n + g.rows.length, 0);
+    out.push({ label: "inflation index values", count: rows });
   }
   return out;
 }

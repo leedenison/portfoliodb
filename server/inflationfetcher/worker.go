@@ -165,7 +165,7 @@ func processCurrency(ctx context.Context, database db.DB, plugins []pluginEntry,
 		}
 
 		indices := toDBIndices(currency, pe.id, result.Indices)
-		if err := database.UpsertInflationIndices(ctx, indices); err != nil {
+		if err := database.UpsertInflationIndices(ctx, indices, nil); err != nil {
 			if log != nil {
 				log.ErrorContext(ctx, "inflation fetch: upsert",
 					"currency", currency, "err", err)

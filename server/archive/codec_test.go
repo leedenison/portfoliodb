@@ -67,6 +67,16 @@ func systemFixture() *archivev1.SystemArchive {
 				}},
 			}},
 		},
+		InflationIndices: &archivev1.InflationPart{
+			Groups: []*archivev1.InflationGroup{{
+				Currency: "GBP",
+				Rows: []*archivev1.InflationRow{{
+					Month:      "2024-01-01",
+					IndexValue: "131.5",
+					BaseYear:   2015,
+				}},
+			}},
+		},
 	}
 }
 

@@ -577,3 +577,56 @@ func TestProcessPriceImport_OptionFallbackStampsExportedAt(t *testing.T) {
 		t.Error("expected persisted=true after a successful upsert")
 	}
 }
+
+// The payload is what a job is. Clearing it before the work is done means a
+// service restarted mid-job re-enqueues a row whose payload is NULL, which
+// unmarshals cleanly as an empty request, imports nothing and reports SUCCESS.
+// So it must survive until the job reaches a terminal status.
+func TestProcessPriceImport_ClearsPayloadOnlyAfterTerminalStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+	ctx := context.Background()
+
+	payload := pricePayload(t, nil, &archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_OPENFIGI_GLOBAL, Value: "BBG000B9XRY4"},
+		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
+	})
+	j := &JobRequest{JobID: "job-price-order", JobType: "price"}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-price-order").Return(payload, nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-price-order", int32(1)).Return(nil)
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-order").Return(nil)
+	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-price-order", gomock.Any(), gomock.Any()).Return(nil)
+
+	gomock.InOrder(
+		database.EXPECT().SetJobStatus(gomock.Any(), "job-price-order", apiv1.JobStatus_SUCCESS).Return(nil),
+		database.EXPECT().ClearJobPayload(gomock.Any(), "job-price-order").Return(nil),
+	)
+
+	processPriceImport(ctx, database, registry, j)
+}
+
+// A payload that cannot be read fails the job, and that is terminal too, so the
+// payload goes with it rather than being left to be retried forever.
+func TestProcessPriceImport_ClearsPayloadAfterFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	registry := identifier.NewRegistry()
+	ctx := context.Background()
+	j := &JobRequest{JobID: "job-price-badpayload", JobType: "price"}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-price-badpayload").Return([]byte("not a proto"), nil)
+	gomock.InOrder(
+		database.EXPECT().SetJobStatus(gomock.Any(), "job-price-badpayload", apiv1.JobStatus_FAILED).Return(nil),
+		database.EXPECT().ClearJobPayload(gomock.Any(), "job-price-badpayload").Return(nil),
+	)
+
+	if processPriceImport(ctx, database, registry, j) {
+		t.Error("expected persisted=false for an unreadable payload")
+	}
+}

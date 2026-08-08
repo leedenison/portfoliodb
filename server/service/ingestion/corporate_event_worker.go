@@ -33,25 +33,18 @@ import (
 // the corporate event fetcher worker -- mirrors the processTx success
 // signal so a job that rejected every row does not produce churn.
 func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, j *JobRequest) bool {
-	payload, err := loadAndClearPayload(ctx, database, j.JobID)
+	payload, err := database.LoadJobPayload(ctx, j.JobID)
 	if err != nil {
 		log.Printf("corporate event import job %s: load payload: %v", j.JobID, err)
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false
 	}
 	var req apiv1.ImportCorporateEventsRequest
 	if err := proto.Unmarshal(payload, &req); err != nil {
 		log.Printf("corporate event import job %s: unmarshal payload: %v", j.JobID, err)
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false
 	}
-
-	groups := req.GetCorporateEvents().GetGroups()
-	total := 0
-	for _, g := range groups {
-		total += len(g.GetEvents())
-	}
-	_ = database.SetJobTotalCount(ctx, j.JobID, int32(total))
 
 	// Knowledge time declared for the whole file: OCC symbols are
 	// split-adjusted to this point during resolution, events that carry no
@@ -63,8 +56,31 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 		eventsAsOf = &t
 	}
 
-	resolveCache := make(map[string]*resolveEntry)
-	var valErrs []*apiv1.ValidationError
+	rep := newPartReporter(database, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED)
+	persisted, err := importCorporateEventPart(ctx, database, pluginRegistry, req.GetCorporateEvents(), eventsAsOf, newResolveCache(), rep)
+	rep.Flush(ctx)
+	if err != nil {
+		log.Printf("corporate event import job %s: %v", j.JobID, err)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
+		return false
+	}
+	finishJob(ctx, database, j.JobID, apiv1.JobStatus_SUCCESS)
+	return persisted
+}
+
+// importCorporateEventPart applies one archive corporate event part, reporting
+// through rep. Like the price part it returns whether anything was persisted,
+// and an error only for a hard failure: an event the import could not read is a
+// validation error on a part that still succeeded.
+func importCorporateEventPart(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry,
+	part *archivev1.CorporateEventPart, eventsAsOf *time.Time, resolveCache map[string]*resolveEntry, rep *partReporter) (bool, error) {
+	groups := part.GetGroups()
+	total := 0
+	for _, g := range groups {
+		total += len(g.GetEvents())
+	}
+	rep.Total(ctx, total)
+
 	var splits []db.StockSplit
 	var dividends []db.CashDividend
 	splitInstruments := make(map[string]bool)
@@ -74,11 +90,9 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 		if gErr != nil {
 			// One unresolvable instrument fails its whole group: every event
 			// under it names the same instrument, so none of them can land.
-			valErrs = append(valErrs, gErr)
 			gErr.RowIndex = int32(gi)
-			for range g.GetEvents() {
-				_ = database.IncrJobProcessedCount(ctx, j.JobID)
-			}
+			rep.Err(gErr)
+			rep.Advance(ctx, len(g.GetEvents()))
 			continue
 		}
 		for ei, ev := range g.GetEvents() {
@@ -86,7 +100,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 			case *archivev1.CorporateEvent_Split:
 				sp, vErr := buildSplit(instID, e.Split, gi, ei, eventsAsOf)
 				if vErr != nil {
-					valErrs = append(valErrs, vErr)
+					rep.Err(vErr)
 					break
 				}
 				splits = append(splits, sp)
@@ -94,70 +108,50 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 			case *archivev1.CorporateEvent_Dividend:
 				d, vErr := buildDividend(instID, e.Dividend, gi, ei, eventsAsOf)
 				if vErr != nil {
-					valErrs = append(valErrs, vErr)
+					rep.Err(vErr)
 					break
 				}
 				dividends = append(dividends, d)
 			default:
-				valErrs = append(valErrs, &apiv1.ValidationError{
-					RowIndex: int32(gi),
-					Field:    fmt.Sprintf("events[%d]", ei),
-					Message:  "event is neither a split nor a dividend",
-				})
+				rep.Errf(gi, fmt.Sprintf("events[%d]", ei), "event is neither a split nor a dividend")
 			}
-			_ = database.IncrJobProcessedCount(ctx, j.JobID)
+			rep.Advance(ctx, 1)
 		}
 	}
 
 	persisted := false
-
 	if len(splits) > 0 {
 		if err := database.UpsertStockSplits(ctx, splits); err != nil {
-			if len(valErrs) > 0 {
-				_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, valErrs)
-			}
-			failJob(ctx, database, j.JobID, "splits", err)
-			return false
+			rep.Errf(-1, "splits", err.Error())
+			return false, fmt.Errorf("upsert splits: %w", err)
 		}
 		persisted = true
 	}
 	if len(dividends) > 0 {
 		if err := database.UpsertCashDividends(ctx, dividends); err != nil {
-			if len(valErrs) > 0 {
-				_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, valErrs)
-			}
-			failJob(ctx, database, j.JobID, "dividends", err)
-			return false
+			rep.Errf(-1, "dividends", err.Error())
+			return false, fmt.Errorf("upsert dividends: %w", err)
 		}
 		persisted = true
 	}
 
 	// Coverage rows are recorded after the events are upserted so a partial
 	// failure above does not advertise data we did not persist. Per-span
-	// validation errors (a bad date, an empty interval) are accumulated
-	// alongside the per-event errors so the caller sees everything via
-	// AppendValidationErrors. A hard DB error from the coverage upsert still
-	// fails the job.
+	// validation errors (a bad date, an empty interval) join the per-event ones.
+	// A hard DB error from the coverage upsert still fails the part.
 	covCount, covErrs, err := writeImportCoverage(ctx, database, groups, resolveCache, pluginRegistry, eventsAsOf)
+	rep.Errs(covErrs)
 	if err != nil {
-		if len(valErrs) > 0 || len(covErrs) > 0 {
-			_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, append(valErrs, covErrs...))
-		}
-		failJob(ctx, database, j.JobID, "coverage", err)
-		return false
+		rep.Errf(-1, "coverage", err.Error())
+		return false, fmt.Errorf("upsert coverage: %w", err)
 	}
 	if covCount > 0 {
 		persisted = true
 	}
-	valErrs = append(valErrs, covErrs...)
-
-	if len(valErrs) > 0 {
-		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, valErrs)
-	}
 
 	for instID := range splitInstruments {
 		if err := database.RecomputeSplitAdjustments(ctx, instID); err != nil {
-			log.Printf("corporate event import job %s: recompute %s: %v", j.JobID, instID, err)
+			log.Printf("corporate event import: recompute %s: %v", instID, err)
 		}
 	}
 	// Adjust options whose identity predates an effective split, once for the
@@ -168,9 +162,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 	if len(splitInstruments) > 0 {
 		corporateevents.ProcessPendingOptionSplits(ctx, database, "", ingestionLog)
 	}
-
-	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
-	return persisted
+	return persisted, nil
 }
 
 // resolveEventGroupInstrument resolves the instrument one archive group names,
@@ -368,14 +360,6 @@ func writeImportCoverage(ctx context.Context, database db.DB, groups []*archivev
 		}
 	}
 	return written, errs, nil
-}
-
-func failJob(ctx context.Context, database db.DB, jobID, field string, err error) {
-	log.Printf("corporate event import job %s: %s: %v", jobID, field, err)
-	_ = database.AppendValidationErrors(ctx, jobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
-		{RowIndex: -1, Field: field, Message: err.Error()},
-	})
-	_ = database.SetJobStatus(ctx, jobID, apiv1.JobStatus_FAILED)
 }
 
 // parseDecimal parses an arbitrary-precision decimal string. The CSV import

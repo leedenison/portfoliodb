@@ -404,6 +404,39 @@ follows from the declaration dates for its holding -- the earliest pads, the res
 are checked -- so a stored copy could only ever disagree with them. See
 `docs/adr/0030-declarations-are-padded-then-asserted.md`.
 
+## Producing and consuming a document
+
+One endpoint each way, and one page: `/admin/archive`. Neither the export nor the
+import is an affordance on whatever page happens to own an entity, so a rebuild
+is one action rather than a sequence of pages visited in the right order.
+
+**The export takes a menu of parts.** A part left out is absent from the
+document. A part included is present even when it holds nothing, which records
+that the export asked and there was nothing -- the distinction the wrapper
+messages exist for. Restore order is a property of the format rather than of the
+request, so the parts are written in it whatever order they were asked for in.
+
+The envelope is written once, before any part. `exported_at` is knowledge time,
+and knowledge time that differs between one file's own parts is not knowledge
+time.
+
+**The import takes a whole document and applies it asynchronously.** It returns
+a job; the parts are applied server-side in restore order, so an import finishes
+whether or not the client is still there to watch. Importing one kind of data
+means supplying a document carrying only that part, rather than a separate
+endpoint per part.
+
+A part that fails does not stop the ones after it. The parts are not
+hard-dependent -- prices and corporate events resolve any instrument they cannot
+find, so they apply against an instance whose instrument part failed. Restoring
+instruments first is what avoids paying for that resolution, which is the same
+recommendation-not-constraint that holds between the two archives.
+
+The job reports a result per part: how much was applied, and which rows were
+rejected. A rejected row does not fail its part. A part fails only when a write
+does not land, so "completed, 12 rows rejected" is a result the format can state
+and a page can show.
+
 ## Restore order
 
 Within a document, the sections are written in the order they are applied, and a

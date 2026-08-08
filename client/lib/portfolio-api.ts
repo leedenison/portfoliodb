@@ -6,13 +6,15 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { DateSchema } from "@/gen/google/type/date_pb";
 import type { Date as ProtoDate } from "@/gen/google/type/date_pb";
-import { ExportCorporateEventsResponseSchema, ExportCorporateEventsRequestSchema, ExportInstrumentsRequestSchema, ExportInstrumentsResponseSchema, ExportPricesResponseSchema, ExportPricesRequestSchema, GetPortfolioValuationRequestSchema, GetPortfolioValuationResponseSchema, ImportCorporateEventsRequestSchema, ImportCorporateEventsResponseSchema, ImportInstrumentsRequestSchema, ImportInstrumentsResponseSchema, ImportPricesRequestSchema, ImportPricesResponseSchema, CreatePortfolioRequestSchema, CreatePortfolioResponseSchema, DeletePortfolioRequestSchema, GetHoldingsRequestSchema, GetHoldingsResponseSchema, GetJobRequestSchema, GetJobResponseSchema, GetPortfolioRequestSchema, GetPortfolioResponseSchema, GetPortfolioFiltersRequestSchema, GetPortfolioFiltersResponseSchema, ListBrokersAndAccountsRequestSchema, ListBrokersAndAccountsResponseSchema, ListDescriptionPluginsRequestSchema, ListDescriptionPluginsResponseSchema, ListIdentifierPluginsRequestSchema, ListIdentifierPluginsResponseSchema, ListPriceFetchBlocksRequestSchema, ListPriceFetchBlocksResponseSchema, DeletePriceFetchBlockRequestSchema, ListPricesRequestSchema, ListPricesResponseSchema, ListPricePluginsRequestSchema, ListPricePluginsResponseSchema, ListInstrumentsRequestSchema, ListInstrumentsResponseSchema, ListJobsRequestSchema, ListJobsResponseSchema, ListPortfoliosRequestSchema, ListPortfoliosResponseSchema, ListTelemetryCountersRequestSchema, ListTelemetryCountersResponseSchema, ListTxsRequestSchema, ListTxsResponseSchema, SetPortfolioFiltersRequestSchema, UpdateDescriptionPluginRequestSchema, UpdateDescriptionPluginResponseSchema, UpdateIdentifierPluginRequestSchema, UpdateIdentifierPluginResponseSchema, UpdatePricePluginRequestSchema, UpdatePricePluginResponseSchema, UpdatePortfolioRequestSchema, UpdatePortfolioResponseSchema, ReorderPluginsRequestSchema, CreateHoldingDeclarationRequestSchema, CreateHoldingDeclarationResponseSchema, UpdateHoldingDeclarationRequestSchema, UpdateHoldingDeclarationResponseSchema, DeleteHoldingDeclarationRequestSchema, ListHoldingDeclarationsRequestSchema, ListHoldingDeclarationsResponseSchema, ListWorkersRequestSchema, ListWorkersResponseSchema, GetDisplayCurrencyRequestSchema, GetDisplayCurrencyResponseSchema, SetDisplayCurrencyRequestSchema, SetDisplayCurrencyResponseSchema, GetIgnoredAssetClassesRequestSchema, GetIgnoredAssetClassesResponseSchema, SetIgnoredAssetClassesRequestSchema, CountIgnoredTxsRequestSchema, CountIgnoredTxsResponseSchema, IgnoredAssetClassRuleSchema, ListInflationIndicesRequestSchema, ListInflationIndicesResponseSchema, ListInflationPluginsRequestSchema, ListInflationPluginsResponseSchema, UpdateInflationPluginRequestSchema, UpdateInflationPluginResponseSchema, TriggerInflationFetchRequestSchema, TriggerPriceFetchRequestSchema, CountUnhandledCorporateEventsRequestSchema, CountUnhandledCorporateEventsResponseSchema, ListUnhandledCorporateEventsRequestSchema, ListUnhandledCorporateEventsResponseSchema, ResolveUnhandledCorporateEventRequestSchema, ListResidualBalancesRequestSchema, ListResidualBalancesResponseSchema, CountResidualBalancesRequestSchema, CountResidualBalancesResponseSchema, JobStatus, WorkerState } from "@/gen/api/v1/api_pb";
+import { ExportCorporateEventsResponseSchema, ExportCorporateEventsRequestSchema, ExportInstrumentsRequestSchema, ExportInstrumentsResponseSchema, ExportPricesResponseSchema, ExportPricesRequestSchema, GetPortfolioValuationRequestSchema, GetPortfolioValuationResponseSchema, ImportCorporateEventsRequestSchema, ImportCorporateEventsResponseSchema, ImportInstrumentsRequestSchema, ImportInstrumentsResponseSchema, ImportPricesRequestSchema, ImportPricesResponseSchema, CreatePortfolioRequestSchema, CreatePortfolioResponseSchema, DeletePortfolioRequestSchema, GetHoldingsRequestSchema, GetHoldingsResponseSchema, GetJobRequestSchema, GetJobResponseSchema, GetPortfolioRequestSchema, GetPortfolioResponseSchema, GetPortfolioFiltersRequestSchema, GetPortfolioFiltersResponseSchema, ListBrokersAndAccountsRequestSchema, ListBrokersAndAccountsResponseSchema, ListDescriptionPluginsRequestSchema, ListDescriptionPluginsResponseSchema, ListIdentifierPluginsRequestSchema, ListIdentifierPluginsResponseSchema, ListPriceFetchBlocksRequestSchema, ListPriceFetchBlocksResponseSchema, DeletePriceFetchBlockRequestSchema, ListPricesRequestSchema, ListPricesResponseSchema, ExportSystemArchiveRequestSchema, ExportSystemArchiveResponseSchema, ImportSystemArchiveRequestSchema, ImportSystemArchiveResponseSchema, ListPricePluginsRequestSchema, ListPricePluginsResponseSchema, ListInstrumentsRequestSchema, ListInstrumentsResponseSchema, ListJobsRequestSchema, ListJobsResponseSchema, ListPortfoliosRequestSchema, ListPortfoliosResponseSchema, ListTelemetryCountersRequestSchema, ListTelemetryCountersResponseSchema, ListTxsRequestSchema, ListTxsResponseSchema, SetPortfolioFiltersRequestSchema, UpdateDescriptionPluginRequestSchema, UpdateDescriptionPluginResponseSchema, UpdateIdentifierPluginRequestSchema, UpdateIdentifierPluginResponseSchema, UpdatePricePluginRequestSchema, UpdatePricePluginResponseSchema, UpdatePortfolioRequestSchema, UpdatePortfolioResponseSchema, ReorderPluginsRequestSchema, CreateHoldingDeclarationRequestSchema, CreateHoldingDeclarationResponseSchema, UpdateHoldingDeclarationRequestSchema, UpdateHoldingDeclarationResponseSchema, DeleteHoldingDeclarationRequestSchema, ListHoldingDeclarationsRequestSchema, ListHoldingDeclarationsResponseSchema, ListWorkersRequestSchema, ListWorkersResponseSchema, GetDisplayCurrencyRequestSchema, GetDisplayCurrencyResponseSchema, SetDisplayCurrencyRequestSchema, SetDisplayCurrencyResponseSchema, GetIgnoredAssetClassesRequestSchema, GetIgnoredAssetClassesResponseSchema, SetIgnoredAssetClassesRequestSchema, CountIgnoredTxsRequestSchema, CountIgnoredTxsResponseSchema, IgnoredAssetClassRuleSchema, ListInflationIndicesRequestSchema, ListInflationIndicesResponseSchema, ListInflationPluginsRequestSchema, ListInflationPluginsResponseSchema, UpdateInflationPluginRequestSchema, UpdateInflationPluginResponseSchema, TriggerInflationFetchRequestSchema, TriggerPriceFetchRequestSchema, CountUnhandledCorporateEventsRequestSchema, CountUnhandledCorporateEventsResponseSchema, ListUnhandledCorporateEventsRequestSchema, ListUnhandledCorporateEventsResponseSchema, ResolveUnhandledCorporateEventRequestSchema, ListResidualBalancesRequestSchema, ListResidualBalancesResponseSchema, CountResidualBalancesRequestSchema, CountResidualBalancesResponseSchema, JobStatus, WorkerState } from "@/gen/api/v1/api_pb";
 import { AccountType, AssetClass } from "@/gen/type/v1/type_pb";
+import { ArchivePart } from "@/gen/archive/v1/common_pb";
 import type { Envelope } from "@/gen/archive/v1/common_pb";
+import type { SystemArchive } from "@/gen/archive/v1/archive_pb";
 import type { CorporateEventPart } from "@/gen/archive/v1/corporate_events_pb";
 import type { InstrumentPart } from "@/gen/archive/v1/instruments_pb";
 import type { PricePart } from "@/gen/archive/v1/prices_pb";
-import type { DescriptionPluginConfig, EODPriceProto, ExportCorporateEventsResponse, ExportInstrumentsResponse, InflationIndexProto, InflationPluginConfig, ExportPricesResponse, Holding, HoldingDeclaration, IdentificationError, IdentifierPluginConfig, Instrument, PriceFetchBlock, PricePluginConfig, Portfolio as GenPortfolio, PortfolioFilterProto, PortfolioTx, ResidualBalance as ResidualBalanceProto, ValidationError, Worker as WorkerProto } from "@/gen/api/v1/api_pb";
+import type { DescriptionPluginConfig, EODPriceProto, ExportCorporateEventsResponse, ExportSystemArchiveResponse, ExportInstrumentsResponse, InflationIndexProto, InflationPluginConfig, ExportPricesResponse, Holding, HoldingDeclaration, IdentificationError, IdentifierPluginConfig, Instrument, PriceFetchBlock, PricePluginConfig, Portfolio as GenPortfolio, PortfolioFilterProto, PortfolioTx, ResidualBalance as ResidualBalanceProto, ValidationError, Worker as WorkerProto } from "@/gen/api/v1/api_pb";
 import type { Broker } from "@/gen/type/v1/type_pb";
 import { streamingFetch, unaryFetch } from "./grpc-web";
 
@@ -221,6 +223,16 @@ export async function setPortfolioFilters(portfolioId: string, filters: Portfoli
   });
 }
 
+/** One archive part as applied by one job. */
+export interface JobPartResult {
+  part: ArchivePart;
+  status: JobStatus;
+  totalCount: number;
+  processedCount: number;
+  validationErrors: ValidationError[];
+  message: string;
+}
+
 /** Result of GetJob for ingestion job status. */
 export interface GetJobResult {
   status: JobStatus;
@@ -228,6 +240,8 @@ export interface GetJobResult {
   identificationErrors: IdentificationError[];
   totalCount: number;
   processedCount: number;
+  /** One row per part the archive carried; empty for any other kind of job. */
+  parts: JobPartResult[];
 }
 
 export async function getJob(jobId: string): Promise<GetJobResult> {
@@ -243,6 +257,14 @@ export async function getJob(jobId: string): Promise<GetJobResult> {
     identificationErrors: res.identificationErrors,
     totalCount: res.totalCount,
     processedCount: res.processedCount,
+    parts: res.parts.map((p) => ({
+      part: p.part,
+      status: p.status,
+      totalCount: p.totalCount,
+      processedCount: p.processedCount,
+      validationErrors: p.validationErrors,
+      message: p.message,
+    })),
   };
 }
 
@@ -456,6 +478,7 @@ export async function listTelemetryCounters(): Promise<TelemetryCounterRow[]> {
 /** Job summary for the uploads list page. */
 export interface JobSummary {
   id: string;
+  jobType: string;
   filename: string;
   broker: string;
   status: JobStatus;
@@ -470,11 +493,12 @@ export interface ListJobsResult {
   totalCount: number;
 }
 
-export async function listJobs(pageToken?: string | null): Promise<ListJobsResult> {
+export async function listJobs(pageToken?: string | null, jobType?: string): Promise<ListJobsResult> {
   const base = getBaseUrl();
   const req = create(ListJobsRequestSchema, {
     pageSize: PAGE_SIZE,
     pageToken: pageToken ?? "",
+    jobType: jobType ?? "",
   });
   const resBytes = await unaryFetch(
     base,
@@ -486,6 +510,7 @@ export async function listJobs(pageToken?: string | null): Promise<ListJobsResul
   return {
     jobs: res.jobs.map((j) => ({
       id: j.id,
+      jobType: j.jobType,
       filename: j.filename,
       broker: j.broker,
       status: j.status,
@@ -511,6 +536,37 @@ export async function* exportInstruments(params?: { exchange?: string; assetClas
   for await (const bytes of streamingFetch(base, ApiServicePrefix + "ExportInstruments", toBinary(ExportInstrumentsRequestSchema, req), { credentials: "include" })) {
     yield fromBinary(ExportInstrumentsResponseSchema, bytes);
   }
+}
+
+/**
+ * Stream one whole system archive (admin only): the envelope, then for each
+ * selected part a part_begin followed by that part's items. A part not asked
+ * for is absent from the stream entirely; a part asked for is announced even
+ * when it holds nothing.
+ */
+export async function* exportSystemArchive(parts: ArchivePart[]): AsyncGenerator<ExportSystemArchiveResponse> {
+  const base = getBaseUrl();
+  const req = create(ExportSystemArchiveRequestSchema, { parts });
+  for await (const bytes of streamingFetch(base, ApiServicePrefix + "ExportSystemArchive", toBinary(ExportSystemArchiveRequestSchema, req), { credentials: "include" })) {
+    yield fromBinary(ExportSystemArchiveResponseSchema, bytes);
+  }
+}
+
+/**
+ * Queue one whole system archive for import (admin only), returning the job to
+ * poll. The parts are applied server-side, so the caller does not have to stay
+ * on the page for the import to finish.
+ *
+ * The archive is the file's own document, forwarded rather than rebuilt, so the
+ * server sees the format version and kind the file declared.
+ */
+export async function importSystemArchive(archive: SystemArchive, filename: string): Promise<string> {
+  const base = getBaseUrl();
+  const req = create(ImportSystemArchiveRequestSchema, { archive, filename });
+  const resBytes = await unaryFetch(base, ApiServicePrefix + "ImportSystemArchive", toBinary(ImportSystemArchiveRequestSchema, req), {
+    credentials: "include",
+  });
+  return fromBinary(ImportSystemArchiveResponseSchema, resBytes).jobId;
 }
 
 export interface ImportInstrumentsResult {

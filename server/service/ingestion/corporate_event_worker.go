@@ -10,6 +10,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/archiveimport"
 	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -56,7 +57,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 		eventsAsOf = &t
 	}
 
-	rep := newPartReporter(database, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED)
+	rep := archiveimport.NewPartReporter(database, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED)
 	persisted, err := importCorporateEventPart(ctx, database, pluginRegistry, req.GetCorporateEvents(), eventsAsOf, newResolveCache(), rep)
 	rep.Flush(ctx)
 	if err != nil {
@@ -73,7 +74,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 // and an error only for a hard failure: an event the import could not read is a
 // validation error on a part that still succeeded.
 func importCorporateEventPart(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry,
-	part *archivev1.CorporateEventPart, eventsAsOf *time.Time, resolveCache map[string]*resolveEntry, rep *partReporter) (bool, error) {
+	part *archivev1.CorporateEventPart, eventsAsOf *time.Time, resolveCache map[string]*resolveEntry, rep *archiveimport.PartReporter) (bool, error) {
 	groups := part.GetGroups()
 	total := 0
 	for _, g := range groups {

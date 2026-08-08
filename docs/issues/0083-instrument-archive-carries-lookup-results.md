@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Carry the expensive identifier lookup results in the instrument archive
 milestone: M14
 ---
@@ -58,3 +58,22 @@ dropped from every export -- which is exactly the instrument a rebuild cannot
 reconstruct. The export mode that means everything fixes this case too, but a
 NULL asset class should pass the browsing default as well: nothing intends to
 hide an unidentified instrument from an export.
+
+Closed. The instrument part carries `provider_identifiers`, and the import
+restores them without calling a plugin.
+
+Two things landed differently from the description. There is no new export mode:
+an export with no asset-class filter now means every instrument rather than the
+browsing default, so CASH, FX and an instrument whose `asset_class` is still NULL
+all come out, and the `NULL NOT IN (...)` case disappears with the predicate that
+caused it. `exchange` and `asset_classes` stay as the opt-in filters 0017 will
+build on.
+
+And a third gap turned up in the import rather than the export. Exporting CASH
+and FX makes a collision the ordinary case, since migration 002 seeds those rows
+on every instance. `EnsureInstrument` matches rather than duplicates, but a match
+set the underlying and the option terms and nothing else, so everything
+resolution had added to a seeded row was dropped on import.
+`MergeInstrumentFromArchive` now fills the gaps a match leaves -- identifiers the
+row lacks and columns still NULL -- and never overwrites, so an import cannot
+rewrite reference data the instance already had.

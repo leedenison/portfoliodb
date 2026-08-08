@@ -64,6 +64,7 @@ func TestProcessSystemImport_RunsPartsInRestoreOrder(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().MergeInstrumentFromArchive(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("inst-1", nil).AnyTimes()
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", "STOCK", "XNAS", "USD", nil).AnyTimes()
@@ -120,6 +121,7 @@ func TestProcessSystemImport_FailedPartDoesNotStopTheRest(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().MergeInstrumentFromArchive(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("inst-1", nil).AnyTimes()
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", "STOCK", "XNAS", "USD", nil).AnyTimes()
@@ -183,6 +185,7 @@ func TestProcessSystemImport_ResumeSkipsFinishedParts(t *testing.T) {
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().MergeInstrumentFromArchive(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("inst-1", nil).AnyTimes()
 	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", "STOCK", "XNAS", "USD", nil).AnyTimes()

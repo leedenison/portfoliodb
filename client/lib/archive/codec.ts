@@ -11,10 +11,10 @@
 import { create, fromJson, toJsonString } from "@bufbuild/protobuf";
 import type { DescEnum, DescMessage, MessageInitShape, MessageShape } from "@bufbuild/protobuf";
 import {
-  AdminArchiveSchema,
+  SystemArchiveSchema,
   UserArchiveSchema,
 } from "@/gen/archive/v1/archive_pb";
-import type { AdminArchive, UserArchive } from "@/gen/archive/v1/archive_pb";
+import type { SystemArchive, UserArchive } from "@/gen/archive/v1/archive_pb";
 import { ArchiveKind } from "@/gen/archive/v1/common_pb";
 
 /** What this build writes, and the highest it will read. */
@@ -53,7 +53,7 @@ export class ArchiveVersionError extends Error {
   }
 }
 
-/** A user archive handed to the admin importer, or the reverse. */
+/** A user archive handed to the system importer, or the reverse. */
 export class ArchiveKindError extends Error {
   constructor(
     readonly got: string,
@@ -65,7 +65,7 @@ export class ArchiveKindError extends Error {
 }
 
 /**
- * A sentence a user can act on, for an error thrown by unmarshalAdmin or
+ * A sentence a user can act on, for an error thrown by unmarshalSystem or
  * unmarshalUser.
  *
  * Whether a file is a valid archive is an all-or-nothing question answered at
@@ -83,9 +83,9 @@ export function archiveErrorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Write an admin archive. The envelope's version and kind are stamped here. */
-export function marshalAdmin(archive: MessageInitShape<typeof AdminArchiveSchema>): string {
-  return marshal(AdminArchiveSchema, archive, ArchiveKind.ADMIN);
+/** Write a system archive. The envelope's version and kind are stamped here. */
+export function marshalSystem(archive: MessageInitShape<typeof SystemArchiveSchema>): string {
+  return marshal(SystemArchiveSchema, archive, ArchiveKind.SYSTEM);
 }
 
 /** Write a user archive. */
@@ -93,9 +93,9 @@ export function marshalUser(archive: MessageInitShape<typeof UserArchiveSchema>)
   return marshal(UserArchiveSchema, archive, ArchiveKind.USER);
 }
 
-/** Read an admin archive. Throws ArchiveVersionError or ArchiveKindError. */
-export function unmarshalAdmin(json: string): AdminArchive {
-  return unmarshal(AdminArchiveSchema, json, ArchiveKind.ADMIN);
+/** Read a system archive. Throws ArchiveVersionError or ArchiveKindError. */
+export function unmarshalSystem(json: string): SystemArchive {
+  return unmarshal(SystemArchiveSchema, json, ArchiveKind.SYSTEM);
 }
 
 /** Read a user archive. */

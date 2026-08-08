@@ -38,7 +38,7 @@ func TestExportCorporateEvents_Empty(t *testing.T) {
 	if env == nil {
 		t.Fatal("first message is not the envelope")
 	}
-	if env.GetFormatVersion() != 1 || env.GetKind() != archivev1.ArchiveKind_ADMIN {
+	if env.GetFormatVersion() != 1 || env.GetKind() != archivev1.ArchiveKind_SYSTEM {
 		t.Fatalf("got format_version=%d kind=%v", env.GetFormatVersion(), env.GetKind())
 	}
 	if !env.GetExportedAt().IsValid() {

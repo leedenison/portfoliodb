@@ -22,7 +22,7 @@ import (
 // envelope was required.
 func pricePayload(t *testing.T, exportedAt *timestamppb.Timestamp, groups ...*archivev1.PriceGroup) []byte {
 	t.Helper()
-	env := archive.NewEnvelope("test", archivev1.ArchiveKind_ADMIN)
+	env := archive.NewEnvelope("test", archivev1.ArchiveKind_SYSTEM)
 	env.ExportedAt = exportedAt
 	payload, err := proto.Marshal(&apiv1.ImportPricesRequest{
 		Envelope: env,

@@ -132,7 +132,7 @@ func TestExportInstruments_SendsEnvelopeFirst(t *testing.T) {
 	if env == nil {
 		t.Fatal("first message is not the envelope")
 	}
-	if env.GetFormatVersion() != 1 || env.GetKind() != archivev1.ArchiveKind_ADMIN {
+	if env.GetFormatVersion() != 1 || env.GetKind() != archivev1.ArchiveKind_SYSTEM {
 		t.Fatalf("got format_version=%d kind=%v", env.GetFormatVersion(), env.GetKind())
 	}
 	if !env.GetExportedAt().IsValid() {
@@ -244,18 +244,18 @@ func TestExportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
 	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 }
 
-// adminInstrumentPart wraps instruments as an admin archive's instrument part,
+// systemInstrumentPart wraps instruments as a system archive's instrument part,
 // with the envelope a file carries in.
-func adminInstrumentPart(insts ...*archivev1.Instrument) *apiv1.ImportInstrumentsRequest {
+func systemInstrumentPart(insts ...*archivev1.Instrument) *apiv1.ImportInstrumentsRequest {
 	return &apiv1.ImportInstrumentsRequest{
-		Envelope:    archive.NewEnvelope("portfoliodb.example.com", archivev1.ArchiveKind_ADMIN),
+		Envelope:    archive.NewEnvelope("portfoliodb.example.com", archivev1.ArchiveKind_SYSTEM),
 		Instruments: &archivev1.InstrumentPart{Instruments: insts},
 	}
 }
 
 func TestImportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
-	req := adminInstrumentPart(&archivev1.Instrument{
+	req := systemInstrumentPart(&archivev1.Instrument{
 		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "x", Canonical: true}},
 	})
 	_, err := srv.ImportInstruments(authCtx("user-1", "sub|1"), req)
@@ -264,13 +264,13 @@ func TestImportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
 
 func TestImportInstruments_Empty_ReturnsError(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
-	_, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), adminInstrumentPart())
+	_, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), systemInstrumentPart())
 	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
 }
 
 func TestImportInstruments_NewerFormatVersion_Refused(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
-	req := adminInstrumentPart(&archivev1.Instrument{
+	req := systemInstrumentPart(&archivev1.Instrument{
 		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "x", Canonical: true}},
 	})
 	req.Envelope.FormatVersion = archive.FormatVersion + 1
@@ -282,7 +282,7 @@ func TestImportInstruments_NewerFormatVersion_Refused(t *testing.T) {
 
 func TestImportInstruments_UserArchive_Refused(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
-	req := adminInstrumentPart(&archivev1.Instrument{
+	req := systemInstrumentPart(&archivev1.Instrument{
 		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "x", Canonical: true}},
 	})
 	req.Envelope.Kind = archivev1.ArchiveKind_USER
@@ -300,7 +300,7 @@ func TestImportInstruments_Success(t *testing.T) {
 			}
 			return "inst-1", nil
 		})
-	req := adminInstrumentPart(&archivev1.Instrument{
+	req := systemInstrumentPart(&archivev1.Instrument{
 		AssetClass: typev1.AssetClass_STOCK, ExchangeMic: proto.String("XNAS"),
 		Currency: "USD", Name: proto.String("Apple Inc."),
 		Identifiers: []*archivev1.Identifier{
@@ -338,7 +338,7 @@ func TestImportInstruments_RestoresOptionTermsAndMultiplier(t *testing.T) {
 		})
 	db.EXPECT().SetContractMultiplier(gomock.Any(), "option-1", decimal.RequireFromString("1.5")).Return(nil)
 
-	req := adminInstrumentPart(
+	req := systemInstrumentPart(
 		&archivev1.Instrument{
 			AssetClass:  typev1.AssetClass_OPTION,
 			Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_OCC, Value: "AAPL  260116C00150500", Canonical: true}},
@@ -371,7 +371,7 @@ func TestImportInstruments_UnderlyingRefNotInArchive_FallsBackToInstance(t *test
 	db.EXPECT().
 		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "known-1", nil, nil, gomock.Any()).
 		Return("option-1", nil)
-	req := adminInstrumentPart(&archivev1.Instrument{
+	req := systemInstrumentPart(&archivev1.Instrument{
 		AssetClass:  typev1.AssetClass_OPTION,
 		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_OCC, Value: "AAPL  260116C00150500", Canonical: true}},
 		Underlying:  &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
@@ -391,7 +391,7 @@ func TestImportInstruments_UnderlyingRefNotInArchive_FallsBackToInstance(t *test
 func TestImportInstruments_DanglingUnderlyingRef(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("", nil)
-	req := adminInstrumentPart(&archivev1.Instrument{
+	req := systemInstrumentPart(&archivev1.Instrument{
 		AssetClass:  typev1.AssetClass_OPTION,
 		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_OCC, Value: "AAPL  260116C00150500", Canonical: true}},
 		Underlying:  &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
@@ -407,7 +407,7 @@ func TestImportInstruments_DanglingUnderlyingRef(t *testing.T) {
 
 func TestImportInstruments_EmptyIdentifiers(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
-	resp, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), adminInstrumentPart(&archivev1.Instrument{}))
+	resp, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), systemInstrumentPart(&archivev1.Instrument{}))
 	if err != nil {
 		t.Fatalf("ImportInstruments: %v", err)
 	}
@@ -425,7 +425,7 @@ func TestImportInstruments_DuplicateTypeValueInPayload(t *testing.T) {
 	db.EXPECT().
 		EnsureInstrument(gomock.Any(), "", "", "", "", "", "", gomock.Any(), "", nil, nil, nil).
 		Return("inst-1", nil)
-	req := adminInstrumentPart(
+	req := systemInstrumentPart(
 		&archivev1.Instrument{Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
 		&archivev1.Instrument{Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
 	)

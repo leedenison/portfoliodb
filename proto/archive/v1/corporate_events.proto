@@ -9,7 +9,7 @@ import "type/v1/type.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
 
-// CorporateEventPart is the corporate-event section of an admin archive.
+// CorporateEventPart is the corporate-event section of a system archive.
 message CorporateEventPart {
   repeated CorporateEventGroup groups = 1;
 }

@@ -8,7 +8,7 @@ import { usePagination } from "@/hooks/use-pagination";
 import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import { exportInstruments, listInstruments } from "@/lib/portfolio-api";
-import { marshalAdmin } from "@/lib/archive/codec";
+import { marshalSystem } from "@/lib/archive/codec";
 import { useDebounce } from "@/hooks/use-debounce";
 import { ImportInstrumentsModal } from "./import-modal";
 import { AssetClass, IdentifierType } from "@/gen/type/v1/type_pb";
@@ -90,7 +90,7 @@ export default function AdminInstrumentsPage() {
         }
       }
       if (!envelope) throw new Error("export stream sent no envelope");
-      const json = marshalAdmin({ envelope, instruments: { instruments } });
+      const json = marshalSystem({ envelope, instruments: { instruments } });
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

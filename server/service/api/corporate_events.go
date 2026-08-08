@@ -17,7 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// ExportCorporateEvents streams the corporate event part of an admin archive:
+// ExportCorporateEvents streams the corporate event part of a system archive:
 // the envelope first, then one group per instrument. Admin only.
 //
 // The coverage nested in each group is not derivable from its events: events are
@@ -44,7 +44,7 @@ func (s *Server) ExportCorporateEvents(req *apiv1.ExportCorporateEventsRequest, 
 	// configured identity to put there.
 	if err := stream.Send(&apiv1.ExportCorporateEventsResponse{
 		Item: &apiv1.ExportCorporateEventsResponse_Envelope{
-			Envelope: archive.NewEnvelope("", archivev1.ArchiveKind_ADMIN),
+			Envelope: archive.NewEnvelope("", archivev1.ArchiveKind_SYSTEM),
 		},
 	}); err != nil {
 		return err
@@ -173,14 +173,14 @@ func dividendTypeFromString(s string) archivev1.DividendType {
 }
 
 // ImportCorporateEvents creates an async job to upsert the corporate event part
-// of an admin archive. The serialized request is persisted to the DB and
+// of a system archive. The serialized request is persisted to the DB and
 // processed by the ingestion worker. Admin only.
 func (s *Server) ImportCorporateEvents(ctx context.Context, req *apiv1.ImportCorporateEventsRequest) (*apiv1.ImportCorporateEventsResponse, error) {
 	u, authErr := auth.RequireAdmin(ctx)
 	if authErr != nil {
 		return nil, authErr
 	}
-	if err := archive.CheckEnvelope(req.GetEnvelope(), archivev1.ArchiveKind_ADMIN); err != nil {
+	if err := archive.CheckEnvelope(req.GetEnvelope(), archivev1.ArchiveKind_SYSTEM); err != nil {
 		var ve *archive.VersionError
 		if errors.As(err, &ve) {
 			// The request is well formed and this server is the thing that is

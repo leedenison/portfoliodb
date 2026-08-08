@@ -13,7 +13,7 @@ import "buf/validate/validate.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
 
-// AdminArchive is one admin archive document: shared reference data, and no
+// SystemArchive is one system archive document: shared reference data, and no
 // user data at all. It is one protojson object, and it is the whole file.
 //
 // Every section is optional, because an export is a menu. Each is wrapped in
@@ -24,8 +24,8 @@ option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev
 // Field numbers run in restore order, which is also the order protojson emits
 // them in, so a document reads top to bottom in the order it is applied.
 // Instruments come first because every other part refers to them.
-// See docs/adr/0033-admin-and-user-archives-are-separate.md.
-message AdminArchive {
+// See docs/adr/0033-system-and-user-archives-are-separate.md.
+message SystemArchive {
   Envelope envelope = 1 [(buf.validate.field).required = true];
   InstrumentPart instruments = 2;
   PricePart prices = 3;
@@ -34,12 +34,12 @@ message AdminArchive {
   // config, inflation indices.
 }
 
-// UserArchive is one user archive document: one user's own data, and no admin
+// UserArchive is one user archive document: one user's own data, and no system
 // data at all.
 //
 // Restoring into an instance whose instruments are not loaded is supported and
 // correct: postings resolve through the normal identifier path. It is merely
-// slower, which is the cost restoring the admin archive first avoids -- a
+// slower, which is the cost restoring the system archive first avoids -- a
 // recommendation, not a constraint.
 //
 // Field numbers run in restore order. Preferences come first because which

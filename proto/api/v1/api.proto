@@ -175,7 +175,7 @@ service ApiService {
   // Instruments: browse and search (any authenticated user).
   rpc ListInstruments(ListInstrumentsRequest) returns (ListInstrumentsResponse);
 
-  // Instrument export/import (admin-only). Export streams the instrument part of an admin archive; optional exchange filter.
+  // Instrument export/import (admin-only). Export streams the instrument part of a system archive; optional exchange filter.
   rpc ExportInstruments(ExportInstrumentsRequest) returns (stream ExportInstrumentsResponse);
   rpc ImportInstruments(ImportInstrumentsRequest) returns (ImportInstrumentsResponse);
 
@@ -494,7 +494,7 @@ message ListInstrumentsResponse {
   int32 total_count = 3;  // total matching instruments (for UI pagination display)
 }
 
-// ExportInstruments streams the instrument part of an admin archive: every
+// ExportInstruments streams the instrument part of a system archive: every
 // instrument with at least one canonical identifier, plus the underlying of any
 // derivative it carries. Optional exchange filter.
 message ExportInstrumentsRequest {
@@ -710,7 +710,7 @@ message ListPricesResponse {
   int32 total_count = 3;
 }
 
-// ExportPrices streams the price part of an admin archive: one group per
+// ExportPrices streams the price part of a system archive: one group per
 // instrument, carrying the best identifier for it.
 message ExportPricesRequest {}
 
@@ -1036,7 +1036,7 @@ message TriggerTransferMatchRequest {}
 
 message TriggerTransferMatchResponse {}
 
-// ExportCorporateEvents streams the corporate event part of an admin archive:
+// ExportCorporateEvents streams the corporate event part of a system archive:
 // one group per instrument, carrying the best identifier for it.
 message ExportCorporateEventsRequest {}
 

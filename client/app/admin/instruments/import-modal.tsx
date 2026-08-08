@@ -3,9 +3,9 @@
 import { useRef, useState } from "react";
 import { Modal } from "@/app/components/modal";
 import { ErrorAlert } from "@/app/components/error-alert";
-import { archiveErrorMessage, unmarshalAdmin } from "@/lib/archive/codec";
+import { archiveErrorMessage, unmarshalSystem } from "@/lib/archive/codec";
 import { importInstruments } from "@/lib/portfolio-api";
-import type { AdminArchive } from "@/gen/archive/v1/archive_pb";
+import type { SystemArchive } from "@/gen/archive/v1/archive_pb";
 import type { ImportInstrumentsResult } from "@/lib/portfolio-api";
 
 type Phase = "idle" | "preview" | "result";
@@ -20,7 +20,7 @@ export function ImportInstrumentsModal({
   onComplete?: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
-  const [archive, setArchive] = useState<AdminArchive | null>(null);
+  const [archive, setArchive] = useState<SystemArchive | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<ImportInstrumentsResult | null>(null);
   const [importing, setImporting] = useState(false);
@@ -55,7 +55,7 @@ export function ImportInstrumentsModal({
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
       try {
-        const parsed = unmarshalAdmin(text);
+        const parsed = unmarshalSystem(text);
         // Only the instrument part is applied. A file carrying the other
         // sections is still a valid archive; each has its own importer.
         setArchive(parsed);

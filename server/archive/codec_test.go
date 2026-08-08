@@ -21,11 +21,11 @@ func exportedAt() *timestamppb.Timestamp {
 	return timestamppb.New(time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC))
 }
 
-// adminFixture is the document server/archive/testdata/admin.json holds. It
+// systemFixture is the document server/archive/testdata/system.json holds. It
 // exercises one of each level: an envelope, a group with coverage, and rows
 // with a present zero, an absent optional and a declared share count basis.
-func adminFixture() *archivev1.AdminArchive {
-	return &archivev1.AdminArchive{
+func systemFixture() *archivev1.SystemArchive {
+	return &archivev1.SystemArchive{
 		Envelope: &archivev1.Envelope{
 			ExportedAt:     exportedAt(),
 			SourceInstance: "portfoliodb.example.com",
@@ -105,12 +105,12 @@ func userFixture() *archivev1.UserArchive {
 // The version and the kind come from the build, so an export cannot produce a
 // document that misdescribes itself even if the caller never touches them.
 func TestNewEnvelope_StampsVersionAndKind(t *testing.T) {
-	e := archive.NewEnvelope("portfoliodb.example.com", archivev1.ArchiveKind_ADMIN)
+	e := archive.NewEnvelope("portfoliodb.example.com", archivev1.ArchiveKind_SYSTEM)
 	if e.GetFormatVersion() != archive.FormatVersion {
 		t.Errorf("format_version = %d, want %d", e.GetFormatVersion(), archive.FormatVersion)
 	}
-	if e.GetKind() != archivev1.ArchiveKind_ADMIN {
-		t.Errorf("kind = %s, want ADMIN", e.GetKind())
+	if e.GetKind() != archivev1.ArchiveKind_SYSTEM {
+		t.Errorf("kind = %s, want SYSTEM", e.GetKind())
 	}
 	if e.GetSourceInstance() != "portfoliodb.example.com" {
 		t.Errorf("source_instance = %q", e.GetSourceInstance())
@@ -124,16 +124,16 @@ func TestNewEnvelope_StampsVersionAndKind(t *testing.T) {
 // file written by one version readable by another. A regression here is a
 // wholesale format change, so it is asserted on the bytes rather than through a
 // round trip, which would pass either way.
-func TestMarshalAdmin_WritesProtoNamesAndEnumNames(t *testing.T) {
-	b, err := archive.MarshalAdmin(adminFixture())
+func TestMarshalSystem_WritesProtoNamesAndEnumNames(t *testing.T) {
+	b, err := archive.MarshalSystem(systemFixture())
 	if err != nil {
-		t.Fatalf("MarshalAdmin: %v", err)
+		t.Fatalf("MarshalSystem: %v", err)
 	}
 	s := string(b)
 	for _, want := range []string{
 		`"format_version":1`,
 		`"exported_at":"2026-07-30T00:00:00Z"`,
-		`"kind":"ADMIN"`,
+		`"kind":"SYSTEM"`,
 		`"asset_class":"STOCK"`,
 		`"type":"MIC_TICKER"`,
 		`"price_date":"2024-01-15"`,
@@ -175,19 +175,19 @@ func TestMarshalUser_AbsentIsNotZero(t *testing.T) {
 	}
 }
 
-func TestRoundTrip_Admin(t *testing.T) {
-	want := adminFixture()
-	b, err := archive.MarshalAdmin(want)
+func TestRoundTrip_System(t *testing.T) {
+	want := systemFixture()
+	b, err := archive.MarshalSystem(want)
 	if err != nil {
-		t.Fatalf("MarshalAdmin: %v", err)
+		t.Fatalf("MarshalSystem: %v", err)
 	}
-	got, err := archive.UnmarshalAdmin(b)
+	got, err := archive.UnmarshalSystem(b)
 	if err != nil {
-		t.Fatalf("UnmarshalAdmin: %v", err)
+		t.Fatalf("UnmarshalSystem: %v", err)
 	}
 	// Marshal stamps these, so the fixture does not set them.
 	want.Envelope.FormatVersion = archive.FormatVersion
-	want.Envelope.Kind = archivev1.ArchiveKind_ADMIN
+	want.Envelope.Kind = archivev1.ArchiveKind_SYSTEM
 	if !proto.Equal(want, got) {
 		t.Errorf("round trip changed the document:\n want %v\n got  %v", want, got)
 	}
@@ -213,22 +213,22 @@ func TestRoundTrip_User(t *testing.T) {
 // Marshal stamps the envelope, so a caller cannot produce a document that
 // misdescribes its own version or kind.
 func TestMarshal_StampsEnvelopeOverCaller(t *testing.T) {
-	a := adminFixture()
+	a := systemFixture()
 	a.Envelope.FormatVersion = 99
 	a.Envelope.Kind = archivev1.ArchiveKind_USER
-	b, err := archive.MarshalAdmin(a)
+	b, err := archive.MarshalSystem(a)
 	if err != nil {
-		t.Fatalf("MarshalAdmin: %v", err)
+		t.Fatalf("MarshalSystem: %v", err)
 	}
-	got, err := archive.UnmarshalAdmin(b)
+	got, err := archive.UnmarshalSystem(b)
 	if err != nil {
-		t.Fatalf("UnmarshalAdmin: %v", err)
+		t.Fatalf("UnmarshalSystem: %v", err)
 	}
 	if got.Envelope.FormatVersion != archive.FormatVersion {
 		t.Errorf("format_version = %d, want %d", got.Envelope.FormatVersion, archive.FormatVersion)
 	}
-	if got.Envelope.Kind != archivev1.ArchiveKind_ADMIN {
-		t.Errorf("kind = %v, want ADMIN", got.Envelope.Kind)
+	if got.Envelope.Kind != archivev1.ArchiveKind_SYSTEM {
+		t.Errorf("kind = %v, want SYSTEM", got.Envelope.Kind)
 	}
 	// The caller's own message is not mutated.
 	if a.Envelope.FormatVersion != 99 {
@@ -239,8 +239,8 @@ func TestMarshal_StampsEnvelopeOverCaller(t *testing.T) {
 // A newer archive is refused by version rather than by a confusing parse error,
 // which is the only thing format_version is for.
 func TestUnmarshal_RefusesNewerFormatVersion(t *testing.T) {
-	b := []byte(`{"envelope":{"format_version":2,"exported_at":"2026-07-30T00:00:00Z","kind":"ADMIN"}}`)
-	_, err := archive.UnmarshalAdmin(b)
+	b := []byte(`{"envelope":{"format_version":2,"exported_at":"2026-07-30T00:00:00Z","kind":"SYSTEM"}}`)
+	_, err := archive.UnmarshalSystem(b)
 	var ve *archive.VersionError
 	if !errors.As(err, &ve) {
 		t.Fatalf("expected a VersionError, got %v", err)
@@ -252,12 +252,12 @@ func TestUnmarshal_RefusesNewerFormatVersion(t *testing.T) {
 
 // An older archive stays readable; the version gate is one-sided.
 func TestUnmarshal_AcceptsOwnFormatVersion(t *testing.T) {
-	b, err := archive.MarshalAdmin(adminFixture())
+	b, err := archive.MarshalSystem(systemFixture())
 	if err != nil {
-		t.Fatalf("MarshalAdmin: %v", err)
+		t.Fatalf("MarshalSystem: %v", err)
 	}
-	if _, err := archive.UnmarshalAdmin(b); err != nil {
-		t.Fatalf("UnmarshalAdmin: %v", err)
+	if _, err := archive.UnmarshalSystem(b); err != nil {
+		t.Fatalf("UnmarshalSystem: %v", err)
 	}
 }
 
@@ -266,7 +266,7 @@ func TestUnmarshal_RefusesWrongKind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalUser: %v", err)
 	}
-	_, err = archive.UnmarshalAdmin(b)
+	_, err = archive.UnmarshalSystem(b)
 	var ke *archive.KindError
 	if !errors.As(err, &ke) {
 		t.Fatalf("expected a KindError, got %v", err)
@@ -279,9 +279,9 @@ func TestUnmarshal_RefusesWrongKind(t *testing.T) {
 // An additive field from a later writer does not make the file unreadable. This
 // is what makes the version gate safe to be one-sided.
 func TestUnmarshal_IgnoresUnknownFields(t *testing.T) {
-	b, err := archive.MarshalAdmin(adminFixture())
+	b, err := archive.MarshalSystem(systemFixture())
 	if err != nil {
-		t.Fatalf("MarshalAdmin: %v", err)
+		t.Fatalf("MarshalSystem: %v", err)
 	}
 	var doc map[string]any
 	if err := json.Unmarshal(b, &doc); err != nil {
@@ -293,8 +293,8 @@ func TestUnmarshal_IgnoresUnknownFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if _, err := archive.UnmarshalAdmin(b); err != nil {
-		t.Fatalf("UnmarshalAdmin with unknown fields: %v", err)
+	if _, err := archive.UnmarshalSystem(b); err != nil {
+		t.Fatalf("UnmarshalSystem with unknown fields: %v", err)
 	}
 }
 
@@ -311,10 +311,10 @@ func TestUnmarshal_RefusesUnknownEnumValue(t *testing.T) {
 
 func TestUnmarshal_RefusesInvalidDocument(t *testing.T) {
 	// before must be after from, and the interval is half-open.
-	b := []byte(`{"envelope":{"format_version":1,"exported_at":"2026-07-30T00:00:00Z","kind":"ADMIN"},` +
+	b := []byte(`{"envelope":{"format_version":1,"exported_at":"2026-07-30T00:00:00Z","kind":"SYSTEM"},` +
 		`"prices":{"groups":[{"instrument":{"type":"ISIN","value":"US0378331005"},` +
 		`"coverage":[{"from":"2024-02-01","before":"2024-01-01"}]}]}}`)
-	if _, err := archive.UnmarshalAdmin(b); err == nil {
+	if _, err := archive.UnmarshalSystem(b); err == nil {
 		t.Fatal("expected an inverted coverage interval to be refused")
 	}
 }
@@ -322,14 +322,14 @@ func TestUnmarshal_RefusesInvalidDocument(t *testing.T) {
 // Two exports of the same data are byte-identical. protojson deliberately jitters
 // its whitespace, so this is a property of the codec rather than of the library.
 func TestMarshal_IsDeterministic(t *testing.T) {
-	a, err := archive.MarshalAdmin(adminFixture())
+	a, err := archive.MarshalSystem(systemFixture())
 	if err != nil {
-		t.Fatalf("MarshalAdmin: %v", err)
+		t.Fatalf("MarshalSystem: %v", err)
 	}
 	for range 20 {
-		b, err := archive.MarshalAdmin(adminFixture())
+		b, err := archive.MarshalSystem(systemFixture())
 		if err != nil {
-			t.Fatalf("MarshalAdmin: %v", err)
+			t.Fatalf("MarshalSystem: %v", err)
 		}
 		if string(a) != string(b) {
 			t.Fatalf("two marshals of the same document differ:\n%s\n%s", a, b)
@@ -345,7 +345,7 @@ func TestGoldenFiles(t *testing.T) {
 		path string
 		got  func() ([]byte, error)
 	}{
-		{"testdata/admin.json", func() ([]byte, error) { return archive.MarshalAdmin(adminFixture()) }},
+		{"testdata/system.json", func() ([]byte, error) { return archive.MarshalSystem(systemFixture()) }},
 		{"testdata/user.json", func() ([]byte, error) { return archive.MarshalUser(userFixture()) }},
 	} {
 		b, err := tc.got()

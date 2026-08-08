@@ -1,10 +1,10 @@
 ---
 status: open
-title: Consolidated admin export and import page
+title: Consolidated system export and import page
 dependencies: [0078]
 ---
 
-One admin page that exports and imports the admin archive, replacing the
+One admin page that exports and imports the system archive, replacing the
 per-entity controls scattered across the admin section.
 
 ## Motivation
@@ -15,7 +15,7 @@ the entity: a download button on `/admin/prices`, another on
 each with its own import modal. Rebuilding an instance means remembering which
 pages have one and clicking through them in the right order.
 
-The archive is a single artefact (adr/0033-admin-and-user-archives-are-separate.md),
+The archive is a single artefact (adr/0033-system-and-user-archives-are-separate.md),
 so it should have a single place to produce and consume it.
 
 ## Design

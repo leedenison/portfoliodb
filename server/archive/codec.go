@@ -57,7 +57,7 @@ func (e *VersionError) Error() string {
 }
 
 // KindError reports an archive handed to the wrong importer -- a user archive
-// given to the admin path, or the reverse.
+// given to the system path, or the reverse.
 type KindError struct {
 	Got  archivev1.ArchiveKind
 	Want archivev1.ArchiveKind
@@ -69,7 +69,7 @@ func (e *KindError) Error() string {
 
 // NewEnvelope builds the envelope an export stamps onto its own document. The
 // format version and the kind come from this build rather than from a caller,
-// for the same reason MarshalAdmin overwrites them.
+// for the same reason MarshalSystem overwrites them.
 //
 // exported_at is knowledge time -- when the data being exported was current --
 // so it is the exporting server's clock and nothing else's.
@@ -83,7 +83,7 @@ func NewEnvelope(sourceInstance string, kind archivev1.ArchiveKind) *archivev1.E
 }
 
 // CheckEnvelope validates an envelope that arrived over the API rather than
-// inside a file. UnmarshalAdmin probes the bytes before parsing them, but an
+// inside a file. UnmarshalSystem probes the bytes before parsing them, but an
 // RPC carrying an already-parsed envelope has no bytes to probe, and the two
 // refusals -- a file from a later PortfolioDB, a file handed to the wrong
 // importer -- have to happen either way.
@@ -103,15 +103,15 @@ func CheckEnvelope(e *archivev1.Envelope, want archivev1.ArchiveKind) error {
 	return nil
 }
 
-// MarshalAdmin writes an admin archive. It stamps the envelope's format_version
+// MarshalSystem writes a system archive. It stamps the envelope's format_version
 // and kind itself, so a caller cannot write a document that misdescribes itself.
-func MarshalAdmin(a *archivev1.AdminArchive) ([]byte, error) {
+func MarshalSystem(a *archivev1.SystemArchive) ([]byte, error) {
 	a = proto.CloneOf(a)
 	if a.Envelope == nil {
 		a.Envelope = &archivev1.Envelope{}
 	}
 	a.Envelope.FormatVersion = FormatVersion
-	a.Envelope.Kind = archivev1.ArchiveKind_ADMIN
+	a.Envelope.Kind = archivev1.ArchiveKind_SYSTEM
 	return marshal(a)
 }
 
@@ -126,12 +126,12 @@ func MarshalUser(a *archivev1.UserArchive) ([]byte, error) {
 	return marshal(a)
 }
 
-// UnmarshalAdmin reads an admin archive.
-func UnmarshalAdmin(b []byte) (*archivev1.AdminArchive, error) {
-	if err := probe(b, archivev1.ArchiveKind_ADMIN); err != nil {
+// UnmarshalSystem reads a system archive.
+func UnmarshalSystem(b []byte) (*archivev1.SystemArchive, error) {
+	if err := probe(b, archivev1.ArchiveKind_SYSTEM); err != nil {
 		return nil, err
 	}
-	var a archivev1.AdminArchive
+	var a archivev1.SystemArchive
 	if err := unmarshal(b, &a); err != nil {
 		return nil, err
 	}

@@ -23,7 +23,7 @@ import (
 // before the envelope was required.
 func eventPayload(t *testing.T, exportedAt *time.Time, groups ...*archivev1.CorporateEventGroup) []byte {
 	t.Helper()
-	env := &archivev1.Envelope{FormatVersion: 1, Kind: archivev1.ArchiveKind_ADMIN}
+	env := &archivev1.Envelope{FormatVersion: 1, Kind: archivev1.ArchiveKind_SYSTEM}
 	if exportedAt != nil {
 		env.ExportedAt = timestamppb.New(*exportedAt)
 	}

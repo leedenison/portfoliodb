@@ -20,8 +20,8 @@ new API surface.
 ## Design
 
 A small part of the user archive
-(adr/0033-admin-and-user-archives-are-separate.md). Preferences are the only
-user-owned data with no reference to anything the admin archive owns, so they
+(adr/0033-system-and-user-archives-are-separate.md). Preferences are the only
+user-owned data with no reference to anything the system archive owns, so they
 restore cleanly whatever order the parts arrive in.
 
 Note that changing ignored asset classes affects what future ingestion keeps, so

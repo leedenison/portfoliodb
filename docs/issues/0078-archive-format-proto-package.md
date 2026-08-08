@@ -51,6 +51,6 @@ Existing export and import message pairs such as `ExportPriceRow` and
 ## Documentation
 
 A new `docs/spec/archive-format.md` covering both the admin and user archives
-(adr/0033-admin-and-user-archives-are-separate.md). `docs/spec/csv-format.md`
+(adr/0033-system-and-user-archives-are-separate.md). `docs/spec/csv-format.md`
 shrinks as each format migrates under 0081 and 0084, and is deleted once it
 documents nothing.

@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/app/components/modal";
 import { ErrorAlert } from "@/app/components/error-alert";
-import { archiveErrorMessage, unmarshalAdmin } from "@/lib/archive/codec";
+import { archiveErrorMessage, unmarshalSystem } from "@/lib/archive/codec";
 import { importPrices, getJob } from "@/lib/portfolio-api";
 import { JobStatus } from "@/gen/api/v1/api_pb";
-import type { AdminArchive } from "@/gen/archive/v1/archive_pb";
+import type { SystemArchive } from "@/gen/archive/v1/archive_pb";
 import type { GetJobResult } from "@/lib/portfolio-api";
 
 type Phase = "idle" | "preview" | "processing" | "result";
@@ -21,7 +21,7 @@ export function ImportPricesModal({
   onComplete?: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
-  const [archive, setArchive] = useState<AdminArchive | null>(null);
+  const [archive, setArchive] = useState<SystemArchive | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<GetJobResult | null>(null);
@@ -59,7 +59,7 @@ export function ImportPricesModal({
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
       try {
-        const parsed = unmarshalAdmin(text);
+        const parsed = unmarshalSystem(text);
         // Only the price part is applied. The other sections have no importer
         // yet, and a file carrying them is still a valid archive.
         if (parsed.instruments || parsed.corporateEvents) {

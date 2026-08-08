@@ -31,7 +31,7 @@ instruments.
 Shared portfolios, which aggregate over several users' data and sit in the
 unscheduled list, widen the same seam: a portfolio would then reference data the
 exporting user does not own, and the archive boundary in
-adr/0033-admin-and-user-archives-are-separate.md would need an answer for it.
+adr/0033-system-and-user-archives-are-separate.md would need an answer for it.
 
 Settle once both archives exist and the identifier translation has been exercised
 by transactions and declarations.

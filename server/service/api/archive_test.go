@@ -208,6 +208,17 @@ func (e *exportArchiveStreamMock) fetchBlockGroups() []*archivev1.FetchBlockGrou
 	return out
 }
 
+// unhandledEventGroups returns the unhandled event groups the export streamed.
+func (e *exportArchiveStreamMock) unhandledEventGroups() []*archivev1.UnhandledEventGroup {
+	var out []*archivev1.UnhandledEventGroup
+	for _, m := range e.sent {
+		if v := m.GetUnhandledEventGroup(); v != nil {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // shape describes the stream as a sequence of item kinds, which is what the
 // client's reassembly reads.
 func (e *exportArchiveStreamMock) shape() []string {
@@ -228,6 +239,8 @@ func (e *exportArchiveStreamMock) shape() []string {
 			out = append(out, "inflation_group")
 		case m.GetFetchBlockGroup() != nil:
 			out = append(out, "fetch_block_group")
+		case m.GetUnhandledEventGroup() != nil:
+			out = append(out, "unhandled_event_group")
 		}
 	}
 	return out

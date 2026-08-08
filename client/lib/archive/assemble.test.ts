@@ -121,6 +121,33 @@ describe("assembleSystemArchive", () => {
     expect(doc.fetchBlocks?.groups[0].blocks).toHaveLength(2);
     expect(partCounts(doc)).toEqual([{ label: "fetch blocks", count: 2 }]);
   });
+
+  // Resolved and unresolved events travel together: the flag is the point of
+  // the part, and the queue still waiting for one is the other half.
+  it("files unhandled events with their resolved flag", () => {
+    const doc = assembleSystemArchive(
+      stream(
+        { item: { case: "envelope", value: ENVELOPE } },
+        { item: { case: "partBegin", value: { part: ArchivePart.UNHANDLED_EVENTS } } },
+        {
+          item: {
+            case: "unhandledEventGroup",
+            value: {
+              instrument: { type: 15, value: "XYZ", domain: "XNAS" },
+              events: [
+                { eventType: "REVERSE_SPLIT", detail: "judged", resolved: true },
+                { eventType: "MERGER", detail: "waiting" },
+              ],
+            },
+          },
+        },
+      ),
+    );
+    expect(doc.unhandledEvents?.groups[0].events).toHaveLength(2);
+    expect(doc.unhandledEvents?.groups[0].events[0].resolved).toBe(true);
+    expect(doc.unhandledEvents?.groups[0].events[1].resolved).toBe(false);
+    expect(partCounts(doc)).toEqual([{ label: "unhandled corporate events", count: 2 }]);
+  });
 });
 
 describe("partCounts", () => {

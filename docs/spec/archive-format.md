@@ -433,7 +433,9 @@ thing that happens today when a refetch re-detects an event already judged.
 queue, and both may name ids belonging to the instance that wrote the file.
 `data_json` is carried as the JSON text the column holds rather than as a
 structured value: its shape belongs to whichever detector wrote it, and protojson
-would carry its numbers as doubles.
+would carry its numbers as doubles. The column is `JSONB`, which stores a parsed
+value, so what an export writes is the database's spelling -- key order and
+spacing are its own. The value round trips; the bytes do not.
 
 **Not carried:** the row `id`, a server UUID.
 

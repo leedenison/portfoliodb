@@ -997,6 +997,20 @@ type CashDividend struct {
 	FirstKnownAt time.Time
 }
 
+// ExportUnhandledCorporateEvent is one unhandled event named the way a file
+// names it: by the best identifier for the instrument rather than by its id.
+type ExportUnhandledCorporateEvent struct {
+	IdentifierType   string
+	IdentifierValue  string
+	IdentifierDomain string
+	EventType        string
+	ExDate           *time.Time
+	Detail           string
+	Data             []byte // JSONB, carried as the text it is stored as
+	Resolved         bool
+	CreatedAt        time.Time
+}
+
 // CorporateEventCoverage is one half-open [CoveredFrom, CoveredBefore) coverage
 // interval for a (instrument, plugin). Adjacent or overlapping intervals for the
 // same (InstrumentID, PluginID) are merged on insert by
@@ -1172,6 +1186,17 @@ type CorporateEventDB interface {
 	CountUnhandledCorporateEvents(ctx context.Context) (int32, error)
 	// ResolveUnhandledCorporateEvent marks an event as resolved.
 	ResolveUnhandledCorporateEvent(ctx context.Context, id string) error
+
+	// ListUnhandledCorporateEventsForExport returns every unhandled event,
+	// resolved and unresolved alike, with the best identifier per instrument.
+	// Unpaged, because a file carries the lot.
+	ListUnhandledCorporateEventsForExport(ctx context.Context) ([]ExportUnhandledCorporateEvent, error)
+	// RestoreUnhandledCorporateEvents writes events from an archive, honouring
+	// their resolved flag and detection time, and returns how many were
+	// inserted. A row matching an already-stored (instrument_id, event_type,
+	// ex_date, resolved) is skipped, so importing the same file twice does not
+	// double the review queue.
+	RestoreUnhandledCorporateEvents(ctx context.Context, events []UnhandledCorporateEvent) (int, error)
 }
 
 // HeldInstrument is one held instrument with the date of its earliest tx.

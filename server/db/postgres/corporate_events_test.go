@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -1841,5 +1843,151 @@ func TestListCorporateEventCoverageForExport_Empty(t *testing.T) {
 	}
 	if len(cov) != 0 {
 		t.Fatalf("expected no spans, got %d", len(cov))
+	}
+}
+
+// The export names the instrument by identifier and carries resolved rows
+// alongside unresolved ones, because a rebuild needs both.
+func TestListUnhandledCorporateEventsForExport(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "XYZ")
+
+	exDate := d(2025, 4, 11)
+	if err := p.InsertUnhandledCorporateEvent(ctx, db.UnhandledCorporateEvent{
+		InstrumentID: instID, EventType: "REVERSE_SPLIT", ExDate: &exDate,
+		Detail: "1:10 reverse split", Data: []byte(`{"split_from":"10","split_to":"1"}`),
+	}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	events, _, _, err := p.ListUnhandledCorporateEvents(ctx, false, 50, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if err := p.ResolveUnhandledCorporateEvent(ctx, events[0].ID); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if err := p.InsertUnhandledCorporateEvent(ctx, db.UnhandledCorporateEvent{
+		InstrumentID: instID, EventType: "MERGER", Detail: "merged into ABC",
+	}); err != nil {
+		t.Fatalf("insert merger: %v", err)
+	}
+
+	rows, err := p.ListUnhandledCorporateEventsForExport(ctx)
+	if err != nil {
+		t.Fatalf("list for export: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	var resolved, unresolved int
+	for _, r := range rows {
+		if r.IdentifierValue != "XYZ" {
+			t.Errorf("identifier = %s %s", r.IdentifierType, r.IdentifierValue)
+		}
+		if r.Resolved {
+			resolved++
+			// JSONB stores a parsed value, so what comes back is the database's
+			// spelling of it rather than the bytes that went in. The archive
+			// carries what the column holds, which is this.
+			var payload map[string]string
+			if err := json.Unmarshal(r.Data, &payload); err != nil {
+				t.Errorf("data is not JSON: %v", err)
+			}
+			if payload["split_from"] != "10" || payload["split_to"] != "1" {
+				t.Errorf("data = %s", r.Data)
+			}
+			if r.ExDate == nil {
+				t.Error("ex_date not carried")
+			}
+		} else {
+			unresolved++
+			if r.ExDate != nil {
+				t.Errorf("ex_date = %v, want absent", r.ExDate)
+			}
+		}
+	}
+	if resolved != 1 || unresolved != 1 {
+		t.Fatalf("resolved = %d, unresolved = %d", resolved, unresolved)
+	}
+}
+
+// Importing the same file twice must not double the review queue. The dedup
+// index is partial, so the guard is on the natural key together with the
+// resolved flag rather than on an ON CONFLICT the table cannot offer.
+func TestRestoreUnhandledCorporateEvents_IsIdempotent(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "XYZ")
+
+	exDate := d(2025, 4, 11)
+	events := []db.UnhandledCorporateEvent{{
+		InstrumentID: instID, EventType: "REVERSE_SPLIT", ExDate: &exDate,
+		Detail: "1:10 reverse split", Resolved: true,
+		CreatedAt: time.Date(2026, 3, 4, 0, 0, 0, 0, time.UTC),
+	}}
+
+	inserted, err := p.RestoreUnhandledCorporateEvents(ctx, events)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if inserted != 1 {
+		t.Fatalf("inserted = %d, want 1", inserted)
+	}
+	inserted, err = p.RestoreUnhandledCorporateEvents(ctx, events)
+	if err != nil {
+		t.Fatalf("re-restore: %v", err)
+	}
+	if inserted != 0 {
+		t.Fatalf("re-import inserted = %d, want 0", inserted)
+	}
+
+	rows, err := p.ListUnhandledCorporateEventsForExport(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if !rows[0].Resolved {
+		t.Fatal("resolved flag not restored")
+	}
+	if !rows[0].CreatedAt.UTC().Equal(time.Date(2026, 3, 4, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("created_at = %v, want the file's", rows[0].CreatedAt.UTC())
+	}
+}
+
+// A stored resolved row and an incoming unresolved one are different rows. That
+// is the same thing that happens when a refetch re-detects an event an admin
+// has already judged, so the import must not quietly swallow the new one.
+func TestRestoreUnhandledCorporateEvents_ResolvedDoesNotSuppressUnresolved(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	instID := setupInstrument(t, p, "XYZ")
+
+	exDate := d(2025, 4, 11)
+	base := db.UnhandledCorporateEvent{
+		InstrumentID: instID, EventType: "REVERSE_SPLIT", ExDate: &exDate,
+		Detail: "judged", Resolved: true, CreatedAt: time.Now(),
+	}
+	if _, err := p.RestoreUnhandledCorporateEvents(ctx, []db.UnhandledCorporateEvent{base}); err != nil {
+		t.Fatalf("restore resolved: %v", err)
+	}
+
+	base.Resolved = false
+	base.Detail = "waiting"
+	inserted, err := p.RestoreUnhandledCorporateEvents(ctx, []db.UnhandledCorporateEvent{base})
+	if err != nil {
+		t.Fatalf("restore unresolved: %v", err)
+	}
+	if inserted != 1 {
+		t.Fatalf("inserted = %d, want 1", inserted)
+	}
+	count, err := p.CountUnhandledCorporateEvents(ctx)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("unresolved count = %d, want 1", count)
 	}
 }

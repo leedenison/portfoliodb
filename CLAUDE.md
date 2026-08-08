@@ -103,8 +103,8 @@ The informantion architecture of the user interface is described in docs/spec/in
 
 The archive format -- the single import and export format that replaces the
 transaction CSV, the price CSV, the instrument JSON and the corporate event JSON
--- is documented in docs/spec/archive-format.md. The formats it has not yet
-replaced are documented in docs/spec/csv-format.md.
+-- is documented in docs/spec/archive-format.md. The one format it has not yet
+replaced, the standard transaction CSV, is documented in docs/spec/csv-format.md.
 
 Automated transaction import via the browser extension is specified in docs/spec/broker-import-extension.md.
 

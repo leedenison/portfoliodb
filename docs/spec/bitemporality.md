@@ -122,8 +122,8 @@ they state when the supplied data was current, and drive OCC split adjustment
 during instrument resolution. See [prices.md](prices.md) and
 [corporate-events.md](corporate-events.md).
 
-Corporate events also carry knowledge time per row: `SplitRow.first_known_at`
-and `CashDividendRow.first_known_at` make an export/import round trip lossless.
+Corporate events also carry knowledge time per event: `Split.first_known_at`
+and `CashDividend.first_known_at` make an export/import round trip lossless.
 An importing row resolves its knowledge time from the row, else the request's
 `exported_at`, else the time it is stored.
 

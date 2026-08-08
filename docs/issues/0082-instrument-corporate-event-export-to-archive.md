@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Move instrument and corporate event export to the archive schema
 dependencies: [0078]
 ---

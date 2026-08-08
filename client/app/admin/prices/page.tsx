@@ -8,19 +8,10 @@ import { usePagination } from "@/hooks/use-pagination";
 import { useAuthedQuery } from "@/hooks/use-authed-query";
 import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
-import {
-  listPrices,
-  listPriceFetchBlocks,
-  deletePriceFetchBlock,
-  exportPrices,
-} from "@/lib/portfolio-api";
-import { marshalSystem } from "@/lib/archive/codec";
+import { listPrices, listPriceFetchBlocks, deletePriceFetchBlock } from "@/lib/portfolio-api";
 import { dayAfter } from "@/lib/dates";
 import { useDebounce } from "@/hooks/use-debounce";
-import { ImportPricesModal } from "./import-modal";
 import type { EODPriceProto, PriceFetchBlock } from "@/gen/api/v1/api_pb";
-import type { Envelope } from "@/gen/archive/v1/common_pb";
-import type { PriceGroup } from "@/gen/archive/v1/prices_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 
 type Tab = "prices" | "blocks";
@@ -93,46 +84,9 @@ function PriceListTab() {
   const debouncedSearch = useDebounce(search);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [exportLoading, setExportLoading] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
-  const queryClient = useQueryClient();
-
-  // The file is an admin archive carrying only its price part. The stream sends
-  // the envelope first because exported_at is knowledge time and belongs to the
-  // server's clock, not the browser's.
-  async function handleExport() {
-    setExportLoading(true);
-    setExportError(null);
-    try {
-      let envelope: Envelope | undefined;
-      const groups: PriceGroup[] = [];
-      for await (const item of exportPrices()) {
-        if (item.item.case === "envelope") {
-          envelope = item.item.value;
-        } else if (item.item.case === "group") {
-          groups.push(item.item.value);
-        }
-      }
-      if (!envelope) throw new Error("export stream sent no envelope");
-      const json = marshalSystem({ envelope, prices: { groups } });
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "prices.json";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setExportLoading(false);
-    }
-  }
 
   return (
     <div className="space-y-4">
-      {/* Header with export/import buttons */}
       <div className="flex flex-wrap items-end gap-3">
         <input
           type="text"
@@ -159,25 +113,7 @@ function PriceListTab() {
             className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text-primary focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary/30"
           />
         </label>
-        <div className="ml-auto flex gap-2">
-          <button
-            type="button"
-            onClick={handleExport}
-            disabled={exportLoading}
-            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {exportLoading ? "Exporting..." : "Export archive"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setImportOpen(true)}
-            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15"
-          >
-            Import archive
-          </button>
-        </div>
       </div>
-      {exportError && <ErrorAlert>{exportError}</ErrorAlert>}
 
       {/* Keyed on the filters: a change remounts the list, which returns it to
           page 1. */}
@@ -186,12 +122,6 @@ function PriceListTab() {
         search={debouncedSearch}
         dateFrom={dateFrom}
         dateTo={dateTo}
-      />
-
-      <ImportPricesModal
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
-        onComplete={() => queryClient.invalidateQueries({ queryKey: qk.prices() })}
       />
     </div>
   );

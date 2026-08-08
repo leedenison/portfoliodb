@@ -20,9 +20,9 @@ difference decides what it carries.
 It carries two kinds of thing:
 
 - **Irreplaceable data.** Transactions and their grouping, holding declarations,
-  portfolios, preferences, plugin configuration, fetch-block reasons, resolved
-  corporate events, and hand-recovered prices no provider still serves. Nothing
-  can reconstruct these.
+  portfolios, preferences, plugin configuration, fetch-block reasons, the
+  corporate events an admin was asked to judge and the calls made on them, and
+  hand-recovered prices no provider still serves. Nothing can reconstruct these.
 - **Data that is expensive to reacquire.** Instruments and their identifiers,
   provider identifiers, prices with their coverage, corporate events with their
   coverage, and inflation indices. These are refetchable in principle, at the
@@ -44,7 +44,7 @@ one file.
 
 - The **system archive** carries shared data and no user data: instruments and
   their identifiers, prices and coverage, corporate events and coverage,
-  inflation indices, fetch blocks, unhandled event resolutions and plugin
+  inflation indices, fetch blocks, unhandled corporate events and plugin
   configuration.
 - The **user archive** carries one user's own data and no system data:
   transactions and their grouping, holding declarations, and preferences.
@@ -189,7 +189,11 @@ to them.
               "kind": "SYSTEM"},
  "instruments": {"instruments": [...]},
  "prices": {"groups": [...]},
- "corporate_events": {"groups": [...]}}
+ "corporate_events": {"groups": [...]},
+ "inflation_indices": {"groups": [...]},
+ "fetch_blocks": {"groups": [...]},
+ "unhandled_events": {"groups": [...]},
+ "plugin_config": {"configs": [...]}}
 ```
 
 ### Instruments
@@ -308,6 +312,176 @@ stored value only ever moves backwards.
 Coverage is stored per instrument and plugin, but an import records every span
 against the `import` sentinel, so the file carries spans merged across plugins.
 The per-plugin distinction cannot survive a round trip and is not written.
+
+### Inflation indices
+
+`inflation_indices.groups[]` is one group per currency.
+
+| Level | Field | Notes |
+| --- | --- | --- |
+| group | `currency` | ISO 4217 |
+| row | `month` | the month described, written as its first day |
+| row | `index_value` | decimal; relative to `base_year` July = 100 |
+| row | `base_year` | the year in which July = 100 |
+
+```json
+{"currency": "GBP",
+ "rows": [{"month": "2024-03-01", "index_value": "133.8", "base_year": 2015}]}
+```
+
+**A group carries no `coverage[]`**, and it is the only group in the format that
+does not. A series is dense: an index is published for every month until the
+series ends, so the rows say what is held and a gap is missing data rather than a
+month a provider was asked about and had nothing to report. `inflation_indices`
+stores no coverage either, and a file must not claim more than the table it came
+from can answer for.
+
+`base_year` is on the row rather than on the group because a rebasing changes it
+partway through a series and both halves travel in the one group. Reading a
+rebased value against the wrong base is not an error but a wrong number, which
+is the same reason `share_count_basis` sits on a price row.
+
+Inflation indices are expensive to reacquire rather than irreplaceable, with one
+wrinkle: a revision replaces its predecessor in place and leaves no record, so a
+refetch returns the current revision and not what this file holds. See
+`docs/spec/bitemporality.md`.
+
+**Not carried:** `data_provider`, because an import records every row against the
+`import` sentinel, so provenance cannot survive a round trip; and
+`last_fetched_at`, which comes from the envelope's `exported_at`.
+
+### Fetch blocks
+
+`fetch_blocks.groups[]` is one group per instrument, carrying that instrument's
+blocks across both fetchers and every plugin.
+
+| Level | Field | Notes |
+| --- | --- | --- |
+| group | `instrument` | identifier triple |
+| block | `category` | `PRICE` or `CORPORATE_EVENT`: which fetcher is blocked |
+| block | `plugin_id` | as the plugin registry spells it |
+| block | `reason` | free text, as the plugin reported it |
+| block | `first_blocked_at` | optional; knowledge time |
+
+```json
+{"instrument": {"type": "MIC_TICKER", "value": "AAPL", "domain": "XNAS"},
+ "blocks": [{"category": "PRICE", "plugin_id": "eodhd",
+             "reason": "404 from provider", "first_blocked_at": "2026-03-04T09:12:00Z"}]}
+```
+
+One part covers both `price_fetch_blocks` and `corporate_event_fetch_blocks`.
+They are the same statement about two fetchers, the reason someone wrote down
+reads the same way in both, and splitting them would put two rows in the export
+menu where an admin thinks of one. `category` is the plugin category the block
+belongs to, from the same vocabulary plugin configuration uses; only `PRICE` and
+`CORPORATE_EVENT` have a fetch-block table, and a file naming another category is
+describing a table that does not exist.
+
+`reason` is free text and not a vocabulary. It is what the plugin's permanent
+error carried, it is what the column holds, and it is read by a person deciding
+whether to unblock.
+
+`first_blocked_at` is knowledge time and the column never overwrites it, so an
+import keeps the earlier of the stored and the supplied value. Absent falls back
+to the envelope's `exported_at`.
+
+A block naming a plugin the importing instance does not register is a rejected
+row rather than a failed part: nothing would ever consult it.
+
+**Not carried:** the instrument's server UUID, which every archive replaces with
+an identifier.
+
+### Unhandled corporate events
+
+`unhandled_events.groups[]` is one group per instrument.
+
+| Level | Field | Notes |
+| --- | --- | --- |
+| group | `instrument` | identifier triple |
+| event | `event_type` | `REVERSE_SPLIT`, `NON_WHOLE_SPLIT`, `SPECIAL_CASH_DIVIDEND`, ... |
+| event | `ex_date` | optional; absent for the rare event with no date |
+| event | `detail` | the sentence shown in the review queue |
+| event | `data_json` | optional; the detector's own context, as JSON text |
+| event | `resolved` | whether an admin has already made the call |
+| event | `detected_at` | optional; knowledge time |
+
+```json
+{"instrument": {"type": "MIC_TICKER", "value": "XYZ", "domain": "XNAS"},
+ "events": [{"event_type": "REVERSE_SPLIT", "ex_date": "2025-04-11",
+             "detail": "1:10 reverse split affects 3 options", "resolved": true}]}
+```
+
+**The whole row is carried, resolved and unresolved alike**, and not just the
+`resolved` flag that is the irreplaceable part of it. These rows exist only
+because a corporate-event fetch detected something it could not apply, and a
+restore writes events from the file instead of fetching them, so nothing
+re-creates the row a bare resolution would need to attach to. Carrying the row
+restores both halves of what an admin had: the judgements already made, and the
+queue still waiting for one.
+
+`resolved` is why the part exists. It is the only trace that a person looked at a
+reverse split or a merger and decided, and a rebuild without it re-surfaces every
+event for review.
+
+Import inserts an event only where no row with the same instrument, `event_type`,
+`ex_date` and `resolved` state is already stored, so importing the same file
+twice does not double the queue. It does not un-resolve anything: a stored
+resolved row and an incoming unresolved one are different rows, which is the same
+thing that happens today when a refetch re-detects an event already judged.
+
+`detail` and `data_json` are advisory. They were written for a person reading the
+queue, and both may name ids belonging to the instance that wrote the file.
+`data_json` is carried as the JSON text the column holds rather than as a
+structured value: its shape belongs to whichever detector wrote it, and protojson
+would carry its numbers as doubles.
+
+**Not carried:** the row `id`, a server UUID.
+
+### Plugin configuration
+
+`plugin_config.configs[]` is a flat list. A config row has no aggregate root
+above it -- `category` is a column on the row, not an entity the rows hang off --
+so grouping by category would invent a level the data does not have.
+
+| Level | Field | Notes |
+| --- | --- | --- |
+| row | `plugin_id` | as the plugin registry spells it |
+| row | `category` | `IDENTIFIER`, `DESCRIPTION`, `PRICE`, `INFLATION`, `CORPORATE_EVENT` |
+| row | `enabled` | |
+| row | `precedence` | higher is preferred; unique within a category |
+| row | `config_json` | optional; the plugin's own settings, as JSON text |
+| row | `max_history_days` | optional; absent means unlimited |
+
+```json
+{"plugin_id": "eodhd", "category": "PRICE", "enabled": true,
+ "precedence": 20, "config_json": "{\"eodhd_api_key\":\"...\"}",
+ "max_history_days": 3650}
+```
+
+**A document carrying this part is a secret.** `config_json` holds live API keys,
+in full and unredacted, because a rebuild that needs an admin to re-enter every
+provider credential by hand is a rebuild that has not restored. That is why the
+export menu leaves this part unticked: including it changes where the file can
+safely be kept, and that has to be a decision somebody made rather than a default
+they inherited.
+
+`precedence` is an ordering somebody chose between providers that disagree, so
+nothing can guess it back, and it is unique per category. Import applies a
+category's rows as a set: the stored precedences in that category are moved out
+of the way first, the file's rows are applied with the precedences they state,
+and any plugin the file does not name keeps its row and is given a free
+precedence below them.
+
+A row naming a plugin this build does not register is a rejected row rather than
+a failed part. A config row nothing will ever read is not worth storing, and the
+mismatch is worth saying out loud.
+
+`category` names are the archive's spelling, not the column's: `plugin_config.category`
+holds the lowercase `"corporate_event"`. It is the one controlled vocabulary
+where the file and the column differ, and the mapping lives in one place on the
+server.
+
+**Not carried:** nothing. The row is small and every column of it is a decision.
 
 ## The user archive
 
@@ -454,8 +628,11 @@ and a page can show.
 Within a document, the sections are written in the order they are applied, and a
 reader walks them in that order:
 
-- **System:** instruments, then prices, then corporate events. Prices and events
-  reference instruments.
+- **System:** instruments, then prices, then corporate events, then inflation
+  indices, fetch blocks, unhandled corporate events and plugin configuration.
+  Prices, events, fetch blocks and unhandled events reference instruments.
+  Inflation indices and plugin configuration reference nothing, and plugin
+  configuration is written last because it is what makes a document a secret.
 - **User:** preferences, then transactions, then declarations. Preferences first
   because ignored asset classes change what a transaction import keeps;
   declarations last because a checked declaration is compared against what the

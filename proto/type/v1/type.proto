@@ -120,3 +120,20 @@ enum AssetClass {
   FX = 8;
   UNKNOWN = 9;
 }
+
+// PluginCategory is the controlled vocabulary for the kind of work a plugin
+// does. Stored in plugin_config.category, and named on an archive fetch block to
+// say which fetcher was stopped.
+//
+// This is the one vocabulary here whose value names are not the strings the
+// column holds: plugin_config.category is lowercase ("corporate_event"), so
+// db.PluginCategoryToStr maps between the two. The names are what an archive
+// file spells, and those do not change.
+enum PluginCategory {
+  PLUGIN_CATEGORY_UNSPECIFIED = 0;
+  IDENTIFIER = 1;
+  DESCRIPTION = 2;
+  PRICE = 3;
+  INFLATION = 4;
+  CORPORATE_EVENT = 5;
+}

@@ -213,7 +213,9 @@ CREATE INDEX idx_ingestion_jobs_status ON ingestion_jobs (status);
 -- there is no ordinal column: readers order by the enum.
 CREATE TABLE ingestion_job_parts (
   job_id          UUID NOT NULL REFERENCES ingestion_jobs (id) ON DELETE CASCADE,
-  part            TEXT NOT NULL CHECK (part IN ('INSTRUMENTS', 'PRICES', 'CORPORATE_EVENTS')),
+  part            TEXT NOT NULL CHECK (part IN ('INSTRUMENTS', 'PRICES', 'CORPORATE_EVENTS',
+                                                'INFLATION_INDICES', 'FETCH_BLOCKS',
+                                                'UNHANDLED_EVENTS', 'PLUGIN_CONFIG')),
   status          TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED')),
   total_count     INT NOT NULL DEFAULT 0,
   processed_count INT NOT NULL DEFAULT 0,

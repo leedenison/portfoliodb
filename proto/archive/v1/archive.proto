@@ -5,10 +5,14 @@ package portfoliodb.archive.v1;
 import "archive/v1/common.proto";
 import "archive/v1/corporate_events.proto";
 import "archive/v1/declarations.proto";
+import "archive/v1/fetch_blocks.proto";
+import "archive/v1/inflation.proto";
 import "archive/v1/instruments.proto";
+import "archive/v1/plugin_config.proto";
 import "archive/v1/preferences.proto";
 import "archive/v1/prices.proto";
 import "archive/v1/txs.proto";
+import "archive/v1/unhandled_events.proto";
 import "buf/validate/validate.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
@@ -30,8 +34,12 @@ message SystemArchive {
   InstrumentPart instruments = 2;
   PricePart prices = 3;
   CorporateEventPart corporate_events = 4;
-  // 5 to 9 are the remaining parts: fetch blocks and resolutions, plugin
-  // config, inflation indices.
+  InflationPart inflation_indices = 5;
+  FetchBlockPart fetch_blocks = 6;
+  UnhandledEventPart unhandled_events = 7;
+  // Last because it is the one part that makes the document a secret, and a
+  // reader skimming a file should reach the rest before the keys.
+  PluginConfigPart plugin_config = 8;
 }
 
 // UserArchive is one user archive document: one user's own data, and no system

@@ -47,6 +47,19 @@ export async function importSystemArchiveAndWait(
   return waitForJob(resp.jobId, headers, timeoutMs);
 }
 
+/**
+ * Queue a system archive import and return the job id without waiting, for a
+ * test that wants to do something while the import is still running.
+ */
+export async function importSystemArchive(
+  sessionId: string,
+  archive: MessageInitShape<typeof SystemArchiveSchema>,
+): Promise<string> {
+  const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
+  const resp = await client.importSystemArchive({ archive }, { headers });
+  return resp.jobId;
+}
+
 /** Read one job's status without waiting for it to finish. */
 export async function getJobStatus(sessionId: string, jobId: string): Promise<GetJobResponse> {
   const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };

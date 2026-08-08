@@ -10,12 +10,15 @@ import (
 	"os"
 	"regexp"
 	"sync"
+	"syscall"
+	"time"
 
 	e2ev1 "github.com/leedenison/portfoliodb/proto/e2e/v1"
 	"github.com/leedenison/portfoliodb/server/testutil/vcr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/dnaeon/go-vcr.v4/pkg/recorder"
 )
 
@@ -85,6 +88,43 @@ func (s *e2eService) LoadCassette(_ context.Context, req *e2ev1.LoadCassetteRequ
 func (s *e2eService) UnloadCassette(context.Context, *e2ev1.UnloadCassetteRequest) (*e2ev1.UnloadCassetteResponse, error) {
 	unloadCassette()
 	return &e2ev1.UnloadCassetteResponse{}, nil
+}
+
+// processStartedAt is when this process began. It survives nothing: a restart
+// replaces the process, so a caller comparing this across a restart is told it
+// is talking to a new one.
+var processStartedAt = time.Now()
+
+// ProcessInfo implements the E2eService liveness and identity probe.
+func (s *e2eService) ProcessInfo(context.Context, *e2ev1.ProcessInfoRequest) (*e2ev1.ProcessInfoResponse, error) {
+	return &e2ev1.ProcessInfoResponse{StartedAt: timestamppb.New(processStartedAt)}, nil
+}
+
+// RestartProcess replaces this process with a fresh copy of itself.
+//
+// syscall.Exec rather than an exit: the container has no restart policy, and
+// giving it one would mean a server that crashed for an unrelated reason came
+// back silently in every other suite. Exec keeps the container up and the
+// process new, which is the part that matters -- every goroutine, connection
+// and queued job is gone, and the run picks up from what was written down.
+//
+// The reply goes out first and the exec runs just after, so the caller sees the
+// call succeed and then the connection drop.
+func (s *e2eService) RestartProcess(context.Context, *e2ev1.RestartProcessRequest) (*e2ev1.RestartProcessResponse, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "locate own binary: %v", err)
+	}
+	go func() {
+		time.Sleep(250 * time.Millisecond)
+		log.Printf("e2e: restarting process")
+		if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+			// Exec only returns on failure, and a server that cannot replace
+			// itself is no use to the test that asked it to.
+			log.Fatalf("e2e: exec %s: %v", exe, err)
+		}
+	}()
+	return &e2ev1.RestartProcessResponse{}, nil
 }
 
 func loadCassette(name string) error {

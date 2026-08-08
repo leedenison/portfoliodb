@@ -1,9 +1,12 @@
 // E2E test control service. Only registered when the server is built with
 // the "e2e" build tag. Allows Playwright tests to swap VCR cassettes between
-// test suites so each suite can be run and recorded in isolation.
+// test suites so each suite can be run and recorded in isolation, and to
+// restart the server so that recovery from an interrupted job can be tested.
 syntax = "proto3";
 
 package portfoliodb.e2e.v1;
+
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/e2e/v1;e2ev1";
 
@@ -15,6 +18,21 @@ service E2eService {
   // UnloadCassette stops the current VCR recorder and sets the HTTP
   // transport to nil so that any unexpected plugin HTTP calls fail fast.
   rpc UnloadCassette(UnloadCassetteRequest) returns (UnloadCassetteResponse);
+
+  // RestartProcess replaces the server process with a fresh copy of itself,
+  // discarding every goroutine, connection and queue it was holding. What
+  // survives is what was written down, which is the point: it is how a test
+  // reaches the recovery path a service restarted mid-job takes.
+  //
+  // The response is sent before the process goes, so a caller sees the call
+  // succeed and then the connection drop.
+  rpc RestartProcess(RestartProcessRequest) returns (RestartProcessResponse);
+
+  // ProcessInfo reports when this process started. Restarting keeps the pid --
+  // the process is replaced, not respawned -- so the start time is what tells a
+  // caller it is talking to a new one. Waiting for the server to go unreachable
+  // does not work: the replacement is fast enough to miss between two polls.
+  rpc ProcessInfo(ProcessInfoRequest) returns (ProcessInfoResponse);
 }
 
 message LoadCassetteRequest {
@@ -24,3 +42,11 @@ message LoadCassetteResponse {}
 
 message UnloadCassetteRequest {}
 message UnloadCassetteResponse {}
+
+message RestartProcessRequest {}
+message RestartProcessResponse {}
+
+message ProcessInfoRequest {}
+message ProcessInfoResponse {
+  google.protobuf.Timestamp started_at = 1;
+}

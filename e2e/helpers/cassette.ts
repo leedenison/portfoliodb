@@ -23,3 +23,35 @@ export async function loadCassette(name: string): Promise<void> {
 export async function unloadCassette(): Promise<void> {
   await client.unloadCassette({});
 }
+
+/**
+ * Replace the server process with a fresh one and wait until the replacement is
+ * answering.
+ *
+ * Waiting for the server to go unreachable and come back does not work: the
+ * process is replaced rather than respawned, and the gap is a few milliseconds
+ * -- easily missed between two polls, which makes the wait hang rather than
+ * pass. The start time is the reliable signal, because it is the one thing the
+ * new process cannot have inherited.
+ */
+export async function restartServer(timeoutMs = 60_000): Promise<void> {
+  const before = (await client.processInfo({})).startedAt;
+  if (!before) throw new Error("server reported no start time");
+
+  await client.restartProcess({});
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const now = (await client.processInfo({})).startedAt;
+      // Different start time, so this is not the process we asked to leave.
+      if (now && (now.seconds !== before.seconds || now.nanos !== before.nanos)) {
+        return;
+      }
+    } catch {
+      // Unreachable while the process is being replaced, which is expected.
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`server did not restart within ${timeoutMs}ms`);
+}

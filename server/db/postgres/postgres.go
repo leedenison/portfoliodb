@@ -293,6 +293,11 @@ type instrumentRow struct {
 	ExchangeName        *string          `db:"exchange_name"`
 	ExchangeAcronym     *string          `db:"exchange_acronym"`
 	ExchangeCountryCode *string          `db:"exchange_country_code"`
+	// The underlying named the way a file names it, populated by the export
+	// query alone. Everything else identifies an underlying by UnderlyingID.
+	UnderlyingIdentifierType   *string `db:"underlying_identifier_type"`
+	UnderlyingIdentifierValue  *string `db:"underlying_identifier_value"`
+	UnderlyingIdentifierDomain *string `db:"underlying_identifier_domain"`
 }
 
 func (r *instrumentRow) toDBRow() *db.InstrumentRow {
@@ -316,6 +321,10 @@ func (r *instrumentRow) toDBRow() *db.InstrumentRow {
 		ExchangeName:        r.ExchangeName,
 		ExchangeAcronym:     r.ExchangeAcronym,
 		ExchangeCountryCode: r.ExchangeCountryCode,
+
+		UnderlyingIdentifierType:   r.UnderlyingIdentifierType,
+		UnderlyingIdentifierValue:  r.UnderlyingIdentifierValue,
+		UnderlyingIdentifierDomain: r.UnderlyingIdentifierDomain,
 	}
 }
 

@@ -12,7 +12,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/worker"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"time"
 )
 
 // JobEnqueuer enqueues a job for async processing. Returns an error if the queue is full.
@@ -140,20 +139,6 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	}
 	out.ContractMultiplier = decStrPtr(&row.ContractMultiplier)
 	return out
-}
-
-// protoValidFrom converts optional proto timestamp to *time.Time for DB.
-func protoValidFrom(ts *timestamppb.Timestamp) *time.Time {
-	if ts == nil || !ts.IsValid() {
-		return nil
-	}
-	t := ts.AsTime()
-	return &t
-}
-
-// protoValidBefore converts optional proto timestamp to *time.Time for DB.
-func protoValidBefore(ts *timestamppb.Timestamp) *time.Time {
-	return protoValidFrom(ts)
 }
 
 func derefStr(s *string) string {

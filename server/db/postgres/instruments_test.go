@@ -846,3 +846,104 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 		t.Fatalf("expected 2 postings, got %d", n)
 	}
 }
+
+func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	validFrom := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
+	underlyingID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple Inc.", "0000320193", "3571",
+		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}}, "", &validFrom, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure underlying: %v", err)
+	}
+	expiry := time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC)
+	optionID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "", "", "",
+		[]db.IdentifierInput{{Type: "OCC", Value: "AAPL  260116C00150500", Canonical: true}}, underlyingID, nil, nil,
+		&db.OptionFields{Strike: decimal.RequireFromString("150.5"), Expiry: expiry, PutCall: "C"})
+	if err != nil {
+		t.Fatalf("ensure option: %v", err)
+	}
+
+	list, err := p.ListInstrumentsForExport(ctx, "", nil)
+	if err != nil {
+		t.Fatalf("ListInstrumentsForExport: %v", err)
+	}
+	byID := make(map[string]*db.InstrumentRow, len(list))
+	for _, row := range list {
+		byID[row.ID] = row
+	}
+
+	stock := byID[underlyingID]
+	if stock == nil {
+		t.Fatalf("underlying missing from export (%d rows)", len(list))
+	}
+	// The columns the hand-written JSON dropped, and which nothing recomputes.
+	if stock.CIK == nil || *stock.CIK != "0000320193" || stock.SICCode == nil || *stock.SICCode != "3571" {
+		t.Fatalf("cik/sic_code not selected: %+v", stock)
+	}
+	if stock.ValidFrom == nil || !stock.ValidFrom.Equal(validFrom) {
+		t.Fatalf("valid_from not selected: %v", stock.ValidFrom)
+	}
+	if stock.UnderlyingIdentifierType != nil {
+		t.Fatalf("a non-derivative names no underlying, got %q", *stock.UnderlyingIdentifierType)
+	}
+
+	opt := byID[optionID]
+	if opt == nil {
+		t.Fatalf("option missing from export")
+	}
+	if opt.Strike == nil || !opt.Strike.Equal(decimal.RequireFromString("150.5")) {
+		t.Fatalf("strike not selected: %v", opt.Strike)
+	}
+	if opt.Expiry == nil || !opt.Expiry.Equal(expiry) || opt.PutCall == nil || *opt.PutCall != "C" {
+		t.Fatalf("expiry/put_call not selected: %+v", opt)
+	}
+	if !opt.ContractMultiplier.Equal(decimal.NewFromInt(1)) {
+		t.Fatalf("contract_multiplier = %v, want the column default", opt.ContractMultiplier)
+	}
+	// The underlying is named by its highest-priority identifier, because a file
+	// cannot name it by UUID.
+	if opt.UnderlyingIdentifierType == nil || *opt.UnderlyingIdentifierType != "MIC_TICKER" {
+		t.Fatalf("underlying identifier type = %v", opt.UnderlyingIdentifierType)
+	}
+	if opt.UnderlyingIdentifierValue == nil || *opt.UnderlyingIdentifierValue != "AAPL" {
+		t.Fatalf("underlying identifier value = %v", opt.UnderlyingIdentifierValue)
+	}
+	if opt.UnderlyingIdentifierDomain == nil || *opt.UnderlyingIdentifierDomain != "XNAS" {
+		t.Fatalf("underlying identifier domain = %v", opt.UnderlyingIdentifierDomain)
+	}
+}
+
+func TestListInstrumentsForExport_PullsInUnderlyingOutsideTheFilter(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	underlyingID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple Inc.", "", "",
+		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure underlying: %v", err)
+	}
+	optionID, err := p.EnsureInstrument(ctx, "OPTION", "", "USD", "", "", "",
+		[]db.IdentifierInput{{Type: "OCC", Value: "AAPL  260116C00150500", Canonical: true}}, underlyingID, nil, nil,
+		&db.OptionFields{Strike: decimal.RequireFromString("150.5"), Expiry: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), PutCall: "C"})
+	if err != nil {
+		t.Fatalf("ensure option: %v", err)
+	}
+	// An archive naming an underlying it does not carry is invalid, so a filter
+	// of {OPTION} still has to yield the STOCK the option points at.
+	list, err := p.ListInstrumentsForExport(ctx, "", []string{"OPTION"})
+	if err != nil {
+		t.Fatalf("ListInstrumentsForExport: %v", err)
+	}
+	var gotOption, gotUnderlying bool
+	for _, row := range list {
+		switch row.ID {
+		case optionID:
+			gotOption = true
+		case underlyingID:
+			gotUnderlying = true
+		}
+	}
+	if !gotOption || !gotUnderlying {
+		t.Fatalf("expected both the option and its underlying, got option=%v underlying=%v (%d rows)", gotOption, gotUnderlying, len(list))
+	}
+}

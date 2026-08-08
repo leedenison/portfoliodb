@@ -3,6 +3,7 @@ syntax = "proto3";
 package portfoliodb.api.v1;
 
 import "archive/v1/common.proto";
+import "archive/v1/instruments.proto";
 import "archive/v1/prices.proto";
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
@@ -173,7 +174,7 @@ service ApiService {
   // Instruments: browse and search (any authenticated user).
   rpc ListInstruments(ListInstrumentsRequest) returns (ListInstrumentsResponse);
 
-  // Instrument export/import (admin-only). Export streams instruments with at least one canonical identifier; optional exchange filter.
+  // Instrument export/import (admin-only). Export streams the instrument part of an admin archive; optional exchange filter.
   rpc ExportInstruments(ExportInstrumentsRequest) returns (stream ExportInstrumentsResponse);
   rpc ImportInstruments(ImportInstrumentsRequest) returns (ImportInstrumentsResponse);
 
@@ -492,20 +493,36 @@ message ListInstrumentsResponse {
   int32 total_count = 3;  // total matching instruments (for UI pagination display)
 }
 
-// ExportInstruments streams all instruments that have at least one canonical identifier. Optional exchange filter.
+// ExportInstruments streams the instrument part of an admin archive: every
+// instrument with at least one canonical identifier, plus the underlying of any
+// derivative it carries. Optional exchange filter.
 message ExportInstrumentsRequest {
   string exchange = 1;              // optional; empty = all exchanges
   repeated portfoliodb.type.v1.AssetClass asset_classes = 2;  // optional; empty = server default (excludes CASH/FX)
 }
 
-// ImportInstruments ensures the given instruments exist (find-or-create by identifiers, merge on conflict). No overwrite of canonical fields for existing.
-// ExportInstrumentsResponse is one instrument of the export stream.
+// ExportInstrumentsResponse is one element of the export stream: the envelope
+// first, exactly once, then one message per instrument.
+//
+// The envelope travels on the stream rather than being built by the caller
+// because exported_at is knowledge time and has to be the server's clock, and
+// source_instance is a server property the browser does not know.
 message ExportInstrumentsResponse {
-  Instrument instrument = 1;
+  oneof item {
+    portfoliodb.archive.v1.Envelope envelope = 1;
+    portfoliodb.archive.v1.Instrument instrument = 2;
+  }
 }
 
+// ImportInstrumentsRequest carries one archive's instrument part, ensuring each
+// instrument exists: find-or-create by identifiers, merging on conflict, with no
+// overwrite of an existing instrument's canonical fields. The envelope is the
+// file's own, forwarded rather than rebuilt, so the server sees the
+// format_version and the kind the file declared rather than what the uploading
+// client assumed.
 message ImportInstrumentsRequest {
-  repeated Instrument instruments = 1;
+  portfoliodb.archive.v1.Envelope envelope = 1 [(buf.validate.field).required = true];
+  portfoliodb.archive.v1.InstrumentPart instruments = 2 [(buf.validate.field).required = true];
 }
 
 message ImportInstrumentsResponse {
@@ -514,7 +531,7 @@ message ImportInstrumentsResponse {
 }
 
 message ImportInstrumentError {
-  int32 index = 1;    // index into request.instruments
+  int32 index = 1;    // index into request.instruments.instruments
   string message = 2;
 }
 

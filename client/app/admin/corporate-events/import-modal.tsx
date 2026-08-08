@@ -3,15 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/app/components/modal";
 import { ErrorAlert } from "@/app/components/error-alert";
-import { parseSplitsJson } from "@/lib/json/corporate-events";
-import { importCorporateEventSplits, getJob } from "@/lib/portfolio-api";
+import { archiveErrorMessage, unmarshalAdmin } from "@/lib/archive/codec";
+import { importCorporateEvents, getJob } from "@/lib/portfolio-api";
 import { JobStatus } from "@/gen/api/v1/api_pb";
-import type { SplitParseResult } from "@/lib/json/corporate-events";
+import type { AdminArchive } from "@/gen/archive/v1/archive_pb";
 import type { GetJobResult } from "@/lib/portfolio-api";
 
 type Phase = "idle" | "preview" | "processing" | "result";
 
-export function ImportSplitsModal({
+export function ImportCorporateEventsModal({
   open,
   onClose,
   onComplete,
@@ -21,7 +21,8 @@ export function ImportSplitsModal({
   onComplete?: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
-  const [parseResult, setParseResult] = useState<SplitParseResult | null>(null);
+  const [archive, setArchive] = useState<AdminArchive | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<GetJobResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -31,7 +32,8 @@ export function ImportSplitsModal({
 
   function reset() {
     setPhase("idle");
-    setParseResult(null);
+    setArchive(null);
+    setParseError(null);
     setJobId(null);
     setJobStatus(null);
     setImportError(null);
@@ -55,25 +57,37 @@ export function ImportSplitsModal({
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
-      const result = parseSplitsJson(text);
-      setParseResult(result);
+      try {
+        const parsed = unmarshalAdmin(text);
+        // Only the corporate event part is applied. A file carrying the other
+        // sections is still a valid archive; each has its own importer.
+        setArchive(parsed);
+        setParseError(null);
+      } catch (err) {
+        setArchive(null);
+        setParseError(archiveErrorMessage(err));
+      }
       setPhase("preview");
     };
     reader.readAsText(f);
   }
 
   async function handleImport() {
-    if (!parseResult || parseResult.splits.length === 0) return;
+    if (!archive?.envelope || !archive.corporateEvents) return;
     setPhase("processing");
     setImportError(null);
     try {
-      const id = await importCorporateEventSplits(parseResult.splits, parseResult.coverage);
+      const id = await importCorporateEvents(archive.envelope, archive.corporateEvents);
       setJobId(id);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
       setPhase("preview");
     }
   }
+
+  const groups = archive?.corporateEvents?.groups ?? [];
+  const eventCount = groups.reduce((n, g) => n + g.events.length, 0);
+  const spanCount = groups.reduce((n, g) => n + g.coverage.length, 0);
 
   // Poll job status.
   useEffect(() => {
@@ -109,22 +123,22 @@ export function ImportSplitsModal({
     <Modal
       open={open}
       onClose={handleClose}
-      title="Import splits"
+      title="Import corporate events"
       closable={!processing}
     >
       <div className="flex flex-col gap-4 overflow-y-auto p-5">
         {phase === "idle" && (
           <div className="space-y-3">
             <p className="text-sm text-text-muted">
-              Select a JSON file to import splits.
+              Select an archive file to import corporate events.
             </p>
             <input
               ref={fileRef}
               type="file"
-              accept=".json"
+              accept=".json,application/json"
               onChange={handleFileChange}
               className="sr-only"
-              aria-label="Choose JSON file"
+              aria-label="Choose archive file"
             />
             <button
               type="button"
@@ -149,49 +163,25 @@ export function ImportSplitsModal({
           </div>
         )}
 
-        {phase === "preview" && parseResult && (
+        {phase === "preview" && (
           <div className="space-y-4">
-            {parseResult.errors.length > 0 ? (
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-text-primary">
-                  Parse errors ({parseResult.errors.length})
-                </p>
-                <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-surface">
-                  <table className="w-full border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-border bg-primary-dark/3">
-                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Row</th>
-                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Field</th>
-                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Error</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {parseResult.errors.map((e, i) => (
-                        <tr key={i} className="border-b border-border/40 last:border-0">
-                          <td className="px-3 py-1.5 font-mono text-text-muted">{e.rowIndex}</td>
-                          <td className="px-3 py-1.5 font-mono text-text-primary">{e.field}</td>
-                          <td className="px-3 py-1.5 text-accent-dark">{e.message}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {parseResult.splits.length > 0 && (
-                  <p className="text-xs text-text-muted">
-                    {parseResult.splits.length} split{parseResult.splits.length !== 1 ? "s" : ""} parsed successfully (with errors above).
-                  </p>
-                )}
-              </div>
+            {/* Whether the file is a valid archive is settled here, all or
+                nothing. Whether its instruments resolve against this instance
+                is a separate question the job answers per group. */}
+            {parseError ? (
+              <ErrorAlert>{parseError}</ErrorAlert>
             ) : (
               <p className="text-sm text-text-primary">
                 Ready to import{" "}
-                <span className="font-semibold">{parseResult.splits.length}</span>{" "}
-                split{parseResult.splits.length !== 1 ? "s" : ""}
-                {parseResult.coverage.length > 0 && (
+                <span className="font-semibold">{eventCount.toLocaleString()}</span>{" "}
+                event{eventCount !== 1 ? "s" : ""} for{" "}
+                <span className="font-semibold">{groups.length}</span>{" "}
+                instrument{groups.length !== 1 ? "s" : ""}
+                {spanCount > 0 && (
                   <>
                     {" "}with{" "}
-                    <span className="font-semibold">{parseResult.coverage.length}</span>{" "}
-                    coverage span{parseResult.coverage.length !== 1 ? "s" : ""}
+                    <span className="font-semibold">{spanCount}</span>{" "}
+                    coverage span{spanCount !== 1 ? "s" : ""}
                   </>
                 )}
                 .
@@ -204,7 +194,7 @@ export function ImportSplitsModal({
               <button
                 type="button"
                 onClick={handleImport}
-                disabled={parseResult.splits.length === 0}
+                disabled={groups.length === 0}
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Import
@@ -243,7 +233,7 @@ export function ImportSplitsModal({
             </svg>
             <p className="text-sm text-text-muted">
               {jobStatus && jobStatus.totalCount > 0
-                ? `Processed ${jobStatus.processedCount.toLocaleString()} of ${jobStatus.totalCount.toLocaleString()} splits\u2026`
+                ? `Processed ${jobStatus.processedCount.toLocaleString()} of ${jobStatus.totalCount.toLocaleString()} events\u2026`
                 : "Processing\u2026"}
             </p>
           </div>
@@ -255,7 +245,7 @@ export function ImportSplitsModal({
               <p className="text-sm text-text-primary">
                 Import complete:{" "}
                 <span className="font-semibold">{jobStatus.processedCount.toLocaleString()}</span>{" "}
-                split{jobStatus.processedCount !== 1 ? "s" : ""} processed.
+                event{jobStatus.processedCount !== 1 ? "s" : ""} processed.
               </p>
             ) : (
               <p className="text-sm text-accent-dark font-medium">
@@ -272,7 +262,7 @@ export function ImportSplitsModal({
                   <table className="w-full border-collapse text-xs">
                     <thead>
                       <tr className="border-b border-border bg-primary-dark/3">
-                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Row</th>
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Group</th>
                         <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Field</th>
                         <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Error</th>
                       </tr>

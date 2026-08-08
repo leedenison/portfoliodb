@@ -176,9 +176,10 @@ service ApiService {
   // Instruments: browse and search (any authenticated user).
   rpc ListInstruments(ListInstrumentsRequest) returns (ListInstrumentsResponse);
 
-  // System archive import (admin-only). Applies a whole system archive
-  // asynchronously, sequencing its parts server-side. See
-  // ImportSystemArchiveRequest.
+  // System archive export/import (admin-only). Export streams one whole
+  // document; import applies one asynchronously, sequencing its parts
+  // server-side. See ExportSystemArchiveRequest and ImportSystemArchiveRequest.
+  rpc ExportSystemArchive(ExportSystemArchiveRequest) returns (stream ExportSystemArchiveResponse);
   rpc ImportSystemArchive(ImportSystemArchiveRequest) returns (ImportSystemArchiveResponse);
 
   // Instrument export/import (admin-only). Export streams the instrument part of a system archive; optional exchange filter.
@@ -526,6 +527,55 @@ message ListInstrumentsResponse {
   repeated Instrument instruments = 1;
   string next_page_token = 2;
   int32 total_count = 3;  // total matching instruments (for UI pagination display)
+}
+
+// ExportSystemArchiveRequest asks for one system archive document. Admin only.
+message ExportSystemArchiveRequest {
+  // Which parts to include: the export menu. A part not named here is absent
+  // from the document, which says it was not included at all. A part named here
+  // is present even when it holds nothing, which says the export included it and
+  // there was nothing. The two are different statements and a reader relies on
+  // the difference.
+  repeated portfoliodb.archive.v1.ArchivePart parts = 1 [(buf.validate.field).repeated = {
+    min_items: 1
+    items: {
+      enum: {
+        defined_only: true
+        not_in: [0]
+      }
+    }
+  }];
+  // Filters for the instrument part, ignored when INSTRUMENTS is not selected.
+  string exchange = 2; // optional; empty = all exchanges
+  repeated portfoliodb.type.v1.AssetClass asset_classes = 3; // optional; empty = server default (excludes CASH/FX)
+}
+
+// ExportSystemArchiveResponse is one element of the export stream: the envelope
+// first and exactly once, then for each selected part a part_begin followed by
+// that part's items.
+//
+// part_begin is what carries a part that is present and empty. Without it a
+// selected part holding nothing would be indistinguishable on the wire from one
+// that was never selected, and those mean different things.
+//
+// The stream is a document taken apart, because a part is too large to buffer
+// server-side and too large to send as one message. The envelope travels on it
+// rather than being built by the caller because exported_at is knowledge time
+// and has to be the server's clock, and source_instance is a server property the
+// browser does not know.
+message ExportSystemArchiveResponse {
+  oneof item {
+    portfoliodb.archive.v1.Envelope envelope = 1;
+    ArchivePartBegin part_begin = 2;
+    portfoliodb.archive.v1.Instrument instrument = 3;
+    portfoliodb.archive.v1.PriceGroup price_group = 4;
+    portfoliodb.archive.v1.CorporateEventGroup corporate_event_group = 5;
+  }
+}
+
+// ArchivePartBegin marks the start of one part's items in an export stream.
+message ArchivePartBegin {
+  portfoliodb.archive.v1.ArchivePart part = 1;
 }
 
 // ImportSystemArchiveRequest carries one whole system archive. The parts are

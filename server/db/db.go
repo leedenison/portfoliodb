@@ -78,6 +78,14 @@ type PriceFetchBlockDB interface {
 	BlockedPluginsForInstruments(ctx context.Context, instrumentIDs []string) (map[string]map[string]bool, error)
 	CreatePriceFetchBlock(ctx context.Context, instrumentID, pluginID, reason string) error
 	DeletePriceFetchBlock(ctx context.Context, instrumentID, pluginID string) error
+	// ListPriceFetchBlocksForExport returns every price fetch block with the best
+	// identifier per instrument, for the archive's fetch block part.
+	ListPriceFetchBlocksForExport(ctx context.Context) ([]ExportFetchBlock, error)
+	// UpsertPriceFetchBlocks restores blocks with the knowledge time they carry.
+	// On conflict the reason is replaced and first_blocked_at keeps the earlier
+	// of the stored and the supplied value, because it records when the pair was
+	// first blocked and is never overwritten.
+	UpsertPriceFetchBlocks(ctx context.Context, blocks []FetchBlockInput) error
 }
 
 // DateRange is a half-open [From, Before) date range. Both values are midnight
@@ -440,6 +448,28 @@ type PluginConfigRowFull struct {
 	Precedence     int
 	Config         []byte
 	MaxHistoryDays *int
+}
+
+// ExportFetchBlock is one fetch block named the way a file names it: by the
+// best identifier for the instrument rather than by its id. Both fetch-block
+// tables export into this one shape, because they are the same statement about
+// two fetchers.
+type ExportFetchBlock struct {
+	IdentifierType   string
+	IdentifierValue  string
+	IdentifierDomain string
+	PluginID         string
+	Reason           string
+	FirstBlockedAt   time.Time
+}
+
+// FetchBlockInput is one fetch block to restore, carrying the knowledge time
+// the file stated rather than letting the column default to now.
+type FetchBlockInput struct {
+	InstrumentID   string
+	PluginID       string
+	Reason         string
+	FirstBlockedAt time.Time
 }
 
 // PriceFetchBlock records a permanently blocked (instrument, plugin) pair.
@@ -1079,6 +1109,12 @@ type CorporateEventDB interface {
 	DeleteCorporateEventFetchBlock(ctx context.Context, instrumentID, pluginID string) error
 	// ListCorporateEventFetchBlocks returns every block row.
 	ListCorporateEventFetchBlocks(ctx context.Context) ([]CorporateEventFetchBlock, error)
+
+	// ListCorporateEventFetchBlocksForExport mirrors
+	// ListPriceFetchBlocksForExport for the corporate event fetcher.
+	ListCorporateEventFetchBlocksForExport(ctx context.Context) ([]ExportFetchBlock, error)
+	// UpsertCorporateEventFetchBlocks mirrors UpsertPriceFetchBlocks.
+	UpsertCorporateEventFetchBlocks(ctx context.Context, blocks []FetchBlockInput) error
 	// BlockedCorporateEventPluginsForInstruments returns blocked plugin IDs
 	// keyed by instrument id, mirroring PriceFetchBlockDB.
 	BlockedCorporateEventPluginsForInstruments(ctx context.Context, instrumentIDs []string) (map[string]map[string]bool, error)

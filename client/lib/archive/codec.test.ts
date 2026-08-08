@@ -12,7 +12,14 @@ import {
   unmarshalUser,
 } from "@/lib/archive/codec";
 import { ArchiveKind } from "@/gen/archive/v1/common_pb";
-import { AssetClass, AccountType, Broker, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
+import {
+  AssetClass,
+  AccountType,
+  Broker,
+  IdentifierType,
+  PluginCategory,
+  TxType,
+} from "@/gen/type/v1/type_pb";
 
 const exportedAt = timestampFromDate(new Date("2026-07-30T00:00:00Z"));
 
@@ -51,6 +58,21 @@ function systemFixture() {
         {
           currency: "GBP",
           rows: [{ month: "2024-01-01", indexValue: "131.5", baseYear: 2015 }],
+        },
+      ],
+    },
+    fetchBlocks: {
+      groups: [
+        {
+          instrument: { type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS" },
+          blocks: [
+            {
+              category: PluginCategory.PRICE,
+              pluginId: "eodhd",
+              reason: "404 from provider",
+              firstBlockedAt: exportedAt,
+            },
+          ],
         },
       ],
     },

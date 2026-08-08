@@ -7,9 +7,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/archive"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -83,6 +85,9 @@ func presentParts(a *archivev1.SystemArchive) []archivev1.ArchivePart {
 	if a.GetInflationIndices() != nil {
 		parts = append(parts, archivev1.ArchivePart_INFLATION_INDICES)
 	}
+	if a.GetFetchBlocks() != nil {
+		parts = append(parts, archivev1.ArchivePart_FETCH_BLOCKS)
+	}
 	return parts
 }
 
@@ -124,6 +129,8 @@ func (s *Server) ExportSystemArchive(req *apiv1.ExportSystemArchiveRequest, stre
 			err = s.sendCorporateEventPart(ctx, stream)
 		case archivev1.ArchivePart_INFLATION_INDICES:
 			err = s.sendInflationPart(ctx, stream)
+		case archivev1.ArchivePart_FETCH_BLOCKS:
+			err = s.sendFetchBlockPart(ctx, stream)
 		}
 		if err != nil {
 			return err
@@ -146,6 +153,7 @@ func requestedParts(req []archivev1.ArchivePart) []archivev1.ArchivePart {
 		archivev1.ArchivePart_PRICES,
 		archivev1.ArchivePart_CORPORATE_EVENTS,
 		archivev1.ArchivePart_INFLATION_INDICES,
+		archivev1.ArchivePart_FETCH_BLOCKS,
 	} {
 		if seen[p] {
 			out = append(out, p)
@@ -265,6 +273,72 @@ func inflationGroups(rows []db.InflationIndex) []*archivev1.InflationGroup {
 			IndexValue: r.IndexValue.String(),
 			BaseYear:   int32(r.BaseYear),
 		})
+	}
+	return out
+}
+
+// sendFetchBlockPart streams one group per instrument, carrying that
+// instrument's blocks across both fetchers.
+//
+// The two tables travel in one part because they are the same statement about
+// two fetchers. An instrument blocked in both appears once, with two blocks.
+func (s *Server) sendFetchBlockPart(ctx context.Context, stream apiv1.ApiService_ExportSystemArchiveServer) error {
+	priceBlocks, err := s.db.ListPriceFetchBlocksForExport(ctx)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	eventBlocks, err := s.db.ListCorporateEventFetchBlocksForExport(ctx)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	for _, g := range fetchBlockGroups(priceBlocks, eventBlocks) {
+		if err := stream.Send(&apiv1.ExportSystemArchiveResponse{
+			Item: &apiv1.ExportSystemArchiveResponse_FetchBlockGroup{FetchBlockGroup: g},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fetchBlockGroups merges the two tables into one group per instrument.
+//
+// Each query is ordered by identifier, but the two orders interleave rather
+// than concatenate, so this is a merge by key rather than the scan the
+// single-table exports use. Groups come out in the order their instrument was
+// first seen, which is the price table's order and then whatever the event
+// table adds.
+func fetchBlockGroups(price, events []db.ExportFetchBlock) []*archivev1.FetchBlockGroup {
+	var out []*archivev1.FetchBlockGroup
+	byKey := make(map[instKey]*archivev1.FetchBlockGroup)
+
+	add := func(b db.ExportFetchBlock, category typev1.PluginCategory) {
+		k := instKey{b.IdentifierType, b.IdentifierValue, b.IdentifierDomain}
+		g, ok := byKey[k]
+		if !ok {
+			g = &archivev1.FetchBlockGroup{
+				Instrument: &archivev1.InstrumentRef{
+					Type:   identifierTypeFromString(b.IdentifierType),
+					Value:  b.IdentifierValue,
+					Domain: b.IdentifierDomain,
+				},
+			}
+			byKey[k] = g
+			out = append(out, g)
+		}
+		g.Blocks = append(g.Blocks, &archivev1.FetchBlock{
+			Category:       category,
+			PluginId:       b.PluginID,
+			Reason:         b.Reason,
+			FirstBlockedAt: timestamppb.New(b.FirstBlockedAt),
+		})
+	}
+
+	for _, b := range price {
+		add(b, typev1.PluginCategory_PRICE)
+	}
+	for _, b := range events {
+		add(b, typev1.PluginCategory_CORPORATE_EVENT)
 	}
 	return out
 }

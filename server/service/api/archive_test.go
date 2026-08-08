@@ -197,6 +197,17 @@ func (e *exportArchiveStreamMock) inflationGroups() []*archivev1.InflationGroup 
 	return out
 }
 
+// fetchBlockGroups returns the fetch block groups the export streamed.
+func (e *exportArchiveStreamMock) fetchBlockGroups() []*archivev1.FetchBlockGroup {
+	var out []*archivev1.FetchBlockGroup
+	for _, m := range e.sent {
+		if v := m.GetFetchBlockGroup(); v != nil {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // shape describes the stream as a sequence of item kinds, which is what the
 // client's reassembly reads.
 func (e *exportArchiveStreamMock) shape() []string {
@@ -215,6 +226,8 @@ func (e *exportArchiveStreamMock) shape() []string {
 			out = append(out, "corporate_event_group")
 		case m.GetInflationGroup() != nil:
 			out = append(out, "inflation_group")
+		case m.GetFetchBlockGroup() != nil:
+			out = append(out, "fetch_block_group")
 		}
 	}
 	return out

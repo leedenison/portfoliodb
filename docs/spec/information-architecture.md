@@ -18,11 +18,12 @@ The informantion architecture describes key concepts for users (and admin users)
 
  ## Key Admin User Concepts
 
- * **Reference Data** covers much of the shared data on the system used by all users (eg. instrument data).  Admin users are concerned with the health of the data and the ability to export / import reference data for the purposes of backup and reducing lookup overhead.
+ * **The Archive** is the single file the shared data of an instance is exported to and rebuilt from.  It is its own concept rather than an attribute of any one page, because it spans Reference Data, Plugins and Diagnostics: instruments, prices and corporate events sit under Reference Data, plugin configuration under Plugins, and fetch blocks and unhandled event resolutions under Diagnostics.  An admin user cares about producing a file that is complete enough to rebuild from, and about knowing what an import actually applied.  The archive carries no user data at all, and a user's own archive is a separate file with a separate page.
+ * **Reference Data** covers much of the shared data on the system used by all users (eg. instrument data).  Admin users are concerned with the health of the data.
     - **Instruments** are the shared instrument and instrument identifier data.  The admin user is primarily concerned with the health of the data and whether there are large numbers of unidentified instruments - or if there are a large number of users overriding the identity of a given instrument.  
     - **Prices** are the shared price data for instruments.  Admin users are primarily interested in the periods of time for which we have price data for a given instrument.  They are also interested in retrieval failures and whether there are periods of time for which we have been unable to fetch price data for a given instrument.
  * **Plugins** cover the integration with external services for providing instrument identity, price data and corporate events.  Plugins should be organised by type and each plugin should be presented separately.
-    - **Configuration** is the configuration for each plugin including the enabled switch and precedence.
+    - **Configuration** is the configuration for each plugin including the enabled switch and precedence.  Precedence is an ordering someone chose rather than something that can be reconstructed, so it belongs in the archive; carrying it also carries live API keys, which is why including it is a deliberate choice rather than the default.
     - **Telemetry** covers counters for paths specific to a particular plugin.
  * **Diagnostics** cover the information and tools which allow the admin user to maintain the system.
     - **Logs** provide a history of notable events (eg. errors, restarts, etc) that have occurred on the system.
@@ -99,22 +100,28 @@ Admin pages live under `/admin` and use a dedicated layout with a left sidebar. 
 | Section | Item | Destination | Status |
 |---------|------|-------------|--------|
 | | **Dashboard** | `/admin` | Active |
+| | **Archive** | `/admin/archive` | Active |
 | **Reference Data** | Instruments | `/admin/instruments` | Active |
 | **Reference Data** | Prices | `/admin/prices` | Active |
+| **Reference Data** | Corporate Events | `/admin/corporate-events` | Active |
+| **Reference Data** | Inflation | `/admin/inflation` | Active |
 | **Plugins** | Identifier | `/admin/plugins/identifier` | Active |
 | **Plugins** | Description | `/admin/plugins/description` | Active |
 | **Plugins** | Price | `/admin/plugins/price` | Active |
+| **Plugins** | Inflation | `/admin/plugins/inflation` | Active |
 | **Diagnostics** | Imbalance | `/admin/imbalance` | Active |
 | **Diagnostics** | Logs | `/admin/logs` | Disabled |
 | **Diagnostics** | Telemetry | `/admin/telemetry` | Active |
+| **Diagnostics** | Workers | `/admin/workers` | Active |
 | **Diagnostics** | Authentication | `/admin/tools` | Active |
 
 ### Navigation Behaviour
 
- * **Dashboard** is the admin landing page and should provide a dashboard-style summary with quick links to the most important admin functions.
- * **Reference Data** groups Instruments and Prices.  These are the data stewardship pages the admin visits most frequently.  Both are active.
- * **Plugins** lists individual plugin types: Identifier (`/admin/plugins/identifier`), Description (`/admin/plugins/description`) and Price (`/admin/plugins/price`).  Each plugin page shows configuration and telemetry for that plugin type.  All are active.
- * **Diagnostics** groups Imbalance, Logs, Telemetry and Authentication.  Telemetry (`/admin/telemetry`) and Authentication (`/admin/tools`) are active; Logs is disabled until implemented.
+ * **Dashboard** is the admin landing page and should provide a dashboard-style summary with quick links to the most important admin functions, including the Archive.
+ * **Archive** (`/admin/archive`) is the one place the system archive is produced and consumed.  It sits at the top level rather than inside a section because the data it carries spans all three of them.  It offers a menu of what to include; a part left out is absent from the file, and a part included but holding nothing is written empty, which records that the export asked and there was nothing.  Parts the format does not carry yet are shown disabled rather than hidden, so the menu says what the archive will hold rather than only what it holds today.  An import is applied on the server, so it finishes whether or not the page stays open, and it reports a result per part: how much was applied, and which rows were rejected.  No user data is reachable from this page.
+ * **Reference Data** groups Instruments, Prices, Corporate Events and Inflation.  These are the data stewardship pages the admin visits most frequently.  They show what the instance holds and its health; producing or restoring a file is done from the Archive rather than from any of them, so there is one way to do it rather than several.
+ * **Plugins** lists individual plugin types: Identifier (`/admin/plugins/identifier`), Description (`/admin/plugins/description`), Price (`/admin/plugins/price`) and Inflation (`/admin/plugins/inflation`).  Each plugin page shows configuration and telemetry for that plugin type.  All are active.
+ * **Diagnostics** groups Imbalance, Logs, Telemetry, Workers and Authentication.  Telemetry (`/admin/telemetry`), Workers (`/admin/workers`) and Authentication (`/admin/tools`) are active; Logs is disabled until implemented.
  * **Imbalance** (`/admin/imbalance`) reports the residual and transfer-clearing balances left in non-asset accounts, aggregated across all users and grouped by broker, account, commodity and the event that left them.  It is an admin surface because it measures how lossy each broker converter is rather than what is in any one portfolio, and it carries no user identity.  The per-user view of the same data belongs with user alerts.  Its transfers view lists the transfers whose second side has not arrived; a matched pair is settled and is excluded.
  * Section headers (Reference Data, Plugins, Diagnostics) are non-clickable labels that organise the sidebar visually.
 

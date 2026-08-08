@@ -148,9 +148,10 @@ test.describe("system archive at scale", () => {
     await rawQuery("DELETE FROM eod_prices");
     await startImport(page, file);
     const parts = page.locator("[data-testid='job-parts']");
-    // Three rows this time: an export writes every part that was asked for,
-    // including the corporate event part that has nothing in it.
-    await expect(parts.getByText("Done")).toHaveCount(3, { timeout: TIMEOUT_SLOW });
+    // Six rows this time: an export writes every part that was asked for, and
+    // the menu ticks all of them but plugin config, so the parts holding
+    // nothing are written empty and reported alongside the rest.
+    await expect(parts.getByText("Done")).toHaveCount(6, { timeout: TIMEOUT_SLOW });
 
     const rows = (await rawQuery("SELECT count(*)::int AS n FROM eod_prices")) as { n: number }[];
     expect(rows[0].n).toBe(TOTAL_ROWS);

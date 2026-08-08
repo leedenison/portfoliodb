@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Carry inflation indices in the system archive
 milestone: M14
 dependencies: [0078]
@@ -33,3 +33,6 @@ is dense, `inflation_indices` stores no coverage of its own, and a file must not
 claim more than the table it came from can answer for. `base_year` is on the row
 rather than on the group, because a rebasing changes it partway through a series
 and both halves travel in the one group.
+
+Closed. Inflation indices are a system archive part, grouped by currency and
+carrying no coverage.

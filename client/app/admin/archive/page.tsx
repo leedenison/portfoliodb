@@ -20,7 +20,7 @@ const SYSTEM_ARCHIVE_JOB_TYPE = "system_archive";
 export default function ArchivePage() {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Set<ArchivePart>>(
-    () => new Set(ARCHIVE_PART_OPTIONS.filter((o) => o.available && o.defaultSelected).map((o) => o.part!)),
+    () => new Set(ARCHIVE_PART_OPTIONS.filter((o) => o.defaultSelected).map((o) => o.part)),
   );
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -65,7 +65,7 @@ export default function ArchivePage() {
   }
 
   const parts = useMemo(
-    () => ARCHIVE_PART_OPTIONS.filter((o) => o.available && selected.has(o.part!)).map((o) => o.part!),
+    () => ARCHIVE_PART_OPTIONS.filter((o) => selected.has(o.part)).map((o) => o.part),
     [selected],
   );
 
@@ -126,18 +126,17 @@ export default function ArchivePage() {
         </p>
         <ul className="mt-3 space-y-2">
           {ARCHIVE_PART_OPTIONS.map((opt) => {
-            const id = opt.part !== undefined ? `part-${opt.part}` : `part-${opt.label}`;
+            const id = `part-${opt.part}`;
             return (
               <li key={id} className="flex items-start gap-2.5">
                 <input
                   id={id}
                   type="checkbox"
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary disabled:opacity-40"
-                  checked={opt.available && selected.has(opt.part!)}
-                  disabled={!opt.available}
-                  onChange={() => opt.part !== undefined && toggle(opt.part)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                  checked={selected.has(opt.part)}
+                  onChange={() => toggle(opt.part)}
                 />
-                <label htmlFor={id} className={opt.available ? "" : "opacity-50"}>
+                <label htmlFor={id}>
                   <span className="text-sm font-medium text-text-primary">{opt.label}</span>
                   <span className="block text-xs text-text-muted">{opt.note}</span>
                 </label>

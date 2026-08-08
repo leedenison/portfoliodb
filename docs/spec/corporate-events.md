@@ -23,14 +23,18 @@ Three sources feed `stock_splits` and `cash_dividends`. All three write through 
 | Source | `data_provider` | Mechanism |
 | --- | --- | --- |
 | External market data plugins | plugin id (e.g. `"massive"`, `"eodhd"`) | Background fetcher worker (`server/corporateevents`) |
-| Admin CSV / JSON import | `"import"` | `ImportCorporateEvents` admin RPC |
+| Admin archive import | `"import"` | `ImportCorporateEvents` admin RPC |
 | Broker statement parsers (planned) | `"import"` | Client-side per-broker parsers; submit through `ImportCorporateEvents` |
 
 ### Export and import
 
-`ExportCorporateEvents` and `ImportCorporateEvents` are a lossless round trip, knowledge time included. `SplitRow` and `CashDividendRow` carry `first_known_at` in both directions, and an importing row resolves its knowledge time from the row, else `ImportCorporateEventsRequest.exported_at`, else the time it is stored. A stored `first_known_at` only ever moves backwards, so re-importing a split learned of years ago restores its original stamp rather than pushing it forward to import time. It is reporting knowledge only: retroactive OCC adjustment of options on the underlying keys off `ex_date`, which does not move, so a restamped split cannot re-adjust symbols that were already correct (see [Option contracts](#option-contracts) and docs/spec/bitemporality.md).
+`ExportCorporateEvents` and `ImportCorporateEvents` carry the corporate event part of an admin archive: one `CorporateEventGroup` per instrument, holding that instrument's coverage and its splits and dividends together. See [archive-format.md](archive-format.md#corporate-events).
+
+The round trip is lossless, knowledge time included. `Split` and `CashDividend` both carry `first_known_at` in both directions, and an importing event resolves its knowledge time from the event, else the envelope's `exported_at`, else the time it is stored. A stored `first_known_at` only ever moves backwards, so re-importing a split learned of years ago restores its original stamp rather than pushing it forward to import time. It is reporting knowledge only: retroactive OCC adjustment of options on the underlying keys off `ex_date`, which does not move, so a restamped split cannot re-adjust symbols that were already correct (see [Option contracts](#option-contracts) and docs/spec/bitemporality.md).
 
 `exported_at` also stamps imported `corporate_event_coverage` spans, so an imported span records when it was actually confirmed rather than when it was imported.
+
+Coverage is stored per (instrument, plugin), but an import records every span against the `import` sentinel, so the file carries spans merged across plugins. The per-plugin distinction cannot survive a round trip and is not written. There is one coverage set per instrument rather than one per event kind, because `corporate_event_coverage` has no event-kind dimension: a span says the provider was asked about those dates, not which kind of event it was asked about.
 
 The broker statement parsers are deferred follow-up work. They live entirely in client converters; broker tx logs that contain SPLIT entries should be parsed by the converter for the broker's specific format and submitted via `ImportCorporateEvents`. The server-side `TX_TYPE=SPLIT` filter in `server/service/ingestion/hints.go` continues to drop SPLIT txs at ingestion; corporate events are admin-only shared data, never derived from user txs (see adr/0005-corporate-events-design.md).
 

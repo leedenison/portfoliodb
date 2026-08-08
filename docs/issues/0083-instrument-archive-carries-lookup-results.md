@@ -19,13 +19,12 @@ output of the lookups themselves -- provider-scoped identifiers such as
 (server/plugins/openfigi/identifier/map.go,
 server/plugins/eodhd/identifier/map.go,
 server/plugins/massive/identifier/map.go) and saved at
-server/service/identification/resolve.go. `SerializedInstrument` in
-client/lib/json/instruments.ts does not mention it.
+server/service/identification/resolve.go. `ListInstrumentsForExport` loads it
+onto the row and `archiveInstrument` in server/service/api/instruments.go does
+not write it out.
 
-**`cik`, `sic_code` and the validity interval are dropped** by the same
-serialiser. `cik` and `sic_code` are plugin lookup results;
-`valid_from`/`valid_before` records when the instrument was available to trade
-and is not derivable.
+**`cik`, `sic_code` and the validity interval were dropped** by the
+hand-written serialiser that preceded the archive. 0082 closed that half.
 
 **`ExportInstrumentsRequest` excludes CASH and FX by default.** That default is
 right for browsing and wrong for a rebuild: FX pairs are instruments
@@ -42,3 +41,9 @@ is called.
 
 Independent of 0082 -- this is what the export carries, not how it is encoded --
 but the two are naturally done together.
+
+0082 has since landed the widened export query, so `cik`, `sic_code` and the
+validity interval already reach the file. What remains here is
+`provider_instrument_identifiers` -- carried on export and restored on import
+without calling a plugin -- and the export mode that means everything rather
+than the browsing default that excludes CASH and FX.

@@ -93,14 +93,14 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 	}
 
 	if len(valErrs) > 0 {
-		_ = database.AppendValidationErrors(ctx, j.JobID, valErrs)
+		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, valErrs)
 	}
 
 	persisted := false
 	if len(resolved) > 0 {
 		if err := upsertGroups(ctx, database, resolved); err != nil {
 			log.Printf("price import job %s: upsert: %v", j.JobID, err)
-			_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
+			_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
 				{RowIndex: -1, Field: "prices", Message: err.Error()},
 			})
 			_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)

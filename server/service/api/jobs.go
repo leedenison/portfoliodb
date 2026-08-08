@@ -26,28 +26,46 @@ func (s *Server) GetJob(ctx context.Context, req *apiv1.GetJobRequest) (*apiv1.G
 	if req.GetJobId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "job_id required")
 	}
-	statusVal, errs, idErrs, jobUserID, totalCount, processedCount, err := s.db.GetJob(ctx, req.GetJobId())
+	d, err := s.db.GetJob(ctx, req.GetJobId())
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	if jobUserID == "" {
+	// A job that does not exist and one belonging to someone else are the same
+	// answer: revealing the difference would confirm the id.
+	if d.UserID == "" || d.UserID != u.ID {
 		return nil, status.Error(codes.NotFound, "job not found")
 	}
-	if jobUserID != u.ID {
-		return nil, status.Error(codes.NotFound, "job not found")
-	}
-	idErrProtos := make([]*apiv1.IdentificationError, 0, len(idErrs))
-	for _, e := range idErrs {
+	idErrProtos := make([]*apiv1.IdentificationError, 0, len(d.IdentificationErrors))
+	for _, e := range d.IdentificationErrors {
 		idErrProtos = append(idErrProtos, &apiv1.IdentificationError{
 			RowIndex:              e.RowIndex,
 			InstrumentDescription: e.InstrumentDescription,
 			Message:               e.Message,
 		})
 	}
-	return &apiv1.GetJobResponse{Status: statusVal, ValidationErrors: errs, IdentificationErrors: idErrProtos, TotalCount: totalCount, ProcessedCount: processedCount}, nil
+	parts := make([]*apiv1.JobPartResult, 0, len(d.Parts))
+	for _, r := range d.Parts {
+		parts = append(parts, &apiv1.JobPartResult{
+			Part:             r.Part,
+			Status:           r.Status,
+			TotalCount:       r.TotalCount,
+			ProcessedCount:   r.ProcessedCount,
+			ValidationErrors: r.ValidationErrors,
+			Message:          r.Message,
+		})
+	}
+	return &apiv1.GetJobResponse{
+		Status:               d.Status,
+		ValidationErrors:     d.ValidationErrors,
+		IdentificationErrors: idErrProtos,
+		TotalCount:           d.TotalCount,
+		ProcessedCount:       d.ProcessedCount,
+		Parts:                parts,
+	}, nil
 }
 
-// ListJobs returns paginated ingestion jobs for the authenticated user, newest first.
+// ListJobs returns paginated ingestion jobs for the authenticated user, newest
+// first. An empty job_type matches every type.
 func (s *Server) ListJobs(ctx context.Context, req *apiv1.ListJobsRequest) (*apiv1.ListJobsResponse, error) {
 	u, authErr := auth.RequireUser(ctx)
 	if authErr != nil {
@@ -60,7 +78,7 @@ func (s *Server) ListJobs(ctx context.Context, req *apiv1.ListJobsRequest) (*api
 	if pageSize > 100 {
 		pageSize = 100
 	}
-	rows, totalCount, nextToken, err := s.db.ListJobs(ctx, u.ID, pageSize, req.GetPageToken())
+	rows, totalCount, nextToken, err := s.db.ListJobs(ctx, u.ID, req.GetJobType(), pageSize, req.GetPageToken())
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

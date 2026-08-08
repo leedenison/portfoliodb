@@ -182,12 +182,13 @@ CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, timestamp);
 CREATE INDEX idx_txs_group_id ON txs (group_id);
 
 -- Async ingestion jobs. status and validation_errors surfaced via front-end API.
--- job_type distinguishes tx uploads from price imports; broker/source are tx-specific.
+-- job_type distinguishes tx uploads from system archive imports; broker/source
+-- are tx-specific.
 -- payload stores the serialized protobuf request and is cleared after processing.
 CREATE TABLE ingestion_jobs (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  job_type     TEXT NOT NULL DEFAULT 'tx' CHECK (job_type IN ('tx', 'price', 'corporate_event')),
+  job_type     TEXT NOT NULL DEFAULT 'tx' CHECK (job_type IN ('tx', 'price', 'corporate_event', 'system_archive')),
   broker       TEXT,
   source       TEXT,
   filename     TEXT,
@@ -203,10 +204,30 @@ CREATE TABLE ingestion_jobs (
 CREATE INDEX idx_ingestion_jobs_user ON ingestion_jobs (user_id);
 CREATE INDEX idx_ingestion_jobs_status ON ingestion_jobs (status);
 
+-- Per-part results for a system archive import. One row per part the document
+-- carried, created with the job so a page can render a row per part before the
+-- worker has started and after a reload. part spells the ArchivePart enum name,
+-- so the proto value, the column and the archive section are one string.
+--
+-- Restore order is a property of the archive format rather than of a row, so
+-- there is no ordinal column: readers order by the enum.
+CREATE TABLE ingestion_job_parts (
+  job_id          UUID NOT NULL REFERENCES ingestion_jobs (id) ON DELETE CASCADE,
+  part            TEXT NOT NULL CHECK (part IN ('INSTRUMENTS', 'PRICES', 'CORPORATE_EVENTS')),
+  status          TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED')),
+  total_count     INT NOT NULL DEFAULT 0,
+  processed_count INT NOT NULL DEFAULT 0,
+  message         TEXT,
+  PRIMARY KEY (job_id, part)
+);
+
 -- Validation errors for async ingestion. row_index, field, message per API.
+-- part attributes an error to one part of a system archive; NULL for a tx job
+-- and for a failure that happened before any part was reached.
 CREATE TABLE validation_errors (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   job_id     UUID NOT NULL REFERENCES ingestion_jobs (id) ON DELETE CASCADE,
+  part       TEXT,
   row_index  INT NOT NULL,
   field      TEXT NOT NULL,
   message    TEXT NOT NULL

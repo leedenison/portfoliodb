@@ -212,8 +212,8 @@ func TestProcessCorporateEventImport_RejectsBadSplitRatio(t *testing.T) {
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-2").Return(nil)
 
 	var capturedErrs []*apiv1.ValidationError
-	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-2", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-2", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
 			capturedErrs = errs
 			return nil
 		})
@@ -287,8 +287,8 @@ func TestProcessCorporateEventImport_RejectsBadCoverageDate(t *testing.T) {
 		Return("inst-aapl", "STOCK", "XNAS", "USD", nil)
 
 	var capturedErrs []*apiv1.ValidationError
-	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-cov", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-cov", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
 			capturedErrs = errs
 			return nil
 		})
@@ -328,8 +328,8 @@ func TestProcessCorporateEventImport_EmptyCoverageInterval(t *testing.T) {
 		Return("inst-aapl", "STOCK", "XNAS", "USD", nil)
 
 	var capturedErrs []*apiv1.ValidationError
-	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-empty", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-empty", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
 			capturedErrs = errs
 			return nil
 		})
@@ -404,8 +404,8 @@ func TestProcessCorporateEventImport_RejectsInvalidDecimal(t *testing.T) {
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-bad").Return(nil)
 
 	var capturedErrs []*apiv1.ValidationError
-	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-bad", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-bad", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
 			capturedErrs = errs
 			return nil
 		})
@@ -446,8 +446,8 @@ func TestProcessCorporateEventImport_RejectsHintDiff(t *testing.T) {
 	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-ce-diff").Return(nil)
 
 	var capturedErrs []*apiv1.ValidationError
-	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-diff", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+	database.EXPECT().AppendValidationErrors(gomock.Any(), "job-ce-diff", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
 			capturedErrs = errs
 			return nil
 		})

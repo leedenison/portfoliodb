@@ -448,12 +448,39 @@ message GetJobRequest {
   string job_id = 1;
 }
 
+// JobPartResult is one part of a system archive as applied by one job. A row
+// exists for every part the document carried from the moment the job is created,
+// so a page rendering a row per part shows the same rows before, during and
+// after the run, including after a reload.
+//
+// status is FAILED only for a hard failure -- an unreadable payload, or a
+// database error that ended the part. A row the import could not use is a
+// validation error on a part that still succeeded, which is what lets a result
+// read "completed, 12 rows rejected".
+message JobPartResult {
+  portfoliodb.archive.v1.ArchivePart part = 1;
+  JobStatus status = 2;
+  int32 total_count = 3;
+  int32 processed_count = 4;
+  // Row-level problems attributed to this part. row_index is the index of the
+  // group (prices, corporate events) or of the instrument (instruments) the
+  // problem was found in.
+  repeated ValidationError validation_errors = 5;
+  // The hard failure that ended the part. Empty unless status is FAILED.
+  string message = 6;
+}
+
 message GetJobResponse {
   JobStatus status = 1;
+  // Problems with no part of their own: transaction jobs, and a system archive
+  // that failed before any part was reached. Per-part problems are on the part.
   repeated ValidationError validation_errors = 2;
   repeated IdentificationError identification_errors = 3;
   int32 total_count = 4;
   int32 processed_count = 5;
+  // One row per part the archive carried, in restore order. Empty for any job
+  // that is not a system archive import.
+  repeated JobPartResult parts = 6;
 }
 
 // Job is an ingestion job summary for list views.
@@ -465,12 +492,13 @@ message Job {
   google.protobuf.Timestamp created_at = 5;
   int32 validation_error_count = 6;
   int32 identification_error_count = 7;
-  string job_type = 8;  // "tx" or "price"
+  string job_type = 8; // "tx" or "system_archive"
 }
 
 message ListJobsRequest {
   int32 page_size = 1;
   string page_token = 2;
+  string job_type = 3; // optional; empty = every type
 }
 
 message ListJobsResponse {

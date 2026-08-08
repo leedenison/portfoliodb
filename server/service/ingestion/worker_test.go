@@ -3,6 +3,7 @@ package ingestion
 import (
 	"context"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -30,7 +31,7 @@ func expectLoadPayload(database *mock.MockDB, jobID, userID string, payload []by
 	database.EXPECT().LoadJobPayload(gomock.Any(), jobID).Return(payload, nil)
 	database.EXPECT().ClearJobPayload(gomock.Any(), jobID).Return(nil)
 	database.EXPECT().GetJob(gomock.Any(), jobID).Return(
-		apiv1.JobStatus_RUNNING, nil, nil, userID, int32(0), int32(0), nil,
+		&db.JobDetail{Status: apiv1.JobStatus_RUNNING, UserID: userID}, nil,
 	)
 	database.EXPECT().ListIgnoredAssetClasses(gomock.Any(), userID).Return(nil, nil)
 }
@@ -319,8 +320,8 @@ func TestProcessBulk_BuystockIncomeSameDescriptionFails(t *testing.T) {
 		ListInstrumentsByIDs(gomock.Any(), []string{"msft-stock-id"}).
 		Return([]*db.InstrumentRow{{ID: "msft-stock-id", AssetClass: strPtr(db.AssetClassStock)}}, nil)
 	database.EXPECT().
-		AppendValidationErrors(gomock.Any(), "job-contradict", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+		AppendValidationErrors(gomock.Any(), "job-contradict", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
 			if len(errs) != 1 {
 				t.Errorf("expected 1 validation error, got %d", len(errs))
 				return nil
@@ -446,8 +447,8 @@ func TestProcessBulk_StockMutualFundNotEquivalent(t *testing.T) {
 		ListInstrumentsByIDs(gomock.Any(), []string{"vfiax-id"}).
 		Return([]*db.InstrumentRow{{ID: "vfiax-id", AssetClass: strPtr(db.AssetClassMutualFund)}}, nil)
 	database.EXPECT().
-		AppendValidationErrors(gomock.Any(), "job-mf", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+		AppendValidationErrors(gomock.Any(), "job-mf", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
 			if len(errs) != 1 {
 				t.Errorf("expected 1 validation error, got %d", len(errs))
 			}
@@ -505,7 +506,7 @@ func TestProcessBulk_TransferToCashRejected(t *testing.T) {
 		ListInstrumentsByIDs(gomock.Any(), []string{"cash-id"}).
 		Return([]*db.InstrumentRow{{ID: "cash-id", AssetClass: strPtr(db.AssetClassCash)}}, nil)
 	database.EXPECT().
-		AppendValidationErrors(gomock.Any(), "job-transfer-cash", gomock.Any()).
+		AppendValidationErrors(gomock.Any(), "job-transfer-cash", gomock.Any(), gomock.Any()).
 		Return(nil)
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-transfer-cash", apiv1.JobStatus_FAILED).

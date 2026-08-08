@@ -54,6 +54,22 @@ enum ArchiveKind {
   USER = 2;   // one user's own data; no system data
 }
 
+// ArchivePart names one part of an archive document. It is the export's
+// include-menu and the axis an import job reports progress and results along,
+// so the request that asks for a part and the result that reports on it are one
+// vocabulary.
+//
+// Values run in restore order, which is also the field order in SystemArchive:
+// a part is applied after everything it refers to.
+enum ArchivePart {
+  ARCHIVE_PART_UNSPECIFIED = 0;
+  INSTRUMENTS = 1;
+  PRICES = 2;
+  CORPORATE_EVENTS = 3;
+  // 4 onwards are the remaining parts: inflation indices, fetch blocks,
+  // unhandled event resolutions, plugin config.
+}
+
 // Envelope carries only what cannot differ between two rows of a valid file.
 // Anything that can differ between rows belongs on a group or on a row.
 message Envelope {

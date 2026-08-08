@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -141,7 +142,10 @@ func loadAndClearPayload(ctx context.Context, database db.DB, jobID string) ([]b
 
 func processTx(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest) (bool, string) {
 	// Look up userID from the job row.
-	_, _, _, userID, _, _, _ := database.GetJob(ctx, j.JobID)
+	var userID string
+	if d, err := database.GetJob(ctx, j.JobID); err == nil {
+		userID = d.UserID
+	}
 
 	payload, err := loadAndClearPayload(ctx, database, j.JobID)
 	if err != nil {
@@ -170,7 +174,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	if b := req.GetShareCountBasis(); b != "" {
 		parsed, err := time.Parse("2006-01-02", b)
 		if err != nil {
-			_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
+			_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
 				{RowIndex: -1, Field: "share_count_basis", Message: fmt.Sprintf("invalid date %q: want YYYY-MM-DD", b)},
 			})
 			_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
@@ -182,7 +186,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	// Validate.
 	errs := ValidateTxs(txs)
 	if len(errs) > 0 {
-		_ = database.AppendValidationErrors(ctx, j.JobID, errs)
+		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, errs)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
@@ -203,7 +207,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	cache, extractedHintsCache, err := extractDescHints(ctx, database, descRegistry, counter, source, broker, txsToProcess)
 	if err != nil {
 		log.Printf("ingestion job %s: extract description hints: %v", j.JobID, err)
-		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
+		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
 			{RowIndex: -1, Field: "txs", Message: err.Error()},
 		})
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
@@ -213,7 +217,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	instrumentIDs, idErrs, err := resolveInstruments(ctx, database, registry, broker, source, j.JobID, counter, txsToProcess, originalIndices, cache, extractedHintsCache)
 	if err != nil {
 		log.Printf("ingestion job %s: resolve instrument: %v", j.JobID, err)
-		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
+		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
 			{RowIndex: -1, Field: "instrument_description", Message: err.Error()},
 		})
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
@@ -226,7 +230,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	instByID, err := instrumentsByID(ctx, database, instrumentIDs)
 	if err != nil {
 		log.Printf("ingestion job %s: load instruments: %v", j.JobID, err)
-		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
+		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
 			{RowIndex: -1, Field: "txs", Message: err.Error()},
 		})
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
@@ -238,7 +242,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	// different asset classes (e.g. BUYSTOCK + INCOME), as well as any other
 	// path where resolution lands on an instrument of the wrong class.
 	if classErrs := validateAssetClasses(txsToProcess, originalIndices, instrumentIDs, instByID); len(classErrs) > 0 {
-		_ = database.AppendValidationErrors(ctx, j.JobID, classErrs)
+		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, classErrs)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
@@ -264,7 +268,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 				Message:  fmt.Sprintf("no instrument for residual commodity %q; the group it balances cannot be stored", cur),
 			}
 		}
-		_ = database.AppendValidationErrors(ctx, j.JobID, errs)
+		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, errs)
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
@@ -285,7 +289,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	}
 	if storeErr != nil {
 		log.Printf("ingestion job %s: %v", j.JobID, storeErr)
-		_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
+		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
 			{RowIndex: -1, Field: "txs", Message: storeErr.Error()},
 		})
 		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)

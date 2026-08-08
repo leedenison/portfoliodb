@@ -107,6 +107,15 @@ func systemFixture() *archivev1.SystemArchive {
 				}},
 			}},
 		},
+		PluginConfig: &archivev1.PluginConfigPart{
+			Configs: []*archivev1.PluginConfig{{
+				PluginId:   "eodhd",
+				Category:   typev1.PluginCategory_PRICE,
+				Enabled:    true,
+				Precedence: 20,
+				ConfigJson: proto.String(`{"eodhd_api_key":"secret"}`),
+			}},
+		},
 	}
 }
 

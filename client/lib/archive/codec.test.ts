@@ -91,6 +91,17 @@ function systemFixture() {
         },
       ],
     },
+    pluginConfig: {
+      configs: [
+        {
+          pluginId: "eodhd",
+          category: PluginCategory.PRICE,
+          enabled: true,
+          precedence: 20,
+          configJson: '{"eodhd_api_key":"secret"}',
+        },
+      ],
+    },
   };
 }
 

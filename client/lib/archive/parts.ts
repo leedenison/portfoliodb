@@ -67,9 +67,10 @@ export const ARCHIVE_PART_OPTIONS: ArchivePartOption[] = [
     defaultSelected: true,
   },
   {
+    part: ArchivePart.PLUGIN_CONFIG,
     label: "Plugin config",
-    note: "Not carried by the archive format yet. Will carry live API keys, so it will be off by default.",
-    available: false,
+    note: "Which plugins are on, in what order, and how each is configured. Carries live API keys, which makes the file a secret.",
+    available: true,
     defaultSelected: false,
   },
 ];
@@ -82,4 +83,5 @@ export const ARCHIVE_PART_LABELS: Record<number, string> = {
   [ArchivePart.INFLATION_INDICES]: "Inflation indices",
   [ArchivePart.FETCH_BLOCKS]: "Fetch blocks",
   [ArchivePart.UNHANDLED_EVENTS]: "Unhandled corporate events",
+  [ArchivePart.PLUGIN_CONFIG]: "Plugin config",
 };

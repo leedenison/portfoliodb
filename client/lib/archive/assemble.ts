@@ -4,6 +4,7 @@ import { CorporateEventPartSchema } from "@/gen/archive/v1/corporate_events_pb";
 import { FetchBlockPartSchema } from "@/gen/archive/v1/fetch_blocks_pb";
 import { InflationPartSchema } from "@/gen/archive/v1/inflation_pb";
 import { InstrumentPartSchema } from "@/gen/archive/v1/instruments_pb";
+import { PluginConfigPartSchema } from "@/gen/archive/v1/plugin_config_pb";
 import { PricePartSchema } from "@/gen/archive/v1/prices_pb";
 import { UnhandledEventPartSchema } from "@/gen/archive/v1/unhandled_events_pb";
 import type { ExportSystemArchiveResponse } from "@/gen/api/v1/api_pb";
@@ -45,6 +46,9 @@ export function assembleSystemArchive(items: ExportSystemArchiveResponse[]): Sys
           case ArchivePart.UNHANDLED_EVENTS:
             doc.unhandledEvents ??= create(UnhandledEventPartSchema, {});
             break;
+          case ArchivePart.PLUGIN_CONFIG:
+            doc.pluginConfig ??= create(PluginConfigPartSchema, {});
+            break;
         }
         break;
       case "instrument":
@@ -64,6 +68,9 @@ export function assembleSystemArchive(items: ExportSystemArchiveResponse[]): Sys
         break;
       case "unhandledEventGroup":
         doc.unhandledEvents?.groups.push(item.item.value);
+        break;
+      case "pluginConfig":
+        doc.pluginConfig?.configs.push(item.item.value);
         break;
     }
   }
@@ -98,6 +105,9 @@ export function partCounts(archive: SystemArchive): { label: string; count: numb
   if (archive.unhandledEvents) {
     const events = archive.unhandledEvents.groups.reduce((n, g) => n + g.events.length, 0);
     out.push({ label: "unhandled corporate events", count: events });
+  }
+  if (archive.pluginConfig) {
+    out.push({ label: "plugin config rows", count: archive.pluginConfig.configs.length });
   }
   return out;
 }

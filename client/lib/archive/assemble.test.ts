@@ -148,6 +148,31 @@ describe("assembleSystemArchive", () => {
     expect(doc.unhandledEvents?.groups[0].events[1].resolved).toBe(false);
     expect(partCounts(doc)).toEqual([{ label: "unhandled corporate events", count: 2 }]);
   });
+
+  // Plugin config is the one flat part: the stream carries a row per message
+  // rather than a group, because a config row has no aggregate root above it.
+  it("files plugin config rows without a group", () => {
+    const doc = assembleSystemArchive(
+      stream(
+        { item: { case: "envelope", value: ENVELOPE } },
+        { item: { case: "partBegin", value: { part: ArchivePart.PLUGIN_CONFIG } } },
+        {
+          item: {
+            case: "pluginConfig",
+            value: {
+              pluginId: "eodhd",
+              category: PluginCategory.PRICE,
+              enabled: true,
+              precedence: 20,
+            },
+          },
+        },
+      ),
+    );
+    expect(doc.pluginConfig?.configs).toHaveLength(1);
+    expect(doc.pluginConfig?.configs[0].pluginId).toBe("eodhd");
+    expect(partCounts(doc)).toEqual([{ label: "plugin config rows", count: 1 }]);
+  });
 });
 
 describe("partCounts", () => {

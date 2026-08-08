@@ -91,6 +91,9 @@ func presentParts(a *archivev1.SystemArchive) []archivev1.ArchivePart {
 	if a.GetUnhandledEvents() != nil {
 		parts = append(parts, archivev1.ArchivePart_UNHANDLED_EVENTS)
 	}
+	if a.GetPluginConfig() != nil {
+		parts = append(parts, archivev1.ArchivePart_PLUGIN_CONFIG)
+	}
 	return parts
 }
 
@@ -136,6 +139,8 @@ func (s *Server) ExportSystemArchive(req *apiv1.ExportSystemArchiveRequest, stre
 			err = s.sendFetchBlockPart(ctx, stream)
 		case archivev1.ArchivePart_UNHANDLED_EVENTS:
 			err = s.sendUnhandledEventPart(ctx, stream)
+		case archivev1.ArchivePart_PLUGIN_CONFIG:
+			err = s.sendPluginConfigPart(ctx, stream)
 		}
 		if err != nil {
 			return err
@@ -160,6 +165,7 @@ func requestedParts(req []archivev1.ArchivePart) []archivev1.ArchivePart {
 		archivev1.ArchivePart_INFLATION_INDICES,
 		archivev1.ArchivePart_FETCH_BLOCKS,
 		archivev1.ArchivePart_UNHANDLED_EVENTS,
+		archivev1.ArchivePart_PLUGIN_CONFIG,
 	} {
 		if seen[p] {
 			out = append(out, p)
@@ -404,4 +410,36 @@ func unhandledEventGroups(rows []db.ExportUnhandledCorporateEvent) []*archivev1.
 		cur.Events = append(cur.Events, e)
 	}
 	return out
+}
+
+// sendPluginConfigPart streams one row per plugin config, unnested: a config
+// row has no aggregate root above it, so there is nothing to group by.
+//
+// The rows carry live API keys, in full. That is what makes a document holding
+// this part a secret, and why the export menu leaves it unticked.
+func (s *Server) sendPluginConfigPart(ctx context.Context, stream apiv1.ApiService_ExportSystemArchiveServer) error {
+	rows, err := s.db.ListAllPluginConfigs(ctx)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	for _, r := range rows {
+		cfg := &archivev1.PluginConfig{
+			PluginId:   r.PluginID,
+			Category:   db.StrToPluginCategory(r.Category),
+			Enabled:    r.Enabled,
+			Precedence: int32(r.Precedence),
+		}
+		if len(r.Config) > 0 {
+			cfg.ConfigJson = proto.String(string(r.Config))
+		}
+		if r.MaxHistoryDays != nil {
+			cfg.MaxHistoryDays = proto.Int32(int32(*r.MaxHistoryDays))
+		}
+		if err := stream.Send(&apiv1.ExportSystemArchiveResponse{
+			Item: &apiv1.ExportSystemArchiveResponse_PluginConfig{PluginConfig: cfg},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

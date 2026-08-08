@@ -104,6 +104,8 @@ func processSystemImport(ctx context.Context, database db.DB, registry *identifi
 			_, partErr = archiveimport.FetchBlockPart(ctx, database, a.GetFetchBlocks(), asOf, rep)
 		case archivev1.ArchivePart_UNHANDLED_EVENTS:
 			_, partErr = archiveimport.UnhandledEventPart(ctx, database, a.GetUnhandledEvents(), asOf, rep)
+		case archivev1.ArchivePart_PLUGIN_CONFIG:
+			_, partErr = archiveimport.PluginConfigPart(ctx, database, a.GetPluginConfig(), rep)
 		default:
 			partErr = errUnknownPart
 		}

@@ -862,6 +862,29 @@ func (p *Postgres) ResolveUnhandledCorporateEvent(ctx context.Context, id string
 	return nil
 }
 
+// exportCoverageRow is a sqlx-scannable version of db.ExportCoverageRow.
+type exportCoverageRow struct {
+	IdentifierType   string    `db:"identifier_type"`
+	IdentifierValue  string    `db:"value"`
+	IdentifierDomain string    `db:"domain"`
+	From             time.Time `db:"covered_from"`
+	Before           time.Time `db:"covered_before"`
+}
+
+func toExportCoverageRows(rows []exportCoverageRow) []db.ExportCoverageRow {
+	out := make([]db.ExportCoverageRow, len(rows))
+	for i, r := range rows {
+		out[i] = db.ExportCoverageRow{
+			IdentifierType:   r.IdentifierType,
+			IdentifierValue:  r.IdentifierValue,
+			IdentifierDomain: r.IdentifierDomain,
+			From:             r.From,
+			Before:           r.Before,
+		}
+	}
+	return out
+}
+
 // ListCorporateEventCoverageForExport implements db.CorporateEventDB.
 func (p *Postgres) ListCorporateEventCoverageForExport(ctx context.Context) ([]db.ExportCoverageRow, error) {
 	q := `

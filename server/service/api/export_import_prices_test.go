@@ -39,7 +39,7 @@ func TestExportPrices_Success(t *testing.T) {
 	}
 	db.EXPECT().
 		ListPriceCoverageForExport(gomock.Any()).
-		Return([]dbpkg.ExportCoverageRow{{
+		Return([]dbpkg.ExportPriceCoverageRow{{
 			IdentifierType:   "MIC_TICKER",
 			IdentifierValue:  "AAPL",
 			IdentifierDomain: "US",
@@ -111,7 +111,7 @@ func TestExportPrices_SendsCoverageBeforeRows(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
 		ListPriceCoverageForExport(gomock.Any()).
-		Return([]dbpkg.ExportCoverageRow{{
+		Return([]dbpkg.ExportPriceCoverageRow{{
 			IdentifierType:   "MIC_TICKER",
 			IdentifierValue:  "AAPL",
 			IdentifierDomain: "US",

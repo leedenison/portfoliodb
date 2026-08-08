@@ -272,6 +272,83 @@ func TestListPricesForExport_OHLCVFields(t *testing.T) {
 	}
 }
 
+// A basis equal to the bar's own date is the as-traded convention the column
+// defaults to, and the export reports it as absent so a file does not restate
+// it on every row. Only a restated bar carries a value.
+func TestListPricesForExport_ShareCountBasis(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	instID := setupTickerInstrument(t, p, "NVDA")
+	basis := d(2024, 6, 10)
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: d(2024, 1, 15), Close: decf(48), DataProvider: "test"},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 16), Close: decf(4), DataProvider: "test", ShareCountBasis: &basis},
+	}); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	rows, err := p.ListPricesForExport(ctx)
+	if err != nil {
+		t.Fatalf("list prices for export: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0].ShareCountBasis != nil {
+		t.Errorf("expected as-traded bar to report no basis, got %v", rows[0].ShareCountBasis)
+	}
+	if rows[1].ShareCountBasis == nil || !rows[1].ShareCountBasis.Equal(basis) {
+		t.Errorf("expected basis 2024-06-10, got %v", rows[1].ShareCountBasis)
+	}
+}
+
+// Two venues can list the same ticker, so the identifier value alone does not
+// name an instrument. A consumer that breaks groups on a key change needs the
+// rows for one instrument to arrive together, which they do not if the domain
+// is left out of the ordering.
+func TestListPricesForExport_OrdersByDomain(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	xlon, err := p.EnsureInstrument(ctx, "STOCK", "XLON", "GBP", "VOD", "", "", []db.IdentifierInput{
+		{Type: "MIC_TICKER", Domain: "XLON", Value: "VOD", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure XLON instrument: %v", err)
+	}
+	xnas, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "VOD", "", "", []db.IdentifierInput{
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "VOD", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure XNAS instrument: %v", err)
+	}
+
+	// Interleaved by date, so an ordering that ignores the domain interleaves
+	// the output too.
+	insertPriceWithProvider(t, p, xlon, d(2024, 1, 15), 70, "test")
+	insertPriceWithProvider(t, p, xnas, d(2024, 1, 16), 9, "test")
+	insertPriceWithProvider(t, p, xlon, d(2024, 1, 17), 71, "test")
+
+	rows, err := p.ListPricesForExport(ctx)
+	if err != nil {
+		t.Fatalf("list prices for export: %v", err)
+	}
+	got := make([]string, len(rows))
+	for i, r := range rows {
+		got[i] = r.IdentifierDomain
+	}
+	want := []string{"XLON", "XLON", "XNAS"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d rows, got %d", len(want), len(got))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected domains %v, got %v", want, got)
+		}
+	}
+}
+
 func TestListPricesForExport_Empty(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -406,6 +483,39 @@ func TestListPriceCoverageForExport_SplitsOnGaps(t *testing.T) {
 	}
 	if !cov[1].From.Equal(d(2024, 2, 1)) || !cov[1].Before.Equal(d(2024, 2, 2)) {
 		t.Errorf("second span [%s, %s)", cov[1].From.Format("2006-01-02"), cov[1].Before.Format("2006-01-02"))
+	}
+}
+
+// An instrument can be covered and hold no bars, and then the coverage query is
+// the only place an export can learn its asset class and currency -- which is
+// what routes the identifier plugins on the importing side.
+func TestListPriceCoverageForExport_CarriesInstrumentContext(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	instID := setupTickerInstrument(t, p, "AAPL")
+	insertCoverage(t, p, instID, d(2024, 1, 15), d(2024, 1, 19))
+
+	rows, err := p.ListPricesForExport(ctx)
+	if err != nil {
+		t.Fatalf("list prices for export: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected no rows, got %d", len(rows))
+	}
+
+	cov, err := p.ListPriceCoverageForExport(ctx)
+	if err != nil {
+		t.Fatalf("list price coverage for export: %v", err)
+	}
+	if len(cov) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(cov))
+	}
+	if cov[0].AssetClass != "STOCK" {
+		t.Errorf("expected asset_class=STOCK, got %q", cov[0].AssetClass)
+	}
+	if cov[0].Currency != "USD" {
+		t.Errorf("expected currency=USD, got %q", cov[0].Currency)
 	}
 }
 

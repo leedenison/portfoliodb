@@ -23,7 +23,7 @@ func exportedAt() *timestamppb.Timestamp {
 
 // adminFixture is the document server/archive/testdata/admin.json holds. It
 // exercises one of each level: an envelope, a group with coverage, and rows
-// with a present zero and an absent optional.
+// with a present zero, an absent optional and a declared share count basis.
 func adminFixture() *archivev1.AdminArchive {
 	return &archivev1.AdminArchive{
 		Envelope: &archivev1.Envelope{
@@ -57,6 +57,13 @@ func adminFixture() *archivev1.AdminArchive {
 					PriceDate: "2024-01-15",
 					Close:     "185.9",
 					Volume:    proto.Int64(48088700),
+				}, {
+					// A back-adjusted bar, which is the only kind that states a
+					// basis. Its presence beside an as-traded bar in one group is
+					// what the field being on the row rather than the group buys.
+					PriceDate:       "2024-01-16",
+					ShareCountBasis: proto.String("2024-06-10"),
+					Close:           "18.59",
 				}},
 			}},
 		},

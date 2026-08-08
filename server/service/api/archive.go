@@ -82,3 +82,144 @@ func presentParts(a *archivev1.SystemArchive) []archivev1.ArchivePart {
 	}
 	return parts
 }
+
+// ExportSystemArchive streams one system archive: the envelope, then the
+// selected parts in restore order. Admin only.
+//
+// The envelope is sent once and first, so exported_at is one reading of the
+// clock for the whole document. Knowledge time that differs between a file's own
+// parts is not knowledge time.
+func (s *Server) ExportSystemArchive(req *apiv1.ExportSystemArchiveRequest, stream apiv1.ApiService_ExportSystemArchiveServer) error {
+	ctx := stream.Context()
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return authErr
+	}
+	// source_instance is left empty: nothing keys off it, and this build has no
+	// configured identity to put there.
+	if err := stream.Send(&apiv1.ExportSystemArchiveResponse{
+		Item: &apiv1.ExportSystemArchiveResponse_Envelope{
+			Envelope: archive.NewEnvelope("", archivev1.ArchiveKind_SYSTEM),
+		},
+	}); err != nil {
+		return err
+	}
+	for _, part := range requestedParts(req.GetParts()) {
+		if err := stream.Send(&apiv1.ExportSystemArchiveResponse{
+			Item: &apiv1.ExportSystemArchiveResponse_PartBegin{
+				PartBegin: &apiv1.ArchivePartBegin{Part: part},
+			},
+		}); err != nil {
+			return err
+		}
+		var err error
+		switch part {
+		case archivev1.ArchivePart_INSTRUMENTS:
+			err = s.sendInstrumentPart(ctx, req, stream)
+		case archivev1.ArchivePart_PRICES:
+			err = s.sendPricePart(ctx, stream)
+		case archivev1.ArchivePart_CORPORATE_EVENTS:
+			err = s.sendCorporateEventPart(ctx, stream)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requestedParts dedupes the menu and puts it in restore order. Order in the
+// document is the order it is applied, so it is the server's to decide and not
+// the caller's to state.
+func requestedParts(req []archivev1.ArchivePart) []archivev1.ArchivePart {
+	seen := make(map[archivev1.ArchivePart]bool, len(req))
+	for _, p := range req {
+		seen[p] = true
+	}
+	var out []archivev1.ArchivePart
+	for _, p := range []archivev1.ArchivePart{
+		archivev1.ArchivePart_INSTRUMENTS,
+		archivev1.ArchivePart_PRICES,
+		archivev1.ArchivePart_CORPORATE_EVENTS,
+	} {
+		if seen[p] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// sendInstrumentPart streams the security master.
+//
+// A derivative names its underlying by identifier rather than nesting it, so a
+// shared underlying appears once and the order the list is written in carries no
+// meaning. The query guarantees every named underlying is itself in the stream,
+// including one the caller's asset-class filter would have excluded.
+func (s *Server) sendInstrumentPart(ctx context.Context, req *apiv1.ExportSystemArchiveRequest, stream apiv1.ApiService_ExportSystemArchiveServer) error {
+	var acStrs []string
+	for _, ac := range req.GetAssetClasses() {
+		acStrs = append(acStrs, db.AssetClassToStr(ac))
+	}
+	rows, err := s.db.ListInstrumentsForExport(ctx, req.GetExchange(), acStrs)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	for _, row := range rows {
+		if err := stream.Send(&apiv1.ExportSystemArchiveResponse{
+			Item: &apiv1.ExportSystemArchiveResponse_Instrument{Instrument: archiveInstrument(row)},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sendPricePart streams one group per instrument.
+//
+// The coverage nested in each group is not derivable from its rows: a span
+// covering dates with no rows records that a provider was asked and had nothing.
+func (s *Server) sendPricePart(ctx context.Context, stream apiv1.ApiService_ExportSystemArchiveServer) error {
+	coverage, err := s.db.ListPriceCoverageForExport(ctx)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	rows, err := s.db.ListPricesForExport(ctx)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	for _, g := range priceGroups(rows, coverage) {
+		if err := stream.Send(&apiv1.ExportSystemArchiveResponse{
+			Item: &apiv1.ExportSystemArchiveResponse_PriceGroup{PriceGroup: g},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sendCorporateEventPart streams one group per instrument.
+//
+// The coverage nested in each group is not derivable from its events: events are
+// sparse, so a span holding none of them records that a provider was asked and
+// had nothing, which is a different statement from never having asked.
+func (s *Server) sendCorporateEventPart(ctx context.Context, stream apiv1.ApiService_ExportSystemArchiveServer) error {
+	coverage, err := s.db.ListCorporateEventCoverageForExport(ctx)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	splits, err := s.db.ListStockSplitsForExport(ctx)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	dividends, err := s.db.ListCashDividendsForExport(ctx)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	for _, g := range corporateEventGroups(splits, dividends, coverage) {
+		if err := stream.Send(&apiv1.ExportSystemArchiveResponse{
+			Item: &apiv1.ExportSystemArchiveResponse_CorporateEventGroup{CorporateEventGroup: g},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}

@@ -221,6 +221,18 @@ be lost.
 the archive exists to avoid repeating. An instrument restored with them is
 indistinguishable from a resolved one, and no plugin is called for it.
 
+A system archive carries **every** instrument named by at least one canonical
+identifier: currencies and FX pairs as well as securities, and instruments
+identification has not yet given an asset class to. An unclassified instrument is
+one a price import created before identification reached it, which makes it
+precisely the row a rebuild could not reconstruct from anything else.
+
+Importing an instrument the instance already has -- which every rebuild does, as
+the currency and FX rows are reference data created before any file is read --
+**fills gaps only**. Identifiers the file states and the instrument lacks are
+added, columns still empty are filled, and a value already stored always wins.
+An import therefore cannot rewrite what the importing instance already knew.
+
 **Not carried:** the server UUID, which means nothing in another instance; the
 `exchange` column, which is derived from `exchange_mic` and the identifiers; the
 nested underlying subtree and the joined exchange reference data, both of which

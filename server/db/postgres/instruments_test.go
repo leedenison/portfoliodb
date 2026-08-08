@@ -163,7 +163,8 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport: %v", err)
 	}
-	// XNAS filter: only our Nasdaq STOCK instrument matches (CASH/FX excluded).
+	// XNAS filter: only our Nasdaq STOCK instrument matches. The seeded currency
+	// and FX rows name no exchange, so the filter excludes them.
 	if len(list) != 1 || list[0].ExchangeMIC == nil || *list[0].ExchangeMIC != "XNAS" {
 		var ex string
 		if len(list) > 0 && list[0].ExchangeMIC != nil {
@@ -175,9 +176,10 @@ func TestListInstrumentsForExport_ExchangeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport all: %v", err)
 	}
-	// No filter: CASH/FX excluded, so only our 2 STOCK instruments.
-	if len(listAll) != 2 {
-		t.Fatalf("expected 2 instruments with no filter, got %d", len(listAll))
+	// No filter means everything, so the seeded reference data comes too and the
+	// count is not the interesting thing -- that both exchanges are there is.
+	if len(listAll) <= 2 {
+		t.Fatalf("expected the seeded reference data alongside both stocks, got %d", len(listAll))
 	}
 	var foundNasdaq, foundNYSE bool
 	for _, row := range listAll {
@@ -864,6 +866,15 @@ func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
 		t.Fatalf("ensure option: %v", err)
 	}
 
+	// The recorded output of the identifier lookups, which is what the archive
+	// exists to avoid paying for twice.
+	if err := p.SaveProviderIdentifiers(ctx, underlyingID, []db.ProviderIdentifierInput{
+		{Provider: "eodhd", Type: "EODHD_EXCH_CODE", Value: "US"},
+		{Provider: "openfigi", Type: "FIGI", Domain: "XNAS", Value: "BBG000B9XRY4"},
+	}); err != nil {
+		t.Fatalf("save provider identifiers: %v", err)
+	}
+
 	list, err := p.ListInstrumentsForExport(ctx, "", nil)
 	if err != nil {
 		t.Fatalf("ListInstrumentsForExport: %v", err)
@@ -886,6 +897,9 @@ func TestListInstrumentsForExport_CarriesWhatAFileNeeds(t *testing.T) {
 	}
 	if stock.UnderlyingIdentifierType != nil {
 		t.Fatalf("a non-derivative names no underlying, got %q", *stock.UnderlyingIdentifierType)
+	}
+	if len(stock.ProviderIdentifiers) != 2 {
+		t.Fatalf("provider identifiers not loaded for export: %+v", stock.ProviderIdentifiers)
 	}
 
 	opt := byID[optionID]
@@ -945,5 +959,168 @@ func TestListInstrumentsForExport_PullsInUnderlyingOutsideTheFilter(t *testing.T
 	}
 	if !gotOption || !gotUnderlying {
 		t.Fatalf("expected both the option and its underlying, got option=%v underlying=%v (%d rows)", gotOption, gotUnderlying, len(list))
+	}
+}
+
+// TestListInstrumentsForExport_UnfilteredMeansEverything covers what a rebuild
+// needs rather than what browsing wants. An FX pair is an instrument, and an
+// instrument still waiting for an asset class -- one a price import created
+// before identification reached it -- is exactly the row nothing else could
+// reconstruct. A stated filter still selects a subset.
+func TestListInstrumentsForExport_UnfilteredMeansEverything(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	unclassifiedID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "NOCLASS", Canonical: true}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure unclassified: %v", err)
+	}
+	stockID, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "", "", "",
+		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure stock: %v", err)
+	}
+	// Seeded by migration 002 rather than created here: the FX pairs a rebuild
+	// has to carry are the ones already in the instance.
+	fxID, err := p.FindInstrumentByIdentifier(ctx, "FX_PAIR", "", "EURUSD")
+	if err != nil || fxID == "" {
+		t.Fatalf("find seeded EURUSD: id=%q err=%v", fxID, err)
+	}
+	cashID, err := p.FindInstrumentByIdentifier(ctx, "CURRENCY", "", "USD")
+	if err != nil || cashID == "" {
+		t.Fatalf("find seeded USD: id=%q err=%v", cashID, err)
+	}
+
+	unfiltered, err := p.ListInstrumentsForExport(ctx, "", nil)
+	if err != nil {
+		t.Fatalf("ListInstrumentsForExport: %v", err)
+	}
+	for _, want := range []string{unclassifiedID, stockID, fxID, cashID} {
+		if !containsInstrument(unfiltered, want) {
+			t.Errorf("unfiltered export dropped %s", want)
+		}
+	}
+
+	// A stated filter still narrows, and pulls in nothing it did not ask for.
+	filtered, err := p.ListInstrumentsForExport(ctx, "", []string{"STOCK"})
+	if err != nil {
+		t.Fatalf("ListInstrumentsForExport STOCK: %v", err)
+	}
+	if !containsInstrument(filtered, stockID) {
+		t.Errorf("STOCK filter dropped the stock")
+	}
+	for _, unwanted := range []string{fxID, cashID, unclassifiedID} {
+		if containsInstrument(filtered, unwanted) {
+			t.Errorf("STOCK filter carried %s", unwanted)
+		}
+	}
+}
+
+func containsInstrument(rows []*db.InstrumentRow, id string) bool {
+	for _, r := range rows {
+		if r.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// TestMergeInstrumentFromArchive_FillsGapsWithoutOverwriting covers the
+// collision every rebuild hits: the instance already has the instrument, so the
+// import must add what the file knows and change nothing the instance already
+// knew.
+func TestMergeInstrumentFromArchive_FillsGapsWithoutOverwriting(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	id, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "",
+		[]db.IdentifierInput{{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	validFrom := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
+	err = p.MergeInstrumentFromArchive(ctx, id, db.InstrumentMerge{
+		AssetClass:  "STOCK",
+		ExchangeMIC: "XNAS",
+		Currency:    "EUR", // already USD: the stored value wins
+		CIK:         "0000320193",
+		SICCode:     "3571",
+		ValidFrom:   &validFrom,
+		Identifiers: []db.IdentifierInput{
+			{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true}, // already held
+			{Type: "ISIN", Value: "US0378331005", Canonical: true},               // new
+		},
+	})
+	if err != nil {
+		t.Fatalf("MergeInstrumentFromArchive: %v", err)
+	}
+
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if row.AssetClass == nil || *row.AssetClass != "STOCK" {
+		t.Errorf("asset_class = %v, want the file's STOCK filled into a NULL", row.AssetClass)
+	}
+	if row.ExchangeMIC == nil || *row.ExchangeMIC != "XNAS" {
+		t.Errorf("exchange_mic = %v", row.ExchangeMIC)
+	}
+	if row.CIK == nil || *row.CIK != "0000320193" || row.SICCode == nil || *row.SICCode != "3571" {
+		t.Errorf("cik/sic_code = %v/%v", row.CIK, row.SICCode)
+	}
+	if row.ValidFrom == nil || !row.ValidFrom.Equal(validFrom) {
+		t.Errorf("valid_from = %v", row.ValidFrom)
+	}
+	// The one the instance already had: a file cannot rewrite it.
+	if row.Currency == nil || *row.Currency != "USD" {
+		t.Errorf("currency = %v, want the stored USD to survive the file's EUR", row.Currency)
+	}
+	if len(row.Identifiers) != 2 {
+		t.Fatalf("expected the held identifier plus the new one, got %+v", row.Identifiers)
+	}
+}
+
+// The collision a rebuild actually hits: migration 002 already seeded this row,
+// so the import must leave its reference data alone while attaching what the
+// lookups produced.
+func TestMergeInstrumentFromArchive_LeavesSeededReferenceDataAlone(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	id, err := p.FindInstrumentByIdentifier(ctx, "CURRENCY", "", "USD")
+	if err != nil || id == "" {
+		t.Fatalf("find seeded USD: id=%q err=%v", id, err)
+	}
+	before, err := p.GetInstrument(ctx, id)
+	if err != nil || before == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+
+	if err := p.MergeInstrumentFromArchive(ctx, id, db.InstrumentMerge{
+		AssetClass:  "STOCK", // wrong on purpose
+		Currency:    "EUR",   // wrong on purpose
+		CIK:         "0000000001",
+		Identifiers: []db.IdentifierInput{{Type: "CURRENCY", Value: "USD", Canonical: true}},
+	}); err != nil {
+		t.Fatalf("MergeInstrumentFromArchive: %v", err)
+	}
+
+	after, err := p.GetInstrument(ctx, id)
+	if err != nil || after == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if *after.AssetClass != *before.AssetClass || *after.Currency != *before.Currency {
+		t.Fatalf("seeded reference data was rewritten: %v/%v -> %v/%v",
+			*before.AssetClass, *before.Currency, *after.AssetClass, *after.Currency)
+	}
+	if after.Name == nil || before.Name == nil || *after.Name != *before.Name {
+		t.Fatalf("seeded name changed: %v -> %v", before.Name, after.Name)
+	}
+	// A column the seed left empty is still fillable.
+	if after.CIK == nil || *after.CIK != "0000000001" {
+		t.Errorf("cik = %v, want the gap filled", after.CIK)
+	}
+	if len(after.Identifiers) != len(before.Identifiers) {
+		t.Errorf("identifier count %d -> %d: an identifier already held was duplicated",
+			len(before.Identifiers), len(after.Identifiers))
 	}
 }

@@ -397,6 +397,20 @@ type ProviderIdentifierInput struct {
 	Value    string
 }
 
+// InstrumentMerge is what an archive file says about an instrument, for filling
+// in gaps in one that already exists. Every field is what the file carries; the
+// merge never overwrites a value already stored.
+type InstrumentMerge struct {
+	AssetClass  string
+	ExchangeMIC string
+	Currency    string
+	CIK         string
+	SICCode     string
+	ValidFrom   *time.Time
+	ValidBefore *time.Time
+	Identifiers []IdentifierInput
+}
+
 // OptionFields carries denormalized OCC components for option instruments.
 // Nil when the instrument is not an option.
 type OptionFields struct {
@@ -790,10 +804,11 @@ type InstrumentDB interface {
 	// identifier with canonical = true, plus the underlying of every derivative
 	// among them whether or not the filters would have selected it -- an archive
 	// naming an underlying it does not carry is invalid. If assetClasses is
-	// non-empty, filter to those classes; otherwise exclude CASH and FX
-	// (reference data). If exchangeFilter != "", filter by
-	// instruments.exchange_mic. Rows carry every column a file needs, including
-	// the underlying's own identifier triple. Order by instruments.id.
+	// non-empty, filter to those classes; otherwise return every class,
+	// including CASH, FX and the not-yet-classified, which is what a rebuild
+	// needs. If exchangeFilter != "", filter by instruments.exchange_mic. Rows
+	// carry every column a file needs, including the underlying's own identifier
+	// triple. Order by instruments.id.
 	ListInstrumentsForExport(ctx context.Context, exchangeFilter string, assetClasses []string) ([]*InstrumentRow, error)
 	// ValidateMIC checks whether the given MIC code exists in the exchanges reference table.
 	ValidateMIC(ctx context.Context, mic string) (bool, error)
@@ -811,6 +826,12 @@ type InstrumentDB interface {
 	DeleteInstrumentIdentifiersByType(ctx context.Context, instrumentID, identifierType string) error
 	// InsertInstrumentIdentifier inserts a single identifier row.
 	InsertInstrumentIdentifier(ctx context.Context, instrumentID string, input IdentifierInput) error
+	// MergeInstrumentFromArchive fills in what an existing instrument does not
+	// already have: identifiers it lacks, and columns that are still NULL. A
+	// stored value always wins, so importing a file cannot rewrite reference
+	// data the instance already had -- the seeded currency and FX rows above
+	// all. Identifiers that conflict are skipped rather than failing the merge.
+	MergeInstrumentFromArchive(ctx context.Context, instrumentID string, in InstrumentMerge) error
 	// UpdateInstrumentStrike updates the strike on an existing option instrument.
 	UpdateInstrumentStrike(ctx context.Context, instrumentID string, strike decimal.Decimal) error
 	// UpdateInstrumentName updates the name on an existing instrument.

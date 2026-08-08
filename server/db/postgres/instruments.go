@@ -294,12 +294,21 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 	var irows []instrumentRow
 	var err error
 
-	// The filter selects what was asked for; the union adds the underlying of
-	// every derivative it matched, whether or not the filter would have. A file
-	// names an underlying by identifier and the archive requires that instrument
-	// to appear in the same part, so an OPTION exported without its STOCK is not
-	// a partial export but an invalid one. An asset-class filter of {OPTION} is
-	// the ordinary way to hit that.
+	// No asset-class filter means every instrument, which is what a rebuild
+	// needs: FX pairs are instruments, and an instrument whose asset_class is
+	// still NULL -- created by a price import before identification classified
+	// it -- is precisely the one nothing else could reconstruct. A stated filter
+	// selects a subset instead.
+	//
+	// Either way the union adds the underlying of every derivative matched,
+	// whether or not the filter would have. A file names an underlying by
+	// identifier and the archive requires that instrument to appear in the same
+	// part, so an OPTION exported without its STOCK is not a partial export but
+	// an invalid one. An asset-class filter of {OPTION} is the ordinary way to
+	// hit that.
+	//
+	// The canonical-identifier guard stays: an instrument no canonical
+	// identifier names cannot be written to a file at all.
 	matched := `
 		SELECT i.id
 		FROM instruments i
@@ -312,8 +321,6 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 		matched += fmt.Sprintf("\n\t\t\tAND i.asset_class = ANY($%d)", argN)
 		args = append(args, pq.Array(assetClasses))
 		argN++
-	} else {
-		matched += "\n\t\t\tAND i.asset_class NOT IN ('CASH', 'FX')"
 	}
 	if exchangeFilter != "" {
 		matched += fmt.Sprintf("\n\t\t\tAND i.exchange_mic = $%d", argN)
@@ -710,6 +717,69 @@ func (p *Postgres) InsertInstrumentIdentifier(ctx context.Context, instrumentID 
 		return fmt.Errorf("insert instrument identifier: %w", err)
 	}
 	return nil
+}
+
+// MergeInstrumentFromArchive implements db.InstrumentDB.
+//
+// A file importing onto an instrument that already exists must not rewrite it:
+// the target's own reference data is at least as good as the file's, and the
+// seeded currency and FX rows are the collision every rebuild hits. So this
+// fills gaps only -- identifiers the row lacks, and columns still NULL.
+//
+// ON CONFLICT DO NOTHING is right rather than lax. EnsureInstrument has already
+// looked up every identifier the file states and eagerly merged when two of them
+// named different instruments, so a conflict surviving to here names this same
+// row.
+//
+// name is deliberately not merged: recompute_instrument_name derives it from the
+// identifiers, and the archive treats it as advisory for that reason.
+func (p *Postgres) MergeInstrumentFromArchive(ctx context.Context, instrumentID string, in db.InstrumentMerge) error {
+	uid, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("merge instrument: invalid id: %w", err)
+	}
+	mic := p.normalizeToOperatingMIC(ctx, in.ExchangeMIC)
+	idns := make([]db.IdentifierInput, len(in.Identifiers))
+	copy(idns, in.Identifiers)
+	for i := range idns {
+		if idns[i].Type == "MIC_TICKER" && idns[i].Domain != "" {
+			idns[i].Domain = p.normalizeToOperatingMIC(ctx, idns[i].Domain)
+		}
+	}
+	return p.runInTx(ctx, func(exec queryable) error {
+		for _, idn := range idns {
+			_, err := exec.ExecContext(ctx, `
+				INSERT INTO instrument_identifiers (instrument_id, identifier_type, domain, value, canonical)
+				VALUES ($1, $2, $3, $4, $5)
+				ON CONFLICT DO NOTHING
+			`, uid, idn.Type, nullStr(idn.Domain), idn.Value, idn.Canonical)
+			if err != nil {
+				return fmt.Errorf("merge identifier (%s/%s): %w", idn.Type, idn.Value, err)
+			}
+		}
+		// The WHERE guard leaves a row that needs nothing unwritten, which keeps
+		// naming exchange_mic in the SET list from firing the name recompute on
+		// every instrument in the file.
+		_, err := exec.ExecContext(ctx, `
+			UPDATE instruments SET
+				asset_class = COALESCE(asset_class, $2),
+				exchange_mic = COALESCE(exchange_mic, $3),
+				currency = COALESCE(currency, $4),
+				cik = COALESCE(cik, $5),
+				sic_code = COALESCE(sic_code, $6),
+				valid_from = COALESCE(valid_from, $7),
+				valid_before = COALESCE(valid_before, $8)
+			WHERE id = $1
+			  AND (asset_class IS NULL OR exchange_mic IS NULL OR currency IS NULL
+			       OR cik IS NULL OR sic_code IS NULL
+			       OR valid_from IS NULL OR valid_before IS NULL)
+		`, uid, nullStr(in.AssetClass), nullStr(mic), nullStr(in.Currency),
+			nullStr(in.CIK), nullStr(in.SICCode), nullTime(in.ValidFrom), nullTime(in.ValidBefore))
+		if err != nil {
+			return fmt.Errorf("merge instrument columns: %w", err)
+		}
+		return nil
+	})
 }
 
 // UpdateInstrumentStrike implements db.InstrumentDB.

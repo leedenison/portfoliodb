@@ -63,17 +63,30 @@ func archiveInstrument(row *db.InstrumentRow) *archivev1.Instrument {
 			Canonical: idn.Canonical,
 		})
 	}
+	// The recorded output of the identifier lookups. Carrying them is the point
+	// of the archive: a restored instrument the fetchers can address by the
+	// provider's own identifier costs no second lookup.
+	providerIdentifiers := make([]*archivev1.ProviderIdentifier, 0, len(row.ProviderIdentifiers))
+	for _, pi := range row.ProviderIdentifiers {
+		providerIdentifiers = append(providerIdentifiers, &archivev1.ProviderIdentifier{
+			Provider:       pi.Provider,
+			IdentifierType: pi.Type,
+			Value:          pi.Value,
+			Domain:         pi.Domain,
+		})
+	}
 	out := &archivev1.Instrument{
-		Name:        optStr(row.Name),
-		ExchangeMic: optStr(row.ExchangeMIC),
-		Identifiers: identifiers,
-		Cik:         optStr(row.CIK),
-		SicCode:     optStr(row.SICCode),
-		ValidFrom:   optDate(row.ValidFrom),
-		ValidBefore: optDate(row.ValidBefore),
-		Strike:      decStrPtr(row.Strike),
-		Expiry:      optDate(row.Expiry),
-		PutCall:     optStr(row.PutCall),
+		Name:                optStr(row.Name),
+		ExchangeMic:         optStr(row.ExchangeMIC),
+		Identifiers:         identifiers,
+		ProviderIdentifiers: providerIdentifiers,
+		Cik:                 optStr(row.CIK),
+		SicCode:             optStr(row.SICCode),
+		ValidFrom:           optDate(row.ValidFrom),
+		ValidBefore:         optDate(row.ValidBefore),
+		Strike:              decStrPtr(row.Strike),
+		Expiry:              optDate(row.Expiry),
+		PutCall:             optStr(row.PutCall),
 	}
 	if row.AssetClass != nil {
 		out.AssetClass = db.StrToAssetClass(*row.AssetClass)

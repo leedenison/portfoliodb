@@ -229,6 +229,39 @@ func TestExportSystemArchive_Instruments_CarriesWhatNothingRecomputes(t *testing
 	}
 }
 
+// The recorded output of the identifier lookups is the reason the archive
+// exists, so an export that dropped it would make a rebuild pay for those
+// lookups a second time.
+func TestExportSystemArchive_Instruments_CarriesProviderIdentifiers(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	rows := []*dbpkg.InstrumentRow{
+		{ID: "id-1", AssetClass: strPtr("STOCK"), Currency: strPtr("USD"),
+			ContractMultiplier: decimal.NewFromInt(1),
+			Identifiers:        []dbpkg.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS", Canonical: true}},
+			ProviderIdentifiers: []dbpkg.ProviderIdentifierInput{
+				{Provider: "eodhd", Type: "EODHD_EXCH_CODE", Value: "US"},
+				{Provider: "openfigi", Type: "FIGI", Domain: "XNAS", Value: "BBG000B9XRY4"},
+			}},
+	}
+	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "", []string(nil)).Return(rows, nil)
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportSystemArchive(instrumentExportReq(), stream); err != nil {
+		t.Fatalf("ExportSystemArchive: %v", err)
+	}
+	pis := stream.instruments()[0].GetProviderIdentifiers()
+	if len(pis) != 2 {
+		t.Fatalf("expected both provider identifiers, got %v", pis)
+	}
+	if pis[0].GetProvider() != "eodhd" || pis[0].GetIdentifierType() != "EODHD_EXCH_CODE" || pis[0].GetValue() != "US" {
+		t.Fatalf("first provider identifier = %v", pis[0])
+	}
+	// The provider's own vocabulary, and the domain that scopes it: an
+	// unscoped FIGI addresses a different instrument from a scoped one.
+	if pis[1].GetDomain() != "XNAS" || pis[1].GetValue() != "BBG000B9XRY4" {
+		t.Fatalf("second provider identifier = %v", pis[1])
+	}
+}
+
 func TestExportSystemArchive_Instruments_WithExchangeFilter(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "XNAS", []string(nil)).Return(nil, nil)

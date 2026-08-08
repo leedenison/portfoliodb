@@ -118,9 +118,9 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 type importInstKey struct{ typ, value, domain string }
 
 // ensureArchiveInstrument ensures one archive instrument, restoring the values
-// nothing recomputes: the option terms, the deliverable multiplier and the
-// identity vintage. It returns "" when it reported a problem rather than storing
-// anything.
+// nothing recomputes: the option terms, the deliverable multiplier, the identity
+// vintage and the provider identifiers the lookups produced. It returns "" when
+// it reported a problem rather than storing anything.
 func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev1.Instrument,
 	underlyingID string, i int, seenKeys map[string]struct{}, rep *PartReporter) string {
 	fail := func(msg string) string {
@@ -150,6 +150,26 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 	if err != nil {
 		return fail(err.Error())
 	}
+	// EnsureInstrument matched rather than created whenever the instance already
+	// knew the instrument, and a match sets the underlying and the option terms
+	// and nothing else. A rebuild hits that on every currency and FX pair, which
+	// migration 002 seeds. The merge fills the gaps the match left; it does not
+	// overwrite, and on a row just created there is nothing to fill.
+	if err := database.MergeInstrumentFromArchive(ctx, id, db.InstrumentMerge{
+		AssetClass:  db.AssetClassToStr(inst.GetAssetClass()),
+		ExchangeMIC: inst.GetExchangeMic(),
+		Currency:    inst.GetCurrency(),
+		CIK:         inst.GetCik(),
+		SICCode:     inst.GetSicCode(),
+		ValidFrom:   archiveDate(inst.ValidFrom),
+		ValidBefore: archiveDate(inst.ValidBefore),
+		Identifiers: idns,
+	}); err != nil {
+		return fail(err.Error())
+	}
+	if err := restoreProviderIdentifiers(ctx, database, id, inst.GetProviderIdentifiers()); err != nil {
+		return fail("provider_identifiers: " + err.Error())
+	}
 	if inst.ContractMultiplier != nil {
 		m, err := decimal.NewFromString(inst.GetContractMultiplier())
 		if err != nil {
@@ -163,6 +183,30 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 		return fail("identity_as_of: " + err.Error())
 	}
 	return id
+}
+
+// restoreProviderIdentifiers writes the recorded output of the identifier
+// lookups straight onto the imported instrument. This is what the archive exists
+// for: the fetchers address an instrument by the provider's own identifier, so
+// an instrument restored with them is indistinguishable from a resolved one and
+// no plugin is called for it.
+//
+// SaveProviderIdentifiers ignores conflicts, so importing over an instance that
+// has already resolved the instrument adds nothing and loses nothing.
+func restoreProviderIdentifiers(ctx context.Context, database db.DB, instrumentID string, pis []*archivev1.ProviderIdentifier) error {
+	if len(pis) == 0 {
+		return nil
+	}
+	in := make([]db.ProviderIdentifierInput, 0, len(pis))
+	for _, pi := range pis {
+		in = append(in, db.ProviderIdentifierInput{
+			Provider: pi.GetProvider(),
+			Type:     pi.GetIdentifierType(),
+			Domain:   pi.GetDomain(),
+			Value:    pi.GetValue(),
+		})
+	}
+	return database.SaveProviderIdentifiers(ctx, instrumentID, in)
 }
 
 // restoreIdentityAsOf carries an exported identity_as_of back onto an imported

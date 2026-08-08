@@ -200,6 +200,19 @@ func (p *Postgres) SetJobTotalCount(ctx context.Context, jobID string, total int
 	return nil
 }
 
+// SetJobProcessedCount implements db.JobDB.
+func (p *Postgres) SetJobProcessedCount(ctx context.Context, jobID string, processed int32) error {
+	jobUUID, err := uuid.Parse(jobID)
+	if err != nil {
+		return fmt.Errorf("invalid job id: %w", err)
+	}
+	_, err = p.q.ExecContext(ctx, `UPDATE ingestion_jobs SET processed_count = $2 WHERE id = $1`, jobUUID, processed)
+	if err != nil {
+		return fmt.Errorf("set job processed count: %w", err)
+	}
+	return nil
+}
+
 // IncrJobProcessedCount implements db.JobDB.
 func (p *Postgres) IncrJobProcessedCount(ctx context.Context, jobID string) error {
 	jobUUID, err := uuid.Parse(jobID)

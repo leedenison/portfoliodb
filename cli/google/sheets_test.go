@@ -1,12 +1,11 @@
 package main
 
 import (
-	"encoding/json"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"os"
 	"path/filepath"
 	"testing"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 )
 
 func TestParseHeader(t *testing.T) {
@@ -110,15 +109,15 @@ func TestCellString(t *testing.T) {
 	row := []any{"hello", 42.0, 3.14, nil}
 
 	tests := []struct {
-		col     int
-		want    string
-		wantOK  bool
+		col    int
+		want   string
+		wantOK bool
 	}{
 		{0, "hello", true},
-		{1, "42", true},      // integer-valued float
-		{2, "3.14", true},    // fractional float
-		{3, "", false},       // nil cell
-		{4, "", false},       // out of bounds
+		{1, "42", true},   // integer-valued float
+		{2, "3.14", true}, // fractional float
+		{3, "", false},    // nil cell
+		{4, "", false},    // out of bounds
 	}
 	for _, tc := range tests {
 		got, ok := cellString(row, tc.col)
@@ -147,33 +146,41 @@ func TestParseOutputData(t *testing.T) {
 		{"2024-01-04", 187.0, "", "", "", ""},
 	}
 
-	prices, _ := parseOutputData(data)
+	groups, _ := parseOutputData(data)
 
-	stockCount, fxCount := 0, 0
-	for _, p := range prices {
-		switch p.GetIdentifierType() {
-		case "MIC_TICKER":
-			stockCount++
-		case "FX_PAIR":
-			fxCount++
-		}
+	// One group per column pair, and the all-#N/A column produces none.
+	if len(groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(groups))
 	}
-	if stockCount != 3 { // rows 2,3,4
-		t.Fatalf("expected 3 stock prices, got %d", stockCount)
+	stock, fx := groups[0], groups[1]
+	if stock.GetInstrument().GetType() != typev1.IdentifierType_MIC_TICKER {
+		t.Fatalf("expected MIC_TICKER, got %s", stock.GetInstrument().GetType())
 	}
-	if fxCount != 2 { // rows 2,3
-		t.Fatalf("expected 2 FX prices, got %d", fxCount)
+	if fx.GetInstrument().GetType() != typev1.IdentifierType_FX_PAIR {
+		t.Fatalf("expected FX_PAIR, got %s", fx.GetInstrument().GetType())
+	}
+	if len(stock.GetRows()) != 3 { // rows 2,3,4
+		t.Fatalf("expected 3 stock prices, got %d", len(stock.GetRows()))
+	}
+	if len(fx.GetRows()) != 2 { // rows 2,3
+		t.Fatalf("expected 2 FX prices, got %d", len(fx.GetRows()))
 	}
 
 	// Verify first stock price (row 2, after skipping Date/Close header).
-	if prices[0].GetPriceDate() != "2024-01-02" {
-		t.Fatalf("expected date 2024-01-02, got %s", prices[0].GetPriceDate())
+	row := stock.GetRows()[0]
+	if row.GetPriceDate() != "2024-01-02" {
+		t.Fatalf("expected date 2024-01-02, got %s", row.GetPriceDate())
 	}
-	if prices[0].GetClose() != "185.5" {
-		t.Fatalf("expected close 185.5, got %v", prices[0].GetClose())
+	if row.GetClose() != "185.5" {
+		t.Fatalf("expected close 185.5, got %v", row.GetClose())
 	}
-	if prices[0].GetAssetClass() != typev1.AssetClass_STOCK {
-		t.Fatalf("expected STOCK, got %s", prices[0].GetAssetClass())
+	if stock.GetAssetClass() != typev1.AssetClass_STOCK {
+		t.Fatalf("expected STOCK, got %s", stock.GetAssetClass())
+	}
+	// GOOGLEFINANCE back-adjusts, so every bar says which share count it is
+	// denominated in. Silence would read as as-traded and be adjusted twice.
+	if row.ShareCountBasis == nil {
+		t.Fatal("expected a share_count_basis on every bar")
 	}
 }
 
@@ -183,9 +190,9 @@ func TestParseOutputData_AllNA(t *testing.T) {
 		{"MIC_TICKER|XNAS|AAPL|STOCK", ""},
 		{"#N/A", ""},
 	}
-	prices, _ := parseOutputData(data)
-	if len(prices) != 0 {
-		t.Fatalf("expected 0 prices for all-#N/A range, got %d", len(prices))
+	groups, _ := parseOutputData(data)
+	if len(groups) != 0 {
+		t.Fatalf("expected 0 groups for all-#N/A range, got %d", len(groups))
 	}
 }
 
@@ -225,21 +232,25 @@ func TestStateCacheMissing(t *testing.T) {
 	}
 }
 
-func TestImportPriceRowSerialization(t *testing.T) {
-	// Verify that the proto fields we set are accessible.
-	row := &apiv1.ImportPriceRow{
-		IdentifierType:   "MIC_TICKER",
-		IdentifierValue:  "AAPL",
-		IdentifierDomain: "XNAS",
-		PriceDate:        "2024-01-15",
-		Close:            "185.5",
-		AssetClass:       typev1.AssetClass_STOCK,
+// Coverage arrives keyed by instrument and has to land on the matching group:
+// an archive states a span inside the group it applies to, and a span that
+// misses its group would leave the non-trading days inside it unpriced.
+func TestAttachCoverage(t *testing.T) {
+	groups := []*archivev1.PriceGroup{
+		{Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"}},
+		{Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_FX_PAIR, Value: "GBPUSD"}},
 	}
-	data, err := json.Marshal(row)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
+	attachCoverage(groups, map[instKey][]*archivev1.DateInterval{
+		{"MIC_TICKER", "AAPL", "XNAS"}: {{From: "2024-01-01", Before: "2024-02-01"}},
+	})
+
+	if len(groups[0].GetCoverage()) != 1 {
+		t.Fatalf("expected the AAPL group to carry 1 span, got %d", len(groups[0].GetCoverage()))
 	}
-	if len(data) == 0 {
-		t.Fatal("empty serialization")
+	if groups[0].GetCoverage()[0].GetBefore() != "2024-02-01" {
+		t.Fatalf("got span before %q", groups[0].GetCoverage()[0].GetBefore())
+	}
+	if len(groups[1].GetCoverage()) != 0 {
+		t.Fatalf("expected the unmatched group to carry no spans, got %d", len(groups[1].GetCoverage()))
 	}
 }

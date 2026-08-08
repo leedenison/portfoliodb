@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/app/components/modal";
 import { ErrorAlert } from "@/app/components/error-alert";
-import { csvToPrices } from "@/lib/csv/prices";
+import { archiveErrorMessage, unmarshalAdmin } from "@/lib/archive/codec";
 import { importPrices, getJob } from "@/lib/portfolio-api";
 import { JobStatus } from "@/gen/api/v1/api_pb";
-import type { PriceParseResult } from "@/lib/csv/prices";
+import type { AdminArchive } from "@/gen/archive/v1/archive_pb";
 import type { GetJobResult } from "@/lib/portfolio-api";
 
 type Phase = "idle" | "preview" | "processing" | "result";
@@ -21,7 +21,8 @@ export function ImportPricesModal({
   onComplete?: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
-  const [parseResult, setParseResult] = useState<PriceParseResult | null>(null);
+  const [archive, setArchive] = useState<AdminArchive | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<GetJobResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -31,7 +32,8 @@ export function ImportPricesModal({
 
   function reset() {
     setPhase("idle");
-    setParseResult(null);
+    setArchive(null);
+    setParseError(null);
     setJobId(null);
     setJobStatus(null);
     setImportError(null);
@@ -56,25 +58,40 @@ export function ImportPricesModal({
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
-      const result = csvToPrices(text);
-      setParseResult(result);
+      try {
+        const parsed = unmarshalAdmin(text);
+        // Only the price part is applied. The other sections have no importer
+        // yet, and a file carrying them is still a valid archive.
+        if (parsed.instruments || parsed.corporateEvents) {
+          console.warn("unimplemented: this archive carries instruments or corporate events, which the price import ignores");
+        }
+        setArchive(parsed);
+        setParseError(null);
+      } catch (err) {
+        setArchive(null);
+        setParseError(archiveErrorMessage(err));
+      }
       setPhase("preview");
     };
     reader.readAsText(file);
   }
 
   async function handleImport() {
-    if (!parseResult) return;
+    if (!archive?.envelope || !archive.prices) return;
     setPhase("processing");
     setImportError(null);
     try {
-      const id = await importPrices(parseResult.prices, parseResult.exportedAt, parseResult.coverage);
+      const id = await importPrices(archive.envelope, archive.prices);
       setJobId(id);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
       setPhase("preview");
     }
   }
+
+  const groups = archive?.prices?.groups ?? [];
+  const rowCount = groups.reduce((n, g) => n + g.rows.length, 0);
+  const spanCount = groups.reduce((n, g) => n + g.coverage.length, 0);
 
   // Poll job status.
   useEffect(() => {
@@ -117,15 +134,15 @@ export function ImportPricesModal({
         {phase === "idle" && (
           <div className="space-y-3">
             <p className="text-sm text-text-muted">
-              Select a CSV file to import prices.
+              Select an archive file to import prices.
             </p>
             <input
               ref={fileRef}
               type="file"
-              accept=".csv"
+              accept=".json,application/json"
               onChange={handleFileChange}
               className="sr-only"
-              aria-label="Choose CSV file"
+              aria-label="Choose archive file"
             />
             <button
               type="button"
@@ -150,49 +167,25 @@ export function ImportPricesModal({
           </div>
         )}
 
-        {phase === "preview" && parseResult && (
+        {phase === "preview" && (
           <div className="space-y-4">
-            {parseResult.errors.length > 0 ? (
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-text-primary">
-                  Parse errors ({parseResult.errors.length})
-                </p>
-                <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-surface">
-                  <table className="w-full border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-border bg-primary-dark/3">
-                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Row</th>
-                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Field</th>
-                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Error</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {parseResult.errors.map((e, i) => (
-                        <tr key={i} className="border-b border-border/40 last:border-0">
-                          <td className="px-3 py-1.5 font-mono text-text-muted">{e.rowIndex}</td>
-                          <td className="px-3 py-1.5 font-mono text-text-primary">{e.field}</td>
-                          <td className="px-3 py-1.5 text-accent-dark">{e.message}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {parseResult.prices.length > 0 && (
-                  <p className="text-xs text-text-muted">
-                    {parseResult.prices.length} price{parseResult.prices.length !== 1 ? "s" : ""} parsed successfully (with errors above).
-                  </p>
-                )}
-              </div>
+            {/* Whether the file is a valid archive is settled here, all or
+                nothing. Whether its instruments resolve against this instance
+                is a separate question the job answers per group. */}
+            {parseError ? (
+              <ErrorAlert>{parseError}</ErrorAlert>
             ) : (
               <p className="text-sm text-text-primary">
                 Ready to import{" "}
-                <span className="font-semibold">{parseResult.prices.length}</span>{" "}
-                price{parseResult.prices.length !== 1 ? "s" : ""}
-                {parseResult.coverage.length > 0 && (
+                <span className="font-semibold">{rowCount.toLocaleString()}</span>{" "}
+                price{rowCount !== 1 ? "s" : ""} for{" "}
+                <span className="font-semibold">{groups.length}</span>{" "}
+                instrument{groups.length !== 1 ? "s" : ""}
+                {spanCount > 0 && (
                   <>
                     {" "}with{" "}
-                    <span className="font-semibold">{parseResult.coverage.length}</span>{" "}
-                    coverage span{parseResult.coverage.length !== 1 ? "s" : ""}
+                    <span className="font-semibold">{spanCount}</span>{" "}
+                    coverage span{spanCount !== 1 ? "s" : ""}
                   </>
                 )}
                 .
@@ -205,7 +198,7 @@ export function ImportPricesModal({
               <button
                 type="button"
                 onClick={handleImport}
-                disabled={parseResult.prices.length === 0}
+                disabled={groups.length === 0}
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Import
@@ -273,7 +266,7 @@ export function ImportPricesModal({
                   <table className="w-full border-collapse text-xs">
                     <thead>
                       <tr className="border-b border-border bg-primary-dark/3">
-                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Row</th>
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Group</th>
                         <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Field</th>
                         <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Error</th>
                       </tr>

@@ -11,11 +11,15 @@ import (
 	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/archive"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -159,8 +163,8 @@ func writeInputTab(ctx context.Context, srv *sheets.Service, ssID string, inputS
 		Requests: []*sheets.Request{
 			{
 				UpdateCells: &sheets.UpdateCellsRequest{
-					Start: &sheets.GridCoordinate{SheetId: sheetID, RowIndex: 0, ColumnIndex: 0},
-					Rows:  rows,
+					Start:  &sheets.GridCoordinate{SheetId: sheetID, RowIndex: 0, ColumnIndex: 0},
+					Rows:   rows,
 					Fields: "userEnteredValue",
 				},
 			},
@@ -176,8 +180,8 @@ func clearOutputTab(ctx context.Context, srv *sheets.Service, ssID string) error
 }
 
 // readOutputTab reads all values from the Output tab and parses them into
-// ImportPriceRow messages.
-func readOutputTab(ctx context.Context, srv *sheets.Service, ssID string) ([]*apiv1.ImportPriceRow, []string, error) {
+// archive price groups.
+func readOutputTab(ctx context.Context, srv *sheets.Service, ssID string) ([]*archivev1.PriceGroup, []string, error) {
 	resp, err := srv.Spreadsheets.Values.Get(ssID, outputTab).Context(ctx).Do()
 	if err != nil {
 		return nil, nil, fmt.Errorf("read Output tab: %w", err)
@@ -196,19 +200,28 @@ func readOutputTab(ctx context.Context, srv *sheets.Service, ssID string) ([]*ap
 // parseOutputValues extracts prices from a 2D cell grid (as returned by the
 // Sheets API). Each column pair has a header in row 0 encoding
 // "type|domain|value|asset_class", followed by rows of (date, close).
-func parseOutputValues(values [][]any) ([]*apiv1.ImportPriceRow, []string, error) {
+func parseOutputValues(values [][]any) ([]*archivev1.PriceGroup, []string, error) {
 	if len(values) < 2 {
 		return nil, nil, fmt.Errorf("Output tab is empty; open the spreadsheet, wait for formulas to evaluate, then copy-paste the Input tab values to the Output tab (Ctrl+Shift+V to paste as values)")
 	}
-	prices, warnings := parseOutputData(values)
-	return prices, warnings, nil
+	groups, warnings := parseOutputData(values)
+	return groups, warnings, nil
 }
 
-// parseOutputData does the actual cell-by-cell parsing. Returned warnings are
-// collected via the second return value of the caller; here we just skip bad rows.
-func parseOutputData(values [][]any) ([]*apiv1.ImportPriceRow, []string) {
-	var prices []*apiv1.ImportPriceRow
+// parseOutputData does the actual cell-by-cell parsing. Each column pair is one
+// instrument, which is one archive group. Returned warnings are collected via
+// the second return value of the caller; here we just skip bad rows.
+//
+// GOOGLEFINANCE returns split-adjusted historical closes, so every bar read here
+// is back-adjusted as of the day it was fetched, and every row says so. Left
+// unsaid, the server would store them as as-traded and RecomputeSplitAdjustments
+// would divide the pre-split ones by the split factor a second time. See
+// docs/issues/0057-price-share-count-basis.md.
+func parseOutputData(values [][]any) ([]*archivev1.PriceGroup, []string) {
+	var groups []*archivev1.PriceGroup
 	var warnings []string
+
+	basis := time.Now().UTC().Format("2006-01-02")
 
 	headers := values[0]
 	debugf("header row has %d cells", len(headers))
@@ -225,7 +238,7 @@ func parseOutputData(values [][]any) ([]*apiv1.ImportPriceRow, []string) {
 			continue
 		}
 
-		colParsed := 0
+		var rows []*archivev1.PriceRow
 		for row := 1; row < len(values); row++ {
 			rowData := values[row]
 			dateStr, ok := cellString(rowData, col)
@@ -240,7 +253,7 @@ func parseOutputData(values [][]any) ([]*apiv1.ImportPriceRow, []string) {
 			if dateStr == "Date" {
 				continue
 			}
-			// Skip error values (#N/A, #ERROR!, etc.) — may occur when the
+			// Skip error values (#N/A, #ERROR!, etc.) -- may occur when the
 			// entire range is non-trading days or the ticker is unrecognised.
 			if strings.HasPrefix(dateStr, "#") || strings.HasPrefix(closeStr, "#") {
 				continue
@@ -248,7 +261,7 @@ func parseOutputData(values [][]any) ([]*apiv1.ImportPriceRow, []string) {
 			priceDate, err := parseDate(dateStr)
 			if err != nil {
 				warnings = append(warnings, fmt.Sprintf("row %d col %d: %v", row+1, col, err))
-				if colParsed == 0 {
+				if len(rows) == 0 {
 					debugf("    row %d: date parse failed: %q", row, dateStr)
 				}
 				continue
@@ -261,24 +274,32 @@ func parseOutputData(values [][]any) ([]*apiv1.ImportPriceRow, []string) {
 				warnings = append(warnings, fmt.Sprintf("row %d col %d: invalid close price %q", row+1, col+1, closeStr))
 				continue
 			}
-			if colParsed == 0 {
+			if len(rows) == 0 {
 				debugf("    row %d: first parsed price: date=%s close=%v", row, priceDate, closeVal)
 			}
-			colParsed++
 
-			prices = append(prices, &apiv1.ImportPriceRow{
-				IdentifierType:   idType,
-				IdentifierValue:  value,
-				IdentifierDomain: domain,
-				PriceDate:        priceDate,
-				Close:            closeVal.String(),
-				AssetClass:       db.StrToAssetClass(assetClass),
+			rows = append(rows, &archivev1.PriceRow{
+				PriceDate:       priceDate,
+				ShareCountBasis: proto.String(basis),
+				Close:           closeVal.String(),
 			})
 		}
-		debugf("    col %d: %d prices parsed", col, colParsed)
+		debugf("    col %d: %d prices parsed", col, len(rows))
+		if len(rows) == 0 {
+			continue
+		}
+		groups = append(groups, &archivev1.PriceGroup{
+			Instrument: &archivev1.InstrumentRef{
+				Type:   typev1.IdentifierType(typev1.IdentifierType_value[idType]),
+				Value:  value,
+				Domain: domain,
+			},
+			AssetClass: db.StrToAssetClass(assetClass),
+			Rows:       rows,
+		})
 	}
 
-	return prices, warnings
+	return groups, warnings
 }
 
 // parseHeader splits a "TYPE|domain|value|ASSET_CLASS" header string.
@@ -358,24 +379,25 @@ func cellString(row []any, col int) (string, bool) {
 	}
 }
 
-// importPrices sends prices to PortfolioDB in batches. Coverage ranges are
-// included with every batch so the server can fill non-trading day gaps.
-func importPrices(ctx context.Context, client apiv1.ApiServiceClient, prices []*apiv1.ImportPriceRow, coverage []*apiv1.ImportCoverage) error {
-	const batchSize = 1000
-	for i := 0; i < len(prices); i += batchSize {
-		end := i + batchSize
-		if end > len(prices) {
-			end = len(prices)
+// importPrices sends the groups to PortfolioDB in batches, splitting on group
+// boundaries so a group's coverage always travels with all of its own bars.
+func importPrices(ctx context.Context, client apiv1.ApiServiceClient, groups []*archivev1.PriceGroup) error {
+	const batchRows = 1000
+	for i := 0; i < len(groups); {
+		rows, end := 0, i
+		for end < len(groups) && (end == i || rows+len(groups[end].GetRows()) <= batchRows) {
+			rows += len(groups[end].GetRows())
+			end++
 		}
-		batch := prices[i:end]
 		resp, err := client.ImportPrices(ctx, &apiv1.ImportPricesRequest{
-			Prices:   batch,
-			Coverage: coverage,
+			Envelope: archive.NewEnvelope("google-finance-cli", archivev1.ArchiveKind_ADMIN),
+			Prices:   &archivev1.PricePart{Groups: groups[i:end]},
 		})
 		if err != nil {
-			return fmt.Errorf("ImportPrices batch %d-%d: %w", i, end-1, err)
+			return fmt.Errorf("ImportPrices groups %d-%d: %w", i, end-1, err)
 		}
-		fmt.Fprintf(os.Stderr, "  Submitted batch %d-%d (job %s)\n", i+1, end, resp.GetJobId())
+		fmt.Fprintf(os.Stderr, "  Submitted %d group(s), %d prices (job %s)\n", end-i, rows, resp.GetJobId())
+		i = end
 	}
 	return nil
 }

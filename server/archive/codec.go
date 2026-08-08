@@ -82,6 +82,27 @@ func NewEnvelope(sourceInstance string, kind archivev1.ArchiveKind) *archivev1.E
 	}
 }
 
+// CheckEnvelope validates an envelope that arrived over the API rather than
+// inside a file. UnmarshalAdmin probes the bytes before parsing them, but an
+// RPC carrying an already-parsed envelope has no bytes to probe, and the two
+// refusals -- a file from a later PortfolioDB, a file handed to the wrong
+// importer -- have to happen either way.
+func CheckEnvelope(e *archivev1.Envelope, want archivev1.ArchiveKind) error {
+	if e == nil {
+		return errors.New("archive has no envelope")
+	}
+	if e.GetFormatVersion() == 0 {
+		return errors.New("archive has no format_version")
+	}
+	if e.GetFormatVersion() > FormatVersion {
+		return &VersionError{Got: e.GetFormatVersion(), Supports: FormatVersion}
+	}
+	if e.GetKind() != want {
+		return &KindError{Got: e.GetKind(), Want: want}
+	}
+	return nil
+}
+
 // MarshalAdmin writes an admin archive. It stamps the envelope's format_version
 // and kind itself, so a caller cannot write a document that misdescribes itself.
 func MarshalAdmin(a *archivev1.AdminArchive) ([]byte, error) {

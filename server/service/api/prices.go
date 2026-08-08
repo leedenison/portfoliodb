@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
@@ -193,15 +194,23 @@ func priceRow(r db.ExportPriceRow) *archivev1.PriceRow {
 	return row
 }
 
-// ImportPrices creates an async job to upsert EOD prices. Admin only.
-// The serialized request is persisted to the DB and processed by the worker.
+// ImportPrices creates an async job to upsert the price part of an admin
+// archive. Admin only. The serialized request is persisted to the DB and
+// processed by the worker.
 func (s *Server) ImportPrices(ctx context.Context, req *apiv1.ImportPricesRequest) (*apiv1.ImportPricesResponse, error) {
 	u, authErr := auth.RequireAdmin(ctx)
 	if authErr != nil {
 		return nil, authErr
 	}
-	if len(req.GetPrices()) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "no prices provided")
+	if err := archive.CheckEnvelope(req.GetEnvelope(), archivev1.ArchiveKind_ADMIN); err != nil {
+		var ve *archive.VersionError
+		if errors.As(err, &ve) {
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
+		}
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if len(req.GetPrices().GetGroups()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "no price groups provided")
 	}
 	payload, err := proto.Marshal(req)
 	if err != nil {

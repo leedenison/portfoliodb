@@ -725,64 +725,17 @@ message ExportPricesResponse {
   }
 }
 
-// ImportPriceRow is one price row to import. When the instrument is unknown, asset_class
-// is used as the security type hint for identifier plugin routing. When UNSPECIFIED, plugins
-// are skipped and the instrument is created with just the supplied identifier.
-message ImportPriceRow {
-  string identifier_type = 1;
-  string identifier_value = 2;
-  string identifier_domain = 3;
-  string price_date = 4;
-  // OHLC are decimal strings in the instrument's own currency. ImportPrices is
-  // unary, so these patterns are enforced at the validating interceptor.
-  optional string open = 5 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  optional string high = 6 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  optional string low = 7 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  string close = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  optional string adjusted_close = 9 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  optional int64 volume = 10;
-  portfoliodb.type.v1.AssetClass asset_class = 11;   // optional; security type hint for plugin routing on unknown instruments
-  string currency = 12;          // optional; ISO 4217 currency code used as hint for validation
-  // The share count these raw values are denominated in, as "YYYY-MM-DD".
-  // Optional; defaults to price_date, meaning the row is as-traded. Set it only
-  // when the file holds a back-adjusted series, in which case it is the date the
-  // provider adjusted to. See docs/spec/bitemporality.md.
-  string share_count_basis = 13;
-}
-
+// ImportPricesRequest carries one archive's price part. The envelope is the
+// file's own, forwarded rather than rebuilt, so the server sees the
+// format_version and the kind the file declared rather than what the uploading
+// client assumed.
 message ImportPricesRequest {
-  repeated ImportPriceRow prices = 1;
-  // Optional coverage ranges. When set for an instrument, the server records
-  // the range as covered, so valuation carries prices forward across
-  // non-trading days within it. When absent, each row covers only its own date
-  // and gaps between rows stay gaps.
-  repeated ImportCoverage coverage = 2;
-  // Knowledge time: when the supplied data was current. OCC symbols are
-  // split-adjusted to this point during instrument resolution, and imported
-  // rows record it as last_fetched_at. It does not determine which share count
-  // the prices are denominated in -- that is ImportPriceRow.share_count_basis.
-  google.protobuf.Timestamp exported_at = 3;
-}
-
-// ImportCoverage declares that the caller has authoritative coverage of a
-// half-open [from, before) date range for an instrument. The server stores it,
-// so the range is not re-fetched and prices carry forward across non-trading
-// days inside it.
-message ImportCoverage {
-  string identifier_type = 1;
-  string identifier_value = 2;
-  string identifier_domain = 3;
-  string from = 4;   // YYYY-MM-DD, inclusive
-  string before = 5; // YYYY-MM-DD, exclusive
+  portfoliodb.archive.v1.Envelope envelope = 1 [(buf.validate.field).required = true];
+  portfoliodb.archive.v1.PricePart prices = 2 [(buf.validate.field).required = true];
 }
 
 message ImportPricesResponse {
   string job_id = 1;
-}
-
-message ImportPriceError {
-  int32 index = 1;    // index into request.prices
-  string message = 2;
 }
 
 // GetPortfolioValuation computes one value per day over the half-open

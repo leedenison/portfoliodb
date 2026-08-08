@@ -13,11 +13,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
-	"path/filepath"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"google.golang.org/api/sheets/v4"
+	"os"
+	"path/filepath"
 )
 
 func main() {
@@ -138,37 +139,40 @@ func runImport(ctx, rpcCtx context.Context, sheetsSrv *sheets.Service, apiClient
 	}
 
 	fmt.Fprintf(os.Stderr, "Reading Output tab from spreadsheet %s...\n", st.SpreadsheetID)
-	prices, warnings, err := readOutputTab(ctx, sheetsSrv, st.SpreadsheetID)
+	groups, warnings, err := readOutputTab(ctx, sheetsSrv, st.SpreadsheetID)
 	if err != nil {
 		fatalf("%v", err)
 	}
 	for _, w := range warnings {
 		fmt.Fprintf(os.Stderr, "  Warning: %s\n", w)
 	}
-	if len(prices) == 0 {
+	if len(groups) == 0 {
 		fatalf("no valid prices found in Output tab")
 	}
 
-	// Count unique instruments.
-	instruments := make(map[string]bool)
-	for _, p := range prices {
-		instruments[p.GetIdentifierType()+"|"+p.GetIdentifierValue()] = true
+	rowCount := 0
+	for _, g := range groups {
+		rowCount += len(g.GetRows())
 	}
-	fmt.Fprintf(os.Stderr, "Parsed %d prices for %d instrument(s).\n", len(prices), len(instruments))
+	fmt.Fprintf(os.Stderr, "Parsed %d prices for %d instrument(s).\n", rowCount, len(groups))
 
-	// Query current price gaps to build coverage ranges for fill.
-	coverage := buildCoverage(rpcCtx, apiClient)
+	// Query current price gaps and attach them as each group's coverage, so the
+	// server fills non-trading day gaps.
+	attachCoverage(groups, buildCoverage(rpcCtx, apiClient))
 
 	fmt.Fprintf(os.Stderr, "Importing prices...\n")
-	if err := importPrices(rpcCtx, apiClient, prices, coverage); err != nil {
+	if err := importPrices(rpcCtx, apiClient, groups); err != nil {
 		fatalf("%v", err)
 	}
-	fmt.Fprintf(os.Stderr, "Done. %d prices submitted for import.\n", len(prices))
+	fmt.Fprintf(os.Stderr, "Done. %d prices submitted for import.\n", rowCount)
 }
 
-// buildCoverage queries ListPriceGaps and converts the gap ranges into
-// ImportCoverage entries so the server fills non-trading day gaps.
-func buildCoverage(rpcCtx context.Context, apiClient apiv1.ApiServiceClient) []*apiv1.ImportCoverage {
+// instKey names an instrument the way an archive file does.
+type instKey struct{ typ, value, domain string }
+
+// buildCoverage queries ListPriceGaps and converts the gap ranges into date
+// intervals, keyed by the instrument they belong to.
+func buildCoverage(rpcCtx context.Context, apiClient apiv1.ApiServiceClient) map[instKey][]*archivev1.DateInterval {
 	resp, err := apiClient.ListPriceGaps(rpcCtx, &apiv1.ListPriceGapsRequest{
 		AssetClasses: []typev1.AssetClass{
 			typev1.AssetClass_STOCK,
@@ -181,23 +185,35 @@ func buildCoverage(rpcCtx context.Context, apiClient apiv1.ApiServiceClient) []*
 		return nil
 	}
 
-	var coverage []*apiv1.ImportCoverage
+	coverage := make(map[instKey][]*archivev1.DateInterval)
+	n := 0
 	for _, gaps := range [][]*apiv1.PriceGap{resp.GetPriceGaps(), resp.GetFxGaps()} {
 		for _, pg := range gaps {
 			ident := pg.GetIdentifier()
+			k := instKey{ident.GetType().String(), ident.GetValue(), ident.GetDomain()}
 			for _, gap := range pg.GetGaps() {
-				coverage = append(coverage, &apiv1.ImportCoverage{
-					IdentifierType:   ident.GetType().String(),
-					IdentifierValue:  ident.GetValue(),
-					IdentifierDomain: ident.GetDomain(),
-					From:             gap.GetFrom(),
-					Before:           gap.GetBefore(),
+				coverage[k] = append(coverage[k], &archivev1.DateInterval{
+					From:   gap.GetFrom(),
+					Before: gap.GetBefore(),
 				})
+				n++
 			}
 		}
 	}
-	debugf("built %d coverage ranges", len(coverage))
+	debugf("built %d coverage ranges", n)
 	return coverage
+}
+
+// attachCoverage moves each instrument's gap ranges onto its own group, which
+// is where an archive states coverage.
+func attachCoverage(groups []*archivev1.PriceGroup, coverage map[instKey][]*archivev1.DateInterval) {
+	for _, g := range groups {
+		ref := g.GetInstrument()
+		k := instKey{ref.GetType().String(), ref.GetValue(), ref.GetDomain()}
+		if spans, ok := coverage[k]; ok {
+			g.Coverage = spans
+		}
+	}
 }
 
 // verbose is set by --verbose / -v.

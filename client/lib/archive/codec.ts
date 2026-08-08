@@ -64,6 +64,25 @@ export class ArchiveKindError extends Error {
   }
 }
 
+/**
+ * A sentence a user can act on, for an error thrown by unmarshalAdmin or
+ * unmarshalUser.
+ *
+ * Whether a file is a valid archive is an all-or-nothing question answered at
+ * parse time, so this is the only thing an upload UI has to say about a
+ * rejected file. Whether its contents resolve against this instance is a
+ * separate, per-group question, answered later by the job's validation errors.
+ */
+export function archiveErrorMessage(e: unknown): string {
+  if (e instanceof ArchiveVersionError) {
+    return `This file was written by a later PortfolioDB (format version ${e.got}). Upgrade this instance to read it.`;
+  }
+  if (e instanceof ArchiveKindError) {
+    return `This is a ${e.got.toLowerCase()} archive, not a ${e.want.toLowerCase()} one.`;
+  }
+  return e instanceof Error ? e.message : String(e);
+}
+
 /** Write an admin archive. The envelope's version and kind are stamped here. */
 export function marshalAdmin(archive: MessageInitShape<typeof AdminArchiveSchema>): string {
   return marshal(AdminArchiveSchema, archive, ArchiveKind.ADMIN);

@@ -14,7 +14,7 @@ import {
   deletePriceFetchBlock,
   exportPrices,
 } from "@/lib/portfolio-api";
-import { marshalAdmin } from "@/lib/archive/codec";
+import { marshalSystem } from "@/lib/archive/codec";
 import { dayAfter } from "@/lib/dates";
 import { useDebounce } from "@/hooks/use-debounce";
 import { ImportPricesModal } from "./import-modal";
@@ -115,7 +115,7 @@ function PriceListTab() {
         }
       }
       if (!envelope) throw new Error("export stream sent no envelope");
-      const json = marshalAdmin({ envelope, prices: { groups } });
+      const json = marshalSystem({ envelope, prices: { groups } });
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

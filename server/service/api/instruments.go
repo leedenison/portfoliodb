@@ -62,7 +62,7 @@ func (s *Server) ListInstruments(ctx context.Context, req *apiv1.ListInstruments
 	}, nil
 }
 
-// ExportInstruments streams the instrument part of an admin archive: the
+// ExportInstruments streams the instrument part of a system archive: the
 // envelope first, then one instrument per row. Admin only.
 //
 // A derivative names its underlying by identifier rather than nesting it, so a
@@ -86,7 +86,7 @@ func (s *Server) ExportInstruments(req *apiv1.ExportInstrumentsRequest, stream a
 	// configured identity to put there.
 	if err := stream.Send(&apiv1.ExportInstrumentsResponse{
 		Item: &apiv1.ExportInstrumentsResponse_Envelope{
-			Envelope: archive.NewEnvelope("", archivev1.ArchiveKind_ADMIN),
+			Envelope: archive.NewEnvelope("", archivev1.ArchiveKind_SYSTEM),
 		},
 	}); err != nil {
 		return err
@@ -181,7 +181,7 @@ func (s *Server) ImportInstruments(ctx context.Context, req *apiv1.ImportInstrum
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return nil, authErr
 	}
-	if err := archive.CheckEnvelope(req.GetEnvelope(), archivev1.ArchiveKind_ADMIN); err != nil {
+	if err := archive.CheckEnvelope(req.GetEnvelope(), archivev1.ArchiveKind_SYSTEM); err != nil {
 		var ve *archive.VersionError
 		if errors.As(err, &ve) {
 			// The request is well formed and this server is the thing that is out

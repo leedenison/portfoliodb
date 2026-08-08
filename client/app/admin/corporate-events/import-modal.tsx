@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/app/components/modal";
 import { ErrorAlert } from "@/app/components/error-alert";
-import { archiveErrorMessage, unmarshalAdmin } from "@/lib/archive/codec";
+import { archiveErrorMessage, unmarshalSystem } from "@/lib/archive/codec";
 import { importCorporateEvents, getJob } from "@/lib/portfolio-api";
 import { JobStatus } from "@/gen/api/v1/api_pb";
-import type { AdminArchive } from "@/gen/archive/v1/archive_pb";
+import type { SystemArchive } from "@/gen/archive/v1/archive_pb";
 import type { GetJobResult } from "@/lib/portfolio-api";
 
 type Phase = "idle" | "preview" | "processing" | "result";
@@ -21,7 +21,7 @@ export function ImportCorporateEventsModal({
   onComplete?: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
-  const [archive, setArchive] = useState<AdminArchive | null>(null);
+  const [archive, setArchive] = useState<SystemArchive | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<GetJobResult | null>(null);
@@ -58,7 +58,7 @@ export function ImportCorporateEventsModal({
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
       try {
-        const parsed = unmarshalAdmin(text);
+        const parsed = unmarshalSystem(text);
         // Only the corporate event part is applied. A file carrying the other
         // sections is still a valid archive; each has its own importer.
         setArchive(parsed);

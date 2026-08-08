@@ -8,7 +8,7 @@ import "type/v1/type.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
 
-// PricePart is the price section of an admin archive: end-of-day bars grouped
+// PricePart is the price section of a system archive: end-of-day bars grouped
 // by the instrument they belong to.
 message PricePart {
   repeated PriceGroup groups = 1;

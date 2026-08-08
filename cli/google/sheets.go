@@ -390,7 +390,7 @@ func importPrices(ctx context.Context, client apiv1.ApiServiceClient, groups []*
 			end++
 		}
 		resp, err := client.ImportPrices(ctx, &apiv1.ImportPricesRequest{
-			Envelope: archive.NewEnvelope("google-finance-cli", archivev1.ArchiveKind_ADMIN),
+			Envelope: archive.NewEnvelope("google-finance-cli", archivev1.ArchiveKind_SYSTEM),
 			Prices:   &archivev1.PricePart{Groups: groups[i:end]},
 		})
 		if err != nil {

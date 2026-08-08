@@ -6,9 +6,9 @@ import {
   archiveErrorMessage,
   ArchiveKindError,
   ArchiveVersionError,
-  marshalAdmin,
+  marshalSystem,
   marshalUser,
-  unmarshalAdmin,
+  unmarshalSystem,
   unmarshalUser,
 } from "@/lib/archive/codec";
 import { ArchiveKind } from "@/gen/archive/v1/common_pb";
@@ -16,8 +16,8 @@ import { AssetClass, AccountType, Broker, IdentifierType, TxType } from "@/gen/t
 
 const exportedAt = timestampFromDate(new Date("2026-07-30T00:00:00Z"));
 
-/** The same document as adminFixture() in server/archive/codec_test.go. */
-function adminFixture() {
+/** The same document as systemFixture() in server/archive/codec_test.go. */
+function systemFixture() {
   return {
     envelope: { exportedAt, sourceInstance: "portfoliodb.example.com" },
     instruments: {
@@ -84,11 +84,11 @@ function userFixture() {
 
 describe("archive codec", () => {
   it("writes proto field names and enum names", () => {
-    const s = marshalAdmin(adminFixture());
+    const s = marshalSystem(systemFixture());
     for (const want of [
       '"format_version":1',
       '"exported_at":"2026-07-30T00:00:00Z"',
-      '"kind":"ADMIN"',
+      '"kind":"SYSTEM"',
       '"asset_class":"STOCK"',
       '"price_date":"2024-01-15"',
     ]) {
@@ -111,10 +111,10 @@ describe("archive codec", () => {
     expect(marshalUser(absent)).not.toContain("unit_price");
   });
 
-  it("round trips an admin archive", () => {
-    const got = unmarshalAdmin(marshalAdmin(adminFixture()));
+  it("round trips a system archive", () => {
+    const got = unmarshalSystem(marshalSystem(systemFixture()));
     expect(got.envelope?.formatVersion).toBe(FORMAT_VERSION);
-    expect(got.envelope?.kind).toBe(ArchiveKind.ADMIN);
+    expect(got.envelope?.kind).toBe(ArchiveKind.SYSTEM);
     expect(got.prices?.groups[0].rows[0].close).toBe("185.9");
     expect(got.prices?.groups[0].coverage[0].before).toBe("2024-01-17");
   });
@@ -127,43 +127,43 @@ describe("archive codec", () => {
 
   // No call site can write a document that misdescribes its own version or kind.
   it("stamps the envelope over whatever the caller supplied", () => {
-    const a = adminFixture() as ReturnType<typeof adminFixture> & {
+    const a = systemFixture() as ReturnType<typeof systemFixture> & {
       envelope: { formatVersion?: number; kind?: ArchiveKind };
     };
     a.envelope.formatVersion = 99;
     a.envelope.kind = ArchiveKind.USER;
-    const got = unmarshalAdmin(marshalAdmin(a));
+    const got = unmarshalSystem(marshalSystem(a));
     expect(got.envelope?.formatVersion).toBe(FORMAT_VERSION);
-    expect(got.envelope?.kind).toBe(ArchiveKind.ADMIN);
+    expect(got.envelope?.kind).toBe(ArchiveKind.SYSTEM);
   });
 
   it("refuses an archive from a later PortfolioDB by version, not by parse error", () => {
-    const doc = JSON.parse(marshalAdmin(adminFixture()));
+    const doc = JSON.parse(marshalSystem(systemFixture()));
     doc.envelope.format_version = 2;
-    expect(() => unmarshalAdmin(JSON.stringify(doc))).toThrow(ArchiveVersionError);
+    expect(() => unmarshalSystem(JSON.stringify(doc))).toThrow(ArchiveVersionError);
   });
 
-  it("refuses a user archive handed to the admin reader", () => {
-    expect(() => unmarshalAdmin(marshalUser(userFixture()))).toThrow(ArchiveKindError);
+  it("refuses a user archive handed to the system reader", () => {
+    expect(() => unmarshalSystem(marshalUser(userFixture()))).toThrow(ArchiveKindError);
   });
 
   // An upload UI has one sentence to explain a rejected file, and "archive
   // format version 2 is newer than this client supports (1)" is not it.
   it("turns a refusal into a sentence a user can act on", () => {
-    const newer = JSON.parse(marshalAdmin(adminFixture()));
+    const newer = JSON.parse(marshalSystem(systemFixture()));
     newer.envelope.format_version = 2;
     try {
-      unmarshalAdmin(JSON.stringify(newer));
+      unmarshalSystem(JSON.stringify(newer));
       throw new Error("expected a refusal");
     } catch (e) {
       expect(archiveErrorMessage(e)).toContain("Upgrade this instance");
     }
 
     try {
-      unmarshalAdmin(marshalUser(userFixture()));
+      unmarshalSystem(marshalUser(userFixture()));
       throw new Error("expected a refusal");
     } catch (e) {
-      expect(archiveErrorMessage(e)).toBe("This is a user archive, not a admin one.");
+      expect(archiveErrorMessage(e)).toBe("This is a user archive, not a system one.");
     }
 
     expect(archiveErrorMessage(new Error("boom"))).toBe("boom");
@@ -171,10 +171,10 @@ describe("archive codec", () => {
 
   // What makes the version gate safe to be one-sided.
   it("ignores a field added by a later writer", () => {
-    const doc = JSON.parse(marshalAdmin(adminFixture()));
+    const doc = JSON.parse(marshalSystem(systemFixture()));
     doc.inflation_indices = [{ series: "CPIH" }];
     doc.envelope.written_by = "a later portfoliodb";
-    expect(() => unmarshalAdmin(JSON.stringify(doc))).not.toThrow();
+    expect(() => unmarshalSystem(JSON.stringify(doc))).not.toThrow();
   });
 
   // Not representable anywhere in PortfolioDB, not merely in this file.
@@ -185,9 +185,9 @@ describe("archive codec", () => {
   });
 
   it("reads the lowerCamelCase spelling a hand-written file may use", () => {
-    const doc = JSON.parse(marshalAdmin(adminFixture()));
-    doc.envelope = { formatVersion: 1, exportedAt: "2026-07-30T00:00:00Z", kind: "ADMIN" };
-    expect(unmarshalAdmin(JSON.stringify(doc)).envelope?.formatVersion).toBe(1);
+    const doc = JSON.parse(marshalSystem(systemFixture()));
+    doc.envelope = { formatVersion: 1, exportedAt: "2026-07-30T00:00:00Z", kind: "SYSTEM" };
+    expect(unmarshalSystem(JSON.stringify(doc)).envelope?.formatVersion).toBe(1);
   });
 });
 
@@ -196,7 +196,7 @@ describe("archive codec", () => {
 // so neither can drift without this failing.
 describe("cross-runtime agreement", () => {
   it.each([
-    ["../server/archive/testdata/admin.json", () => marshalAdmin(adminFixture())],
+    ["../server/archive/testdata/system.json", () => marshalSystem(systemFixture())],
     ["../server/archive/testdata/user.json", () => marshalUser(userFixture())],
   ])("matches the Go golden %s", (path, write) => {
     const want = readFileSync(path, "utf8").trimEnd();
@@ -204,8 +204,8 @@ describe("cross-runtime agreement", () => {
   });
 
   it("reads what Go wrote", () => {
-    const admin = unmarshalAdmin(readFileSync("../server/archive/testdata/admin.json", "utf8"));
-    expect(admin.instruments?.instruments[0].identifiers[0].value).toBe("AAPL");
+    const system = unmarshalSystem(readFileSync("../server/archive/testdata/system.json", "utf8"));
+    expect(system.instruments?.instruments[0].identifiers[0].value).toBe("AAPL");
     const user = unmarshalUser(readFileSync("../server/archive/testdata/user.json", "utf8"));
     expect(user.preferences?.displayCurrency).toBe("GBP");
   });

@@ -30,7 +30,7 @@ at inception is split out into 0088.
 ## Design
 
 Declarations are user data, so they sit in the user archive and never in the
-admin one (adr/0033-admin-and-user-archives-are-separate.md). The group is the
+system one (adr/0033-system-and-user-archives-are-separate.md). The group is the
 statement -- one account, one `as_of_date` -- with the declared holdings as its
 rows, per adr/0035-archive-nests-by-aggregate-root.md.
 

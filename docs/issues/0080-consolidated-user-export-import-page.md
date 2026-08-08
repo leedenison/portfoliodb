@@ -18,14 +18,14 @@ recoverable from nowhere.
 ## Design
 
 Scoped with `RequireUser`. It exports the user's own data only and contains no
-admin data at all (adr/0033-admin-and-user-archives-are-separate.md).
+system data at all (adr/0033-system-and-user-archives-are-separate.md).
 
 A menu of what to include, mirroring the admin page from 0079: transactions
 (0077), holding declarations (0076), preferences (0085).
 
 Restoring into an instance whose instruments are not loaded is supported and
 correct: postings resolve through the normal identifier path. It is slower, and
-the fix is to restore the admin archive first, but it is not an error and should
+the fix is to restore the system archive first, but it is not an error and should
 not be presented as one.
 
 ### Transaction upload keeps its own affordance

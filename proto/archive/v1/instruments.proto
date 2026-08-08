@@ -9,7 +9,7 @@ import "type/v1/type.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
 
-// InstrumentPart is the security-master section of an admin archive.
+// InstrumentPart is the security-master section of a system archive.
 message InstrumentPart {
   repeated Instrument instruments = 1;
 }

@@ -44,14 +44,14 @@ import "type/v1/type.proto";
 option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
 
 // ArchiveKind says which of the two archives a document is, so a reader can
-// refuse a user archive handed to the admin importer. The document's message
+// refuse a user archive handed to the system importer. The document's message
 // type says the same thing, but protojson records no type name, so the envelope
 // has to carry it.
-// See docs/adr/0033-admin-and-user-archives-are-separate.md.
+// See docs/adr/0033-system-and-user-archives-are-separate.md.
 enum ArchiveKind {
   ARCHIVE_KIND_UNSPECIFIED = 0;
-  ADMIN = 1; // shared reference data; no user data
-  USER = 2;  // one user's own data; no admin data
+  SYSTEM = 1; // shared reference data; no user data
+  USER = 2;   // one user's own data; no system data
 }
 
 // Envelope carries only what cannot differ between two rows of a valid file.

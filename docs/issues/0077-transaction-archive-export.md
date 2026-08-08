@@ -25,7 +25,7 @@ operation the archive exists to avoid.
 Stream the user's own transactions, following `ExportPrices` and
 `ExportCorporateEvents` in shape but scoped with `RequireUser` rather than
 `RequireAdmin`. Transactions are user data, so they sit in the user archive and
-never in the admin one (adr/0033-admin-and-user-archives-are-separate.md).
+never in the system one (adr/0033-system-and-user-archives-are-separate.md).
 
 ### Grouping is structural
 

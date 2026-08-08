@@ -66,7 +66,7 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 	}, nil
 }
 
-// ExportPrices streams the price part of an admin archive: the envelope first,
+// ExportPrices streams the price part of a system archive: the envelope first,
 // then one group per instrument. Admin only.
 //
 // The coverage nested in each group is not derivable from its rows: a span
@@ -89,7 +89,7 @@ func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiSe
 	// configured identity to put there.
 	if err := stream.Send(&apiv1.ExportPricesResponse{
 		Item: &apiv1.ExportPricesResponse_Envelope{
-			Envelope: archive.NewEnvelope("", archivev1.ArchiveKind_ADMIN),
+			Envelope: archive.NewEnvelope("", archivev1.ArchiveKind_SYSTEM),
 		},
 	}); err != nil {
 		return err
@@ -194,7 +194,7 @@ func priceRow(r db.ExportPriceRow) *archivev1.PriceRow {
 	return row
 }
 
-// ImportPrices creates an async job to upsert the price part of an admin
+// ImportPrices creates an async job to upsert the price part of a system
 // archive. Admin only. The serialized request is persisted to the DB and
 // processed by the worker.
 func (s *Server) ImportPrices(ctx context.Context, req *apiv1.ImportPricesRequest) (*apiv1.ImportPricesResponse, error) {
@@ -202,7 +202,7 @@ func (s *Server) ImportPrices(ctx context.Context, req *apiv1.ImportPricesReques
 	if authErr != nil {
 		return nil, authErr
 	}
-	if err := archive.CheckEnvelope(req.GetEnvelope(), archivev1.ArchiveKind_ADMIN); err != nil {
+	if err := archive.CheckEnvelope(req.GetEnvelope(), archivev1.ArchiveKind_SYSTEM); err != nil {
 		var ve *archive.VersionError
 		if errors.As(err, &ve) {
 			return nil, status.Error(codes.FailedPrecondition, err.Error())

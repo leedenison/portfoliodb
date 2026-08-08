@@ -7,7 +7,7 @@ import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { exportCorporateEvents } from "@/lib/portfolio-api";
-import { marshalAdmin } from "@/lib/archive/codec";
+import { marshalSystem } from "@/lib/archive/codec";
 import type { Envelope } from "@/gen/archive/v1/common_pb";
 import type { CorporateEventGroup } from "@/gen/archive/v1/corporate_events_pb";
 import { ImportCorporateEventsModal } from "./import-modal";
@@ -77,7 +77,7 @@ export function SplitsTab() {
         }
       }
       if (!envelope) throw new Error("export stream sent no envelope");
-      const json = marshalAdmin({ envelope, corporateEvents: { groups } });
+      const json = marshalSystem({ envelope, corporateEvents: { groups } });
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

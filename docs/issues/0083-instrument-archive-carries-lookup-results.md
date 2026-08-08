@@ -33,7 +33,7 @@ yields an incomplete set.
 
 ## Design
 
-Carry all of it in the instrument part of the admin archive, and give the export
+Carry all of it in the instrument part of the system archive, and give the export
 a mode that means everything rather than relying on the browsing default. The
 import restores the provider identifiers directly instead of re-deriving them,
 so a restored instrument is indistinguishable from a resolved one and no plugin

@@ -1,6 +1,6 @@
 ---
 status: open
-title: Carry admin-curated state in the admin archive
+title: Carry admin-curated state in the system archive
 dependencies: [0078]
 ---
 
@@ -27,7 +27,7 @@ adr/0032-archive-preserves-inputs-not-derived-state.md.
 
 ## Design
 
-Parts of the admin archive. Fetch blocks and unhandled event resolutions
+Parts of the system archive. Fetch blocks and unhandled event resolutions
 reference instruments, so they restore after the instrument part.
 
 `plugin_config` is exported **in full, including API keys**, so that a rebuild

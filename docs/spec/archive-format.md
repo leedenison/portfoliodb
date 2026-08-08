@@ -42,11 +42,11 @@ Full reasoning: `docs/adr/0032-archive-preserves-inputs-not-derived-state.md`.
 Export and import split by data ownership rather than bundling everything into
 one file.
 
-- The **admin archive** carries shared data and no user data: instruments and
+- The **system archive** carries shared data and no user data: instruments and
   their identifiers, prices and coverage, corporate events and coverage,
   inflation indices, fetch blocks, unhandled event resolutions and plugin
   configuration.
-- The **user archive** carries one user's own data and no admin data:
+- The **user archive** carries one user's own data and no system data:
   transactions and their grouping, holding declarations, and preferences.
 
 They have different owners, different authorisation and different lifecycles.
@@ -58,11 +58,11 @@ to hold reference data they have no business owning.
 Restoring a user archive into an instance with no instruments loaded leaves its
 postings to resolve from scratch. That is working as intended: the normal
 identifier resolution path handles it and the result is correct, merely
-expensive. **Restoring the admin archive first is a recommendation, not a
+expensive. **Restoring the system archive first is a recommendation, not a
 constraint** -- avoiding that cost is what the archive buys, not a mechanism it
 depends on.
 
-Full reasoning: `docs/adr/0033-admin-and-user-archives-are-separate.md`.
+Full reasoning: `docs/adr/0033-system-and-user-archives-are-separate.md`.
 
 ## The three levels
 
@@ -157,7 +157,7 @@ Every archive is one protojson object whose first member is the envelope:
 {"envelope": {"format_version": 1,
               "exported_at": "2026-07-30T00:00:00Z",
               "source_instance": "portfoliodb.example.com",
-              "kind": "ADMIN"}}
+              "kind": "SYSTEM"}}
 ```
 
 - `format_version` is bumped only by a change an older reader cannot survive: a
@@ -170,14 +170,14 @@ Every archive is one protojson object whose first member is the envelope:
   `share_count_basis`, and it is a different question entirely.
 - `source_instance` is an opaque label for whatever produced the file, for a
   reader's benefit only. Nothing keys off it.
-- `kind` is `ADMIN` or `USER`. The document's message
+- `kind` is `SYSTEM` or `USER`. The document's message
   type says the same thing, but protojson records no type name, so the envelope
   has to carry it -- without it, an importer cannot refuse a user archive handed
-  to the admin page.
+  to the system page.
 
-## The admin archive
+## The system archive
 
-`AdminArchive` is one protojson object: the envelope, then one optional section
+`SystemArchive` is one protojson object: the envelope, then one optional section
 per entity. A section present but empty means the export included it and there
 was nothing; a section absent means it was not included at all. Sections are
 written in restore order -- instruments first, because every other part refers
@@ -186,7 +186,7 @@ to them.
 ```json
 {"envelope": {"format_version": 1, "exported_at": "2026-07-30T00:00:00Z",
               "source_instance": "portfoliodb.example.com",
-              "kind": "ADMIN"},
+              "kind": "SYSTEM"},
  "instruments": {"instruments": [...]},
  "prices": {"groups": [...]},
  "corporate_events": {"groups": [...]}}
@@ -299,7 +299,7 @@ The per-plugin distinction cannot survive a round trip and is not written.
 
 ## The user archive
 
-`UserArchive` has the same shape as the admin archive and the same rules about
+`UserArchive` has the same shape as the system archive and the same rules about
 present-but-empty versus absent. Sections are written in restore order:
 preferences first, because which asset classes are ignored changes what a later
 transaction import keeps; declarations last, because a checked declaration is
@@ -409,14 +409,14 @@ are checked -- so a stored copy could only ever disagree with them. See
 Within a document, the sections are written in the order they are applied, and a
 reader walks them in that order:
 
-- **Admin:** instruments, then prices, then corporate events. Prices and events
+- **System:** instruments, then prices, then corporate events. Prices and events
   reference instruments.
 - **User:** preferences, then transactions, then declarations. Preferences first
   because ignored asset classes change what a transaction import keeps;
   declarations last because a checked declaration is compared against what the
   transactions add up to.
 
-Between documents, restoring the admin archive before the user archive is a
+Between documents, restoring the system archive before the user archive is a
 recommendation and not a constraint. A user archive restored into an instance
 with no instruments loaded resolves its postings through the normal identifier
 path: correct, merely expensive. That is not an error and must not be reported
@@ -494,13 +494,13 @@ protojson is plain JSON, so nothing needs a protobuf runtime to produce an
 archive. The price recovery scripts in `local/scripts/` write one with
 `json.dump`.
 
-The minimum valid admin document is an envelope and one part:
+The minimum valid system document is an envelope and one part:
 
 ```json
 {"envelope": {"format_version": 1,
               "exported_at": "2026-07-30T00:00:00Z",
               "source_instance": "recover-prices.py",
-              "kind": "ADMIN"},
+              "kind": "SYSTEM"},
  "prices": {"groups": [
    {"instrument": {"type": "MIC_TICKER", "value": "AAPL", "domain": "XNAS"},
     "asset_class": "STOCK", "currency": "USD",

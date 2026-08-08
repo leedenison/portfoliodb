@@ -1,20 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { PaginationControls } from "@/app/components/pagination-controls";
 import { usePagination } from "@/hooks/use-pagination";
 import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
-import { exportInstruments, listInstruments } from "@/lib/portfolio-api";
-import { marshalSystem } from "@/lib/archive/codec";
+import { listInstruments } from "@/lib/portfolio-api";
 import { useDebounce } from "@/hooks/use-debounce";
-import { ImportInstrumentsModal } from "./import-modal";
 import { AssetClass, IdentifierType } from "@/gen/type/v1/type_pb";
 import type { Instrument, InstrumentIdentifier } from "@/gen/api/v1/api_pb";
-import type { Envelope } from "@/gen/archive/v1/common_pb";
-import type { Instrument as ArchiveInstrument } from "@/gen/archive/v1/instruments_pb";
 import { ALL_ASSET_CLASSES, DEFAULT_ASSET_CLASSES, ASSET_CLASS_LABELS } from "@/lib/asset-class";
 
 const IDENTIFIER_LABELS: Record<number, string> = {
@@ -50,10 +45,6 @@ export default function AdminInstrumentsPage() {
   const [activeClasses, setActiveClasses] = useState<Set<AssetClass>>(
     () => new Set(DEFAULT_ASSET_CLASSES)
   );
-  const [exportLoading, setExportLoading] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
-  const queryClient = useQueryClient();
 
   const toggleClass = (cls: AssetClass) => {
     setActiveClasses((prev) => {
@@ -70,48 +61,12 @@ export default function AdminInstrumentsPage() {
     [activeClasses]
   );
 
-  // The file is an admin archive carrying only its instrument part. The stream
-  // sends the envelope first because exported_at is knowledge time and belongs
-  // to the server's clock, not the browser's.
-  async function handleExport() {
-    setExportLoading(true);
-    setExportError(null);
-    try {
-      const classes = [...activeClasses] as AssetClass[];
-      let envelope: Envelope | undefined;
-      const instruments: ArchiveInstrument[] = [];
-      for await (const item of exportInstruments({
-        assetClasses: classes.length < ALL_ASSET_CLASSES.length ? classes : [],
-      })) {
-        if (item.item.case === "envelope") {
-          envelope = item.item.value;
-        } else if (item.item.case === "instrument") {
-          instruments.push(item.item.value);
-        }
-      }
-      if (!envelope) throw new Error("export stream sent no envelope");
-      const json = marshalSystem({ envelope, instruments: { instruments } });
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "instruments.json";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setExportLoading(false);
-    }
-  }
-
   return (
     <div className="space-y-5">
       <h2 className="font-display text-2xl font-bold tracking-tight text-text-primary">
         Instruments
       </h2>
 
-      {/* Filters and action buttons */}
       <div className="flex flex-wrap items-end gap-3">
         <input
           type="text"
@@ -120,25 +75,7 @@ export default function AdminInstrumentsPage() {
           placeholder="Search by name or ticker..."
           className="w-full max-w-sm rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary/30"
         />
-        <div className="ml-auto flex gap-2">
-          <button
-            type="button"
-            onClick={handleExport}
-            disabled={exportLoading}
-            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {exportLoading ? "Exporting..." : "Export archive"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setImportOpen(true)}
-            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15"
-          >
-            Import archive
-          </button>
-        </div>
       </div>
-      {exportError && <ErrorAlert>{exportError}</ErrorAlert>}
 
       <div className="space-y-3">
         <div className="flex flex-wrap gap-1.5">
@@ -169,12 +106,6 @@ export default function AdminInstrumentsPage() {
         key={`${debouncedSearch}|${assetClassesKey}`}
         search={debouncedSearch}
         assetClassesKey={assetClassesKey}
-      />
-
-      <ImportInstrumentsModal
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
-        onComplete={() => queryClient.invalidateQueries({ queryKey: qk.instruments() })}
       />
     </div>
   );

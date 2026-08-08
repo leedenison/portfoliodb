@@ -60,6 +60,10 @@ test.describe("admin navigation", () => {
     await page.goto("/admin/instruments");
     await expect(page.getByRole("heading", { name: "Instruments" })).toBeVisible();
 
+    // Archive page.
+    await page.goto("/admin/archive");
+    await expect(page.getByRole("heading", { name: "Archive" })).toBeVisible();
+
     // Plugins pages.
     await page.goto("/admin/plugins/identifier");
     await expect(page.getByRole("heading", { name: "Identifier" })).toBeVisible();

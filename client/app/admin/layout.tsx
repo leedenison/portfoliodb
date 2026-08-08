@@ -11,6 +11,9 @@ type NavItem = NavLink | NavSection;
 
 const adminNav: NavItem[] = [
   { href: "/admin", label: "Dashboard" },
+  // Top-level rather than under a section: the archive spans Reference Data,
+  // Plugins and Diagnostics, so it belongs to none of them.
+  { href: "/admin/archive", label: "Archive" },
   {
     section: "Reference Data",
     children: [

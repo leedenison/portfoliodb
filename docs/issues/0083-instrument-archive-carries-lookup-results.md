@@ -47,3 +47,13 @@ validity interval already reach the file. What remains here is
 `provider_instrument_identifiers` -- carried on export and restored on import
 without calling a plugin -- and the export mode that means everything rather
 than the browsing default that excludes CASH and FX.
+
+A third gap in the same query, found while building 0079's page: the default
+branch is `asset_class NOT IN ('CASH', 'FX')`, and an instrument whose
+`asset_class` is NULL fails that predicate rather than passing it, because
+`NULL NOT IN (...)` is NULL and not TRUE. An instrument created by a price
+import before identification has assigned it an asset class is therefore
+dropped from every export -- which is exactly the instrument a rebuild cannot
+reconstruct. The export mode that means everything fixes this case too, but a
+NULL asset class should pass the browsing default as well: nothing intends to
+hide an unidentified instrument from an export.

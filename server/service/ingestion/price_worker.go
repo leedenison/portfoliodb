@@ -9,6 +9,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
+	"github.com/leedenison/portfoliodb/server/archiveimport"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -55,7 +56,7 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		slog.Warn("price import missing exported_at; OCC symbols will not be split-adjusted", "job_id", j.JobID)
 	}
 
-	rep := newPartReporter(database, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED)
+	rep := archiveimport.NewPartReporter(database, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED)
 	persisted, err := importPricePart(ctx, database, pluginRegistry, req.GetPrices(), pricesAsOf, newResolveCache(), rep)
 	rep.Flush(ctx)
 	if err != nil {
@@ -79,7 +80,7 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 // carrying both prices and corporate events for one instrument identifies it
 // once rather than once per part.
 func importPricePart(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry,
-	part *archivev1.PricePart, pricesAsOf *time.Time, resolveCache map[string]*resolveEntry, rep *partReporter) (bool, error) {
+	part *archivev1.PricePart, pricesAsOf *time.Time, resolveCache map[string]*resolveEntry, rep *archiveimport.PartReporter) (bool, error) {
 	groups := part.GetGroups()
 	total := 0
 	for _, g := range groups {

@@ -367,3 +367,32 @@ func TestGoldenFiles(t *testing.T) {
 		}
 	}
 }
+
+// A part present but empty means the export included it and there was nothing;
+// a part absent means it was not included at all. The whole export menu rests on
+// those being distinguishable, so the codec has to keep them apart.
+func TestRoundTrip_PresentButEmptyPartIsNotAbsent(t *testing.T) {
+	b, err := archive.MarshalSystem(&archivev1.SystemArchive{
+		Envelope: archive.NewEnvelope("portfoliodb.example.com", archivev1.ArchiveKind_SYSTEM),
+		Prices:   &archivev1.PricePart{},
+	})
+	if err != nil {
+		t.Fatalf("MarshalSystem: %v", err)
+	}
+	if !strings.Contains(string(b), `"prices":{}`) {
+		t.Fatalf("an empty part must still be written: %s", b)
+	}
+	if strings.Contains(string(b), `"instruments"`) {
+		t.Fatalf("an unselected part must not be written: %s", b)
+	}
+	got, err := archive.UnmarshalSystem(b)
+	if err != nil {
+		t.Fatalf("UnmarshalSystem: %v", err)
+	}
+	if got.GetPrices() == nil {
+		t.Error("a present but empty price part came back absent")
+	}
+	if got.GetInstruments() != nil {
+		t.Error("an absent instrument part came back present")
+	}
+}

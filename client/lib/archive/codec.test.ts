@@ -119,6 +119,19 @@ describe("archive codec", () => {
     expect(got.prices?.groups[0].coverage[0].before).toBe("2024-01-17");
   });
 
+  // A part present but empty means the export included it and there was
+  // nothing; a part absent means it was not included at all. The export menu
+  // rests on those being distinguishable, and the client is what assembles the
+  // document, so its codec has to keep them apart too.
+  it("keeps a present but empty part distinct from an absent one", () => {
+    const json = marshalSystem({ prices: {} });
+    expect(json).toContain('"prices":{}');
+    expect(json).not.toContain('"instruments"');
+    const got = unmarshalSystem(json);
+    expect(got.prices).toBeDefined();
+    expect(got.instruments).toBeUndefined();
+  });
+
   it("round trips a user archive", () => {
     const got = unmarshalUser(marshalUser(userFixture()));
     expect(got.envelope?.kind).toBe(ArchiveKind.USER);

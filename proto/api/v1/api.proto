@@ -48,7 +48,7 @@ message Instrument {
   // eight digits of thousandths, so it is an exact decimal string rather than a
   // double: comparing identity components as floats is a latent bug. Optional
   // rather than sentinel-zero, because a non-option has no strike and
-  // ImportInstruments would otherwise have to send one.
+  // an instrument import would otherwise have to send one.
   optional string strike = 14 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   string expiry = 15;             // YYYY-MM-DD expiry date; empty for non-options.
   string put_call = 16;           // "C" or "P"; empty for non-options.
@@ -182,10 +182,6 @@ service ApiService {
   rpc ExportSystemArchive(ExportSystemArchiveRequest) returns (stream ExportSystemArchiveResponse);
   rpc ImportSystemArchive(ImportSystemArchiveRequest) returns (ImportSystemArchiveResponse);
 
-  // Instrument export/import (admin-only). Export streams the instrument part of a system archive; optional exchange filter.
-  rpc ExportInstruments(ExportInstrumentsRequest) returns (stream ExportInstrumentsResponse);
-  rpc ImportInstruments(ImportInstrumentsRequest) returns (ImportInstrumentsResponse);
-
   // Identifier plugin config (admin-only). List all plugins; update enabled, precedence, and config JSON (including API keys).
   rpc ListIdentifierPlugins(ListIdentifierPluginsRequest) returns (ListIdentifierPluginsResponse);
   rpc UpdateIdentifierPlugin(UpdateIdentifierPluginRequest) returns (UpdateIdentifierPluginResponse);
@@ -219,9 +215,6 @@ service ApiService {
   rpc ListPrices(ListPricesRequest) returns (ListPricesResponse);
 
   // Price export/import (admin-only). Export streams the price part of an admin
-  // archive; import upserts it with data_provider = "import".
-  rpc ExportPrices(ExportPricesRequest) returns (stream ExportPricesResponse);
-  rpc ImportPrices(ImportPricesRequest) returns (ImportPricesResponse);
 
   // Telemetry counters (admin-only). Returns counters discovered from Redis (portfoliodb:counters:*).
   rpc ListTelemetryCounters(ListTelemetryCountersRequest) returns (ListTelemetryCountersResponse);
@@ -272,8 +265,6 @@ service ApiService {
   // Corporate event import / export. Mirrors the price import/export RPCs:
   // import is async via the job queue, export streams every event with the
   // best identifier per instrument.
-  rpc ExportCorporateEvents(ExportCorporateEventsRequest) returns (stream ExportCorporateEventsResponse);
-  rpc ImportCorporateEvents(ImportCorporateEventsRequest) returns (ImportCorporateEventsResponse);
 
   // Unhandled corporate events (reverse splits, non-whole splits, mergers, etc.)
   // that require admin review.
@@ -602,48 +593,6 @@ message ImportSystemArchiveResponse {
   string job_id = 1;
 }
 
-// ExportInstruments streams the instrument part of a system archive: every
-// instrument with at least one canonical identifier, plus the underlying of any
-// derivative it carries. Optional exchange filter.
-message ExportInstrumentsRequest {
-  string exchange = 1;              // optional; empty = all exchanges
-  repeated portfoliodb.type.v1.AssetClass asset_classes = 2;  // optional; empty = server default (excludes CASH/FX)
-}
-
-// ExportInstrumentsResponse is one element of the export stream: the envelope
-// first, exactly once, then one message per instrument.
-//
-// The envelope travels on the stream rather than being built by the caller
-// because exported_at is knowledge time and has to be the server's clock, and
-// source_instance is a server property the browser does not know.
-message ExportInstrumentsResponse {
-  oneof item {
-    portfoliodb.archive.v1.Envelope envelope = 1;
-    portfoliodb.archive.v1.Instrument instrument = 2;
-  }
-}
-
-// ImportInstrumentsRequest carries one archive's instrument part, ensuring each
-// instrument exists: find-or-create by identifiers, merging on conflict, with no
-// overwrite of an existing instrument's canonical fields. The envelope is the
-// file's own, forwarded rather than rebuilt, so the server sees the
-// format_version and the kind the file declared rather than what the uploading
-// client assumed.
-message ImportInstrumentsRequest {
-  portfoliodb.archive.v1.Envelope envelope = 1 [(buf.validate.field).required = true];
-  portfoliodb.archive.v1.InstrumentPart instruments = 2 [(buf.validate.field).required = true];
-}
-
-message ImportInstrumentsResponse {
-  int32 ensured_count = 1;
-  repeated ImportInstrumentError errors = 2;
-}
-
-message ImportInstrumentError {
-  int32 index = 1;    // index into request.instruments.instruments
-  string message = 2;
-}
-
 // IdentifierPluginConfig is one row from identifier_plugin_config (admin-only).
 message IdentifierPluginConfig {
   string plugin_id = 1;
@@ -816,36 +765,6 @@ message ListPricesResponse {
   repeated EODPriceProto prices = 1;
   string next_page_token = 2;
   int32 total_count = 3;
-}
-
-// ExportPrices streams the price part of a system archive: one group per
-// instrument, carrying the best identifier for it.
-message ExportPricesRequest {}
-
-// ExportPricesResponse is one element of the export stream: the envelope first,
-// exactly once, then one message per instrument group.
-//
-// The envelope travels on the stream rather than being built by the caller
-// because exported_at is knowledge time and has to be the server's clock, and
-// source_instance is a server property the browser does not know.
-message ExportPricesResponse {
-  oneof item {
-    portfoliodb.archive.v1.Envelope envelope = 1;
-    portfoliodb.archive.v1.PriceGroup group = 2;
-  }
-}
-
-// ImportPricesRequest carries one archive's price part. The envelope is the
-// file's own, forwarded rather than rebuilt, so the server sees the
-// format_version and the kind the file declared rather than what the uploading
-// client assumed.
-message ImportPricesRequest {
-  portfoliodb.archive.v1.Envelope envelope = 1 [(buf.validate.field).required = true];
-  portfoliodb.archive.v1.PricePart prices = 2 [(buf.validate.field).required = true];
-}
-
-message ImportPricesResponse {
-  string job_id = 1;
 }
 
 // GetPortfolioValuation computes one value per day over the half-open
@@ -1143,39 +1062,6 @@ message TriggerCorporateEventFetchResponse {}
 message TriggerTransferMatchRequest {}
 
 message TriggerTransferMatchResponse {}
-
-// ExportCorporateEvents streams the corporate event part of a system archive:
-// one group per instrument, carrying the best identifier for it.
-message ExportCorporateEventsRequest {}
-
-// ExportCorporateEventsResponse is one element of the export stream: the
-// envelope first, exactly once, then one message per instrument group.
-//
-// The envelope travels on the stream rather than being built by the caller
-// because exported_at is knowledge time and has to be the server's clock, and
-// source_instance is a server property the browser does not know.
-message ExportCorporateEventsResponse {
-  oneof item {
-    portfoliodb.archive.v1.Envelope envelope = 1;
-    portfoliodb.archive.v1.CorporateEventGroup group = 2;
-  }
-}
-
-// ImportCorporateEventsRequest carries one archive's corporate event part. The
-// envelope is the file's own, forwarded rather than rebuilt, so the server sees
-// the format_version and the kind the file declared rather than what the
-// uploading client assumed. Knowledge time comes from the envelope's
-// exported_at: OCC symbols are split-adjusted to it during instrument
-// resolution, imported coverage records it as last_fetched_at, and events that
-// carry no first_known_at of their own fall back to it.
-message ImportCorporateEventsRequest {
-  portfoliodb.archive.v1.Envelope envelope = 1 [(buf.validate.field).required = true];
-  portfoliodb.archive.v1.CorporateEventPart corporate_events = 2 [(buf.validate.field).required = true];
-}
-
-message ImportCorporateEventsResponse {
-  string job_id = 1;
-}
 
 // Unhandled corporate events.
 

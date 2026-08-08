@@ -41,10 +41,8 @@ const PriceProviderImport = "import"
 
 // Job type constants for the ingestion_jobs table.
 const (
-	JobTypeTx             = "tx"
-	JobTypePrice          = "price"
-	JobTypeCorporateEvent = "corporate_event"
-	JobTypeSystemArchive  = "system_archive"
+	JobTypeTx            = "tx"
+	JobTypeSystemArchive = "system_archive"
 )
 
 // DB is the database abstraction used by the service layer.

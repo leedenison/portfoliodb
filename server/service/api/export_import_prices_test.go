@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
@@ -15,14 +14,14 @@ import (
 	"time"
 )
 
-func TestExportPrices_NonAdmin_PermissionDenied(t *testing.T) {
+func TestExportSystemArchive_Prices_NonAdmin_PermissionDenied(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
-	stream := &exportPriceStreamMock{ctx: authCtx("user-1", "sub|1")}
-	err := srv.ExportPrices(&apiv1.ExportPricesRequest{}, stream)
+	stream := &exportArchiveStreamMock{ctx: authCtx("user-1", "sub|1")}
+	err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_PRICES}}, stream)
 	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 }
 
-func TestExportPrices_Success(t *testing.T) {
+func TestExportSystemArchive_Prices_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	open := decimal.RequireFromString("185.5")
 	vol := int64(50000000)
@@ -64,10 +63,10 @@ func TestExportPrices_Success(t *testing.T) {
 	db.EXPECT().
 		ListPricesForExport(gomock.Any()).
 		Return(rows, nil)
-	stream := &exportPriceStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	err := srv.ExportPrices(&apiv1.ExportPricesRequest{}, stream)
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_PRICES}}, stream)
 	if err != nil {
-		t.Fatalf("ExportPrices: %v", err)
+		t.Fatalf("ExportSystemArchive: %v", err)
 	}
 	if len(stream.groups()) != 1 {
 		t.Fatalf("expected 1 group streamed, got %d", len(stream.groups()))
@@ -118,7 +117,7 @@ func TestExportPrices_Success(t *testing.T) {
 
 // The envelope carries the knowledge time the whole file is stamped with, so it
 // has to arrive before anything a reader would attribute to it.
-func TestExportPrices_SendsEnvelopeFirst(t *testing.T) {
+func TestExportSystemArchive_Prices_SendsEnvelopeFirst(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
 		ListPriceCoverageForExport(gomock.Any()).
@@ -131,12 +130,13 @@ func TestExportPrices_SendsEnvelopeFirst(t *testing.T) {
 			PriceDate:       time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
 			Close:           decimal.RequireFromString("185.90"),
 		}}, nil)
-	stream := &exportPriceStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	if err := srv.ExportPrices(&apiv1.ExportPricesRequest{}, stream); err != nil {
-		t.Fatalf("ExportPrices: %v", err)
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_PRICES}}, stream); err != nil {
+		t.Fatalf("ExportSystemArchive: %v", err)
 	}
-	if len(stream.sent) != 2 {
-		t.Fatalf("expected 2 stream items, got %d", len(stream.sent))
+	// Envelope, then the part marker, then the group.
+	if len(stream.sent) != 3 {
+		t.Fatalf("expected 3 stream items, got %d", len(stream.sent))
 	}
 	env := stream.sent[0].GetEnvelope()
 	if env == nil {
@@ -146,19 +146,22 @@ func TestExportPrices_SendsEnvelopeFirst(t *testing.T) {
 		t.Fatalf("expected format_version=%d, got %d", archive.FormatVersion, env.GetFormatVersion())
 	}
 	if env.GetKind() != archivev1.ArchiveKind_SYSTEM {
-		t.Fatalf("expected kind=ADMIN, got %s", env.GetKind())
+		t.Fatalf("expected kind=SYSTEM, got %s", env.GetKind())
 	}
 	if env.GetExportedAt() == nil {
 		t.Fatal("expected exported_at to be stamped")
 	}
-	if stream.sent[1].GetGroup() == nil {
-		t.Fatalf("expected a group second, got %+v", stream.sent[1])
+	if stream.sent[1].GetPartBegin().GetPart() != archivev1.ArchivePart_PRICES {
+		t.Fatalf("expected the price part marker second, got %+v", stream.sent[1])
+	}
+	if stream.sent[2].GetPriceGroup() == nil {
+		t.Fatalf("expected a group third, got %+v", stream.sent[2])
 	}
 }
 
 // A provider asked about a range and reporting nothing is the one fact rows
 // cannot carry, so a covered instrument with no bars is still a group.
-func TestExportPrices_CoveredInstrumentWithNoRows(t *testing.T) {
+func TestExportSystemArchive_Prices_CoveredInstrumentWithNoRows(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
 		ListPriceCoverageForExport(gomock.Any()).
@@ -173,9 +176,9 @@ func TestExportPrices_CoveredInstrumentWithNoRows(t *testing.T) {
 	db.EXPECT().
 		ListPricesForExport(gomock.Any()).
 		Return(nil, nil)
-	stream := &exportPriceStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	if err := srv.ExportPrices(&apiv1.ExportPricesRequest{}, stream); err != nil {
-		t.Fatalf("ExportPrices: %v", err)
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_PRICES}}, stream); err != nil {
+		t.Fatalf("ExportSystemArchive: %v", err)
 	}
 	groups := stream.groups()
 	if len(groups) != 1 {
@@ -194,7 +197,7 @@ func TestExportPrices_CoveredInstrumentWithNoRows(t *testing.T) {
 }
 
 // Two venues can list one ticker, and they are two instruments with two groups.
-func TestExportPrices_SplitsGroupsOnDomain(t *testing.T) {
+func TestExportSystemArchive_Prices_SplitsGroupsOnDomain(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
 		ListPriceCoverageForExport(gomock.Any()).
@@ -213,9 +216,9 @@ func TestExportPrices_SplitsGroupsOnDomain(t *testing.T) {
 				Close:     decimal.RequireFromString("9"),
 			},
 		}, nil)
-	stream := &exportPriceStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	if err := srv.ExportPrices(&apiv1.ExportPricesRequest{}, stream); err != nil {
-		t.Fatalf("ExportPrices: %v", err)
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_PRICES}}, stream); err != nil {
+		t.Fatalf("ExportSystemArchive: %v", err)
 	}
 	groups := stream.groups()
 	if len(groups) != 2 {
@@ -227,7 +230,7 @@ func TestExportPrices_SplitsGroupsOnDomain(t *testing.T) {
 	}
 }
 
-func TestExportPrices_Empty(t *testing.T) {
+func TestExportSystemArchive_Prices_Empty(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().
 		ListPriceCoverageForExport(gomock.Any()).
@@ -235,110 +238,18 @@ func TestExportPrices_Empty(t *testing.T) {
 	db.EXPECT().
 		ListPricesForExport(gomock.Any()).
 		Return(nil, nil)
-	stream := &exportPriceStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	err := srv.ExportPrices(&apiv1.ExportPricesRequest{}, stream)
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_PRICES}}, stream)
 	if err != nil {
-		t.Fatalf("ExportPrices: %v", err)
+		t.Fatalf("ExportSystemArchive: %v", err)
 	}
-	// The envelope goes out even when there is nothing to say: an empty archive
-	// is a statement, and a reader still has to see the version and the kind.
-	if len(stream.sent) != 1 || stream.sent[0].GetEnvelope() == nil {
-		t.Fatalf("expected the envelope alone, got %+v", stream.sent)
+	// The envelope and the part marker go out even when there is nothing to
+	// say: a part present and empty is a statement, and a reader still has to
+	// see the version and the kind.
+	if len(stream.sent) != 2 || stream.sent[0].GetEnvelope() == nil {
+		t.Fatalf("expected the envelope and the part marker, got %+v", stream.sent)
 	}
-}
-
-// systemEnvelope is the envelope a system archive file carries in.
-func systemEnvelope() *archivev1.Envelope {
-	return archive.NewEnvelope("portfoliodb.example.com", archivev1.ArchiveKind_SYSTEM)
-}
-
-func priceGroupFixture() *archivev1.PricePart {
-	return &archivev1.PricePart{Groups: []*archivev1.PriceGroup{{
-		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_ISIN, Value: "US0378331005"},
-		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
-	}}}
-}
-
-func TestImportPrices_NonAdmin_PermissionDenied(t *testing.T) {
-	srv, _ := newAPIServerWithMock(t)
-	ctx := authCtx("user-1", "sub|1")
-	_, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{
-		Envelope: systemEnvelope(),
-		Prices:   priceGroupFixture(),
-	})
-	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
-}
-
-func TestImportPrices_Empty_ReturnsError(t *testing.T) {
-	srv, _ := newAPIServerWithMock(t)
-	ctx := adminCtx("user-1", "sub|1")
-	_, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{Envelope: systemEnvelope()})
-	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
-}
-
-// A file from a later PortfolioDB is refused before anything is stored, and it
-// is refused as a precondition rather than a bad argument: the request is well
-// formed and this server is the thing that is out of date.
-func TestImportPrices_NewerFormatVersion_Refused(t *testing.T) {
-	srv, _ := newAPIServerWithMock(t)
-	env := systemEnvelope()
-	env.FormatVersion = archive.FormatVersion + 1
-	_, err := srv.ImportPrices(adminCtx("user-1", "sub|1"), &apiv1.ImportPricesRequest{
-		Envelope: env,
-		Prices:   priceGroupFixture(),
-	})
-	testutil.RequireGRPCCode(t, err, codes.FailedPrecondition)
-}
-
-// The document's message type says which archive this is, but protojson records
-// no type name, so the envelope has to carry it -- and the price importer has
-// to check it, or a user archive lands in the system path.
-func TestImportPrices_UserArchive_Refused(t *testing.T) {
-	srv, _ := newAPIServerWithMock(t)
-	env := archive.NewEnvelope("portfoliodb.example.com", archivev1.ArchiveKind_USER)
-	_, err := srv.ImportPrices(adminCtx("user-1", "sub|1"), &apiv1.ImportPricesRequest{
-		Envelope: env,
-		Prices:   priceGroupFixture(),
-	})
-	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
-}
-
-func TestImportPrices_Success_CreatesJob(t *testing.T) {
-	srv, db := newAPIServerWithMock(t)
-	var enqueued bool
-	srv.enqueueJob = func(jobID, jobType string) error {
-		enqueued = true
-		if jobType != "price" {
-			t.Errorf("expected job type price, got %s", jobType)
-		}
-		return nil
-	}
-	db.EXPECT().
-		CreateJob(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, p dbpkg.CreateJobParams) (string, error) {
-			if p.JobType != "price" {
-				t.Errorf("expected job_type=price, got %s", p.JobType)
-			}
-			if p.UserID != "user-1" {
-				t.Errorf("expected user_id=user-1, got %s", p.UserID)
-			}
-			if len(p.Payload) == 0 {
-				t.Error("expected non-empty payload")
-			}
-			return "job-456", nil
-		})
-	ctx := adminCtx("user-1", "sub|1")
-	resp, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{
-		Envelope: systemEnvelope(),
-		Prices:   priceGroupFixture(),
-	})
-	if err != nil {
-		t.Fatalf("ImportPrices: %v", err)
-	}
-	if resp.GetJobId() != "job-456" {
-		t.Fatalf("expected job_id=job-456, got %s", resp.GetJobId())
-	}
-	if !enqueued {
-		t.Fatal("expected job to be enqueued")
+	if stream.sent[1].GetPartBegin().GetPart() != archivev1.ArchivePart_PRICES {
+		t.Fatalf("expected the price part marker, got %+v", stream.sent[1])
 	}
 }

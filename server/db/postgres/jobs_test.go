@@ -81,30 +81,6 @@ func TestCreateJob_GetJob(t *testing.T) {
 	}
 }
 
-func TestCreateJob_PriceImport(t *testing.T) {
-	p := testDBTx(t)
-	ctx := context.Background()
-	userID, _ := p.GetOrCreateUser(ctx, "sub|pi", "U", "u@pi.com")
-	jobID, err := p.CreateJob(ctx, db.CreateJobParams{
-		UserID:  userID,
-		JobType: "price",
-		Payload: []byte("price-data"),
-	})
-	if err != nil {
-		t.Fatalf("create price import job: %v", err)
-	}
-	if jobID == "" {
-		t.Fatal("expected job id")
-	}
-	d, err := p.GetJob(ctx, jobID)
-	if err != nil {
-		t.Fatalf("get job: %v", err)
-	}
-	if d.Status != apiv1.JobStatus_PENDING || d.UserID != userID {
-		t.Fatalf("get job: status=%v user=%s", d.Status, d.UserID)
-	}
-}
-
 func TestListPendingJobs(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -117,7 +93,7 @@ func TestListPendingJobs(t *testing.T) {
 	})
 	j2, _ := p.CreateJob(ctx, db.CreateJobParams{
 		UserID:  userID,
-		JobType: "price",
+		JobType: db.JobTypeSystemArchive,
 	})
 	// Mark j1 as RUNNING (should still be returned).
 	_ = p.SetJobStatus(ctx, j1, apiv1.JobStatus_RUNNING)
@@ -137,7 +113,7 @@ func TestListPendingJobs(t *testing.T) {
 	if got, ok := byID[j1]; !ok || got.JobType != "tx" {
 		t.Fatalf("j1 not found or wrong type: %+v", byID)
 	}
-	if got, ok := byID[j2]; !ok || got.JobType != "price" {
+	if got, ok := byID[j2]; !ok || got.JobType != db.JobTypeSystemArchive {
 		t.Fatalf("j2 not found or wrong type: %+v", byID)
 	}
 }

@@ -8,6 +8,7 @@ import { ApiService, JobStatus, type GetJobResponse } from "../gen/api/v1/api_pb
 import { ArchiveKind, ArchivePart } from "../gen/archive/v1/common_pb";
 import { CorporateEventGroupSchema, type CorporateEventGroup } from "../gen/archive/v1/corporate_events_pb";
 import { PriceGroupSchema } from "../gen/archive/v1/prices_pb";
+import { SystemArchiveSchema } from "../gen/archive/v1/archive_pb";
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import { timestampNow } from "@bufbuild/protobuf/wkt";
 
@@ -27,6 +28,46 @@ export async function setDisplayCurrency(
     { displayCurrency: currency },
     { headers: { Cookie: `${COOKIE_NAME}=${sessionId}` } },
   );
+}
+
+/**
+ * Import a whole system archive document and wait for the job to complete.
+ *
+ * The document is passed as it would be read from a file, so a test can hand it
+ * a generated or hand-written archive rather than only the parts these helpers
+ * know how to build.
+ */
+export async function importSystemArchiveAndWait(
+  sessionId: string,
+  archive: MessageInitShape<typeof SystemArchiveSchema>,
+  timeoutMs = 60_000,
+): Promise<GetJobResponse> {
+  const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
+  const resp = await client.importSystemArchive({ archive }, { headers });
+  return waitForJob(resp.jobId, headers, timeoutMs);
+}
+
+/** Read one job's status without waiting for it to finish. */
+export async function getJobStatus(sessionId: string, jobId: string): Promise<GetJobResponse> {
+  const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
+  return client.getJob({ jobId }, { headers });
+}
+
+/** Poll one job until it reaches a terminal status. */
+async function waitForJob(
+  jobId: string,
+  headers: Record<string, string>,
+  timeoutMs: number,
+): Promise<GetJobResponse> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const job = await client.getJob({ jobId }, { headers });
+    if (job.status === JobStatus.SUCCESS || job.status === JobStatus.FAILED) {
+      return job;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`job ${jobId} did not complete within ${timeoutMs}ms`);
 }
 
 /**

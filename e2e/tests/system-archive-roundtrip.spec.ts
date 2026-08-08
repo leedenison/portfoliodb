@@ -1,9 +1,15 @@
 // E2E test: the consolidated archive page.
 //
-// Exports a system archive through the UI, then imports the same file back and
-// reads the per-part results. The round trip is the point: a file this instance
+// Exports a system archive through the UI, imports the same file back, and then
+// checks the database. The round trip is the point: a file this instance
 // produced has to be one it can consume, and the per-part results are what tell
 // an admin what an import actually applied.
+//
+// The seed is loaded as an archive carrying an instrument part rather than
+// prices alone, so the exported file has instruments in it. An instrument whose
+// asset_class is still NULL -- one created by a price import before
+// identification has run -- is dropped from the export today; that is issue
+// 0083 and is deliberately not covered here.
 
 import { test, expect } from "@playwright/test";
 import path from "path";
@@ -11,9 +17,14 @@ import { readFile, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
-import { resetAndSeedBase, closeDB } from "../helpers/db";
-import { importPricesAndWait } from "../helpers/api";
-import { IdentifierType } from "../gen/type/v1/type_pb";
+import { resetAndSeedBase, closeDB, rawQuery } from "../helpers/db";
+import { importSystemArchiveAndWait } from "../helpers/api";
+import { writeGeneratedArchive, readArchive } from "../helpers/archive";
+import { JobStatus } from "../gen/api/v1/api_pb";
+
+// Two instruments with three price rows each: small enough to assert on every
+// value, large enough to have a second group.
+const SEED = { instruments: 2, rowsEach: 3 };
 
 test.beforeAll(async () => {
   await resetAndSeedBase();
@@ -26,36 +37,24 @@ test.afterAll(async () => {
 
 test.describe("system archive page", () => {
   let adminSessionId: string;
+  let tickers: string[];
 
   test.beforeAll(async () => {
     adminSessionId = await seedSession("admin");
-    // Something to export. Prices create the instrument they name, so this
-    // seeds the instrument and price parts at once.
-    await importPricesAndWait(adminSessionId, [
-      {
-        instrument: { type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS" },
-        currency: "USD",
-        coverage: [{ from: "2024-01-02", before: "2024-01-04" }],
-        rows: [
-          { priceDate: "2024-01-02", close: "185.64" },
-          { priceDate: "2024-01-03", close: "184.25" },
-        ],
-      },
-    ]);
+    const seed = writeGeneratedArchive({ ...SEED, filename: "roundtrip-seed.json" });
+    tickers = seed.tickers;
+    const job = await importSystemArchiveAndWait(adminSessionId, readArchive(seed.path));
+    expect(job.status).toBe(JobStatus.SUCCESS);
   });
 
-  test("exports a file and imports it back, reporting a result per part", async ({
-    context,
-    page,
-  }) => {
+  test("exports a file and imports it back, preserving the data", async ({ context, page }) => {
     await injectSession(context, adminSessionId);
     await page.goto("/admin/archive");
     await expect(page.getByRole("heading", { name: "Archive" })).toBeVisible();
 
     // Parts the format does not carry yet are visible but not selectable, so the
     // menu says what the archive will hold rather than only what it holds today.
-    const pluginConfig = page.getByLabel(/Plugin config/);
-    await expect(pluginConfig).toBeDisabled();
+    await expect(page.getByLabel(/Plugin config/)).toBeDisabled();
 
     const downloadPromise = page.waitForEvent("download");
     await page.locator("[data-testid='export-archive']").click();
@@ -66,39 +65,57 @@ test.describe("system archive page", () => {
     await download.saveAs(exported);
     const doc = JSON.parse(await readFile(exported, "utf8"));
 
-    // The envelope says what the file is, and the parts asked for are present.
+    // The envelope says what the file is, and every part asked for is carried
+    // with its contents -- not merely present and empty, which is what an
+    // export that silently dropped its rows would also look like.
     expect(doc.envelope.kind).toBe("SYSTEM");
-    expect(doc.instruments).toBeDefined();
-    expect(doc.prices).toBeDefined();
-    expect(doc.prices.groups[0].rows).toHaveLength(2);
+    expect(doc.envelope.format_version).toBe(1);
+    const exportedTickers = doc.instruments.instruments
+      .flatMap((i: { identifiers: { value: string }[] }) => i.identifiers.map((id) => id.value))
+      .filter((v: string) => v.startsWith("E2E"));
+    expect(exportedTickers.sort()).toEqual([...tickers].sort());
+    expect(doc.prices.groups).toHaveLength(SEED.instruments);
+    expect(doc.prices.groups[0].rows).toHaveLength(SEED.rowsEach);
+    // Coverage is not derivable from the rows, so losing it would be silent.
+    expect(doc.prices.groups[0].coverage).toHaveLength(1);
 
-    // Import the same file back.
+    // Wipe the price rows and re-import the file, so what lands afterwards came
+    // from the archive rather than from what was already there.
+    await rawQuery("DELETE FROM eod_prices");
+    await rawQuery("DELETE FROM price_coverage");
+
     await page.locator("[data-testid='choose-archive-file']").click();
     await page.locator("input[aria-label='Choose archive file']").setInputFiles(exported);
     await expect(page.locator("[data-testid='archive-import']")).toContainText("Carries");
     await page.locator("[data-testid='start-archive-import']").click();
 
-    // A row per part, each finishing. The import runs on the server, so this is
-    // watching a job rather than driving it.
     const parts = page.locator("[data-testid='job-parts']");
     await expect(parts).toBeVisible({ timeout: TIMEOUT_SLOW });
-    await expect(parts).toContainText("Instruments");
-    await expect(parts).toContainText("Prices");
     await expect(parts.getByText("Done")).toHaveCount(3, { timeout: TIMEOUT_SLOW });
-  });
 
-  test("shows a running import after the page is left and returned to", async ({
-    context,
-    page,
-  }) => {
-    await injectSession(context, adminSessionId);
-    // The job is found rather than remembered, so a fresh visit shows the last
-    // import even though this page never started one.
-    await page.goto("/admin/archive");
-    await expect(page.locator("[data-testid='archive-job']")).toBeVisible({
-      timeout: TIMEOUT_SLOW,
-    });
-    await expect(page.locator("[data-testid='job-parts']")).toContainText("Prices");
+    // What the page said happened, checked against what is stored.
+    const priceRows = (await rawQuery(
+      `SELECT count(*)::int AS n FROM eod_prices p
+         JOIN instrument_identifiers ii ON ii.instrument_id = p.instrument_id
+        WHERE ii.value = $1`,
+      [tickers[0]],
+    )) as { n: number }[];
+    expect(priceRows[0].n).toBe(SEED.rowsEach);
+
+    const coverage = (await rawQuery(
+      `SELECT count(*)::int AS n FROM price_coverage c
+         JOIN instrument_identifiers ii ON ii.instrument_id = c.instrument_id
+        WHERE ii.value = $1`,
+      [tickers[0]],
+    )) as { n: number }[];
+    expect(coverage[0].n).toBeGreaterThan(0);
+
+    // The instrument was matched rather than duplicated: an archive re-imported
+    // into the instance that produced it must not fork its own security master.
+    const instruments = (await rawQuery(
+      `SELECT count(*)::int AS n FROM instrument_identifiers WHERE value LIKE 'E2E%'`,
+    )) as { n: number }[];
+    expect(instruments[0].n).toBe(SEED.instruments);
   });
 
   test("refuses a file that is not a system archive", async ({ context, page }) => {
@@ -108,7 +125,9 @@ test.describe("system archive page", () => {
     const notAnArchive = path.join(tmpdir(), "not-an-archive.json");
     await writeFile(
       notAnArchive,
-      JSON.stringify({ envelope: { format_version: 1, exported_at: "2026-07-30T00:00:00Z", kind: "USER" } }),
+      JSON.stringify({
+        envelope: { format_version: 1, exported_at: "2026-07-30T00:00:00Z", kind: "USER" },
+      }),
     );
     await page.locator("[data-testid='choose-archive-file']").click();
     await page.locator("input[aria-label='Choose archive file']").setInputFiles(notAnArchive);

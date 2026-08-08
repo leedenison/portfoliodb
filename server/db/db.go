@@ -352,6 +352,9 @@ type JobDB interface {
 	SetJobStatus(ctx context.Context, jobID string, status apiv1.JobStatus) error
 	SetJobTotalCount(ctx context.Context, jobID string, total int32) error
 	IncrJobProcessedCount(ctx context.Context, jobID string) error
+	// SetJobProcessedCount sets a job's progress outright, for a job whose
+	// progress is the sum over its parts rather than its own running count.
+	SetJobProcessedCount(ctx context.Context, jobID string, processed int32) error
 	// AppendValidationErrors attributes errors to one archive part, or to the
 	// job itself when part is ARCHIVE_PART_UNSPECIFIED.
 	AppendValidationErrors(ctx context.Context, jobID string, part archivev1.ArchivePart, errs []*apiv1.ValidationError) error

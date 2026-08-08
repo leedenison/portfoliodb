@@ -32,16 +32,16 @@ type resolveEntry struct {
 // mirrors the processTx and processCorporateEventImport success signal so a
 // job that rejected every row does not produce churn.
 func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, j *JobRequest) bool {
-	payload, err := loadAndClearPayload(ctx, database, j.JobID)
+	payload, err := database.LoadJobPayload(ctx, j.JobID)
 	if err != nil {
 		log.Printf("price import job %s: load payload: %v", j.JobID, err)
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false
 	}
 	var req apiv1.ImportPricesRequest
 	if err := proto.Unmarshal(payload, &req); err != nil {
 		log.Printf("price import job %s: unmarshal payload: %v", j.JobID, err)
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false
 	}
 
@@ -55,67 +55,81 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		slog.Warn("price import missing exported_at; OCC symbols will not be split-adjusted", "job_id", j.JobID)
 	}
 
-	groups := req.GetPrices().GetGroups()
+	rep := newPartReporter(database, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED)
+	persisted, err := importPricePart(ctx, database, pluginRegistry, req.GetPrices(), pricesAsOf, newResolveCache(), rep)
+	rep.Flush(ctx)
+	if err != nil {
+		log.Printf("price import job %s: %v", j.JobID, err)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
+		return false
+	}
+	finishJob(ctx, database, j.JobID, apiv1.JobStatus_SUCCESS)
+	return persisted
+}
+
+// importPricePart applies one archive price part, reporting through rep.
+//
+// It reports whether anything was persisted, which is what decides whether the
+// price fetcher is nudged: a part that rejected every row must not produce churn.
+// The error return is a hard failure -- a database write that did not land --
+// as against a row the import could not use, which is a validation error on a
+// part that still succeeded.
+//
+// The resolve cache is passed in rather than made here so that a single archive
+// carrying both prices and corporate events for one instrument identifies it
+// once rather than once per part.
+func importPricePart(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry,
+	part *archivev1.PricePart, pricesAsOf *time.Time, resolveCache map[string]*resolveEntry, rep *partReporter) (bool, error) {
+	groups := part.GetGroups()
 	total := 0
 	for _, g := range groups {
 		total += len(g.GetRows())
 	}
-	_ = database.SetJobTotalCount(ctx, j.JobID, int32(total))
+	rep.Total(ctx, total)
 
 	var resolved []resolvedGroup
-	var valErrs []*apiv1.ValidationError
-
-	// Dedup cache: avoid calling plugins twice for one identifier, and make two
-	// groups naming one instrument land on the same id.
-	resolveCache := make(map[string]*resolveEntry)
-
 	for i, g := range groups {
 		instID, err := resolveGroupInstrument(ctx, database, pluginRegistry, resolveCache, g, pricesAsOf)
 		if err != nil {
-			valErrs = append(valErrs, &apiv1.ValidationError{
-				RowIndex: int32(i),
-				Field:    "instrument",
-				Message:  err.Error(),
-			})
-			for range g.GetRows() {
-				_ = database.IncrJobProcessedCount(ctx, j.JobID)
-			}
+			rep.Errf(i, "instrument", err.Error())
+			rep.Advance(ctx, len(g.GetRows()))
 			continue
 		}
 
-		bars, rowErrs := groupBars(ctx, database, j.JobID, g, i, instID, pricesAsOf)
-		valErrs = append(valErrs, rowErrs...)
+		bars, rowErrs := groupBars(g, i, instID, pricesAsOf)
+		rep.Errs(rowErrs)
+		rep.Advance(ctx, len(g.GetRows()))
+		var covErrs []*apiv1.ValidationError
 		resolved = append(resolved, resolvedGroup{
 			instrumentID: instID,
-			coverage:     groupCoverage(g, i, &valErrs),
+			coverage:     groupCoverage(g, i, &covErrs),
 			bars:         bars,
 		})
+		rep.Errs(covErrs)
 	}
 
-	if len(valErrs) > 0 {
-		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, valErrs)
+	if len(resolved) == 0 {
+		return false, nil
 	}
-
-	persisted := false
-	if len(resolved) > 0 {
-		if err := upsertGroups(ctx, database, resolved); err != nil {
-			log.Printf("price import job %s: upsert: %v", j.JobID, err)
-			_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
-				{RowIndex: -1, Field: "prices", Message: err.Error()},
-			})
-			_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
-			return false
-		}
-		for _, r := range resolved {
-			if len(r.bars) > 0 {
-				persisted = true
-				break
-			}
+	if err := upsertGroups(ctx, database, resolved); err != nil {
+		rep.Errf(-1, "prices", err.Error())
+		return false, fmt.Errorf("upsert prices: %w", err)
+	}
+	for _, r := range resolved {
+		if len(r.bars) > 0 {
+			return true, nil
 		}
 	}
+	return false, nil
+}
 
-	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
-	return persisted
+// newResolveCache makes the per-import identifier cache. Resolving an
+// instrument can mean a paid plugin call, so two groups naming the same one
+// must resolve it once -- and one archive's parts share a cache, because a
+// price group and a corporate event group naming the same instrument is the
+// ordinary case rather than the exception.
+func newResolveCache() map[string]*resolveEntry {
+	return make(map[string]*resolveEntry)
 }
 
 // dateRange is a half-open [from, before) span of dates.
@@ -160,9 +174,10 @@ func resolveGroupInstrument(ctx context.Context, database db.DB, pluginRegistry 
 }
 
 // groupBars converts one group's rows into storable bars, reporting a bad row
-// against the group it came from and carrying on with the rest.
-func groupBars(ctx context.Context, database db.DB, jobID string, g *archivev1.PriceGroup,
-	groupIndex int, instrumentID string, fetchedAt *time.Time) ([]db.EODPrice, []*apiv1.ValidationError) {
+// against the group it came from and carrying on with the rest. Every row is
+// accounted for either as a bar or as an error, so the caller advances the
+// progress counter by the whole group and does not count rows itself.
+func groupBars(g *archivev1.PriceGroup, groupIndex int, instrumentID string, fetchedAt *time.Time) ([]db.EODPrice, []*apiv1.ValidationError) {
 	rows := g.GetRows()
 	bars := make([]db.EODPrice, 0, len(rows))
 	var errs []*apiv1.ValidationError
@@ -173,7 +188,6 @@ func groupBars(ctx context.Context, database db.DB, jobID string, g *archivev1.P
 			Field:    fmt.Sprintf("rows[%d].%s", i, field),
 			Message:  msg,
 		})
-		_ = database.IncrJobProcessedCount(ctx, jobID)
 	}
 
 	for i, row := range rows {
@@ -213,7 +227,6 @@ func groupBars(ctx context.Context, database db.DB, jobID string, g *archivev1.P
 			p.Volume = row.Volume
 		}
 		bars = append(bars, p)
-		_ = database.IncrJobProcessedCount(ctx, jobID)
 	}
 	return bars, errs
 }

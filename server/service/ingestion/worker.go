@@ -130,14 +130,17 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 	}
 }
 
-// loadAndClearPayload loads the serialized payload from the DB and clears it.
-func loadAndClearPayload(ctx context.Context, database db.DB, jobID string) ([]byte, error) {
-	payload, err := database.LoadJobPayload(ctx, jobID)
-	if err != nil {
-		return nil, err
-	}
+// finishJob sets a job's terminal status and only then discards its payload.
+//
+// The order matters. The payload is what a job is; clearing it before the work
+// is done means a service restarted mid-job re-enqueues a row whose payload is
+// NULL, which unmarshals cleanly as an empty request, imports nothing and
+// reports SUCCESS. Clearing it at the end instead makes the recovery path at
+// startup able to actually redo the work, and the imports are built from
+// idempotent upserts so redoing it is safe.
+func finishJob(ctx context.Context, database db.DB, jobID string, status apiv1.JobStatus) {
+	_ = database.SetJobStatus(ctx, jobID, status)
 	_ = database.ClearJobPayload(ctx, jobID)
-	return payload, nil
 }
 
 func processTx(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest) (bool, string) {
@@ -147,16 +150,16 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		userID = d.UserID
 	}
 
-	payload, err := loadAndClearPayload(ctx, database, j.JobID)
+	payload, err := database.LoadJobPayload(ctx, j.JobID)
 	if err != nil {
 		log.Printf("ingestion job %s: load payload: %v", j.JobID, err)
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
 	var req ingestionv1.UpsertTxsRequest
 	if err := proto.Unmarshal(payload, &req); err != nil {
 		log.Printf("ingestion job %s: unmarshal payload: %v", j.JobID, err)
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
 
@@ -177,7 +180,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 			_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
 				{RowIndex: -1, Field: "share_count_basis", Message: fmt.Sprintf("invalid date %q: want YYYY-MM-DD", b)},
 			})
-			_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+			finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 			return false, ""
 		}
 		shareCountBasis = &parsed
@@ -187,7 +190,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	errs := ValidateTxs(txs)
 	if len(errs) > 0 {
 		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, errs)
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
 	// Load ignored asset classes for this user.
@@ -199,7 +202,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	// Filter non-stored tx types (e.g. SPLIT) and ignored asset classes.
 	txsToProcess, originalIndices := filterStoredTxs(txs, broker, ignoredClasses)
 	if len(txsToProcess) == 0 {
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_SUCCESS)
 		return true, userID
 	}
 	_ = database.SetJobTotalCount(ctx, j.JobID, int32(len(txsToProcess)))
@@ -210,7 +213,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
 			{RowIndex: -1, Field: "txs", Message: err.Error()},
 		})
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
 	// Resolve instruments.
@@ -220,7 +223,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
 			{RowIndex: -1, Field: "instrument_description", Message: err.Error()},
 		})
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
 	if len(idErrs) > 0 {
@@ -233,7 +236,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
 			{RowIndex: -1, Field: "txs", Message: err.Error()},
 		})
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
 	// Validate that each resolved instrument's asset class is compatible with
@@ -243,7 +246,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	// path where resolution lands on an instrument of the wrong class.
 	if classErrs := validateAssetClasses(txsToProcess, originalIndices, instrumentIDs, instByID); len(classErrs) > 0 {
 		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, classErrs)
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
 	// Balance every group by routing whatever its postings leave over to an
@@ -269,7 +272,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 			}
 		}
 		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, errs)
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
 	// Weighed after routing, which is what assigns a synthetic group_ref to a posting
@@ -292,7 +295,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
 			{RowIndex: -1, Field: "txs", Message: storeErr.Error()},
 		})
-		_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
 		return false, ""
 	}
 
@@ -300,7 +303,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	// The INSERT trigger on txs copies raw values; this pass corrects them.
 	recomputeSplitAdjustedTxs(ctx, database, instrumentIDs)
 
-	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
+	finishJob(ctx, database, j.JobID, apiv1.JobStatus_SUCCESS)
 	return true, userID
 }
 

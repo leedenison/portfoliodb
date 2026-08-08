@@ -119,6 +119,7 @@ type exportPriceRow struct {
 	AssetClass       string           `db:"asset_class"`
 	Currency         string           `db:"currency"`
 	PriceDate        time.Time        `db:"price_date"`
+	ShareCountBasis  *time.Time       `db:"share_count_basis"`
 	Open             *decimal.Decimal `db:"open"`
 	High             *decimal.Decimal `db:"high"`
 	Low              *decimal.Decimal `db:"low"`
@@ -134,11 +135,17 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 			COALESCE(i.asset_class, '') AS asset_class,
 			COALESCE(i.currency, '') AS currency,
 			ep.price_date, ep.open, ep.high, ep.low, ep.close,
-			ep.adjusted_close, ep.volume
+			ep.adjusted_close, ep.volume,
+			-- A basis equal to the bar's own date is the as-traded convention
+			-- and says nothing a reader cannot infer. The column is NOT NULL
+			-- and defaults to price_date, so selecting it raw would stamp a
+			-- redundant date onto every bar in the file.
+			CASE WHEN ep.share_count_basis = ep.price_date THEN NULL
+				ELSE ep.share_count_basis END AS share_count_basis
 		FROM eod_prices ep
 		JOIN instruments i ON i.id = ep.instrument_id
 		` + bestIdentifierJoin + `
-		ORDER BY best_id.identifier_type, best_id.value, ep.price_date
+		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), ep.price_date
 	`
 	var rows []exportPriceRow
 	if err := p.q.SelectContext(ctx, &rows, q); err != nil {
@@ -153,6 +160,7 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 			AssetClass:       r.AssetClass,
 			Currency:         r.Currency,
 			PriceDate:        r.PriceDate,
+			ShareCountBasis:  r.ShareCountBasis,
 			Open:             r.Open,
 			High:             r.High,
 			Low:              r.Low,
@@ -164,27 +172,15 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 	return out, nil
 }
 
-// exportCoverageRow is a sqlx-scannable version of db.ExportCoverageRow.
-type exportCoverageRow struct {
+// exportPriceCoverageRow is a sqlx-scannable version of db.ExportPriceCoverageRow.
+type exportPriceCoverageRow struct {
 	IdentifierType   string    `db:"identifier_type"`
 	IdentifierValue  string    `db:"value"`
 	IdentifierDomain string    `db:"domain"`
+	AssetClass       string    `db:"asset_class"`
+	Currency         string    `db:"currency"`
 	From             time.Time `db:"covered_from"`
 	Before           time.Time `db:"covered_before"`
-}
-
-func toExportCoverageRows(rows []exportCoverageRow) []db.ExportCoverageRow {
-	out := make([]db.ExportCoverageRow, len(rows))
-	for i, r := range rows {
-		out[i] = db.ExportCoverageRow{
-			IdentifierType:   r.IdentifierType,
-			IdentifierValue:  r.IdentifierValue,
-			IdentifierDomain: r.IdentifierDomain,
-			From:             r.From,
-			Before:           r.Before,
-		}
-	}
-	return out
 }
 
 // ListPriceCoverageForExport implements db.EODPriceListDB.
@@ -192,9 +188,15 @@ func toExportCoverageRows(rows []exportCoverageRow) []db.ExportCoverageRow {
 // Spans come from price_coverage, so a range a provider answered with no bars
 // travels with the file. Merged across plugins: an import stores everything
 // under one provider, so the distinction cannot survive the round trip.
-func (p *Postgres) ListPriceCoverageForExport(ctx context.Context) ([]db.ExportCoverageRow, error) {
+//
+// The asset class and currency come along because an instrument can be covered
+// and have no rows, and then this query is the only place its group can get
+// them.
+func (p *Postgres) ListPriceCoverageForExport(ctx context.Context) ([]db.ExportPriceCoverageRow, error) {
 	q := `
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
+			COALESCE(i.asset_class, '') AS asset_class,
+			COALESCE(i.currency, '') AS currency,
 			lower(sub.r) AS covered_from, upper(sub.r) AS covered_before
 		FROM (
 			SELECT instrument_id,
@@ -204,11 +206,23 @@ func (p *Postgres) ListPriceCoverageForExport(ctx context.Context) ([]db.ExportC
 		) sub
 		JOIN instruments i ON i.id = sub.instrument_id
 		` + bestIdentifierJoin + `
-		ORDER BY best_id.identifier_type, best_id.value, covered_from
+		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), covered_from
 	`
-	var rows []exportCoverageRow
+	var rows []exportPriceCoverageRow
 	if err := p.q.SelectContext(ctx, &rows, q); err != nil {
 		return nil, fmt.Errorf("list price coverage for export: %w", err)
 	}
-	return toExportCoverageRows(rows), nil
+	out := make([]db.ExportPriceCoverageRow, len(rows))
+	for i, r := range rows {
+		out[i] = db.ExportPriceCoverageRow{
+			IdentifierType:   r.IdentifierType,
+			IdentifierValue:  r.IdentifierValue,
+			IdentifierDomain: r.IdentifierDomain,
+			AssetClass:       r.AssetClass,
+			Currency:         r.Currency,
+			From:             r.From,
+			Before:           r.Before,
+		}
+	}
+	return out, nil
 }

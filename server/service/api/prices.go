@@ -78,7 +78,13 @@ func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiSe
 	}
 	for _, c := range coverage {
 		if err := stream.Send(&apiv1.ExportPricesResponse{
-			Item: &apiv1.ExportPricesResponse_Coverage{Coverage: exportCoverage(c)},
+			Item: &apiv1.ExportPricesResponse_Coverage{Coverage: &apiv1.ExportCoverage{
+				IdentifierType:   c.IdentifierType,
+				IdentifierValue:  c.IdentifierValue,
+				IdentifierDomain: c.IdentifierDomain,
+				From:             c.From.Format("2006-01-02"),
+				Before:           c.Before.Format("2006-01-02"),
+			}},
 		}); err != nil {
 			return err
 		}
@@ -113,17 +119,6 @@ func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiSe
 		}
 	}
 	return nil
-}
-
-// exportCoverage converts a db coverage span to its wire form.
-func exportCoverage(c db.ExportCoverageRow) *apiv1.ExportCoverage {
-	return &apiv1.ExportCoverage{
-		IdentifierType:   c.IdentifierType,
-		IdentifierValue:  c.IdentifierValue,
-		IdentifierDomain: c.IdentifierDomain,
-		From:             c.From.Format("2006-01-02"),
-		Before:           c.Before.Format("2006-01-02"),
-	}
 }
 
 // ImportPrices creates an async job to upsert EOD prices. Admin only.

@@ -13,6 +13,17 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// exportCoverage converts a db coverage span to its wire form.
+func exportCoverage(c db.ExportCoverageRow) *apiv1.ExportCoverage {
+	return &apiv1.ExportCoverage{
+		IdentifierType:   c.IdentifierType,
+		IdentifierValue:  c.IdentifierValue,
+		IdentifierDomain: c.IdentifierDomain,
+		From:             c.From.Format("2006-01-02"),
+		Before:           c.Before.Format("2006-01-02"),
+	}
+}
+
 // ExportCorporateEvents streams every stored stock split and cash dividend
 // with the best identifier per instrument. Coverage spans come first, then
 // splits, then dividends; within each block rows are ordered by

@@ -412,16 +412,39 @@ type ExportPriceRow struct {
 	AssetClass       string
 	Currency         string
 	PriceDate        time.Time
-	Open             *decimal.Decimal
-	High             *decimal.Decimal
-	Low              *decimal.Decimal
-	Close            decimal.Decimal
-	AdjustedClose    *decimal.Decimal
-	Volume           *int64
+	// The share count this bar is denominated in, or nil when it is the bar's
+	// own PriceDate. The column is NOT NULL and defaults to the price date, so
+	// only a value that differs from it says anything, and only that value is
+	// worth writing to a file.
+	ShareCountBasis *time.Time
+	Open            *decimal.Decimal
+	High            *decimal.Decimal
+	Low             *decimal.Decimal
+	Close           decimal.Decimal
+	AdjustedClose   *decimal.Decimal
+	Volume          *int64
 }
 
-// ExportCoverageRow is one half-open [From, Before) coverage span with the best
-// instrument identifier for export.
+// ExportPriceCoverageRow is one half-open [From, Before) price coverage span
+// with the best instrument identifier, and the instrument context an archive
+// group needs.
+//
+// AssetClass and Currency travel with the span rather than being taken from the
+// rows because an instrument that was covered and has no rows is still a group,
+// and those two fields are what route the identifier plugins when the importing
+// instance has never seen it.
+type ExportPriceCoverageRow struct {
+	IdentifierType   string
+	IdentifierValue  string
+	IdentifierDomain string
+	AssetClass       string
+	Currency         string
+	From             time.Time
+	Before           time.Time
+}
+
+// ExportCoverageRow is one half-open [From, Before) corporate event coverage
+// span with the best instrument identifier for export.
 type ExportCoverageRow struct {
 	IdentifierType   string
 	IdentifierValue  string
@@ -440,11 +463,11 @@ type EODPriceListDB interface {
 	// ListPricesForExport returns all EOD prices with the best identifier per instrument.
 	// Instruments with no identifiers are excluded.
 	ListPricesForExport(ctx context.Context) ([]ExportPriceRow, error)
-	// ListPriceCoverageForExport returns the merged date spans covered by
-	// eod_prices per instrument, with the best identifier. Synthetic rows count
-	// towards a span: ListPricesForExport omits them, so the span is what lets
-	// an import regenerate them.
-	ListPriceCoverageForExport(ctx context.Context) ([]ExportCoverageRow, error)
+	// ListPriceCoverageForExport returns the merged date spans from
+	// price_coverage per instrument, with the best identifier and the
+	// instrument's asset class and currency. A span with no rows inside it is
+	// the only way an export can say a provider was asked and had nothing.
+	ListPriceCoverageForExport(ctx context.Context) ([]ExportPriceCoverageRow, error)
 }
 
 // Valid asset class values (controlled vocabulary).

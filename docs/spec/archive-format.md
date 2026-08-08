@@ -72,9 +72,10 @@ A file has three levels, and each states its own scope in full.
   `exported_at`, the source instance and which of the two archives this is.
 - **Group.** The entity's aggregate root: the instrument for prices and
   corporate events, the transaction window and group for transactions, the
-  statement for holding declarations. Coverage, `share_count_basis`, asset class
-  and currency live here.
-- **Row.** Only what varies per row. A price row is a date and a bar.
+  statement for holding declarations. Coverage, asset class and currency live
+  here.
+- **Row.** Only what varies per row. A price row is a date, a bar, and the share
+  count basis the bar is denominated in when that is not its own date.
 
 A field belongs at the file level only if it **cannot** differ between two rows
 of a valid file. Being constant in practice is not enough. The flat formats got
@@ -228,19 +229,16 @@ a file.
 
 ### Prices
 
-`prices.groups[]` is one group per instrument, or one group per
-`share_count_basis` where an instrument's rows are not all denominated in one
-share count -- which is how a single file carries a back-adjusted series
-alongside an as-traded one.
+`prices.groups[]` is one group per instrument.
 
 | Level | Field | Notes |
 | --- | --- | --- |
 | group | `instrument` | identifier triple |
 | group | `asset_class` | hint for identifier plugin routing on an unknown instrument |
 | group | `currency` | ISO 4217; validation hint |
-| group | `share_count_basis` | optional; absent means as-traded |
 | group | `coverage[]` | half-open intervals |
 | row | `price_date` | |
+| row | `share_count_basis` | optional; absent means the row's own `price_date`, which is as-traded |
 | row | `open`, `high`, `low`, `adjusted_close`, `volume` | optional |
 | row | `close` | |
 
@@ -250,6 +248,11 @@ alongside an as-traded one.
  "coverage": [{"from": "2022-01-01", "before": "2025-07-07"}],
  "rows": [{"price_date": "2024-01-15", "close": "185.9", "volume": "48088700"}]}
 ```
+
+`share_count_basis` is on the row because `eod_prices` stores it there: one
+instrument can hold a back-adjusted stretch beside an as-traded one, and both
+travel in the one group. A row that omits it is denominated in the share count
+current on its own `price_date`, which is what an ordinary export writes.
 
 That group is what the price CSV spelled as a `# coverage=` comment line plus a
 row, and it is why the comment syntax goes. Coverage is a field of the group it
@@ -263,7 +266,7 @@ covered but has no rows is simply a group with an empty `rows`.
 originating data provider, because an import records every row and every span
 against the `import` sentinel, so provenance cannot survive a round trip.
 
-`share_count_basis` on the group is new. The price CSV could state it on import
+`share_count_basis` on the row is new. The price CSV could state it on import
 but not on export, so a back-adjusted series exported and reimported came back
 as as-traded and was adjusted a second time.
 
@@ -511,5 +514,5 @@ Points a hand-written file usually gets wrong:
 - `before` is exclusive. A span ending on the last day of 2024 has
   `"before": "2025-01-01"`.
 - Omit a field rather than writing an empty string or a zero for it.
-- Set `share_count_basis` on a group only for a back-adjusted series. Setting it
-  where the rows are as-traded makes every price wrong by the split factor.
+- Set `share_count_basis` on a price row only for a back-adjusted bar. Setting it
+  where the bar is as-traded makes the price wrong by the split factor.

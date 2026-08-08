@@ -23,6 +23,7 @@ import { isRecordingSuite } from "../helpers/vcr";
 import { uploadCSVAndWait } from "../helpers/upload";
 import { importPricesAndWait } from "../helpers/api";
 import { JobStatus } from "../gen/api/v1/api_pb";
+import { IdentifierType } from "../gen/type/v1/type_pb";
 import { Client } from "pg";
 
 const DATABASE_URL =
@@ -66,16 +67,11 @@ test.describe("price-first instrument merge", () => {
     // asset_class). Plugins are skipped; instrument created with just MIC_TICKER.
     const priceResp = await importPricesAndWait(adminSessionId, [
       {
-        identifierType: "MIC_TICKER",
-        identifierValue: "AAPL",
-        priceDate: "2023-12-01",
-        close: 190.50,
-      },
-      {
-        identifierType: "MIC_TICKER",
-        identifierValue: "AAPL",
-        priceDate: "2023-12-04",
-        close: 191.25,
+        instrument: { type: IdentifierType.MIC_TICKER, value: "AAPL" },
+        rows: [
+          { priceDate: "2023-12-01", close: "190.50" },
+          { priceDate: "2023-12-04", close: "191.25" },
+        ],
       },
     ]);
     expect(priceResp.status).toBe(JobStatus.SUCCESS);

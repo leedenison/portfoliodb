@@ -6,6 +6,10 @@ import { createClient } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-node";
 import { ApiService, JobStatus, type ExportCorporateEventRow, type GetJobResponse, type ImportCorporateEventRow } from "../gen/api/v1/api_pb";
 import { AssetClass } from "../gen/type/v1/type_pb";
+import { ArchiveKind } from "../gen/archive/v1/common_pb";
+import { PriceGroupSchema } from "../gen/archive/v1/prices_pb";
+import type { MessageInitShape } from "@bufbuild/protobuf";
+import { timestampNow } from "@bufbuild/protobuf/wkt";
 
 const COOKIE_NAME = "portfoliodb_session";
 
@@ -25,24 +29,31 @@ export async function setDisplayCurrency(
   );
 }
 
-/** Import prices and wait for the async job to complete. Returns the final job status. */
+/**
+ * Import one archive's worth of price groups and wait for the async job to
+ * complete. Returns the final job status.
+ *
+ * The envelope is built here: exported_at is knowledge time, and a test that had
+ * to supply it would be stating something it does not care about.
+ */
 export async function importPricesAndWait(
   sessionId: string,
-  prices: Array<{
-    identifierType: string;
-    identifierValue: string;
-    identifierDomain?: string;
-    priceDate: string;
-    close: number;
-    open?: number;
-    high?: number;
-    low?: number;
-    assetClass?: AssetClass;
-  }>,
+  groups: MessageInitShape<typeof PriceGroupSchema>[],
   timeoutMs = 30_000,
 ): Promise<GetJobResponse> {
   const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
-  const resp = await client.importPrices({ prices }, { headers });
+  const resp = await client.importPrices(
+    {
+      envelope: {
+        formatVersion: 1,
+        exportedAt: timestampNow(),
+        sourceInstance: "e2e",
+        kind: ArchiveKind.ADMIN,
+      },
+      prices: { groups },
+    },
+    { headers },
+  );
   const jobId = resp.jobId;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

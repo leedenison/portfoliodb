@@ -247,14 +247,24 @@ func TestExportPrices_Empty(t *testing.T) {
 	}
 }
 
+// adminEnvelope is the envelope an admin archive file carries in.
+func adminEnvelope() *archivev1.Envelope {
+	return archive.NewEnvelope("portfoliodb.example.com", archivev1.ArchiveKind_ADMIN)
+}
+
+func priceGroupFixture() *archivev1.PricePart {
+	return &archivev1.PricePart{Groups: []*archivev1.PriceGroup{{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_ISIN, Value: "US0378331005"},
+		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
+	}}}
+}
+
 func TestImportPrices_NonAdmin_PermissionDenied(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
 	ctx := authCtx("user-1", "sub|1")
 	_, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{
-		Prices: []*apiv1.ImportPriceRow{{
-			IdentifierType: "ISIN", IdentifierValue: "US0378331005",
-			PriceDate: "2024-01-15", Close: "100",
-		}},
+		Envelope: adminEnvelope(),
+		Prices:   priceGroupFixture(),
 	})
 	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 }
@@ -262,7 +272,34 @@ func TestImportPrices_NonAdmin_PermissionDenied(t *testing.T) {
 func TestImportPrices_Empty_ReturnsError(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
 	ctx := adminCtx("user-1", "sub|1")
-	_, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{})
+	_, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{Envelope: adminEnvelope()})
+	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
+}
+
+// A file from a later PortfolioDB is refused before anything is stored, and it
+// is refused as a precondition rather than a bad argument: the request is well
+// formed and this server is the thing that is out of date.
+func TestImportPrices_NewerFormatVersion_Refused(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	env := adminEnvelope()
+	env.FormatVersion = archive.FormatVersion + 1
+	_, err := srv.ImportPrices(adminCtx("user-1", "sub|1"), &apiv1.ImportPricesRequest{
+		Envelope: env,
+		Prices:   priceGroupFixture(),
+	})
+	testutil.RequireGRPCCode(t, err, codes.FailedPrecondition)
+}
+
+// The document's message type says which archive this is, but protojson records
+// no type name, so the envelope has to carry it -- and the price importer has
+// to check it, or a user archive lands in the admin path.
+func TestImportPrices_UserArchive_Refused(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	env := archive.NewEnvelope("portfoliodb.example.com", archivev1.ArchiveKind_USER)
+	_, err := srv.ImportPrices(adminCtx("user-1", "sub|1"), &apiv1.ImportPricesRequest{
+		Envelope: env,
+		Prices:   priceGroupFixture(),
+	})
 	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
 }
 
@@ -292,12 +329,8 @@ func TestImportPrices_Success_CreatesJob(t *testing.T) {
 		})
 	ctx := adminCtx("user-1", "sub|1")
 	resp, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{
-		Prices: []*apiv1.ImportPriceRow{{
-			IdentifierType:  "ISIN",
-			IdentifierValue: "US0378331005",
-			PriceDate:       "2024-01-15",
-			Close:           "185.90",
-		}},
+		Envelope: adminEnvelope(),
+		Prices:   priceGroupFixture(),
 	})
 	if err != nil {
 		t.Fatalf("ImportPrices: %v", err)

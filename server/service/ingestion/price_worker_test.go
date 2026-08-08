@@ -3,7 +3,9 @@ package ingestion
 import (
 	"context"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/archive"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -15,6 +17,23 @@ import (
 	"time"
 )
 
+// pricePayload marshals the request a price import job carries. exportedAt is
+// nil only to exercise the worker's guard for a payload written before the
+// envelope was required.
+func pricePayload(t *testing.T, exportedAt *timestamppb.Timestamp, groups ...*archivev1.PriceGroup) []byte {
+	t.Helper()
+	env := archive.NewEnvelope("test", archivev1.ArchiveKind_ADMIN)
+	env.ExportedAt = exportedAt
+	payload, err := proto.Marshal(&apiv1.ImportPricesRequest{
+		Envelope: env,
+		Prices:   &archivev1.PricePart{Groups: groups},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return payload
+}
+
 func TestProcessPriceImport_RejectsUnknownIdentifierType(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -24,20 +43,11 @@ func TestProcessPriceImport_RejectsUnknownIdentifierType(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
-	req := &apiv1.ImportPricesRequest{
-		Prices: []*apiv1.ImportPriceRow{
-			{
-				IdentifierType:  "TICKER",
-				IdentifierValue: "AAPL",
-				PriceDate:       "2024-01-15",
-				Close:           "185.90",
-			},
-		},
-	}
-	payload, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	// A valid enum value the resolver has no plugin vocabulary for.
+	payload := pricePayload(t, nil, &archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_OPENFIGI_GLOBAL, Value: "BBG000B9XRY4"},
+		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
+	})
 
 	j := &JobRequest{JobID: "job-price-1", JobType: "price"}
 
@@ -64,8 +74,8 @@ func TestProcessPriceImport_RejectsUnknownIdentifierType(t *testing.T) {
 	if len(capturedErrs) != 1 {
 		t.Fatalf("expected 1 validation error, got %d", len(capturedErrs))
 	}
-	if capturedErrs[0].Field != "identifier_type" {
-		t.Errorf("expected field=identifier_type, got %s", capturedErrs[0].Field)
+	if capturedErrs[0].Field != "instrument" {
+		t.Errorf("expected field=instrument, got %s", capturedErrs[0].Field)
 	}
 	if capturedErrs[0].RowIndex != 0 {
 		t.Errorf("expected row_index=0, got %d", capturedErrs[0].RowIndex)
@@ -81,21 +91,10 @@ func TestProcessPriceImport_AcceptsValidIdentifierType(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
-	req := &apiv1.ImportPricesRequest{
-		Prices: []*apiv1.ImportPriceRow{
-			{
-				IdentifierType:   "MIC_TICKER",
-				IdentifierValue:  "AAPL",
-				IdentifierDomain: "XNAS",
-				PriceDate:        "2024-01-15",
-				Close:            "185.90",
-			},
-		},
-	}
-	payload, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	payload := pricePayload(t, nil, &archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
+	})
 
 	j := &JobRequest{JobID: "job-price-2", JobType: "price"}
 
@@ -121,6 +120,98 @@ func TestProcessPriceImport_AcceptsValidIdentifierType(t *testing.T) {
 	}
 }
 
+// The basis is stated per bar, so one group carries an as-traded stretch and a
+// back-adjusted one. A bar that omits it is denominated in its own date, which
+// is what the NOT NULL column defaults to.
+func TestProcessPriceImport_CarriesShareCountBasis(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	payload := pricePayload(t, nil, &archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "NVDA", Domain: "XNAS"},
+		Rows: []*archivev1.PriceRow{
+			{PriceDate: "2024-01-15", Close: "48.0"},
+			{PriceDate: "2024-01-16", ShareCountBasis: proto.String("2024-06-10"), Close: "4.8"},
+		},
+	})
+
+	j := &JobRequest{JobID: "job-price-basis", JobType: "price"}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-price-basis").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-price-basis").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-price-basis", int32(2)).Return(nil)
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "NVDA").
+		Return("inst-nvda", "", "XNAS", "", nil)
+	database.EXPECT().IncrJobProcessedCount(gomock.Any(), "job-price-basis").Return(nil).Times(2)
+
+	var captured []db.EODPrice
+	database.EXPECT().
+		UpsertPrices(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, prices []db.EODPrice) error {
+			captured = prices
+			return nil
+		})
+	database.EXPECT().SetJobStatus(gomock.Any(), "job-price-basis", apiv1.JobStatus_SUCCESS).Return(nil)
+
+	if !processPriceImport(ctx, database, registry, j) {
+		t.Fatal("expected persisted=true after a successful upsert")
+	}
+	if len(captured) != 2 {
+		t.Fatalf("expected 2 bars, got %d", len(captured))
+	}
+	if captured[0].ShareCountBasis != nil {
+		t.Errorf("expected the as-traded bar to carry no basis, got %v", captured[0].ShareCountBasis)
+	}
+	want := time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC)
+	if captured[1].ShareCountBasis == nil || !captured[1].ShareCountBasis.Equal(want) {
+		t.Errorf("expected basis 2024-06-10, got %v", captured[1].ShareCountBasis)
+	}
+}
+
+// A span holding no bars is the one thing rows cannot say: the provider was
+// asked about those dates and had nothing. It has to reach the coverage table
+// even though there is nothing to upsert alongside it.
+func TestProcessPriceImport_CoverageWithNoRows(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+
+	ctx := context.Background()
+	payload := pricePayload(t, nil, &archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "DELISTED", Domain: "XNAS"},
+		Coverage:   []*archivev1.DateInterval{{From: "2024-01-01", Before: "2024-04-01"}},
+	})
+
+	j := &JobRequest{JobID: "job-price-empty", JobType: "price"}
+
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-price-empty").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-price-empty").Return(nil)
+	database.EXPECT().SetJobTotalCount(gomock.Any(), "job-price-empty", int32(0)).Return(nil)
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "DELISTED").
+		Return("inst-delisted", "", "XNAS", "", nil)
+	database.EXPECT().
+		UpsertPricesForRange(gomock.Any(), "inst-delisted", "import", gomock.Len(0),
+			time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC), gomock.Any()).
+		Return(nil)
+	database.EXPECT().SetJobStatus(gomock.Any(), "job-price-empty", apiv1.JobStatus_SUCCESS).Return(nil)
+
+	// No bars were stored, so there is nothing for the price fetcher to react to.
+	if processPriceImport(ctx, database, registry, j) {
+		t.Error("expected persisted=false when the group carried no bars")
+	}
+}
+
 func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -130,30 +221,11 @@ func TestProcessPriceImport_WithCoverage_UsesUpsertWithFill(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
-	req := &apiv1.ImportPricesRequest{
-		Prices: []*apiv1.ImportPriceRow{
-			{
-				IdentifierType:   "MIC_TICKER",
-				IdentifierValue:  "AAPL",
-				IdentifierDomain: "XNAS",
-				PriceDate:        "2024-01-15",
-				Close:            "185.90",
-			},
-		},
-		Coverage: []*apiv1.ImportCoverage{
-			{
-				IdentifierType:   "MIC_TICKER",
-				IdentifierValue:  "AAPL",
-				IdentifierDomain: "XNAS",
-				From:             "2024-01-01",
-				Before:           "2024-04-01",
-			},
-		},
-	}
-	payload, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	payload := pricePayload(t, nil, &archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+		Coverage:   []*archivev1.DateInterval{{From: "2024-01-01", Before: "2024-04-01"}},
+		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
+	})
 
 	j := &JobRequest{JobID: "job-price-cov", JobType: "price"}
 
@@ -186,30 +258,12 @@ func TestProcessPriceImport_WithCoverage_NoCoverageForInstrument_UsesPlanUpsert(
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
-	req := &apiv1.ImportPricesRequest{
-		Prices: []*apiv1.ImportPriceRow{
-			{
-				IdentifierType:   "MIC_TICKER",
-				IdentifierValue:  "AAPL",
-				IdentifierDomain: "XNAS",
-				PriceDate:        "2024-01-15",
-				Close:            "185.90",
-			},
-		},
-		Coverage: []*apiv1.ImportCoverage{
-			{
-				// Coverage for a different instrument.
-				IdentifierType:  "FX_PAIR",
-				IdentifierValue: "GBPUSD",
-				From:            "2024-01-01",
-				Before:          "2024-04-01",
-			},
-		},
-	}
-	payload, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	// Coverage now sits inside the group it applies to, so a group that
+	// declares none has bars covering only their own dates.
+	payload := pricePayload(t, nil, &archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
+	})
 
 	j := &JobRequest{JobID: "job-price-nocov", JobType: "price"}
 
@@ -245,21 +299,10 @@ func TestProcessPriceImport_RejectsHintDiff(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
-	req := &apiv1.ImportPricesRequest{
-		Prices: []*apiv1.ImportPriceRow{
-			{
-				IdentifierType:   "MIC_TICKER",
-				IdentifierValue:  "AAPL",
-				IdentifierDomain: "XNAS",
-				PriceDate:        "2024-01-15",
-				Close:            "185.90",
-			},
-		},
-	}
-	payload, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	payload := pricePayload(t, nil, &archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
+	})
 
 	j := &JobRequest{JobID: "job-price-diff", JobType: "price"}
 
@@ -291,8 +334,8 @@ func TestProcessPriceImport_RejectsHintDiff(t *testing.T) {
 	if len(capturedErrs) != 1 {
 		t.Fatalf("expected 1 validation error, got %d", len(capturedErrs))
 	}
-	if capturedErrs[0].Field != "identifier" {
-		t.Errorf("expected field=identifier, got %s", capturedErrs[0].Field)
+	if capturedErrs[0].Field != "instrument" {
+		t.Errorf("expected field=instrument, got %s", capturedErrs[0].Field)
 	}
 	if !strings.Contains(capturedErrs[0].Message, "Exchange") {
 		t.Errorf("expected message to mention Exchange, got %s", capturedErrs[0].Message)
@@ -311,22 +354,11 @@ func TestProcessPriceImport_RejectsCurrencyHintDiff(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
-	req := &apiv1.ImportPricesRequest{
-		Prices: []*apiv1.ImportPriceRow{
-			{
-				IdentifierType:   "MIC_TICKER",
-				IdentifierValue:  "AAPL",
-				IdentifierDomain: "XNAS",
-				PriceDate:        "2024-01-15",
-				Close:            "185.90",
-				Currency:         "GBP",
-			},
-		},
-	}
-	payload, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	payload := pricePayload(t, nil, &archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+		Currency:   "GBP",
+		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-01-15", Close: "185.90"}},
+	})
 
 	j := &JobRequest{JobID: "job-price-curdiff", JobType: "price"}
 
@@ -375,22 +407,12 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
-	req := &apiv1.ImportPricesRequest{
-		Prices: []*apiv1.ImportPriceRow{
-			{
-				IdentifierType:  "FX_PAIR",
-				IdentifierValue: "EURGBP",
-				PriceDate:       "2021-12-31",
-				Close:           "0.84",
-				AssetClass:      typev1.AssetClass_FX,
-				Currency:        "EUR",
-			},
-		},
-	}
-	payload, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	payload := pricePayload(t, nil, &archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_FX_PAIR, Value: "EURGBP"},
+		AssetClass: typev1.AssetClass_FX,
+		Currency:   "EUR",
+		Rows:       []*archivev1.PriceRow{{PriceDate: "2021-12-31", Close: "0.84"}},
+	})
 
 	j := &JobRequest{JobID: "job-price-fx", JobType: "price"}
 
@@ -444,22 +466,12 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 	registry := identifier.NewRegistry()
 
 	ctx := context.Background()
-	req := &apiv1.ImportPricesRequest{
-		Prices: []*apiv1.ImportPriceRow{
-			{
-				IdentifierType:  "OCC",
-				IdentifierValue: "NVDA240315P00510000",
-				PriceDate:       "2024-03-01",
-				Close:           "12.50",
-				AssetClass:      typev1.AssetClass_OPTION,
-				Currency:        "USD",
-			},
-		},
-	}
-	payload, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	payload := pricePayload(t, nil, &archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_OCC, Value: "NVDA240315P00510000"},
+		AssetClass: typev1.AssetClass_OPTION,
+		Currency:   "USD",
+		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-03-01", Close: "12.50"}},
+	})
 
 	j := &JobRequest{JobID: "job-price-opt", JobType: "price"}
 
@@ -525,23 +537,12 @@ func TestProcessPriceImport_OptionFallbackStampsExportedAt(t *testing.T) {
 
 	exportedAt := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	ctx := context.Background()
-	req := &apiv1.ImportPricesRequest{
-		ExportedAt: timestamppb.New(exportedAt),
-		Prices: []*apiv1.ImportPriceRow{
-			{
-				IdentifierType:  "OCC",
-				IdentifierValue: "NVDA240315P00510000",
-				PriceDate:       "2024-03-01",
-				Close:           "12.50",
-				AssetClass:      typev1.AssetClass_OPTION,
-				Currency:        "USD",
-			},
-		},
-	}
-	payload, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	payload := pricePayload(t, timestamppb.New(exportedAt), &archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_OCC, Value: "NVDA240315P00510000"},
+		AssetClass: typev1.AssetClass_OPTION,
+		Currency:   "USD",
+		Rows:       []*archivev1.PriceRow{{PriceDate: "2024-03-01", Close: "12.50"}},
+	})
 
 	j := &JobRequest{JobID: "job-price-vintage", JobType: "price"}
 

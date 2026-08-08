@@ -8,7 +8,9 @@ import { DateSchema } from "@/gen/google/type/date_pb";
 import type { Date as ProtoDate } from "@/gen/google/type/date_pb";
 import { ExportCorporateEventsResponseSchema, ExportCorporateEventsRequestSchema, ExportInstrumentsRequestSchema, ExportInstrumentsResponseSchema, ExportPricesResponseSchema, ExportPricesRequestSchema, GetPortfolioValuationRequestSchema, GetPortfolioValuationResponseSchema, ImportCorporateEventsRequestSchema, ImportCorporateEventsResponseSchema, ImportCorporateEventRowSchema, ImportInstrumentsRequestSchema, ImportInstrumentsResponseSchema, ImportPricesRequestSchema, ImportPricesResponseSchema, SplitRowSchema, CreatePortfolioRequestSchema, CreatePortfolioResponseSchema, DeletePortfolioRequestSchema, GetHoldingsRequestSchema, GetHoldingsResponseSchema, GetJobRequestSchema, GetJobResponseSchema, GetPortfolioRequestSchema, GetPortfolioResponseSchema, GetPortfolioFiltersRequestSchema, GetPortfolioFiltersResponseSchema, ListBrokersAndAccountsRequestSchema, ListBrokersAndAccountsResponseSchema, ListDescriptionPluginsRequestSchema, ListDescriptionPluginsResponseSchema, ListIdentifierPluginsRequestSchema, ListIdentifierPluginsResponseSchema, ListPriceFetchBlocksRequestSchema, ListPriceFetchBlocksResponseSchema, DeletePriceFetchBlockRequestSchema, ListPricesRequestSchema, ListPricesResponseSchema, ListPricePluginsRequestSchema, ListPricePluginsResponseSchema, ListInstrumentsRequestSchema, ListInstrumentsResponseSchema, ListJobsRequestSchema, ListJobsResponseSchema, ListPortfoliosRequestSchema, ListPortfoliosResponseSchema, ListTelemetryCountersRequestSchema, ListTelemetryCountersResponseSchema, ListTxsRequestSchema, ListTxsResponseSchema, SetPortfolioFiltersRequestSchema, UpdateDescriptionPluginRequestSchema, UpdateDescriptionPluginResponseSchema, UpdateIdentifierPluginRequestSchema, UpdateIdentifierPluginResponseSchema, UpdatePricePluginRequestSchema, UpdatePricePluginResponseSchema, UpdatePortfolioRequestSchema, UpdatePortfolioResponseSchema, ReorderPluginsRequestSchema, CreateHoldingDeclarationRequestSchema, CreateHoldingDeclarationResponseSchema, UpdateHoldingDeclarationRequestSchema, UpdateHoldingDeclarationResponseSchema, DeleteHoldingDeclarationRequestSchema, ListHoldingDeclarationsRequestSchema, ListHoldingDeclarationsResponseSchema, ListWorkersRequestSchema, ListWorkersResponseSchema, GetDisplayCurrencyRequestSchema, GetDisplayCurrencyResponseSchema, SetDisplayCurrencyRequestSchema, SetDisplayCurrencyResponseSchema, GetIgnoredAssetClassesRequestSchema, GetIgnoredAssetClassesResponseSchema, SetIgnoredAssetClassesRequestSchema, CountIgnoredTxsRequestSchema, CountIgnoredTxsResponseSchema, IgnoredAssetClassRuleSchema, ListInflationIndicesRequestSchema, ListInflationIndicesResponseSchema, ListInflationPluginsRequestSchema, ListInflationPluginsResponseSchema, UpdateInflationPluginRequestSchema, UpdateInflationPluginResponseSchema, TriggerInflationFetchRequestSchema, TriggerPriceFetchRequestSchema, CountUnhandledCorporateEventsRequestSchema, CountUnhandledCorporateEventsResponseSchema, ListUnhandledCorporateEventsRequestSchema, ListUnhandledCorporateEventsResponseSchema, ResolveUnhandledCorporateEventRequestSchema, ListResidualBalancesRequestSchema, ListResidualBalancesResponseSchema, CountResidualBalancesRequestSchema, CountResidualBalancesResponseSchema, JobStatus, WorkerState } from "@/gen/api/v1/api_pb";
 import { AccountType, AssetClass } from "@/gen/type/v1/type_pb";
-import type { DescriptionPluginConfig, EODPriceProto, ExportCorporateEventsResponse, InflationIndexProto, InflationPluginConfig, ExportPricesResponse, Holding, HoldingDeclaration, IdentificationError, IdentifierPluginConfig, ImportPriceRow, ImportCoverage, ImportCorporateEventCoverage, Instrument, PriceFetchBlock, PricePluginConfig, Portfolio as GenPortfolio, PortfolioFilterProto, PortfolioTx, ResidualBalance as ResidualBalanceProto, ValidationError, Worker as WorkerProto } from "@/gen/api/v1/api_pb";
+import type { Envelope } from "@/gen/archive/v1/common_pb";
+import type { PricePart } from "@/gen/archive/v1/prices_pb";
+import type { DescriptionPluginConfig, EODPriceProto, ExportCorporateEventsResponse, InflationIndexProto, InflationPluginConfig, ExportPricesResponse, Holding, HoldingDeclaration, IdentificationError, IdentifierPluginConfig, ImportCorporateEventCoverage, Instrument, PriceFetchBlock, PricePluginConfig, Portfolio as GenPortfolio, PortfolioFilterProto, PortfolioTx, ResidualBalance as ResidualBalanceProto, ValidationError, Worker as WorkerProto } from "@/gen/api/v1/api_pb";
 import type { Broker } from "@/gen/type/v1/type_pb";
 import { streamingFetch, unaryFetch } from "./grpc-web";
 
@@ -532,23 +534,16 @@ export async function* exportPrices(): AsyncGenerator<ExportPricesResponse> {
   }
 }
 
-/** Import (upsert) prices (admin only). Returns a job ID for async processing. */
 /**
- * Import EOD prices (admin only). Coverage entries name one instrument each --
- * any global declaration in the source file is expanded by the parser -- and
- * make the server fill non-trading days within the span by LOCF.
+ * Import one archive's price part (admin only). Returns a job ID for async
+ * processing.
+ *
+ * The envelope is the file's own, forwarded rather than rebuilt, so the server
+ * sees the format version and the kind the file declared.
  */
-export async function importPrices(
-  prices: ImportPriceRow[],
-  exportedAt?: Date,
-  coverage?: ImportCoverage[],
-): Promise<string> {
+export async function importPrices(envelope: Envelope, prices: PricePart): Promise<string> {
   const base = getBaseUrl();
-  const req = create(ImportPricesRequestSchema, {
-    prices,
-    coverage,
-    exportedAt: exportedAt ? timestampFromDate(exportedAt) : undefined,
-  });
+  const req = create(ImportPricesRequestSchema, { envelope, prices });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "ImportPrices", toBinary(ImportPricesRequestSchema, req), { credentials: "include" });
   const res = fromBinary(ImportPricesResponseSchema, resBytes);
   return res.jobId;

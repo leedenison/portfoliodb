@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   FORMAT_VERSION,
+  archiveErrorMessage,
   ArchiveKindError,
   ArchiveVersionError,
   marshalAdmin,
@@ -144,6 +145,28 @@ describe("archive codec", () => {
 
   it("refuses a user archive handed to the admin reader", () => {
     expect(() => unmarshalAdmin(marshalUser(userFixture()))).toThrow(ArchiveKindError);
+  });
+
+  // An upload UI has one sentence to explain a rejected file, and "archive
+  // format version 2 is newer than this client supports (1)" is not it.
+  it("turns a refusal into a sentence a user can act on", () => {
+    const newer = JSON.parse(marshalAdmin(adminFixture()));
+    newer.envelope.format_version = 2;
+    try {
+      unmarshalAdmin(JSON.stringify(newer));
+      throw new Error("expected a refusal");
+    } catch (e) {
+      expect(archiveErrorMessage(e)).toContain("Upgrade this instance");
+    }
+
+    try {
+      unmarshalAdmin(marshalUser(userFixture()));
+      throw new Error("expected a refusal");
+    } catch (e) {
+      expect(archiveErrorMessage(e)).toBe("This is a user archive, not a admin one.");
+    }
+
+    expect(archiveErrorMessage(new Error("boom"))).toBe("boom");
   });
 
   // What makes the version gate safe to be one-sided.

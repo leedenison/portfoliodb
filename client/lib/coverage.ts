@@ -1,13 +1,17 @@
 /**
- * Coverage declarations, shared by the price CSV and the corporate event JSON.
+ * Coverage declarations in the corporate event JSON.
  *
  * A declaration is a half-open [from, before) span. It is either global -- no
  * identifier, applying to every instrument in the file -- or specific to one
- * instrument. The wire has no notion of a global: both ImportCoverage and
- * ImportCorporateEventCoverage name an instrument, so expandCoverage resolves
- * the global against the file's contents before the request is built.
+ * instrument. The wire has no notion of a global: ImportCorporateEventCoverage
+ * names an instrument, so expandCoverage resolves the global against the file's
+ * contents before the request is built.
  *
- * See docs/spec/csv-format.md for the syntax each format uses.
+ * The archive states coverage inside the group it applies to and needs none of
+ * this; prices moved there under 0081 and this goes when corporate events
+ * follow.
+ *
+ * See docs/spec/csv-format.md for the syntax.
  */
 
 import type { ParseError } from "@/lib/csv/standard";

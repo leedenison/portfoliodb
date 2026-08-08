@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
@@ -22,8 +23,8 @@ type resolveEntry struct {
 	err    error
 }
 
-// processPriceImport loads a persisted ImportPricesRequest, resolves
-// instruments, and upserts prices. Progress is tracked via
+// processPriceImport loads a persisted ImportPricesRequest, resolves each
+// group's instrument, and upserts its bars. Progress is tracked via
 // SetJobTotalCount / IncrJobProcessedCount.
 //
 // Returns true when at least one price row was successfully persisted. The
@@ -44,116 +45,51 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 		return false
 	}
 
+	// The envelope is required at the API, so this only fires for a payload
+	// written by an older build.
 	var pricesAsOf *time.Time
-	if req.GetExportedAt() != nil {
-		t := req.GetExportedAt().AsTime()
+	if ts := req.GetEnvelope().GetExportedAt(); ts != nil {
+		t := ts.AsTime()
 		pricesAsOf = &t
 	} else {
 		slog.Warn("price import missing exported_at; OCC symbols will not be split-adjusted", "job_id", j.JobID)
 	}
 
-	rows := req.GetPrices()
-	_ = database.SetJobTotalCount(ctx, j.JobID, int32(len(rows)))
+	groups := req.GetPrices().GetGroups()
+	total := 0
+	for _, g := range groups {
+		total += len(g.GetRows())
+	}
+	_ = database.SetJobTotalCount(ctx, j.JobID, int32(total))
 
-	var prices []db.EODPrice
+	var resolved []resolvedGroup
 	var valErrs []*apiv1.ValidationError
 
-	// Dedup cache: avoid calling plugins N times for the same identifier.
+	// Dedup cache: avoid calling plugins twice for one identifier, and make two
+	// groups naming one instrument land on the same id.
 	resolveCache := make(map[string]*resolveEntry)
 
-	for i, row := range rows {
-		idType := row.GetIdentifierType()
-		if !identifier.AllowedIdentifierTypes[idType] {
-			valErrs = append(valErrs, &apiv1.ValidationError{
-				RowIndex: int32(i),
-				Field:    "identifier_type",
-				Message:  fmt.Sprintf("unknown identifier_type %q", idType),
-			})
-			_ = database.IncrJobProcessedCount(ctx, j.JobID)
-			continue
-		}
-
-		priceDate, err := time.Parse("2006-01-02", row.GetPriceDate())
+	for i, g := range groups {
+		instID, err := resolveGroupInstrument(ctx, database, pluginRegistry, resolveCache, g, pricesAsOf)
 		if err != nil {
 			valErrs = append(valErrs, &apiv1.ValidationError{
 				RowIndex: int32(i),
-				Field:    "price_date",
-				Message:  fmt.Sprintf("invalid price_date %q: %v", row.GetPriceDate(), err),
-			})
-			_ = database.IncrJobProcessedCount(ctx, j.JobID)
-			continue
-		}
-
-		cacheKey := row.GetIdentifierType() + "\x00" + row.GetIdentifierDomain() + "\x00" + row.GetIdentifierValue()
-		entry, cached := resolveCache[cacheKey]
-		if !cached {
-			acStr := db.AssetClassToStr(row.GetAssetClass())
-			result, resolveErr := resolveOrIdentifyInstrument(ctx, database, pluginRegistry, row.GetIdentifierType(), row.GetIdentifierDomain(), row.GetIdentifierValue(), acStr, row.GetCurrency(), pricesAsOf)
-			entry = &resolveEntry{result: result, err: resolveErr}
-			resolveCache[cacheKey] = entry
-		}
-		if entry.err != nil {
-			valErrs = append(valErrs, &apiv1.ValidationError{
-				RowIndex: int32(i),
-				Field:    "identifier",
-				Message:  entry.err.Error(),
-			})
-			_ = database.IncrJobProcessedCount(ctx, j.JobID)
-			continue
-		}
-		if len(entry.result.HintDiffs) > 0 {
-			valErrs = append(valErrs, &apiv1.ValidationError{
-				RowIndex: int32(i),
-				Field:    "identifier",
-				Message:  fmt.Sprintf("resolved instrument differs from import data: %s", hintDiffsSummary(entry.result.HintDiffs)),
-			})
-			_ = database.IncrJobProcessedCount(ctx, j.JobID)
-			continue
-		}
-
-		dec, field, err := parsePriceDecimals(row)
-		if err != nil {
-			valErrs = append(valErrs, &apiv1.ValidationError{
-				RowIndex: int32(i),
-				Field:    field,
+				Field:    "instrument",
 				Message:  err.Error(),
 			})
-			_ = database.IncrJobProcessedCount(ctx, j.JobID)
+			for range g.GetRows() {
+				_ = database.IncrJobProcessedCount(ctx, j.JobID)
+			}
 			continue
 		}
 
-		p := db.EODPrice{
-			InstrumentID:  entry.result.InstrumentID,
-			PriceDate:     priceDate,
-			Close:         dec.Close,
-			Open:          dec.Open,
-			High:          dec.High,
-			Low:           dec.Low,
-			AdjustedClose: dec.AdjustedClose,
-			DataProvider:  "import",
-			LastFetchedAt: pricesAsOf,
-		}
-		// An undeclared basis means as-traded, which is what PortfolioDB's own
-		// export emits. exported_at is knowledge time and does not imply the
-		// file was back-adjusted.
-		if b := row.GetShareCountBasis(); b != "" {
-			basis, err := time.Parse("2006-01-02", b)
-			if err != nil {
-				valErrs = append(valErrs, &apiv1.ValidationError{
-					RowIndex: int32(i),
-					Field:    "share_count_basis",
-					Message:  fmt.Sprintf("invalid date %q: want YYYY-MM-DD", b),
-				})
-				_ = database.IncrJobProcessedCount(ctx, j.JobID)
-				continue
-			}
-			p.ShareCountBasis = &basis
-		}
-		if row.Volume != nil {
-			p.Volume = row.Volume
-		}
-		prices = append(prices, p)
-		_ = database.IncrJobProcessedCount(ctx, j.JobID)
+		bars, rowErrs := groupBars(ctx, database, j.JobID, g, i, instID, pricesAsOf)
+		valErrs = append(valErrs, rowErrs...)
+		resolved = append(resolved, resolvedGroup{
+			instrumentID: instID,
+			coverage:     groupCoverage(g, i, &valErrs),
+			bars:         bars,
+		})
 	}
 
 	if len(valErrs) > 0 {
@@ -161,8 +97,8 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 	}
 
 	persisted := false
-	if len(prices) > 0 {
-		if err := upsertWithCoverage(ctx, database, prices, req.GetCoverage(), resolveCache); err != nil {
+	if len(resolved) > 0 {
+		if err := upsertGroups(ctx, database, resolved); err != nil {
 			log.Printf("price import job %s: upsert: %v", j.JobID, err)
 			_ = database.AppendValidationErrors(ctx, j.JobID, []*apiv1.ValidationError{
 				{RowIndex: -1, Field: "prices", Message: err.Error()},
@@ -170,11 +106,145 @@ func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *ide
 			_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)
 			return false
 		}
-		persisted = true
+		for _, r := range resolved {
+			if len(r.bars) > 0 {
+				persisted = true
+				break
+			}
+		}
 	}
 
 	_ = database.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_SUCCESS)
 	return persisted
+}
+
+// dateRange is a half-open [from, before) span of dates.
+type dateRange struct{ from, before time.Time }
+
+// resolvedGroup is one archive group after its instrument has been resolved.
+type resolvedGroup struct {
+	instrumentID string
+	coverage     []dateRange
+	bars         []db.EODPrice
+}
+
+// resolveGroupInstrument maps a group's identifier to an instrument id, going to
+// the identifier plugins at most once per identifier. The group's asset class
+// and currency are the hints that route them, which is why a group carrying no
+// rows is still worth writing: it is the only place they travel for an
+// instrument that was covered and had nothing.
+func resolveGroupInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry,
+	cache map[string]*resolveEntry, g *archivev1.PriceGroup, asOf *time.Time) (string, error) {
+	ref := g.GetInstrument()
+	idType := ref.GetType().String()
+	if !identifier.AllowedIdentifierTypes[idType] {
+		return "", fmt.Errorf("unknown identifier_type %q", idType)
+	}
+
+	key := idType + "\x00" + ref.GetDomain() + "\x00" + ref.GetValue()
+	entry, cached := cache[key]
+	if !cached {
+		acStr := db.AssetClassToStr(g.GetAssetClass())
+		result, err := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
+			idType, ref.GetDomain(), ref.GetValue(), acStr, g.GetCurrency(), asOf)
+		entry = &resolveEntry{result: result, err: err}
+		cache[key] = entry
+	}
+	if entry.err != nil {
+		return "", entry.err
+	}
+	if len(entry.result.HintDiffs) > 0 {
+		return "", fmt.Errorf("resolved instrument differs from import data: %s", hintDiffsSummary(entry.result.HintDiffs))
+	}
+	return entry.result.InstrumentID, nil
+}
+
+// groupBars converts one group's rows into storable bars, reporting a bad row
+// against the group it came from and carrying on with the rest.
+func groupBars(ctx context.Context, database db.DB, jobID string, g *archivev1.PriceGroup,
+	groupIndex int, instrumentID string, fetchedAt *time.Time) ([]db.EODPrice, []*apiv1.ValidationError) {
+	rows := g.GetRows()
+	bars := make([]db.EODPrice, 0, len(rows))
+	var errs []*apiv1.ValidationError
+
+	fail := func(i int, field, msg string) {
+		errs = append(errs, &apiv1.ValidationError{
+			RowIndex: int32(groupIndex),
+			Field:    fmt.Sprintf("rows[%d].%s", i, field),
+			Message:  msg,
+		})
+		_ = database.IncrJobProcessedCount(ctx, jobID)
+	}
+
+	for i, row := range rows {
+		priceDate, err := time.Parse("2006-01-02", row.GetPriceDate())
+		if err != nil {
+			fail(i, "price_date", fmt.Sprintf("invalid price_date %q: %v", row.GetPriceDate(), err))
+			continue
+		}
+		dec, field, err := parsePriceDecimals(row)
+		if err != nil {
+			fail(i, field, err.Error())
+			continue
+		}
+		p := db.EODPrice{
+			InstrumentID:  instrumentID,
+			PriceDate:     priceDate,
+			Close:         dec.Close,
+			Open:          dec.Open,
+			High:          dec.High,
+			Low:           dec.Low,
+			AdjustedClose: dec.AdjustedClose,
+			DataProvider:  "import",
+			LastFetchedAt: fetchedAt,
+		}
+		// An undeclared basis means as-traded, which is what PortfolioDB's own
+		// export emits. exported_at is knowledge time and does not imply the
+		// file was back-adjusted.
+		if b := row.GetShareCountBasis(); b != "" {
+			basis, err := time.Parse("2006-01-02", b)
+			if err != nil {
+				fail(i, "share_count_basis", fmt.Sprintf("invalid date %q: want YYYY-MM-DD", b))
+				continue
+			}
+			p.ShareCountBasis = &basis
+		}
+		if row.Volume != nil {
+			p.Volume = row.Volume
+		}
+		bars = append(bars, p)
+		_ = database.IncrJobProcessedCount(ctx, jobID)
+	}
+	return bars, errs
+}
+
+// groupCoverage parses a group's declared spans, dropping and reporting one it
+// cannot read rather than failing the group: the bars are still worth storing,
+// they just cover their own dates.
+func groupCoverage(g *archivev1.PriceGroup, groupIndex int, errs *[]*apiv1.ValidationError) []dateRange {
+	var out []dateRange
+	for i, c := range g.GetCoverage() {
+		from, err := time.Parse("2006-01-02", c.GetFrom())
+		if err != nil {
+			*errs = append(*errs, &apiv1.ValidationError{
+				RowIndex: int32(groupIndex),
+				Field:    fmt.Sprintf("coverage[%d].from", i),
+				Message:  fmt.Sprintf("invalid date %q: want YYYY-MM-DD", c.GetFrom()),
+			})
+			continue
+		}
+		before, err := time.Parse("2006-01-02", c.GetBefore())
+		if err != nil {
+			*errs = append(*errs, &apiv1.ValidationError{
+				RowIndex: int32(groupIndex),
+				Field:    fmt.Sprintf("coverage[%d].before", i),
+				Message:  fmt.Sprintf("invalid date %q: want YYYY-MM-DD", c.GetBefore()),
+			})
+			continue
+		}
+		out = append(out, dateRange{from, before})
+	}
+	return out
 }
 
 // priceDecimals is the decimal half of an import row.
@@ -187,11 +257,11 @@ type priceDecimals struct {
 // the seam where an imported price stops being text. It returns the offending
 // field name alongside the error so the caller can report it against the row.
 //
-// ImportPrices is unary, so the protovalidate patterns on ImportPriceRow reject a
+// ImportPrices is unary, so the protovalidate patterns on PriceRow reject a
 // malformed value at the interceptor before this runs. Reaching the error here
 // means the request came from somewhere that bypassed it, and it is reported per
 // row rather than failing the job, like every other row-level problem.
-func parsePriceDecimals(row *apiv1.ImportPriceRow) (priceDecimals, string, error) {
+func parsePriceDecimals(row *archivev1.PriceRow) (priceDecimals, string, error) {
 	var out priceDecimals
 	c, err := decimal.NewFromString(row.GetClose())
 	if err != nil {
@@ -222,54 +292,44 @@ func parsePriceDecimals(row *apiv1.ImportPriceRow) (priceDecimals, string, error
 	return out, "", nil
 }
 
-// coverageKey builds a lookup key for ImportCoverage entries.
-func coverageKey(idType, domain, value string) string {
-	return idType + "\x00" + domain + "\x00" + value
-}
-
-// upsertWithCoverage stores prices, recording each declared range as coverage so
-// valuation carries prices forward across the non-trading days inside it. Rows
-// falling outside every declared range cover only their own dates, which keeps
-// the gaps between them gaps.
-func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPrice, coverage []*apiv1.ImportCoverage, resolveCache map[string]*resolveEntry) error {
-	if len(coverage) == 0 {
-		return database.UpsertPrices(ctx, prices)
-	}
-
-	// Build map: instrument ID -> []coverage ranges.
-	type dateRange struct{ from, before time.Time }
-	instCoverage := make(map[string][]dateRange)
-	for _, c := range coverage {
-		from, err := time.Parse("2006-01-02", c.GetFrom())
-		if err != nil {
+// upsertGroups stores each group's bars, recording its declared spans as
+// coverage so valuation carries prices forward across the non-trading days
+// inside them. Bars falling outside every declared span cover only their own
+// dates, which keeps the gaps between them gaps.
+//
+// Groups are folded by instrument first. Coverage is stored per instrument with
+// no basis dimension, and two groups naming one instrument would otherwise have
+// their spans applied against partial bar sets.
+func upsertGroups(ctx context.Context, database db.DB, groups []resolvedGroup) error {
+	byInst := make(map[string]*resolvedGroup, len(groups))
+	order := make([]string, 0, len(groups))
+	for i := range groups {
+		g := groups[i]
+		cur, ok := byInst[g.instrumentID]
+		if !ok {
+			c := g
+			byInst[g.instrumentID] = &c
+			order = append(order, g.instrumentID)
 			continue
 		}
-		before, err := time.Parse("2006-01-02", c.GetBefore())
-		if err != nil {
-			continue
-		}
-		key := coverageKey(c.GetIdentifierType(), c.GetIdentifierDomain(), c.GetIdentifierValue())
-		entry, ok := resolveCache[key]
-		if !ok || entry.err != nil || entry.result.InstrumentID == "" {
-			continue
-		}
-		instCoverage[entry.result.InstrumentID] = append(instCoverage[entry.result.InstrumentID], dateRange{from, before})
+		cur.coverage = append(cur.coverage, g.coverage...)
+		cur.bars = append(cur.bars, g.bars...)
 	}
 
-	// Group prices by instrument ID.
-	byInst := make(map[string][]db.EODPrice)
-	for _, p := range prices {
-		byInst[p.InstrumentID] = append(byInst[p.InstrumentID], p)
-	}
-
-	uncovered := make([]db.EODPrice, 0, len(prices))
-	for instID, ranges := range instCoverage {
-		instPrices := byInst[instID]
-		covered := make(map[int]bool)
-		for _, r := range ranges {
-			// Filter prices within this range.
+	for _, instID := range order {
+		g := byInst[instID]
+		if len(g.coverage) == 0 {
+			if len(g.bars) > 0 {
+				if err := database.UpsertPrices(ctx, g.bars); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		covered := make(map[int]bool, len(g.bars))
+		for _, r := range g.coverage {
 			var inRange []db.EODPrice
-			for i, p := range instPrices {
+			for i, p := range g.bars {
 				if !p.PriceDate.Before(r.from) && p.PriceDate.Before(r.before) {
 					inRange = append(inRange, p)
 					covered[i] = true
@@ -285,22 +345,17 @@ func upsertWithCoverage(ctx context.Context, database db.DB, prices []db.EODPric
 				return err
 			}
 		}
-		// Prices outside all coverage ranges cover only their own dates.
-		for i, p := range instPrices {
+		var uncovered []db.EODPrice
+		for i, p := range g.bars {
 			if !covered[i] {
 				uncovered = append(uncovered, p)
 			}
 		}
-	}
-	// Instruments the file declared no coverage for at all.
-	for instID, instPrices := range byInst {
-		if _, declared := instCoverage[instID]; !declared {
-			uncovered = append(uncovered, instPrices...)
+		if len(uncovered) > 0 {
+			if err := database.UpsertPrices(ctx, uncovered); err != nil {
+				return err
+			}
 		}
-	}
-
-	if len(uncovered) > 0 {
-		return database.UpsertPrices(ctx, uncovered)
 	}
 	return nil
 }

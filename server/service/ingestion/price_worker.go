@@ -3,7 +3,6 @@ package ingestion
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"time"
 
@@ -15,57 +14,12 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/service/identification"
 	"github.com/shopspring/decimal"
-	"google.golang.org/protobuf/proto"
 )
 
 // resolveEntry caches the result of instrument resolution for a given identifier.
 type resolveEntry struct {
 	result identification.ResolveResult
 	err    error
-}
-
-// processPriceImport loads a persisted ImportPricesRequest, resolves each
-// group's instrument, and upserts its bars. Progress is tracked via
-// SetJobTotalCount / IncrJobProcessedCount.
-//
-// Returns true when at least one price row was successfully persisted. The
-// caller uses this to decide whether to nudge the price fetcher worker --
-// mirrors the processTx and processCorporateEventImport success signal so a
-// job that rejected every row does not produce churn.
-func processPriceImport(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, j *JobRequest) bool {
-	payload, err := database.LoadJobPayload(ctx, j.JobID)
-	if err != nil {
-		log.Printf("price import job %s: load payload: %v", j.JobID, err)
-		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
-		return false
-	}
-	var req apiv1.ImportPricesRequest
-	if err := proto.Unmarshal(payload, &req); err != nil {
-		log.Printf("price import job %s: unmarshal payload: %v", j.JobID, err)
-		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
-		return false
-	}
-
-	// The envelope is required at the API, so this only fires for a payload
-	// written by an older build.
-	var pricesAsOf *time.Time
-	if ts := req.GetEnvelope().GetExportedAt(); ts != nil {
-		t := ts.AsTime()
-		pricesAsOf = &t
-	} else {
-		slog.Warn("price import missing exported_at; OCC symbols will not be split-adjusted", "job_id", j.JobID)
-	}
-
-	rep := archiveimport.NewPartReporter(database, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED)
-	persisted, err := importPricePart(ctx, database, pluginRegistry, req.GetPrices(), pricesAsOf, newResolveCache(), rep)
-	rep.Flush(ctx)
-	if err != nil {
-		log.Printf("price import job %s: %v", j.JobID, err)
-		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
-		return false
-	}
-	finishJob(ctx, database, j.JobID, apiv1.JobStatus_SUCCESS)
-	return persisted
 }
 
 // importPricePart applies one archive price part, reporting through rep.

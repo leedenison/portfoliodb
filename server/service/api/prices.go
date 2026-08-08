@@ -2,12 +2,9 @@ package api
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
-	"github.com/leedenison/portfoliodb/server/archive"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/grpc/codes"
@@ -64,44 +61,6 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 		NextPageToken: nextToken,
 		TotalCount:    totalCount,
 	}, nil
-}
-
-// ExportPrices streams the price part of a system archive: the envelope first,
-// then one group per instrument. Admin only.
-//
-// The coverage nested in each group is not derivable from its rows: a span
-// covering dates with no rows records that a provider was asked and had
-// nothing.
-func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiService_ExportPricesServer) error {
-	ctx := stream.Context()
-	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
-		return authErr
-	}
-	coverage, err := s.db.ListPriceCoverageForExport(ctx)
-	if err != nil {
-		return status.Error(codes.Internal, err.Error())
-	}
-	rows, err := s.db.ListPricesForExport(ctx)
-	if err != nil {
-		return status.Error(codes.Internal, err.Error())
-	}
-	// source_instance is left empty: nothing keys off it, and this build has no
-	// configured identity to put there.
-	if err := stream.Send(&apiv1.ExportPricesResponse{
-		Item: &apiv1.ExportPricesResponse_Envelope{
-			Envelope: archive.NewEnvelope("", archivev1.ArchiveKind_SYSTEM),
-		},
-	}); err != nil {
-		return err
-	}
-	for _, g := range priceGroups(rows, coverage) {
-		if err := stream.Send(&apiv1.ExportPricesResponse{
-			Item: &apiv1.ExportPricesResponse_Group{Group: g},
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // instKey is an instrument named the way a file names it: the identifier triple
@@ -192,40 +151,4 @@ func priceRow(r db.ExportPriceRow) *archivev1.PriceRow {
 		row.Volume = r.Volume
 	}
 	return row
-}
-
-// ImportPrices creates an async job to upsert the price part of a system
-// archive. Admin only. The serialized request is persisted to the DB and
-// processed by the worker.
-func (s *Server) ImportPrices(ctx context.Context, req *apiv1.ImportPricesRequest) (*apiv1.ImportPricesResponse, error) {
-	u, authErr := auth.RequireAdmin(ctx)
-	if authErr != nil {
-		return nil, authErr
-	}
-	if err := archive.CheckEnvelope(req.GetEnvelope(), archivev1.ArchiveKind_SYSTEM); err != nil {
-		var ve *archive.VersionError
-		if errors.As(err, &ve) {
-			return nil, status.Error(codes.FailedPrecondition, err.Error())
-		}
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	if len(req.GetPrices().GetGroups()) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "no price groups provided")
-	}
-	payload, err := proto.Marshal(req)
-	if err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("serialize request: %v", err))
-	}
-	jobID, err := s.db.CreateJob(ctx, db.CreateJobParams{
-		UserID:  u.ID,
-		JobType: "price",
-		Payload: payload,
-	})
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	if err := s.enqueueJob(jobID, "price"); err != nil {
-		return nil, status.Error(codes.Unavailable, err.Error())
-	}
-	return &apiv1.ImportPricesResponse{JobId: jobID}, nil
 }

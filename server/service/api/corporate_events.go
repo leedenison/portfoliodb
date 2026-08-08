@@ -2,13 +2,10 @@ package api
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"sort"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
-	"github.com/leedenison/portfoliodb/server/archive"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/grpc/codes"
@@ -16,48 +13,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
-
-// ExportCorporateEvents streams the corporate event part of a system archive:
-// the envelope first, then one group per instrument. Admin only.
-//
-// The coverage nested in each group is not derivable from its events: events are
-// sparse, so a span holding none of them records that a provider was asked and
-// had nothing, which is a different statement from never having asked.
-func (s *Server) ExportCorporateEvents(req *apiv1.ExportCorporateEventsRequest, stream apiv1.ApiService_ExportCorporateEventsServer) error {
-	ctx := stream.Context()
-	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
-		return authErr
-	}
-	coverage, err := s.db.ListCorporateEventCoverageForExport(ctx)
-	if err != nil {
-		return status.Error(codes.Internal, err.Error())
-	}
-	splits, err := s.db.ListStockSplitsForExport(ctx)
-	if err != nil {
-		return status.Error(codes.Internal, err.Error())
-	}
-	dividends, err := s.db.ListCashDividendsForExport(ctx)
-	if err != nil {
-		return status.Error(codes.Internal, err.Error())
-	}
-	// source_instance is left empty: nothing keys off it, and this build has no
-	// configured identity to put there.
-	if err := stream.Send(&apiv1.ExportCorporateEventsResponse{
-		Item: &apiv1.ExportCorporateEventsResponse_Envelope{
-			Envelope: archive.NewEnvelope("", archivev1.ArchiveKind_SYSTEM),
-		},
-	}); err != nil {
-		return err
-	}
-	for _, g := range corporateEventGroups(splits, dividends, coverage) {
-		if err := stream.Send(&apiv1.ExportCorporateEventsResponse{
-			Item: &apiv1.ExportCorporateEventsResponse_Group{Group: g},
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // corporateEventGroups turns the three flat export queries into archive groups,
 // one per instrument.
@@ -170,44 +125,6 @@ func dividendTypeFromString(s string) archivev1.DividendType {
 		return archivev1.DividendType(v)
 	}
 	return archivev1.DividendType_DIVIDEND_TYPE_UNSPECIFIED
-}
-
-// ImportCorporateEvents creates an async job to upsert the corporate event part
-// of a system archive. The serialized request is persisted to the DB and
-// processed by the ingestion worker. Admin only.
-func (s *Server) ImportCorporateEvents(ctx context.Context, req *apiv1.ImportCorporateEventsRequest) (*apiv1.ImportCorporateEventsResponse, error) {
-	u, authErr := auth.RequireAdmin(ctx)
-	if authErr != nil {
-		return nil, authErr
-	}
-	if err := archive.CheckEnvelope(req.GetEnvelope(), archivev1.ArchiveKind_SYSTEM); err != nil {
-		var ve *archive.VersionError
-		if errors.As(err, &ve) {
-			// The request is well formed and this server is the thing that is
-			// out of date, which is a precondition rather than a bad argument.
-			return nil, status.Error(codes.FailedPrecondition, err.Error())
-		}
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	if len(req.GetCorporateEvents().GetGroups()) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "no corporate event groups provided")
-	}
-	payload, err := proto.Marshal(req)
-	if err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("serialize request: %v", err))
-	}
-	jobID, err := s.db.CreateJob(ctx, db.CreateJobParams{
-		UserID:  u.ID,
-		JobType: db.JobTypeCorporateEvent,
-		Payload: payload,
-	})
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	if err := s.enqueueJob(jobID, db.JobTypeCorporateEvent); err != nil {
-		return nil, status.Error(codes.Unavailable, err.Error())
-	}
-	return &apiv1.ImportCorporateEventsResponse{JobId: jobID}, nil
 }
 
 // ListUnhandledCorporateEvents returns corporate events that could not be

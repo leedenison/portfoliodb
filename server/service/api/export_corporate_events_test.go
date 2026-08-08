@@ -14,25 +14,31 @@ import (
 	"github.com/leedenison/portfoliodb/server/testutil"
 )
 
-func TestExportCorporateEvents_NonAdmin_PermissionDenied(t *testing.T) {
+func TestExportSystemArchive_CorporateEvents_NonAdmin_PermissionDenied(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
-	stream := &exportCorporateEventStreamMock{ctx: authCtx("user-1", "sub|1")}
-	err := srv.ExportCorporateEvents(&apiv1.ExportCorporateEventsRequest{}, stream)
+	stream := &exportArchiveStreamMock{ctx: authCtx("user-1", "sub|1")}
+	err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_CORPORATE_EVENTS}}, stream)
 	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 }
 
-func TestExportCorporateEvents_Empty(t *testing.T) {
+func TestExportSystemArchive_CorporateEvents_Empty(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().ListCorporateEventCoverageForExport(gomock.Any()).Return(nil, nil)
 	db.EXPECT().ListStockSplitsForExport(gomock.Any()).Return(nil, nil)
 	db.EXPECT().ListCashDividendsForExport(gomock.Any()).Return(nil, nil)
-	stream := &exportCorporateEventStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	if err := srv.ExportCorporateEvents(&apiv1.ExportCorporateEventsRequest{}, stream); err != nil {
-		t.Fatalf("ExportCorporateEvents: %v", err)
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_CORPORATE_EVENTS}}, stream); err != nil {
+		t.Fatalf("ExportSystemArchive: %v", err)
 	}
 	// The envelope goes out even when there is nothing to say.
-	if len(stream.sent) != 1 {
-		t.Fatalf("expected exactly the envelope, got %d messages", len(stream.sent))
+	// The envelope and the part marker go out even when there is nothing to
+	// say: a part present and empty means the export included it and there
+	// was nothing, which a reader has to tell apart from a part left out.
+	if len(stream.sent) != 2 {
+		t.Fatalf("expected the envelope and the part marker, got %d messages", len(stream.sent))
+	}
+	if stream.sent[1].GetPartBegin().GetPart() != archivev1.ArchivePart_CORPORATE_EVENTS {
+		t.Fatalf("expected the part marker second, got %+v", stream.sent[1])
 	}
 	env := stream.sent[0].GetEnvelope()
 	if env == nil {
@@ -49,7 +55,7 @@ func TestExportCorporateEvents_Empty(t *testing.T) {
 // Knowledge time and dividend type must reach the wire: without them a
 // PortfolioDB-to-PortfolioDB round trip restamps every split with the import
 // time and turns special cash dividends into regular ones.
-func TestExportCorporateEvents_CarriesKnowledgeTimeAndDividendType(t *testing.T) {
+func TestExportSystemArchive_CorporateEvents_CarriesKnowledgeTimeAndDividendType(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	splitKnownAt := time.Date(2015, 3, 4, 9, 30, 0, 0, time.UTC)
 	divKnownAt := time.Date(2024, 2, 2, 8, 0, 0, 0, time.UTC)
@@ -93,11 +99,11 @@ func TestExportCorporateEvents_CarriesKnowledgeTimeAndDividendType(t *testing.T)
 		},
 	}, nil)
 
-	stream := &exportCorporateEventStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	if err := srv.ExportCorporateEvents(&apiv1.ExportCorporateEventsRequest{}, stream); err != nil {
-		t.Fatalf("ExportCorporateEvents: %v", err)
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_CORPORATE_EVENTS}}, stream); err != nil {
+		t.Fatalf("ExportSystemArchive: %v", err)
 	}
-	groups := stream.groups()
+	groups := stream.eventGroups()
 	if len(groups) != 1 {
 		t.Fatalf("expected 1 group, got %d", len(groups))
 	}
@@ -150,7 +156,7 @@ func TestExportCorporateEvents_CarriesKnowledgeTimeAndDividendType(t *testing.T)
 
 // A group with no events is the only way a file can say a provider was asked
 // about those dates and had nothing, so it has to survive the grouping.
-func TestExportCorporateEvents_CoveredInstrumentWithNoEvents(t *testing.T) {
+func TestExportSystemArchive_CorporateEvents_CoveredInstrumentWithNoEvents(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().ListCorporateEventCoverageForExport(gomock.Any()).Return([]dbpkg.ExportCoverageRow{{
 		IdentifierType:  "ISIN",
@@ -162,11 +168,11 @@ func TestExportCorporateEvents_CoveredInstrumentWithNoEvents(t *testing.T) {
 	db.EXPECT().ListStockSplitsForExport(gomock.Any()).Return(nil, nil)
 	db.EXPECT().ListCashDividendsForExport(gomock.Any()).Return(nil, nil)
 
-	stream := &exportCorporateEventStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	if err := srv.ExportCorporateEvents(&apiv1.ExportCorporateEventsRequest{}, stream); err != nil {
-		t.Fatalf("ExportCorporateEvents: %v", err)
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_CORPORATE_EVENTS}}, stream); err != nil {
+		t.Fatalf("ExportSystemArchive: %v", err)
 	}
-	groups := stream.groups()
+	groups := stream.eventGroups()
 	if len(groups) != 1 || len(groups[0].GetEvents()) != 0 {
 		t.Fatalf("expected one group with no events, got %v", groups)
 	}
@@ -178,7 +184,7 @@ func TestExportCorporateEvents_CoveredInstrumentWithNoEvents(t *testing.T) {
 
 // Two venues listing the same ticker are two instruments, so they are two
 // groups: the domain is part of the key, not decoration on it.
-func TestExportCorporateEvents_SplitsGroupsOnDomain(t *testing.T) {
+func TestExportSystemArchive_CorporateEvents_SplitsGroupsOnDomain(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	db.EXPECT().ListCorporateEventCoverageForExport(gomock.Any()).Return(nil, nil)
 	db.EXPECT().ListStockSplitsForExport(gomock.Any()).Return([]dbpkg.ExportStockSplit{
@@ -189,11 +195,11 @@ func TestExportCorporateEvents_SplitsGroupsOnDomain(t *testing.T) {
 	}, nil)
 	db.EXPECT().ListCashDividendsForExport(gomock.Any()).Return(nil, nil)
 
-	stream := &exportCorporateEventStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	if err := srv.ExportCorporateEvents(&apiv1.ExportCorporateEventsRequest{}, stream); err != nil {
-		t.Fatalf("ExportCorporateEvents: %v", err)
+	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{Parts: []archivev1.ArchivePart{archivev1.ArchivePart_CORPORATE_EVENTS}}, stream); err != nil {
+		t.Fatalf("ExportSystemArchive: %v", err)
 	}
-	groups := stream.groups()
+	groups := stream.eventGroups()
 	if len(groups) != 2 {
 		t.Fatalf("expected 2 groups, got %d", len(groups))
 	}

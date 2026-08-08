@@ -1036,41 +1036,6 @@ message TriggerTransferMatchRequest {}
 
 message TriggerTransferMatchResponse {}
 
-// SplitRow is one stock split row used by both export and import. SplitFrom
-// and SplitTo are decimal strings (e.g. "1" and "2" for a 2:1 split). The
-// factor is split_to / split_from.
-message SplitRow {
-  string ex_date = 1;     // YYYY-MM-DD effective/execution date
-  string split_from = 2;  // decimal numeric string
-  string split_to = 3;    // decimal numeric string
-  // Knowledge time: when the exporting instance first learned of this split.
-  // It gates retroactive adjustment of options on the underlying, so a
-  // round-trip that drops it re-adjusts symbols that were already correct.
-  // On import it is optional and falls back to the request's exported_at,
-  // then to the time the row is stored. A stored first_known_at only ever
-  // moves backwards. See docs/spec/bitemporality.md.
-  google.protobuf.Timestamp first_known_at = 4;
-}
-
-// CashDividendRow is one cash dividend row used by both export and import.
-// Optional date fields are empty when the source did not supply them. Amount
-// is per share, denominated in currency.
-message CashDividendRow {
-  string ex_date = 1;            // YYYY-MM-DD ex-dividend date
-  string pay_date = 2;           // optional
-  string record_date = 3;        // optional
-  string declaration_date = 4;   // optional
-  string amount = 5;             // decimal numeric string per share
-  string currency = 6;
-  string frequency = 7;          // optional: "annual", "semi-annual", "quarterly", "monthly"
-  string type = 8;               // "CD" (regular) or "SC" (special cash); empty means "CD"
-  // Knowledge time: when the exporting instance first learned of this
-  // dividend. On import it is optional and falls back to the request's
-  // exported_at, then to the time the row is stored. A stored first_known_at
-  // only ever moves backwards. See docs/spec/bitemporality.md.
-  google.protobuf.Timestamp first_known_at = 9;
-}
-
 // ExportCorporateEvents streams the corporate event part of an admin archive:
 // one group per instrument, carrying the best identifier for it.
 message ExportCorporateEventsRequest {}
@@ -1088,41 +1053,16 @@ message ExportCorporateEventsResponse {
   }
 }
 
-// ImportCorporateEventRow is one corporate event row to import. When the
-// instrument is unknown, asset_class is used as the security type hint for
-// identifier plugin routing. Exactly one of split / dividend must be set.
-message ImportCorporateEventRow {
-  string identifier_type = 1;
-  string identifier_value = 2;
-  string identifier_domain = 3;
-  portfoliodb.type.v1.AssetClass asset_class = 4;
-  oneof event {
-    SplitRow split = 10;
-    CashDividendRow dividend = 11;
-  }
-}
-
-// ImportCorporateEventCoverage declares that the caller intends to cover a
-// half-open [from, before) date interval for an instrument. The server records
-// a corporate_event_coverage row tagged data_provider = "import" so the
-// background worker does not refetch the same range from a plugin.
-message ImportCorporateEventCoverage {
-  string identifier_type = 1;
-  string identifier_value = 2;
-  string identifier_domain = 3;
-  string from = 4;   // YYYY-MM-DD, inclusive
-  string before = 5; // YYYY-MM-DD, exclusive; must be after from
-}
-
+// ImportCorporateEventsRequest carries one archive's corporate event part. The
+// envelope is the file's own, forwarded rather than rebuilt, so the server sees
+// the format_version and the kind the file declared rather than what the
+// uploading client assumed. Knowledge time comes from the envelope's
+// exported_at: OCC symbols are split-adjusted to it during instrument
+// resolution, imported coverage records it as last_fetched_at, and events that
+// carry no first_known_at of their own fall back to it.
 message ImportCorporateEventsRequest {
-  repeated ImportCorporateEventRow events = 1;
-  repeated ImportCorporateEventCoverage coverage = 2;
-  // Knowledge time: when the supplied data was current. OCC symbols are
-  // split-adjusted to this point during instrument resolution, imported
-  // coverage records it as last_fetched_at, and events that do not carry
-  // their own first_known_at fall back to it. Mirrors
-  // ImportPricesRequest.exported_at.
-  google.protobuf.Timestamp exported_at = 3;
+  portfoliodb.archive.v1.Envelope envelope = 1 [(buf.validate.field).required = true];
+  portfoliodb.archive.v1.CorporateEventPart corporate_events = 2 [(buf.validate.field).required = true];
 }
 
 message ImportCorporateEventsResponse {

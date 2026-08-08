@@ -1,5 +1,4 @@
 import { test, expect } from "@playwright/test";
-import { create } from "@bufbuild/protobuf";
 import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB } from "../helpers/db";
@@ -8,8 +7,8 @@ import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { uploadCSVAndWait } from "../helpers/upload";
 import { triggerCorporateEventFetch, importCorporateEventsAndWait } from "../helpers/api";
 import { getCounter, closeCountersRedis } from "../helpers/counters";
-import { ImportCorporateEventRowSchema, JobStatus, SplitRowSchema } from "../gen/api/v1/api_pb";
-import { AssetClass } from "../gen/type/v1/type_pb";
+import { JobStatus } from "../gen/api/v1/api_pb";
+import { AssetClass, IdentifierType } from "../gen/type/v1/type_pb";
 
 // ---------------------------------------------------------------------------
 // Case 1: Transactions uploaded BEFORE the split is discovered.
@@ -156,22 +155,23 @@ test.describe("stock split: split uploaded before tx", () => {
     await injectSession(context, userSession);
 
     // Import the 4:1 split (no coverage so the fetcher will still query EODHD).
-    const splitEvent = create(ImportCorporateEventRowSchema, {
-      identifierType: "MIC_TICKER",
-      identifierDomain: "XNAS",
-      identifierValue: "AAPL",
-      assetClass: AssetClass.STOCK,
-      event: {
-        case: "split",
-        value: create(SplitRowSchema, {
-          exDate: "2024-08-01",
-          splitFrom: "1",
-          splitTo: "4",
-        }),
-      },
-    });
     const importResult = await importCorporateEventsAndWait(adminSession, [
-      splitEvent,
+      {
+        instrument: {
+          type: IdentifierType.MIC_TICKER,
+          value: "AAPL",
+          domain: "XNAS",
+        },
+        assetClass: AssetClass.STOCK,
+        events: [
+          {
+            event: {
+              case: "split",
+              value: { exDate: "2024-08-01", splitFrom: "1", splitTo: "4" },
+            },
+          },
+        ],
+      },
     ]);
     expect(importResult.status).toBe(JobStatus.SUCCESS);
 

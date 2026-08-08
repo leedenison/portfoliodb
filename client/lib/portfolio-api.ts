@@ -6,12 +6,13 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { DateSchema } from "@/gen/google/type/date_pb";
 import type { Date as ProtoDate } from "@/gen/google/type/date_pb";
-import { ExportCorporateEventsResponseSchema, ExportCorporateEventsRequestSchema, ExportInstrumentsRequestSchema, ExportInstrumentsResponseSchema, ExportPricesResponseSchema, ExportPricesRequestSchema, GetPortfolioValuationRequestSchema, GetPortfolioValuationResponseSchema, ImportCorporateEventsRequestSchema, ImportCorporateEventsResponseSchema, ImportCorporateEventRowSchema, ImportInstrumentsRequestSchema, ImportInstrumentsResponseSchema, ImportPricesRequestSchema, ImportPricesResponseSchema, SplitRowSchema, CreatePortfolioRequestSchema, CreatePortfolioResponseSchema, DeletePortfolioRequestSchema, GetHoldingsRequestSchema, GetHoldingsResponseSchema, GetJobRequestSchema, GetJobResponseSchema, GetPortfolioRequestSchema, GetPortfolioResponseSchema, GetPortfolioFiltersRequestSchema, GetPortfolioFiltersResponseSchema, ListBrokersAndAccountsRequestSchema, ListBrokersAndAccountsResponseSchema, ListDescriptionPluginsRequestSchema, ListDescriptionPluginsResponseSchema, ListIdentifierPluginsRequestSchema, ListIdentifierPluginsResponseSchema, ListPriceFetchBlocksRequestSchema, ListPriceFetchBlocksResponseSchema, DeletePriceFetchBlockRequestSchema, ListPricesRequestSchema, ListPricesResponseSchema, ListPricePluginsRequestSchema, ListPricePluginsResponseSchema, ListInstrumentsRequestSchema, ListInstrumentsResponseSchema, ListJobsRequestSchema, ListJobsResponseSchema, ListPortfoliosRequestSchema, ListPortfoliosResponseSchema, ListTelemetryCountersRequestSchema, ListTelemetryCountersResponseSchema, ListTxsRequestSchema, ListTxsResponseSchema, SetPortfolioFiltersRequestSchema, UpdateDescriptionPluginRequestSchema, UpdateDescriptionPluginResponseSchema, UpdateIdentifierPluginRequestSchema, UpdateIdentifierPluginResponseSchema, UpdatePricePluginRequestSchema, UpdatePricePluginResponseSchema, UpdatePortfolioRequestSchema, UpdatePortfolioResponseSchema, ReorderPluginsRequestSchema, CreateHoldingDeclarationRequestSchema, CreateHoldingDeclarationResponseSchema, UpdateHoldingDeclarationRequestSchema, UpdateHoldingDeclarationResponseSchema, DeleteHoldingDeclarationRequestSchema, ListHoldingDeclarationsRequestSchema, ListHoldingDeclarationsResponseSchema, ListWorkersRequestSchema, ListWorkersResponseSchema, GetDisplayCurrencyRequestSchema, GetDisplayCurrencyResponseSchema, SetDisplayCurrencyRequestSchema, SetDisplayCurrencyResponseSchema, GetIgnoredAssetClassesRequestSchema, GetIgnoredAssetClassesResponseSchema, SetIgnoredAssetClassesRequestSchema, CountIgnoredTxsRequestSchema, CountIgnoredTxsResponseSchema, IgnoredAssetClassRuleSchema, ListInflationIndicesRequestSchema, ListInflationIndicesResponseSchema, ListInflationPluginsRequestSchema, ListInflationPluginsResponseSchema, UpdateInflationPluginRequestSchema, UpdateInflationPluginResponseSchema, TriggerInflationFetchRequestSchema, TriggerPriceFetchRequestSchema, CountUnhandledCorporateEventsRequestSchema, CountUnhandledCorporateEventsResponseSchema, ListUnhandledCorporateEventsRequestSchema, ListUnhandledCorporateEventsResponseSchema, ResolveUnhandledCorporateEventRequestSchema, ListResidualBalancesRequestSchema, ListResidualBalancesResponseSchema, CountResidualBalancesRequestSchema, CountResidualBalancesResponseSchema, JobStatus, WorkerState } from "@/gen/api/v1/api_pb";
+import { ExportCorporateEventsResponseSchema, ExportCorporateEventsRequestSchema, ExportInstrumentsRequestSchema, ExportInstrumentsResponseSchema, ExportPricesResponseSchema, ExportPricesRequestSchema, GetPortfolioValuationRequestSchema, GetPortfolioValuationResponseSchema, ImportCorporateEventsRequestSchema, ImportCorporateEventsResponseSchema, ImportInstrumentsRequestSchema, ImportInstrumentsResponseSchema, ImportPricesRequestSchema, ImportPricesResponseSchema, CreatePortfolioRequestSchema, CreatePortfolioResponseSchema, DeletePortfolioRequestSchema, GetHoldingsRequestSchema, GetHoldingsResponseSchema, GetJobRequestSchema, GetJobResponseSchema, GetPortfolioRequestSchema, GetPortfolioResponseSchema, GetPortfolioFiltersRequestSchema, GetPortfolioFiltersResponseSchema, ListBrokersAndAccountsRequestSchema, ListBrokersAndAccountsResponseSchema, ListDescriptionPluginsRequestSchema, ListDescriptionPluginsResponseSchema, ListIdentifierPluginsRequestSchema, ListIdentifierPluginsResponseSchema, ListPriceFetchBlocksRequestSchema, ListPriceFetchBlocksResponseSchema, DeletePriceFetchBlockRequestSchema, ListPricesRequestSchema, ListPricesResponseSchema, ListPricePluginsRequestSchema, ListPricePluginsResponseSchema, ListInstrumentsRequestSchema, ListInstrumentsResponseSchema, ListJobsRequestSchema, ListJobsResponseSchema, ListPortfoliosRequestSchema, ListPortfoliosResponseSchema, ListTelemetryCountersRequestSchema, ListTelemetryCountersResponseSchema, ListTxsRequestSchema, ListTxsResponseSchema, SetPortfolioFiltersRequestSchema, UpdateDescriptionPluginRequestSchema, UpdateDescriptionPluginResponseSchema, UpdateIdentifierPluginRequestSchema, UpdateIdentifierPluginResponseSchema, UpdatePricePluginRequestSchema, UpdatePricePluginResponseSchema, UpdatePortfolioRequestSchema, UpdatePortfolioResponseSchema, ReorderPluginsRequestSchema, CreateHoldingDeclarationRequestSchema, CreateHoldingDeclarationResponseSchema, UpdateHoldingDeclarationRequestSchema, UpdateHoldingDeclarationResponseSchema, DeleteHoldingDeclarationRequestSchema, ListHoldingDeclarationsRequestSchema, ListHoldingDeclarationsResponseSchema, ListWorkersRequestSchema, ListWorkersResponseSchema, GetDisplayCurrencyRequestSchema, GetDisplayCurrencyResponseSchema, SetDisplayCurrencyRequestSchema, SetDisplayCurrencyResponseSchema, GetIgnoredAssetClassesRequestSchema, GetIgnoredAssetClassesResponseSchema, SetIgnoredAssetClassesRequestSchema, CountIgnoredTxsRequestSchema, CountIgnoredTxsResponseSchema, IgnoredAssetClassRuleSchema, ListInflationIndicesRequestSchema, ListInflationIndicesResponseSchema, ListInflationPluginsRequestSchema, ListInflationPluginsResponseSchema, UpdateInflationPluginRequestSchema, UpdateInflationPluginResponseSchema, TriggerInflationFetchRequestSchema, TriggerPriceFetchRequestSchema, CountUnhandledCorporateEventsRequestSchema, CountUnhandledCorporateEventsResponseSchema, ListUnhandledCorporateEventsRequestSchema, ListUnhandledCorporateEventsResponseSchema, ResolveUnhandledCorporateEventRequestSchema, ListResidualBalancesRequestSchema, ListResidualBalancesResponseSchema, CountResidualBalancesRequestSchema, CountResidualBalancesResponseSchema, JobStatus, WorkerState } from "@/gen/api/v1/api_pb";
 import { AccountType, AssetClass } from "@/gen/type/v1/type_pb";
 import type { Envelope } from "@/gen/archive/v1/common_pb";
+import type { CorporateEventPart } from "@/gen/archive/v1/corporate_events_pb";
 import type { InstrumentPart } from "@/gen/archive/v1/instruments_pb";
 import type { PricePart } from "@/gen/archive/v1/prices_pb";
-import type { DescriptionPluginConfig, EODPriceProto, ExportCorporateEventsResponse, ExportInstrumentsResponse, InflationIndexProto, InflationPluginConfig, ExportPricesResponse, Holding, HoldingDeclaration, IdentificationError, IdentifierPluginConfig, ImportCorporateEventCoverage, Instrument, PriceFetchBlock, PricePluginConfig, Portfolio as GenPortfolio, PortfolioFilterProto, PortfolioTx, ResidualBalance as ResidualBalanceProto, ValidationError, Worker as WorkerProto } from "@/gen/api/v1/api_pb";
+import type { DescriptionPluginConfig, EODPriceProto, ExportCorporateEventsResponse, ExportInstrumentsResponse, InflationIndexProto, InflationPluginConfig, ExportPricesResponse, Holding, HoldingDeclaration, IdentificationError, IdentifierPluginConfig, Instrument, PriceFetchBlock, PricePluginConfig, Portfolio as GenPortfolio, PortfolioFilterProto, PortfolioTx, ResidualBalance as ResidualBalanceProto, ValidationError, Worker as WorkerProto } from "@/gen/api/v1/api_pb";
 import type { Broker } from "@/gen/type/v1/type_pb";
 import { streamingFetch, unaryFetch } from "./grpc-web";
 
@@ -558,46 +559,16 @@ export async function importPrices(envelope: Envelope, prices: PricePart): Promi
   return res.jobId;
 }
 
-/** A single split event to import via ImportCorporateEvents. */
-export interface CorporateSplitImportRow {
-  identifierType: string;       // "ISIN" | "MIC_TICKER" | etc.
-  identifierValue: string;
-  identifierDomain?: string;
-  assetClass?: AssetClass;
-  exDate: string;               // YYYY-MM-DD
-  splitFrom: string;            // decimal numeric string
-  splitTo: string;              // decimal numeric string
-  firstKnownAt?: Date;          // knowledge time; omitted means "stamp on arrival"
-}
-
 /**
- * Import corporate events (admin only). Currently submits stock splits;
- * the server is idempotent on (instrument_id, ex_date) so re-importing
- * the same split is safe. Returns a job ID for async processing.
+ * Import one archive's corporate event part (admin only). Returns a job ID for
+ * async processing.
+ *
+ * The envelope is the file's own, forwarded rather than rebuilt, so the server
+ * sees the format version and the kind the file declared.
  */
-export async function importCorporateEventSplits(
-  rows: CorporateSplitImportRow[],
-  coverage?: ImportCorporateEventCoverage[],
-): Promise<string> {
+export async function importCorporateEvents(envelope: Envelope, corporateEvents: CorporateEventPart): Promise<string> {
   const base = getBaseUrl();
-  const events = rows.map((r) =>
-    create(ImportCorporateEventRowSchema, {
-      identifierType: r.identifierType,
-      identifierValue: r.identifierValue,
-      identifierDomain: r.identifierDomain ?? "",
-      assetClass: r.assetClass ?? AssetClass.ASSET_CLASS_UNSPECIFIED,
-      event: {
-        case: "split",
-        value: create(SplitRowSchema, {
-          exDate: r.exDate,
-          splitFrom: r.splitFrom,
-          splitTo: r.splitTo,
-          firstKnownAt: r.firstKnownAt ? timestampFromDate(r.firstKnownAt) : undefined,
-        }),
-      },
-    }),
-  );
-  const req = create(ImportCorporateEventsRequestSchema, { events, coverage });
+  const req = create(ImportCorporateEventsRequestSchema, { envelope, corporateEvents });
   const resBytes = await unaryFetch(
     base,
     ApiServicePrefix + "ImportCorporateEvents",

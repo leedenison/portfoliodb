@@ -10,7 +10,7 @@ import { exportCorporateEvents } from "@/lib/portfolio-api";
 import { marshalAdmin } from "@/lib/archive/codec";
 import type { Envelope } from "@/gen/archive/v1/common_pb";
 import type { CorporateEventGroup } from "@/gen/archive/v1/corporate_events_pb";
-import { ImportSplitsModal } from "./import-splits-modal";
+import { ImportCorporateEventsModal } from "./import-modal";
 
 interface SplitDisplay {
   identifierValue: string;
@@ -120,7 +120,7 @@ export function SplitsTab() {
         </div>
       )}
 
-      <ImportSplitsModal
+      <ImportCorporateEventsModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onComplete={loadSplits}

@@ -4,9 +4,9 @@
 
 import { createClient } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-node";
-import { ApiService, JobStatus, type ExportCorporateEventRow, type GetJobResponse, type ImportCorporateEventRow } from "../gen/api/v1/api_pb";
-import { AssetClass } from "../gen/type/v1/type_pb";
+import { ApiService, JobStatus, type GetJobResponse } from "../gen/api/v1/api_pb";
 import { ArchiveKind } from "../gen/archive/v1/common_pb";
+import { CorporateEventGroupSchema, type CorporateEventGroup } from "../gen/archive/v1/corporate_events_pb";
 import { PriceGroupSchema } from "../gen/archive/v1/prices_pb";
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import { timestampNow } from "@bufbuild/protobuf/wkt";
@@ -66,14 +66,32 @@ export async function importPricesAndWait(
   throw new Error(`price import job ${jobId} did not complete within ${timeoutMs}ms`);
 }
 
-/** Import corporate events (splits/dividends) and wait for the async job. */
+/**
+ * Import one archive's worth of corporate event groups and wait for the async
+ * job to complete. Returns the final job status.
+ *
+ * The envelope is built here for the same reason importPricesAndWait builds
+ * one: exported_at is knowledge time, and a test that had to supply it would be
+ * stating something it does not care about. A test that does care passes one.
+ */
 export async function importCorporateEventsAndWait(
   sessionId: string,
-  events: ImportCorporateEventRow[],
+  groups: MessageInitShape<typeof CorporateEventGroupSchema>[],
   timeoutMs = 30_000,
 ): Promise<GetJobResponse> {
   const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
-  const resp = await client.importCorporateEvents({ events }, { headers });
+  const resp = await client.importCorporateEvents(
+    {
+      envelope: {
+        formatVersion: 1,
+        exportedAt: timestampNow(),
+        sourceInstance: "e2e",
+        kind: ArchiveKind.ADMIN,
+      },
+      corporateEvents: { groups },
+    },
+    { headers },
+  );
   const jobId = resp.jobId;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -88,22 +106,18 @@ export async function importCorporateEventsAndWait(
   );
 }
 
-/**
- * Drain the ExportCorporateEvents stream into an array of event rows. The
- * stream interleaves coverage spans with the rows they cover; those are
- * dropped here.
- */
+/** Drain the ExportCorporateEvents stream into its instrument groups. */
 export async function exportCorporateEvents(
   sessionId: string,
-): Promise<ExportCorporateEventRow[]> {
+): Promise<CorporateEventGroup[]> {
   const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
-  const rows: ExportCorporateEventRow[] = [];
+  const groups: CorporateEventGroup[] = [];
   for await (const resp of client.exportCorporateEvents({}, { headers })) {
-    if (resp.item.case === "row") {
-      rows.push(resp.item.value);
+    if (resp.item.case === "group") {
+      groups.push(resp.item.value);
     }
   }
-  return rows;
+  return groups;
 }
 
 /** Trigger the corporate event fetcher worker to run one cycle. */

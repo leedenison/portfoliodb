@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -171,16 +172,25 @@ func dividendTypeFromString(s string) archivev1.DividendType {
 	return archivev1.DividendType_DIVIDEND_TYPE_UNSPECIFIED
 }
 
-// ImportCorporateEvents creates an async job to upsert stock splits and cash
-// dividends. The serialized request is persisted to the DB and processed by
-// the ingestion worker. Admin only.
+// ImportCorporateEvents creates an async job to upsert the corporate event part
+// of an admin archive. The serialized request is persisted to the DB and
+// processed by the ingestion worker. Admin only.
 func (s *Server) ImportCorporateEvents(ctx context.Context, req *apiv1.ImportCorporateEventsRequest) (*apiv1.ImportCorporateEventsResponse, error) {
 	u, authErr := auth.RequireAdmin(ctx)
 	if authErr != nil {
 		return nil, authErr
 	}
-	if len(req.GetEvents()) == 0 && len(req.GetCoverage()) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "no events or coverage provided")
+	if err := archive.CheckEnvelope(req.GetEnvelope(), archivev1.ArchiveKind_ADMIN); err != nil {
+		var ve *archive.VersionError
+		if errors.As(err, &ve) {
+			// The request is well formed and this server is the thing that is
+			// out of date, which is a precondition rather than a bad argument.
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
+		}
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if len(req.GetCorporateEvents().GetGroups()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "no corporate event groups provided")
 	}
 	payload, err := proto.Marshal(req)
 	if err != nil {

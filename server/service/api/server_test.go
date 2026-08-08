@@ -127,23 +127,13 @@ func (e *exportCorporateEventStreamMock) SendMsg(m interface{}) error {
 	return nil
 }
 
-// rows returns the event rows in send order, dropping coverage envelopes.
-func (e *exportCorporateEventStreamMock) rows() []*apiv1.ExportCorporateEventRow {
-	var out []*apiv1.ExportCorporateEventRow
+// groups returns the instrument groups the export streamed, dropping the
+// envelope that precedes them.
+func (e *exportCorporateEventStreamMock) groups() []*archivev1.CorporateEventGroup {
+	var out []*archivev1.CorporateEventGroup
 	for _, m := range e.sent {
-		if r := m.GetRow(); r != nil {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-// coverage returns the coverage spans in send order.
-func (e *exportCorporateEventStreamMock) coverage() []*apiv1.ExportCoverage {
-	var out []*apiv1.ExportCoverage
-	for _, m := range e.sent {
-		if c := m.GetCoverage(); c != nil {
-			out = append(out, c)
+		if g := m.GetGroup(); g != nil {
+			out = append(out, g)
 		}
 	}
 	return out

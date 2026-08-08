@@ -445,10 +445,15 @@ type ExportPriceCoverageRow struct {
 
 // ExportCoverageRow is one half-open [From, Before) corporate event coverage
 // span with the best instrument identifier for export.
+//
+// AssetClass rides along because an instrument that was covered and has no
+// events is still a group, and the asset class is what routes the identifier
+// plugins when the importing instance does not know the instrument.
 type ExportCoverageRow struct {
 	IdentifierType   string
 	IdentifierValue  string
 	IdentifierDomain string
+	AssetClass       string
 	From             time.Time
 	Before           time.Time
 }

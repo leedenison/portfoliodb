@@ -427,7 +427,7 @@ func (p *Postgres) ListStockSplitsForExport(ctx context.Context) ([]db.ExportSto
 		FROM stock_splits s
 		JOIN instruments i ON i.id = s.instrument_id
 		` + bestIdentifierJoin + `
-		ORDER BY best_id.identifier_type, best_id.value, s.ex_date
+		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), s.ex_date
 	`
 	rows, err := p.q.QueryContext(ctx, q)
 	if err != nil {
@@ -457,7 +457,7 @@ func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportC
 		FROM cash_dividends d
 		JOIN instruments i ON i.id = d.instrument_id
 		` + bestIdentifierJoin + `
-		ORDER BY best_id.identifier_type, best_id.value, d.ex_date
+		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), d.ex_date
 	`
 	rows, err := p.q.QueryContext(ctx, q)
 	if err != nil {
@@ -867,6 +867,7 @@ type exportCoverageRow struct {
 	IdentifierType   string    `db:"identifier_type"`
 	IdentifierValue  string    `db:"value"`
 	IdentifierDomain string    `db:"domain"`
+	AssetClass       string    `db:"asset_class"`
 	From             time.Time `db:"covered_from"`
 	Before           time.Time `db:"covered_before"`
 }
@@ -878,6 +879,7 @@ func toExportCoverageRows(rows []exportCoverageRow) []db.ExportCoverageRow {
 			IdentifierType:   r.IdentifierType,
 			IdentifierValue:  r.IdentifierValue,
 			IdentifierDomain: r.IdentifierDomain,
+			AssetClass:       r.AssetClass,
 			From:             r.From,
 			Before:           r.Before,
 		}
@@ -889,6 +891,7 @@ func toExportCoverageRows(rows []exportCoverageRow) []db.ExportCoverageRow {
 func (p *Postgres) ListCorporateEventCoverageForExport(ctx context.Context) ([]db.ExportCoverageRow, error) {
 	q := `
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
+			COALESCE(i.asset_class, '') AS asset_class,
 			lower(sub.r) AS covered_from, upper(sub.r) AS covered_before
 		FROM (
 			SELECT instrument_id,
@@ -898,7 +901,7 @@ func (p *Postgres) ListCorporateEventCoverageForExport(ctx context.Context) ([]d
 		) sub
 		JOIN instruments i ON i.id = sub.instrument_id
 		` + bestIdentifierJoin + `
-		ORDER BY best_id.identifier_type, best_id.value, covered_from
+		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), covered_from
 	`
 	var rows []exportCoverageRow
 	if err := p.q.SelectContext(ctx, &rows, q); err != nil {

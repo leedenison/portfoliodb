@@ -3,6 +3,7 @@ syntax = "proto3";
 package portfoliodb.api.v1;
 
 import "archive/v1/common.proto";
+import "archive/v1/corporate_events.proto";
 import "archive/v1/instruments.proto";
 import "archive/v1/prices.proto";
 import "buf/validate/validate.proto";
@@ -713,22 +714,6 @@ message ListPricesResponse {
 // instrument, carrying the best identifier for it.
 message ExportPricesRequest {}
 
-// ExportCoverage is one half-open [from, before) corporate event coverage span
-// for an instrument, streamed alongside the events it covers. It records that a
-// provider answered for the range, which the events cannot say on their own: a
-// span with no events in it means the provider was asked and had nothing.
-// Re-importing events without their coverage loses that.
-//
-// Prices state the same thing as archive.v1.PriceGroup.coverage; this goes the
-// same way when corporate events move to the archive schema.
-message ExportCoverage {
-  string identifier_type = 1;
-  string identifier_value = 2;
-  string identifier_domain = 3;
-  string from = 4;   // YYYY-MM-DD, inclusive
-  string before = 5; // YYYY-MM-DD, exclusive
-}
-
 // ExportPricesResponse is one element of the export stream: the envelope first,
 // exactly once, then one message per instrument group.
 //
@@ -1086,32 +1071,20 @@ message CashDividendRow {
   google.protobuf.Timestamp first_known_at = 9;
 }
 
-// ExportCorporateEventRow is one corporate event with its instrument
-// identifier context. Each row is either a stock split or a cash dividend
-// (oneof event). The best identifier per instrument is selected on the
-// server using the same priority as ExportPriceRow.
-message ExportCorporateEventRow {
-  string identifier_type = 1;
-  string identifier_value = 2;
-  string identifier_domain = 3;
-  portfoliodb.type.v1.AssetClass asset_class = 4;
-  string data_provider = 5;
-  oneof event {
-    SplitRow split = 10;
-    CashDividendRow dividend = 11;
-  }
-}
-
+// ExportCorporateEvents streams the corporate event part of an admin archive:
+// one group per instrument, carrying the best identifier for it.
 message ExportCorporateEventsRequest {}
 
-// ExportCorporateEventsResponse is one element of the export stream. Coverage
-// spans are sent before the rows they cover, merged across plugins: an import
-// records them all as data_provider = "import", so the per-plugin split does
-// not survive a round trip anyway.
+// ExportCorporateEventsResponse is one element of the export stream: the
+// envelope first, exactly once, then one message per instrument group.
+//
+// The envelope travels on the stream rather than being built by the caller
+// because exported_at is knowledge time and has to be the server's clock, and
+// source_instance is a server property the browser does not know.
 message ExportCorporateEventsResponse {
   oneof item {
-    ExportCorporateEventRow row = 1;
-    ExportCoverage coverage = 2;
+    portfoliodb.archive.v1.Envelope envelope = 1;
+    portfoliodb.archive.v1.CorporateEventGroup group = 2;
   }
 }
 

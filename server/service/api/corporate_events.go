@@ -3,8 +3,11 @@ package api
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
+	"github.com/leedenison/portfoliodb/server/archive"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/grpc/codes"
@@ -13,103 +16,159 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// exportCoverage converts a db coverage span to its wire form.
-func exportCoverage(c db.ExportCoverageRow) *apiv1.ExportCoverage {
-	return &apiv1.ExportCoverage{
-		IdentifierType:   c.IdentifierType,
-		IdentifierValue:  c.IdentifierValue,
-		IdentifierDomain: c.IdentifierDomain,
-		From:             c.From.Format("2006-01-02"),
-		Before:           c.Before.Format("2006-01-02"),
-	}
-}
-
-// ExportCorporateEvents streams every stored stock split and cash dividend
-// with the best identifier per instrument. Coverage spans come first, then
-// splits, then dividends; within each block rows are ordered by
-// (identifier_type, identifier_value, ex_date). Admin only.
+// ExportCorporateEvents streams the corporate event part of an admin archive:
+// the envelope first, then one group per instrument. Admin only.
+//
+// The coverage nested in each group is not derivable from its events: events are
+// sparse, so a span holding none of them records that a provider was asked and
+// had nothing, which is a different statement from never having asked.
 func (s *Server) ExportCorporateEvents(req *apiv1.ExportCorporateEventsRequest, stream apiv1.ApiService_ExportCorporateEventsServer) error {
 	ctx := stream.Context()
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
 		return authErr
 	}
-
 	coverage, err := s.db.ListCorporateEventCoverageForExport(ctx)
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
-	for _, c := range coverage {
-		if err := stream.Send(&apiv1.ExportCorporateEventsResponse{
-			Item: &apiv1.ExportCorporateEventsResponse_Coverage{Coverage: exportCoverage(c)},
-		}); err != nil {
-			return err
-		}
-	}
-
 	splits, err := s.db.ListStockSplitsForExport(ctx)
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
-	for _, r := range splits {
-		row := &apiv1.ExportCorporateEventRow{
-			IdentifierType:   r.IdentifierType,
-			IdentifierValue:  r.IdentifierValue,
-			IdentifierDomain: r.IdentifierDomain,
-			AssetClass:       db.StrToAssetClass(r.AssetClass),
-			DataProvider:     r.DataProvider,
-			Event: &apiv1.ExportCorporateEventRow_Split{
-				Split: &apiv1.SplitRow{
-					ExDate:       r.ExDate.Format("2006-01-02"),
-					SplitFrom:    r.SplitFrom,
-					SplitTo:      r.SplitTo,
-					FirstKnownAt: timestamppb.New(r.FirstKnownAt),
-				},
-			},
-		}
-		if err := stream.Send(&apiv1.ExportCorporateEventsResponse{
-			Item: &apiv1.ExportCorporateEventsResponse_Row{Row: row},
-		}); err != nil {
-			return err
-		}
-	}
-
 	dividends, err := s.db.ListCashDividendsForExport(ctx)
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
-	for _, r := range dividends {
-		div := &apiv1.CashDividendRow{
-			ExDate:       r.ExDate.Format("2006-01-02"),
-			Amount:       r.Amount,
-			Currency:     r.Currency,
-			Frequency:    r.Frequency,
-			Type:         r.Type,
-			FirstKnownAt: timestamppb.New(r.FirstKnownAt),
-		}
-		if r.PayDate != nil {
-			div.PayDate = r.PayDate.Format("2006-01-02")
-		}
-		if r.RecordDate != nil {
-			div.RecordDate = r.RecordDate.Format("2006-01-02")
-		}
-		if r.DeclarationDate != nil {
-			div.DeclarationDate = r.DeclarationDate.Format("2006-01-02")
-		}
-		row := &apiv1.ExportCorporateEventRow{
-			IdentifierType:   r.IdentifierType,
-			IdentifierValue:  r.IdentifierValue,
-			IdentifierDomain: r.IdentifierDomain,
-			AssetClass:       db.StrToAssetClass(r.AssetClass),
-			DataProvider:     r.DataProvider,
-			Event:            &apiv1.ExportCorporateEventRow_Dividend{Dividend: div},
-		}
+	// source_instance is left empty: nothing keys off it, and this build has no
+	// configured identity to put there.
+	if err := stream.Send(&apiv1.ExportCorporateEventsResponse{
+		Item: &apiv1.ExportCorporateEventsResponse_Envelope{
+			Envelope: archive.NewEnvelope("", archivev1.ArchiveKind_ADMIN),
+		},
+	}); err != nil {
+		return err
+	}
+	for _, g := range corporateEventGroups(splits, dividends, coverage) {
 		if err := stream.Send(&apiv1.ExportCorporateEventsResponse{
-			Item: &apiv1.ExportCorporateEventsResponse_Row{Row: row},
+			Item: &apiv1.ExportCorporateEventsResponse_Group{Group: g},
 		}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// corporateEventGroups turns the three flat export queries into archive groups,
+// one per instrument.
+//
+// An instrument that was covered and has no events still gets a group, with
+// empty events. It is the only way a file can say a provider was asked about
+// those dates and had nothing, and the coverage row is where such a group's
+// asset class comes from.
+//
+// All three inputs arrive ordered by identifier, so the events are grouped by a
+// scan and the output order follows the queries'. The data provider is not
+// carried: an import records every event and every span against the "import"
+// sentinel, so provenance cannot survive a round trip.
+func corporateEventGroups(splits []db.ExportStockSplit, dividends []db.ExportCashDividend, coverage []db.ExportCoverageRow) []*archivev1.CorporateEventGroup {
+	var order []instKey
+	groups := make(map[instKey]*archivev1.CorporateEventGroup)
+
+	group := func(k instKey, assetClass string) *archivev1.CorporateEventGroup {
+		g, ok := groups[k]
+		if ok {
+			return g
+		}
+		g = &archivev1.CorporateEventGroup{
+			Instrument: &archivev1.InstrumentRef{
+				Type:   identifierTypeFromString(k.typ),
+				Value:  k.value,
+				Domain: k.domain,
+			},
+			AssetClass: db.StrToAssetClass(assetClass),
+		}
+		groups[k] = g
+		order = append(order, k)
+		return g
+	}
+
+	for _, c := range coverage {
+		k := instKey{c.IdentifierType, c.IdentifierValue, c.IdentifierDomain}
+		g := group(k, c.AssetClass)
+		g.Coverage = append(g.Coverage, &archivev1.DateInterval{
+			From:   c.From.Format("2006-01-02"),
+			Before: c.Before.Format("2006-01-02"),
+		})
+	}
+	for _, r := range splits {
+		k := instKey{r.IdentifierType, r.IdentifierValue, r.IdentifierDomain}
+		g := group(k, r.AssetClass)
+		g.Events = append(g.Events, &archivev1.CorporateEvent{
+			Event: &archivev1.CorporateEvent_Split{Split: &archivev1.Split{
+				ExDate:       r.ExDate.Format("2006-01-02"),
+				SplitFrom:    r.SplitFrom,
+				SplitTo:      r.SplitTo,
+				FirstKnownAt: timestamppb.New(r.FirstKnownAt),
+			}},
+		})
+	}
+	for _, r := range dividends {
+		k := instKey{r.IdentifierType, r.IdentifierValue, r.IdentifierDomain}
+		g := group(k, r.AssetClass)
+		g.Events = append(g.Events, &archivev1.CorporateEvent{
+			Event: &archivev1.CorporateEvent_Dividend{Dividend: archiveDividend(r)},
+		})
+	}
+
+	out := make([]*archivev1.CorporateEventGroup, 0, len(order))
+	for _, k := range order {
+		g := groups[k]
+		// The queries order splits and dividends separately, so a group holding
+		// both would read as one block then the other. Order in a file is a
+		// convenience rather than a contract, but a group that reads
+		// chronologically is the one a human can check against a statement.
+		sort.SliceStable(g.Events, func(a, b int) bool {
+			return eventExDate(g.Events[a]) < eventExDate(g.Events[b])
+		})
+		out = append(out, g)
+	}
+	return out
+}
+
+// eventExDate is the valid time of either arm of the event oneof.
+func eventExDate(e *archivev1.CorporateEvent) string {
+	if sp := e.GetSplit(); sp != nil {
+		return sp.GetExDate()
+	}
+	return e.GetDividend().GetExDate()
+}
+
+// archiveDividend converts one cash dividend export row to its archive form.
+func archiveDividend(r db.ExportCashDividend) *archivev1.CashDividend {
+	d := &archivev1.CashDividend{
+		ExDate:          r.ExDate.Format("2006-01-02"),
+		PayDate:         optDate(r.PayDate),
+		RecordDate:      optDate(r.RecordDate),
+		DeclarationDate: optDate(r.DeclarationDate),
+		Amount:          r.Amount,
+		Currency:        r.Currency,
+		Type:            dividendTypeFromString(r.Type),
+		FirstKnownAt:    timestamppb.New(r.FirstKnownAt),
+	}
+	if r.Frequency != "" {
+		d.Frequency = proto.String(r.Frequency)
+	}
+	return d
+}
+
+// dividendTypeFromString maps the stored two-letter vocabulary to the archive
+// enum. An unrecognised value reads as unspecified, which the format defines as
+// a regular cash dividend.
+func dividendTypeFromString(s string) archivev1.DividendType {
+	if v, ok := archivev1.DividendType_value[s]; ok {
+		return archivev1.DividendType(v)
+	}
+	return archivev1.DividendType_DIVIDEND_TYPE_UNSPECIFIED
 }
 
 // ImportCorporateEvents creates an async job to upsert stock splits and cash

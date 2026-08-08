@@ -1,81 +1,22 @@
 /**
- * JSON serialization for corporate event (split) export/import.
+ * JSON parsing for the retired corporate event import format.
  *
- * The canonical import shape is an object with "events" -- split objects with
- * identifier context -- and an optional "coverage". A bare array of events is
- * still accepted, and is what the exporter writes until it has coverage to
- * serialize. See docs/spec/csv-format.md.
+ * The export half is gone: corporate events export as an admin archive part.
+ * This is what remains until the import follows it. The shape is an object with
+ * "events" -- split objects with identifier context -- and an optional
+ * "coverage"; a bare array of events is also accepted.
+ * See docs/spec/csv-format.md.
  */
 
 import { create } from "@bufbuild/protobuf";
-import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { ImportCorporateEventCoverageSchema } from "@/gen/api/v1/api_pb";
 import { AssetClass } from "@/gen/type/v1/type_pb";
-import type { ExportCorporateEventRow, ExportCoverage, ImportCorporateEventCoverage, SplitRow } from "@/gen/api/v1/api_pb";
+import type { ImportCorporateEventCoverage } from "@/gen/api/v1/api_pb";
 import type { CorporateSplitImportRow } from "@/lib/portfolio-api";
-import { assetClassToStr, assetClassFromStr } from "@/lib/asset-class";
+import { assetClassFromStr } from "@/lib/asset-class";
 import type { ParseError } from "@/lib/csv/standard";
 import { expandCoverage, validateCoverage } from "@/lib/coverage";
 import type { CoverageDecl, InstrumentRef } from "@/lib/coverage";
-
-interface SerializedSplit {
-  identifier_type: string;
-  identifier_value: string;
-  identifier_domain?: string;
-  asset_class?: string;
-  ex_date: string;
-  split_from: string;
-  split_to: string;
-  // Knowledge time as an ISO 8601 instant: when the exporting instance first
-  // learned of the split. Absent in files written before it was recorded.
-  first_known_at?: string;
-}
-
-interface SerializedCoverage {
-  identifier_type: string;
-  identifier_value: string;
-  identifier_domain?: string;
-  from: string;
-  before: string;
-}
-
-/**
- * Serialize split export rows to a JSON string in the canonical object form.
- * Coverage is written in the specific form, one entry per instrument.
- */
-export function splitsToJson(rows: ExportCorporateEventRow[], coverage?: ExportCoverage[]): string {
-  const serialized: SerializedSplit[] = rows
-    .filter((r) => r.event.case === "split")
-    .map((r) => {
-      const split = r.event.value as SplitRow;
-      const obj: SerializedSplit = {
-        identifier_type: r.identifierType,
-        identifier_value: r.identifierValue,
-        ex_date: split.exDate,
-        split_from: split.splitFrom,
-        split_to: split.splitTo,
-      };
-      if (r.identifierDomain) obj.identifier_domain = r.identifierDomain;
-      const ac = assetClassToStr(r.assetClass);
-      if (ac) obj.asset_class = ac;
-      if (split.firstKnownAt) obj.first_known_at = timestampDate(split.firstKnownAt).toISOString();
-      return obj;
-    });
-  const out: { events: SerializedSplit[]; coverage?: SerializedCoverage[] } = { events: serialized };
-  if (coverage && coverage.length > 0) {
-    out.coverage = coverage.map((c) => {
-      const obj: SerializedCoverage = {
-        identifier_type: c.identifierType,
-        identifier_value: c.identifierValue,
-        from: c.from,
-        before: c.before,
-      };
-      if (c.identifierDomain) obj.identifier_domain = c.identifierDomain;
-      return obj;
-    });
-  }
-  return JSON.stringify(out, null, 2) + "\n";
-}
 
 export interface SplitParseResult {
   splits: CorporateSplitImportRow[];

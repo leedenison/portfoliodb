@@ -1,6 +1,7 @@
 ---
 status: open
 title: Export and import portfolio definitions
+milestone: M14
 dependencies: [0078, 0080]
 ---
 

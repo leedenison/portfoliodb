@@ -1,6 +1,7 @@
 ---
 status: open
 title: Move transaction import to the archive schema
+milestone: M14
 dependencies: [0078]
 ---
 

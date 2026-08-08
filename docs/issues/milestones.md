@@ -13,6 +13,7 @@
 - **M11** - Allow users to set a display currency.
 - **M12** - Move transactions to grouped double-entry postings with exact decimal amounts and an enforced balance constraint.
 - **M13** - Automated broker transaction import via a browser extension.
+- **M14** - Complete the archive: system and user archives carry everything a rebuild needs, and the transaction CSV is retired.
 
 ## Unscheduled
 

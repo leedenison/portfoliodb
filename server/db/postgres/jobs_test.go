@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -31,15 +32,18 @@ func TestCreateJob_GetJob(t *testing.T) {
 	if jobID == "" {
 		t.Fatal("expected job id")
 	}
-	status, errs, idErrs, jobUserID, totalCount, processedCount, err := p.GetJob(ctx, jobID)
+	d, err := p.GetJob(ctx, jobID)
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
-	if status != apiv1.JobStatus_PENDING || len(errs) != 0 || len(idErrs) != 0 || jobUserID != userID {
-		t.Fatalf("get job: %v %v %v %s", status, errs, idErrs, jobUserID)
+	if d.Status != apiv1.JobStatus_PENDING || len(d.ValidationErrors) != 0 || len(d.IdentificationErrors) != 0 || d.UserID != userID {
+		t.Fatalf("get job: %v %v %v %s", d.Status, d.ValidationErrors, d.IdentificationErrors, d.UserID)
 	}
-	if totalCount != 0 || processedCount != 0 {
-		t.Fatalf("initial counts: total=%d processed=%d", totalCount, processedCount)
+	if d.TotalCount != 0 || d.ProcessedCount != 0 {
+		t.Fatalf("initial counts: total=%d processed=%d", d.TotalCount, d.ProcessedCount)
+	}
+	if len(d.Parts) != 0 {
+		t.Fatalf("a tx job has no parts, got %d", len(d.Parts))
 	}
 
 	// Test LoadJobPayload.
@@ -67,13 +71,13 @@ func TestCreateJob_GetJob(t *testing.T) {
 	_ = p.SetJobTotalCount(ctx, jobID, 5)
 	_ = p.IncrJobProcessedCount(ctx, jobID)
 	_ = p.IncrJobProcessedCount(ctx, jobID)
-	_ = p.AppendValidationErrors(ctx, jobID, []*apiv1.ValidationError{{RowIndex: 0, Field: "x", Message: "y"}})
-	status2, errs2, idErrs2, _, totalCount2, processedCount2, _ := p.GetJob(ctx, jobID)
-	if status2 != apiv1.JobStatus_SUCCESS || len(errs2) != 1 || len(idErrs2) != 0 {
-		t.Fatalf("after update: %v %v %v", status2, errs2, idErrs2)
+	_ = p.AppendValidationErrors(ctx, jobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{{RowIndex: 0, Field: "x", Message: "y"}})
+	d2, _ := p.GetJob(ctx, jobID)
+	if d2.Status != apiv1.JobStatus_SUCCESS || len(d2.ValidationErrors) != 1 || len(d2.IdentificationErrors) != 0 {
+		t.Fatalf("after update: %v %v %v", d2.Status, d2.ValidationErrors, d2.IdentificationErrors)
 	}
-	if totalCount2 != 5 || processedCount2 != 2 {
-		t.Fatalf("after update counts: total=%d processed=%d", totalCount2, processedCount2)
+	if d2.TotalCount != 5 || d2.ProcessedCount != 2 {
+		t.Fatalf("after update counts: total=%d processed=%d", d2.TotalCount, d2.ProcessedCount)
 	}
 }
 
@@ -92,12 +96,12 @@ func TestCreateJob_PriceImport(t *testing.T) {
 	if jobID == "" {
 		t.Fatal("expected job id")
 	}
-	status, _, _, jobUserID, _, _, err := p.GetJob(ctx, jobID)
+	d, err := p.GetJob(ctx, jobID)
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
-	if status != apiv1.JobStatus_PENDING || jobUserID != userID {
-		t.Fatalf("get job: status=%v user=%s", status, jobUserID)
+	if d.Status != apiv1.JobStatus_PENDING || d.UserID != userID {
+		t.Fatalf("get job: status=%v user=%s", d.Status, d.UserID)
 	}
 }
 
@@ -166,11 +170,11 @@ func TestListJobs(t *testing.T) {
 	})
 
 	// Add errors to j1.
-	_ = p.AppendValidationErrors(ctx, j1, []*apiv1.ValidationError{{RowIndex: 0, Field: "x", Message: "y"}})
+	_ = p.AppendValidationErrors(ctx, j1, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{{RowIndex: 0, Field: "x", Message: "y"}})
 	_ = p.AppendIdentificationErrors(ctx, j1, []db.IdentificationError{{RowIndex: 1, InstrumentDescription: "AAPL", Message: "timeout"}})
 
 	// List all (newest first).
-	rows, total, nextToken, err := p.ListJobs(ctx, userID, 30, "")
+	rows, total, nextToken, err := p.ListJobs(ctx, userID, "", 30, "")
 	if err != nil {
 		t.Fatalf("list jobs: %v", err)
 	}
@@ -201,12 +205,129 @@ func TestListJobs(t *testing.T) {
 	}
 
 	// Pagination: page size 1.
-	page1, _, tok1, _ := p.ListJobs(ctx, userID, 1, "")
+	page1, _, tok1, _ := p.ListJobs(ctx, userID, "", 1, "")
 	if len(page1) != 1 || tok1 == "" {
 		t.Fatalf("page1: got %d rows, token %q", len(page1), tok1)
 	}
-	page2, _, tok2, _ := p.ListJobs(ctx, userID, 1, tok1)
+	page2, _, tok2, _ := p.ListJobs(ctx, userID, "", 1, tok1)
 	if len(page2) != 1 || tok2 != "" {
 		t.Fatalf("page2: got %d rows, token %q", len(page2), tok2)
+	}
+}
+
+// A system archive job's part rows exist from creation, so a caller polling
+// before the worker starts sees the parts it will apply rather than an empty
+// list it cannot tell apart from an archive that carried nothing.
+func TestCreateJob_SystemArchiveParts(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|sa", "U", "u@sa.com")
+	jobID, err := p.CreateJob(ctx, db.CreateJobParams{
+		UserID:  userID,
+		JobType: db.JobTypeSystemArchive,
+		Payload: []byte("archive"),
+		// Deliberately out of restore order: GetJob sorts by the enum, not by
+		// the order the caller happened to list them in.
+		Parts: []archivev1.ArchivePart{archivev1.ArchivePart_CORPORATE_EVENTS, archivev1.ArchivePart_INSTRUMENTS},
+	})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	d, err := p.GetJob(ctx, jobID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if len(d.Parts) != 2 {
+		t.Fatalf("got %d parts, want 2", len(d.Parts))
+	}
+	if d.Parts[0].Part != archivev1.ArchivePart_INSTRUMENTS || d.Parts[1].Part != archivev1.ArchivePart_CORPORATE_EVENTS {
+		t.Fatalf("parts out of restore order: %v, %v", d.Parts[0].Part, d.Parts[1].Part)
+	}
+	for _, r := range d.Parts {
+		if r.Status != apiv1.JobStatus_PENDING || r.TotalCount != 0 || r.ProcessedCount != 0 {
+			t.Fatalf("part %v starts as %v %d/%d", r.Part, r.Status, r.ProcessedCount, r.TotalCount)
+		}
+	}
+}
+
+func TestJobParts_ProgressStatusAndErrors(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|sap", "U", "u@sap.com")
+	jobID, _ := p.CreateJob(ctx, db.CreateJobParams{
+		UserID:  userID,
+		JobType: db.JobTypeSystemArchive,
+		Parts:   []archivev1.ArchivePart{archivev1.ArchivePart_INSTRUMENTS, archivev1.ArchivePart_PRICES},
+	})
+
+	if err := p.SetJobPartStatus(ctx, jobID, archivev1.ArchivePart_INSTRUMENTS, apiv1.JobStatus_SUCCESS); err != nil {
+		t.Fatalf("set part status: %v", err)
+	}
+	if err := p.SetJobPartTotalCount(ctx, jobID, archivev1.ArchivePart_PRICES, 10); err != nil {
+		t.Fatalf("set part total: %v", err)
+	}
+	// Batched progress: the delta is the point, so two calls must add up.
+	_ = p.AddJobPartProcessedCount(ctx, jobID, archivev1.ArchivePart_PRICES, 4)
+	_ = p.AddJobPartProcessedCount(ctx, jobID, archivev1.ArchivePart_PRICES, 3)
+	if err := p.SetJobPartFailed(ctx, jobID, archivev1.ArchivePart_PRICES, "upsert failed"); err != nil {
+		t.Fatalf("set part failed: %v", err)
+	}
+	_ = p.AppendValidationErrors(ctx, jobID, archivev1.ArchivePart_PRICES,
+		[]*apiv1.ValidationError{{RowIndex: 2, Field: "close", Message: "unparseable"}})
+	// An error with no part belongs to the job rather than to any one part.
+	_ = p.AppendValidationErrors(ctx, jobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED,
+		[]*apiv1.ValidationError{{RowIndex: -1, Field: "payload", Message: "unreadable"}})
+
+	d, err := p.GetJob(ctx, jobID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if len(d.ValidationErrors) != 1 || d.ValidationErrors[0].GetField() != "payload" {
+		t.Fatalf("job-level errors = %v", d.ValidationErrors)
+	}
+	instruments, prices := d.Parts[0], d.Parts[1]
+	if instruments.Status != apiv1.JobStatus_SUCCESS || len(instruments.ValidationErrors) != 0 {
+		t.Fatalf("instruments = %v with %d errors", instruments.Status, len(instruments.ValidationErrors))
+	}
+	if prices.Status != apiv1.JobStatus_FAILED || prices.Message != "upsert failed" {
+		t.Fatalf("prices = %v %q", prices.Status, prices.Message)
+	}
+	if prices.TotalCount != 10 || prices.ProcessedCount != 7 {
+		t.Fatalf("prices progress = %d/%d", prices.ProcessedCount, prices.TotalCount)
+	}
+	if len(prices.ValidationErrors) != 1 || prices.ValidationErrors[0].GetField() != "close" {
+		t.Fatalf("prices errors = %v", prices.ValidationErrors)
+	}
+
+	// A re-run after a restart starts the part's progress over.
+	if err := p.ResetJobPartProgress(ctx, jobID, archivev1.ArchivePart_PRICES); err != nil {
+		t.Fatalf("reset part progress: %v", err)
+	}
+	d2, _ := p.GetJob(ctx, jobID)
+	if d2.Parts[1].ProcessedCount != 0 || d2.Parts[1].Message != "" {
+		t.Fatalf("after reset: %d processed, message %q", d2.Parts[1].ProcessedCount, d2.Parts[1].Message)
+	}
+}
+
+func TestListJobs_FiltersByJobType(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|jt", "U", "u@jt.com")
+	_, _ = p.CreateJob(ctx, db.CreateJobParams{UserID: userID, JobType: db.JobTypeTx})
+	archiveJob, _ := p.CreateJob(ctx, db.CreateJobParams{UserID: userID, JobType: db.JobTypeSystemArchive})
+
+	all, allTotal, _, err := p.ListJobs(ctx, userID, "", 30, "")
+	if err != nil {
+		t.Fatalf("list jobs: %v", err)
+	}
+	if len(all) != 2 || allTotal != 2 {
+		t.Fatalf("unfiltered = %d rows, total %d", len(all), allTotal)
+	}
+	filtered, total, _, err := p.ListJobs(ctx, userID, db.JobTypeSystemArchive, 30, "")
+	if err != nil {
+		t.Fatalf("list jobs filtered: %v", err)
+	}
+	if len(filtered) != 1 || total != 1 || filtered[0].ID != archiveJob {
+		t.Fatalf("filtered = %d rows, total %d", len(filtered), total)
 	}
 }

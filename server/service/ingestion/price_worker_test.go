@@ -58,8 +58,8 @@ func TestProcessPriceImport_RejectsUnknownIdentifierType(t *testing.T) {
 
 	var capturedErrs []*apiv1.ValidationError
 	database.EXPECT().
-		AppendValidationErrors(gomock.Any(), "job-price-1", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+		AppendValidationErrors(gomock.Any(), "job-price-1", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
 			capturedErrs = errs
 			return nil
 		})
@@ -318,8 +318,8 @@ func TestProcessPriceImport_RejectsHintDiff(t *testing.T) {
 
 	var capturedErrs []*apiv1.ValidationError
 	database.EXPECT().
-		AppendValidationErrors(gomock.Any(), "job-price-diff", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+		AppendValidationErrors(gomock.Any(), "job-price-diff", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
 			capturedErrs = errs
 			return nil
 		})
@@ -373,8 +373,8 @@ func TestProcessPriceImport_RejectsCurrencyHintDiff(t *testing.T) {
 
 	var capturedErrs []*apiv1.ValidationError
 	database.EXPECT().
-		AppendValidationErrors(gomock.Any(), "job-price-curdiff", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, errs []*apiv1.ValidationError) error {
+		AppendValidationErrors(gomock.Any(), "job-price-curdiff", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
 			capturedErrs = errs
 			return nil
 		})

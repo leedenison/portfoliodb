@@ -5,7 +5,7 @@
 import { createClient } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-node";
 import { ApiService, JobStatus, type GetJobResponse } from "../gen/api/v1/api_pb";
-import { ArchiveKind } from "../gen/archive/v1/common_pb";
+import { ArchiveKind, ArchivePart } from "../gen/archive/v1/common_pb";
 import { CorporateEventGroupSchema, type CorporateEventGroup } from "../gen/archive/v1/corporate_events_pb";
 import { PriceGroupSchema } from "../gen/archive/v1/prices_pb";
 import type { MessageInitShape } from "@bufbuild/protobuf";
@@ -30,8 +30,11 @@ export async function setDisplayCurrency(
 }
 
 /**
- * Import one archive's worth of price groups and wait for the async job to
+ * Import one archive carrying only a price part and wait for the job to
  * complete. Returns the final job status.
+ *
+ * Importing one kind of data means supplying a document carrying only that
+ * part; there is no per-entity endpoint.
  *
  * The envelope is built here: exported_at is knowledge time, and a test that had
  * to supply it would be stating something it does not care about.
@@ -42,15 +45,17 @@ export async function importPricesAndWait(
   timeoutMs = 30_000,
 ): Promise<GetJobResponse> {
   const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
-  const resp = await client.importPrices(
+  const resp = await client.importSystemArchive(
     {
-      envelope: {
-        formatVersion: 1,
-        exportedAt: timestampNow(),
-        sourceInstance: "e2e",
-        kind: ArchiveKind.SYSTEM,
+      archive: {
+        envelope: {
+          formatVersion: 1,
+          exportedAt: timestampNow(),
+          sourceInstance: "e2e",
+          kind: ArchiveKind.SYSTEM,
+        },
+        prices: { groups },
       },
-      prices: { groups },
     },
     { headers },
   );
@@ -67,8 +72,8 @@ export async function importPricesAndWait(
 }
 
 /**
- * Import one archive's worth of corporate event groups and wait for the async
- * job to complete. Returns the final job status.
+ * Import one archive carrying only a corporate event part and wait for the job
+ * to complete. Returns the final job status.
  *
  * The envelope is built here for the same reason importPricesAndWait builds
  * one: exported_at is knowledge time, and a test that had to supply it would be
@@ -80,15 +85,17 @@ export async function importCorporateEventsAndWait(
   timeoutMs = 30_000,
 ): Promise<GetJobResponse> {
   const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
-  const resp = await client.importCorporateEvents(
+  const resp = await client.importSystemArchive(
     {
-      envelope: {
-        formatVersion: 1,
-        exportedAt: timestampNow(),
-        sourceInstance: "e2e",
-        kind: ArchiveKind.SYSTEM,
+      archive: {
+        envelope: {
+          formatVersion: 1,
+          exportedAt: timestampNow(),
+          sourceInstance: "e2e",
+          kind: ArchiveKind.SYSTEM,
+        },
+        corporateEvents: { groups },
       },
-      corporateEvents: { groups },
     },
     { headers },
   );
@@ -106,14 +113,20 @@ export async function importCorporateEventsAndWait(
   );
 }
 
-/** Drain the ExportCorporateEvents stream into its instrument groups. */
+/**
+ * Drain a corporate-event-only export into its instrument groups.
+ *
+ * Only that part is asked for, so the stream carries the envelope, the part
+ * marker and the groups.
+ */
 export async function exportCorporateEvents(
   sessionId: string,
 ): Promise<CorporateEventGroup[]> {
   const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
   const groups: CorporateEventGroup[] = [];
-  for await (const resp of client.exportCorporateEvents({}, { headers })) {
-    if (resp.item.case === "group") {
+  const req = { parts: [ArchivePart.CORPORATE_EVENTS] };
+  for await (const resp of client.exportSystemArchive(req, { headers })) {
+    if (resp.item.case === "corporateEventGroup") {
       groups.push(resp.item.value);
     }
   }

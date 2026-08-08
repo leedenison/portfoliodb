@@ -14,60 +14,8 @@ import (
 	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
-
-// processCorporateEventImport loads a persisted ImportCorporateEventsRequest,
-// resolves each group's instrument via the existing identifier flow (so unknown
-// MIC_TICKER / OPENFIGI_TICKER / ISIN values are passed through identifier
-// plugins), upserts the splits and cash dividends nested under it, records
-// coverage rows tagged "import", and runs the split adjustment recompute for
-// every instrument that received at least one new split.
-//
-// The archive nests by instrument, so an instrument is resolved once per group
-// rather than once per event, and a validation error names the group it came
-// from with the event's position inside it.
-//
-// Returns true when at least one split, dividend, or coverage row was
-// successfully persisted. The caller uses this to decide whether to nudge
-// the corporate event fetcher worker -- mirrors the processTx success
-// signal so a job that rejected every row does not produce churn.
-func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, j *JobRequest) bool {
-	payload, err := database.LoadJobPayload(ctx, j.JobID)
-	if err != nil {
-		log.Printf("corporate event import job %s: load payload: %v", j.JobID, err)
-		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
-		return false
-	}
-	var req apiv1.ImportCorporateEventsRequest
-	if err := proto.Unmarshal(payload, &req); err != nil {
-		log.Printf("corporate event import job %s: unmarshal payload: %v", j.JobID, err)
-		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
-		return false
-	}
-
-	// Knowledge time declared for the whole file: OCC symbols are
-	// split-adjusted to this point during resolution, events that carry no
-	// first_known_at of their own fall back to it, and imported coverage
-	// records it as last_fetched_at. Mirrors the price import path.
-	var eventsAsOf *time.Time
-	if ts := req.GetEnvelope().GetExportedAt(); ts != nil {
-		t := ts.AsTime()
-		eventsAsOf = &t
-	}
-
-	rep := archiveimport.NewPartReporter(database, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED)
-	persisted, err := importCorporateEventPart(ctx, database, pluginRegistry, req.GetCorporateEvents(), eventsAsOf, newResolveCache(), rep)
-	rep.Flush(ctx)
-	if err != nil {
-		log.Printf("corporate event import job %s: %v", j.JobID, err)
-		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
-		return false
-	}
-	finishJob(ctx, database, j.JobID, apiv1.JobStatus_SUCCESS)
-	return persisted
-}
 
 // importCorporateEventPart applies one archive corporate event part, reporting
 // through rep. Like the price part it returns whether anything was persisted,

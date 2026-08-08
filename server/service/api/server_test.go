@@ -5,14 +5,12 @@ import (
 	"testing"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/testutil"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/genproto/googleapis/type/date"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 )
 
 func ctxNoAuth() context.Context {
@@ -35,108 +33,6 @@ func newAPIServerWithMock(t *testing.T) (*Server, *mock.MockDB) {
 	t.Cleanup(func() { ctrl.Finish() })
 	db := mock.NewMockDB(ctrl)
 	return NewServer(ServerConfig{DB: db}), db
-}
-
-// exportStreamMock provides a stream with configurable context for ExportInstruments tests.
-type exportStreamMock struct {
-	ctx  context.Context
-	sent []*apiv1.ExportInstrumentsResponse
-}
-
-func (e *exportStreamMock) Context() context.Context    { return e.ctx }
-func (e *exportStreamMock) RecvMsg(m interface{}) error { return nil }
-func (e *exportStreamMock) Send(m *apiv1.ExportInstrumentsResponse) error {
-	e.sent = append(e.sent, m)
-	return nil
-}
-func (e *exportStreamMock) SendHeader(m metadata.MD) error { return nil }
-func (e *exportStreamMock) SetHeader(m metadata.MD) error  { return nil }
-func (e *exportStreamMock) SetTrailer(m metadata.MD)       {}
-func (e *exportStreamMock) SendMsg(m interface{}) error {
-	if r, ok := m.(*apiv1.ExportInstrumentsResponse); ok {
-		e.sent = append(e.sent, r)
-	}
-	return nil
-}
-
-// instruments returns the instruments the export streamed, dropping the
-// envelope that precedes them.
-func (e *exportStreamMock) instruments() []*archivev1.Instrument {
-	var out []*archivev1.Instrument
-	for _, m := range e.sent {
-		if inst := m.GetInstrument(); inst != nil {
-			out = append(out, inst)
-		}
-	}
-	return out
-}
-
-// exportPriceStreamMock provides a stream with configurable context for ExportPrices tests.
-type exportPriceStreamMock struct {
-	ctx  context.Context
-	sent []*apiv1.ExportPricesResponse
-}
-
-func (e *exportPriceStreamMock) Context() context.Context    { return e.ctx }
-func (e *exportPriceStreamMock) RecvMsg(m interface{}) error { return nil }
-func (e *exportPriceStreamMock) Send(m *apiv1.ExportPricesResponse) error {
-	e.sent = append(e.sent, m)
-	return nil
-}
-func (e *exportPriceStreamMock) SendHeader(m metadata.MD) error { return nil }
-func (e *exportPriceStreamMock) SetHeader(m metadata.MD) error  { return nil }
-func (e *exportPriceStreamMock) SetTrailer(m metadata.MD)       {}
-func (e *exportPriceStreamMock) SendMsg(m interface{}) error {
-	if row, ok := m.(*apiv1.ExportPricesResponse); ok {
-		e.sent = append(e.sent, row)
-	}
-	return nil
-}
-
-// groups returns the price groups in send order, dropping the envelope.
-func (e *exportPriceStreamMock) groups() []*archivev1.PriceGroup {
-	var out []*archivev1.PriceGroup
-	for _, m := range e.sent {
-		if g := m.GetGroup(); g != nil {
-			out = append(out, g)
-		}
-	}
-	return out
-}
-
-// exportCorporateEventStreamMock provides a stream with configurable context
-// for ExportCorporateEvents tests.
-type exportCorporateEventStreamMock struct {
-	ctx  context.Context
-	sent []*apiv1.ExportCorporateEventsResponse
-}
-
-func (e *exportCorporateEventStreamMock) Context() context.Context    { return e.ctx }
-func (e *exportCorporateEventStreamMock) RecvMsg(m interface{}) error { return nil }
-func (e *exportCorporateEventStreamMock) Send(m *apiv1.ExportCorporateEventsResponse) error {
-	e.sent = append(e.sent, m)
-	return nil
-}
-func (e *exportCorporateEventStreamMock) SendHeader(m metadata.MD) error { return nil }
-func (e *exportCorporateEventStreamMock) SetHeader(m metadata.MD) error  { return nil }
-func (e *exportCorporateEventStreamMock) SetTrailer(m metadata.MD)       {}
-func (e *exportCorporateEventStreamMock) SendMsg(m interface{}) error {
-	if row, ok := m.(*apiv1.ExportCorporateEventsResponse); ok {
-		e.sent = append(e.sent, row)
-	}
-	return nil
-}
-
-// groups returns the instrument groups the export streamed, dropping the
-// envelope that precedes them.
-func (e *exportCorporateEventStreamMock) groups() []*archivev1.CorporateEventGroup {
-	var out []*archivev1.CorporateEventGroup
-	for _, m := range e.sent {
-		if g := m.GetGroup(); g != nil {
-			out = append(out, g)
-		}
-	}
-	return out
 }
 
 func TestAPI_Unauthenticated(t *testing.T) {
@@ -171,19 +67,17 @@ func TestAPI_Unauthenticated(t *testing.T) {
 			return err
 		}},
 		{"GetJob", func() error { _, err := srv.GetJob(ctx, &apiv1.GetJobRequest{JobId: "job-1"}); return err }},
-		{"ExportInstruments", func() error {
-			stream := &exportStreamMock{ctx: context.Background()}
-			return srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream)
+		{"ExportSystemArchive", func() error {
+			stream := &exportArchiveStreamMock{ctx: context.Background()}
+			return srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{}, stream)
 		}},
-		{"ImportInstruments", func() error { _, err := srv.ImportInstruments(ctx, &apiv1.ImportInstrumentsRequest{}); return err }},
+		{"ImportSystemArchive", func() error {
+			_, err := srv.ImportSystemArchive(ctx, &apiv1.ImportSystemArchiveRequest{})
+			return err
+		}},
 		{"ListInstruments", func() error { _, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{}); return err }},
 		{"ListJobs", func() error { _, err := srv.ListJobs(ctx, &apiv1.ListJobsRequest{}); return err }},
 		{"ListPrices", func() error { _, err := srv.ListPrices(ctx, &apiv1.ListPricesRequest{}); return err }},
-		{"ExportPrices", func() error {
-			stream := &exportPriceStreamMock{ctx: context.Background()}
-			return srv.ExportPrices(&apiv1.ExportPricesRequest{}, stream)
-		}},
-		{"ImportPrices", func() error { _, err := srv.ImportPrices(ctx, &apiv1.ImportPricesRequest{}); return err }},
 		{"GetPortfolioValuation", func() error {
 			_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{PortfolioId: "p", DateFrom: &date.Date{Year: 2025, Month: 1, Day: 1}, DateBefore: &date.Date{Year: 2025, Month: 1, Day: 3}})
 			return err

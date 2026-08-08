@@ -153,6 +153,39 @@ func (e *exportArchiveStreamMock) SendMsg(m interface{}) error {
 	return nil
 }
 
+// instruments returns the instruments the export streamed.
+func (e *exportArchiveStreamMock) instruments() []*archivev1.Instrument {
+	var out []*archivev1.Instrument
+	for _, m := range e.sent {
+		if v := m.GetInstrument(); v != nil {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// groups returns the price groups the export streamed.
+func (e *exportArchiveStreamMock) groups() []*archivev1.PriceGroup {
+	var out []*archivev1.PriceGroup
+	for _, m := range e.sent {
+		if v := m.GetPriceGroup(); v != nil {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// eventGroups returns the corporate event groups the export streamed.
+func (e *exportArchiveStreamMock) eventGroups() []*archivev1.CorporateEventGroup {
+	var out []*archivev1.CorporateEventGroup
+	for _, m := range e.sent {
+		if v := m.GetCorporateEventGroup(); v != nil {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // shape describes the stream as a sequence of item kinds, which is what the
 // client's reassembly reads.
 func (e *exportArchiveStreamMock) shape() []string {

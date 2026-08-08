@@ -1,91 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { create } from "@bufbuild/protobuf";
-import type { MessageInitShape } from "@bufbuild/protobuf";
-import { ExportCoverageSchema, ExportPriceRowSchema } from "@/gen/api/v1/api_pb";
 import { AssetClass } from "@/gen/type/v1/type_pb";
-import type { ExportPriceRow } from "@/gen/api/v1/api_pb";
-import { pricesToCsv, csvToPrices } from "./prices";
-
-// Overrides are typed against the init shape, not Partial<ExportPriceRow>: the
-// latter makes $typeName optional, which create() will not accept.
-function makeRow(
-  overrides: MessageInitShape<typeof ExportPriceRowSchema> = {},
-): ExportPriceRow {
-  return create(ExportPriceRowSchema, {
-    identifierType: "ISIN",
-    identifierValue: "US0378331005",
-    identifierDomain: "",
-    priceDate: "2024-01-15",
-    close: "185.9",
-    ...overrides,
-  });
-}
-
-describe("pricesToCsv", () => {
-  it("produces header + data rows", () => {
-    const csv = pricesToCsv([makeRow()]);
-    const lines = csv.trim().split("\n");
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toBe(
-      "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class,currency"
-    );
-    expect(lines[1]).toContain("ISIN");
-    expect(lines[1]).toContain("US0378331005");
-    expect(lines[1]).toContain("2024-01-15");
-    expect(lines[1]).toContain("185.9");
-  });
-
-  it("prepends exported_at comment line when date provided", () => {
-    const exportedAt = new Date("2025-07-15T10:30:00.000Z");
-    const csv = pricesToCsv([makeRow()], exportedAt);
-    const lines = csv.split("\n");
-    expect(lines[0]).toBe("# exported_at=2025-07-15T10:30:00.000Z");
-    expect(lines[1]).toBe(
-      "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class,currency"
-    );
-  });
-
-  it("omits comment line when no exportedAt provided", () => {
-    const csv = pricesToCsv([makeRow()]);
-    expect(csv.startsWith("#")).toBe(false);
-  });
-
-  it("includes optional fields when present", () => {
-    const csv = pricesToCsv([
-      makeRow({ open: "185.5", high: "186.2", low: "184.8", adjustedClose: "185.9", volume: 50000000n, assetClass: AssetClass.STOCK, currency: "USD" }),
-    ]);
-    const lines = csv.trim().split("\n");
-    const fields = lines[1].split(",");
-    expect(fields[4]).toBe("185.5"); // open
-    expect(fields[5]).toBe("186.2"); // high
-    expect(fields[6]).toBe("184.8"); // low
-    expect(fields[8]).toBe("185.9"); // adjusted_close
-    expect(fields[9]).toBe("50000000"); // volume
-    expect(fields[10]).toBe("STOCK"); // asset_class
-    expect(fields[11]).toBe("USD"); // currency
-  });
-
-  it("leaves optional fields empty when absent", () => {
-    const csv = pricesToCsv([makeRow()]);
-    const fields = csv.trim().split("\n")[1].split(",");
-    expect(fields[4]).toBe(""); // open
-    expect(fields[5]).toBe(""); // high
-    expect(fields[6]).toBe(""); // low
-    expect(fields[8]).toBe(""); // adjusted_close
-    expect(fields[9]).toBe(""); // volume
-  });
-
-  it("quotes fields containing commas", () => {
-    const csv = pricesToCsv([makeRow({ identifierValue: "APPLE, INC" })]);
-    expect(csv).toContain('"APPLE, INC"');
-  });
-
-  it("handles empty array", () => {
-    const csv = pricesToCsv([]);
-    const lines = csv.trim().split("\n");
-    expect(lines).toHaveLength(1); // header only
-  });
-});
+import { csvToPrices } from "./prices";
 
 describe("csvToPrices", () => {
   const HEADER = "identifier_type,identifier_value,identifier_domain,price_date,open,high,low,close,adjusted_close,volume,asset_class,currency";
@@ -201,14 +116,14 @@ describe("csvToPrices", () => {
     expect(result.prices[0].currency).toBe("");
   });
 
-  it("round-trips a decimal too precise for a float64", () => {
+  it("keeps a decimal too precise for a float64", () => {
     // 0.1 + 0.2 is the textbook case, but a price column is worse: these values
     // have more significant digits than a float64 carries, so parsing them into
     // a JS number and printing them back changes the digits. Export and import
     // are a round-trip pair, so that is a bug rather than a rounding preference.
     const precise = "185.90000000000012345";
     const tiny = "0.000000000000001";
-    const csv = pricesToCsv([makeRow({ close: precise, open: tiny })]);
+    const csv = `${HEADER}\nISIN,US0378331005,,2024-01-15,${tiny},,,${precise},,`;
     const result = csvToPrices(csv);
 
     expect(result.errors).toHaveLength(0);
@@ -218,29 +133,6 @@ describe("csvToPrices", () => {
     // exponent notation, which the wire format does not even accept.
     expect(String(Number(precise))).toBe("185.90000000000012");
     expect(String(Number(tiny))).toBe("1e-15");
-  });
-
-  it("round-trips through pricesToCsv and csvToPrices", () => {
-    const original = [
-      makeRow({ open: "185.5", high: "186.2", low: "184.8", adjustedClose: "185.9", volume: 50000000n, currency: "USD" }),
-      makeRow({ identifierType: "MIC_TICKER", identifierValue: "AAPL", identifierDomain: "XNAS", priceDate: "2024-01-16", close: "186.5", currency: "GBP" }),
-    ];
-    const exportedAt = new Date("2025-07-15T10:30:00.000Z");
-    const csv = pricesToCsv(original, exportedAt);
-    const result = csvToPrices(csv);
-    expect(result.errors).toHaveLength(0);
-    expect(result.prices).toHaveLength(2);
-    expect(result.exportedAt).toEqual(exportedAt);
-    expect(result.prices[0].identifierType).toBe("ISIN");
-    expect(result.prices[0].close).toBe("185.9");
-    expect(result.prices[0].open).toBe("185.5");
-    expect(result.prices[0].volume).toBe(50000000n);
-    expect(result.prices[0].currency).toBe("USD");
-    expect(result.prices[1].identifierType).toBe("MIC_TICKER");
-    expect(result.prices[1].identifierDomain).toBe("XNAS");
-    expect(result.prices[1].close).toBe("186.5");
-    expect(result.prices[1].open).toBeUndefined();
-    expect(result.prices[1].currency).toBe("GBP");
   });
 
   it("extracts exported_at from comment line", () => {
@@ -379,136 +271,5 @@ describe("csvToPrices coverage headers", () => {
     expect(result.errors[0].field).toBe("before");
     expect(result.prices).toHaveLength(2);
     expect(result.coverage).toEqual([]);
-  });
-});
-
-describe("price CSV coverage round trip", () => {
-  it("carries coverage spans through serialize and parse", () => {
-    const coverage = [
-      create(ExportCoverageSchema, {
-        identifierType: "ISIN",
-        identifierValue: "US0378331005",
-        identifierDomain: "",
-        from: "2024-01-15",
-        before: "2024-02-01",
-      }),
-    ];
-    const csv = pricesToCsv([makeRow()], new Date("2026-07-30T00:00:00.000Z"), coverage);
-    const result = csvToPrices(csv);
-    expect(result.errors).toEqual([]);
-    expect(result.exportedAt?.toISOString()).toBe("2026-07-30T00:00:00.000Z");
-    expect(result.coverage).toEqual([
-      expect.objectContaining({
-        identifierType: "ISIN",
-        identifierValue: "US0378331005",
-        identifierDomain: "",
-        from: "2024-01-15",
-        before: "2024-02-01",
-      }),
-    ]);
-  });
-
-  it("writes no coverage header when the export supplied none", () => {
-    expect(pricesToCsv([makeRow()])).not.toContain("# coverage=");
-  });
-});
-
-describe("pricesToCsv coverage compression", () => {
-  const span = (value: string, from: string, before: string) =>
-    create(ExportCoverageSchema, {
-      identifierType: "MIC_TICKER",
-      identifierValue: value,
-      identifierDomain: "XNAS",
-      from,
-      before,
-    });
-  const row = (value: string, priceDate = "2024-02-01") =>
-    makeRow({ identifierType: "MIC_TICKER", identifierValue: value, identifierDomain: "XNAS", priceDate });
-
-  const coverageLines = (csv: string) =>
-    csv.split("\n").filter((l) => l.startsWith("# coverage="));
-
-  it("collapses a shared span to one global line", () => {
-    const csv = pricesToCsv(
-      [row("AAPL"), row("MSFT"), row("GOOG")],
-      undefined,
-      [span("AAPL", "2022-01-01", "2025-07-07"),
-       span("MSFT", "2022-01-01", "2025-07-07"),
-       span("GOOG", "2022-01-01", "2025-07-07")],
-    );
-    expect(coverageLines(csv)).toEqual(["# coverage=2022-01-01,2025-07-07"]);
-  });
-
-  it("writes the odd one out as an exception beside the global", () => {
-    const csv = pricesToCsv(
-      [row("AAPL"), row("MSFT"), row("ATVI")],
-      undefined,
-      [span("AAPL", "2022-01-01", "2025-07-07"),
-       span("MSFT", "2022-01-01", "2025-07-07"),
-       span("ATVI", "2021-12-31", "2023-10-14")],
-    );
-    expect(coverageLines(csv)).toEqual([
-      "# coverage=2022-01-01,2025-07-07",
-      "# coverage=MIC_TICKER,ATVI,XNAS,2021-12-31,2023-10-14",
-    ]);
-  });
-
-  it("keeps both spans of a two-period instrument explicit, since a specific overrides the global outright", () => {
-    const csv = pricesToCsv(
-      [row("AAPL"), row("MSFT"), row("TSLA")],
-      undefined,
-      [span("AAPL", "2022-01-01", "2025-07-07"),
-       span("MSFT", "2022-01-01", "2025-07-07"),
-       span("TSLA", "2022-01-01", "2022-06-01"),
-       span("TSLA", "2024-01-01", "2024-06-01")],
-    );
-    expect(coverageLines(csv)).toEqual([
-      "# coverage=2022-01-01,2025-07-07",
-      "# coverage=MIC_TICKER,TSLA,XNAS,2022-01-01,2022-06-01",
-      "# coverage=MIC_TICKER,TSLA,XNAS,2024-01-01,2024-06-01",
-    ]);
-  });
-
-  it("keeps a covered instrument with no rows explicit, since the global never reaches it", () => {
-    const csv = pricesToCsv(
-      [row("AAPL"), row("MSFT")],
-      undefined,
-      [span("AAPL", "2022-01-01", "2025-07-07"),
-       span("MSFT", "2022-01-01", "2025-07-07"),
-       span("DELISTED", "2022-01-01", "2025-07-07")],
-    );
-    expect(coverageLines(csv)).toEqual([
-      "# coverage=2022-01-01,2025-07-07",
-      "# coverage=MIC_TICKER,DELISTED,XNAS,2022-01-01,2025-07-07",
-    ]);
-  });
-
-  it("writes no global when no span is shared, which would save nothing", () => {
-    const csv = pricesToCsv(
-      [row("AAPL"), row("MSFT")],
-      undefined,
-      [span("AAPL", "2022-01-01", "2023-01-01"),
-       span("MSFT", "2024-01-01", "2025-01-01")],
-    );
-    expect(coverageLines(csv)).toEqual([
-      "# coverage=MIC_TICKER,AAPL,XNAS,2022-01-01,2023-01-01",
-      "# coverage=MIC_TICKER,MSFT,XNAS,2024-01-01,2025-01-01",
-    ]);
-  });
-
-  it("round trips the compressed form back to one entry per instrument per span", () => {
-    const coverage = [
-      span("AAPL", "2022-01-01", "2025-07-07"),
-      span("MSFT", "2022-01-01", "2025-07-07"),
-      span("ATVI", "2021-12-31", "2023-10-14"),
-    ];
-    const csv = pricesToCsv([row("AAPL"), row("MSFT"), row("ATVI")], undefined, coverage);
-    const result = csvToPrices(csv);
-    expect(result.errors).toEqual([]);
-    expect(result.coverage).toEqual([
-      expect.objectContaining({ identifierValue: "AAPL", from: "2022-01-01", before: "2025-07-07" }),
-      expect.objectContaining({ identifierValue: "MSFT", from: "2022-01-01", before: "2025-07-07" }),
-      expect.objectContaining({ identifierValue: "ATVI", from: "2021-12-31", before: "2023-10-14" }),
-    ]);
   });
 });

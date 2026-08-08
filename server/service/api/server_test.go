@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/testutil"
@@ -80,23 +81,12 @@ func (e *exportPriceStreamMock) SendMsg(m interface{}) error {
 	return nil
 }
 
-// rows returns the price rows in send order, dropping coverage envelopes.
-func (e *exportPriceStreamMock) rows() []*apiv1.ExportPriceRow {
-	var out []*apiv1.ExportPriceRow
+// groups returns the price groups in send order, dropping the envelope.
+func (e *exportPriceStreamMock) groups() []*archivev1.PriceGroup {
+	var out []*archivev1.PriceGroup
 	for _, m := range e.sent {
-		if r := m.GetRow(); r != nil {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-// coverage returns the coverage spans in send order.
-func (e *exportPriceStreamMock) coverage() []*apiv1.ExportCoverage {
-	var out []*apiv1.ExportCoverage
-	for _, m := range e.sent {
-		if c := m.GetCoverage(); c != nil {
-			out = append(out, c)
+		if g := m.GetGroup(); g != nil {
+			out = append(out, g)
 		}
 	}
 	return out

@@ -14,11 +14,13 @@ import {
   deletePriceFetchBlock,
   exportPrices,
 } from "@/lib/portfolio-api";
-import { pricesToCsv } from "@/lib/csv/prices";
+import { marshalAdmin } from "@/lib/archive/codec";
 import { dayAfter } from "@/lib/dates";
 import { useDebounce } from "@/hooks/use-debounce";
 import { ImportPricesModal } from "./import-modal";
-import type { EODPriceProto, ExportCoverage, ExportPriceRow, PriceFetchBlock } from "@/gen/api/v1/api_pb";
+import type { EODPriceProto, PriceFetchBlock } from "@/gen/api/v1/api_pb";
+import type { Envelope } from "@/gen/archive/v1/common_pb";
+import type { PriceGroup } from "@/gen/archive/v1/prices_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 
 type Tab = "prices" | "blocks";
@@ -96,31 +98,29 @@ function PriceListTab() {
   const [importOpen, setImportOpen] = useState(false);
   const queryClient = useQueryClient();
 
+  // The file is an admin archive carrying only its price part. The stream sends
+  // the envelope first because exported_at is knowledge time and belongs to the
+  // server's clock, not the browser's.
   async function handleExport() {
     setExportLoading(true);
     setExportError(null);
     try {
-      const rows: ExportPriceRow[] = [];
-      const coverage: ExportCoverage[] = [];
-      let exportedAt: Date | undefined;
+      let envelope: Envelope | undefined;
+      const groups: PriceGroup[] = [];
       for await (const item of exportPrices()) {
-        if (item.item.case === "coverage") {
-          coverage.push(item.item.value);
-          continue;
+        if (item.item.case === "envelope") {
+          envelope = item.item.value;
+        } else if (item.item.case === "group") {
+          groups.push(item.item.value);
         }
-        if (item.item.case !== "row") continue;
-        const row = item.item.value;
-        if (!exportedAt && row.exportedAt) {
-          exportedAt = timestampDate(row.exportedAt);
-        }
-        rows.push(row);
       }
-      const csv = pricesToCsv(rows, exportedAt, coverage);
-      const blob = new Blob([csv], { type: "text/csv" });
+      if (!envelope) throw new Error("export stream sent no envelope");
+      const json = marshalAdmin({ envelope, prices: { groups } });
+      const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "prices.csv";
+      a.download = "prices.json";
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -166,7 +166,7 @@ function PriceListTab() {
             disabled={exportLoading}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {exportLoading ? "Exporting..." : "Export CSV"}
+            {exportLoading ? "Exporting..." : "Export archive"}
           </button>
           <button
             type="button"

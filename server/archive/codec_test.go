@@ -102,6 +102,24 @@ func userFixture() *archivev1.UserArchive {
 	}
 }
 
+// The version and the kind come from the build, so an export cannot produce a
+// document that misdescribes itself even if the caller never touches them.
+func TestNewEnvelope_StampsVersionAndKind(t *testing.T) {
+	e := archive.NewEnvelope("portfoliodb.example.com", archivev1.ArchiveKind_ADMIN)
+	if e.GetFormatVersion() != archive.FormatVersion {
+		t.Errorf("format_version = %d, want %d", e.GetFormatVersion(), archive.FormatVersion)
+	}
+	if e.GetKind() != archivev1.ArchiveKind_ADMIN {
+		t.Errorf("kind = %s, want ADMIN", e.GetKind())
+	}
+	if e.GetSourceInstance() != "portfoliodb.example.com" {
+		t.Errorf("source_instance = %q", e.GetSourceInstance())
+	}
+	if e.GetExportedAt() == nil {
+		t.Error("expected exported_at to be stamped")
+	}
+}
+
 // The keys are snake_case and the enums are names, because that is what makes a
 // file written by one version readable by another. A regression here is a
 // wholesale format change, so it is asserted on the bytes rather than through a

@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
+	"github.com/leedenison/portfoliodb/server/archive"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/grpc/codes"
@@ -63,10 +65,12 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 	}, nil
 }
 
-// ExportPrices streams all cached EOD prices with the best identifier per
-// instrument. Coverage spans come first, then the rows. The spans are not
-// derivable from the rows: one covering dates with no rows records that a
-// provider was asked and had nothing. Admin only.
+// ExportPrices streams the price part of an admin archive: the envelope first,
+// then one group per instrument. Admin only.
+//
+// The coverage nested in each group is not derivable from its rows: a span
+// covering dates with no rows records that a provider was asked and had
+// nothing.
 func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiService_ExportPricesServer) error {
 	ctx := stream.Context()
 	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
@@ -76,49 +80,117 @@ func (s *Server) ExportPrices(req *apiv1.ExportPricesRequest, stream apiv1.ApiSe
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
-	for _, c := range coverage {
-		if err := stream.Send(&apiv1.ExportPricesResponse{
-			Item: &apiv1.ExportPricesResponse_Coverage{Coverage: &apiv1.ExportCoverage{
-				IdentifierType:   c.IdentifierType,
-				IdentifierValue:  c.IdentifierValue,
-				IdentifierDomain: c.IdentifierDomain,
-				From:             c.From.Format("2006-01-02"),
-				Before:           c.Before.Format("2006-01-02"),
-			}},
-		}); err != nil {
-			return err
-		}
-	}
 	rows, err := s.db.ListPricesForExport(ctx)
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
-	now := timestamppb.Now()
-	for _, r := range rows {
-		row := &apiv1.ExportPriceRow{
-			ExportedAt:       now,
-			IdentifierType:   r.IdentifierType,
-			IdentifierValue:  r.IdentifierValue,
-			IdentifierDomain: r.IdentifierDomain,
-			AssetClass:       db.StrToAssetClass(r.AssetClass),
-			Currency:         r.Currency,
-			PriceDate:        r.PriceDate.Format("2006-01-02"),
-			Close:            decStr(r.Close),
-		}
-		row.Open = decStrPtr(r.Open)
-		row.High = decStrPtr(r.High)
-		row.Low = decStrPtr(r.Low)
-		row.AdjustedClose = decStrPtr(r.AdjustedClose)
-		if r.Volume != nil {
-			row.Volume = r.Volume
-		}
+	// source_instance is left empty: nothing keys off it, and this build has no
+	// configured identity to put there.
+	if err := stream.Send(&apiv1.ExportPricesResponse{
+		Item: &apiv1.ExportPricesResponse_Envelope{
+			Envelope: archive.NewEnvelope("", archivev1.ArchiveKind_ADMIN),
+		},
+	}); err != nil {
+		return err
+	}
+	for _, g := range priceGroups(rows, coverage) {
 		if err := stream.Send(&apiv1.ExportPricesResponse{
-			Item: &apiv1.ExportPricesResponse_Row{Row: row},
+			Item: &apiv1.ExportPricesResponse_Group{Group: g},
 		}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// instKey is an instrument named the way a file names it: the identifier triple
+// bestIdentifierJoin picked, and no server UUID.
+type instKey struct{ typ, value, domain string }
+
+// priceGroups turns the flat export rows and the per-instrument coverage spans
+// into archive groups, one per instrument.
+//
+// An instrument that was covered and has no rows still gets a group, with empty
+// rows. It is the only way a file can say a provider was asked about those
+// dates and had nothing, and the coverage row is where such a group's asset
+// class and currency come from.
+//
+// Both inputs arrive ordered by identifier, so the rows are grouped by a scan
+// and the output order follows the query's.
+func priceGroups(rows []db.ExportPriceRow, coverage []db.ExportPriceCoverageRow) []*archivev1.PriceGroup {
+	spans := make(map[instKey][]*archivev1.DateInterval, len(coverage))
+	for _, c := range coverage {
+		k := instKey{c.IdentifierType, c.IdentifierValue, c.IdentifierDomain}
+		spans[k] = append(spans[k], &archivev1.DateInterval{
+			From:   c.From.Format("2006-01-02"),
+			Before: c.Before.Format("2006-01-02"),
+		})
+	}
+
+	var out []*archivev1.PriceGroup
+	var cur *archivev1.PriceGroup
+	var curKey instKey
+	for _, r := range rows {
+		k := instKey{r.IdentifierType, r.IdentifierValue, r.IdentifierDomain}
+		if cur == nil || k != curKey {
+			cur = &archivev1.PriceGroup{
+				Instrument: &archivev1.InstrumentRef{
+					Type:   identifierTypeFromString(r.IdentifierType),
+					Value:  r.IdentifierValue,
+					Domain: r.IdentifierDomain,
+				},
+				AssetClass: db.StrToAssetClass(r.AssetClass),
+				Currency:   r.Currency,
+				Coverage:   spans[k],
+			}
+			delete(spans, k)
+			curKey = k
+			out = append(out, cur)
+		}
+		cur.Rows = append(cur.Rows, priceRow(r))
+	}
+
+	// Whatever coverage is left names an instrument with no rows at all.
+	for _, c := range coverage {
+		k := instKey{c.IdentifierType, c.IdentifierValue, c.IdentifierDomain}
+		cov, ok := spans[k]
+		if !ok {
+			continue
+		}
+		delete(spans, k)
+		out = append(out, &archivev1.PriceGroup{
+			Instrument: &archivev1.InstrumentRef{
+				Type:   identifierTypeFromString(c.IdentifierType),
+				Value:  c.IdentifierValue,
+				Domain: c.IdentifierDomain,
+			},
+			AssetClass: db.StrToAssetClass(c.AssetClass),
+			Currency:   c.Currency,
+			Coverage:   cov,
+		})
+	}
+	return out
+}
+
+// priceRow converts one export row to its archive form. The share count basis
+// is written only when the row has one: absent means the bar's own date, which
+// is the as-traded convention and what the query reports as nil.
+func priceRow(r db.ExportPriceRow) *archivev1.PriceRow {
+	row := &archivev1.PriceRow{
+		PriceDate: r.PriceDate.Format("2006-01-02"),
+		Close:     decStr(r.Close),
+	}
+	if r.ShareCountBasis != nil {
+		row.ShareCountBasis = proto.String(r.ShareCountBasis.Format("2006-01-02"))
+	}
+	row.Open = decStrPtr(r.Open)
+	row.High = decStrPtr(r.High)
+	row.Low = decStrPtr(r.Low)
+	row.AdjustedClose = decStrPtr(r.AdjustedClose)
+	if r.Volume != nil {
+		row.Volume = r.Volume
+	}
+	return row
 }
 
 // ImportPrices creates an async job to upsert EOD prices. Admin only.

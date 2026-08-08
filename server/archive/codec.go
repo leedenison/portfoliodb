@@ -18,6 +18,7 @@ import (
 	"buf.build/go/protovalidate"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 )
@@ -64,6 +65,21 @@ type KindError struct {
 
 func (e *KindError) Error() string {
 	return fmt.Sprintf("archive is %s, expected %s", e.Got, e.Want)
+}
+
+// NewEnvelope builds the envelope an export stamps onto its own document. The
+// format version and the kind come from this build rather than from a caller,
+// for the same reason MarshalAdmin overwrites them.
+//
+// exported_at is knowledge time -- when the data being exported was current --
+// so it is the exporting server's clock and nothing else's.
+func NewEnvelope(sourceInstance string, kind archivev1.ArchiveKind) *archivev1.Envelope {
+	return &archivev1.Envelope{
+		FormatVersion:  FormatVersion,
+		ExportedAt:     timestamppb.Now(),
+		SourceInstance: sourceInstance,
+		Kind:           kind,
+	}
 }
 
 // MarshalAdmin writes an admin archive. It stamps the envelope's format_version

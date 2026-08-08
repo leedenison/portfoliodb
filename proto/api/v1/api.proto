@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package portfoliodb.api.v1;
 
+import "archive/v1/archive.proto";
 import "archive/v1/common.proto";
 import "archive/v1/corporate_events.proto";
 import "archive/v1/instruments.proto";
@@ -174,6 +175,11 @@ service ApiService {
 
   // Instruments: browse and search (any authenticated user).
   rpc ListInstruments(ListInstrumentsRequest) returns (ListInstrumentsResponse);
+
+  // System archive import (admin-only). Applies a whole system archive
+  // asynchronously, sequencing its parts server-side. See
+  // ImportSystemArchiveRequest.
+  rpc ImportSystemArchive(ImportSystemArchiveRequest) returns (ImportSystemArchiveResponse);
 
   // Instrument export/import (admin-only). Export streams the instrument part of a system archive; optional exchange filter.
   rpc ExportInstruments(ExportInstrumentsRequest) returns (stream ExportInstrumentsResponse);
@@ -520,6 +526,30 @@ message ListInstrumentsResponse {
   repeated Instrument instruments = 1;
   string next_page_token = 2;
   int32 total_count = 3;  // total matching instruments (for UI pagination display)
+}
+
+// ImportSystemArchiveRequest carries one whole system archive. The parts are
+// applied server-side in restore order -- instruments, prices, corporate events
+// -- so a client that navigates away mid-import does not stop it, and the caller
+// polls one job rather than sequencing the parts itself.
+//
+// A part absent from the document is not applied. A part present and empty is
+// applied and produces a result with a total of zero: "the export included it
+// and there was nothing" is a statement the import honours rather than an error.
+// To import one kind of data, supply a document carrying only that part.
+//
+// The archive is the file's own document, forwarded rather than rebuilt, so the
+// server sees the format_version and the kind the file declared rather than what
+// the uploading client assumed.
+message ImportSystemArchiveRequest {
+  portfoliodb.archive.v1.SystemArchive archive = 1 [(buf.validate.field).required = true];
+  string filename = 2; // optional; shown in the job list
+}
+
+// ImportSystemArchiveResponse returns immediately with the job to poll. Per-part
+// progress and results are on GetJobResponse.parts.
+message ImportSystemArchiveResponse {
+  string job_id = 1;
 }
 
 // ExportInstruments streams the instrument part of a system archive: every

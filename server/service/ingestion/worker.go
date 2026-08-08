@@ -124,6 +124,17 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			// gaps that would require price data.
 			pluginutil.Trigger(opts.CorporateEventTrigger)
 		}
+	case db.JobTypeSystemArchive:
+		res := processSystemImport(ctx, opts.DB, opts.IdentifierRegistry, j)
+		// Nudged once for the whole import rather than per part. Instruments
+		// trigger nothing: an imported instrument has no holdings yet, so it
+		// opens no price gap.
+		if res.pricesPersisted {
+			pluginutil.Trigger(opts.PriceTrigger)
+		}
+		if res.eventsPersisted {
+			pluginutil.Trigger(opts.CorporateEventTrigger)
+		}
 	default:
 		log.Printf("ingestion job %s: unknown job type %q", j.JobID, j.JobType)
 		_ = opts.DB.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)

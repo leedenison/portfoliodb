@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Carry share_count_basis through price import and export
 ---
 
@@ -46,5 +46,11 @@ archive removes, and thrown away when 0081 lands.
 Whether that interim is worth building depends on how far off 0081 is. It is a
 sequencing decision, deliberately left open here; the correctness problem is the
 same either way.
+
+Settled by waiting: 0081 landed and carried this with it. The basis is on
+`archive.v1.PriceRow`, stated per bar rather than per group because `eod_prices`
+stores it per bar, and it now travels on the export as well as the import. The
+`cli/google` importer sets it, which fixes the live GOOGLEFINANCE case. No
+interim CSV header was built.
 
 See docs/spec/bitemporality.md.

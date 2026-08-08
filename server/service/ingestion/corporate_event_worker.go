@@ -114,7 +114,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 	if len(splits) > 0 {
 		if err := database.UpsertStockSplits(ctx, splits); err != nil {
 			if len(valErrs) > 0 {
-				_ = database.AppendValidationErrors(ctx, j.JobID, valErrs)
+				_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, valErrs)
 			}
 			failJob(ctx, database, j.JobID, "splits", err)
 			return false
@@ -124,7 +124,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 	if len(dividends) > 0 {
 		if err := database.UpsertCashDividends(ctx, dividends); err != nil {
 			if len(valErrs) > 0 {
-				_ = database.AppendValidationErrors(ctx, j.JobID, valErrs)
+				_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, valErrs)
 			}
 			failJob(ctx, database, j.JobID, "dividends", err)
 			return false
@@ -141,7 +141,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 	covCount, covErrs, err := writeImportCoverage(ctx, database, groups, resolveCache, pluginRegistry, eventsAsOf)
 	if err != nil {
 		if len(valErrs) > 0 || len(covErrs) > 0 {
-			_ = database.AppendValidationErrors(ctx, j.JobID, append(valErrs, covErrs...))
+			_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, append(valErrs, covErrs...))
 		}
 		failJob(ctx, database, j.JobID, "coverage", err)
 		return false
@@ -152,7 +152,7 @@ func processCorporateEventImport(ctx context.Context, database db.DB, pluginRegi
 	valErrs = append(valErrs, covErrs...)
 
 	if len(valErrs) > 0 {
-		_ = database.AppendValidationErrors(ctx, j.JobID, valErrs)
+		_ = database.AppendValidationErrors(ctx, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, valErrs)
 	}
 
 	for instID := range splitInstruments {
@@ -372,7 +372,7 @@ func writeImportCoverage(ctx context.Context, database db.DB, groups []*archivev
 
 func failJob(ctx context.Context, database db.DB, jobID, field string, err error) {
 	log.Printf("corporate event import job %s: %s: %v", jobID, field, err)
-	_ = database.AppendValidationErrors(ctx, jobID, []*apiv1.ValidationError{
+	_ = database.AppendValidationErrors(ctx, jobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED, []*apiv1.ValidationError{
 		{RowIndex: -1, Field: field, Message: err.Error()},
 	})
 	_ = database.SetJobStatus(ctx, jobID, apiv1.JobStatus_FAILED)

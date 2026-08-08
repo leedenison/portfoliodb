@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 )
 
@@ -41,69 +43,135 @@ func (p *Postgres) CreateJob(ctx context.Context, params db.CreateJobParams) (st
 	if jobType == "" {
 		jobType = "tx"
 	}
+	// The job and its part rows are written together: a caller that polls the
+	// moment CreateJob returns must see a row per part, not a list that fills in
+	// later and is indistinguishable meanwhile from an archive carrying nothing.
 	var id uuid.UUID
-	err = p.q.QueryRowContext(ctx, `
-		INSERT INTO ingestion_jobs (user_id, job_type, broker, source, filename, period_from, period_before, payload, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')
-		RETURNING id
-	`, userUUID, jobType, brokerVal, sourceVal, filenameVal, fromT, beforeT, payloadVal).Scan(&id)
+	err = p.runInTx(ctx, func(exec queryable) error {
+		if err := exec.QueryRowContext(ctx, `
+			INSERT INTO ingestion_jobs (user_id, job_type, broker, source, filename, period_from, period_before, payload, status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')
+			RETURNING id
+		`, userUUID, jobType, brokerVal, sourceVal, filenameVal, fromT, beforeT, payloadVal).Scan(&id); err != nil {
+			return fmt.Errorf("create job: %w", err)
+		}
+		for _, part := range params.Parts {
+			if _, err := exec.ExecContext(ctx, `
+				INSERT INTO ingestion_job_parts (job_id, part, status) VALUES ($1, $2, 'PENDING')
+			`, id, archivePartToStr(part)); err != nil {
+				return fmt.Errorf("create job part %s: %w", archivePartToStr(part), err)
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		return "", fmt.Errorf("create job: %w", err)
+		return "", err
 	}
 	return id.String(), nil
 }
 
+// archivePartToStr spells an ArchivePart the way the column holds it, which is
+// the enum name itself.
+func archivePartToStr(p archivev1.ArchivePart) string {
+	return archivev1.ArchivePart_name[int32(p)]
+}
+
+func strToArchivePart(s string) archivev1.ArchivePart {
+	return archivev1.ArchivePart(archivev1.ArchivePart_value[s])
+}
+
 // GetJob implements db.JobDB.
-func (p *Postgres) GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []db.IdentificationError, string, int32, int32, error) {
+func (p *Postgres) GetJob(ctx context.Context, jobID string) (*db.JobDetail, error) {
 	jobUUID, err := uuid.Parse(jobID)
 	if err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, fmt.Errorf("invalid job id: %w", err)
+		return nil, fmt.Errorf("invalid job id: %w", err)
 	}
+	var d db.JobDetail
 	var statusStr string
 	var jobUserID uuid.UUID
-	var totalCount, processedCount int32
-	err = p.q.QueryRowContext(ctx, `SELECT status, user_id, total_count, processed_count FROM ingestion_jobs WHERE id = $1`, jobUUID).Scan(&statusStr, &jobUserID, &totalCount, &processedCount)
+	err = p.q.QueryRowContext(ctx, `SELECT status, user_id, total_count, processed_count FROM ingestion_jobs WHERE id = $1`, jobUUID).
+		Scan(&statusStr, &jobUserID, &d.TotalCount, &d.ProcessedCount)
 	if err == sql.ErrNoRows {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, nil
+		// No such job. UserID stays empty, which is how the caller tells this
+		// apart from a failure to read one that exists.
+		return &db.JobDetail{}, nil
 	}
 	if err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, fmt.Errorf("get job: %w", err)
+		return nil, fmt.Errorf("get job: %w", err)
 	}
-	rows, err := p.q.QueryContext(ctx, `SELECT row_index, field, message FROM validation_errors WHERE job_id = $1 ORDER BY row_index`, jobUUID)
-	if err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, fmt.Errorf("get validation errors: %w", err)
-	}
-	defer rows.Close()
-	var errs []*apiv1.ValidationError
-	for rows.Next() {
-		var rowIndex int32
-		var field, message string
-		if err := rows.Scan(&rowIndex, &field, &message); err != nil {
-			return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, err
-		}
-		errs = append(errs, &apiv1.ValidationError{RowIndex: rowIndex, Field: field, Message: message})
-	}
-	if err := rows.Err(); err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, err
-	}
-	// Identification errors
+	d.Status = strToJobStatus(statusStr)
+	d.UserID = jobUserID.String()
+
 	idRows, err := p.q.QueryContext(ctx, `SELECT row_index, instrument_description, message FROM identification_errors WHERE job_id = $1 ORDER BY row_index`, jobUUID)
 	if err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, fmt.Errorf("get identification errors: %w", err)
+		return nil, fmt.Errorf("get identification errors: %w", err)
 	}
 	defer idRows.Close()
-	var idErrs []db.IdentificationError
 	for idRows.Next() {
 		var e db.IdentificationError
 		if err := idRows.Scan(&e.RowIndex, &e.InstrumentDescription, &e.Message); err != nil {
-			return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, err
+			return nil, err
 		}
-		idErrs = append(idErrs, e)
+		d.IdentificationErrors = append(d.IdentificationErrors, e)
 	}
 	if err := idRows.Err(); err != nil {
-		return apiv1.JobStatus_JOB_STATUS_UNSPECIFIED, nil, nil, "", 0, 0, err
+		return nil, err
 	}
-	return strToJobStatus(statusStr), errs, idErrs, jobUserID.String(), totalCount, processedCount, nil
+
+	// Parts are read before the validation errors, because which parts exist is
+	// what decides where an error can be attributed.
+	partRows, err := p.q.QueryContext(ctx, `SELECT part, status, total_count, processed_count, COALESCE(message, '') FROM ingestion_job_parts WHERE job_id = $1`, jobUUID)
+	if err != nil {
+		return nil, fmt.Errorf("get job parts: %w", err)
+	}
+	defer partRows.Close()
+	partIndex := map[archivev1.ArchivePart]int{}
+	for partRows.Next() {
+		var r db.JobPartResult
+		var partStr, partStatus string
+		if err := partRows.Scan(&partStr, &partStatus, &r.TotalCount, &r.ProcessedCount, &r.Message); err != nil {
+			return nil, err
+		}
+		r.Part = strToArchivePart(partStr)
+		r.Status = strToJobStatus(partStatus)
+		partIndex[r.Part] = len(d.Parts)
+		d.Parts = append(d.Parts, r)
+	}
+	if err := partRows.Err(); err != nil {
+		return nil, err
+	}
+	// Restore order is the enum's order. The column holds the enum name, so
+	// sorting has to be by number and not by the string.
+	sort.Slice(d.Parts, func(i, j int) bool { return d.Parts[i].Part < d.Parts[j].Part })
+	for i, r := range d.Parts {
+		partIndex[r.Part] = i
+	}
+
+	// Validation errors go to the part they name. A NULL part, or one naming a
+	// part this job has no row for, belongs to the job: an error that cannot be
+	// attributed is still an error, and dropping it would report a clean run.
+	rows, err := p.q.QueryContext(ctx, `SELECT COALESCE(part, ''), row_index, field, message FROM validation_errors WHERE job_id = $1 ORDER BY row_index`, jobUUID)
+	if err != nil {
+		return nil, fmt.Errorf("get validation errors: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var partStr string
+		var e apiv1.ValidationError
+		if err := rows.Scan(&partStr, &e.RowIndex, &e.Field, &e.Message); err != nil {
+			return nil, err
+		}
+		i, ok := partIndex[strToArchivePart(partStr)]
+		if !ok {
+			d.ValidationErrors = append(d.ValidationErrors, &e)
+			continue
+		}
+		d.Parts[i].ValidationErrors = append(d.Parts[i].ValidationErrors, &e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return &d, nil
 }
 
 // SetJobStatus implements db.JobDB.
@@ -146,17 +214,65 @@ func (p *Postgres) IncrJobProcessedCount(ctx context.Context, jobID string) erro
 }
 
 // AppendValidationErrors implements db.JobDB.
-func (p *Postgres) AppendValidationErrors(ctx context.Context, jobID string, errs []*apiv1.ValidationError) error {
+func (p *Postgres) AppendValidationErrors(ctx context.Context, jobID string, part archivev1.ArchivePart, errs []*apiv1.ValidationError) error {
 	jobUUID, err := uuid.Parse(jobID)
 	if err != nil {
 		return fmt.Errorf("invalid job id: %w", err)
 	}
+	var partVal interface{}
+	if part != archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED {
+		partVal = archivePartToStr(part)
+	}
 	for _, e := range errs {
-		_, err = p.q.ExecContext(ctx, `INSERT INTO validation_errors (job_id, row_index, field, message) VALUES ($1, $2, $3, $4)`,
-			jobUUID, e.RowIndex, e.Field, e.Message)
+		_, err = p.q.ExecContext(ctx, `INSERT INTO validation_errors (job_id, part, row_index, field, message) VALUES ($1, $2, $3, $4, $5)`,
+			jobUUID, partVal, e.RowIndex, e.Field, e.Message)
 		if err != nil {
 			return fmt.Errorf("append validation error: %w", err)
 		}
+	}
+	return nil
+}
+
+// SetJobPartStatus implements db.JobDB.
+func (p *Postgres) SetJobPartStatus(ctx context.Context, jobID string, part archivev1.ArchivePart, status apiv1.JobStatus) error {
+	return p.execJobPart(ctx, jobID, part, `UPDATE ingestion_job_parts SET status = $3 WHERE job_id = $1 AND part = $2`,
+		"set job part status", jobStatusToStr(status))
+}
+
+// SetJobPartFailed implements db.JobDB.
+func (p *Postgres) SetJobPartFailed(ctx context.Context, jobID string, part archivev1.ArchivePart, message string) error {
+	return p.execJobPart(ctx, jobID, part, `UPDATE ingestion_job_parts SET status = 'FAILED', message = $3 WHERE job_id = $1 AND part = $2`,
+		"set job part failed", message)
+}
+
+// SetJobPartTotalCount implements db.JobDB.
+func (p *Postgres) SetJobPartTotalCount(ctx context.Context, jobID string, part archivev1.ArchivePart, total int32) error {
+	return p.execJobPart(ctx, jobID, part, `UPDATE ingestion_job_parts SET total_count = $3 WHERE job_id = $1 AND part = $2`,
+		"set job part total count", total)
+}
+
+// AddJobPartProcessedCount implements db.JobDB.
+func (p *Postgres) AddJobPartProcessedCount(ctx context.Context, jobID string, part archivev1.ArchivePart, n int32) error {
+	return p.execJobPart(ctx, jobID, part, `UPDATE ingestion_job_parts SET processed_count = processed_count + $3 WHERE job_id = $1 AND part = $2`,
+		"add job part processed count", n)
+}
+
+// ResetJobPartProgress implements db.JobDB.
+func (p *Postgres) ResetJobPartProgress(ctx context.Context, jobID string, part archivev1.ArchivePart) error {
+	return p.execJobPart(ctx, jobID, part, `UPDATE ingestion_job_parts SET processed_count = 0, message = NULL WHERE job_id = $1 AND part = $2`,
+		"reset job part progress")
+}
+
+// execJobPart runs one UPDATE against a part row. Every part mutation is the
+// same shape -- parse the id, name the part, set one column -- so they share it.
+func (p *Postgres) execJobPart(ctx context.Context, jobID string, part archivev1.ArchivePart, query, what string, args ...interface{}) error {
+	jobUUID, err := uuid.Parse(jobID)
+	if err != nil {
+		return fmt.Errorf("invalid job id: %w", err)
+	}
+	args = append([]interface{}{jobUUID, archivePartToStr(part)}, args...)
+	if _, err := p.q.ExecContext(ctx, query, args...); err != nil {
+		return fmt.Errorf("%s: %w", what, err)
 	}
 	return nil
 }
@@ -227,7 +343,7 @@ func (p *Postgres) ListPendingJobs(ctx context.Context) ([]db.PendingJob, error)
 }
 
 // ListJobs implements db.JobDB.
-func (p *Postgres) ListJobs(ctx context.Context, userID string, pageSize int32, pageToken string) ([]db.JobRow, int32, string, error) {
+func (p *Postgres) ListJobs(ctx context.Context, userID, jobType string, pageSize int32, pageToken string) ([]db.JobRow, int32, string, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, 0, "", fmt.Errorf("invalid user id: %w", err)
@@ -235,8 +351,15 @@ func (p *Postgres) ListJobs(ctx context.Context, userID string, pageSize int32, 
 
 	offset := decodePageToken(pageToken)
 
+	// An empty jobType matches every type, so the filter is written once as a
+	// predicate that is trivially true rather than as two spellings of the query.
+	var typeVal interface{}
+	if jobType != "" {
+		typeVal = jobType
+	}
+
 	var total int32
-	if err := p.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM ingestion_jobs WHERE user_id = $1`, userUUID).Scan(&total); err != nil {
+	if err := p.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM ingestion_jobs WHERE user_id = $1 AND ($2::text IS NULL OR job_type = $2)`, userUUID, typeVal).Scan(&total); err != nil {
 		return nil, 0, "", fmt.Errorf("count jobs: %w", err)
 	}
 	if total == 0 {
@@ -248,10 +371,10 @@ func (p *Postgres) ListJobs(ctx context.Context, userID string, pageSize int32, 
 			(SELECT COUNT(*) FROM validation_errors WHERE job_id = j.id),
 			(SELECT COUNT(*) FROM identification_errors WHERE job_id = j.id)
 		FROM ingestion_jobs j
-		WHERE j.user_id = $1
+		WHERE j.user_id = $1 AND ($2::text IS NULL OR j.job_type = $2)
 		ORDER BY j.created_at DESC
-		LIMIT $2 OFFSET $3
-	`, userUUID, pageSize+1, offset)
+		LIMIT $3 OFFSET $4
+	`, userUUID, typeVal, pageSize+1, offset)
 	if err != nil {
 		return nil, 0, "", fmt.Errorf("list jobs: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -43,6 +44,7 @@ const (
 	JobTypeTx             = "tx"
 	JobTypePrice          = "price"
 	JobTypeCorporateEvent = "corporate_event"
+	JobTypeSystemArchive  = "system_archive"
 )
 
 // DB is the database abstraction used by the service layer.
@@ -307,29 +309,71 @@ type PendingJob struct {
 // CreateJobParams holds the parameters for creating a new job.
 type CreateJobParams struct {
 	UserID       string
-	JobType      string // "tx" or "price"
+	JobType      string // one of the JobType* constants
 	Broker       string // tx only
 	Source       string // tx only
 	Filename     string
 	PeriodFrom   *timestamppb.Timestamp
 	PeriodBefore *timestamppb.Timestamp
 	Payload      []byte // serialized protobuf request
+	// Parts are the archive parts a system archive job will apply. Their result
+	// rows are written with the job so that a caller polling immediately sees a
+	// row per part rather than an empty list it cannot distinguish from a job
+	// that carried nothing.
+	Parts []archivev1.ArchivePart
+}
+
+// JobPartResult is one archive part as applied by one job.
+type JobPartResult struct {
+	Part             archivev1.ArchivePart
+	Status           apiv1.JobStatus
+	TotalCount       int32
+	ProcessedCount   int32
+	Message          string // the hard failure that ended the part, if any
+	ValidationErrors []*apiv1.ValidationError
+}
+
+// JobDetail is everything GetJob knows about one job. UserID is empty when no
+// such job exists, which is how a caller distinguishes "not found" from an error.
+type JobDetail struct {
+	Status               apiv1.JobStatus
+	UserID               string
+	TotalCount           int32
+	ProcessedCount       int32
+	ValidationErrors     []*apiv1.ValidationError // errors with no part of their own
+	IdentificationErrors []IdentificationError
+	Parts                []JobPartResult // in restore order; empty unless a system archive
 }
 
 // JobDB provides ingestion job operations.
 type JobDB interface {
 	CreateJob(ctx context.Context, params CreateJobParams) (string, error)
-	GetJob(ctx context.Context, jobID string) (apiv1.JobStatus, []*apiv1.ValidationError, []IdentificationError, string, int32, int32, error) // returns (status, validationErrors, idErrors, userID, totalCount, processedCount, error)
+	GetJob(ctx context.Context, jobID string) (*JobDetail, error)
 	SetJobStatus(ctx context.Context, jobID string, status apiv1.JobStatus) error
 	SetJobTotalCount(ctx context.Context, jobID string, total int32) error
 	IncrJobProcessedCount(ctx context.Context, jobID string) error
-	AppendValidationErrors(ctx context.Context, jobID string, errs []*apiv1.ValidationError) error
+	// AppendValidationErrors attributes errors to one archive part, or to the
+	// job itself when part is ARCHIVE_PART_UNSPECIFIED.
+	AppendValidationErrors(ctx context.Context, jobID string, part archivev1.ArchivePart, errs []*apiv1.ValidationError) error
 	AppendIdentificationErrors(ctx context.Context, jobID string, errs []IdentificationError) error
+	SetJobPartStatus(ctx context.Context, jobID string, part archivev1.ArchivePart, status apiv1.JobStatus) error
+	// SetJobPartFailed records the hard failure that ended a part and sets it FAILED.
+	SetJobPartFailed(ctx context.Context, jobID string, part archivev1.ArchivePart, message string) error
+	SetJobPartTotalCount(ctx context.Context, jobID string, part archivev1.ArchivePart, total int32) error
+	// AddJobPartProcessedCount advances a part's progress by n. It takes a delta
+	// rather than incrementing by one so that a caller can batch: a six-figure
+	// price import that reported every row separately would spend more time
+	// updating its own progress than importing.
+	AddJobPartProcessedCount(ctx context.Context, jobID string, part archivev1.ArchivePart, n int32) error
+	// ResetJobPartProgress zeroes a part's processed count, for a part being
+	// re-run after the service restarted mid-job.
+	ResetJobPartProgress(ctx context.Context, jobID string, part archivev1.ArchivePart) error
 	LoadJobPayload(ctx context.Context, jobID string) ([]byte, error)
 	ClearJobPayload(ctx context.Context, jobID string) error
 	ListPendingJobs(ctx context.Context) ([]PendingJob, error)
-	// ListJobs returns jobs for a user, newest first, with error counts. Returns (rows, totalCount, nextPageToken, error).
-	ListJobs(ctx context.Context, userID string, pageSize int32, pageToken string) ([]JobRow, int32, string, error)
+	// ListJobs returns jobs for a user, newest first, with error counts. An empty
+	// jobType matches every type. Returns (rows, totalCount, nextPageToken, error).
+	ListJobs(ctx context.Context, userID, jobType string, pageSize int32, pageToken string) ([]JobRow, int32, string, error)
 }
 
 // IdentifierInput is a single (type, domain, value) for EnsureInstrument.

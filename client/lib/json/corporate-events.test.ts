@@ -1,54 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { create } from "@bufbuild/protobuf";
-import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { ExportCorporateEventRowSchema, ExportCoverageSchema, SplitRowSchema } from "@/gen/api/v1/api_pb";
-import { AssetClass } from "@/gen/type/v1/type_pb";
-import type { ExportCorporateEventRow } from "@/gen/api/v1/api_pb";
-import { splitsToJson, parseSplitsJson } from "./corporate-events";
+import { parseSplitsJson } from "./corporate-events";
 
-function makeSplitRow(firstKnownAt?: Date): ExportCorporateEventRow {
-  return create(ExportCorporateEventRowSchema, {
-    identifierType: "MIC_TICKER",
-    identifierValue: "AAPL",
-    identifierDomain: "XNAS",
-    assetClass: AssetClass.STOCK,
-    dataProvider: "massive",
-    event: {
-      case: "split",
-      value: create(SplitRowSchema, {
-        exDate: "2020-08-31",
-        splitFrom: "1",
-        splitTo: "4",
-        firstKnownAt: firstKnownAt ? timestampFromDate(firstKnownAt) : undefined,
-      }),
-    },
-  });
-}
-
-describe("splitsToJson", () => {
-  it("serializes knowledge time as an ISO 8601 instant", () => {
-    const knownAt = new Date("2015-03-04T09:30:00.000Z");
-    const out = JSON.parse(splitsToJson([makeSplitRow(knownAt)]));
-    expect(out.events[0].first_known_at).toBe("2015-03-04T09:30:00.000Z");
-  });
-
-  it("omits knowledge time when the row carries none", () => {
-    const out = JSON.parse(splitsToJson([makeSplitRow()]));
-    expect(out.events[0]).not.toHaveProperty("first_known_at");
-  });
-});
+// The exporter that produced these files is gone -- corporate events export as
+// an admin archive part -- so the fixtures are written by hand, which is what a
+// file this parser still has to read now looks like.
+const SPLIT = {
+  identifier_type: "MIC_TICKER",
+  identifier_value: "AAPL",
+  identifier_domain: "XNAS",
+  asset_class: "STOCK",
+  ex_date: "2020-08-31",
+  split_from: "1",
+  split_to: "4",
+};
 
 describe("parseSplitsJson", () => {
   it("round-trips knowledge time", () => {
-    const knownAt = new Date("2015-03-04T09:30:00.000Z");
-    const { splits, errors } = parseSplitsJson(splitsToJson([makeSplitRow(knownAt)]));
+    const knownAt = "2015-03-04T09:30:00.000Z";
+    const { splits, errors } = parseSplitsJson(JSON.stringify({ events: [{ ...SPLIT, first_known_at: knownAt }] }));
     expect(errors).toEqual([]);
     expect(splits).toHaveLength(1);
-    expect(splits[0].firstKnownAt?.toISOString()).toBe(knownAt.toISOString());
+    expect(splits[0].firstKnownAt?.toISOString()).toBe(knownAt);
   });
 
   it("accepts a file with no knowledge time, leaving the server to stamp it", () => {
-    const { splits, errors } = parseSplitsJson(splitsToJson([makeSplitRow()]));
+    const { splits, errors } = parseSplitsJson(JSON.stringify({ events: [SPLIT] }));
     expect(errors).toEqual([]);
     expect(splits[0].firstKnownAt).toBeUndefined();
   });
@@ -131,35 +107,5 @@ describe("parseSplitsJson coverage", () => {
     const { errors } = parseSplitsJson(JSON.stringify({ coverage: [] }));
     expect(errors).toHaveLength(1);
     expect(errors[0].field).toBe("file");
-  });
-});
-
-describe("corporate event JSON coverage round trip", () => {
-  it("carries coverage spans through serialize and parse", () => {
-    const coverage = [
-      create(ExportCoverageSchema, {
-        identifierType: "MIC_TICKER",
-        identifierValue: "AAPL",
-        identifierDomain: "XNAS",
-        from: "2020-01-01",
-        before: "2025-01-01",
-      }),
-    ];
-    const json = splitsToJson([makeSplitRow()], coverage);
-    const result = parseSplitsJson(json);
-    expect(result.errors).toEqual([]);
-    expect(result.coverage).toEqual([
-      expect.objectContaining({
-        identifierType: "MIC_TICKER",
-        identifierValue: "AAPL",
-        identifierDomain: "XNAS",
-        from: "2020-01-01",
-        before: "2025-01-01",
-      }),
-    ]);
-  });
-
-  it("omits the coverage key when the export supplied none", () => {
-    expect(JSON.parse(splitsToJson([makeSplitRow()]))).not.toHaveProperty("coverage");
   });
 });

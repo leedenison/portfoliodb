@@ -7,18 +7,17 @@ import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import { ErrorAlert } from "@/app/components/error-alert";
 import { exportCorporateEvents } from "@/lib/portfolio-api";
-import { splitsToJson } from "@/lib/json/corporate-events";
-import type { ExportCorporateEventRow, ExportCoverage } from "@/gen/api/v1/api_pb";
+import { marshalAdmin } from "@/lib/archive/codec";
+import type { Envelope } from "@/gen/archive/v1/common_pb";
+import type { CorporateEventGroup } from "@/gen/archive/v1/corporate_events_pb";
 import { ImportSplitsModal } from "./import-splits-modal";
 
 interface SplitDisplay {
-  identifierType: string;
   identifierValue: string;
   identifierDomain: string;
   exDate: string;
   splitFrom: string;
   splitTo: string;
-  dataProvider: string;
 }
 
 export function SplitsTab() {
@@ -27,8 +26,9 @@ export function SplitsTab() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
-  // The export is a streaming generator, so the queryFn drains it and returns
-  // the accumulated rows. The generator itself is unchanged.
+  // The export is a streaming generator, so the queryFn drains it and flattens
+  // the groups back out. This tab lists splits; the dividends the same file
+  // carries have a tab of their own that is not built yet.
   const {
     data: splits = [],
     isPending: loading,
@@ -38,17 +38,16 @@ export function SplitsTab() {
     queryFn: async () => {
       const rows: SplitDisplay[] = [];
       for await (const item of exportCorporateEvents()) {
-        if (item.item.case !== "row") continue;
-        const row = item.item.value;
-        if (row.event.case === "split") {
+        if (item.item.case !== "group") continue;
+        const group = item.item.value;
+        for (const event of group.events) {
+          if (event.event.case !== "split") continue;
           rows.push({
-            identifierType: row.identifierType,
-            identifierValue: row.identifierValue,
-            identifierDomain: row.identifierDomain,
-            exDate: row.event.value.exDate,
-            splitFrom: row.event.value.splitFrom,
-            splitTo: row.event.value.splitTo,
-            dataProvider: row.dataProvider,
+            identifierValue: group.instrument?.value ?? "",
+            identifierDomain: group.instrument?.domain ?? "",
+            exDate: event.event.value.exDate,
+            splitFrom: event.event.value.splitFrom,
+            splitTo: event.event.value.splitTo,
           });
         }
       }
@@ -61,25 +60,29 @@ export function SplitsTab() {
 
   const error = exportError ?? (loadError ? errorMessage(loadError, "Failed to load splits") : null);
 
+  // The file is an admin archive carrying only its corporate event part. The
+  // stream sends the envelope first because exported_at is knowledge time and
+  // belongs to the server's clock, not the browser's.
   async function handleExport() {
     setExportLoading(true);
     setExportError(null);
     try {
-      const rows: ExportCorporateEventRow[] = [];
-      const coverage: ExportCoverage[] = [];
+      let envelope: Envelope | undefined;
+      const groups: CorporateEventGroup[] = [];
       for await (const item of exportCorporateEvents()) {
-        if (item.item.case === "coverage") {
-          coverage.push(item.item.value);
-        } else if (item.item.case === "row" && item.item.value.event.case === "split") {
-          rows.push(item.item.value);
+        if (item.item.case === "envelope") {
+          envelope = item.item.value;
+        } else if (item.item.case === "group") {
+          groups.push(item.item.value);
         }
       }
-      const json = splitsToJson(rows, coverage);
+      if (!envelope) throw new Error("export stream sent no envelope");
+      const json = marshalAdmin({ envelope, corporateEvents: { groups } });
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "splits.json";
+      a.download = "corporate-events.json";
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -99,14 +102,14 @@ export function SplitsTab() {
             disabled={exportLoading}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {exportLoading ? "Exporting..." : "Export JSON"}
+            {exportLoading ? "Exporting..." : "Export archive"}
           </button>
           <button
             type="button"
             onClick={() => setImportOpen(true)}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15"
           >
-            Import JSON
+            Import archive
           </button>
         </div>
       </div>
@@ -135,7 +138,6 @@ export function SplitsTab() {
               <th className="py-2 pr-4 font-medium">Ex Date</th>
               <th className="py-2 pr-4 font-medium">From</th>
               <th className="py-2 pr-4 font-medium">To</th>
-              <th className="py-2 pr-4 font-medium">Provider</th>
             </tr>
           </thead>
           <tbody>
@@ -148,7 +150,6 @@ export function SplitsTab() {
                 <td className="py-2 pr-4 text-text-muted">{s.exDate}</td>
                 <td className="py-2 pr-4 text-text-muted">{s.splitFrom}</td>
                 <td className="py-2 pr-4 text-text-muted">{s.splitTo}</td>
-                <td className="py-2 pr-4 text-text-muted">{s.dataProvider}</td>
               </tr>
             ))}
           </tbody>

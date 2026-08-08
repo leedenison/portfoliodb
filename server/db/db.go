@@ -632,6 +632,13 @@ type InstrumentRow struct {
 	ExchangeName        *string                   // read-only; from exchanges JOIN
 	ExchangeAcronym     *string                   // read-only; from exchanges JOIN
 	ExchangeCountryCode *string                   // read-only; from exchanges JOIN
+	// The underlying named by its highest-priority identifier rather than by
+	// UUID, which is how a file has to name it. Populated by
+	// ListInstrumentsForExport and nil everywhere else; use UnderlyingID within
+	// one instance.
+	UnderlyingIdentifierType   *string
+	UnderlyingIdentifierValue  *string
+	UnderlyingIdentifierDomain *string
 }
 
 // HoldingDeclarationRow is a single holding declaration for API responses.
@@ -729,7 +736,14 @@ type InstrumentDB interface {
 	GetInstrument(ctx context.Context, instrumentID string) (*InstrumentRow, error)
 	// ListInstrumentsByIDs returns instruments by ID slice (for batch underlying lookup). Missing IDs are omitted; order not guaranteed.
 	ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*InstrumentRow, error)
-	// ListInstrumentsForExport returns all instruments that have at least one identifier with canonical = true. If assetClasses is non-empty, filter to those classes; otherwise exclude CASH and FX (reference data). If exchangeFilter != "", filter by instruments.exchange_mic. Order by instruments.id.
+	// ListInstrumentsForExport returns all instruments that have at least one
+	// identifier with canonical = true, plus the underlying of every derivative
+	// among them whether or not the filters would have selected it -- an archive
+	// naming an underlying it does not carry is invalid. If assetClasses is
+	// non-empty, filter to those classes; otherwise exclude CASH and FX
+	// (reference data). If exchangeFilter != "", filter by
+	// instruments.exchange_mic. Rows carry every column a file needs, including
+	// the underlying's own identifier triple. Order by instruments.id.
 	ListInstrumentsForExport(ctx context.Context, exchangeFilter string, assetClasses []string) ([]*InstrumentRow, error)
 	// ValidateMIC checks whether the given MIC code exists in the exchanges reference table.
 	ValidateMIC(ctx context.Context, mic string) (bool, error)
@@ -761,6 +775,13 @@ type InstrumentDB interface {
 	// column only ever moves forward: a lower value is ignored, so a stale file
 	// cannot re-expose an already-adjusted option to the split pass.
 	SetIdentityAsOf(ctx context.Context, instrumentID string, t time.Time) error
+	// SetContractMultiplier sets the deliverable multiplier on an existing
+	// instrument. Separate from EnsureInstrument because the multiplier is not an
+	// option term -- a future carries one too -- and because an import restoring
+	// one is the only caller: a non-standard split leaves a fraction here and
+	// nothing recomputes it, so a file that states it is the only way it comes
+	// back. See docs/spec/corporate-events.md.
+	SetContractMultiplier(ctx context.Context, instrumentID string, m decimal.Decimal) error
 	// SaveProviderIdentifiers inserts provider-specific identifiers for an instrument.
 	// Duplicates (same instrument, provider, type, domain, value) are silently ignored.
 	SaveProviderIdentifiers(ctx context.Context, instrumentID string, ids []ProviderIdentifierInput) error

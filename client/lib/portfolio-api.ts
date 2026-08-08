@@ -9,8 +9,9 @@ import type { Date as ProtoDate } from "@/gen/google/type/date_pb";
 import { ExportCorporateEventsResponseSchema, ExportCorporateEventsRequestSchema, ExportInstrumentsRequestSchema, ExportInstrumentsResponseSchema, ExportPricesResponseSchema, ExportPricesRequestSchema, GetPortfolioValuationRequestSchema, GetPortfolioValuationResponseSchema, ImportCorporateEventsRequestSchema, ImportCorporateEventsResponseSchema, ImportCorporateEventRowSchema, ImportInstrumentsRequestSchema, ImportInstrumentsResponseSchema, ImportPricesRequestSchema, ImportPricesResponseSchema, SplitRowSchema, CreatePortfolioRequestSchema, CreatePortfolioResponseSchema, DeletePortfolioRequestSchema, GetHoldingsRequestSchema, GetHoldingsResponseSchema, GetJobRequestSchema, GetJobResponseSchema, GetPortfolioRequestSchema, GetPortfolioResponseSchema, GetPortfolioFiltersRequestSchema, GetPortfolioFiltersResponseSchema, ListBrokersAndAccountsRequestSchema, ListBrokersAndAccountsResponseSchema, ListDescriptionPluginsRequestSchema, ListDescriptionPluginsResponseSchema, ListIdentifierPluginsRequestSchema, ListIdentifierPluginsResponseSchema, ListPriceFetchBlocksRequestSchema, ListPriceFetchBlocksResponseSchema, DeletePriceFetchBlockRequestSchema, ListPricesRequestSchema, ListPricesResponseSchema, ListPricePluginsRequestSchema, ListPricePluginsResponseSchema, ListInstrumentsRequestSchema, ListInstrumentsResponseSchema, ListJobsRequestSchema, ListJobsResponseSchema, ListPortfoliosRequestSchema, ListPortfoliosResponseSchema, ListTelemetryCountersRequestSchema, ListTelemetryCountersResponseSchema, ListTxsRequestSchema, ListTxsResponseSchema, SetPortfolioFiltersRequestSchema, UpdateDescriptionPluginRequestSchema, UpdateDescriptionPluginResponseSchema, UpdateIdentifierPluginRequestSchema, UpdateIdentifierPluginResponseSchema, UpdatePricePluginRequestSchema, UpdatePricePluginResponseSchema, UpdatePortfolioRequestSchema, UpdatePortfolioResponseSchema, ReorderPluginsRequestSchema, CreateHoldingDeclarationRequestSchema, CreateHoldingDeclarationResponseSchema, UpdateHoldingDeclarationRequestSchema, UpdateHoldingDeclarationResponseSchema, DeleteHoldingDeclarationRequestSchema, ListHoldingDeclarationsRequestSchema, ListHoldingDeclarationsResponseSchema, ListWorkersRequestSchema, ListWorkersResponseSchema, GetDisplayCurrencyRequestSchema, GetDisplayCurrencyResponseSchema, SetDisplayCurrencyRequestSchema, SetDisplayCurrencyResponseSchema, GetIgnoredAssetClassesRequestSchema, GetIgnoredAssetClassesResponseSchema, SetIgnoredAssetClassesRequestSchema, CountIgnoredTxsRequestSchema, CountIgnoredTxsResponseSchema, IgnoredAssetClassRuleSchema, ListInflationIndicesRequestSchema, ListInflationIndicesResponseSchema, ListInflationPluginsRequestSchema, ListInflationPluginsResponseSchema, UpdateInflationPluginRequestSchema, UpdateInflationPluginResponseSchema, TriggerInflationFetchRequestSchema, TriggerPriceFetchRequestSchema, CountUnhandledCorporateEventsRequestSchema, CountUnhandledCorporateEventsResponseSchema, ListUnhandledCorporateEventsRequestSchema, ListUnhandledCorporateEventsResponseSchema, ResolveUnhandledCorporateEventRequestSchema, ListResidualBalancesRequestSchema, ListResidualBalancesResponseSchema, CountResidualBalancesRequestSchema, CountResidualBalancesResponseSchema, JobStatus, WorkerState } from "@/gen/api/v1/api_pb";
 import { AccountType, AssetClass } from "@/gen/type/v1/type_pb";
 import type { Envelope } from "@/gen/archive/v1/common_pb";
+import type { InstrumentPart } from "@/gen/archive/v1/instruments_pb";
 import type { PricePart } from "@/gen/archive/v1/prices_pb";
-import type { DescriptionPluginConfig, EODPriceProto, ExportCorporateEventsResponse, InflationIndexProto, InflationPluginConfig, ExportPricesResponse, Holding, HoldingDeclaration, IdentificationError, IdentifierPluginConfig, ImportCorporateEventCoverage, Instrument, PriceFetchBlock, PricePluginConfig, Portfolio as GenPortfolio, PortfolioFilterProto, PortfolioTx, ResidualBalance as ResidualBalanceProto, ValidationError, Worker as WorkerProto } from "@/gen/api/v1/api_pb";
+import type { DescriptionPluginConfig, EODPriceProto, ExportCorporateEventsResponse, ExportInstrumentsResponse, InflationIndexProto, InflationPluginConfig, ExportPricesResponse, Holding, HoldingDeclaration, IdentificationError, IdentifierPluginConfig, ImportCorporateEventCoverage, Instrument, PriceFetchBlock, PricePluginConfig, Portfolio as GenPortfolio, PortfolioFilterProto, PortfolioTx, ResidualBalance as ResidualBalanceProto, ValidationError, Worker as WorkerProto } from "@/gen/api/v1/api_pb";
 import type { Broker } from "@/gen/type/v1/type_pb";
 import { streamingFetch, unaryFetch } from "./grpc-web";
 
@@ -496,15 +497,18 @@ export async function listJobs(pageToken?: string | null): Promise<ListJobsResul
   };
 }
 
-/** Stream all exported instruments (admin only). */
-export async function* exportInstruments(params?: { exchange?: string; assetClasses?: AssetClass[] }): AsyncGenerator<Instrument> {
+/**
+ * Stream the instrument part of an admin archive (admin only): the envelope
+ * first, exactly once, then one instrument per message.
+ */
+export async function* exportInstruments(params?: { exchange?: string; assetClasses?: AssetClass[] }): AsyncGenerator<ExportInstrumentsResponse> {
   const base = getBaseUrl();
   const req = create(ExportInstrumentsRequestSchema, {
     exchange: params?.exchange ?? "",
     assetClasses: params?.assetClasses ?? [],
   });
   for await (const bytes of streamingFetch(base, ApiServicePrefix + "ExportInstruments", toBinary(ExportInstrumentsRequestSchema, req), { credentials: "include" })) {
-    yield fromBinary(ExportInstrumentsResponseSchema, bytes).instrument!;
+    yield fromBinary(ExportInstrumentsResponseSchema, bytes);
   }
 }
 
@@ -513,10 +517,15 @@ export interface ImportInstrumentsResult {
   errors: Array<{ index: number; message: string }>;
 }
 
-/** Import (upsert) instruments (admin only). */
-export async function importInstruments(instruments: Instrument[]): Promise<ImportInstrumentsResult> {
+/**
+ * Import (upsert) one archive's instrument part (admin only).
+ *
+ * The envelope is the file's own, forwarded rather than rebuilt, so the server
+ * sees the format version and the kind the file declared.
+ */
+export async function importInstruments(envelope: Envelope, instruments: InstrumentPart): Promise<ImportInstrumentsResult> {
   const base = getBaseUrl();
-  const req = create(ImportInstrumentsRequestSchema, { instruments });
+  const req = create(ImportInstrumentsRequestSchema, { envelope, instruments });
   const resBytes = await unaryFetch(base, ApiServicePrefix + "ImportInstruments", toBinary(ImportInstrumentsRequestSchema, req), { credentials: "include" });
   const res = fromBinary(ImportInstrumentsResponseSchema, resBytes);
   return {

@@ -8,11 +8,13 @@ import { usePagination } from "@/hooks/use-pagination";
 import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import { exportInstruments, listInstruments } from "@/lib/portfolio-api";
-import { instrumentsToJson } from "@/lib/json/instruments";
+import { marshalAdmin } from "@/lib/archive/codec";
 import { useDebounce } from "@/hooks/use-debounce";
 import { ImportInstrumentsModal } from "./import-modal";
 import { AssetClass, IdentifierType } from "@/gen/type/v1/type_pb";
 import type { Instrument, InstrumentIdentifier } from "@/gen/api/v1/api_pb";
+import type { Envelope } from "@/gen/archive/v1/common_pb";
+import type { Instrument as ArchiveInstrument } from "@/gen/archive/v1/instruments_pb";
 import { ALL_ASSET_CLASSES, DEFAULT_ASSET_CLASSES, ASSET_CLASS_LABELS } from "@/lib/asset-class";
 
 const IDENTIFIER_LABELS: Record<number, string> = {
@@ -68,18 +70,27 @@ export default function AdminInstrumentsPage() {
     [activeClasses]
   );
 
+  // The file is an admin archive carrying only its instrument part. The stream
+  // sends the envelope first because exported_at is knowledge time and belongs
+  // to the server's clock, not the browser's.
   async function handleExport() {
     setExportLoading(true);
     setExportError(null);
     try {
       const classes = [...activeClasses] as AssetClass[];
-      const instruments: Instrument[] = [];
-      for await (const inst of exportInstruments({
+      let envelope: Envelope | undefined;
+      const instruments: ArchiveInstrument[] = [];
+      for await (const item of exportInstruments({
         assetClasses: classes.length < ALL_ASSET_CLASSES.length ? classes : [],
       })) {
-        instruments.push(inst);
+        if (item.item.case === "envelope") {
+          envelope = item.item.value;
+        } else if (item.item.case === "instrument") {
+          instruments.push(item.item.value);
+        }
       }
-      const json = instrumentsToJson(instruments);
+      if (!envelope) throw new Error("export stream sent no envelope");
+      const json = marshalAdmin({ envelope, instruments: { instruments } });
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -116,14 +127,14 @@ export default function AdminInstrumentsPage() {
             disabled={exportLoading}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {exportLoading ? "Exporting..." : "Export JSON"}
+            {exportLoading ? "Exporting..." : "Export archive"}
           </button>
           <button
             type="button"
             onClick={() => setImportOpen(true)}
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-primary-light/15"
           >
-            Import JSON
+            Import archive
           </button>
         </div>
       </div>

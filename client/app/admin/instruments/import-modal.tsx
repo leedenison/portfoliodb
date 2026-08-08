@@ -3,9 +3,9 @@
 import { useRef, useState } from "react";
 import { Modal } from "@/app/components/modal";
 import { ErrorAlert } from "@/app/components/error-alert";
-import { jsonToInstruments } from "@/lib/json/instruments";
+import { archiveErrorMessage, unmarshalAdmin } from "@/lib/archive/codec";
 import { importInstruments } from "@/lib/portfolio-api";
-import type { InstrumentParseResult } from "@/lib/json/instruments";
+import type { AdminArchive } from "@/gen/archive/v1/archive_pb";
 import type { ImportInstrumentsResult } from "@/lib/portfolio-api";
 
 type Phase = "idle" | "preview" | "result";
@@ -20,7 +20,8 @@ export function ImportInstrumentsModal({
   onComplete?: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
-  const [parseResult, setParseResult] = useState<InstrumentParseResult | null>(null);
+  const [archive, setArchive] = useState<AdminArchive | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<ImportInstrumentsResult | null>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -30,7 +31,8 @@ export function ImportInstrumentsModal({
 
   function reset() {
     setPhase("idle");
-    setParseResult(null);
+    setArchive(null);
+    setParseError(null);
     setImportResult(null);
     setImporting(false);
     setImportError(null);
@@ -52,19 +54,27 @@ export function ImportInstrumentsModal({
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
-      const result = jsonToInstruments(text);
-      setParseResult(result);
+      try {
+        const parsed = unmarshalAdmin(text);
+        // Only the instrument part is applied. A file carrying the other
+        // sections is still a valid archive; each has its own importer.
+        setArchive(parsed);
+        setParseError(null);
+      } catch (err) {
+        setArchive(null);
+        setParseError(archiveErrorMessage(err));
+      }
       setPhase("preview");
     };
     reader.readAsText(file);
   }
 
   async function handleImport() {
-    if (!parseResult) return;
+    if (!archive?.envelope || !archive.instruments) return;
     setImporting(true);
     setImportError(null);
     try {
-      const result = await importInstruments(parseResult.instruments);
+      const result = await importInstruments(archive.envelope, archive.instruments);
       setImportResult(result);
       setPhase("result");
     } catch (err) {
@@ -73,6 +83,8 @@ export function ImportInstrumentsModal({
       setImporting(false);
     }
   }
+
+  const instruments = archive?.instruments?.instruments ?? [];
 
   function handleDone() {
     onComplete?.();
@@ -91,15 +103,15 @@ export function ImportInstrumentsModal({
         {phase === "idle" && (
           <div className="space-y-3">
             <p className="text-sm text-text-muted">
-              Select a JSON file to import instruments.
+              Select an archive file to import instruments.
             </p>
             <input
               ref={fileRef}
               type="file"
-              accept=".json"
+              accept=".json,application/json"
               onChange={handleFileChange}
               className="sr-only"
-              aria-label="Choose JSON file"
+              aria-label="Choose archive file"
             />
             <button
               type="button"
@@ -124,44 +136,18 @@ export function ImportInstrumentsModal({
           </div>
         )}
 
-        {phase === "preview" && parseResult && (
+        {phase === "preview" && (
           <div className="space-y-4">
-            {parseResult.errors.length > 0 ? (
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-text-primary">
-                  Parse errors ({parseResult.errors.length})
-                </p>
-                <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-surface">
-                  <table className="w-full border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-border bg-primary-dark/3">
-                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Row</th>
-                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Field</th>
-                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-text-muted">Error</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {parseResult.errors.map((e, i) => (
-                        <tr key={i} className="border-b border-border/40 last:border-0">
-                          <td className="px-3 py-1.5 font-mono text-text-muted">{e.rowIndex}</td>
-                          <td className="px-3 py-1.5 font-mono text-text-primary">{e.field}</td>
-                          <td className="px-3 py-1.5 text-accent-dark">{e.message}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {parseResult.instruments.length > 0 && (
-                  <p className="text-xs text-text-muted">
-                    {parseResult.instruments.length} instrument{parseResult.instruments.length !== 1 ? "s" : ""} parsed successfully (with errors above).
-                  </p>
-                )}
-              </div>
+            {/* Whether the file is a valid archive is settled here, all or
+                nothing. Whether an underlying reference resolves against this
+                instance is a separate question the response answers per index. */}
+            {parseError ? (
+              <ErrorAlert>{parseError}</ErrorAlert>
             ) : (
               <p className="text-sm text-text-primary">
                 Ready to import{" "}
-                <span className="font-semibold">{parseResult.instruments.length}</span>{" "}
-                instrument{parseResult.instruments.length !== 1 ? "s" : ""}.
+                <span className="font-semibold">{instruments.length.toLocaleString()}</span>{" "}
+                instrument{instruments.length !== 1 ? "s" : ""}.
               </p>
             )}
 
@@ -171,7 +157,7 @@ export function ImportInstrumentsModal({
               <button
                 type="button"
                 onClick={handleImport}
-                disabled={importing || parseResult.instruments.length === 0}
+                disabled={importing || instruments.length === 0}
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {importing ? "Importing..." : "Import"}

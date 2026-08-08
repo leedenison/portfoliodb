@@ -294,28 +294,53 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 	var irows []instrumentRow
 	var err error
 
-	base := `
-		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_before,
-		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
+	// The filter selects what was asked for; the union adds the underlying of
+	// every derivative it matched, whether or not the filter would have. A file
+	// names an underlying by identifier and the archive requires that instrument
+	// to appear in the same part, so an OPTION exported without its STOCK is not
+	// a partial export but an invalid one. An asset-class filter of {OPTION} is
+	// the ordinary way to hit that.
+	matched := `
+		SELECT i.id
 		FROM instruments i
-		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
 		WHERE EXISTS (SELECT 1 FROM instrument_identifiers ii WHERE ii.instrument_id = i.id AND ii.canonical = true)`
 
 	args := []interface{}{}
 	argN := 1
 
 	if len(assetClasses) > 0 {
-		base += fmt.Sprintf("\n\t\t\tAND i.asset_class = ANY($%d)", argN)
+		matched += fmt.Sprintf("\n\t\t\tAND i.asset_class = ANY($%d)", argN)
 		args = append(args, pq.Array(assetClasses))
 		argN++
 	} else {
-		base += "\n\t\t\tAND i.asset_class NOT IN ('CASH', 'FX')"
+		matched += "\n\t\t\tAND i.asset_class NOT IN ('CASH', 'FX')"
 	}
 	if exchangeFilter != "" {
-		base += fmt.Sprintf("\n\t\t\tAND i.exchange_mic = $%d", argN)
+		matched += fmt.Sprintf("\n\t\t\tAND i.exchange_mic = $%d", argN)
 		args = append(args, exchangeFilter)
 	}
-	base += "\n\t\t\tORDER BY i.id"
+
+	base := `
+		WITH matched AS (` + matched + `
+		), selected AS (
+			SELECT id FROM matched
+			UNION
+			SELECT d.underlying_id FROM instruments d
+			JOIN matched m ON m.id = d.id
+			WHERE d.underlying_id IS NOT NULL
+		)
+		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id,
+		       i.valid_from, i.valid_before, i.cik, i.sic_code,
+		       i.strike, i.expiry, i.put_call, i.contract_multiplier, i.identity_as_of,
+		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code,
+		       u_id.identifier_type AS underlying_identifier_type,
+		       u_id.value AS underlying_identifier_value,
+		       COALESCE(u_id.domain, '') AS underlying_identifier_domain
+		FROM instruments i
+		JOIN selected s ON s.id = i.id
+		LEFT JOIN exchanges e ON e.mic = i.exchange_mic` +
+		bestIdentifierJoinOn("LEFT JOIN", "i.underlying_id", "u_id") + `
+		ORDER BY i.id`
 
 	err = p.q.SelectContext(ctx, &irows, base, args...)
 	if err != nil {
@@ -523,6 +548,18 @@ func updateInstrumentOnMatch(ctx context.Context, exec queryable, id uuid.UUID, 
 	}
 	_, err := exec.ExecContext(ctx, `UPDATE instruments SET underlying_id = COALESCE($2, underlying_id) WHERE id = $1`, id, nullUUID(underlyingID))
 	return err
+}
+
+// SetContractMultiplier implements db.InstrumentDB.
+func (p *Postgres) SetContractMultiplier(ctx context.Context, instrumentID string, m decimal.Decimal) error {
+	id, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("invalid instrument id: %w", err)
+	}
+	if _, err := p.q.ExecContext(ctx, `UPDATE instruments SET contract_multiplier = $2 WHERE id = $1`, id, m); err != nil {
+		return fmt.Errorf("set contract multiplier: %w", err)
+	}
+	return nil
 }
 
 // ListInstruments implements db.InstrumentDB.

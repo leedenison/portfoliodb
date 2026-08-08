@@ -40,23 +40,35 @@ func newAPIServerWithMock(t *testing.T) (*Server, *mock.MockDB) {
 // exportStreamMock provides a stream with configurable context for ExportInstruments tests.
 type exportStreamMock struct {
 	ctx  context.Context
-	sent []*apiv1.Instrument
+	sent []*apiv1.ExportInstrumentsResponse
 }
 
 func (e *exportStreamMock) Context() context.Context    { return e.ctx }
 func (e *exportStreamMock) RecvMsg(m interface{}) error { return nil }
 func (e *exportStreamMock) Send(m *apiv1.ExportInstrumentsResponse) error {
-	e.sent = append(e.sent, m.GetInstrument())
+	e.sent = append(e.sent, m)
 	return nil
 }
 func (e *exportStreamMock) SendHeader(m metadata.MD) error { return nil }
 func (e *exportStreamMock) SetHeader(m metadata.MD) error  { return nil }
 func (e *exportStreamMock) SetTrailer(m metadata.MD)       {}
 func (e *exportStreamMock) SendMsg(m interface{}) error {
-	if inst, ok := m.(*apiv1.Instrument); ok {
-		e.sent = append(e.sent, inst)
+	if r, ok := m.(*apiv1.ExportInstrumentsResponse); ok {
+		e.sent = append(e.sent, r)
 	}
 	return nil
+}
+
+// instruments returns the instruments the export streamed, dropping the
+// envelope that precedes them.
+func (e *exportStreamMock) instruments() []*archivev1.Instrument {
+	var out []*archivev1.Instrument
+	for _, m := range e.sent {
+		if inst := m.GetInstrument(); inst != nil {
+			out = append(out, inst)
+		}
+	}
+	return out
 }
 
 // exportPriceStreamMock provides a stream with configurable context for ExportPrices tests.

@@ -2,13 +2,20 @@ package api
 
 import (
 	"context"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
-	dbpkg "github.com/leedenison/portfoliodb/server/db"
-	"github.com/leedenison/portfoliodb/server/testutil"
+	"testing"
+	"time"
+
+	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
-	"testing"
+	"google.golang.org/protobuf/proto"
+
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/archive"
+	dbpkg "github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/testutil"
 )
 
 func strPtr(s string) *string { return &s }
@@ -109,42 +116,124 @@ func TestListInstruments_DBError(t *testing.T) {
 	testutil.RequireGRPCCode(t, err, codes.Internal)
 }
 
+func TestExportInstruments_SendsEnvelopeFirst(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "", []string(nil)).Return(nil, nil)
+	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream); err != nil {
+		t.Fatalf("ExportInstruments: %v", err)
+	}
+	// The envelope goes out even when there is nothing to say: a file with an
+	// empty instrument part means the export included it and there was nothing.
+	if len(stream.sent) != 1 {
+		t.Fatalf("expected exactly the envelope, got %d messages", len(stream.sent))
+	}
+	env := stream.sent[0].GetEnvelope()
+	if env == nil {
+		t.Fatal("first message is not the envelope")
+	}
+	if env.GetFormatVersion() != 1 || env.GetKind() != archivev1.ArchiveKind_ADMIN {
+		t.Fatalf("got format_version=%d kind=%v", env.GetFormatVersion(), env.GetKind())
+	}
+	if !env.GetExportedAt().IsValid() {
+		t.Fatal("envelope carries no exported_at")
+	}
+}
+
 func TestExportInstruments_Success(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
 	rows := []*dbpkg.InstrumentRow{
-		{ID: "id-1", Name: strPtr("Apple"), Identifiers: []dbpkg.IdentifierInput{{Type: "ISIN", Value: "US0378331005", Canonical: true}}},
+		{ID: "id-1", Name: strPtr("Apple"), AssetClass: strPtr("STOCK"), ExchangeMIC: strPtr("XNAS"), Currency: strPtr("USD"),
+			ContractMultiplier: decimal.NewFromInt(1),
+			Identifiers: []dbpkg.IdentifierInput{
+				{Type: "MIC_TICKER", Value: "AAPL", Domain: "XNAS", Canonical: true},
+				{Type: "BROKER_DESCRIPTION", Value: "APPLE INC", Domain: "IBKR", Canonical: false},
+			}},
 	}
-	db.EXPECT().
-		ListInstrumentsForExport(gomock.Any(), "", []string(nil)).
-		Return(rows, nil)
+	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "", []string(nil)).Return(rows, nil)
 	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream)
-	if err != nil {
+	if err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream); err != nil {
 		t.Fatalf("ExportInstruments: %v", err)
 	}
-	if len(stream.sent) != 1 {
-		t.Fatalf("expected 1 instrument streamed, got %d", len(stream.sent))
+	got := stream.instruments()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 instrument streamed, got %d", len(got))
 	}
-	if stream.sent[0].GetId() != "id-1" || stream.sent[0].GetName() != "Apple" {
-		t.Fatalf("got %v", stream.sent[0])
+	inst := got[0]
+	if inst.GetName() != "Apple" || inst.GetCurrency() != "USD" || inst.GetExchangeMic() != "XNAS" {
+		t.Fatalf("got %v", inst)
 	}
-	if len(stream.sent[0].GetIdentifiers()) != 1 || !stream.sent[0].GetIdentifiers()[0].GetCanonical() {
-		t.Fatalf("expected one canonical identifier, got %v", stream.sent[0].GetIdentifiers())
+	if inst.GetAssetClass() != typev1.AssetClass_STOCK {
+		t.Fatalf("asset_class = %v", inst.GetAssetClass())
+	}
+	if len(inst.GetIdentifiers()) != 2 {
+		t.Fatalf("expected both identifiers, got %v", inst.GetIdentifiers())
+	}
+	if !inst.GetIdentifiers()[0].GetCanonical() || inst.GetIdentifiers()[1].GetCanonical() {
+		t.Fatalf("canonical flags not carried: %v", inst.GetIdentifiers())
+	}
+	// A file names no server UUID, and an ordinary instrument states no
+	// deliverable multiplier: absent means the column default of 1.
+	if inst.ContractMultiplier != nil {
+		t.Fatalf("expected no contract_multiplier, got %q", inst.GetContractMultiplier())
+	}
+}
+
+func TestExportInstruments_CarriesWhatNothingRecomputes(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	expiry := time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC)
+	validFrom := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
+	identityAsOf := time.Date(2025, 6, 2, 14, 30, 0, 0, time.UTC)
+	strike := decimal.RequireFromString("150.5")
+	rows := []*dbpkg.InstrumentRow{
+		{ID: "id-1", AssetClass: strPtr("OPTION"), Currency: strPtr("USD"),
+			CIK: strPtr("0000320193"), SICCode: strPtr("3571"),
+			ValidFrom: &validFrom, Expiry: &expiry, Strike: &strike, PutCall: strPtr("C"),
+			ContractMultiplier:         decimal.RequireFromString("1.5"),
+			IdentityAsOf:               &identityAsOf,
+			Identifiers:                []dbpkg.IdentifierInput{{Type: "OCC", Value: "AAPL  260116C00150500", Canonical: true}},
+			UnderlyingIdentifierType:   strPtr("MIC_TICKER"),
+			UnderlyingIdentifierValue:  strPtr("AAPL"),
+			UnderlyingIdentifierDomain: strPtr("XNAS"),
+		},
+	}
+	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "", []string(nil)).Return(rows, nil)
+	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
+	if err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{}, stream); err != nil {
+		t.Fatalf("ExportInstruments: %v", err)
+	}
+	inst := stream.instruments()[0]
+	if inst.GetCik() != "0000320193" || inst.GetSicCode() != "3571" {
+		t.Fatalf("cik/sic_code dropped: %v", inst)
+	}
+	if inst.GetValidFrom() != "2024-03-01" || inst.ValidBefore != nil {
+		t.Fatalf("validity interval wrong: from=%q before=%v", inst.GetValidFrom(), inst.ValidBefore)
+	}
+	if inst.GetStrike() != "150.5" || inst.GetExpiry() != "2026-01-16" || inst.GetPutCall() != "C" {
+		t.Fatalf("option terms wrong: %v", inst)
+	}
+	if inst.GetContractMultiplier() != "1.5" {
+		t.Fatalf("contract_multiplier = %q", inst.GetContractMultiplier())
+	}
+	if !inst.GetIdentityAsOf().AsTime().Equal(identityAsOf) {
+		t.Fatalf("identity_as_of = %v", inst.GetIdentityAsOf().AsTime())
+	}
+	// The underlying is named by identifier, not nested and not by UUID.
+	u := inst.GetUnderlying()
+	if u.GetType() != typev1.IdentifierType_MIC_TICKER || u.GetValue() != "AAPL" || u.GetDomain() != "XNAS" {
+		t.Fatalf("underlying ref = %v", u)
 	}
 }
 
 func TestExportInstruments_WithExchangeFilter(t *testing.T) {
 	srv, db := newAPIServerWithMock(t)
-	db.EXPECT().
-		ListInstrumentsForExport(gomock.Any(), "XNAS", []string(nil)).
-		Return(nil, nil)
+	db.EXPECT().ListInstrumentsForExport(gomock.Any(), "XNAS", []string(nil)).Return(nil, nil)
 	stream := &exportStreamMock{ctx: adminCtx("user-1", "sub|1")}
-	err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{Exchange: "XNAS"}, stream)
-	if err != nil {
+	if err := srv.ExportInstruments(&apiv1.ExportInstrumentsRequest{Exchange: "XNAS"}, stream); err != nil {
 		t.Fatalf("ExportInstruments: %v", err)
 	}
-	if len(stream.sent) != 0 {
-		t.Fatalf("expected 0 instruments, got %d", len(stream.sent))
+	if got := stream.instruments(); len(got) != 0 {
+		t.Fatalf("expected 0 instruments, got %d", len(got))
 	}
 }
 
@@ -155,11 +244,50 @@ func TestExportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
 	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 }
 
+// adminInstrumentPart wraps instruments as an admin archive's instrument part,
+// with the envelope a file carries in.
+func adminInstrumentPart(insts ...*archivev1.Instrument) *apiv1.ImportInstrumentsRequest {
+	return &apiv1.ImportInstrumentsRequest{
+		Envelope:    archive.NewEnvelope("portfoliodb.example.com", archivev1.ArchiveKind_ADMIN),
+		Instruments: &archivev1.InstrumentPart{Instruments: insts},
+	}
+}
+
 func TestImportInstruments_NonAdmin_PermissionDenied(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
-	ctx := authCtx("user-1", "sub|1")
-	_, err := srv.ImportInstruments(ctx, &apiv1.ImportInstrumentsRequest{Instruments: []*apiv1.Instrument{{Identifiers: []*apiv1.InstrumentIdentifier{{Type: typev1.IdentifierType_ISIN, Value: "x", Canonical: true}}}}})
+	req := adminInstrumentPart(&archivev1.Instrument{
+		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "x", Canonical: true}},
+	})
+	_, err := srv.ImportInstruments(authCtx("user-1", "sub|1"), req)
 	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
+}
+
+func TestImportInstruments_Empty_ReturnsError(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	_, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), adminInstrumentPart())
+	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
+}
+
+func TestImportInstruments_NewerFormatVersion_Refused(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	req := adminInstrumentPart(&archivev1.Instrument{
+		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "x", Canonical: true}},
+	})
+	req.Envelope.FormatVersion = archive.FormatVersion + 1
+	// The request is well formed and this server is the thing that is out of
+	// date, so this is a precondition rather than a bad argument.
+	_, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), req)
+	testutil.RequireGRPCCode(t, err, codes.FailedPrecondition)
+}
+
+func TestImportInstruments_UserArchive_Refused(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	req := adminInstrumentPart(&archivev1.Instrument{
+		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "x", Canonical: true}},
+	})
+	req.Envelope.Kind = archivev1.ArchiveKind_USER
+	_, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), req)
+	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
 }
 
 func TestImportInstruments_Success(t *testing.T) {
@@ -172,32 +300,114 @@ func TestImportInstruments_Success(t *testing.T) {
 			}
 			return "inst-1", nil
 		})
-	ctx := adminCtx("user-1", "sub|1")
-	req := &apiv1.ImportInstrumentsRequest{
-		Instruments: []*apiv1.Instrument{{
-			AssetClass: typev1.AssetClass_STOCK, Exchange: "XNAS", Currency: "USD", Name: "Apple Inc.",
-			Identifiers: []*apiv1.InstrumentIdentifier{
-				{Type: typev1.IdentifierType_ISIN, Value: "US0378331005", Canonical: true},
-				{Type: typev1.IdentifierType_BROKER_DESCRIPTION, Domain: "IBKR", Value: "AAPL", Canonical: false},
-			},
-		}},
-	}
-	resp, err := srv.ImportInstruments(ctx, req)
+	req := adminInstrumentPart(&archivev1.Instrument{
+		AssetClass: typev1.AssetClass_STOCK, ExchangeMic: proto.String("XNAS"),
+		Currency: "USD", Name: proto.String("Apple Inc."),
+		Identifiers: []*archivev1.Identifier{
+			{Type: typev1.IdentifierType_ISIN, Value: "US0378331005", Canonical: true},
+			{Type: typev1.IdentifierType_BROKER_DESCRIPTION, Domain: "IBKR", Value: "AAPL"},
+		},
+	})
+	resp, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), req)
 	if err != nil {
 		t.Fatalf("ImportInstruments: %v", err)
 	}
 	if resp.GetEnsuredCount() != 1 || len(resp.GetErrors()) != 0 {
-		t.Fatalf("ensured_count=1, errors empty; got ensured_count=%d, errors=%d", resp.GetEnsuredCount(), len(resp.GetErrors()))
+		t.Fatalf("ensured_count=1, errors empty; got ensured_count=%d, errors=%v", resp.GetEnsuredCount(), resp.GetErrors())
+	}
+}
+
+func TestImportInstruments_RestoresOptionTermsAndMultiplier(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().
+		EnsureInstrument(gomock.Any(), "STOCK", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
+		Return("underlying-1", nil)
+	db.EXPECT().
+		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "underlying-1", nil, nil, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, _ []dbpkg.IdentifierInput, _ string, _, _ interface{}, opts *dbpkg.OptionFields) (string, error) {
+			if opts == nil {
+				t.Fatal("option terms were not restored")
+			}
+			if !opts.Strike.Equal(decimal.RequireFromString("150.5")) || opts.PutCall != "C" {
+				t.Errorf("option fields = %+v", opts)
+			}
+			if !opts.Expiry.Equal(time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC)) {
+				t.Errorf("expiry = %v", opts.Expiry)
+			}
+			return "option-1", nil
+		})
+	db.EXPECT().SetContractMultiplier(gomock.Any(), "option-1", decimal.RequireFromString("1.5")).Return(nil)
+
+	req := adminInstrumentPart(
+		&archivev1.Instrument{
+			AssetClass:  typev1.AssetClass_OPTION,
+			Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_OCC, Value: "AAPL  260116C00150500", Canonical: true}},
+			Underlying:  &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+			Strike:      proto.String("150.5"),
+			Expiry:      proto.String("2026-01-16"),
+			PutCall:     proto.String("C"),
+
+			ContractMultiplier: proto.String("1.5"),
+		},
+		&archivev1.Instrument{
+			AssetClass:  typev1.AssetClass_STOCK,
+			Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS", Canonical: true}},
+		},
+	)
+	resp, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), req)
+	if err != nil {
+		t.Fatalf("ImportInstruments: %v", err)
+	}
+	if resp.GetEnsuredCount() != 2 || len(resp.GetErrors()) != 0 {
+		t.Fatalf("ensured=%d errors=%v", resp.GetEnsuredCount(), resp.GetErrors())
+	}
+}
+
+func TestImportInstruments_UnderlyingRefNotInArchive_FallsBackToInstance(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	// The archive says an underlying appears in the same part, but a partial
+	// file whose underlying this instance already knows still imports.
+	db.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("known-1", nil)
+	db.EXPECT().
+		EnsureInstrument(gomock.Any(), "OPTION", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "known-1", nil, nil, gomock.Any()).
+		Return("option-1", nil)
+	req := adminInstrumentPart(&archivev1.Instrument{
+		AssetClass:  typev1.AssetClass_OPTION,
+		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_OCC, Value: "AAPL  260116C00150500", Canonical: true}},
+		Underlying:  &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+		Strike:      proto.String("150.5"),
+		Expiry:      proto.String("2026-01-16"),
+		PutCall:     proto.String("C"),
+	})
+	resp, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), req)
+	if err != nil {
+		t.Fatalf("ImportInstruments: %v", err)
+	}
+	if resp.GetEnsuredCount() != 1 || len(resp.GetErrors()) != 0 {
+		t.Fatalf("ensured=%d errors=%v", resp.GetEnsuredCount(), resp.GetErrors())
+	}
+}
+
+func TestImportInstruments_DanglingUnderlyingRef(t *testing.T) {
+	srv, db := newAPIServerWithMock(t)
+	db.EXPECT().FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").Return("", nil)
+	req := adminInstrumentPart(&archivev1.Instrument{
+		AssetClass:  typev1.AssetClass_OPTION,
+		Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_OCC, Value: "AAPL  260116C00150500", Canonical: true}},
+		Underlying:  &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "AAPL", Domain: "XNAS"},
+	})
+	resp, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), req)
+	if err != nil {
+		t.Fatalf("ImportInstruments: %v", err)
+	}
+	if resp.GetEnsuredCount() != 0 || len(resp.GetErrors()) != 1 {
+		t.Fatalf("expected 1 error, 0 ensured; got ensured=%d errors=%v", resp.GetEnsuredCount(), resp.GetErrors())
 	}
 }
 
 func TestImportInstruments_EmptyIdentifiers(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
-	ctx := adminCtx("user-1", "sub|1")
-	req := &apiv1.ImportInstrumentsRequest{
-		Instruments: []*apiv1.Instrument{{Id: "x", Identifiers: nil}},
-	}
-	resp, err := srv.ImportInstruments(ctx, req)
+	resp, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), adminInstrumentPart(&archivev1.Instrument{}))
 	if err != nil {
 		t.Fatalf("ImportInstruments: %v", err)
 	}
@@ -215,14 +425,11 @@ func TestImportInstruments_DuplicateTypeValueInPayload(t *testing.T) {
 	db.EXPECT().
 		EnsureInstrument(gomock.Any(), "", "", "", "", "", "", gomock.Any(), "", nil, nil, nil).
 		Return("inst-1", nil)
-	ctx := adminCtx("user-1", "sub|1")
-	req := &apiv1.ImportInstrumentsRequest{
-		Instruments: []*apiv1.Instrument{
-			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
-			{Identifiers: []*apiv1.InstrumentIdentifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
-		},
-	}
-	resp, err := srv.ImportInstruments(ctx, req)
+	req := adminInstrumentPart(
+		&archivev1.Instrument{Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
+		&archivev1.Instrument{Identifiers: []*archivev1.Identifier{{Type: typev1.IdentifierType_ISIN, Value: "1", Canonical: true}}},
+	)
+	resp, err := srv.ImportInstruments(adminCtx("user-1", "sub|1"), req)
 	if err != nil {
 		t.Fatalf("ImportInstruments: %v", err)
 	}

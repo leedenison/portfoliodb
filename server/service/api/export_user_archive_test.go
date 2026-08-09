@@ -50,6 +50,8 @@ func (e *exportUserStreamMock) shape() []string {
 			out = append(out, "begin:"+m.GetPartBegin().GetPart().String())
 		case m.GetPreferences() != nil:
 			out = append(out, "preferences")
+		case m.GetTxWindow() != nil:
+			out = append(out, "tx_window:"+m.GetTxWindow().GetBroker().String())
 		}
 	}
 	return out
@@ -183,4 +185,44 @@ func TestExportUserArchive_DBError_Internal(t *testing.T) {
 		Parts: []archivev1.ArchivePart{archivev1.ArchivePart_PREFERENCES},
 	}, &exportUserStreamMock{ctx: authCtx("user-1", "sub|1")})
 	testutil.RequireGRPCCode(t, err, codes.Internal)
+}
+
+// Both parts in one request travel in restore order, whatever order they were
+// asked for in: preferences before transactions, because which asset classes are
+// ignored changes what a transaction import keeps.
+func TestExportUserArchive_PartsTravelInRestoreOrder(t *testing.T) {
+	srv, mockDB := newAPIServerWithMock(t)
+	mockDB.EXPECT().GetDisplayCurrency(gomock.Any(), "user-1").Return("GBP", nil)
+	mockDB.EXPECT().ListIgnoredAssetClasses(gomock.Any(), "user-1").Return(nil, nil)
+	mockDB.EXPECT().ListTxsForExport(gomock.Any(), "user-1").Return([]dbpkg.ExportPosting{
+		exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"),
+	}, nil)
+	stream := &exportUserStreamMock{ctx: authCtx("user-1", "sub|1")}
+	if err := srv.ExportUserArchive(&apiv1.ExportUserArchiveRequest{
+		Parts: []archivev1.ArchivePart{archivev1.ArchivePart_TXS, archivev1.ArchivePart_PREFERENCES},
+	}, stream); err != nil {
+		t.Fatalf("ExportUserArchive: %v", err)
+	}
+	want := []string{"envelope", "begin:PREFERENCES", "preferences", "begin:TXS", "tx_window:FIDELITY"}
+	if got := stream.shape(); !equalStrings(got, want) {
+		t.Fatalf("stream = %v, want %v", got, want)
+	}
+}
+
+// A part that was asked for and holds nothing is still present: the part_begin
+// marker is what creates the container, so an export over no transactions says
+// it asked and there were none.
+func TestExportUserArchive_TxPart_AskedForAndEmpty(t *testing.T) {
+	srv, mockDB := newAPIServerWithMock(t)
+	mockDB.EXPECT().ListTxsForExport(gomock.Any(), "user-1").Return(nil, nil)
+	stream := &exportUserStreamMock{ctx: authCtx("user-1", "sub|1")}
+	if err := srv.ExportUserArchive(&apiv1.ExportUserArchiveRequest{
+		Parts: []archivev1.ArchivePart{archivev1.ArchivePart_TXS},
+	}, stream); err != nil {
+		t.Fatalf("ExportUserArchive: %v", err)
+	}
+	want := []string{"envelope", "begin:TXS"}
+	if got := stream.shape(); !equalStrings(got, want) {
+		t.Fatalf("stream = %v, want %v", got, want)
+	}
 }

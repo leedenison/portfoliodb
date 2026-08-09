@@ -220,7 +220,7 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		Return([]*db.InstrumentRow{{ID: "aapl-id"}}, nil)
 	database.EXPECT().
 		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-split", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, _ string, _, _ *timestamppb.Timestamp, storedTxs []*apiv1.Tx, ids []string, ws []db.Weight, _ *time.Time) error {
+		DoAndReturn(func(_ context.Context, _, _, _ string, _, _ *timestamppb.Timestamp, storedTxs []*apiv1.Tx, ids []string, ws []db.Weight, _ []*time.Time) error {
 			supplied := userPostings(storedTxs)
 			if len(supplied) != 1 || supplied[0].InstrumentDescription != "AAPL" || supplied[0].Type != typev1.TxType_BUYSTOCK {
 				t.Errorf("ReplaceTxsInPeriod called with %d supplied txs, expected 1 (AAPL BUYSTOCK)", len(supplied))

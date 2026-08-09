@@ -74,7 +74,7 @@ func (r *groupResolver) record(ref string, id uuid.UUID) {
 }
 
 // ReplaceTxsInPeriod implements db.TxDB.
-func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis *time.Time) error {
+func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -123,9 +123,9 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 // account on every posting when non-empty, for the append path where the whole
 // group belongs to one named account.
 //
-// weights is parallel to txs, or nil when the caller has none. See db.TxDB for what
-// a missing weight means.
-func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis *time.Time, account string) error {
+// weights and shareCountBasis are parallel to txs, or nil when the caller has
+// none. See db.TxDB for what a missing entry in either means.
+func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time, account string) error {
 	resolver := newGroupResolver()
 	for i, t := range txs {
 		instUUID, err := uuid.Parse(instrumentIDs[i])
@@ -165,10 +165,17 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 		if i < len(weights) {
 			w = weights[i]
 		}
+		// NULL leaves the basis to the insert trigger, which seeds it from the
+		// posting's own timestamp -- the as-traded convention, and what all but a
+		// restating source wants.
+		var basis *time.Time
+		if i < len(shareCountBasis) {
+			basis = shareCountBasis[i]
+		}
 		args := []interface{}{
 			userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, qty,
 			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullDecimal(price),
-			instUUID, shareCountBasis, acctTypeStr, w.Amount, w.Commodity,
+			instUUID, basis, acctTypeStr, w.Amount, w.Commodity,
 			// Stored as the source wrote them, and NULL where it wrote nothing:
 			// absent evidence is not the same as an empty reference, and only a
 			// derived posting is expected to carry none at all.
@@ -197,7 +204,7 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 // group that could never be balanced would put the balance invariant permanently
 // out of reach. The postings share the named account. group_ref is ignored -- the
 // whole call is one group -- so the resolver never splits it.
-func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis *time.Time) error {
+func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -347,4 +354,83 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, b
 		out[i] = trows[i].toProto()
 	}
 	return out, nextToken, nil
+}
+
+// exportPosting is a sqlx-scannable version of db.ExportPosting.
+type exportPosting struct {
+	Broker              string           `db:"broker"`
+	GroupID             string           `db:"group_id"`
+	GroupTimestamp      time.Time        `db:"group_timestamp"`
+	Timestamp           time.Time        `db:"timestamp"`
+	Account             string           `db:"account"`
+	AccountType         string           `db:"account_type"`
+	TxType              string           `db:"tx_type"`
+	Description         string           `db:"instrument_description"`
+	IdentifierType      string           `db:"identifier_type"`
+	IdentifierValue     string           `db:"value"`
+	IdentifierDomain    string           `db:"domain"`
+	Quantity            decimal.Decimal  `db:"quantity"`
+	UnitPrice           *decimal.Decimal `db:"unit_price"`
+	TradingCurrency     string           `db:"trading_currency"`
+	SettlementCurrency  string           `db:"settlement_currency"`
+	BrokerRef           string           `db:"broker_ref"`
+	CounterpartyAccount string           `db:"counterparty_account"`
+	ShareCountBasis     *time.Time       `db:"share_count_basis"`
+}
+
+// ListTxsForExport implements db.TxDB.
+//
+// The raw quantity and unit price travel, never the split-adjusted pair: those
+// are a recomputable cache carrying a rounding, and the importing instance
+// rebuilds them. Weights are left behind for the same reason -- they are
+// computed at ingest from the raw columns and the tx type.
+//
+// The identifier join is a LEFT JOIN so a posting whose instrument never
+// resolved survives, travelling with no identifier and resolving from its
+// description on the way back in. bestIdentifierJoinOn rather than a
+// hand-written lateral so this export agrees with every other one about which
+// identifier is best.
+func (p *Postgres) ListTxsForExport(ctx context.Context, userID string) ([]db.ExportPosting, error) {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	q := `
+		SELECT t.broker, t.group_id::text AS group_id, g.timestamp AS group_timestamp,
+			t.timestamp, t.account, t.account_type, t.tx_type, t.instrument_description,
+			COALESCE(best_id.identifier_type, '') AS identifier_type,
+			COALESCE(best_id.value, '') AS value,
+			COALESCE(best_id.domain, '') AS domain,
+			t.quantity, t.unit_price,
+			COALESCE(t.trading_currency, '') AS trading_currency,
+			COALESCE(t.settlement_currency, '') AS settlement_currency,
+			COALESCE(t.broker_ref, '') AS broker_ref,
+			COALESCE(t.counterparty_account, '') AS counterparty_account,
+			-- A basis equal to the posting's own date is the as-traded
+			-- convention and says nothing a reader cannot infer. The column is
+			-- NOT NULL and the insert trigger defaults it to that date, so
+			-- selecting it raw would stamp a redundant date onto every posting.
+			CASE WHEN t.share_count_basis = t.timestamp::date THEN NULL
+				ELSE t.share_count_basis END AS share_count_basis
+		FROM txs t
+		JOIN tx_groups g ON g.id = t.group_id
+		` + bestIdentifierJoinOn("LEFT JOIN", "t.instrument_id", "best_id") + `
+		WHERE t.user_id = $1
+		  -- Excluded whole rather than per posting: a pad and its EQUITY
+		  -- counterparty share one group, and half a group is not a group.
+		  AND NOT EXISTS (
+		    SELECT 1 FROM txs s
+		    WHERE s.group_id = t.group_id AND s.synthetic_purpose IS NOT NULL
+		  )
+		ORDER BY t.broker, g.timestamp, g.id, t.timestamp, t.id
+	`
+	var rows []exportPosting
+	if err := p.q.SelectContext(ctx, &rows, q, userUUID); err != nil {
+		return nil, fmt.Errorf("list txs for export: %w", err)
+	}
+	out := make([]db.ExportPosting, len(rows))
+	for i, r := range rows {
+		out[i] = db.ExportPosting(r)
+	}
+	return out, nil
 }

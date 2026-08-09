@@ -9,9 +9,10 @@ import { ArchiveKind, ArchivePart } from "../gen/archive/v1/common_pb";
 import { AssetClass } from "../gen/type/v1/type_pb";
 import { CorporateEventGroupSchema, type CorporateEventGroup } from "../gen/archive/v1/corporate_events_pb";
 import { PriceGroupSchema } from "../gen/archive/v1/prices_pb";
+import type { TxWindow } from "../gen/archive/v1/txs_pb";
 import { SystemArchiveSchema, UserArchiveSchema } from "../gen/archive/v1/archive_pb";
 import type { MessageInitShape } from "@bufbuild/protobuf";
-import { timestampNow } from "@bufbuild/protobuf/wkt";
+import { timestampFromDate, timestampNow } from "@bufbuild/protobuf/wkt";
 
 const COOKIE_NAME = "portfoliodb_session";
 
@@ -213,6 +214,33 @@ export async function exportCorporateEvents(
     }
   }
   return groups;
+}
+
+/**
+ * Export the signed-in user's transaction windows, optionally over a period.
+ *
+ * The period is half-open and scopes the transaction part alone. The export
+ * adheres strictly to it, so a group straddling a bound contributes only its
+ * in-period legs. The archive page has no period control, so this drives the RPC
+ * the way a caller asking for one would.
+ */
+export async function exportUserTxWindows(
+  sessionId: string,
+  period?: { from?: Date; before?: Date },
+): Promise<TxWindow[]> {
+  const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
+  const windows: TxWindow[] = [];
+  const req = {
+    parts: [ArchivePart.TXS],
+    periodFrom: period?.from ? timestampFromDate(period.from) : undefined,
+    periodBefore: period?.before ? timestampFromDate(period.before) : undefined,
+  };
+  for await (const resp of client.exportUserArchive(req, { headers })) {
+    if (resp.item.case === "txWindow") {
+      windows.push(resp.item.value);
+    }
+  }
+  return windows;
 }
 
 /** Trigger the corporate event fetcher worker to run one cycle. */

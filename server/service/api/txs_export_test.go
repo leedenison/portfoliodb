@@ -9,6 +9,7 @@ import (
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func mustTime(t *testing.T, s string) time.Time {
@@ -48,7 +49,7 @@ func TestTxWindows_OneWindowPerBrokerBoundedByItsOwnRows(t *testing.T) {
 		exportPostingFixture("FIDELITY", "g2", "2024-03-02T14:30:00Z"),
 		exportPostingFixture("IBKR", "g3", "2023-06-01T09:00:00Z"),
 	}
-	got := txWindows(rows)
+	got := txWindows(rows, nil, nil)
 	if len(got) != 2 {
 		t.Fatalf("windows = %d, want 2", len(got))
 	}
@@ -74,7 +75,7 @@ func TestTxWindows_OneWindowPerBrokerBoundedByItsOwnRows(t *testing.T) {
 // own source, where one was recorded, travels as the domain of its
 // BROKER_DESCRIPTION identifier.
 func TestTxWindows_SourceNamesTheExport(t *testing.T) {
-	got := txWindows([]dbpkg.ExportPosting{exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z")})
+	got := txWindows([]dbpkg.ExportPosting{exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z")}, nil, nil)
 	if got[0].GetSource() != "FIDELITY:archive:export" {
 		t.Fatalf("source = %q", got[0].GetSource())
 	}
@@ -88,7 +89,7 @@ func TestTxWindows_PostingsNestByGroup(t *testing.T) {
 		exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"),
 		exportPostingFixture("FIDELITY", "g2", "2024-01-16T10:00:00Z"),
 	}
-	got := txWindows(rows)
+	got := txWindows(rows, nil, nil)
 	if len(got) != 1 {
 		t.Fatalf("windows = %d, want 1", len(got))
 	}
@@ -111,7 +112,7 @@ func TestTxWindows_CarriesRoutedResiduals(t *testing.T) {
 	got := txWindows([]dbpkg.ExportPosting{
 		exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"),
 		residual,
-	})
+	}, nil, nil)
 	postings := got[0].GetGroups()[0].GetPostings()
 	if len(postings) != 2 {
 		t.Fatalf("postings = %d, want 2", len(postings))
@@ -194,5 +195,61 @@ func TestPosting_CarriesTheBestIdentifier(t *testing.T) {
 	if hints[0].GetType() != want.GetType() || hints[0].GetValue() != want.GetValue() ||
 		hints[0].GetDomain() != want.GetDomain() {
 		t.Fatalf("hint = %v, want %v", hints[0], want)
+	}
+}
+
+// A requested period is the window's period verbatim rather than a bound derived
+// from the rows that landed in it. What the export was asked for is what the
+// window has to say, because a window is a replacement scope: an importer told a
+// narrower period than the one the caller asked for would leave behind whatever
+// sat in the difference.
+func TestTxWindows_StatesTheRequestedPeriod(t *testing.T) {
+	from := timestamppb.New(mustTime(t, "2024-02-01T00:00:00Z"))
+	before := timestamppb.New(mustTime(t, "2024-03-01T00:00:00Z"))
+	got := txWindows([]dbpkg.ExportPosting{
+		exportPostingFixture("FIDELITY", "g1", "2024-02-10T10:00:00Z"),
+	}, from, before)
+
+	if len(got) != 1 {
+		t.Fatalf("windows = %d, want 1", len(got))
+	}
+	if !got[0].GetPeriodFrom().AsTime().Equal(from.AsTime()) {
+		t.Errorf("period_from = %s, want %s", got[0].GetPeriodFrom().AsTime(), from.AsTime())
+	}
+	if !got[0].GetPeriodBefore().AsTime().Equal(before.AsTime()) {
+		t.Errorf("period_before = %s, want %s", got[0].GetPeriodBefore().AsTime(), before.AsTime())
+	}
+}
+
+// A bound given on one side only is honoured on that side and derived on the
+// other, so "everything since March" states March and stops where the data does.
+func TestTxWindows_DerivesTheBoundNotAskedFor(t *testing.T) {
+	from := timestamppb.New(mustTime(t, "2024-02-01T00:00:00Z"))
+	got := txWindows([]dbpkg.ExportPosting{
+		exportPostingFixture("FIDELITY", "g1", "2024-02-10T10:00:00Z"),
+	}, from, nil)
+
+	if !got[0].GetPeriodFrom().AsTime().Equal(from.AsTime()) {
+		t.Errorf("period_from = %s, want %s", got[0].GetPeriodFrom().AsTime(), from.AsTime())
+	}
+	if want := mustTime(t, "2024-02-11T00:00:00Z"); !got[0].GetPeriodBefore().AsTime().Equal(want) {
+		t.Errorf("period_before = %s, want %s", got[0].GetPeriodBefore().AsTime(), want)
+	}
+}
+
+// A broker whose rows all fell outside the period gets no window at all. An
+// export is a picture of what is stored; an empty window would be an instruction
+// to clear the period, which is not what the export was asked to say.
+func TestTxWindows_NoWindowForABrokerWithNothingInThePeriod(t *testing.T) {
+	from := timestamppb.New(mustTime(t, "2024-02-01T00:00:00Z"))
+	before := timestamppb.New(mustTime(t, "2024-03-01T00:00:00Z"))
+	// The db layer filters the postings, so a broker outside the period arrives as
+	// no rows at all.
+	got := txWindows([]dbpkg.ExportPosting{
+		exportPostingFixture("FIDELITY", "g1", "2024-02-10T10:00:00Z"),
+	}, from, before)
+
+	if len(got) != 1 || got[0].GetBroker() != typev1.Broker_FIDELITY {
+		t.Fatalf("windows = %d, want 1 for FIDELITY alone", len(got))
 	}
 }

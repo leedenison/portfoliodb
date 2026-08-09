@@ -14,7 +14,7 @@ Grouping is the converter's job and a converter sees one file
 legs of one event in distinct groups, each balanced by a routed residual:
 
 - Two legs arriving in two broker logs. No converter can see both.
-- A straddling group split by the partial delete in 0094.
+- A straddling group cut by the period replace in 0094.
 
 The transfer matcher from 0068 already repairs one case of this, and is
 deliberately narrow: it keys on `account_type = 'TRANSFER_CLEARING'`, requires

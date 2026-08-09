@@ -555,10 +555,23 @@ export async function importSystemArchive(archive: SystemArchive, filename: stri
  * Stream the signed-in user's own archive, in the same shape as the system
  * export. A part whose unit is a setting rather than a row arrives as one
  * whole-part message after its part_begin.
+ *
+ * The optional half-open period bounds the transaction part alone. The export
+ * adheres strictly to it, so a group straddling a bound contributes only its
+ * in-period legs and the exported group does not balance; the importer routes
+ * the residual. Omitting it exports all of history, each window bounded by the
+ * postings it carries.
  */
-export async function* exportUserArchive(parts: ArchivePart[]): AsyncGenerator<ExportUserArchiveResponse> {
+export async function* exportUserArchive(
+  parts: ArchivePart[],
+  period?: { from?: Date; before?: Date },
+): AsyncGenerator<ExportUserArchiveResponse> {
   const base = getBaseUrl();
-  const req = create(ExportUserArchiveRequestSchema, { parts });
+  const req = create(ExportUserArchiveRequestSchema, {
+    parts,
+    periodFrom: period?.from != null ? timestampFromDate(period.from) : undefined,
+    periodBefore: period?.before != null ? timestampFromDate(period.before) : undefined,
+  });
   for await (const bytes of streamingFetch(base, ApiServicePrefix + "ExportUserArchive", toBinary(ExportUserArchiveRequestSchema, req), { credentials: "include" })) {
     yield fromBinary(ExportUserArchiveResponseSchema, bytes);
   }

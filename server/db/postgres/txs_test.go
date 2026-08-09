@@ -1132,7 +1132,7 @@ func TestListTxsForExport_UsesTheBestIdentifier(t *testing.T) {
 		t.Fatalf("create tx: %v", err)
 	}
 
-	rows, err := p.ListTxsForExport(ctx, userID)
+	rows, err := p.ListTxsForExport(ctx, userID, nil, nil)
 	if err != nil {
 		t.Fatalf("list txs for export: %v", err)
 	}
@@ -1174,7 +1174,7 @@ func TestListTxsForExport_ExcludesSyntheticGroups(t *testing.T) {
 		t.Fatalf("create tx: %v", err)
 	}
 
-	rows, err := p.ListTxsForExport(ctx, userID)
+	rows, err := p.ListTxsForExport(ctx, userID, nil, nil)
 	if err != nil {
 		t.Fatalf("list txs for export: %v", err)
 	}
@@ -1213,7 +1213,7 @@ func TestListTxsForExport_ShareCountBasisOnlyWhenRestated(t *testing.T) {
 		t.Fatalf("create restated tx: %v", err)
 	}
 
-	rows, err := p.ListTxsForExport(ctx, userID)
+	rows, err := p.ListTxsForExport(ctx, userID, nil, nil)
 	if err != nil {
 		t.Fatalf("list txs for export: %v", err)
 	}
@@ -1259,7 +1259,7 @@ func TestListTxsForExport_OrderedForGrouping(t *testing.T) {
 		}
 	}
 
-	rows, err := p.ListTxsForExport(ctx, userID)
+	rows, err := p.ListTxsForExport(ctx, userID, nil, nil)
 	if err != nil {
 		t.Fatalf("list txs for export: %v", err)
 	}
@@ -1620,7 +1620,7 @@ func TestReplaceTxsInPeriod_DropsMatchesOnCutGroups(t *testing.T) {
 		t.Fatalf("count matches: %v", err)
 	}
 	if matches != 0 {
-		t.Errorf("transfer matches after a partial delete: want 0, got %d", matches)
+		t.Errorf("transfer matches after a rebuild: want 0, got %d", matches)
 	}
 }
 
@@ -1790,5 +1790,35 @@ func TestReplaceTxsInPeriod_KeepsRestatedShareCountBasis(t *testing.T) {
 	}
 	if !basis.Equal(restated) {
 		t.Errorf("share count basis of the surviving leg: want %v, got %v", restated, basis)
+	}
+}
+
+// TestListTxsForExport_ClipsAStraddlingGroup covers the period-scoped export. The
+// bounds filter the postings rather than the groups holding them, so a group
+// straddling a bound contributes only its in-period legs. The exported group then
+// does not balance, which the format accepts: the importer routes the residual.
+func TestListTxsForExport_ClipsAStraddlingGroup(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _, _, day2 := straddlingRun(t, p, "sub|export-straddle", typev1.TxType_JRNLFUND, "5000")
+
+	whole, err := p.ListTxsForExport(ctx, userID, nil, nil)
+	if err != nil {
+		t.Fatalf("export whole history: %v", err)
+	}
+	if len(whole) != 2 {
+		t.Fatalf("postings over all of history: want 2, got %d", len(whole))
+	}
+
+	clipped, err := p.ListTxsForExport(ctx, userID,
+		timestamppb.New(day2.Truncate(24*time.Hour)), timestamppb.New(day2.Add(24*time.Hour)))
+	if err != nil {
+		t.Fatalf("export a period: %v", err)
+	}
+	if len(clipped) != 1 {
+		t.Fatalf("postings in the second day alone: want 1, got %d", len(clipped))
+	}
+	if !clipped[0].Timestamp.Equal(day2) {
+		t.Errorf("exported posting at %v, want the day-two leg at %v", clipped[0].Timestamp, day2)
 	}
 }

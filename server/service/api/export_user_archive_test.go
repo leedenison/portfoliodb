@@ -14,6 +14,7 @@ import (
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/testutil"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // exportUserStreamMock captures a whole user archive export.
@@ -194,7 +195,7 @@ func TestExportUserArchive_PartsTravelInRestoreOrder(t *testing.T) {
 	srv, mockDB := newAPIServerWithMock(t)
 	mockDB.EXPECT().GetDisplayCurrency(gomock.Any(), "user-1").Return("GBP", nil)
 	mockDB.EXPECT().ListIgnoredAssetClasses(gomock.Any(), "user-1").Return(nil, nil)
-	mockDB.EXPECT().ListTxsForExport(gomock.Any(), "user-1").Return([]dbpkg.ExportPosting{
+	mockDB.EXPECT().ListTxsForExport(gomock.Any(), "user-1", gomock.Any(), gomock.Any()).Return([]dbpkg.ExportPosting{
 		exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"),
 	}, nil)
 	stream := &exportUserStreamMock{ctx: authCtx("user-1", "sub|1")}
@@ -214,7 +215,7 @@ func TestExportUserArchive_PartsTravelInRestoreOrder(t *testing.T) {
 // it asked and there were none.
 func TestExportUserArchive_TxPart_AskedForAndEmpty(t *testing.T) {
 	srv, mockDB := newAPIServerWithMock(t)
-	mockDB.EXPECT().ListTxsForExport(gomock.Any(), "user-1").Return(nil, nil)
+	mockDB.EXPECT().ListTxsForExport(gomock.Any(), "user-1", gomock.Any(), gomock.Any()).Return(nil, nil)
 	stream := &exportUserStreamMock{ctx: authCtx("user-1", "sub|1")}
 	if err := srv.ExportUserArchive(&apiv1.ExportUserArchiveRequest{
 		Parts: []archivev1.ArchivePart{archivev1.ArchivePart_TXS},
@@ -225,4 +226,43 @@ func TestExportUserArchive_TxPart_AskedForAndEmpty(t *testing.T) {
 	if got := stream.shape(); !equalStrings(got, want) {
 		t.Fatalf("stream = %v, want %v", got, want)
 	}
+}
+
+// The requested period reaches the read, so the rows are filtered rather than the
+// whole history being read and trimmed on the way out.
+func TestExportUserArchive_PassesThePeriodToTheRead(t *testing.T) {
+	srv, mockDB := newAPIServerWithMock(t)
+	from := timestamppb.New(mustTime(t, "2024-02-01T00:00:00Z"))
+	before := timestamppb.New(mustTime(t, "2024-03-01T00:00:00Z"))
+	mockDB.EXPECT().
+		ListTxsForExport(gomock.Any(), "user-1", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, gotFrom, gotBefore *timestamppb.Timestamp) ([]dbpkg.ExportPosting, error) {
+			if !gotFrom.AsTime().Equal(from.AsTime()) || !gotBefore.AsTime().Equal(before.AsTime()) {
+				t.Errorf("read period = [%s, %s), want [%s, %s)",
+					gotFrom.AsTime(), gotBefore.AsTime(), from.AsTime(), before.AsTime())
+			}
+			return nil, nil
+		})
+	err := srv.ExportUserArchive(&apiv1.ExportUserArchiveRequest{
+		Parts:        []archivev1.ArchivePart{archivev1.ArchivePart_TXS},
+		PeriodFrom:   from,
+		PeriodBefore: before,
+	}, &exportUserStreamMock{ctx: authCtx("user-1", "sub|1")})
+	if err != nil {
+		t.Fatalf("ExportUserArchive: %v", err)
+	}
+}
+
+// A period that ends where or before it starts covers nothing, and an export of
+// nothing over a stated period is a file that clears it on import. That is worth
+// rejecting rather than producing by accident.
+func TestExportUserArchive_RejectsAnEmptyPeriod(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	at := timestamppb.New(mustTime(t, "2024-02-01T00:00:00Z"))
+	err := srv.ExportUserArchive(&apiv1.ExportUserArchiveRequest{
+		Parts:        []archivev1.ArchivePart{archivev1.ArchivePart_TXS},
+		PeriodFrom:   at,
+		PeriodBefore: at,
+	}, &exportUserStreamMock{ctx: authCtx("user-1", "sub|1")})
+	testutil.RequireGRPCCode(t, err, codes.InvalidArgument)
 }

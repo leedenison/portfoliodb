@@ -625,7 +625,18 @@ message ExportUserArchiveRequest {
       }
     }
   }];
-  // 2 and 3 are the bounds of the transaction window to export.
+  // Half-open [period_from, period_before) over the postings exported; an unset
+  // bound is open-ended, which is what an ordinary whole-history export sends.
+  // Applies to the transaction part alone -- preferences and declarations are not
+  // dated by a period the way a posting is.
+  //
+  // The export adheres strictly to the period asked for. A group straddling a
+  // bound contributes only its in-period legs, so the exported group does not
+  // balance -- which the format already accepts, because the importer routes the
+  // residual. Without a period every window is derived from the postings it
+  // carries and the case cannot arise.
+  google.protobuf.Timestamp period_from = 2;   // inclusive
+  google.protobuf.Timestamp period_before = 3; // exclusive
 }
 
 // ImportUserArchiveRequest carries one whole user archive: the caller's own

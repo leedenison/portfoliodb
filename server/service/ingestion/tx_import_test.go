@@ -270,3 +270,51 @@ func TestImportTxPart_TotalCountsPostings(t *testing.T) {
 		t.Fatalf("importTxPart: %v", err)
 	}
 }
+
+// A period-scoped export can split a group at a window bound, so a window can
+// carry a group that does not sum to zero. That is legal, and the balancer routes
+// the residual on the way in exactly as it would for a converter's output.
+func TestImportTxPart_RoutesAResidualForASplitGroup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().ListIgnoredAssetClasses(gomock.Any(), "user-1").Return(nil, nil).AnyTimes()
+	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), gomock.Any()).Return("inst-1", nil).AnyTimes()
+	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("inst-1", nil).AnyTimes()
+	database.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	database.EXPECT().AppendIdentificationErrors(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().InstrumentsWithSplits(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+
+	from := timestamppb.New(mustParseDay("2024-01-01"))
+	before := timestamppb.New(mustParseDay("2024-02-01"))
+	database.EXPECT().
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-tx", from, before,
+			gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _ string, _, _ *timestamppb.Timestamp,
+			txs []*apiv1.Tx, _ []string, _ []db.Weight, _ []*time.Time) error {
+			if len(txs) != 2 {
+				t.Fatalf("stored %d postings, want the stated leg and its residual", len(txs))
+			}
+			if got := txs[1].GetAccountType(); got != typev1.AccountType_ACCOUNT_TYPE_IMBALANCE {
+				t.Errorf("residual account_type = %s, want IMBALANCE", got)
+			}
+			if got := txs[1].GetQuantity(); got != "-10" {
+				t.Errorf("residual quantity = %s, want -10", got)
+			}
+			return nil
+		})
+
+	// Half a trade: the counter-leg fell the other side of the window bound.
+	part := &archivev1.TxPart{Windows: []*archivev1.TxWindow{{
+		Broker:       typev1.Broker_IBKR,
+		PeriodFrom:   from,
+		PeriodBefore: before,
+		Source:       "IBKR:archive:export",
+		Groups: []*archivev1.TxGroup{{Postings: []*archivev1.Posting{
+			archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK),
+		}}},
+	}}}
+	if _, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, archiveimport.NewDetachedReporter()); err != nil {
+		t.Fatalf("importTxPart: %v", err)
+	}
+}

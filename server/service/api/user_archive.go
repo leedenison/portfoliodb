@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
@@ -109,6 +110,10 @@ func (s *Server) ExportUserArchive(req *apiv1.ExportUserArchiveRequest, stream a
 	if err != nil {
 		return err
 	}
+	from, before := req.GetPeriodFrom(), req.GetPeriodBefore()
+	if from != nil && before != nil && !before.AsTime().After(from.AsTime()) {
+		return status.Error(codes.InvalidArgument, "period_before must be after period_from")
+	}
 	for _, part := range parts {
 		if err := stream.Send(&apiv1.ExportUserArchiveResponse{
 			Item: &apiv1.ExportUserArchiveResponse_PartBegin{
@@ -122,7 +127,7 @@ func (s *Server) ExportUserArchive(req *apiv1.ExportUserArchiveRequest, stream a
 		case archivev1.ArchivePart_PREFERENCES:
 			partErr = s.sendPreferencePart(ctx, u.ID, stream)
 		case archivev1.ArchivePart_TXS:
-			partErr = s.sendTxPart(ctx, u.ID, stream)
+			partErr = s.sendTxPart(ctx, u.ID, from, before, stream)
 		}
 		if partErr != nil {
 			return partErr
@@ -197,12 +202,16 @@ func archiveIgnoredRules(rules []db.IgnoredAssetClass) []*archivev1.IgnoredAsset
 // server-generated, but a group exported with its residual already sums to zero
 // and the balancer routes nothing for a commodity that does, so re-importing one
 // is idempotent rather than doubling.
-func (s *Server) sendTxPart(ctx context.Context, userID string, stream apiv1.ApiService_ExportUserArchiveServer) error {
-	rows, err := s.db.ListTxsForExport(ctx, userID)
+//
+// A requested period is passed through to the windows rather than only filtering
+// the rows: a window states its own period, and one holding no groups is a valid
+// instruction to clear that period.
+func (s *Server) sendTxPart(ctx context.Context, userID string, from, before *timestamppb.Timestamp, stream apiv1.ApiService_ExportUserArchiveServer) error {
+	rows, err := s.db.ListTxsForExport(ctx, userID, from, before)
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
-	for _, w := range txWindows(rows) {
+	for _, w := range txWindows(rows, from, before) {
 		if err := stream.Send(&apiv1.ExportUserArchiveResponse{
 			Item: &apiv1.ExportUserArchiveResponse_TxWindow{TxWindow: w},
 		}); err != nil {

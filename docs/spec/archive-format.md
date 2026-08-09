@@ -544,13 +544,28 @@ The window has to state its own period rather than have one inferred from the
 postings it holds, because **a window holding no groups is a valid instruction to
 clear that period**, and an inferred window could never say that.
 
-An export writes one window per broker, running from its first posting to the
-day after its last, so the window provably contains everything it carries and no
-group straddles its edge. Its `source` names the export -- `"FIDELITY:archive:export"`
--- rather than an ingestion job: a window carries one source and a broker's
-postings come from several. Nothing is lost, because a posting's own source,
-where one was recorded, is the `domain` of its `BROKER_DESCRIPTION` identifier,
-which is where it was stored and where it travels.
+An export writes one window per broker. Asked for no period it runs from that
+broker's first posting to the day after its last, so the window provably contains
+everything it carries and no group straddles its edge.
+
+**An export asked for a period adheres strictly to it.** Every window states the
+period asked for, and a group straddling a bound contributes only its in-period
+legs -- so the exported group does not balance, which is already legal: a group
+whose postings do not sum to zero is accepted and the importer routes the
+residual. A broker with no posting in the period gets no window, because an export
+is a picture of what is stored and an empty window is an instruction to clear a
+period, which is not what the export was asked to say.
+
+Import is the same operation from the other side, and it too takes only the
+postings inside the period, so a group straddling a bound keeps the legs the window
+does not carry. See
+`docs/adr/0039-replace-by-period-deletes-postings-not-groups.md`.
+
+A window's `source` names the export -- `"FIDELITY:archive:export"` -- rather than
+an ingestion job: a window carries one source and a broker's postings come from
+several. Nothing is lost, because a posting's own source, where one was recorded,
+is the `domain` of its `BROKER_DESCRIPTION` identifier, which is where it was
+stored and where it travels.
 
 | Level | Field | Notes |
 | --- | --- | --- |
@@ -638,6 +653,11 @@ document. A part included is present even when it holds nothing, which records
 that the export asked and there was nothing -- the distinction the wrapper
 messages exist for. Restore order is a property of the format rather than of the
 request, so the parts are written in it whatever order they were asked for in.
+
+**The user export also takes an optional period**, half-open and open-ended on
+either side when a bound is left off. It scopes the transaction part alone --
+preferences and declarations are not dated by a period the way a posting is -- and
+what it does to a window is above.
 
 The envelope is written once, before any part. `exported_at` is knowledge time,
 and knowledge time that differs between one file's own parts is not knowledge

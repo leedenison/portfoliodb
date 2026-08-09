@@ -9,14 +9,17 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	"github.com/leedenison/portfoliodb/server/archiveimport"
-	"github.com/leedenison/portfoliodb/server/db"
 )
 
 // userImportResult says which fetchers the import earned a nudge for. A display
 // currency that landed opens FX gaps the price fetcher has not been asked to
-// fill, exactly as setting one through the API does.
+// fill, exactly as setting one through the API does, and stored postings earn
+// whatever a broker upload earns.
 type userImportResult struct {
 	displayCurrencySet bool
+	txsStored          bool
+	// userID is whose archive this was, for the recalc a stored posting earns.
+	userID string
 }
 
 // processUserImport applies the parts of a user archive in restore order,
@@ -26,7 +29,8 @@ type userImportResult struct {
 // A failed part does not stop the ones after it, for the same reason it does not
 // in a system import: the parts are not hard-dependent, and abandoning the rest
 // would throw away work that would otherwise land.
-func processUserImport(ctx context.Context, database db.DB, j *JobRequest) userImportResult {
+func processUserImport(ctx context.Context, deps ingestDeps, j *JobRequest) userImportResult {
+	database := deps.DB
 	var out userImportResult
 
 	payload, err := database.LoadJobPayload(ctx, j.JobID)
@@ -51,6 +55,7 @@ func processUserImport(ctx context.Context, database db.DB, j *JobRequest) userI
 		return out
 	}
 
+	out.userID = detail.UserID
 	anyFailed := false
 	for _, pr := range detail.Parts {
 		if pr.Status == apiv1.JobStatus_SUCCESS {
@@ -71,6 +76,10 @@ func processUserImport(ctx context.Context, database db.DB, j *JobRequest) userI
 			var res archiveimport.PreferenceResult
 			res, partErr = archiveimport.PreferencePart(ctx, database, detail.UserID, a.GetPreferences(), rep)
 			out.displayCurrencySet = out.displayCurrencySet || res.DisplayCurrency
+		case archivev1.ArchivePart_TXS:
+			var stored bool
+			stored, partErr = importTxPart(ctx, deps, detail.UserID, j.JobID, a.GetTxs(), rep)
+			out.txsStored = out.txsStored || stored
 		default:
 			partErr = errUnknownPart
 		}

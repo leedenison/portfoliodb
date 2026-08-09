@@ -160,8 +160,10 @@ import and no manual psql session can leave an unbalanced group behind.
 
 The check is deferred to COMMIT because the legs of a group can be written in any
 order, and each leg on its own leaves the group unbalanced. A group deleted whole
-matches no rows and passes vacuously, which is what lets replace-by-period delete
-groups and let the cascade take their postings; deleting a single leg does not.
+matches no rows and passes vacuously. Deleting a single leg does not, which is why
+the partial delete below writes the counterparty that re-balances what is left in
+the same transaction: the two commit together and the group is never observed
+unbalanced.
 
 The exactness is what makes the check arguable-free. There is no tolerance in it,
 because every non-zero residual is routed at ingest -- including the sub-tolerance ones,
@@ -228,7 +230,8 @@ group is a journal. It keeps the broker, account, date and `tx_type` of the grou
 it balances, so the residual stays attributable to the account and the kind of
 event that produced it. Its commodity is carried by `instrument_id`, never encoded
 in a name. It is written into the group it balances, so replace-by-period takes it
-with the cascade.
+with the rest of the group -- and re-derives it, rather than keeping it, when the
+group only partly falls inside the period.
 
 ### Source rounding
 
@@ -274,9 +277,10 @@ running it often is cheap.
 A match is a link between the two tx groups -- both group ids, the commodity, how they were matched and
 when -- rather than a status on the posting or a third group closing both sides out.
 It records which group, and so which account, holds the other side, because that is
-what the membership test above consumes. The link is derived and disposable: it
-cascades when a re-upload replaces one side's groups, and the job rebuilds it. See
-adr/0037-transfer-matches-are-links-not-postings.md.
+what the membership test above consumes. The link is derived and disposable: a
+re-upload that replaces one side drops it -- with the group where the group goes,
+explicitly where the group survives with a different residual -- and the job
+rebuilds it. See adr/0037-transfer-matches-are-links-not-postings.md.
 
 A pair is found on evidence that identifies the occurrence, in this order:
 
@@ -319,13 +323,34 @@ group, so an appended posting is balanced like any other.
 
 ## Deletion
 
-The group is the unit of deletion. Deleting a group deletes its postings, so no code
-path can leave half an economic event behind.
+Deleting a group deletes its postings, so no code path can leave half an economic
+event behind by deleting the group it belongs to.
 
-Bulk upload replaces a period by deleting the groups whose postings fall inside it
-(see adr/0002-transaction-ingestion-model.md). Synthetic INITIALIZE postings are
-managed by the declaration machinery rather than by ingestion, so their groups are
-excluded from that delete and survive a replace (see fixed-point.md).
+Bulk upload replaces a period (see adr/0002-transaction-ingestion-model.md) by
+deleting **the postings** inside it, not the groups that hold them. A group's
+postings need not share a timestamp -- the Fidelity deposit-run pass groups on
+reference proximity rather than the date bucket, because a run in the sample export
+settles across two days -- so a group can straddle any boundary, and deleting it
+whole would take legs the upload that triggered the delete does not carry and
+nothing would re-insert. See
+adr/0039-replace-by-period-deletes-postings-not-groups.md.
+
+A group left with nothing is deleted with its postings, which is every group that
+did not straddle. A group left with something keeps it, is re-dated to its earliest
+surviving posting, and gets a counterparty routed for what those postings no longer
+balance to -- by the rule that classifies any other residual, so a group's residual
+does not depend on whether it was created whole or by a partial delete. Its routed
+counterparties are re-derived rather than kept, so a group carries one residual per
+commodity however many replaces have reached it.
+
+The result is stable under repetition rather than identical to what came before:
+re-importing a period leaves the out-of-period legs where they were and the
+in-period legs in a new group, each balanced by a routed residual. Two groups where
+a converter wrote one; rejoining them is a separate question.
+
+Synthetic INITIALIZE postings are managed by the declaration machinery rather than
+by ingestion, so they neither select a group for replacement nor get deleted from
+one, and survive a replace (see fixed-point.md).
 
 ## Where grouping is decided
 

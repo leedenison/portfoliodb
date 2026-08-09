@@ -220,3 +220,19 @@ func TestTxGroupBalance_SplitRecomputeIsNotAffected(t *testing.T) {
 		t.Fatalf("recompute rejected by the balance constraint: %v", err)
 	}
 }
+
+// TestTxGroupBalance_PartialPeriodDeleteIsBalanced is what lets replace-by-period
+// delete part of a group at all. Deleting one leg of a balanced group is a
+// violation on its own; the routed counterparty that negates what is left is
+// written in the same transaction, and the constraint is deferred to COMMIT, so
+// the group is never observed unbalanced.
+func TestTxGroupBalance_PartialPeriodDeleteIsBalanced(t *testing.T) {
+	p := testDBTx(t)
+	userID, usd, _, day2 := straddlingRun(t, p, "sub|balance-straddle", typev1.TxType_JRNLFUND, "5000")
+
+	replaceDay(t, p, userID, usd, day2, nil, nil)
+
+	if err := drainBalanceChecks(t, p); err != nil {
+		t.Fatalf("partially deleted group rejected: %v", err)
+	}
+}

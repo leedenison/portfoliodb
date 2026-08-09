@@ -1274,3 +1274,350 @@ func TestListTxsForExport_OrderedForGrouping(t *testing.T) {
 		}
 	}
 }
+
+// straddlingRun seeds one balanced group whose two legs sit on different days, and
+// returns the user, the USD instrument they weigh in, and the two days.
+//
+// This is the shape the Fidelity deposit-run pass produces: it keys on reference
+// proximity rather than the date bucket, because a run in the sample export
+// settles across two days. Any period boundary between the two legs therefore cuts
+// a group in half.
+func straddlingRun(t *testing.T, p *Postgres, sub string, txType typev1.TxType, qty string) (userID, usd string, day1, day2 time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	userID, usd = balanceSeed(t, p, sub)
+	day1 = time.Date(2025, 9, 10, 15, 0, 0, 0, time.UTC)
+	day2 = day1.Add(24 * time.Hour)
+	amount := decimal.RequireFromString(qty)
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(day1), InstrumentDescription: "USD", Type: txType,
+			Quantity: amount.Neg().String(), Account: "A", GroupRef: "run"},
+		{Timestamp: timestamppb.New(day2), InstrumentDescription: "USD", Type: txType,
+			Quantity: amount.String(), Account: "A", GroupRef: "run"},
+	}
+	weights := []db.Weight{
+		{Amount: amount.Neg(), Commodity: "cur:USD"},
+		{Amount: amount, Commodity: "cur:USD"},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
+		timestamppb.New(day1.Add(-time.Hour)), timestamppb.New(day2.Add(time.Hour)),
+		txs, []string{usd, usd}, weights, nil); err != nil {
+		t.Fatalf("seed straddling run: %v", err)
+	}
+	return userID, usd, day1, day2
+}
+
+// replaceDay replaces the calendar day starting at from with the given postings.
+func replaceDay(t *testing.T, p *Postgres, userID, usd string, from time.Time, txs []*apiv1.Tx, weights []db.Weight) {
+	t.Helper()
+	ids := make([]string, len(txs))
+	for i := range ids {
+		ids[i] = usd
+	}
+	if err := p.ReplaceTxsInPeriod(context.Background(), userID, "FIDELITY", "",
+		timestamppb.New(from), timestamppb.New(from.Add(24*time.Hour)), txs, ids, weights, nil); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+}
+
+// balancedUpload is one day's replacement batch as ingestion hands it over: an
+// event that already sums to zero, because whatever an upload leaves over is
+// routed above the db layer.
+func balancedUpload(at time.Time, qty string) []*apiv1.Tx {
+	return []*apiv1.Tx{
+		{Timestamp: timestamppb.New(at), InstrumentDescription: "USD", Type: typev1.TxType_JRNLFUND,
+			Quantity: qty, Account: "A", GroupRef: "new"},
+		{Timestamp: timestamppb.New(at), InstrumentDescription: "USD", Type: typev1.TxType_JRNLFUND,
+			Quantity: decimal.RequireFromString(qty).Neg().String(), Account: "B", GroupRef: "new"},
+	}
+}
+
+// balancedWeights are the weights of a balancedUpload.
+func balancedWeights(qty string) []db.Weight {
+	amount := decimal.RequireFromString(qty)
+	return []db.Weight{
+		{Amount: amount, Commodity: "cur:USD"},
+		{Amount: amount.Neg(), Commodity: "cur:USD"},
+	}
+}
+
+// routedPostings returns a user's routed counterparties, newest last, as
+// (account_type, quantity, weight_commodity).
+func routedPostings(t *testing.T, p *Postgres, userID string) [][3]string {
+	t.Helper()
+	rows, err := p.q.QueryContext(context.Background(), `
+		SELECT account_type, quantity::text, weight_commodity FROM txs
+		WHERE user_id = $1 AND account_type IN ('IMBALANCE', 'TRANSFER_CLEARING', 'SOURCE_ROUNDING')
+		ORDER BY timestamp, quantity
+	`, userID)
+	if err != nil {
+		t.Fatalf("routed postings: %v", err)
+	}
+	defer rows.Close()
+	var out [][3]string
+	for rows.Next() {
+		var r [3]string
+		if err := rows.Scan(&r[0], &r[1], &r[2]); err != nil {
+			t.Fatalf("routed postings: %v", err)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// assertBalanced fails when any of a user's groups has a commodity left over,
+// which is the invariant the deferred constraint enforces at COMMIT and which
+// testDBTx never reaches.
+func assertBalanced(t *testing.T, p *Postgres, userID string) {
+	t.Helper()
+	var unbalanced int
+	if err := p.q.QueryRowContext(context.Background(), `
+		SELECT count(*) FROM (
+			SELECT group_id FROM txs WHERE user_id = $1
+			GROUP BY group_id, weight_commodity HAVING SUM(weight) <> 0
+		) bad
+	`, userID).Scan(&unbalanced); err != nil {
+		t.Fatalf("check balance: %v", err)
+	}
+	if unbalanced != 0 {
+		t.Errorf("groups left unbalanced: want 0, got %d", unbalanced)
+	}
+}
+
+// TestReplaceTxsInPeriod_KeepsLegsOutsideThePeriod is the defect this path exists
+// for. An upload covering one day of a run that settled over two must not take the
+// legs it does not carry: it holds only the rows its own period covers, so nothing
+// would re-insert them.
+func TestReplaceTxsInPeriod_KeepsLegsOutsideThePeriod(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, usd, day1, day2 := straddlingRun(t, p, "sub|straddle-keep", typev1.TxType_JRNLFUND, "5000")
+
+	// The second day is re-uploaded with a different amount, as a corrected
+	// statement would carry it. The batch arrives balanced, because the caller
+	// routes what an upload leaves over before it reaches the db layer.
+	replaceDay(t, p, userID, usd, day2, balancedUpload(day2, "4000"), balancedWeights("4000"))
+
+	rows, _, err := p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
+	if err != nil {
+		t.Fatalf("list txs: %v", err)
+	}
+	// The day-one leg, the counterparty routed for it, and the two legs of the
+	// re-uploaded day.
+	if len(rows) != 4 {
+		t.Fatalf("postings after replacing the second day: want 4, got %d", len(rows))
+	}
+	var kept bool
+	for _, r := range rows {
+		if r.GetTx().GetTimestamp().AsTime().Equal(day1) && r.GetTx().GetQuantity() == "-5000" {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Error("the leg outside the replaced period was deleted")
+	}
+	// Two groups where the converter wrote one: the out-of-period leg keeps its
+	// group and the re-uploaded day lands in a new one. Rejoining them is 0095.
+	if got := countGroups(t, p, userID); got != 2 {
+		t.Errorf("tx_groups after replace: want 2, got %d", got)
+	}
+	assertBalanced(t, p, userID)
+}
+
+// TestReplaceTxsInPeriod_RoutesTheSurvivorsResidual pins the account type the
+// remainder is routed to. A deposit run is transfer family, and a plain IMBALANCE
+// would hide the surviving half from the transfer matcher, which keys strictly on
+// TRANSFER_CLEARING.
+func TestReplaceTxsInPeriod_RoutesTheSurvivorsResidual(t *testing.T) {
+	tests := []struct {
+		name   string
+		sub    string
+		txType typev1.TxType
+		qty    string
+		want   [3]string
+	}{
+		{
+			name:   "journal",
+			sub:    "sub|straddle-journal",
+			txType: typev1.TxType_JRNLFUND,
+			qty:    "5000",
+			want:   [3]string{"TRANSFER_CLEARING", "5000", "cur:USD"},
+		},
+		{
+			name:   "not a journal",
+			sub:    "sub|straddle-imbalance",
+			txType: typev1.TxType_CASHFLOW,
+			qty:    "5000",
+			want:   [3]string{"IMBALANCE", "5000", "cur:USD"},
+		},
+		{
+			// Sub-tolerance is rounding whatever the tx type says, so this beats
+			// the transfer classification rather than the other way round.
+			name:   "below the money tolerance",
+			sub:    "sub|straddle-rounding",
+			txType: typev1.TxType_JRNLFUND,
+			qty:    "0.002",
+			want:   [3]string{"SOURCE_ROUNDING", "0.002", "cur:USD"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := testDBTx(t)
+			userID, usd, _, day2 := straddlingRun(t, p, tc.sub, tc.txType, tc.qty)
+			replaceDay(t, p, userID, usd, day2, nil, nil)
+
+			routed := routedPostings(t, p, userID)
+			if len(routed) != 1 {
+				t.Fatalf("routed postings: want 1, got %d (%v)", len(routed), routed)
+			}
+			if routed[0] != tc.want {
+				t.Errorf("routed posting: want %v, got %v", tc.want, routed[0])
+			}
+			assertBalanced(t, p, userID)
+		})
+	}
+}
+
+// TestReplaceTxsInPeriod_ResidualIsReDerivedNotStacked covers a group cut twice.
+// The second cut re-routes the whole remainder rather than adding a residual on
+// top of the first one, so a group keeps exactly one counterparty per commodity
+// however many replaces have reached it.
+func TestReplaceTxsInPeriod_ResidualIsReDerivedNotStacked(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, usd := balanceSeed(t, p, "sub|straddle-rederive")
+	day1 := time.Date(2025, 9, 10, 15, 0, 0, 0, time.UTC)
+	day2, day3 := day1.Add(24*time.Hour), day1.Add(48*time.Hour)
+	legs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(day1), InstrumentDescription: "USD", Type: typev1.TxType_JRNLFUND, Quantity: "-5000", Account: "A", GroupRef: "run"},
+		{Timestamp: timestamppb.New(day2), InstrumentDescription: "USD", Type: typev1.TxType_JRNLFUND, Quantity: "2000", Account: "A", GroupRef: "run"},
+		{Timestamp: timestamppb.New(day3), InstrumentDescription: "USD", Type: typev1.TxType_JRNLFUND, Quantity: "3000", Account: "A", GroupRef: "run"},
+	}
+	weights := []db.Weight{
+		{Amount: decimal.RequireFromString("-5000"), Commodity: "cur:USD"},
+		{Amount: decimal.RequireFromString("2000"), Commodity: "cur:USD"},
+		{Amount: decimal.RequireFromString("3000"), Commodity: "cur:USD"},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
+		timestamppb.New(day1.Add(-time.Hour)), timestamppb.New(day3.Add(time.Hour)),
+		legs, []string{usd, usd, usd}, weights, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// The middle day goes first, leaving the residual on the day-one leg.
+	replaceDay(t, p, userID, usd, day2, nil, nil)
+	// The first day goes next, which also takes the counterparty routed onto it.
+	replaceDay(t, p, userID, usd, day1, nil, nil)
+
+	routed := routedPostings(t, p, userID)
+	if len(routed) != 1 {
+		t.Fatalf("routed postings after two cuts: want 1, got %d (%v)", len(routed), routed)
+	}
+	// Only the day-three leg is left, so the counterparty negates it whole.
+	if want := ([3]string{"TRANSFER_CLEARING", "-3000", "cur:USD"}); routed[0] != want {
+		t.Errorf("routed posting: want %v, got %v", want, routed[0])
+	}
+	assertBalanced(t, p, userID)
+}
+
+// TestReplaceTxsInPeriod_IsIdempotent is the property replace-by-period exists
+// for: re-running the same upload lands on the same rows rather than doubling
+// them, and a straddling group must not weaken it.
+func TestReplaceTxsInPeriod_IsIdempotent(t *testing.T) {
+	p := testDBTx(t)
+	userID, usd, _, day2 := straddlingRun(t, p, "sub|straddle-idem", typev1.TxType_JRNLFUND, "5000")
+	replaceDay(t, p, userID, usd, day2, balancedUpload(day2, "4000"), balancedWeights("4000"))
+	first := postingSummary(t, p, userID)
+	replaceDay(t, p, userID, usd, day2, balancedUpload(day2, "4000"), balancedWeights("4000"))
+	second := postingSummary(t, p, userID)
+
+	if len(first) != len(second) {
+		t.Fatalf("postings after a repeated replace: want %d, got %d", len(first), len(second))
+	}
+	for i := range first {
+		if first[i] != second[i] {
+			t.Errorf("posting %d changed on a repeated replace: %v then %v", i, first[i], second[i])
+		}
+	}
+	assertBalanced(t, p, userID)
+}
+
+// postingSummary returns every posting as (timestamp, quantity, account_type),
+// ordered, for comparing two states of the same data.
+func postingSummary(t *testing.T, p *Postgres, userID string) [][3]string {
+	t.Helper()
+	rows, err := p.q.QueryContext(context.Background(), `
+		SELECT timestamp::text, quantity::text, account_type FROM txs
+		WHERE user_id = $1 ORDER BY timestamp, quantity, account_type
+	`, userID)
+	if err != nil {
+		t.Fatalf("posting summary: %v", err)
+	}
+	defer rows.Close()
+	var out [][3]string
+	for rows.Next() {
+		var r [3]string
+		if err := rows.Scan(&r[0], &r[1], &r[2]); err != nil {
+			t.Fatalf("posting summary: %v", err)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// TestReplaceTxsInPeriod_RedatesAPartiallyDeletedGroup covers tx_groups.timestamp,
+// which is the timestamp of the first posting that named the group. It is derived
+// rather than data, so it has to follow the legs that are left when the one it was
+// taken from is deleted.
+func TestReplaceTxsInPeriod_RedatesAPartiallyDeletedGroup(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, usd, day1, day2 := straddlingRun(t, p, "sub|straddle-redate", typev1.TxType_JRNLFUND, "5000")
+
+	// The first day goes, so the group has to re-date to the second.
+	replaceDay(t, p, userID, usd, day1, nil, nil)
+
+	var at time.Time
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT timestamp FROM tx_groups WHERE user_id = $1`, userID).Scan(&at); err != nil {
+		t.Fatalf("group timestamp: %v", err)
+	}
+	if !at.Equal(day2) {
+		t.Errorf("group timestamp: want %v, got %v", day2, at)
+	}
+}
+
+// TestReplaceTxsInPeriod_DropsMatchesOnPartiallyDeletedGroups covers the link a
+// whole-group delete used to take with the cascade. A group that survives with a
+// different residual has to lose its match explicitly, or the link outlives the
+// evidence for it. The matcher runs after ingest and rebuilds what still holds.
+func TestReplaceTxsInPeriod_DropsMatchesOnPartiallyDeletedGroups(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, usd, _, day2 := straddlingRun(t, p, "sub|straddle-match", typev1.TxType_JRNLFUND, "5000")
+
+	var straddling string
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT DISTINCT group_id FROM txs WHERE user_id = $1`, userID).Scan(&straddling); err != nil {
+		t.Fatalf("straddling group: %v", err)
+	}
+	other := newTxGroup(t, p, userID)
+	if _, err := p.q.ExecContext(ctx, `
+		INSERT INTO transfer_matches (user_id, from_group_id, to_group_id, instrument_id, method)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'REFERENCE')
+	`, userID, straddling, other, usd); err != nil {
+		t.Fatalf("seed match: %v", err)
+	}
+
+	replaceDay(t, p, userID, usd, day2, nil, nil)
+
+	var matches int
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT count(*) FROM transfer_matches WHERE user_id = $1`, userID).Scan(&matches); err != nil {
+		t.Fatalf("count matches: %v", err)
+	}
+	if matches != 0 {
+		t.Errorf("transfer matches after a partial delete: want 0, got %d", matches)
+	}
+}

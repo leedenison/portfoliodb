@@ -60,10 +60,11 @@ export const ARCHIVE_PART_OPTIONS: ArchivePartOption[] = [
     defaultSelected: true,
   },
   {
-    label: "Unhandled event resolutions",
-    note: "Not carried by the archive format yet.",
-    available: false,
-    defaultSelected: false,
+    part: ArchivePart.UNHANDLED_EVENTS,
+    label: "Unhandled corporate events",
+    note: "The review queue, and the calls an admin has already made on it.",
+    available: true,
+    defaultSelected: true,
   },
   {
     label: "Plugin config",
@@ -80,4 +81,5 @@ export const ARCHIVE_PART_LABELS: Record<number, string> = {
   [ArchivePart.CORPORATE_EVENTS]: "Corporate events",
   [ArchivePart.INFLATION_INDICES]: "Inflation indices",
   [ArchivePart.FETCH_BLOCKS]: "Fetch blocks",
+  [ArchivePart.UNHANDLED_EVENTS]: "Unhandled corporate events",
 };

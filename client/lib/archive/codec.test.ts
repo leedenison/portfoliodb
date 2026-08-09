@@ -61,6 +61,21 @@ function systemFixture() {
         },
       ],
     },
+    unhandledEvents: {
+      groups: [
+        {
+          instrument: { type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS" },
+          events: [
+            {
+              eventType: "REVERSE_SPLIT",
+              exDate: "2025-04-11",
+              detail: "1:10 reverse split affects 3 options",
+              resolved: true,
+            },
+          ],
+        },
+      ],
+    },
     fetchBlocks: {
       groups: [
         {

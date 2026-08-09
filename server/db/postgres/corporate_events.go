@@ -919,3 +919,87 @@ func (p *Postgres) ListCorporateEventFetchBlocksForExport(ctx context.Context) (
 func (p *Postgres) UpsertCorporateEventFetchBlocks(ctx context.Context, blocks []db.FetchBlockInput) error {
 	return upsertFetchBlocks(ctx, p, "corporate_event_fetch_blocks", blocks)
 }
+
+// ListUnhandledCorporateEventsForExport implements db.CorporateEventDB.
+func (p *Postgres) ListUnhandledCorporateEventsForExport(ctx context.Context) ([]db.ExportUnhandledCorporateEvent, error) {
+	q := `
+		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
+			u.event_type, u.ex_date, u.detail, u.data, u.resolved, u.created_at
+		FROM unhandled_corporate_events u
+		JOIN instruments i ON i.id = u.instrument_id
+		` + bestIdentifierJoin + `
+		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''),
+			u.created_at, u.event_type
+	`
+	rows, err := p.q.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list unhandled corporate events for export: %w", err)
+	}
+	defer rows.Close()
+
+	var out []db.ExportUnhandledCorporateEvent
+	for rows.Next() {
+		var r db.ExportUnhandledCorporateEvent
+		var exDate sql.NullTime
+		var data []byte
+		if err := rows.Scan(&r.IdentifierType, &r.IdentifierValue, &r.IdentifierDomain,
+			&r.EventType, &exDate, &r.Detail, &data, &r.Resolved, &r.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan unhandled corporate event for export: %w", err)
+		}
+		if exDate.Valid {
+			d := exDate.Time
+			r.ExDate = &d
+		}
+		r.Data = data
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// RestoreUnhandledCorporateEvents implements db.CorporateEventDB.
+//
+// The dedup index is partial -- it covers unresolved rows only -- so it cannot
+// back an ON CONFLICT for a resolved row. The guard is a NOT EXISTS on the
+// natural key together with the resolved flag, which makes re-importing a file
+// a no-op without asserting a uniqueness the table does not have. A stored
+// resolved row and an incoming unresolved one stay distinct, which is what
+// already happens when a refetch re-detects an event an admin has judged.
+func (p *Postgres) RestoreUnhandledCorporateEvents(ctx context.Context, events []db.UnhandledCorporateEvent) (int, error) {
+	if len(events) == 0 {
+		return 0, nil
+	}
+	const q = `
+		INSERT INTO unhandled_corporate_events (instrument_id, event_type, ex_date, detail, data, resolved, created_at)
+		SELECT $1, $2, $3, $4, $5, $6, $7
+		WHERE NOT EXISTS (
+			SELECT 1 FROM unhandled_corporate_events e
+			WHERE e.instrument_id = $1 AND e.event_type = $2
+				AND e.ex_date IS NOT DISTINCT FROM $3::date
+				AND e.resolved = $6
+		)`
+	var inserted int
+	err := p.runInTx(ctx, func(exec queryable) error {
+		for _, e := range events {
+			instUUID, err := uuid.Parse(e.InstrumentID)
+			if err != nil {
+				return fmt.Errorf("restore unhandled corporate event: invalid instrument id: %w", err)
+			}
+			var dataJSON []byte
+			if e.Data != nil {
+				if !json.Valid(e.Data) {
+					return fmt.Errorf("restore unhandled corporate event: data is not valid JSON")
+				}
+				dataJSON = e.Data
+			}
+			res, err := exec.ExecContext(ctx, q, instUUID, e.EventType, nullTime(e.ExDate),
+				e.Detail, dataJSON, e.Resolved, e.CreatedAt)
+			if err != nil {
+				return fmt.Errorf("restore unhandled corporate event: %w", err)
+			}
+			n, _ := res.RowsAffected()
+			inserted += int(n)
+		}
+		return nil
+	})
+	return inserted, err
+}

@@ -1,4 +1,4 @@
-// Package archiveimport applies the parts of a system archive. It sits below
+// Package archiveimport applies the parts of an archive. It sits below
 // both the API and the ingestion worker: an import runs in the worker, but the
 // synchronous per-entity RPCs still apply the same parts, and neither package
 // can import the other.

@@ -191,6 +191,7 @@ service ApiService {
   // and no system data at all, in the same stream shape as the system export.
   // See docs/adr/0033-system-and-user-archives-are-separate.md.
   rpc ExportUserArchive(ExportUserArchiveRequest) returns (stream ExportUserArchiveResponse);
+  rpc ImportUserArchive(ImportUserArchiveRequest) returns (ImportUserArchiveResponse);
 
   // Identifier plugin config (admin-only). List all plugins; update enabled, precedence, and config JSON (including API keys).
   rpc ListIdentifierPlugins(ListIdentifierPluginsRequest) returns (ListIdentifierPluginsResponse);
@@ -624,6 +625,30 @@ message ExportUserArchiveRequest {
     }
   }];
   // 2 and 3 are the bounds of the transaction window to export.
+}
+
+// ImportUserArchiveRequest carries one whole user archive: the caller's own
+// data, applied to the caller's own account. A user archive does not name its
+// user, so restoring one into a different account is a feature rather than an
+// accident.
+//
+// The parts are applied server-side in restore order, exactly as the system
+// import applies its own, and the caller polls one job rather than sequencing
+// the parts itself.
+//
+// Restoring into an instance whose instruments are not loaded is supported and
+// correct: postings resolve through the normal identifier path. It is merely
+// slower, which is the cost restoring the system archive first avoids -- a
+// recommendation, not a constraint.
+message ImportUserArchiveRequest {
+  portfoliodb.archive.v1.UserArchive archive = 1 [(buf.validate.field).required = true];
+  string filename = 2; // optional; shown in the job list
+}
+
+// ImportUserArchiveResponse returns immediately with the job to poll. Per-part
+// progress and results are on GetJobResponse.parts.
+message ImportUserArchiveResponse {
+  string job_id = 1;
 }
 
 // ExportUserArchiveResponse is one element of the export stream, with the same

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log"
 
 	"google.golang.org/grpc/codes"
@@ -14,6 +15,67 @@ import (
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 )
+
+// ImportUserArchive queues one whole user archive and returns the job to poll.
+// It applies to the caller's own account: a user archive does not name its user,
+// so restoring one into a different account is a feature rather than an
+// accident.
+//
+// The parts are applied in the worker rather than in this request, for the same
+// reason the system import is: the only thing the client has to hold on to is
+// the job id, and the per-part results outlive the page that started it.
+func (s *Server) ImportUserArchive(ctx context.Context, req *apiv1.ImportUserArchiveRequest) (*apiv1.ImportUserArchiveResponse, error) {
+	u, authErr := auth.RequireUser(ctx)
+	if authErr != nil {
+		return nil, authErr
+	}
+	a := req.GetArchive()
+	if err := archive.CheckEnvelope(a.GetEnvelope(), archivev1.ArchiveKind_USER); err != nil {
+		var ve *archive.VersionError
+		if errors.As(err, &ve) {
+			// The request is well formed and this server is the thing that is out
+			// of date, which is a precondition rather than a bad argument.
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
+		}
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	parts := presentUserParts(a)
+	if len(parts) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "archive carries no parts")
+	}
+
+	payload, err := proto.Marshal(a)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	jobID, err := s.db.CreateJob(ctx, db.CreateJobParams{
+		UserID:   u.ID,
+		JobType:  db.JobTypeUserArchive,
+		Filename: req.GetFilename(),
+		Payload:  payload,
+		Parts:    parts,
+	})
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if err := s.enqueueJob(jobID, db.JobTypeUserArchive); err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
+	return &apiv1.ImportUserArchiveResponse{JobId: jobID}, nil
+}
+
+// presentUserParts names the parts a user archive carries, in restore order.
+//
+// Presence, not emptiness, as in the system archive: a section present but empty
+// says the export included it and there was nothing, which is a different
+// statement from a section that was never included.
+func presentUserParts(a *archivev1.UserArchive) []archivev1.ArchivePart {
+	var parts []archivev1.ArchivePart
+	if a.GetPreferences() != nil {
+		parts = append(parts, archivev1.ArchivePart_PREFERENCES)
+	}
+	return parts
+}
 
 // ExportUserArchive streams one user archive: the envelope, then the selected
 // parts in restore order. It carries the caller's own data and no system data

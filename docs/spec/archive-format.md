@@ -513,6 +513,20 @@ rather than being a bare list, so that "the user has no rules" -- an empty
 state them", which import ignores. Each rule is `{broker, account, asset_class}`,
 where an empty `account` means every account for that broker.
 
+The two settings apply independently: a currency the file spells wrongly does not
+stop the rules landing, and vice versa. A rule the reader cannot use -- an
+unknown broker, an unknown asset class -- rejects the **whole**
+`ignored_asset_classes` setting rather than just that rule, and leaves the stored
+rules alone. Setting ignore rules replaces the set and deletes the transactions
+and declarations that set covers, so applying the rules a reader could read would
+delete on the strength of a file it could not read, and leave the user with a set
+they never wrote.
+
+A restored `display_currency` triggers an FX price fetch, once for the whole
+import, exactly as setting one through the UI does per change. Without it a
+rebuilt instance has no rates for its display currency until the next scheduled
+cycle.
+
 ### Transactions
 
 `txs.windows[]` is one window per (broker, period). A window is a replacement
@@ -624,6 +638,10 @@ The job reports a result per part: how much was applied, and which rows were
 rejected. A rejected row does not fail its part. A part fails only when a write
 does not land, so "completed, 12 rows rejected" is a result the format can state
 and a page can show.
+
+A part whose unit is a setting rather than a row counts settings: its total is
+how many the file states, and a rejected setting carries a row index of `-1`,
+because there is nothing to point at. Preferences is the only such part today.
 
 ## Restore order
 

@@ -31,14 +31,11 @@ message TxWindow {
   // resolution, and as the domain of the (source, description) identifier a
   // posting with no hints falls back to.
   string source = 4 [(buf.validate.field).string.min_len = 1];
-  // The share count every quantity and unit price in this window is denominated
-  // in, as "YYYY-MM-DD". Absent means each posting is denominated in its own
-  // timestamp's date -- the as-traded convention a broker log follows, since a
-  // log line accounts only for events prior to the trade. Set it only for a
-  // source that restates historical rows in current share terms, such as a
-  // broker web view showing post-split quantities against pre-split trades.
-  // See docs/spec/bitemporality.md.
-  optional string share_count_basis = 5 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
+  // 5 was a window-wide share_count_basis. It is on the posting instead: a
+  // window-wide value can only say "one date for everything", which cannot
+  // express the ordinary case, where every posting is as-traded and so carries a
+  // different basis from its neighbours.
+  reserved 5;
   repeated TxGroup groups = 6;
 }
 
@@ -106,4 +103,12 @@ message Posting {
   // so it is read as a transfer pointer only where the group turns out to be
   // one.
   optional string counterparty_account = 12;
+  // The share count this posting's quantity and unit price are denominated in,
+  // as "YYYY-MM-DD". Absent means this posting's own timestamp date -- the
+  // as-traded convention a broker log follows, since a log line accounts only
+  // for events prior to the trade, and what an ordinary export writes. Set it
+  // only for a source that restates a historical row in current share terms,
+  // such as a broker web view showing post-split quantities against pre-split
+  // trades. See docs/spec/bitemporality.md.
+  optional string share_count_basis = 13 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
 }

@@ -289,12 +289,23 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	instrumentIDs = append(instrumentIDs, routedIDs...)
 	txWeights = append(txWeights, routedWeights...)
 
+	// The upload declares one basis for every row it carries, so the per-posting
+	// slice the store takes is that value repeated. A file that restates only
+	// some of its rows is the archive's shape, not the CSV's.
+	var basis []*time.Time
+	if shareCountBasis != nil {
+		basis = make([]*time.Time, len(txsToProcess))
+		for i := range basis {
+			basis[i] = shareCountBasis
+		}
+	}
+
 	// Store transactions.
 	var storeErr error
 	if bulk {
-		storeErr = database.ReplaceTxsInPeriod(ctx, userID, broker, j.JobID, req.PeriodFrom, req.PeriodBefore, txsToProcess, instrumentIDs, txWeights, shareCountBasis)
+		storeErr = database.ReplaceTxsInPeriod(ctx, userID, broker, j.JobID, req.PeriodFrom, req.PeriodBefore, txsToProcess, instrumentIDs, txWeights, basis)
 	} else {
-		storeErr = database.CreateTxGroup(ctx, userID, broker, txsToProcess[0].GetAccount(), j.JobID, txsToProcess, instrumentIDs, txWeights, shareCountBasis)
+		storeErr = database.CreateTxGroup(ctx, userID, broker, txsToProcess[0].GetAccount(), j.JobID, txsToProcess, instrumentIDs, txWeights, basis)
 	}
 	if storeErr != nil {
 		log.Printf("ingestion job %s: %v", j.JobID, storeErr)

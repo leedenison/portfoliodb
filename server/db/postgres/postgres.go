@@ -68,54 +68,18 @@ func strToBroker(s string) typev1.Broker {
 	return typev1.Broker(v)
 }
 
-func txTypeToStr(t typev1.TxType) (string, error) {
-	if t == typev1.TxType_TX_TYPE_UNSPECIFIED {
-		return "", fmt.Errorf("tx type unspecified")
-	}
-	s := t.String()
-	if s == "TX_TYPE_UNSPECIFIED" {
-		return "", fmt.Errorf("tx type unspecified")
-	}
-	return s, nil
-}
+// The tx type and account type vocabularies live in the db package, beside the
+// broker and asset class ones, so that a caller outside this package -- the
+// archive export, which names an account type in a file -- reads them without
+// importing a driver.
 
-func strToTxType(s string) typev1.TxType {
-	v, ok := typev1.TxType_value[s]
-	if !ok {
-		return typev1.TxType_TX_TYPE_UNSPECIFIED
-	}
-	return typev1.TxType(v)
-}
+func txTypeToStr(t typev1.TxType) (string, error) { return db.TxTypeToStr(t) }
 
-// accountTypePrefix is stripped from the enum name to get the stored form. The proto
-// values are prefixed because enum values share package scope and TxType already
-// defines INCOME and TRANSFER; the column stores the bare vocabulary the CHECK
-// constraint and the specs use.
-const accountTypePrefix = "ACCOUNT_TYPE_"
+func strToTxType(s string) typev1.TxType { return db.StrToTxType(s) }
 
-// accountTypeToStr returns the stored form of an account type: its enum name without
-// the prefix. Unspecified is USER rather than an error -- an upload that says nothing
-// about a posting's kind is an ordinary broker account posting, which is what almost
-// every row is. Derived from the generated names rather than mapped by hand so a new
-// type cannot be stored under a spelling that strToAccountType does not recognise.
-func accountTypeToStr(a typev1.AccountType) (string, error) {
-	if a == typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED {
-		return "USER", nil
-	}
-	s, ok := typev1.AccountType_name[int32(a)]
-	if !ok {
-		return "", fmt.Errorf("unknown account type: %v", a)
-	}
-	return strings.TrimPrefix(s, accountTypePrefix), nil
-}
+func accountTypeToStr(a typev1.AccountType) (string, error) { return db.AccountTypeToStr(a) }
 
-func strToAccountType(s string) typev1.AccountType {
-	v, ok := typev1.AccountType_value[accountTypePrefix+s]
-	if !ok {
-		return typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED
-	}
-	return typev1.AccountType(v)
-}
+func strToAccountType(s string) typev1.AccountType { return db.StrToAccountType(s) }
 
 func jobStatusToStr(s apiv1.JobStatus) string {
 	switch s {

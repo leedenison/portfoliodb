@@ -5,7 +5,9 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
+	"strings"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
@@ -275,24 +277,67 @@ type Weight struct {
 	Commodity string
 }
 
-// TxDB provides transaction write and list.
+// ExportPosting is one stored posting with the best identifier of the instrument
+// it names, plus the group identity an archive needs to nest it.
+//
+// GroupID and GroupTimestamp are here to group and order the scan, not to be
+// written: a group id means nothing in another instance, and a group's timestamp
+// is the timestamp of the first posting that names it, so both are derived. See
+// docs/adr/0035-archive-nests-by-aggregate-root.md.
+type ExportPosting struct {
+	Broker         string
+	GroupID        string
+	GroupTimestamp time.Time
+	Timestamp      time.Time
+	Account        string
+	AccountType    string
+	TxType         string
+	Description    string
+	// The instrument's best identifier, or all three empty for a posting whose
+	// instrument never resolved. Chosen by bestIdentifierJoin so that every
+	// export naming one identifier per instrument agrees which one.
+	IdentifierType      string
+	IdentifierValue     string
+	IdentifierDomain    string
+	Quantity            decimal.Decimal
+	UnitPrice           *decimal.Decimal
+	TradingCurrency     string
+	SettlementCurrency  string
+	BrokerRef           string
+	CounterpartyAccount string
+	// The share count this posting is denominated in, or nil when it is the
+	// posting's own timestamp date. The column is NOT NULL and the insert
+	// trigger defaults it to that date, so only a value that differs from it
+	// says anything, and only that value is worth writing to a file.
+	ShareCountBasis *time.Time
+}
+
+// TxDB provides transaction write, list and export.
 type TxDB interface {
 	// Txs sharing a group_ref are written as postings of one tx group; the rest get
 	// a group each. Every group is stamped with the ingestion job that created it.
-	// shareCountBasis is the date the uploaded quantities and unit prices are
-	// denominated in. nil means as-traded: each row uses its own timestamp.
+	//
+	// shareCountBasis is parallel to txs and is the date each row's quantity and
+	// unit price are denominated in. A nil entry, and a nil slice, mean as-traded:
+	// the row uses its own timestamp. It is per row rather than per call because a
+	// file can restate one row and leave its neighbours alone.
 	//
 	// weights is parallel to txs and carries what each posting contributes to its
 	// group's balance. A nil slice means the caller has none, and each posting then
 	// weighs its own quantity in its own instrument -- which is what the weight rule
 	// returns for a posting with no price.
-	ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis *time.Time) error
+	ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis []*time.Time) error
 	// CreateTxGroup appends the postings of one economic event as a single group.
 	// It takes a slice rather than a tx so that the append path can carry a routed
 	// counterparty, without which its groups could never balance.
-	CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis *time.Time) error
+	CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis []*time.Time) error
 	ListTxs(ctx context.Context, userID string, broker *typev1.Broker, account string, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 	ListTxsByPortfolio(ctx context.Context, portfolioID string, broker *typev1.Broker, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
+	// ListTxsForExport reads one user's own postings in archive order: by broker,
+	// then by group, then by posting. Synthetic INITIALIZE groups are excluded --
+	// they are derived from holding declarations, which the archive carries as the
+	// declarations they come from.
+	ListTxsForExport(ctx context.Context, userID string) ([]ExportPosting, error)
 }
 
 // HoldingsDB computes holdings at a point in time.
@@ -648,6 +693,62 @@ func StrToBroker(s string) typev1.Broker {
 		return typev1.Broker_BROKER_UNSPECIFIED
 	}
 	return typev1.Broker(v)
+}
+
+// TxTypeToStr returns the stored form of a tx type, which is its enum name.
+// Unspecified is an error rather than an empty string: a posting has to say what
+// kind of event it transcribes.
+func TxTypeToStr(t typev1.TxType) (string, error) {
+	if t == typev1.TxType_TX_TYPE_UNSPECIFIED {
+		return "", fmt.Errorf("tx type unspecified")
+	}
+	s := t.String()
+	if s == "TX_TYPE_UNSPECIFIED" {
+		return "", fmt.Errorf("tx type unspecified")
+	}
+	return s, nil
+}
+
+// StrToTxType converts a stored tx type string to its proto enum. An
+// unrecognised string maps to TX_TYPE_UNSPECIFIED.
+func StrToTxType(s string) typev1.TxType {
+	v, ok := typev1.TxType_value[s]
+	if !ok {
+		return typev1.TxType_TX_TYPE_UNSPECIFIED
+	}
+	return typev1.TxType(v)
+}
+
+// accountTypePrefix is stripped from the enum name to get the stored form. The proto
+// values are prefixed because enum values share package scope and TxType already
+// defines INCOME and TRANSFER; the column stores the bare vocabulary the CHECK
+// constraint and the specs use.
+const accountTypePrefix = "ACCOUNT_TYPE_"
+
+// AccountTypeToStr returns the stored form of an account type: its enum name without
+// the prefix. Unspecified is USER rather than an error -- an upload that says nothing
+// about a posting's kind is an ordinary broker account posting, which is what almost
+// every row is. Derived from the generated names rather than mapped by hand so a new
+// type cannot be stored under a spelling that StrToAccountType does not recognise.
+func AccountTypeToStr(a typev1.AccountType) (string, error) {
+	if a == typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED {
+		return "USER", nil
+	}
+	s, ok := typev1.AccountType_name[int32(a)]
+	if !ok {
+		return "", fmt.Errorf("unknown account type: %v", a)
+	}
+	return strings.TrimPrefix(s, accountTypePrefix), nil
+}
+
+// StrToAccountType converts a stored account type string to its proto enum. An
+// unrecognised string maps to ACCOUNT_TYPE_UNSPECIFIED.
+func StrToAccountType(s string) typev1.AccountType {
+	v, ok := typev1.AccountType_value[accountTypePrefix+s]
+	if !ok {
+		return typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED
+	}
+	return typev1.AccountType(v)
 }
 
 // PluginCategoryToStr converts a proto plugin category to the string

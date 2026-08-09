@@ -1110,3 +1110,167 @@ func TestReplaceTxsInPeriod_DefaultsWeightWhenAbsent(t *testing.T) {
 		t.Errorf("weight_commodity = %q, want %q", commodity, want)
 	}
 }
+
+// The export names an instrument by the identifier bestIdentifierJoin picks, so
+// that every export surfacing one identifier per instrument agrees which one. An
+// instrument carrying both a ticker and the broker description it resolved under
+// exports as the ticker.
+func TestListTxsForExport_UsesTheBestIdentifier(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-id", "U", "u@exp-id.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "Fidelity:web:fidelity-csv", Value: "APPLE INC", Canonical: false},
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+	tx := &apiv1.Tx{Timestamp: timestamppb.New(now), InstrumentDescription: "APPLE INC", Type: typev1.TxType_BUYSTOCK, Quantity: "10"}
+	if err := createTx(ctx, p, userID, "FIDELITY", "acct", "", tx, instID, nil); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+
+	rows, err := p.ListTxsForExport(ctx, userID)
+	if err != nil {
+		t.Fatalf("list txs for export: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	if rows[0].IdentifierType != "MIC_TICKER" || rows[0].IdentifierValue != "AAPL" || rows[0].IdentifierDomain != "XNAS" {
+		t.Fatalf("identifier = %s/%s/%s, want MIC_TICKER/AAPL/XNAS",
+			rows[0].IdentifierType, rows[0].IdentifierValue, rows[0].IdentifierDomain)
+	}
+	if rows[0].Broker != "FIDELITY" || rows[0].Account != "acct" || rows[0].AccountType != "USER" {
+		t.Fatalf("row = %+v", rows[0])
+	}
+	if !rows[0].Quantity.Equal(decimal.RequireFromString("10")) {
+		t.Fatalf("quantity = %s", rows[0].Quantity)
+	}
+}
+
+// A synthetic INITIALIZE pad and its EQUITY counterparty are both excluded. They
+// are derived from a holding declaration, which the archive carries as the
+// declaration it came from, and re-importing one as a real transaction would
+// collide with the partial unique index that allows one per holding.
+func TestListTxsForExport_ExcludesSyntheticGroups(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-syn", "U", "u@exp-syn.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SYN", Canonical: false},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(now, 50)); err != nil {
+		t.Fatalf("upsert initialize tx: %v", err)
+	}
+	tx := &apiv1.Tx{Timestamp: timestamppb.New(now), InstrumentDescription: "SYN", Type: typev1.TxType_BUYSTOCK, Quantity: "10"}
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", tx, instID, nil); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+
+	rows, err := p.ListTxsForExport(ctx, userID)
+	if err != nil {
+		t.Fatalf("list txs for export: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want only the real posting: %+v", len(rows), rows)
+	}
+	if rows[0].Description == "INITIALIZE" {
+		t.Fatalf("exported a synthetic posting: %+v", rows[0])
+	}
+}
+
+// The basis is reported only where it differs from the posting's own date. The
+// column is NOT NULL and the insert trigger seeds it from the timestamp, so a
+// raw select would stamp a redundant date onto every posting in the file.
+func TestListTxsForExport_ShareCountBasisOnlyWhenRestated(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-scb", "U", "u@exp-scb.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SCB", Canonical: false},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	asTraded := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	restatedAt := time.Date(2024, 2, 20, 10, 0, 0, 0, time.UTC)
+	basis := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
+	if err := createTx(ctx, p, userID, "IBKR", "a", "",
+		&apiv1.Tx{Timestamp: timestamppb.New(asTraded), InstrumentDescription: "SCB", Type: typev1.TxType_BUYSTOCK, Quantity: "1"},
+		instID, nil); err != nil {
+		t.Fatalf("create as-traded tx: %v", err)
+	}
+	if err := createTx(ctx, p, userID, "IBKR", "a", "",
+		&apiv1.Tx{Timestamp: timestamppb.New(restatedAt), InstrumentDescription: "SCB", Type: typev1.TxType_BUYSTOCK, Quantity: "2"},
+		instID, &basis); err != nil {
+		t.Fatalf("create restated tx: %v", err)
+	}
+
+	rows, err := p.ListTxsForExport(ctx, userID)
+	if err != nil {
+		t.Fatalf("list txs for export: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(rows))
+	}
+	if rows[0].ShareCountBasis != nil {
+		t.Fatalf("as-traded posting reports a basis: %v", rows[0].ShareCountBasis)
+	}
+	if rows[1].ShareCountBasis == nil || !rows[1].ShareCountBasis.Equal(basis) {
+		t.Fatalf("restated basis = %v, want %s", rows[1].ShareCountBasis, basis)
+	}
+}
+
+// Ordered by broker, then group, then posting, so the export assembles its
+// windows and groups in a single scan and two exports of the same data agree.
+func TestListTxsForExport_OrderedForGrouping(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-ord", "U", "u@exp-ord.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "ORDX", Canonical: false},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	base := time.Date(2024, 5, 1, 12, 0, 0, 0, time.UTC)
+	// Written newest first and under two brokers, so passing means the query
+	// ordered them rather than the insert order surviving.
+	seed := []struct {
+		broker string
+		offset time.Duration
+		qty    string
+	}{
+		{"IBKR", 2 * time.Hour, "3"},
+		{"FIDELITY", time.Hour, "2"},
+		{"FIDELITY", 0, "1"},
+	}
+	for _, s := range seed {
+		tx := &apiv1.Tx{Timestamp: timestamppb.New(base.Add(s.offset)), InstrumentDescription: "ORDX", Type: typev1.TxType_BUYSTOCK, Quantity: s.qty}
+		if err := createTx(ctx, p, userID, s.broker, "a", "", tx, instID, nil); err != nil {
+			t.Fatalf("create tx: %v", err)
+		}
+	}
+
+	rows, err := p.ListTxsForExport(ctx, userID)
+	if err != nil {
+		t.Fatalf("list txs for export: %v", err)
+	}
+	got := make([]string, len(rows))
+	for i, r := range rows {
+		got[i] = r.Broker + ":" + r.Quantity.String()
+	}
+	want := []string{"FIDELITY:1", "FIDELITY:2", "IBKR:3"}
+	for i := range want {
+		if i >= len(got) || got[i] != want[i] {
+			t.Fatalf("order = %v, want %v", got, want)
+		}
+	}
+}

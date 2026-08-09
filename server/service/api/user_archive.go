@@ -74,6 +74,9 @@ func presentUserParts(a *archivev1.UserArchive) []archivev1.ArchivePart {
 	if a.GetPreferences() != nil {
 		parts = append(parts, archivev1.ArchivePart_PREFERENCES)
 	}
+	if a.GetTxs() != nil {
+		parts = append(parts, archivev1.ArchivePart_TXS)
+	}
 	return parts
 }
 
@@ -118,6 +121,8 @@ func (s *Server) ExportUserArchive(req *apiv1.ExportUserArchiveRequest, stream a
 		switch part {
 		case archivev1.ArchivePart_PREFERENCES:
 			partErr = s.sendPreferencePart(ctx, u.ID, stream)
+		case archivev1.ArchivePart_TXS:
+			partErr = s.sendTxPart(ctx, u.ID, stream)
 		}
 		if partErr != nil {
 			return partErr
@@ -177,4 +182,32 @@ func archiveIgnoredRules(rules []db.IgnoredAssetClass) []*archivev1.IgnoredAsset
 		})
 	}
 	return out
+}
+
+// sendTxPart streams one window per broker, each nesting its groups.
+//
+// Grouping is what makes this a part rather than a list of rows. It is the
+// converter's output and nothing can rebuild it -- the server does not pair rows
+// or infer a missing leg -- so an export that flattened it would lose the
+// balance invariant, residual attribution and the association between a fee and
+// its trade, permanently. See
+// docs/adr/0021-converters-own-transaction-grouping.md.
+//
+// The routed residual postings travel with their groups. They are
+// server-generated, but a group exported with its residual already sums to zero
+// and the balancer routes nothing for a commodity that does, so re-importing one
+// is idempotent rather than doubling.
+func (s *Server) sendTxPart(ctx context.Context, userID string, stream apiv1.ApiService_ExportUserArchiveServer) error {
+	rows, err := s.db.ListTxsForExport(ctx, userID)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	for _, w := range txWindows(rows) {
+		if err := stream.Send(&apiv1.ExportUserArchiveResponse{
+			Item: &apiv1.ExportUserArchiveResponse_TxWindow{TxWindow: w},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

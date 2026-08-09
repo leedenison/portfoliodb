@@ -11,6 +11,7 @@ import "archive/v1/instruments.proto";
 import "archive/v1/plugin_config.proto";
 import "archive/v1/preferences.proto";
 import "archive/v1/prices.proto";
+import "archive/v1/txs.proto";
 import "archive/v1/unhandled_events.proto";
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
@@ -665,7 +666,9 @@ message ExportUserArchiveResponse {
     ArchivePartBegin part_begin = 2;
     // The whole part in one message, sent once after its part_begin.
     portfoliodb.archive.v1.PreferencePart preferences = 3;
-    // 4 is the transaction window, 5 is the declaration statement.
+    // One window per broker, each carrying its own groups.
+    portfoliodb.archive.v1.TxWindow tx_window = 4;
+    // 5 is the declaration statement.
   }
 }
 

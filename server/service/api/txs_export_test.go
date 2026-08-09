@@ -1,0 +1,198 @@
+package api
+
+import (
+	"testing"
+	"time"
+
+	"github.com/shopspring/decimal"
+
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	dbpkg "github.com/leedenison/portfoliodb/server/db"
+)
+
+func mustTime(t *testing.T, s string) time.Time {
+	t.Helper()
+	v, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		t.Fatalf("parse %q: %v", s, err)
+	}
+	return v
+}
+
+// exportPostingFixture is a minimal stored posting, enough to drive the window
+// and group assembly without stating every column.
+func exportPostingFixture(broker, groupID, ts string) dbpkg.ExportPosting {
+	at, _ := time.Parse(time.RFC3339, ts)
+	return dbpkg.ExportPosting{
+		Broker:          broker,
+		GroupID:         groupID,
+		GroupTimestamp:  at,
+		Timestamp:       at,
+		Account:         "acct",
+		AccountType:     "USER",
+		TxType:          "BUYSTOCK",
+		Description:     "APPLE INC",
+		IdentifierType:  "MIC_TICKER",
+		IdentifierValue: "AAPL",
+		Quantity:        decimal.RequireFromString("10"),
+	}
+}
+
+// One window per broker, and its period derived from the postings it holds, so
+// the window provably contains everything in it. Import replaces a period, so
+// two windows naming one broker would delete each other's groups.
+func TestTxWindows_OneWindowPerBrokerBoundedByItsOwnRows(t *testing.T) {
+	rows := []dbpkg.ExportPosting{
+		exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"),
+		exportPostingFixture("FIDELITY", "g2", "2024-03-02T14:30:00Z"),
+		exportPostingFixture("IBKR", "g3", "2023-06-01T09:00:00Z"),
+	}
+	got := txWindows(rows)
+	if len(got) != 2 {
+		t.Fatalf("windows = %d, want 2", len(got))
+	}
+	if got[0].GetBroker() != typev1.Broker_FIDELITY {
+		t.Fatalf("window 0 broker = %s", got[0].GetBroker())
+	}
+	if want := mustTime(t, "2024-01-15T10:00:00Z"); !got[0].GetPeriodFrom().AsTime().Equal(want) {
+		t.Fatalf("period_from = %s, want %s", got[0].GetPeriodFrom().AsTime(), want)
+	}
+	// Exclusive, and past the last posting's day, so the last posting is inside.
+	if want := mustTime(t, "2024-03-03T00:00:00Z"); !got[0].GetPeriodBefore().AsTime().Equal(want) {
+		t.Fatalf("period_before = %s, want %s", got[0].GetPeriodBefore().AsTime(), want)
+	}
+	if got[1].GetBroker() != typev1.Broker_IBKR {
+		t.Fatalf("window 1 broker = %s", got[1].GetBroker())
+	}
+	if want := mustTime(t, "2023-06-02T00:00:00Z"); !got[1].GetPeriodBefore().AsTime().Equal(want) {
+		t.Fatalf("window 1 period_before = %s, want %s", got[1].GetPeriodBefore().AsTime(), want)
+	}
+}
+
+// The window's source names the export rather than an ingestion job. A posting's
+// own source, where one was recorded, travels as the domain of its
+// BROKER_DESCRIPTION identifier.
+func TestTxWindows_SourceNamesTheExport(t *testing.T) {
+	got := txWindows([]dbpkg.ExportPosting{exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z")})
+	if got[0].GetSource() != "FIDELITY:archive:export" {
+		t.Fatalf("source = %q", got[0].GetSource())
+	}
+}
+
+// Grouping is structural: postings sharing a group id nest inside one group, and
+// the group carries no id of its own.
+func TestTxWindows_PostingsNestByGroup(t *testing.T) {
+	rows := []dbpkg.ExportPosting{
+		exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"),
+		exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"),
+		exportPostingFixture("FIDELITY", "g2", "2024-01-16T10:00:00Z"),
+	}
+	got := txWindows(rows)
+	if len(got) != 1 {
+		t.Fatalf("windows = %d, want 1", len(got))
+	}
+	groups := got[0].GetGroups()
+	if len(groups) != 2 {
+		t.Fatalf("groups = %d, want 2", len(groups))
+	}
+	if len(groups[0].GetPostings()) != 2 || len(groups[1].GetPostings()) != 1 {
+		t.Fatalf("postings per group = %d, %d; want 2, 1",
+			len(groups[0].GetPostings()), len(groups[1].GetPostings()))
+	}
+}
+
+// A routed residual travels with its group. It is server-generated, but a group
+// exported with its residual sums to zero and the balancer routes nothing for a
+// commodity that does, so re-importing routes nothing a second time.
+func TestTxWindows_CarriesRoutedResiduals(t *testing.T) {
+	residual := exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z")
+	residual.AccountType = "IMBALANCE"
+	got := txWindows([]dbpkg.ExportPosting{
+		exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"),
+		residual,
+	})
+	postings := got[0].GetGroups()[0].GetPostings()
+	if len(postings) != 2 {
+		t.Fatalf("postings = %d, want 2", len(postings))
+	}
+	if postings[1].GetAccountType() != typev1.AccountType_ACCOUNT_TYPE_IMBALANCE {
+		t.Fatalf("account_type = %s, want IMBALANCE", postings[1].GetAccountType())
+	}
+}
+
+// Absent is not zero. A column that held nothing is left out rather than
+// written as an empty string, so a reader can tell "the file does not state it"
+// from "it is empty".
+func TestPosting_OptionalFieldsWrittenOnlyWhenHeld(t *testing.T) {
+	bare := posting(exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"))
+	if bare.UnitPrice != nil || bare.TradingCurrency != nil || bare.SettlementCurrency != nil ||
+		bare.BrokerRef != nil || bare.CounterpartyAccount != nil || bare.ShareCountBasis != nil {
+		t.Fatalf("bare posting states an absent field: %v", bare)
+	}
+
+	r := exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z")
+	price := decimal.RequireFromString("185.9")
+	r.UnitPrice = &price
+	r.TradingCurrency = "USD"
+	r.SettlementCurrency = "GBP"
+	r.BrokerRef = "REF-1"
+	r.CounterpartyAccount = "other"
+	full := posting(r)
+	if full.GetUnitPrice() != "185.9" {
+		t.Fatalf("unit_price = %q", full.GetUnitPrice())
+	}
+	if full.GetTradingCurrency() != "USD" || full.GetSettlementCurrency() != "GBP" {
+		t.Fatalf("currencies = %q, %q", full.GetTradingCurrency(), full.GetSettlementCurrency())
+	}
+	if full.GetBrokerRef() != "REF-1" || full.GetCounterpartyAccount() != "other" {
+		t.Fatalf("refs = %q, %q", full.GetBrokerRef(), full.GetCounterpartyAccount())
+	}
+}
+
+// The basis is written only where it differs from the posting's own date. The
+// query reports as-traded as nil, which is what the great majority of postings
+// are, and stamping a redundant date on every one of them would say nothing.
+func TestPosting_ShareCountBasisOnlyWhenRestated(t *testing.T) {
+	r := exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z")
+	basis := mustTime(t, "2025-07-01T00:00:00Z")
+	r.ShareCountBasis = &basis
+	if got := posting(r).GetShareCountBasis(); got != "2025-07-01" {
+		t.Fatalf("share_count_basis = %q, want 2025-07-01", got)
+	}
+}
+
+// A posting whose instrument never resolved has no identifier to name. It
+// travels with none and resolves from its description on the way back in, rather
+// than carrying an UNSPECIFIED type that would fail validation.
+func TestPosting_UnresolvedInstrumentCarriesNoHint(t *testing.T) {
+	r := exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z")
+	r.IdentifierType = ""
+	r.IdentifierValue = ""
+	if hints := posting(r).GetIdentifierHints(); len(hints) != 0 {
+		t.Fatalf("identifier_hints = %v, want none", hints)
+	}
+}
+
+// The identifier bestIdentifierJoin picked becomes the posting's one hint, with
+// its domain, so a broker-description instrument keeps the source it resolved
+// under.
+func TestPosting_CarriesTheBestIdentifier(t *testing.T) {
+	r := exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z")
+	r.IdentifierType = "BROKER_DESCRIPTION"
+	r.IdentifierValue = "APPLE INC"
+	r.IdentifierDomain = "Fidelity:web:fidelity-csv"
+	hints := posting(r).GetIdentifierHints()
+	if len(hints) != 1 {
+		t.Fatalf("identifier_hints = %v, want 1", hints)
+	}
+	want := &archivev1.InstrumentRef{
+		Type:   typev1.IdentifierType_BROKER_DESCRIPTION,
+		Value:  "APPLE INC",
+		Domain: "Fidelity:web:fidelity-csv",
+	}
+	if hints[0].GetType() != want.GetType() || hints[0].GetValue() != want.GetValue() ||
+		hints[0].GetDomain() != want.GetDomain() {
+		t.Fatalf("hint = %v, want %v", hints[0], want)
+	}
+}

@@ -38,3 +38,11 @@ two should not be merged into one control, and the upload path stays where it is
 
 Update docs/spec/information-architecture.md with the new page and the
 distinction between the two.
+
+## What 0085 already landed
+
+The page itself is done: `/archive`, the export and import RPCs, the shared
+export menu and import panel, the per-part results table and the IA entry all
+landed under 0085, which needed them to carry its own part. What remains here is
+the transactions and holding declarations rows in the include menu, once 0077 and
+0076 land the parts behind them.

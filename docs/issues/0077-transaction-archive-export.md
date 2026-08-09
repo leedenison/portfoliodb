@@ -97,3 +97,9 @@ group exported with its residual sums to zero, so nothing is routed again on
 re-import. Exporting them is therefore idempotent and keeps the file a faithful
 picture of what is stored. Confirm that against the balancer rather than assuming
 it.
+
+## Plumbing
+
+The user archive export stream, the client assembler and the include menu landed
+under 0085. This needs the `TxPart` writer, its `ExportUserArchiveResponse` item,
+the `archiveimport` reader and one menu row.

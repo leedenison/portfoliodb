@@ -100,5 +100,7 @@ what `as_of_date` already says, and the two could disagree.
 
 `ListHoldingDeclarations`, `CreateHoldingDeclaration` and
 `UpdateHoldingDeclaration` already exist, as does the Opening Balances tab. The
-export and import controls live on the consolidated user page from 0080 rather
-than on that tab.
+export and import controls live on the consolidated user page rather than on that
+tab; that page, the user archive export stream, the client assembler and the
+include menu landed under 0085, so this needs the `DeclarationPart` writer, its
+`ExportUserArchiveResponse` item, the `archiveimport` reader and one menu row.

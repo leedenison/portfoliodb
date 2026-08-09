@@ -126,8 +126,14 @@ func userFixture() *archivev1.UserArchive {
 			SourceInstance: "portfoliodb.example.com",
 		},
 		Preferences: &archivev1.PreferencePart{
-			DisplayCurrency:     proto.String("GBP"),
-			IgnoredAssetClasses: &archivev1.IgnoredAssetClasses{},
+			DisplayCurrency: proto.String("GBP"),
+			IgnoredAssetClasses: &archivev1.IgnoredAssetClasses{
+				Rules: []*archivev1.IgnoredAssetClassRule{{
+					Broker:     typev1.Broker_IBKR,
+					Account:    "U123",
+					AssetClass: typev1.AssetClass_OPTION,
+				}},
+			},
 		},
 		Txs: &archivev1.TxPart{
 			Windows: []*archivev1.TxWindow{{

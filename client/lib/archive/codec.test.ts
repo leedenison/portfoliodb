@@ -109,7 +109,12 @@ function systemFixture() {
 function userFixture() {
   return {
     envelope: { exportedAt, sourceInstance: "portfoliodb.example.com" },
-    preferences: { displayCurrency: "GBP", ignoredAssetClasses: {} },
+    preferences: {
+      displayCurrency: "GBP",
+      ignoredAssetClasses: {
+        rules: [{ broker: Broker.IBKR, account: "U123", assetClass: AssetClass.OPTION }],
+      },
+    },
     txs: {
       windows: [
         {

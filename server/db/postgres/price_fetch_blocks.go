@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/lib/pq"
@@ -77,6 +78,77 @@ func (p *Postgres) DeletePriceFetchBlock(ctx context.Context, instrumentID, plug
 	`, instrumentID, pluginID)
 	if err != nil {
 		return fmt.Errorf("delete price fetch block: %w", err)
+	}
+	return nil
+}
+
+// ListPriceFetchBlocksForExport implements db.PriceFetchBlockDB.
+func (p *Postgres) ListPriceFetchBlocksForExport(ctx context.Context) ([]db.ExportFetchBlock, error) {
+	return listFetchBlocksForExport(ctx, p, "price_fetch_blocks")
+}
+
+// UpsertPriceFetchBlocks implements db.PriceFetchBlockDB.
+func (p *Postgres) UpsertPriceFetchBlocks(ctx context.Context, blocks []db.FetchBlockInput) error {
+	return upsertFetchBlocks(ctx, p, "price_fetch_blocks", blocks)
+}
+
+// listFetchBlocksForExport reads one fetch-block table with the best identifier
+// per instrument. The two tables have the same columns, so they share the
+// query: a block that meant different things in each would be a reason to split
+// them, and it does not.
+func listFetchBlocksForExport(ctx context.Context, p *Postgres, table string) ([]db.ExportFetchBlock, error) {
+	q := `
+		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
+			b.plugin_id, b.reason, b.first_blocked_at
+		FROM ` + table + ` b
+		JOIN instruments i ON i.id = b.instrument_id
+		` + bestIdentifierJoin + `
+		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), b.plugin_id
+	`
+	rows, err := p.q.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list %s for export: %w", table, err)
+	}
+	defer rows.Close()
+
+	var out []db.ExportFetchBlock
+	for rows.Next() {
+		var r db.ExportFetchBlock
+		if err := rows.Scan(&r.IdentifierType, &r.IdentifierValue, &r.IdentifierDomain,
+			&r.PluginID, &r.Reason, &r.FirstBlockedAt); err != nil {
+			return nil, fmt.Errorf("scan %s for export: %w", table, err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// upsertFetchBlocks writes blocks into one fetch-block table.
+//
+// first_blocked_at takes the earlier of the stored and the supplied value. The
+// column records when the pair was first blocked and is never overwritten, so
+// an import can move it backwards and must not move it forwards.
+func upsertFetchBlocks(ctx context.Context, p *Postgres, table string, blocks []db.FetchBlockInput) error {
+	if len(blocks) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `INSERT INTO %s (instrument_id, plugin_id, reason, first_blocked_at) VALUES `, table)
+	args := make([]interface{}, 0, len(blocks)*4)
+	for i, blk := range blocks {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		base := i * 4
+		fmt.Fprintf(&b, "($%d, $%d, $%d, $%d)", base+1, base+2, base+3, base+4)
+		args = append(args, blk.InstrumentID, blk.PluginID, blk.Reason, blk.FirstBlockedAt)
+	}
+	fmt.Fprintf(&b, ` ON CONFLICT (instrument_id, plugin_id) DO UPDATE SET
+		reason = EXCLUDED.reason,
+		first_blocked_at = LEAST(%s.first_blocked_at, EXCLUDED.first_blocked_at)`, table)
+
+	if _, err := p.q.ExecContext(ctx, b.String(), args...); err != nil {
+		return fmt.Errorf("upsert %s: %w", table, err)
 	}
 	return nil
 }

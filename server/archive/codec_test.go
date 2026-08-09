@@ -77,6 +77,21 @@ func systemFixture() *archivev1.SystemArchive {
 				}},
 			}},
 		},
+		FetchBlocks: &archivev1.FetchBlockPart{
+			Groups: []*archivev1.FetchBlockGroup{{
+				Instrument: &archivev1.InstrumentRef{
+					Type:   typev1.IdentifierType_MIC_TICKER,
+					Value:  "AAPL",
+					Domain: "XNAS",
+				},
+				Blocks: []*archivev1.FetchBlock{{
+					Category:       typev1.PluginCategory_PRICE,
+					PluginId:       "eodhd",
+					Reason:         "404 from provider",
+					FirstBlockedAt: exportedAt(),
+				}},
+			}},
+		},
 	}
 }
 

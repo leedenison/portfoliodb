@@ -4,6 +4,7 @@ import { assembleSystemArchive, partCounts } from "./assemble";
 import { marshalSystem } from "./codec";
 import { ExportSystemArchiveResponseSchema } from "@/gen/api/v1/api_pb";
 import { ArchivePart } from "@/gen/archive/v1/common_pb";
+import { PluginCategory } from "@/gen/type/v1/type_pb";
 import type { ExportSystemArchiveResponse } from "@/gen/api/v1/api_pb";
 
 const ENVELOPE = {
@@ -93,6 +94,32 @@ describe("assembleSystemArchive", () => {
     expect(doc.inflationIndices?.groups[0].currency).toBe("GBP");
     expect(doc.inflationIndices?.groups[0].rows[0].baseYear).toBe(2015);
     expect(partCounts(doc)).toEqual([{ label: "inflation index values", count: 1 }]);
+  });
+
+  // Both fetch-block tables travel in one part, so a group holds blocks of more
+  // than one category and the count is of blocks rather than of instruments.
+  it("files fetch blocks from both fetchers into one group", () => {
+    const doc = assembleSystemArchive(
+      stream(
+        { item: { case: "envelope", value: ENVELOPE } },
+        { item: { case: "partBegin", value: { part: ArchivePart.FETCH_BLOCKS } } },
+        {
+          item: {
+            case: "fetchBlockGroup",
+            value: {
+              instrument: { type: 15, value: "AAPL", domain: "XNAS" },
+              blocks: [
+                { category: PluginCategory.PRICE, pluginId: "eodhd", reason: "404" },
+                { category: PluginCategory.CORPORATE_EVENT, pluginId: "massive", reason: "403" },
+              ],
+            },
+          },
+        },
+      ),
+    );
+    expect(doc.fetchBlocks?.groups).toHaveLength(1);
+    expect(doc.fetchBlocks?.groups[0].blocks).toHaveLength(2);
+    expect(partCounts(doc)).toEqual([{ label: "fetch blocks", count: 2 }]);
   });
 });
 

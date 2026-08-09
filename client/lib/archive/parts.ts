@@ -53,10 +53,11 @@ export const ARCHIVE_PART_OPTIONS: ArchivePartOption[] = [
     defaultSelected: true,
   },
   {
+    part: ArchivePart.FETCH_BLOCKS,
     label: "Fetch blocks",
-    note: "Not carried by the archive format yet.",
-    available: false,
-    defaultSelected: false,
+    note: "Providers deliberately stopped for an instrument, and why.",
+    available: true,
+    defaultSelected: true,
   },
   {
     label: "Unhandled event resolutions",
@@ -78,4 +79,5 @@ export const ARCHIVE_PART_LABELS: Record<number, string> = {
   [ArchivePart.PRICES]: "Prices",
   [ArchivePart.CORPORATE_EVENTS]: "Corporate events",
   [ArchivePart.INFLATION_INDICES]: "Inflation indices",
+  [ArchivePart.FETCH_BLOCKS]: "Fetch blocks",
 };

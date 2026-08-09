@@ -909,3 +909,13 @@ func (p *Postgres) ListCorporateEventCoverageForExport(ctx context.Context) ([]d
 	}
 	return toExportCoverageRows(rows), nil
 }
+
+// ListCorporateEventFetchBlocksForExport implements db.CorporateEventDB.
+func (p *Postgres) ListCorporateEventFetchBlocksForExport(ctx context.Context) ([]db.ExportFetchBlock, error) {
+	return listFetchBlocksForExport(ctx, p, "corporate_event_fetch_blocks")
+}
+
+// UpsertCorporateEventFetchBlocks implements db.CorporateEventDB.
+func (p *Postgres) UpsertCorporateEventFetchBlocks(ctx context.Context, blocks []db.FetchBlockInput) error {
+	return upsertFetchBlocks(ctx, p, "corporate_event_fetch_blocks", blocks)
+}

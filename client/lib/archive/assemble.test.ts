@@ -244,6 +244,54 @@ describe("assembleUserArchive", () => {
     expect(doc.preferences?.displayCurrency).toBe("GBP");
     expect(doc.preferences?.ignoredAssetClasses?.rules).toHaveLength(1);
   });
+
+  // Transactions arrive a window at a time, so the assembler accumulates them
+  // rather than replacing the container as a whole-part message does.
+  it("accumulates transaction windows across the stream", () => {
+    const doc = assembleUserArchive(
+      userStream(
+        { item: { case: "envelope", value: USER_ENVELOPE } },
+        { item: { case: "partBegin", value: { part: ArchivePart.TXS } } },
+        {
+          item: {
+            case: "txWindow",
+            value: {
+              broker: 1,
+              source: "FIDELITY:archive:export",
+              groups: [{ postings: [{ quantity: "10", instrumentDescription: "AAPL", type: 1 }] }],
+            },
+          },
+        },
+        {
+          item: {
+            case: "txWindow",
+            value: {
+              broker: 2,
+              source: "IBKR:archive:export",
+              groups: [{ postings: [{ quantity: "5", instrumentDescription: "MSFT", type: 1 }] }],
+            },
+          },
+        },
+      ),
+    );
+    expect(doc.txs?.windows).toHaveLength(2);
+    expect(doc.txs?.windows[0].source).toBe("FIDELITY:archive:export");
+    expect(doc.txs?.windows[1].source).toBe("IBKR:archive:export");
+  });
+
+  // A transaction part asked for over no transactions is present and empty, the
+  // same statement the marker makes for every other part.
+  it("keeps an empty transaction part present", () => {
+    const doc = assembleUserArchive(
+      userStream(
+        { item: { case: "envelope", value: USER_ENVELOPE } },
+        { item: { case: "partBegin", value: { part: ArchivePart.TXS } } },
+      ),
+    );
+    expect(doc.txs).toBeDefined();
+    expect(doc.txs?.windows).toHaveLength(0);
+    expect(marshalUser(doc)).toContain('"txs":{}');
+  });
 });
 
 describe("userPartCounts", () => {
@@ -257,6 +305,29 @@ describe("userPartCounts", () => {
       }),
     ]);
     expect(userPartCounts(doc)).toEqual([{ label: "preference settings", count: 1 }]);
+  });
+
+  // Postings rather than windows or groups, so the preview reads the same
+  // number the import job counts.
+  it("counts postings for the transaction part", () => {
+    const doc = assembleUserArchive([
+      create(ExportUserArchiveResponseSchema, { item: { case: "envelope", value: { ...ENVELOPE, kind: 2 } } }),
+      create(ExportUserArchiveResponseSchema, { item: { case: "partBegin", value: { part: ArchivePart.TXS } } }),
+      create(ExportUserArchiveResponseSchema, {
+        item: {
+          case: "txWindow",
+          value: {
+            broker: 1,
+            source: "FIDELITY:archive:export",
+            groups: [
+              { postings: [{ quantity: "10", instrumentDescription: "AAPL", type: 1 }, { quantity: "-1000", instrumentDescription: "USD", type: 1 }] },
+              { postings: [{ quantity: "5", instrumentDescription: "MSFT", type: 1 }] },
+            ],
+          },
+        },
+      }),
+    ]);
+    expect(userPartCounts(doc)).toEqual([{ label: "postings", count: 3 }]);
   });
 
   // A part present and empty is present with nothing in it, which is a

@@ -68,6 +68,12 @@ export const USER_ARCHIVE_PART_OPTIONS: ArchivePartOption[] = [
     note: "Display currency, and the asset classes ignored on import.",
     defaultSelected: true,
   },
+  {
+    part: ArchivePart.TXS,
+    label: "Transactions",
+    note: "Every posting, grouped as the broker converter grouped it. Nothing can rebuild the grouping, so it travels with them.",
+    defaultSelected: true,
+  },
 ];
 
 /** Display names for the parts a job reports against. */
@@ -80,4 +86,5 @@ export const ARCHIVE_PART_LABELS: Record<number, string> = {
   [ArchivePart.UNHANDLED_EVENTS]: "Unhandled corporate events",
   [ArchivePart.PLUGIN_CONFIG]: "Plugin config",
   [ArchivePart.PREFERENCES]: "Preferences",
+  [ArchivePart.TXS]: "Transactions",
 };

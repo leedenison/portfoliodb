@@ -7,6 +7,7 @@ import { InstrumentPartSchema } from "@/gen/archive/v1/instruments_pb";
 import { PluginConfigPartSchema } from "@/gen/archive/v1/plugin_config_pb";
 import { PreferencePartSchema } from "@/gen/archive/v1/preferences_pb";
 import { PricePartSchema } from "@/gen/archive/v1/prices_pb";
+import { TxPartSchema } from "@/gen/archive/v1/txs_pb";
 import { UnhandledEventPartSchema } from "@/gen/archive/v1/unhandled_events_pb";
 import type { ExportSystemArchiveResponse, ExportUserArchiveResponse } from "@/gen/api/v1/api_pb";
 import type { SystemArchive, UserArchive } from "@/gen/archive/v1/archive_pb";
@@ -101,10 +102,17 @@ export function assembleUserArchive(items: ExportUserArchiveResponse[]): UserArc
           case ArchivePart.PREFERENCES:
             doc.preferences ??= create(PreferencePartSchema, {});
             break;
+          case ArchivePart.TXS:
+            doc.txs ??= create(TxPartSchema, {});
+            break;
         }
         break;
       case "preferences":
         doc.preferences = item.item.value;
+        break;
+      case "txWindow":
+        doc.txs ??= create(TxPartSchema, {});
+        doc.txs.windows.push(item.item.value);
         break;
     }
   }
@@ -159,6 +167,15 @@ export function userPartCounts(archive: UserArchive): { label: string; count: nu
     if (archive.preferences.displayCurrency !== undefined) count++;
     if (archive.preferences.ignoredAssetClasses !== undefined) count++;
     out.push({ label: "preference settings", count });
+  }
+  if (archive.txs) {
+    // Postings rather than windows or groups, so the preview reads the same
+    // number the import job counts.
+    const postings = archive.txs.windows.reduce(
+      (n, w) => n + w.groups.reduce((m, g) => m + g.postings.length, 0),
+      0,
+    );
+    out.push({ label: "postings", count: postings });
   }
   return out;
 }

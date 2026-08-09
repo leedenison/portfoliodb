@@ -4,7 +4,7 @@
       "Read(path:~/Projects/portfoliodb/**)",
       "mcp__github__merge_pull_request",
       "mcp__github__create_pull_request",
-      "Bash(find ~/Projects/portfoliodb/docs -type f -name *.md)",
+      "Bash(find docs -type f -name *.md)",
       "Bash(go get:*)",
       "Bash(go mod:*)",
       "Bash(make:*)",

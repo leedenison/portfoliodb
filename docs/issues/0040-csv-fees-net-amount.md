@@ -65,7 +65,7 @@ before.
 
 ## Why IBKR's CSV keeps its commission in the residual
 
-`local/masters/Lee-IBKR-CWSY.csv` has no commission column, and its `Price` is
+The IBKR master in `local/masters/` has no commission column, and its `Price` is
 IBKR's own intraday conversion into the account's base currency while `Amount` is
 in the instrument's. Both candidate rates for the conversion were measured against
 the 599 trades in that master, and neither yields a commission:
@@ -90,11 +90,11 @@ masters are disjoint, the CSV ending 2025-01-06 and the QFX starting 2025-01-23.
 
 - Fidelity `JRNLFUND` and `TRANSFER` single-posting groups, about 636k and 200k --
   external transfers, matched by 0068.
-- Helen-Fidelity's 23 unpaired `BUYSTOCK` groups and one `SELLSTOCK` -- trade and
-  cash pairing failures. Closed by 0065: neither master leaves an unpaired trade
-  group now. 0069 was a different failure in the same list -- a lone `CASHFLOW`
-  group per deposit, 8 in Lee and 13 in Helen -- and closing it left none of those
-  either.
+- One Fidelity master's 23 unpaired `BUYSTOCK` groups and one `SELLSTOCK` -- trade
+  and cash pairing failures. Closed by 0065: neither master leaves an unpaired
+  trade group now. 0069 was a different failure in the same list -- a lone
+  `CASHFLOW` group per deposit, 8 in one master and 13 in the other -- and closing
+  it left none of those either.
 - Schwab's three groups worth 667,750 -- the export's quantities are split adjusted
   while its prices are as traded, so pre-split GOOG and TSLA rows cannot balance.
   That is 0057.

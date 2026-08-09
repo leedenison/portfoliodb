@@ -153,7 +153,7 @@ Implement two interceptors:
 
 - Configurable allowlist as a list of patterns. Support at least one of:
   - Regex patterns, or
-  - Glob-like patterns (e.g. `*@example.com`, `lee+*@gmail.com`)
+  - Glob-like patterns (e.g. `*@example.com`, `user+*@example.org`)
 - Matching is performed against the verified email from the authenticated session identity.
 - If not matched: return **PermissionDenied** with a generic message.
 
@@ -166,7 +166,7 @@ Implement two interceptors:
 ### Example patterns
 
 - `*@mycompany.com`
-- `lee.denison@*`
+- `first.last@*`
 - `*@example.org`
 
 ## Envoy / gRPC-Web Requirements (non-auth)

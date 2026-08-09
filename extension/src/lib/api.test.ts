@@ -37,12 +37,12 @@ describe("api", () => {
   });
 
   it("sends the session as a bearer token and omits credentials", async () => {
-    const res = create(GetSessionResponseSchema, { user: { email: "lee@example.com" } });
+    const res = create(GetSessionResponseSchema, { user: { email: "user@example.com" } });
     const spy = mockFetch(toBinary(GetSessionResponseSchema, res));
 
     const got = await getSession(ORIGIN, SESSION);
 
-    expect(got.user?.email).toBe("lee@example.com");
+    expect(got.user?.email).toBe("user@example.com");
     const [url, init] = spy.mock.calls[0]!;
     expect(url).toBe(`${ORIGIN}/portfoliodb.auth.v1.AuthService/GetSession`);
     expect(init?.headers).toMatchObject({ Authorization: `Bearer ${SESSION}` });

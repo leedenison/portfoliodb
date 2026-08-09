@@ -33,7 +33,7 @@ to update.
 
 ## Blocked on sample data
 
-No genuine Schwab export is in the repo. `local/masters/Helen-Schwab-CWSY.csv` has
+No genuine Schwab export is in the repo. The Schwab master in `local/masters/` has
 been through CWSY pre-processing: columns 0-7 are the raw Schwab view and 8-13 are
 added. Writing the converter against those first eight columns would leave every
 real-export quirk unverified -- the preamble and total rows, `"02/08/2022 as of
@@ -43,5 +43,5 @@ first.
 ## Out of scope
 
 The mixed share count basis noted above is 0057, not this issue. It is what leaves
-three groups in `Helen-Schwab.csv` unbalanced by 667,750 USD, and no fee handling
+three groups in the Schwab master unbalanced by 667,750 USD, and no fee handling
 will close that gap.

@@ -286,7 +286,8 @@ func names(accounts []string, account string) bool {
 //
 // The nearest gap over both sets, not between two chosen values: a group is several
 // source rows and the reference nearest the other side is the one that matters. The
-// sample's lump sum is 545/546/548 against 547, where the nearest is 1.
+// sample's lump sum is three consecutive references against a fourth, where the
+// nearest gap is 1 and the widest is 3.
 //
 // A reference that is not a number simply makes this pass inapplicable. An OFX FITID
 // is opaque and unique within one statement, so two of them are never comparable

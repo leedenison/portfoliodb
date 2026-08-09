@@ -902,9 +902,9 @@ func TestReplaceTxsInPeriod_RoundTripsSourceReferences(t *testing.T) {
 	// references, and only the receiving side naming where the money came from.
 	txs := []*apiv1.Tx{
 		{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: typev1.TxType_TRANSFER,
-			Quantity: "-20000", Account: "AG10041188", BrokerRef: "1093663528"},
+			Quantity: "-20000", Account: "AG10000001", BrokerRef: "971613411"},
 		{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: typev1.TxType_TRANSFER,
-			Quantity: "20000", Account: "AW10075724", BrokerRef: "1093663531", CounterpartyAccount: "AG10041188"},
+			Quantity: "20000", Account: "AW10000001", BrokerRef: "971613414", CounterpartyAccount: "AG10000001"},
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "Fidelity", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
@@ -938,20 +938,20 @@ func TestReplaceTxsInPeriod_RoundTripsSourceReferences(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("stored %d postings, want 2", len(got))
 	}
-	departure, arrival := got["AG10041188"], got["AW10075724"]
-	if departure.ref == nil || *departure.ref != "1093663528" {
-		t.Errorf("departure broker_ref = %v, want 1093663528", departure.ref)
+	departure, arrival := got["AG10000001"], got["AW10000001"]
+	if departure.ref == nil || *departure.ref != "971613411" {
+		t.Errorf("departure broker_ref = %v, want 971613411", departure.ref)
 	}
 	// The source named no counterparty on the departure, so nothing is stored --
 	// not an empty string.
 	if departure.counterparty != nil {
 		t.Errorf("departure counterparty_account = %q, want NULL", *departure.counterparty)
 	}
-	if arrival.ref == nil || *arrival.ref != "1093663531" {
-		t.Errorf("arrival broker_ref = %v, want 1093663531", arrival.ref)
+	if arrival.ref == nil || *arrival.ref != "971613414" {
+		t.Errorf("arrival broker_ref = %v, want 971613414", arrival.ref)
 	}
-	if arrival.counterparty == nil || *arrival.counterparty != "AG10041188" {
-		t.Errorf("arrival counterparty_account = %v, want AG10041188", arrival.counterparty)
+	if arrival.counterparty == nil || *arrival.counterparty != "AG10000001" {
+		t.Errorf("arrival counterparty_account = %v, want AG10000001", arrival.counterparty)
 	}
 }
 

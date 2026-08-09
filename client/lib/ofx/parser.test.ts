@@ -377,13 +377,13 @@ VERSION:102
 
 describe("groups and charges", () => {
   /**
-   * Verbatim from local/masters/U7033034_20250107_20260107.qfx, which is the
+   * Verbatim from local/masters/U1000001_20250107_20260107.qfx, which is the
    * arithmetic this has to reproduce: 378 x 61.06 + 11.54034 = 23092.22034, so
    * TOTAL is the consideration with the commission already in it.
    */
   const GBP_BUY = `<BUYSTOCK>
     <INVBUY>
-      <INVTRAN><FITID>20251015U70330348371888432</FITID><DTTRADE>20251015092129.000[-4:EDT]</DTTRADE></INVTRAN>
+      <INVTRAN><FITID>20251015U10000018371888432</FITID><DTTRADE>20251015092129.000[-4:EDT]</DTTRADE></INVTRAN>
       <SECID><UNIQUEID>IE00B4ND3602</UNIQUEID><UNIQUEIDTYPE>ISIN</UNIQUEIDTYPE></SECID>
       <UNITS>378
       <UNITPRICE>61.06
@@ -414,7 +414,7 @@ describe("groups and charges", () => {
   it("groups a trade with its cash leg on the broker's own reference", () => {
     const result = parse(GBP_BUY);
     const refs = new Set(result.txs.map((t) => t.groupRef));
-    expect(refs).toEqual(new Set(["20251015U70330348371888432"]));
+    expect(refs).toEqual(new Set(["20251015U10000018371888432"]));
   });
 
   // The same id says two different things: which postings are one event, and
@@ -423,7 +423,7 @@ describe("groups and charges", () => {
   it("keeps the FITID as the transcribed leg's source reference", () => {
     const result = parse(GBP_BUY);
     const refs = result.txs.map((t) => t.brokerRef);
-    expect(refs.filter((r) => r !== "")).toEqual(["20251015U70330348371888432"]);
+    expect(refs.filter((r) => r !== "")).toEqual(["20251015U10000018371888432"]);
   });
 
   it("splits the commission out of the netted total", () => {
@@ -472,7 +472,7 @@ describe("groups and charges", () => {
   });
 
   it("groups a trade whose source gave no reference", () => {
-    const result = parse(GBP_BUY.replace("<FITID>20251015U70330348371888432", "<FITID>"));
+    const result = parse(GBP_BUY.replace("<FITID>20251015U10000018371888432", "<FITID>"));
     const refs = new Set(result.txs.map((t) => t.groupRef));
     expect(refs.size).toBe(1);
     expect([...refs][0]).not.toBe("");

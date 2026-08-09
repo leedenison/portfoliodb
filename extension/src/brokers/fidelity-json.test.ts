@@ -190,10 +190,10 @@ describe("convertFidelityJson", () => {
 // out is reported as a Buy or Sell of it against a pseudo-ISIN. Mapping on the
 // transaction type alone made each one a security trade in units of money, and
 // lost the movement the third row of the sequence records. Rows from the
-// captured payload, AP10013127 on 18/05/2026 and AG10041188 on 15/04/2025.
+// captured payload, AP10000001 on 18/05/2026 and AG10000001 on 15/04/2025.
 describe("convertFidelityJson cash-asset rows", () => {
   const cash = (fields: Record<string, unknown>) => ({
-    accountNumber: "AP10013127",
+    accountNumber: "AP10000001",
     assetName: "Cash",
     isin: "AA00R0000000",
     sedol: "R000000",
@@ -210,17 +210,17 @@ describe("convertFidelityJson cash-asset rows", () => {
   const BUY_CASH = cash({
     transactionType: "Buy",
     debitCreditIndicator: "CREDIT",
-    referenceId: "1288903396",
+    referenceId: "1166853279",
   });
   const CASH_OUT = cash({
     transactionType: "Cash Out For Buy From Transfer",
     debitCreditIndicator: "DEBIT",
-    referenceId: "1288903394",
+    referenceId: "1166853277",
   });
   const ARRIVAL = cash({
     transactionType: "Cash In For Transfer",
     debitCreditIndicator: "CREDIT",
-    referenceId: "1288903395",
+    referenceId: "1166853278",
   });
 
   it("is a cash movement, not a security trade", () => {
@@ -239,8 +239,8 @@ describe("convertFidelityJson cash-asset rows", () => {
 
   it("groups a purchase of cash with the cash out beside it", () => {
     const result = convertFidelityJson(json(CASH_OUT, BUY_CASH));
-    expect(result.txs[0]!.groupRef).toBe("1288903396");
-    expect(result.txs[1]!.groupRef).toBe("1288903396");
+    expect(result.txs[0]!.groupRef).toBe("1166853279");
+    expect(result.txs[1]!.groupRef).toBe("1166853279");
     expectGroupsBalance(result.txs);
   });
 
@@ -257,31 +257,31 @@ describe("convertFidelityJson cash-asset rows", () => {
 
   it("reads a sale of cash the same way", () => {
     const sell = cash({
-      accountNumber: "AG10041188",
+      accountNumber: "AG10000001",
       isin: "AA00S0000000",
       sedol: "S000000",
       transactionType: "Sell",
       debitCreditIndicator: "DEBIT",
       units: 20000,
       valuation: 20000,
-      referenceId: "1093663529",
+      referenceId: "971613412",
     });
     const cashIn = cash({
-      accountNumber: "AG10041188",
+      accountNumber: "AG10000001",
       isin: "AA00S0000000",
       sedol: "S000000",
       transactionType: "Cash In From Sell",
       debitCreditIndicator: "CREDIT",
       units: 20000,
       valuation: 20000,
-      referenceId: "1093663530",
+      referenceId: "971613413",
     });
 
     const result = convertFidelityJson(json(sell, cashIn));
     expect(result.txs[0]!.type).toBe(TxType.CASHFLOW);
     expect(result.txs[0]!.quantity).toBe("-20000");
-    expect(result.txs[0]!.groupRef).toBe("1093663529");
-    expect(result.txs[1]!.groupRef).toBe("1093663529");
+    expect(result.txs[0]!.groupRef).toBe("971613412");
+    expect(result.txs[1]!.groupRef).toBe("971613412");
     expectGroupsBalance(result.txs);
   });
 
@@ -301,21 +301,21 @@ describe("convertFidelityJson cash-asset rows", () => {
       debitCreditIndicator: "DEBIT",
       units: 12147.03,
       valuation: 12091.15,
-      referenceId: "783688687",
+      referenceId: "661638570",
     });
     const proceeds = cash({
       transactionType: "Cash In",
       debitCreditIndicator: "CREDIT",
       units: 12091.15,
       valuation: 12091.15,
-      referenceId: "783688691",
+      referenceId: "661638574",
     });
 
     const result = convertFidelityJson(json(sale, proceeds));
     expect(result.txs[0]!.type).toBe(TxType.SELLSTOCK);
     expect(result.txs[1]!.type).toBe(TxType.CASHFLOW);
     expect(result.txs[1]!.tradingCurrency).toBe("GBP");
-    expect(result.txs[1]!.groupRef).toBe("783688687");
+    expect(result.txs[1]!.groupRef).toBe("661638570");
   });
 });
 
@@ -339,7 +339,7 @@ describe("convertFidelityJson grouping", () => {
           valuation: 7266.49,
           pricePerUnit: 5.85,
           debitCreditIndicator: "DEBIT",
-          referenceId: "563466569",
+          referenceId: "441416452",
         }),
         trade({
           transactionType: "Cash In From Sell",
@@ -347,14 +347,14 @@ describe("convertFidelityJson grouping", () => {
           units: 7266.49,
           valuation: 7266.49,
           debitCreditIndicator: "CREDIT",
-          referenceId: "563466571",
+          referenceId: "441416454",
         })
       )
     );
 
     expect(result.txs).toHaveLength(2);
-    expect(result.txs[0]!.groupRef).toBe("563466569");
-    expect(result.txs[1]!.groupRef).toBe("563466569");
+    expect(result.txs[0]!.groupRef).toBe("441416452");
+    expect(result.txs[1]!.groupRef).toBe("441416452");
   });
 
   it("pairs a buy with the cash out despite the fee gap", () => {
@@ -366,7 +366,7 @@ describe("convertFidelityJson grouping", () => {
           units: 7380.19,
           valuation: 7380.19,
           debitCreditIndicator: "DEBIT",
-          referenceId: "563466631",
+          referenceId: "441416514",
         }),
         trade({
           transactionType: "Buy",
@@ -375,13 +375,13 @@ describe("convertFidelityJson grouping", () => {
           valuation: 7390.19,
           pricePerUnit: 263.58,
           debitCreditIndicator: "CREDIT",
-          referenceId: "563466632",
+          referenceId: "441416515",
         })
       )
     );
 
-    expect(result.txs[0]!.groupRef).toBe("563466632");
-    expect(result.txs[1]!.groupRef).toBe("563466632");
+    expect(result.txs[0]!.groupRef).toBe("441416515");
+    expect(result.txs[1]!.groupRef).toBe("441416515");
   });
 
   it("keeps a separately reported charge out of any trade's group", () => {
@@ -393,7 +393,7 @@ describe("convertFidelityJson grouping", () => {
           units: 10,
           valuation: 10,
           debitCreditIndicator: "DEBIT",
-          referenceId: "563466600",
+          referenceId: "441416483",
         })
       )
     );
@@ -411,7 +411,7 @@ describe("convertFidelityJson grouping", () => {
     // lands. Grouped, the account is left with one residual for one deposit.
     const deposit = (fields: Record<string, unknown>) =>
       trade({
-        accountNumber: "AS10110796",
+        accountNumber: "AS10000001",
         assetName: "Cash",
         isin: "AA00S0000000",
         units: 20000,
@@ -426,26 +426,26 @@ describe("convertFidelityJson grouping", () => {
         deposit({
           transactionType: "Cash In Lump Sum",
           debitCreditIndicator: "CREDIT",
-          referenceId: "1093663545",
+          referenceId: "971613428",
         }),
         deposit({
           transactionType: "Cash Out For Buy",
           debitCreditIndicator: "DEBIT",
-          referenceId: "1093663546",
+          referenceId: "971613429",
         }),
         deposit({
           transactionType: "Cash In",
           debitCreditIndicator: "CREDIT",
-          referenceId: "1093663548",
+          referenceId: "971613431",
         })
       )
     );
 
     expect(result.errors).toEqual([]);
     expect(result.txs.map((tx) => tx.groupRef)).toEqual([
-      "1093663545",
-      "1093663545",
-      "1093663545",
+      "971613428",
+      "971613428",
+      "971613428",
     ]);
     // The journals stay journals, which is what routes the group's residual to
     // TRANSFER_CLEARING rather than IMBALANCE.
@@ -484,7 +484,7 @@ describe("convertFidelityJson grouping", () => {
 
 describe("source references", () => {
   const base = {
-    accountNumber: "AW10075724",
+    accountNumber: "AW10000001",
     assetName: "Cash",
     isin: "AA00K0000000",
     currency: "GBP",
@@ -502,14 +502,14 @@ describe("source references", () => {
         debitCreditIndicator: "CREDIT",
         units: 20000,
         valuation: 20000,
-        referenceId: "1093663531",
-        sourceOrTargetAccount: "AG10041188",
+        referenceId: "971613414",
+        sourceOrTargetAccount: "AG10000001",
       })
     );
 
     expect(result.errors).toEqual([]);
-    expect(result.txs[0]!.brokerRef).toBe("1093663531");
-    expect(result.txs[0]!.counterpartyAccount).toBe("AG10041188");
+    expect(result.txs[0]!.brokerRef).toBe("971613414");
+    expect(result.txs[0]!.counterpartyAccount).toBe("AG10000001");
   });
 
   it("leaves the counterparty empty where the source names none", () => {
@@ -520,11 +520,11 @@ describe("source references", () => {
         debitCreditIndicator: "DEBIT",
         units: 20000,
         valuation: 20000,
-        referenceId: "1093663547",
+        referenceId: "971613430",
       })
     );
 
-    expect(result.txs[0]!.brokerRef).toBe("1093663547");
+    expect(result.txs[0]!.brokerRef).toBe("971613430");
     expect(result.txs[0]!.counterpartyAccount).toBe("");
   });
 
@@ -542,14 +542,14 @@ describe("source references", () => {
         debitCreditIndicator: "DEBIT",
         units: 5.13,
         valuation: 5.13,
-        referenceId: "1299133228",
-        sourceOrTargetAccount: "AP10013127",
+        referenceId: "1177083111",
+        sourceOrTargetAccount: "AP10000001",
       })
     );
 
     const fee = result.txs[0]!;
     expect(fee.type).toBe(TxType.INVEXPENSE);
-    expect(fee.counterpartyAccount).toBe("AP10013127");
+    expect(fee.counterpartyAccount).toBe("AP10000001");
     // The derived expense leg is the converter's own, so it names no source row.
     const expense = result.txs.find((tx) => tx.accountType === AccountType.EXPENSE)!;
     expect(expense.brokerRef).toBe("");

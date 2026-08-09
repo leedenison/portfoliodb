@@ -366,16 +366,16 @@ describe("share count basis", () => {
 describe("group_ref", () => {
   it("carries the grouping key onto each posting", () => {
     const csv = `date,instrument_description,type,quantity,unit_price,account,group_ref
-2024-03-01,VOD - Vodafone,SELLSTOCK,-100,1.25,ACC1,563466569
-2024-03-01,Cash,CASHFLOW,125,1,ACC1,563466569
+2024-03-01,VOD - Vodafone,SELLSTOCK,-100,1.25,ACC1,441416452
+2024-03-01,Cash,CASHFLOW,125,1,ACC1,441416452
 2024-03-01,Dealing Fee,INVEXPENSE,-7.5,1,ACC1,`;
 
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
     expect(result.txs).toHaveLength(3);
-    expect(result.txs[0].groupRef).toBe("563466569");
-    expect(result.txs[1].groupRef).toBe("563466569");
+    expect(result.txs[0].groupRef).toBe("441416452");
+    expect(result.txs[1].groupRef).toBe("441416452");
     // A separately-reported charge is its own event, so it names no group.
     expect(result.txs[2].groupRef).toBe("");
   });
@@ -394,18 +394,18 @@ describe("group_ref", () => {
 describe("source references", () => {
   it("carries the broker's own reference and the account it names", () => {
     const csv = `date,instrument_description,type,quantity,account,group_ref,broker_ref,counterparty_account
-2025-04-15,GBP,TRANSFER,-20000,AG10041188,,1093663528,
-2025-04-15,GBP,TRANSFER,20000,AW10075724,,1093663531,AG10041188`;
+2025-04-15,GBP,TRANSFER,-20000,AG10000001,,971613411,
+2025-04-15,GBP,TRANSFER,20000,AW10000001,,971613414,AG10000001`;
 
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
     expect(result.txs).toHaveLength(2);
-    expect(result.txs[0].brokerRef).toBe("1093663528");
+    expect(result.txs[0].brokerRef).toBe("971613411");
     // Only the receiving side names the counterparty; the departure does not.
     expect(result.txs[0].counterpartyAccount).toBe("");
-    expect(result.txs[1].brokerRef).toBe("1093663531");
-    expect(result.txs[1].counterpartyAccount).toBe("AG10041188");
+    expect(result.txs[1].brokerRef).toBe("971613414");
+    expect(result.txs[1].counterpartyAccount).toBe("AG10000001");
   });
 
   it("is opaque: a reference that is not a number survives verbatim", () => {

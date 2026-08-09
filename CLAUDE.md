@@ -135,3 +135,32 @@ skills (`.claude/skills/`).
 
 Testing guidance lives in the `unit-testing`, `integration-testing`, and
 `e2e-testing` skills (`.claude/skills/`).
+
+## Personal Data
+
+The repository must contain no personal data belonging to a real person. This
+applies to code, tests, fixtures, comments, commit messages, issues, specs and
+plans alike. `local/` is gitignored and is where real broker exports live; it is
+the only place they belong.
+
+Never commit any of the following:
+
+* Real people's names, including in a comment describing where test data came
+  from, in an issue discussing it, and in the name of a file that holds it. Refer
+  to the account or the export rather than to whoever owns it.
+* Real broker account numbers, and any identifier that embeds one.
+* Real transaction, order or statement reference numbers issued by a broker.
+* Real email addresses, postal addresses and telephone numbers.
+
+Public security identifiers -- tickers, ISINs, CUSIPs, MICs, exchange codes --
+are reference data rather than personal data, and are fine to use as they are.
+
+Test data modelled on a real broker export is the normal way to pin down a
+format, and it stays welcome: copy the shape, the column order and the quirks,
+then replace every account number and reference with an invented one before
+committing. Invent them so that the properties the test depends on survive --
+distinctness, ordering, and the numeric distance between references where a test
+compares them -- and say in a comment that the file is modelled on a real export
+with its identifiers replaced, so the next reader does not restore them from the
+original. Amounts, dates and instruments carry no identifier and may stay as they
+are.

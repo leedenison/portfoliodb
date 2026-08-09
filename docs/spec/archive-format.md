@@ -640,6 +640,12 @@ reader walks them in that order:
   declarations last because a checked declaration is compared against what the
   transactions add up to.
 
+`ArchivePart` numbers the parts in two blocks, the system parts and then the
+user parts, because no part belongs to both documents. Within a block the values
+run in restore order. An export request naming a part from the other block is
+refused rather than ignored: a part quietly missing from a document the caller
+asked for it in is a silent wrong answer.
+
 Between documents, restoring the system archive before the user archive is a
 recommendation and not a constraint. A user archive restored into an instance
 with no instruments loaded resolves its postings through the normal identifier

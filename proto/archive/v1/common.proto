@@ -59,10 +59,14 @@ enum ArchiveKind {
 // so the request that asks for a part and the result that reports on it are one
 // vocabulary.
 //
-// Values run in restore order, which is also the field order in SystemArchive:
-// a part is applied after everything it refers to.
+// The values are two blocks, one per archive, because no part belongs to both
+// documents. Within a block they run in restore order, which is also the field
+// order of the archive message they name: a part is applied after everything it
+// refers to. A request naming a part from the other block is refused rather
+// than ignored -- silently dropping it would export nothing and say nothing.
 enum ArchivePart {
   ARCHIVE_PART_UNSPECIFIED = 0;
+  // System archive.
   INSTRUMENTS = 1;
   PRICES = 2;
   CORPORATE_EVENTS = 3;
@@ -70,6 +74,10 @@ enum ArchivePart {
   FETCH_BLOCKS = 5;
   UNHANDLED_EVENTS = 6;
   PLUGIN_CONFIG = 7;
+  // User archive.
+  PREFERENCES = 8;
+  TXS = 9;
+  DECLARATIONS = 10;
 }
 
 // Envelope carries only what cannot differ between two rows of a valid file.

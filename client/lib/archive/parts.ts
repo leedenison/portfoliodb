@@ -14,8 +14,8 @@ export interface ArchivePartOption {
   defaultSelected: boolean;
 }
 
-/** The export menu, in restore order. */
-export const ARCHIVE_PART_OPTIONS: ArchivePartOption[] = [
+/** The system archive export menu, in restore order. */
+export const SYSTEM_ARCHIVE_PART_OPTIONS: ArchivePartOption[] = [
   {
     part: ArchivePart.INSTRUMENTS,
     label: "Instruments",
@@ -60,6 +60,16 @@ export const ARCHIVE_PART_OPTIONS: ArchivePartOption[] = [
   },
 ];
 
+/** The user archive export menu, in restore order. */
+export const USER_ARCHIVE_PART_OPTIONS: ArchivePartOption[] = [
+  {
+    part: ArchivePart.PREFERENCES,
+    label: "Preferences",
+    note: "Display currency, and the asset classes ignored on import.",
+    defaultSelected: true,
+  },
+];
+
 /** Display names for the parts a job reports against. */
 export const ARCHIVE_PART_LABELS: Record<number, string> = {
   [ArchivePart.INSTRUMENTS]: "Instruments",
@@ -69,4 +79,5 @@ export const ARCHIVE_PART_LABELS: Record<number, string> = {
   [ArchivePart.FETCH_BLOCKS]: "Fetch blocks",
   [ArchivePart.UNHANDLED_EVENTS]: "Unhandled corporate events",
   [ArchivePart.PLUGIN_CONFIG]: "Plugin config",
+  [ArchivePart.PREFERENCES]: "Preferences",
 };

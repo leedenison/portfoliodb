@@ -33,7 +33,7 @@ func (s *Server) SetIgnoredAssetClasses(ctx context.Context, req *apiv1.SetIgnor
 	if err != nil {
 		return nil, err
 	}
-	mapping := buildAssetClassToTxTypesMap(rules)
+	mapping := db.AssetClassToTxTypesMap(rules)
 	if err := s.db.SetIgnoredAssetClasses(ctx, u.ID, rules, mapping); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -50,7 +50,7 @@ func (s *Server) CountIgnoredTxs(ctx context.Context, req *apiv1.CountIgnoredTxs
 	if err != nil {
 		return nil, err
 	}
-	mapping := buildAssetClassToTxTypesMap(rules)
+	mapping := db.AssetClassToTxTypesMap(rules)
 	txCount, declCount, err := s.db.CountIgnoredTxs(ctx, u.ID, rules, mapping)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
@@ -87,18 +87,4 @@ func rulesFromProto(protos []*apiv1.IgnoredAssetClassRule) ([]db.IgnoredAssetCla
 		}
 	}
 	return rules, nil
-}
-
-// buildAssetClassToTxTypesMap builds the reverse mapping for the asset classes present in the rules.
-func buildAssetClassToTxTypesMap(rules []db.IgnoredAssetClass) map[string][]string {
-	seen := make(map[string]bool)
-	mapping := make(map[string][]string)
-	for _, r := range rules {
-		if seen[r.AssetClass] {
-			continue
-		}
-		seen[r.AssetClass] = true
-		mapping[r.AssetClass] = db.AssetClassToTxTypeStrings(r.AssetClass)
-	}
-	return mapping
 }

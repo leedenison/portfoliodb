@@ -5,7 +5,6 @@ import (
 	"fmt"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
-	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/grpc/codes"
@@ -45,7 +44,7 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("serialize request: %v", err))
 	}
-	brokerStr, _ := brokerToString(req.Broker)
+	brokerStr := db.BrokerToStr(req.Broker)
 	jobID, err := s.db.CreateJob(ctx, db.CreateJobParams{
 		UserID:       u.ID,
 		JobType:      "tx",
@@ -83,7 +82,7 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 		return nil, status.Error(codes.InvalidArgument, "tx required")
 	}
 	// Wrap single tx in UpsertTxsRequest for uniform payload format.
-	brokerStr, _ := brokerToString(req.Broker)
+	brokerStr := db.BrokerToStr(req.Broker)
 	wrapped := &ingestionv1.UpsertTxsRequest{
 		Broker:          req.Broker,
 		Source:          req.GetSource(),
@@ -110,16 +109,4 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 		return nil, status.Error(codes.Unavailable, "job queue full")
 	}
 	return &ingestionv1.CreateTxResponse{JobId: jobID}, nil
-}
-
-// brokerToString returns the stored form of a broker: its enum name.
-func brokerToString(b typev1.Broker) (string, error) {
-	if b == typev1.Broker_BROKER_UNSPECIFIED {
-		return "", fmt.Errorf("broker unspecified")
-	}
-	s, ok := typev1.Broker_name[int32(b)]
-	if !ok {
-		return "", fmt.Errorf("unknown broker")
-	}
-	return s, nil
 }

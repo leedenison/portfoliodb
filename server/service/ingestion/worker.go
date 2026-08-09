@@ -6,7 +6,6 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
-	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
@@ -167,7 +166,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		txs = []*apiv1.Tx{}
 	}
 	source := req.GetSource()
-	broker, _ := brokerToStr(req.Broker)
+	broker := db.BrokerToStr(req.Broker)
 	bulk := req.PeriodFrom != nil && req.PeriodBefore != nil
 
 	// The denomination of the whole upload. Absent means as-traded: each row is
@@ -420,17 +419,4 @@ func resolveInstruments(ctx context.Context, database db.DB, registry *identifie
 		}
 	}
 	return instrumentIDs, idErrs, nil
-}
-
-// brokerToStr converts a proto Broker enum to its string representation.
-// brokerToStr returns the stored form of a broker: its enum name.
-func brokerToStr(b typev1.Broker) (string, error) {
-	if b == typev1.Broker_BROKER_UNSPECIFIED {
-		return "", fmt.Errorf("broker unspecified")
-	}
-	s, ok := typev1.Broker_name[int32(b)]
-	if !ok {
-		return "", fmt.Errorf("unknown broker")
-	}
-	return s, nil
 }

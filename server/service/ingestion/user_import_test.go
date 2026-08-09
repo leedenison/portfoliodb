@@ -79,7 +79,7 @@ func TestProcessUserImport_AppliesPreferencesForTheJobsUser(t *testing.T) {
 			return nil
 		}).AnyTimes()
 
-	res := processUserImport(context.Background(), database, j)
+	res := processUserImport(context.Background(), ingestDeps{DB: database}, j)
 
 	if !res.displayCurrencySet {
 		t.Fatal("display currency not reported as set, so the price fetcher is never nudged")
@@ -109,7 +109,7 @@ func TestProcessUserImport_NoCurrencyEarnsNoNudge(t *testing.T) {
 	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any(), gomock.Any()).Return(nil)
 	database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-	if res := processUserImport(context.Background(), database, j); res.displayCurrencySet {
+	if res := processUserImport(context.Background(), ingestDeps{DB: database}, j); res.displayCurrencySet {
 		t.Fatal("nudge earned by a file that set no display currency")
 	}
 }
@@ -126,7 +126,7 @@ func TestProcessUserImport_UnreadablePayloadFailsTheJob(t *testing.T) {
 	database.EXPECT().SetJobStatus(gomock.Any(), j.JobID, apiv1.JobStatus_FAILED).Return(nil)
 	database.EXPECT().ClearJobPayload(gomock.Any(), j.JobID).Return(nil)
 
-	processUserImport(context.Background(), database, j)
+	processUserImport(context.Background(), ingestDeps{DB: database}, j)
 }
 
 // A job resumed after a restart skips what already finished rather than
@@ -142,7 +142,7 @@ func TestProcessUserImport_SkipsAPartAlreadyDone(t *testing.T) {
 	// No setter expectations: applying the part again is the failure.
 	database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 
-	processUserImport(context.Background(), database, j)
+	processUserImport(context.Background(), ingestDeps{DB: database}, j)
 }
 
 // A part re-run starts its progress over rather than counting on from where the
@@ -162,7 +162,7 @@ func TestProcessUserImport_ResetsPartialProgressOnRerun(t *testing.T) {
 	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any(), gomock.Any()).Return(nil)
 	database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-	processUserImport(context.Background(), database, j)
+	processUserImport(context.Background(), ingestDeps{DB: database}, j)
 }
 
 // A part row this build cannot apply means a job written by a later build. It
@@ -172,14 +172,14 @@ func TestProcessUserImport_UnknownPartFailsOnlyItself(t *testing.T) {
 	j := &JobRequest{JobID: "job-ua-6", JobType: db.JobTypeUserArchive}
 	database.EXPECT().LoadJobPayload(gomock.Any(), j.JobID).Return(userArchivePayload(t), nil)
 	database.EXPECT().GetJob(gomock.Any(), j.JobID).Return(&db.JobDetail{
-		UserID: "user-7", Parts: partRows(archivev1.ArchivePart_TXS),
+		UserID: "user-7", Parts: partRows(archivev1.ArchivePart_DECLARATIONS),
 	}, nil).AnyTimes()
 	database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().
-		SetJobPartFailed(gomock.Any(), j.JobID, archivev1.ArchivePart_TXS, errUnknownPart.Error()).
+		SetJobPartFailed(gomock.Any(), j.JobID, archivev1.ArchivePart_DECLARATIONS, errUnknownPart.Error()).
 		Return(nil)
 
-	processUserImport(context.Background(), database, j)
+	processUserImport(context.Background(), ingestDeps{DB: database}, j)
 }
 
 // The job's own counters are the sum over its parts, so a caller that only
@@ -215,7 +215,7 @@ func TestProcessUserImport_JobCountersAreTheSumOverParts(t *testing.T) {
 	database.EXPECT().SetJobTotalCount(gomock.Any(), j.JobID, int32(2)).Return(nil)
 	database.EXPECT().SetJobProcessedCount(gomock.Any(), j.JobID, int32(2)).Return(nil)
 
-	processUserImport(context.Background(), database, j)
+	processUserImport(context.Background(), ingestDeps{DB: database}, j)
 }
 
 // The dispatch case, end to end: a user archive job that restored a display

@@ -216,7 +216,7 @@ CREATE TABLE ingestion_job_parts (
   part            TEXT NOT NULL CHECK (part IN ('INSTRUMENTS', 'PRICES', 'CORPORATE_EVENTS',
                                                 'INFLATION_INDICES', 'FETCH_BLOCKS',
                                                 'UNHANDLED_EVENTS', 'PLUGIN_CONFIG',
-                                                'PREFERENCES')),
+                                                'PREFERENCES', 'TXS')),
   status          TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED')),
   total_count     INT NOT NULL DEFAULT 0,
   processed_count INT NOT NULL DEFAULT 0,

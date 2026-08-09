@@ -5,6 +5,8 @@ package db
 import (
 	"context"
 	"errors"
+	"regexp"
+
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
@@ -47,6 +49,7 @@ const InflationProviderImport = "import"
 const (
 	JobTypeTx            = "tx"
 	JobTypeSystemArchive = "system_archive"
+	JobTypeUserArchive   = "user_archive"
 )
 
 // DB is the database abstraction used by the service layer.
@@ -624,6 +627,29 @@ func AssetClassToStr(ac typev1.AssetClass) string {
 	return ac.String()
 }
 
+// BrokerToStr converts a proto Broker enum to the string the broker columns
+// hold, which is the enum's own name. BROKER_UNSPECIFIED and any value this
+// build does not know map to "", as AssetClassToStr does for its unspecified.
+func BrokerToStr(b typev1.Broker) string {
+	if _, ok := typev1.Broker_name[int32(b)]; !ok {
+		return ""
+	}
+	if b == typev1.Broker_BROKER_UNSPECIFIED {
+		return ""
+	}
+	return b.String()
+}
+
+// StrToBroker converts a stored broker string to its proto enum. An
+// unrecognised string maps to BROKER_UNSPECIFIED.
+func StrToBroker(s string) typev1.Broker {
+	v, ok := typev1.Broker_value[s]
+	if !ok {
+		return typev1.Broker_BROKER_UNSPECIFIED
+	}
+	return typev1.Broker(v)
+}
+
 // PluginCategoryToStr converts a proto plugin category to the string
 // plugin_config.category holds. It is the one shared vocabulary whose column
 // spelling differs from its enum name, so the mapping lives here rather than
@@ -771,6 +797,29 @@ func AssetClassToTxTypeStrings(assetClass string) []string {
 		}
 	}
 	return strs
+}
+
+// AssetClassToTxTypesMap builds the asset-class-to-tx-types mapping the ignore
+// rule writers need, covering exactly the asset classes the rules name.
+func AssetClassToTxTypesMap(rules []IgnoredAssetClass) map[string][]string {
+	mapping := make(map[string][]string)
+	for _, r := range rules {
+		if _, seen := mapping[r.AssetClass]; seen {
+			continue
+		}
+		mapping[r.AssetClass] = AssetClassToTxTypeStrings(r.AssetClass)
+	}
+	return mapping
+}
+
+// currencyCodeRE is the shape users.display_currency holds: an ISO 4217 code.
+var currencyCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
+
+// ValidCurrencyCode reports whether s is a well formed ISO 4217 code. Every
+// path that writes a currency the user chose applies the same test, so it lives
+// beside the column's other vocabularies rather than at one call site.
+func ValidCurrencyCode(s string) bool {
+	return currencyCodeRE.MatchString(s)
 }
 
 // InstrumentRow is a single instrument with its identifiers (for API responses).

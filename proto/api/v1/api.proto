@@ -9,6 +9,7 @@ import "archive/v1/fetch_blocks.proto";
 import "archive/v1/inflation.proto";
 import "archive/v1/instruments.proto";
 import "archive/v1/plugin_config.proto";
+import "archive/v1/preferences.proto";
 import "archive/v1/prices.proto";
 import "archive/v1/unhandled_events.proto";
 import "buf/validate/validate.proto";
@@ -185,6 +186,11 @@ service ApiService {
   // server-side. See ExportSystemArchiveRequest and ImportSystemArchiveRequest.
   rpc ExportSystemArchive(ExportSystemArchiveRequest) returns (stream ExportSystemArchiveResponse);
   rpc ImportSystemArchive(ImportSystemArchiveRequest) returns (ImportSystemArchiveResponse);
+
+  // User archive export (any authenticated user). Exports the caller's own data
+  // and no system data at all, in the same stream shape as the system export.
+  // See docs/adr/0033-system-and-user-archives-are-separate.md.
+  rpc ExportUserArchive(ExportUserArchiveRequest) returns (stream ExportUserArchiveResponse);
 
   // Identifier plugin config (admin-only). List all plugins; update enabled, precedence, and config JSON (including API keys).
   rpc ListIdentifierPlugins(ListIdentifierPluginsRequest) returns (ListIdentifierPluginsResponse);
@@ -450,7 +456,7 @@ message GetJobRequest {
   string job_id = 1;
 }
 
-// JobPartResult is one part of a system archive as applied by one job. A row
+// JobPartResult is one part of an archive as applied by one job. A row
 // exists for every part the document carried from the moment the job is created,
 // so a page rendering a row per part shows the same rows before, during and
 // after the run, including after a reload.
@@ -466,7 +472,8 @@ message JobPartResult {
   int32 processed_count = 4;
   // Row-level problems attributed to this part. row_index is the index of the
   // group (prices, corporate events) or of the instrument (instruments) the
-  // problem was found in.
+  // problem was found in. It is -1 for a part whose unit is a setting rather
+  // than a row, where there is nothing to point at.
   repeated ValidationError validation_errors = 5;
   // The hard failure that ended the part. Empty unless status is FAILED.
   string message = 6;
@@ -474,14 +481,14 @@ message JobPartResult {
 
 message GetJobResponse {
   JobStatus status = 1;
-  // Problems with no part of their own: transaction jobs, and a system archive
-  // that failed before any part was reached. Per-part problems are on the part.
+  // Problems with no part of their own: transaction jobs, and an archive that
+  // failed before any part was reached. Per-part problems are on the part.
   repeated ValidationError validation_errors = 2;
   repeated IdentificationError identification_errors = 3;
   int32 total_count = 4;
   int32 processed_count = 5;
   // One row per part the archive carried, in restore order. Empty for any job
-  // that is not a system archive import.
+  // that is not an archive import.
   repeated JobPartResult parts = 6;
 }
 
@@ -494,7 +501,7 @@ message Job {
   google.protobuf.Timestamp created_at = 5;
   int32 validation_error_count = 6;
   int32 identification_error_count = 7;
-  string job_type = 8; // "tx" or "system_archive"
+  string job_type = 8; // "tx", "system_archive" or "user_archive"
 }
 
 message ListJobsRequest {
@@ -600,6 +607,41 @@ message ImportSystemArchiveRequest {
 // progress and results are on GetJobResponse.parts.
 message ImportSystemArchiveResponse {
   string job_id = 1;
+}
+
+// ExportUserArchiveRequest asks for one user archive document: the caller's own
+// data. The include-menu works exactly as the system export's does.
+message ExportUserArchiveRequest {
+  // Naming a part of the system archive here is an error rather than a part
+  // quietly missing from the document.
+  repeated portfoliodb.archive.v1.ArchivePart parts = 1 [(buf.validate.field).repeated = {
+    min_items: 1
+    items: {
+      enum: {
+        defined_only: true
+        not_in: [0]
+      }
+    }
+  }];
+  // 2 and 3 are the bounds of the transaction window to export.
+}
+
+// ExportUserArchiveResponse is one element of the export stream, with the same
+// grammar as ExportSystemArchiveResponse: the envelope first and exactly once,
+// then for each selected part a part_begin followed by that part's items.
+//
+// A part whose unit is a setting rather than a row travels as one whole-part
+// message rather than as a series of items. part_begin still precedes it, so the
+// grammar does not fork: the marker is what creates the container, and a part
+// that was asked for and holds nothing is still present and empty.
+message ExportUserArchiveResponse {
+  oneof item {
+    portfoliodb.archive.v1.Envelope envelope = 1;
+    ArchivePartBegin part_begin = 2;
+    // The whole part in one message, sent once after its part_begin.
+    portfoliodb.archive.v1.PreferencePart preferences = 3;
+    // 4 is the transaction window, 5 is the declaration statement.
+  }
 }
 
 // IdentifierPluginConfig is one row from identifier_plugin_config (admin-only).

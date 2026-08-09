@@ -9,7 +9,7 @@ import { qk } from "@/lib/query-keys";
 import { exportSystemArchive, getJob, listJobs } from "@/lib/portfolio-api";
 import { marshalSystem } from "@/lib/archive/codec";
 import { assembleSystemArchive } from "@/lib/archive/assemble";
-import { ARCHIVE_PART_OPTIONS } from "@/lib/archive/parts";
+import { SYSTEM_ARCHIVE_PART_OPTIONS } from "@/lib/archive/parts";
 import { ArchivePart } from "@/gen/archive/v1/common_pb";
 import { JobStatus } from "@/gen/api/v1/api_pb";
 import { ImportArchivePanel } from "./import-panel";
@@ -20,7 +20,7 @@ const SYSTEM_ARCHIVE_JOB_TYPE = "system_archive";
 export default function ArchivePage() {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Set<ArchivePart>>(
-    () => new Set(ARCHIVE_PART_OPTIONS.filter((o) => o.defaultSelected).map((o) => o.part)),
+    () => new Set(SYSTEM_ARCHIVE_PART_OPTIONS.filter((o) => o.defaultSelected).map((o) => o.part)),
   );
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -65,7 +65,7 @@ export default function ArchivePage() {
   }
 
   const parts = useMemo(
-    () => ARCHIVE_PART_OPTIONS.filter((o) => selected.has(o.part)).map((o) => o.part),
+    () => SYSTEM_ARCHIVE_PART_OPTIONS.filter((o) => selected.has(o.part)).map((o) => o.part),
     [selected],
   );
 
@@ -125,7 +125,7 @@ export default function ArchivePage() {
           empty, which records that the export included it and there was nothing.
         </p>
         <ul className="mt-3 space-y-2">
-          {ARCHIVE_PART_OPTIONS.map((opt) => {
+          {SYSTEM_ARCHIVE_PART_OPTIONS.map((opt) => {
             const id = `part-${opt.part}`;
             return (
               <li key={id} className="flex items-start gap-2.5">

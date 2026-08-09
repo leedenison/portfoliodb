@@ -39,7 +39,7 @@ func (s *Server) ImportSystemArchive(ctx context.Context, req *apiv1.ImportSyste
 		}
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	parts := presentParts(a)
+	parts := presentSystemParts(a)
 	if len(parts) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "archive carries no parts")
 	}
@@ -66,12 +66,12 @@ func (s *Server) ImportSystemArchive(ctx context.Context, req *apiv1.ImportSyste
 	return &apiv1.ImportSystemArchiveResponse{JobId: jobID}, nil
 }
 
-// presentParts names the parts a document carries, in restore order.
+// presentSystemParts names the parts a system archive carries, in restore order.
 //
 // Presence, not emptiness: a section present but empty says the export included
 // it and there was nothing, which is a different statement from a section that
 // was never included, and the import honours the difference.
-func presentParts(a *archivev1.SystemArchive) []archivev1.ArchivePart {
+func presentSystemParts(a *archivev1.SystemArchive) []archivev1.ArchivePart {
 	var parts []archivev1.ArchivePart
 	if a.GetInstruments() != nil {
 		parts = append(parts, archivev1.ArchivePart_INSTRUMENTS)
@@ -117,7 +117,11 @@ func (s *Server) ExportSystemArchive(req *apiv1.ExportSystemArchiveRequest, stre
 	}); err != nil {
 		return err
 	}
-	for _, part := range requestedParts(req.GetParts()) {
+	parts, err := orderedParts(req.GetParts(), systemPartOrder)
+	if err != nil {
+		return err
+	}
+	for _, part := range parts {
 		if err := stream.Send(&apiv1.ExportSystemArchiveResponse{
 			Item: &apiv1.ExportSystemArchiveResponse_PartBegin{
 				PartBegin: &apiv1.ArchivePartBegin{Part: part},
@@ -125,40 +129,35 @@ func (s *Server) ExportSystemArchive(req *apiv1.ExportSystemArchiveRequest, stre
 		}); err != nil {
 			return err
 		}
-		var err error
+		var partErr error
 		switch part {
 		case archivev1.ArchivePart_INSTRUMENTS:
-			err = s.sendInstrumentPart(ctx, req, stream)
+			partErr = s.sendInstrumentPart(ctx, req, stream)
 		case archivev1.ArchivePart_PRICES:
-			err = s.sendPricePart(ctx, stream)
+			partErr = s.sendPricePart(ctx, stream)
 		case archivev1.ArchivePart_CORPORATE_EVENTS:
-			err = s.sendCorporateEventPart(ctx, stream)
+			partErr = s.sendCorporateEventPart(ctx, stream)
 		case archivev1.ArchivePart_INFLATION_INDICES:
-			err = s.sendInflationPart(ctx, stream)
+			partErr = s.sendInflationPart(ctx, stream)
 		case archivev1.ArchivePart_FETCH_BLOCKS:
-			err = s.sendFetchBlockPart(ctx, stream)
+			partErr = s.sendFetchBlockPart(ctx, stream)
 		case archivev1.ArchivePart_UNHANDLED_EVENTS:
-			err = s.sendUnhandledEventPart(ctx, stream)
+			partErr = s.sendUnhandledEventPart(ctx, stream)
 		case archivev1.ArchivePart_PLUGIN_CONFIG:
-			err = s.sendPluginConfigPart(ctx, stream)
+			partErr = s.sendPluginConfigPart(ctx, stream)
 		}
-		if err != nil {
-			return err
+		if partErr != nil {
+			return partErr
 		}
 	}
 	return nil
 }
 
-// requestedParts dedupes the menu and puts it in restore order. Order in the
-// document is the order it is applied, so it is the server's to decide and not
-// the caller's to state.
-func requestedParts(req []archivev1.ArchivePart) []archivev1.ArchivePart {
-	seen := make(map[archivev1.ArchivePart]bool, len(req))
-	for _, p := range req {
-		seen[p] = true
-	}
-	var out []archivev1.ArchivePart
-	for _, p := range []archivev1.ArchivePart{
+// systemPartOrder and userPartOrder are the two archives' parts in restore
+// order. ArchivePart numbers them in that order, but the enum spans both
+// documents and an export writes one of them, so each has its own list.
+var (
+	systemPartOrder = []archivev1.ArchivePart{
 		archivev1.ArchivePart_INSTRUMENTS,
 		archivev1.ArchivePart_PRICES,
 		archivev1.ArchivePart_CORPORATE_EVENTS,
@@ -166,12 +165,39 @@ func requestedParts(req []archivev1.ArchivePart) []archivev1.ArchivePart {
 		archivev1.ArchivePart_FETCH_BLOCKS,
 		archivev1.ArchivePart_UNHANDLED_EVENTS,
 		archivev1.ArchivePart_PLUGIN_CONFIG,
-	} {
+	}
+	userPartOrder = []archivev1.ArchivePart{
+		archivev1.ArchivePart_PREFERENCES,
+	}
+)
+
+// orderedParts dedupes the requested menu and puts it in restore order. Order in
+// the document is the order it is applied, so it is the server's to decide and
+// not the caller's to state.
+//
+// A part that belongs to the other archive is refused rather than dropped: an
+// export that quietly wrote nothing for a part the caller asked for would be a
+// silent wrong answer, and the two menus are one enum precisely so a request can
+// name a part from either.
+func orderedParts(req []archivev1.ArchivePart, order []archivev1.ArchivePart) ([]archivev1.ArchivePart, error) {
+	known := make(map[archivev1.ArchivePart]bool, len(order))
+	for _, p := range order {
+		known[p] = true
+	}
+	seen := make(map[archivev1.ArchivePart]bool, len(req))
+	for _, p := range req {
+		if !known[p] {
+			return nil, status.Errorf(codes.InvalidArgument, "%s is not a part of this archive", p)
+		}
+		seen[p] = true
+	}
+	var out []archivev1.ArchivePart
+	for _, p := range order {
 		if seen[p] {
 			out = append(out, p)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // sendInstrumentPart streams the security master.

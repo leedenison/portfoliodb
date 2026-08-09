@@ -122,6 +122,14 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 		if res.eventsPersisted {
 			pluginutil.Trigger(opts.CorporateEventTrigger)
 		}
+	case db.JobTypeUserArchive:
+		res := processUserImport(ctx, opts.DB, j)
+		// A restored display currency opens FX gaps nothing has been asked to
+		// fill, so the import earns the same nudge setting one through the API
+		// does. Nudged once for the whole import rather than per part.
+		if res.displayCurrencySet {
+			pluginutil.Trigger(opts.PriceTrigger)
+		}
 	default:
 		log.Printf("ingestion job %s: unknown job type %q", j.JobID, j.JobType)
 		_ = opts.DB.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_FAILED)

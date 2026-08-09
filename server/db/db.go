@@ -370,7 +370,7 @@ type JobDetail struct {
 	ProcessedCount       int32
 	ValidationErrors     []*apiv1.ValidationError // errors with no part of their own
 	IdentificationErrors []IdentificationError
-	Parts                []JobPartResult // in restore order; empty unless a system archive
+	Parts                []JobPartResult // in restore order; empty unless an archive import
 }
 
 // JobDB provides ingestion job operations.

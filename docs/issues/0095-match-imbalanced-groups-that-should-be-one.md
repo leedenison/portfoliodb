@@ -1,7 +1,7 @@
 ---
 status: open
 title: Match imbalanced groups that should be one
-dependencies: [0068]
+dependencies: [0068, 0097]
 ---
 
 Repair, after the fact, postings that belong to one economic event but were
@@ -52,6 +52,31 @@ the merged group balances.
 
 Amend 0037 to say it is scoped to transfers and why, rather than leaving it
 reading as a rule about matching in general.
+
+## Relationship to 0097
+
+0097 derives groups on the server from stored evidence, over the whole dataset rather
+than one upload. That takes most of the first bullet above with it: two legs in two
+broker logs, and a group cut by a period replace, are both cases the engine joins
+without anyone being asked. What is left here is the half 0097 cannot do -- the pair
+whose evidence does not identify the occurrence, where the answer is a person's
+judgement rather than a rule.
+
+## A manual match whose target stops making sense
+
+Distinct from the id churn adr/0037-transfer-matches-are-links-not-postings.md now records, and not fixed by anchoring a match to
+something durable. A later upload can leave the group a manual match names in a state
+where the match no longer means anything, with the same id throughout: the group's
+residual changes commodity or sign, or it loses the clearing leg the match was made
+against, because the re-uploaded rows genuinely differ from the ones the person looked
+at.
+
+So a match can be anchored perfectly and still be stale. Settle what happens: whether
+it survives on the assumption the judgement still holds, is dropped as unsupported, or
+is kept and flagged for review. The last is probably right -- a person's answer is
+expensive to obtain and discarding it silently is worse than showing it with a caveat
+-- but the condition that triggers the flag has to be stated, and it is not simply "the
+group is imbalanced", because an unmatched transfer is imbalanced by construction.
 
 ## Relationship to 0091
 

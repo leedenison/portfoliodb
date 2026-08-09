@@ -1,4 +1,19 @@
+---
+status: partly superseded by ADR-0041
+---
+
 # Converters own transaction grouping; the server never derives a leg
+
+Partly superseded by [0041](0041-server-owns-transaction-grouping.md), which moves the
+grouping decision to the server: a converter sees one file and cannot group across
+uploads, and the premise recorded at the foot of this ADR -- that the broker's reference
+numbers are gone by the time data reaches the standard format -- has not held since they
+were stored on the posting.
+
+What survives is everything below about ledger content. The server still does not invent
+a leg, does not derive a cash side from `quantity * unit_price`, and does not fold a fee
+into a cash amount; fees remain postings with `type=INVEXPENSE`. Grouping decides which
+postings belong together, not what postings exist.
 
 An upload is a list of postings, and the broker-specific converter decides which of
 them are legs of one economic event. The server persists what it is given: it does

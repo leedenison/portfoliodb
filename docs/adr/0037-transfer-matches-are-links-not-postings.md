@@ -33,6 +33,25 @@ deleting its clearing leg: that would leave its group unbalanced. Only a whole g
 deleted passes vacuously. The invariant that makes ingestion trustworthy is the same
 one that rules out every representation except a link beside the ledger.
 
+## A link rather than a merge, and that part is about transfers only
+
+The argument above rules out a status column and a third group for any residual. The
+choice of a *link* over a *merge* is narrower than that, and turns on something only
+transfers have: the link records which account holds the other side, because the
+membership test in [0022](0022-typed-per-account-cash-flow-boundary.md) asks whether
+both accounts are members before it nets a pair or values what is in transit. Merging
+two transfer groups would erase the account boundary money-weighted return depends on,
+which is the whole reason the pairing exists.
+
+An `IMBALANCE` residual carries no such boundary. Both halves of a split trade sit in
+one account, and the residual is an artefact of the split rather than an economic fact,
+so the right repair there is a merge: reassign `group_id` and delete both residuals.
+The unreachability argument above does not forbid it -- that argument is about clearing
+one side of a pair by mutating its leg. `check_tx_group_balance()` is `DEFERRABLE
+INITIALLY DEFERRED`, so a merge performed in one transaction is evaluated at COMMIT,
+where the merged group balances. See
+[0095](../issues/0095-match-imbalanced-groups-that-should-be-one.md).
+
 ## Keyed per (group, commodity), and directed
 
 Balancing emits one residual per commodity, so an unpaired `JRNLSEC` group can have a
@@ -54,7 +73,19 @@ has to know a re-upload happened. The link is never authoritative and is always 
 to rebuild, which is what licenses a heuristic to write one at all.
 
 The matcher only ever inserts. It never updates and never deletes, so a `MANUAL`
-match survives every rebuild.
+match survives every rebuild the matcher performs.
+
+It does not survive a regroup. Under
+[0041](0041-server-owns-transaction-grouping.md) the partition is recomputed and group
+ids churn, so a link keyed on them breaks whether or not the matcher touched it. For a
+heuristic match that costs nothing -- it is cache, and the next cycle rebuilds it from
+the same evidence. A `MANUAL` match cannot be rebuilt from evidence, which is precisely
+what made it manual. A person's judgement therefore has to be recorded as an *input* to
+grouping and matching and replayed on every run, keyed on something that outlives the
+groups it currently names. What that key is remains open, because a posting has no
+natural key ([0002](0002-transaction-ingestion-model.md)). See
+[0095](../issues/0095-match-imbalanced-groups-that-should-be-one.md) and
+[0091](../issues/0091-manual-transfer-match.md).
 
 ## Ambiguity is left unmatched
 
@@ -97,6 +128,11 @@ converter still has them." That premise no longer holds: the reference is stored
 the posting. And the pairing it enables spans uploads, statements and accounts, which
 is a scope no single converter has. Where the evidence is within one file the
 converter still does the pairing; this is the residue it cannot see.
+
+That last sentence has since been overtaken:
+[0041](0041-server-owns-transaction-grouping.md) moves the grouping decision to the
+server outright, for the same reason set out here and generalised. This section stands
+as the first case of it rather than as an exception to 0021.
 
 ## Consequences
 

@@ -334,6 +334,10 @@ server persists what it is given and never infers a missing leg, pairs rows, or 
 a fee into a cash amount. Fees are expressed as postings with `type=INVEXPENSE`, not
 as a column on the upload. See adr/0021-converters-own-transaction-grouping.md.
 
+The decision to move grouping to the server, so that it can join legs a converter
+never sees together, is recorded in adr/0041-server-owns-transaction-grouping.md. This
+section describes what happens until it lands.
+
 Routing a residual is not an exception to that. A residual is arithmetic on the legs
 supplied -- what they leave over -- and it is typed as a residual rather than posted
 as the cash or the fee the server cannot know it to be. A derived cash leg would be

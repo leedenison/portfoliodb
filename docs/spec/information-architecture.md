@@ -16,6 +16,8 @@ The informantion architecture describes key concepts for users (and admin users)
         + **Errors** are the errors associated with processing a transaction.  Identification errors and validation errors are presented to the user - ideally with links directly to UI that allows corrective action, or with a helpful, actionable error message. 
      - **Trade Notifications** are the single transaction uploads which are likely to have been automated.  They are kept separate from the (manual) uploads.
 
+ * **Your Archive** is the single file a user's own data is exported to and restored from: their preferences, and in time their transactions and holding declarations.  It is its own concept rather than an attribute of any one page, because it spans all three.  It carries none of the shared reference data the instance is built from -- that is The Archive below, which an admin keeps -- so the two never mix and neither reaches the other's page.  A user cares about getting their data out, and about knowing what an import actually applied.  Restoring an archive into an instance whose instruments are not loaded is supported and correct; it is merely slower, and must not be presented as an error.
+
  ## Key Admin User Concepts
 
  * **The Archive** is the single file the shared data of an instance is exported to and rebuilt from.  It is its own concept rather than an attribute of any one page, because it spans Reference Data, Plugins and Diagnostics: instruments, prices and corporate events sit under Reference Data, plugin configuration under Plugins, and fetch blocks and unhandled corporate events under Diagnostics.  An admin user cares about producing a file that is complete enough to rebuild from, and about knowing what an import actually applied.  The archive carries no user data at all, and a user's own archive is a separate file with a separate page.
@@ -61,10 +63,14 @@ The user menu is a dropdown anchored to the user's email address on the right si
 |------|------|------------|
 | User email | Display only | Always |
 | **Uploads** | Link (`/uploads`) | Always |
+| **Archive** | Link (`/archive`) | Always |
+| **Settings** | Link (`/settings`) | Always |
 | **Admin** | Link (`/admin`) | Admin role only |
 | **Log out** | Action | Always |
 
  * **Uploads** shows all uploads regardless of the selected portfolio.  However, when a portfolio other than "All Holdings" is selected, rows containing transactions relevant to that portfolio should be visually highlighted.  Note: the upload flow itself is a modal launched from the Holdings page, not a separate route; the `/uploads` page is the upload history list.
+ * **Archive** is where a user produces and consumes their own archive.  Export offers a menu of what to include: a part left out is absent from the file, and a part included but holding nothing is written empty, which records that the export asked and there was nothing.  Import takes a whole file, runs on the server and reports a result per part, so it finishes whether or not the page stays open.  The page states plainly that importing ignored asset classes replaces the rules the user has and removes the transactions those rules cover.  It is a separate affordance from the transaction upload modal, which converts a broker's own file: different input, different failure modes, different frequency.
+ * **Settings** is where a user sets their display currency and the asset classes to ignore on import.
  * **Admin** navigates to the admin area.  Only visible to users with the admin role.
 
 ### Left Sidebar

@@ -5,10 +5,11 @@ import { FetchBlockPartSchema } from "@/gen/archive/v1/fetch_blocks_pb";
 import { InflationPartSchema } from "@/gen/archive/v1/inflation_pb";
 import { InstrumentPartSchema } from "@/gen/archive/v1/instruments_pb";
 import { PluginConfigPartSchema } from "@/gen/archive/v1/plugin_config_pb";
+import { PreferencePartSchema } from "@/gen/archive/v1/preferences_pb";
 import { PricePartSchema } from "@/gen/archive/v1/prices_pb";
 import { UnhandledEventPartSchema } from "@/gen/archive/v1/unhandled_events_pb";
-import type { ExportSystemArchiveResponse } from "@/gen/api/v1/api_pb";
-import type { SystemArchive } from "@/gen/archive/v1/archive_pb";
+import type { ExportSystemArchiveResponse, ExportUserArchiveResponse } from "@/gen/api/v1/api_pb";
+import type { SystemArchive, UserArchive } from "@/gen/archive/v1/archive_pb";
 
 /**
  * Rebuild a system archive from its export stream.
@@ -80,8 +81,41 @@ export function assembleSystemArchive(items: ExportSystemArchiveResponse[]): Sys
   return doc as SystemArchive;
 }
 
-/** How many rows each part of a document carries, for a preview. */
-export function partCounts(archive: SystemArchive): { label: string; count: number }[] {
+/**
+ * Rebuild a user archive from its export stream.
+ *
+ * Same grammar as the system stream, including for a part whose unit is a
+ * setting rather than a row: the marker creates the container and the
+ * whole-part message that follows replaces it, so a part that was asked for and
+ * holds nothing stays present and empty.
+ */
+export function assembleUserArchive(items: ExportUserArchiveResponse[]): UserArchive {
+  const doc: Partial<UserArchive> = {};
+  for (const item of items) {
+    switch (item.item.case) {
+      case "envelope":
+        doc.envelope = item.item.value;
+        break;
+      case "partBegin":
+        switch (item.item.value.part) {
+          case ArchivePart.PREFERENCES:
+            doc.preferences ??= create(PreferencePartSchema, {});
+            break;
+        }
+        break;
+      case "preferences":
+        doc.preferences = item.item.value;
+        break;
+    }
+  }
+  if (!doc.envelope) {
+    throw new Error("export stream sent no envelope");
+  }
+  return doc as UserArchive;
+}
+
+/** How many rows each part of a system document carries, for a preview. */
+export function systemPartCounts(archive: SystemArchive): { label: string; count: number }[] {
   const out: { label: string; count: number }[] = [];
   if (archive.instruments) {
     out.push({ label: "instruments", count: archive.instruments.instruments.length });
@@ -108,6 +142,23 @@ export function partCounts(archive: SystemArchive): { label: string; count: numb
   }
   if (archive.pluginConfig) {
     out.push({ label: "plugin config rows", count: archive.pluginConfig.configs.length });
+  }
+  return out;
+}
+
+/**
+ * How much each part of a user document carries, for a preview.
+ *
+ * Preferences counts settings rather than rows, which is what the part reports
+ * progress against, so the preview and the job's own total agree.
+ */
+export function userPartCounts(archive: UserArchive): { label: string; count: number }[] {
+  const out: { label: string; count: number }[] = [];
+  if (archive.preferences) {
+    let count = 0;
+    if (archive.preferences.displayCurrency !== undefined) count++;
+    if (archive.preferences.ignoredAssetClasses !== undefined) count++;
+    out.push({ label: "preference settings", count });
   }
   return out;
 }

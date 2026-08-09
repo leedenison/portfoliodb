@@ -91,7 +91,7 @@ ENCODING:USASCII
         <CURDEF>GBP
         <INVACCTFROM>
           <BROKERID>4705</BROKERID>
-          <ACCTID>U7033034</ACCTID>
+          <ACCTID>U1000001</ACCTID>
         </INVACCTFROM>
         <INVTRANLIST>
           <DTSTART>20260107202000.000[-5:EST]
@@ -132,7 +132,7 @@ ENCODING:USASCII
 
     expect(stmtRs.CURDEF).toBe("GBP");
     const acct = stmtRs.INVACCTFROM as Record<string, unknown>;
-    expect(acct.ACCTID).toBe("U7033034");
+    expect(acct.ACCTID).toBe("U1000001");
 
     const tranList = stmtRs.INVTRANLIST as Record<string, unknown>;
     expect(tranList.DTSTART).toBe("20260107202000.000[-5:EST]");

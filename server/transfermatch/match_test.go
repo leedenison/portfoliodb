@@ -69,8 +69,8 @@ func TestMatch(t *testing.T) {
 		// source outright, which is the only evidence that needs no proximity.
 		name: "the source names the other account",
 		sides: []db.TransferSide{
-			side("g-fund", "AG10041188", "20000", 0, "1093663528"),
-			pointing(side("g-cma", "AW10075724", "-20000", 0, "1093663531"), "AG10041188"),
+			side("g-fund", "AG10000001", "20000", 0, "971613411"),
+			pointing(side("g-cma", "AW10000001", "-20000", 0, "971613414"), "AG10000001"),
 		},
 		want: []link{{"g-fund", "g-cma", db.TransferMatchPointer}},
 	}, {
@@ -78,8 +78,8 @@ func TestMatch(t *testing.T) {
 		// window it names a different transfer between the same two accounts.
 		name: "a pointer outside the window matches nothing",
 		sides: []db.TransferSide{
-			side("g-fund", "AG10041188", "20000", 0, "1093663528"),
-			pointing(side("g-cma", "AW10075724", "-20000", 30, "1099999999"), "AG10041188"),
+			side("g-fund", "AG10000001", "20000", 0, "971613411"),
+			pointing(side("g-cma", "AW10000001", "-20000", 30, "1099999999"), "AG10000001"),
 		},
 		want: nil,
 	}, {
@@ -87,9 +87,9 @@ func TestMatch(t *testing.T) {
 		// far away to separate them either. Surfacing both beats guessing.
 		name: "a pointer with two identical candidates matches neither",
 		sides: []db.TransferSide{
-			side("g-fund", "AG10041188", "20000", 0, "1000000000"),
-			pointing(side("g-cma-a", "AW10075724", "-20000", 0, "2000000000"), "AG10041188"),
-			pointing(side("g-cma-b", "AW10075724", "-20000", 0, "3000000000"), "AG10041188"),
+			side("g-fund", "AG10000001", "20000", 0, "1000000000"),
+			pointing(side("g-cma-a", "AW10000001", "-20000", 0, "2000000000"), "AG10000001"),
+			pointing(side("g-cma-b", "AW10000001", "-20000", 0, "3000000000"), "AG10000001"),
 		},
 		want: nil,
 	}, {
@@ -98,8 +98,8 @@ func TestMatch(t *testing.T) {
 		// one group, so its references are a run and the nearest is 1.
 		name: "adjacent references pair the hop no pointer names",
 		sides: []db.TransferSide{
-			side("g-cma", "AW10075724", "20000", 0, "1093663547"),
-			side("g-isa", "AS10110796", "-20000", 0, "1093663545", "1093663546", "1093663548"),
+			side("g-cma", "AW10000001", "20000", 0, "971613430"),
+			side("g-isa", "AS10000001", "-20000", 0, "971613428", "971613429", "971613431"),
 		},
 		want: []link{{"g-cma", "g-isa", db.TransferMatchReference}},
 	}, {
@@ -108,15 +108,15 @@ func TestMatch(t *testing.T) {
 		// the span is not the eight the deposit-run heuristic uses.
 		name: "a wide but real reference gap still pairs",
 		sides: []db.TransferSide{
-			side("g-cma", "AW10218541", "5.31", 0, "1044926841"),
-			side("g-sipp", "AP10024612", "-5.31", 0, "1044926900"),
+			side("g-cma", "AW10000002", "5.31", 0, "922876724"),
+			side("g-sipp", "AP10000002", "-5.31", 0, "922876783"),
 		},
 		want: []link{{"g-cma", "g-sipp", db.TransferMatchReference}},
 	}, {
 		name: "references far apart are not proximity",
 		sides: []db.TransferSide{
-			side("g-a", "AG10041188", "20000", 0, "1000000000"),
-			side("g-b", "AW10075724", "-20000", 0, "1000000400"),
+			side("g-a", "AG10000001", "20000", 0, "1000000000"),
+			side("g-b", "AW10000001", "-20000", 0, "1000000400"),
 		},
 		want: nil,
 	}, {
@@ -125,12 +125,12 @@ func TestMatch(t *testing.T) {
 		// one month from the next.
 		name: "monthly fee transfers pair within their own month",
 		sides: []db.TransferSide{
-			side("jan-isa", "AS10110796", "2.16", 0, "1046659862"),
-			side("jan-cma", "AW10075724", "-2.16", 0, "1046659864"),
-			side("feb-isa", "AS10110796", "2.17", 30, "1062159454"),
-			side("feb-cma", "AW10075724", "-2.17", 30, "1062159457"),
-			side("mar-isa", "AS10110796", "2.16", 58, "1075213007"),
-			side("mar-cma", "AW10075724", "-2.16", 58, "1075213009"),
+			side("jan-isa", "AS10000001", "2.16", 0, "924609745"),
+			side("jan-cma", "AW10000001", "-2.16", 0, "924609747"),
+			side("feb-isa", "AS10000001", "2.17", 30, "940109337"),
+			side("feb-cma", "AW10000001", "-2.17", 30, "940109340"),
+			side("mar-isa", "AS10000001", "2.16", 58, "953162890"),
+			side("mar-cma", "AW10000001", "-2.16", 58, "953162892"),
 		},
 		want: []link{
 			{"jan-isa", "jan-cma", db.TransferMatchReference},
@@ -144,9 +144,9 @@ func TestMatch(t *testing.T) {
 		// stops the report finding the side that really is missing.
 		name: "equally near candidates match neither",
 		sides: []db.TransferSide{
-			side("g-a", "AS10110796", "2.16", 0, "1046659864"),
-			side("g-b1", "AW10075724", "-2.16", 0, "1046659862"),
-			side("g-b2", "AW10075724", "-2.16", 0, "1046659866"),
+			side("g-a", "AS10000001", "2.16", 0, "924609747"),
+			side("g-b1", "AW10000001", "-2.16", 0, "924609745"),
+			side("g-b2", "AW10000001", "-2.16", 0, "924609749"),
 		},
 		want: nil,
 	}, {
@@ -155,10 +155,10 @@ func TestMatch(t *testing.T) {
 		// accounts in one window are distinguishable after all.
 		name: "references separate two same-amount transfers in one window",
 		sides: []db.TransferSide{
-			side("g-a1", "AS10110796", "2.16", 0, "1046659862"),
-			side("g-a2", "AS10110796", "2.16", 0, "1046659872"),
-			side("g-b1", "AW10075724", "-2.16", 0, "1046659864"),
-			side("g-b2", "AW10075724", "-2.16", 0, "1046659874"),
+			side("g-a1", "AS10000001", "2.16", 0, "924609745"),
+			side("g-a2", "AS10000001", "2.16", 0, "924609755"),
+			side("g-b1", "AW10000001", "-2.16", 0, "924609747"),
+			side("g-b2", "AW10000001", "-2.16", 0, "924609757"),
 		},
 		want: []link{
 			{"g-a1", "g-b1", db.TransferMatchReference},
@@ -169,7 +169,7 @@ func TestMatch(t *testing.T) {
 		// pair it with and it must stay unmatched: it is a real external flow.
 		name: "a deposit with no counterpart stays unmatched",
 		sides: []db.TransferSide{
-			side("g-isa", "AS10110796", "-19599", 0, "675163172"),
+			side("g-isa", "AS10000001", "-19599", 0, "553113055"),
 		},
 		want: nil,
 	}, {
@@ -178,9 +178,9 @@ func TestMatch(t *testing.T) {
 		// an amount and a date alone are not evidence.
 		name: "a cross-broker pair is left unmatched",
 		sides: []db.TransferSide{
-			side("g-fid", "AG10041188", "20000", 0, "1093663528"),
+			side("g-fid", "AG10000001", "20000", 0, "971613411"),
 			func() db.TransferSide {
-				s := side("g-ibkr", "U7033034", "-20000", 0, "1093663531")
+				s := side("g-ibkr", "U1000001", "-20000", 0, "971613414")
 				s.Broker = typev1.Broker_IBKR
 				return s
 			}(),
@@ -191,9 +191,9 @@ func TestMatch(t *testing.T) {
 		// outside the broker that issued it.
 		name: "a cross-broker pointer is not a pointer",
 		sides: []db.TransferSide{
-			side("g-fid", "AG10041188", "20000", 0, "1093663528"),
+			side("g-fid", "AG10000001", "20000", 0, "971613411"),
 			func() db.TransferSide {
-				s := pointing(side("g-ibkr", "U7033034", "-20000", 0, "9999999999"), "AG10041188")
+				s := pointing(side("g-ibkr", "U1000001", "-20000", 0, "9999999999"), "AG10000001")
 				s.Broker = typev1.Broker_IBKR
 				return s
 			}(),
@@ -202,8 +202,8 @@ func TestMatch(t *testing.T) {
 	}, {
 		name: "money moving within one account is not a transfer",
 		sides: []db.TransferSide{
-			side("g-a", "AP10013127", "12772.83", 0, "1288903394"),
-			side("g-b", "AP10013127", "-12772.83", 0, "1288903395"),
+			side("g-a", "AP10000001", "12772.83", 0, "1166853277"),
+			side("g-b", "AP10000001", "-12772.83", 0, "1166853278"),
 		},
 		want: nil,
 	}, {
@@ -212,16 +212,16 @@ func TestMatch(t *testing.T) {
 		// find, and the matcher must not invent one.
 		name: "two sides of the same sign are not a pair",
 		sides: []db.TransferSide{
-			side("g-a", "AG10041188", "20000", 0, "1093663528"),
-			side("g-b", "AW10075724", "20000", 0, "1093663531"),
+			side("g-a", "AG10000001", "20000", 0, "971613411"),
+			side("g-b", "AW10000001", "20000", 0, "971613414"),
 		},
 		want: nil,
 	}, {
 		name: "a transfer never crosses a commodity",
 		sides: []db.TransferSide{
-			side("g-a", "AG10041188", "20000", 0, "1093663528"),
+			side("g-a", "AG10000001", "20000", 0, "971613411"),
 			func() db.TransferSide {
-				s := side("g-b", "AW10075724", "-20000", 0, "1093663531")
+				s := side("g-b", "AW10000001", "-20000", 0, "971613414")
 				s.InstrumentID = "usd"
 				return s
 			}(),
@@ -230,9 +230,9 @@ func TestMatch(t *testing.T) {
 	}, {
 		name: "a transfer never crosses a user",
 		sides: []db.TransferSide{
-			side("g-a", "AG10041188", "20000", 0, "1093663528"),
+			side("g-a", "AG10000001", "20000", 0, "971613411"),
 			func() db.TransferSide {
-				s := side("g-b", "AW10075724", "-20000", 0, "1093663531")
+				s := side("g-b", "AW10000001", "-20000", 0, "971613414")
 				s.UserID = "u2"
 				return s
 			}(),
@@ -243,8 +243,8 @@ func TestMatch(t *testing.T) {
 		// weekend still has to pair.
 		name: "the two sides need not share a date",
 		sides: []db.TransferSide{
-			side("g-a", "AG10041188", "20000", 0, "1093663528"),
-			side("g-b", "AW10075724", "-20000", 2, "1093663531"),
+			side("g-a", "AG10000001", "20000", 0, "971613411"),
+			side("g-b", "AW10000001", "-20000", 2, "971613414"),
 		},
 		want: []link{{"g-a", "g-b", db.TransferMatchReference}},
 	}, {
@@ -253,8 +253,8 @@ func TestMatch(t *testing.T) {
 		// than producing a nonsense distance.
 		name: "an opaque reference is no proximity signal",
 		sides: []db.TransferSide{
-			side("g-a", "U7033034", "20000", 0, "20251015U70330348371888432"),
-			side("g-b", "U7033035", "-20000", 0, "20251015U70330348371888433"),
+			side("g-a", "U1000001", "20000", 0, "20251015U10000018371888432"),
+			side("g-b", "U1000002", "-20000", 0, "20251015U10000018371888433"),
 		},
 		want: nil,
 	}, {
@@ -262,8 +262,8 @@ func TestMatch(t *testing.T) {
 		// is not matchable however alone it looks.
 		name: "a side with no reference is not matchable",
 		sides: []db.TransferSide{
-			side("g-a", "AG10041188", "20000", 0),
-			side("g-b", "AW10075724", "-20000", 0),
+			side("g-a", "AG10000001", "20000", 0),
+			side("g-b", "AW10000001", "-20000", 0),
 		},
 		want: nil,
 	}, {
@@ -272,9 +272,9 @@ func TestMatch(t *testing.T) {
 		// the merely-adjacent departure is left over.
 		name: "a pointer beats mere proximity for the same side",
 		sides: []db.TransferSide{
-			side("g-near", "AG10041188", "20000", 0, "1093663530"),
-			side("g-named", "AS10110796", "20000", 0, "1099999999"),
-			pointing(side("g-cma", "AW10075724", "-20000", 0, "1093663531"), "AS10110796"),
+			side("g-near", "AG10000001", "20000", 0, "971613413"),
+			side("g-named", "AS10000001", "20000", 0, "1099999999"),
+			pointing(side("g-cma", "AW10000001", "-20000", 0, "971613414"), "AS10000001"),
 		},
 		want: []link{{"g-named", "g-cma", db.TransferMatchPointer}},
 	}}
@@ -302,8 +302,8 @@ func TestMatch_DirectionFollowsTheSign(t *testing.T) {
 	// Deliberately given arrival-first, so the order of the input cannot be what
 	// decides the direction.
 	got := Match([]db.TransferSide{
-		side("g-arrival", "AW10075724", "-20000", 0, "1093663531"),
-		side("g-departure", "AG10041188", "20000", 0, "1093663528"),
+		side("g-arrival", "AW10000001", "-20000", 0, "971613414"),
+		side("g-departure", "AG10000001", "20000", 0, "971613411"),
 	}, DefaultOpts())
 	if len(got) != 1 {
 		t.Fatalf("got %d matches, want 1", len(got))
@@ -319,13 +319,13 @@ func TestMatch_DirectionFollowsTheSign(t *testing.T) {
 // that would pair differently between two runs over the same data.
 func TestMatch_IsOrderIndependent(t *testing.T) {
 	sides := []db.TransferSide{
-		side("jan-isa", "AS10110796", "2.16", 0, "1046659862"),
-		side("jan-cma", "AW10075724", "-2.16", 0, "1046659864"),
-		side("feb-isa", "AS10110796", "2.17", 30, "1062159454"),
-		side("feb-cma", "AW10075724", "-2.17", 30, "1062159457"),
-		side("lone", "AS10110796", "-19599", 5, "675163172"),
-		side("g-fund", "AG10041188", "20000", 1, "1093663528"),
-		pointing(side("g-cma", "AW10075724", "-20000", 1, "1093663531"), "AG10041188"),
+		side("jan-isa", "AS10000001", "2.16", 0, "924609745"),
+		side("jan-cma", "AW10000001", "-2.16", 0, "924609747"),
+		side("feb-isa", "AS10000001", "2.17", 30, "940109337"),
+		side("feb-cma", "AW10000001", "-2.17", 30, "940109340"),
+		side("lone", "AS10000001", "-19599", 5, "553113055"),
+		side("g-fund", "AG10000001", "20000", 1, "971613411"),
+		pointing(side("g-cma", "AW10000001", "-20000", 1, "971613414"), "AG10000001"),
 	}
 	want := match(sides)
 	if len(want) != 3 {

@@ -143,7 +143,7 @@ describe("reinvestLeg", () => {
     instrumentDescription: "Baillie Gifford Responsible Global Equity Income B Inc",
     quantity: "21.09",
     unitPrice: "1.5",
-    groupRef: "582193319",
+    groupRef: "460143202",
   });
 
   it("names the income the units cost, in the income account", () => {
@@ -154,7 +154,7 @@ describe("reinvestLeg", () => {
     // the posting this balances, so the group comes out at exactly zero.
     expect(leg.quantity).toBe("-31.635");
     expect(leg.unitPrice).toBe("1");
-    expect(leg.groupRef).toBe("582193319");
+    expect(leg.groupRef).toBe("460143202");
     // Money, so it resolves to the currency rather than to the fund.
     expect(leg.instrumentDescription).toBe("GBP");
     expect(leg.identifierHints.map((h) => [h.type, h.value])).toEqual([
@@ -184,7 +184,7 @@ describe("refPrefix", () => {
   });
 
   it("leaves broker refs that share no prefix alone", () => {
-    expect(refPrefix([tx({ type: TxType.INCOME, groupRef: "563466569" })])).toBe("p");
+    expect(refPrefix([tx({ type: TxType.INCOME, groupRef: "441416452" })])).toBe("p");
   });
 });
 
@@ -200,9 +200,9 @@ describe("counterLegs", () => {
   });
 
   it("keeps a group the converter already assigned", () => {
-    const txs = [tx({ type: TxType.INVEXPENSE, quantity: "-3.24", groupRef: "563466600" })];
+    const txs = [tx({ type: TxType.INVEXPENSE, quantity: "-3.24", groupRef: "441416483" })];
     txs.push(...counterLegs(txs));
-    expect(txs[1]!.groupRef).toBe("563466600");
+    expect(txs[1]!.groupRef).toBe("441416483");
   });
 
   it("gives each one-sided row a group of its own", () => {

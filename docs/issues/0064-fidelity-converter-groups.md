@@ -18,7 +18,7 @@ in the raw export and is discarded by the converters, which keep neither
 
 ## Pairing rules
 
-Measured against `local/masters/Lee-Fidelity-CWSY.csv`:
+Measured against the Fidelity master in `local/masters/`:
 
 - `Sell` -> `Cash In From Sell`: exact `|Amount|` match within (Account Number,
   Completion date). 55/55, no residual.

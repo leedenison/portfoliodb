@@ -4,7 +4,7 @@ import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 
 /**
- * An option trade taken verbatim from local/masters/U7033034_20250107_20260107.qfx,
+ * An option trade taken verbatim from local/masters/U1000001_20250107_20260107.qfx,
  * with the OPTINFO that names it. It is here because it is the arithmetic the
  * contract size has to reproduce: 8 x 20.1105585 x 100 = 16088.4468, and only
  * with the multiplier does that plus the 7.420248 commission reach the
@@ -13,7 +13,7 @@ import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
  */
 const OPT_BUY = `<BUYOPT>
   <INVBUY>
-    <INVTRAN><FITID>20250123U70330347171218488</FITID><DTTRADE>20250123030529.000[-5:EST]</DTTRADE></INVTRAN>
+    <INVTRAN><FITID>20250123U10000017171218488</FITID><DTTRADE>20250123030529.000[-5:EST]</DTTRADE></INVTRAN>
     <SECID><UNIQUEID>731401093</UNIQUEID><UNIQUEIDTYPE>CONID</UNIQUEIDTYPE></SECID>
     <UNITS>8
     <UNITPRICE>20.1105585
@@ -42,7 +42,7 @@ VERSION:102
     <INVSTMTTRNRS>
       <INVSTMTRS>
         <CURDEF>GBP
-        <INVACCTFROM><BROKERID>4705</BROKERID><ACCTID>U7033034</ACCTID></INVACCTFROM>
+        <INVACCTFROM><BROKERID>4705</BROKERID><ACCTID>U1000001</ACCTID></INVACCTFROM>
         <INVTRANLIST>
           <DTSTART>20250101
           <DTEND>20250401

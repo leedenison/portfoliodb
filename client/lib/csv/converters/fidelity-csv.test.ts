@@ -31,7 +31,7 @@ describe("convertFidelityToStandard", () => {
   it("parses a single Sell row and uses Completion date", () => {
     const csv = [
       "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status",
-      '21 Jan 2026,23 Jan 2026,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10041188,,-31826.24,70,454.66,1229145354,Completed,',
+      '21 Jan 2026,23 Jan 2026,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10000001,,-31826.24,70,454.66,1107095237,Completed,',
     ].join("\n");
     const result = convertFidelityToStandard(csv, { currency: "GBP" });
     expect(result.errors).toEqual([]);
@@ -41,7 +41,7 @@ describe("convertFidelityToStandard", () => {
     expect(result.txs[0]!.type).toBe(10); // SELLSTOCK
     expect(result.txs[0]!.settlementCurrency).toBe("GBP");
     expect(result.txs[0]!.tradingCurrency).toBe(""); // Sell is not Cash type
-    expect(result.txs[0]!.account).toBe("AG10041188");
+    expect(result.txs[0]!.account).toBe("AG10000001");
     expect(result.periodFrom.getFullYear()).toBe(2026);
     expect(result.periodFrom.getMonth()).toBe(0); // Jan
     expect(result.periodFrom.getDate()).toBe(23);
@@ -76,7 +76,7 @@ describe("convertFidelityToStandard", () => {
   it("parses Cash Interest as INCOME", () => {
     const csv = [
       "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit",
-      "16 Feb 2026,23 Feb 2026,Cash Interest,Cash,AP10013127,3.27,1",
+      "16 Feb 2026,23 Feb 2026,Cash Interest,Cash,AP10000001,3.27,1",
     ].join("\n");
     const result = convertFidelityToStandard(csv, { currency: "USD" });
     expect(result.errors).toEqual([]);
@@ -128,27 +128,27 @@ describe("convertFidelityToStandard", () => {
     const cases: { name: string; row: string; want: string }[] = [
       {
         name: "a fee is an outflow",
-        row: '03 Jul 2026,08 Jul 2026,Service Fee,"Cash",Cash Management Account,AW10075724,,-5.20,5.2,1,1314200860,Completed,',
+        row: '03 Jul 2026,08 Jul 2026,Service Fee,"Cash",Cash Management Account,AW10000001,,-5.20,5.2,1,1192150743,Completed,',
         want: "-5.2",
       },
       {
         name: "interest is an inflow",
-        row: '15 Jul 2026,21 Jul 2026,Cash Interest,"Cash",Investment ISA,AS10110796,"Cash",1.26,1.26,1,1319149500,Completed,',
+        row: '15 Jul 2026,21 Jul 2026,Cash Interest,"Cash",Investment ISA,AS10000001,"Cash",1.26,1.26,1,1197099383,Completed,',
         want: "1.26",
       },
       {
         name: "a transfer out is an outflow",
-        row: '03 Jul 2026,03 Jul 2026,Transfer To Cash Management Account For Fees,"Cash",Investment ISA,AS10110796,,-2.30,2.3,1,1313264690,Completed,',
+        row: '03 Jul 2026,03 Jul 2026,Transfer To Cash Management Account For Fees,"Cash",Investment ISA,AS10000001,,-2.30,2.3,1,1191214573,Completed,',
         want: "-2.3",
       },
       {
         name: "the matching transfer in is an inflow",
-        row: '03 Jul 2026,03 Jul 2026,Cash In Ring-fenced For Fees,"Cash",Cash Management Account,AW10075724,,2.30,2.3,1,1313264694,Completed,',
+        row: '03 Jul 2026,03 Jul 2026,Cash In Ring-fenced For Fees,"Cash",Cash Management Account,AW10000001,,2.30,2.3,1,1191214577,Completed,',
         want: "2.3",
       },
       {
         name: "Quantity of zero does not lose the amount",
-        row: '15 Jul 2026,21 Jul 2026,Tax On Interest,"Cash",Investment Account,AG10041188,,-0.20,0,0,267898807,Completed,',
+        row: '15 Jul 2026,21 Jul 2026,Tax On Interest,"Cash",Investment Account,AG10000001,,-0.20,0,0,145848690,Completed,',
         want: "-0.2",
       },
     ];
@@ -181,7 +181,7 @@ describe("convertFidelityToStandard", () => {
     (type) => {
       const csv = [
         FULL_HEADER,
-        `10 Apr 2025,14 Apr 2025,${type},"Cash",Investment ISA,AS10110796,,-100.00,100,1,123,Completed,`,
+        `10 Apr 2025,14 Apr 2025,${type},"Cash",Investment ISA,AS10000001,,-100.00,100,1,123,Completed,`,
       ].join("\n");
       const result = convertFidelityToStandard(csv, { currency: "GBP" });
       expect(result.errors).toEqual([]);
@@ -193,7 +193,7 @@ describe("convertFidelityToStandard", () => {
   it("keeps share counts for security rows, negating sells", () => {
     const csv = [
       FULL_HEADER,
-      '21 Jan 2026,23 Jan 2026,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10041188,,-31826.24,70,454.66,1229145354,Completed,',
+      '21 Jan 2026,23 Jan 2026,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10000001,,-31826.24,70,454.66,1107095237,Completed,',
     ].join("\n");
     const result = convertFidelityToStandard(csv, { currency: "GBP" });
     // Quantity is a share count here, not money, so Amount must not replace it.
@@ -203,7 +203,7 @@ describe("convertFidelityToStandard", () => {
   it("falls back to Quantity when the export has no Amount column", () => {
     const csv = [
       HEADER,
-      "15 Jul 2026,21 Jul 2026,Cash Interest,Cash,AS10110796,1.26,1",
+      "15 Jul 2026,21 Jul 2026,Cash Interest,Cash,AS10000001,1.26,1",
     ].join("\n");
     const result = convertFidelityToStandard(csv, { currency: "GBP" });
     expect(result.txs[0]!.quantity).toBe("1.26");
@@ -212,17 +212,17 @@ describe("convertFidelityToStandard", () => {
   // Fidelity reports money leaving an account as a sale of the account's cash.
   // Mapping on the transaction type alone made each one a security position sold
   // in units of money, and left the account's balance short by the amount that
-  // moved. Rows from the Lee export, 2023-03-01, AG10041188, with the completion
-  // date in the format the broker's own download carries.
+  // moved. Rows taken from a real Fidelity export, 2023-03-01, with the
+  // completion date in the format the broker's own download carries.
   describe("a Buy or Sell of cash", () => {
     const CASH_ASSET_HEADER =
       "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,Exchange,Symbol,Type,Action";
     const TRANSFER =
-      "2023-03-01,01 Mar 2023,Transfer To Cash Management Account,Cash,Investment Account,AG10041188,,-401,401,1,730492674,Completed,,GBP,CASH,Cash";
+      "2023-03-01,01 Mar 2023,Transfer To Cash Management Account,Cash,Investment Account,AG10000001,,-401,401,1,608442557,Completed,,GBP,CASH,Cash";
     const SELL =
-      "2023-03-01,01 Mar 2023,Sell,Cash,Investment Account,AG10041188,,-401,401,1,730492678,Completed,,GBP,CASH,Cash";
+      "2023-03-01,01 Mar 2023,Sell,Cash,Investment Account,AG10000001,,-401,401,1,608442561,Completed,,GBP,CASH,Cash";
     const CASH_IN =
-      "2023-03-01,01 Mar 2023,Cash In From Sell,Cash,Investment Account,AG10041188,,401,401,1,730492680,Completed,,GBP,CASH,Cash";
+      "2023-03-01,01 Mar 2023,Cash In From Sell,Cash,Investment Account,AG10000001,,401,401,1,608442563,Completed,,GBP,CASH,Cash";
 
     const convert = (rows: string[]) =>
       convertFidelityToStandard([CASH_ASSET_HEADER, ...rows].join("\n"), { currency: "GBP" });
@@ -239,8 +239,8 @@ describe("convertFidelityToStandard", () => {
 
     it("groups with its cash in, and the pair weighs nothing", () => {
       const result = convert([SELL, CASH_IN]);
-      expect(result.txs[0]!.groupRef).toBe("730492678");
-      expect(result.txs[1]!.groupRef).toBe("730492678");
+      expect(result.txs[0]!.groupRef).toBe("608442561");
+      expect(result.txs[1]!.groupRef).toBe("608442561");
       expectGroupsBalance(result.txs);
     });
 
@@ -258,7 +258,7 @@ describe("convertFidelityToStandard", () => {
 
     it("still reads a security sale as one", () => {
       const result = convert([
-        '2022-02-08,10 Feb 2022,Sell,"WISE PLC, CLS A ORD GBP0.01 (WISE)",SIPP - Pension Savings Account,AP10013127,,-7266.49,1242,5.85,563466569,Completed,LON,WISE,STOCK,Sell',
+        '2022-02-08,10 Feb 2022,Sell,"WISE PLC, CLS A ORD GBP0.01 (WISE)",SIPP - Pension Savings Account,AP10000001,,-7266.49,1242,5.85,441416452,Completed,LON,WISE,STOCK,Sell',
       ]);
       expect(result.txs[0]!.type).toBe(TxType.SELLSTOCK);
       expect(result.txs[0]!.quantity).toBe("-1242");
@@ -268,16 +268,16 @@ describe("convertFidelityToStandard", () => {
       // Both settle in the same account on the same day. Amount separates them,
       // and a security sale picks first regardless of export order.
       const result = convert([
-        "2024-04-10,10 Apr 2024,Sell,Cash,Investment Account,AG10041188,,-19999,19999,1,917882556,Completed,,GBP,CASH,Cash",
-        "2024-04-10,10 Apr 2024,Cash In From Sell,Cash,Investment Account,AG10041188,,19999,19999,1,917882557,Completed,,GBP,CASH,Cash",
-        '2024-04-10,10 Apr 2024,Sell,"VANGUARD FUNDS PLC, S&P 500 (VUSA)",Investment Account,AG10041188,,-19502.15,325,60.0066,913741900,Completed,LON,VUSA,ETF,Sell',
-        "2024-04-10,10 Apr 2024,Cash In From Sell,Cash,Investment Account,AG10041188,,19502.15,19502.15,1,913741902,Completed,,GBP,CASH,Cash",
+        "2024-04-10,10 Apr 2024,Sell,Cash,Investment Account,AG10000001,,-19999,19999,1,795832439,Completed,,GBP,CASH,Cash",
+        "2024-04-10,10 Apr 2024,Cash In From Sell,Cash,Investment Account,AG10000001,,19999,19999,1,795832440,Completed,,GBP,CASH,Cash",
+        '2024-04-10,10 Apr 2024,Sell,"VANGUARD FUNDS PLC, S&P 500 (VUSA)",Investment Account,AG10000001,,-19502.15,325,60.0066,791691783,Completed,LON,VUSA,ETF,Sell',
+        "2024-04-10,10 Apr 2024,Cash In From Sell,Cash,Investment Account,AG10000001,,19502.15,19502.15,1,791691785,Completed,,GBP,CASH,Cash",
       ]);
 
-      expect(result.txs[0]!.groupRef).toBe("917882556");
-      expect(result.txs[1]!.groupRef).toBe("917882556");
-      expect(result.txs[2]!.groupRef).toBe("913741900");
-      expect(result.txs[3]!.groupRef).toBe("913741900");
+      expect(result.txs[0]!.groupRef).toBe("795832439");
+      expect(result.txs[1]!.groupRef).toBe("795832439");
+      expect(result.txs[2]!.groupRef).toBe("791691783");
+      expect(result.txs[3]!.groupRef).toBe("791691783");
     });
 
     // The map-completeness test above feeds security rows through a header with
@@ -285,8 +285,8 @@ describe("convertFidelityToStandard", () => {
     it("falls back to the instrument description when the export omits Type", () => {
       const csv = [
         HEADER,
-        "8 Feb 2022,10 Feb 2022,Sell,Cash,AG10041188,401,1",
-        "8 Feb 2022,10 Feb 2022,Sell,ISHARES II PLC INRG,AG10041188,100,7.16",
+        "8 Feb 2022,10 Feb 2022,Sell,Cash,AG10000001,401,1",
+        "8 Feb 2022,10 Feb 2022,Sell,ISHARES II PLC INRG,AG10000001,100,7.16",
       ].join("\n");
       const result = convertFidelityToStandard(csv, { currency: "GBP" });
       expect(result.txs[0]!.type).toBe(TxType.CASHFLOW);
@@ -329,32 +329,32 @@ describe("transaction grouping", () => {
 
   it("pairs a sell with the cash in of the same amount", () => {
     const result = convert([
-      row("Sell", "WISE PLC (WISE)", "AG1", "-7266.49", "1242", "5.85", "563466569"),
-      row("Cash In From Sell", "Cash", "AG1", "7266.49", "7266.49", "1", "563466571"),
+      row("Sell", "WISE PLC (WISE)", "AG1", "-7266.49", "1242", "5.85", "441416452"),
+      row("Cash In From Sell", "Cash", "AG1", "7266.49", "7266.49", "1", "441416454"),
     ]);
 
     expect(result.txs).toHaveLength(2);
-    expect(result.txs[0].groupRef).toBe("563466569");
-    expect(result.txs[1].groupRef).toBe("563466569");
+    expect(result.txs[0].groupRef).toBe("441416452");
+    expect(result.txs[1].groupRef).toBe("441416452");
   });
 
   it("pairs a buy with the cash out despite the fee gap", () => {
     // The buy row's Amount includes a 10.00 dealing fee that Fidelity posts as its
     // own row, so the cash out is 10.00 smaller.
     const result = convert([
-      row("Cash Out For Buy", "Cash", "AG1", "-7380.19", "7380.19", "1", "563466631"),
-      row("Buy", "INVESCO EQQQ (EQQQ)", "AG1", "7390.19", "28", "263.58", "563466632"),
+      row("Cash Out For Buy", "Cash", "AG1", "-7380.19", "7380.19", "1", "441416514"),
+      row("Buy", "INVESCO EQQQ (EQQQ)", "AG1", "7390.19", "28", "263.58", "441416515"),
     ]);
 
-    expect(result.txs[0].groupRef).toBe("563466632");
-    expect(result.txs[1].groupRef).toBe("563466632");
+    expect(result.txs[0].groupRef).toBe("441416515");
+    expect(result.txs[1].groupRef).toBe("441416515");
   });
 
   it("keeps a separately reported charge out of the trade's group", () => {
     const result = convert([
-      row("Sell", "WISE PLC (WISE)", "AG1", "-7266.49", "1242", "5.85", "563466569"),
-      row("Cash In From Sell", "Cash", "AG1", "7266.49", "7266.49", "1", "563466571"),
-      row("Dealing Fee", "Cash", "AG1", "-10", "0", "0", "563466600", "8 Feb 2022"),
+      row("Sell", "WISE PLC (WISE)", "AG1", "-7266.49", "1242", "5.85", "441416452"),
+      row("Cash In From Sell", "Cash", "AG1", "7266.49", "7266.49", "1", "441416454"),
+      row("Dealing Fee", "Cash", "AG1", "-10", "0", "0", "441416483", "8 Feb 2022"),
     ]);
 
     // It has a group of its own -- it needs one to hold its expense leg -- but
@@ -384,16 +384,16 @@ describe("transaction grouping", () => {
     // The 29939.31 buy sits one reference from the 36946.72 cash out, but a fee
     // cannot be negative, so that cash row can only belong to the larger buy.
     const result = convert([
-      row("Cash Out For Buy", "Cash", "AP1", "-29931.81", "29931.81", "1", "819092458"),
-      row("Buy", "VANGUARD S&P 500 (VUSA)", "AP1", "29939.31", "100", "299.39", "819092460"),
-      row("Cash Out For Buy", "Cash", "AP1", "-36946.72", "36946.72", "1", "819092461"),
-      row("Buy", "INVESCO EQQQ (EQQQ)", "AP1", "36954.22", "120", "307.95", "819092463"),
+      row("Cash Out For Buy", "Cash", "AP1", "-29931.81", "29931.81", "1", "697042341"),
+      row("Buy", "VANGUARD S&P 500 (VUSA)", "AP1", "29939.31", "100", "299.39", "697042343"),
+      row("Cash Out For Buy", "Cash", "AP1", "-36946.72", "36946.72", "1", "697042344"),
+      row("Buy", "INVESCO EQQQ (EQQQ)", "AP1", "36954.22", "120", "307.95", "697042346"),
     ]);
 
-    expect(result.txs[1].groupRef).toBe("819092460");
-    expect(result.txs[0].groupRef).toBe("819092460");
-    expect(result.txs[3].groupRef).toBe("819092463");
-    expect(result.txs[2].groupRef).toBe("819092463");
+    expect(result.txs[1].groupRef).toBe("697042343");
+    expect(result.txs[0].groupRef).toBe("697042343");
+    expect(result.txs[3].groupRef).toBe("697042346");
+    expect(result.txs[2].groupRef).toBe("697042346");
   });
 
   it("does not pair a sell across accounts or settlement dates", () => {
@@ -463,7 +463,7 @@ describe("transaction grouping", () => {
 
   it("leaves a cash row with no trade ungrouped rather than failing", () => {
     const result = convert([
-      row("Cash Out For Buy", "Cash", "AG1", "-401", "401", "1", "730493547"),
+      row("Cash Out For Buy", "Cash", "AG1", "-401", "401", "1", "608443430"),
     ]);
 
     expect(result.errors).toHaveLength(0);
@@ -485,32 +485,32 @@ describe("deposits into a product account", () => {
   const convert = (rows: string[]) =>
     convertFidelityToStandard([FULL, ...rows].join("\n"), { currency: "GBP" });
 
-  // The 2025-04-15 lump sum into Lee's ISA, and the cash management account row
+  // The 2025-04-15 lump sum into an ISA, and the cash management account row
   // that paid for it.
   const LUMP_SUM =
-    "2025-04-15,2025-04-15,Cash In Lump Sum,Cash,Investment ISA,AS10110796,,20000,20000,1,1093663545,Completed,,GBP,CASH,Cash";
+    "2025-04-15,2025-04-15,Cash In Lump Sum,Cash,Investment ISA,AS10000001,,20000,20000,1,971613428,Completed,,GBP,CASH,Cash";
   const SPEND =
-    "2025-04-15,2025-04-15,Cash Out For Buy,Cash,Investment ISA,AS10110796,,-20000,20000,1,1093663546,Completed,,GBP,CASH,Cash";
+    "2025-04-15,2025-04-15,Cash Out For Buy,Cash,Investment ISA,AS10000001,,-20000,20000,1,971613429,Completed,,GBP,CASH,Cash";
   const DEPARTURE =
-    "2025-04-15,2025-04-15,Transfer Out From Cash Management Account,Cash,Cash Management Account,AW10075724,,-20000,20000,1,1093663547,Completed,,GBP,CASH,Cash";
+    "2025-04-15,2025-04-15,Transfer Out From Cash Management Account,Cash,Cash Management Account,AW10000001,,-20000,20000,1,971613430,Completed,,GBP,CASH,Cash";
   const ARRIVAL =
-    "2025-04-15,2025-04-15,Cash In,Cash,Investment ISA,AS10110796,,20000,20000,1,1093663548,Completed,,GBP,CASH,Cash";
+    "2025-04-15,2025-04-15,Cash In,Cash,Investment ISA,AS10000001,,20000,20000,1,971613431,Completed,,GBP,CASH,Cash";
 
   it("groups the run so one deposit leaves one residual, not three", () => {
     const result = convert([LUMP_SUM, SPEND, DEPARTURE, ARRIVAL]);
 
     expect(result.errors).toEqual([]);
     expect(result.txs.map((tx) => tx.groupRef)).toEqual([
-      "1093663545",
-      "1093663545",
+      "971613428",
+      "971613428",
       "",
-      "1093663545",
+      "971613428",
     ]);
     // What each account is left with: the arrival and the departure it answers,
     // equal and opposite, which is the pair 0068 has to match. Ungrouped the ISA
     // offered two identical credits and an unexplained debit instead.
     expect(residuals(result.txs)).toEqual({
-      "1093663545": { GBP: "20000" },
+      "971613428": { GBP: "20000" },
       "#2": { GBP: "-20000" },
     });
   });
@@ -532,7 +532,7 @@ describe("deposits into a product account", () => {
     // A deposit straight into the cash management account is money from outside
     // with nothing beside it to cancel. All three in the sample are this shape.
     const result = convert([
-      "2024-05-30,2024-05-30,Cash In Lump Sum,Cash,Cash Management Account,AW10075724,,19999,19999,1,944992689,Completed,,GBP,CASH,Cash",
+      "2024-05-30,2024-05-30,Cash In Lump Sum,Cash,Cash Management Account,AW10000001,,19999,19999,1,822942572,Completed,,GBP,CASH,Cash",
     ]);
 
     expect(result.txs).toHaveLength(1);
@@ -541,19 +541,19 @@ describe("deposits into a product account", () => {
   });
 
   it("groups a run whose rows settled on different days", () => {
-    // From the Helen export: the subscription and its spend completed on the 11th
+    // From a real export: the subscription and its spend completed on the 11th
     // and the arrival on the 14th, so the settlement date the trade passes group
     // on would split this run. The reference run does not.
     const result = convert([
-      "2022-11-14,11 Nov 2022,Cash In Lump Sum,Cash,Investment Account,AG10045534,,19996,19996,1,681655048,Completed,,GBP,CASH,Cash",
-      "2022-11-14,11 Nov 2022,Cash Out For Buy,Cash,Investment Account,AG10045534,,-19996,19996,1,681655049,Completed,,GBP,CASH,Cash",
-      "2022-11-14,14 Nov 2022,Cash In,Cash,Investment Account,AG10045534,,19996,19996,1,681655050,Completed,,GBP,CASH,Cash",
+      "2022-11-14,11 Nov 2022,Cash In Lump Sum,Cash,Investment Account,AG10000002,,19996,19996,1,559604931,Completed,,GBP,CASH,Cash",
+      "2022-11-14,11 Nov 2022,Cash Out For Buy,Cash,Investment Account,AG10000002,,-19996,19996,1,559604932,Completed,,GBP,CASH,Cash",
+      "2022-11-14,14 Nov 2022,Cash In,Cash,Investment Account,AG10000002,,19996,19996,1,559604933,Completed,,GBP,CASH,Cash",
     ]);
 
     expect(result.txs.map((tx) => tx.groupRef)).toEqual([
-      "681655048",
-      "681655048",
-      "681655048",
+      "559604931",
+      "559604931",
+      "559604931",
     ]);
   });
 
@@ -561,17 +561,17 @@ describe("deposits into a product account", () => {
     // Both completed on the 14th, 19,996 and 19,995, references interleaved. Only
     // the amount agreeing to the penny keeps one run's rows out of the other's.
     const result = convert([
-      "2022-11-14,14 Nov 2022,Cash In Lump Sum,Cash,Investment Account,AG10045534,,19995,19995,1,681727827,Completed,,GBP,CASH,Cash",
-      "2022-11-14,14 Nov 2022,Cash In,Cash,Investment Account,AG10045534,,19996,19996,1,681655050,Completed,,GBP,CASH,Cash",
-      "2022-11-14,14 Nov 2022,Cash Out For Buy,Cash,Investment Account,AG10045534,,-19995,19995,1,681727828,Completed,,GBP,CASH,Cash",
-      "2022-11-14,14 Nov 2022,Cash In,Cash,Investment Account,AG10045534,,19995,19995,1,681727829,Completed,,GBP,CASH,Cash",
+      "2022-11-14,14 Nov 2022,Cash In Lump Sum,Cash,Investment Account,AG10000002,,19995,19995,1,559677710,Completed,,GBP,CASH,Cash",
+      "2022-11-14,14 Nov 2022,Cash In,Cash,Investment Account,AG10000002,,19996,19996,1,559604933,Completed,,GBP,CASH,Cash",
+      "2022-11-14,14 Nov 2022,Cash Out For Buy,Cash,Investment Account,AG10000002,,-19995,19995,1,559677711,Completed,,GBP,CASH,Cash",
+      "2022-11-14,14 Nov 2022,Cash In,Cash,Investment Account,AG10000002,,19995,19995,1,559677712,Completed,,GBP,CASH,Cash",
     ]);
 
     expect(result.txs.map((tx) => tx.groupRef)).toEqual([
-      "681727827",
+      "559677710",
       "",
-      "681727827",
-      "681727827",
+      "559677710",
+      "559677710",
     ]);
   });
 
@@ -582,24 +582,25 @@ describe("deposits into a product account", () => {
       LUMP_SUM,
       SPEND,
       ARRIVAL,
-      "2025-04-15,2025-04-17,Cash Out For Buy,Cash,Investment ISA,AS10110796,,-19969.2,19969.2,1,1093663610,Completed,,GBP,CASH,Cash",
-      '2025-04-15,2025-04-17,Buy,"VANECK UCITS ETFS PLC, SEMICONDUCTOR UCITS ETF A GBP ACC (SMGB)",Investment ISA,AS10110796,,19976.7,769,25.97,1093663611,Completed,LON,SMGB,ETF,Buy',
+      "2025-04-15,2025-04-17,Cash Out For Buy,Cash,Investment ISA,AS10000001,,-19969.2,19969.2,1,971613493,Completed,,GBP,CASH,Cash",
+      '2025-04-15,2025-04-17,Buy,"VANECK UCITS ETFS PLC, SEMICONDUCTOR UCITS ETF A GBP ACC (SMGB)",Investment ISA,AS10000001,,19976.7,769,25.97,971613494,Completed,LON,SMGB,ETF,Buy',
     ]);
 
     expect(result.txs.map((tx) => tx.groupRef)).toEqual([
-      "1093663545",
-      "1093663545",
-      "1093663545",
-      "1093663611",
-      "1093663611",
+      "971613428",
+      "971613428",
+      "971613428",
+      "971613494",
+      "971613494",
     ]);
   });
 });
 
 // Fidelity names a trade for the reason it happened, and names its cash leg to
-// match. Every row below is verbatim from the Helen export; before these types
-// were mapped the client rejected each one while the conversion script kept it,
-// so the two disagreed about which rows survived.
+// match. Every row below is taken from a real export, with the account numbers
+// and references replaced; before these types were mapped the client rejected
+// each one while the conversion script kept it, so the two disagreed about which
+// rows survived.
 describe("trades the broker names for their reason", () => {
   const FULL =
     "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,Exchange,Symbol,Type,Action";
@@ -608,8 +609,8 @@ describe("trades the broker names for their reason", () => {
 
   it("pairs a dividend reinvestment with the cash out that funded it", () => {
     const result = convert([
-      '2022-02-11,15 Feb 2022,Buy From Dividend,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",Investment ISA,AS10123702,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",21.75,17,1.19,564234496,Completed,LON,BGEU,ETF,Buy',
-      '2022-02-11,15 Feb 2022,Cash Out For Dividend Reinvestment,Cash,Investment ISA,AS10123702,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",-20.15,20.15,1,564234491,Completed,,GBP,CASH,Cash',
+      '2022-02-11,15 Feb 2022,Buy From Dividend,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",Investment ISA,AS10000002,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",21.75,17,1.19,442184379,Completed,LON,BGEU,ETF,Buy',
+      '2022-02-11,15 Feb 2022,Cash Out For Dividend Reinvestment,Cash,Investment ISA,AS10000002,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",-20.15,20.15,1,442184374,Completed,,GBP,CASH,Cash',
     ]);
 
     expect(result.errors).toEqual([]);
@@ -618,32 +619,32 @@ describe("trades the broker names for their reason", () => {
     expect(result.txs[0]!.type).toBe(TxType.BUYSTOCK);
     expect(result.txs[0]!.quantity).toBe("17");
     expect(result.txs[1]!.type).toBe(TxType.CASHFLOW);
-    expect(result.txs[0]!.groupRef).toBe("564234496");
-    expect(result.txs[1]!.groupRef).toBe("564234496");
+    expect(result.txs[0]!.groupRef).toBe("442184379");
+    expect(result.txs[1]!.groupRef).toBe("442184379");
   });
 
   it("pairs a rebate reinvestment with its cash out", () => {
     const result = convert([
-      "2022-03-04,10 Mar 2022,Cash Out,Cash,SIPP - Pension Savings Account,AP10024612,M&G European Index Tracker,-7.81,7.81,1,574652308,Completed,,GBP,CASH,Cash",
-      "2022-03-04,10 Mar 2022,Buy From Rebate,M&G European Index Tracker,SIPP - Pension Savings Account,AP10024612,M&G European Index Tracker,7.81,9.24,0.85,574652321,Completed,LON,M&G European Index Tracker,FUND,Buy",
+      "2022-03-04,10 Mar 2022,Cash Out,Cash,SIPP - Pension Savings Account,AP10000002,M&G European Index Tracker,-7.81,7.81,1,452602191,Completed,,GBP,CASH,Cash",
+      "2022-03-04,10 Mar 2022,Buy From Rebate,M&G European Index Tracker,SIPP - Pension Savings Account,AP10000002,M&G European Index Tracker,7.81,9.24,0.85,452602204,Completed,LON,M&G European Index Tracker,FUND,Buy",
     ]);
 
     expect(result.errors).toEqual([]);
     expect(result.txs[1]!.type).toBe(TxType.BUYSTOCK);
-    expect(result.txs[0]!.groupRef).toBe("574652321");
-    expect(result.txs[1]!.groupRef).toBe("574652321");
+    expect(result.txs[0]!.groupRef).toBe("452602204");
+    expect(result.txs[1]!.groupRef).toBe("452602204");
     // The group does not weigh zero, and cannot: 9.24 units at the printed price
     // of 0.85 is 7.854 against a cash out of 7.81. The price is rounded to the
     // penny and the units are not, so the 0.044 is the source disagreeing with
     // itself. The imbalance report is where that belongs.
-    expect(residuals(result.txs)).toEqual({ "574652321": { GBP: "0.044" } });
+    expect(residuals(result.txs)).toEqual({ "452602204": { GBP: "0.044" } });
   });
 
   it("derives the income a reinvestment consumed, since no row reports it", () => {
     // The one trade in either export with no cash row anywhere beside it: the
     // income buys the units without arriving as money first.
     const result = convert([
-      "2022-03-24,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10123702,Baillie Gifford Responsible Global Equity Income B Inc,31.65,21.09,1.5,582193319,Completed,LON,Baillie Gifford Responsible Global Equity Income B Inc,FUND,Buy",
+      "2022-03-24,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10000002,Baillie Gifford Responsible Global Equity Income B Inc,31.65,21.09,1.5,460143202,Completed,LON,Baillie Gifford Responsible Global Equity Income B Inc,FUND,Buy",
     ]);
 
     expect(result.errors).toEqual([]);
@@ -661,36 +662,36 @@ describe("trades the broker names for their reason", () => {
 
   it("settles a switch through the rows the broker used for it", () => {
     const result = convert([
-      "2023-06-28,29 Jun 2023,Cash Out,Cash,SIPP - Pension Savings Account,AP10024612,,-12091.15,12091.15,1,783688689,Completed,,GBP,CASH,Cash",
-      "2023-06-28,04 Jul 2023,Sell For Switch,M&G European Index Tracker,SIPP - Pension Savings Account,AP10024612,,-12091.15,12147.03,1,783688687,Completed,LON,M&G European Index Tracker,FUND,Sell",
-      "2023-06-28,29 Jun 2023,Buy For Switch,Cash,SIPP - Pension Savings Account,AP10024612,,12091.15,12091.15,1,783688692,Completed,,GBP,CASH,Cash",
-      "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10024612,,12091.15,12091.15,1,783688691,Completed,,GBP,CASH,Cash",
+      "2023-06-28,29 Jun 2023,Cash Out,Cash,SIPP - Pension Savings Account,AP10000002,,-12091.15,12091.15,1,661638572,Completed,,GBP,CASH,Cash",
+      "2023-06-28,04 Jul 2023,Sell For Switch,M&G European Index Tracker,SIPP - Pension Savings Account,AP10000002,,-12091.15,12147.03,1,661638570,Completed,LON,M&G European Index Tracker,FUND,Sell",
+      "2023-06-28,29 Jun 2023,Buy For Switch,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638575,Completed,,GBP,CASH,Cash",
+      "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638574,Completed,,GBP,CASH,Cash",
     ]);
 
     expect(result.errors).toEqual([]);
     // The buy side names cash as the asset, so it is a movement of money rather
     // than a purchase of a security called Cash, and it nets against its cash out.
     expect(result.txs[2]!.type).toBe(TxType.CASHFLOW);
-    expect(result.txs[0]!.groupRef).toBe("783688692");
-    expect(result.txs[2]!.groupRef).toBe("783688692");
+    expect(result.txs[0]!.groupRef).toBe("661638575");
+    expect(result.txs[2]!.groupRef).toBe("661638575");
     // The sale side is a real disposal, and its proceeds arrive as a Cash In.
     expect(result.txs[1]!.type).toBe(TxType.SELLSTOCK);
-    expect(result.txs[1]!.groupRef).toBe("783688687");
-    expect(result.txs[3]!.groupRef).toBe("783688687");
+    expect(result.txs[1]!.groupRef).toBe("661638570");
+    expect(result.txs[3]!.groupRef).toBe("661638570");
   });
 
   it("retypes a Cash In that turned out to be a sale's proceeds", () => {
     // Cash In is normally money from outside the account, and no lookup on the
     // broker's name can tell the two apart -- only whether the row paired.
     const paired = convert([
-      "2023-06-28,04 Jul 2023,Sell For Switch,M&G European Index Tracker,SIPP - Pension Savings Account,AP10024612,,-12091.15,12147.03,1,783688687,Completed,LON,M&G European Index Tracker,FUND,Sell",
-      "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10024612,,12091.15,12091.15,1,783688691,Completed,,GBP,CASH,Cash",
+      "2023-06-28,04 Jul 2023,Sell For Switch,M&G European Index Tracker,SIPP - Pension Savings Account,AP10000002,,-12091.15,12147.03,1,661638570,Completed,LON,M&G European Index Tracker,FUND,Sell",
+      "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638574,Completed,,GBP,CASH,Cash",
     ]);
     expect(paired.txs[1]!.type).toBe(TxType.CASHFLOW);
     expect(paired.txs[1]!.tradingCurrency).toBe("GBP");
 
     const alone = convert([
-      "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10024612,,12091.15,12091.15,1,783688691,Completed,,GBP,CASH,Cash",
+      "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638574,Completed,,GBP,CASH,Cash",
     ]);
     expect(alone.txs[0]!.type).toBe(TxType.JRNLFUND);
     expect(alone.txs[0]!.groupRef).toBe("");
@@ -698,9 +699,9 @@ describe("trades the broker names for their reason", () => {
 
   it("skips a cancelled transaction and its cancelled cash row", () => {
     const result = convert([
-      '2024-07-22,22 Jul 2024,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ (EQQQ)",Investment Account,AG10041188,,0,0,373.51,969683719,Cancelled,LON,EQQQ,ETF,Sell',
-      "2024-07-22,22 Jul 2024,Cash In From Sell,Cash,Investment Account,AG10041188,,0,0,1,969683721,Cancelled,,GBP,CASH,Cash",
-      "2024-07-22,22 Jul 2024,Dealing Fee,Cash,Investment Account,AG10041188,,-7.5,0,0,222050117,Completed,,GBP,CASH,Cash",
+      '2024-07-22,22 Jul 2024,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ (EQQQ)",Investment Account,AG10000001,,0,0,373.51,847633602,Cancelled,LON,EQQQ,ETF,Sell',
+      "2024-07-22,22 Jul 2024,Cash In From Sell,Cash,Investment Account,AG10000001,,0,0,1,847633604,Cancelled,,GBP,CASH,Cash",
+      "2024-07-22,22 Jul 2024,Dealing Fee,Cash,Investment Account,AG10000001,,-7.5,0,0,100000000,Completed,,GBP,CASH,Cash",
     ]);
 
     expect(result.errors).toEqual([]);
@@ -721,7 +722,7 @@ describe("what a posting resolves to", () => {
 
   it("describes a cash posting by its currency and hints at it", () => {
     const result = convert([
-      "2022-01-11,11 Jan 2022,Service Fee,Cash,Cash Management Account,AW10075724,,-3.24,3.24,1,550895422,Completed,,GBP,CASH,Cash",
+      "2022-01-11,11 Jan 2022,Service Fee,Cash,Cash Management Account,AW10000001,,-3.24,3.24,1,428845305,Completed,,GBP,CASH,Cash",
     ]);
 
     expect(result.txs[0]!.instrumentDescription).toBe("GBP");
@@ -737,7 +738,7 @@ describe("what a posting resolves to", () => {
     // by the payer would resolve the money into that holding; carrying the payer
     // elsewhere is 0049's to decide.
     const result = convert([
-      '2022-02-11,11 Feb 2022,Cash Dividend,Cash,Investment ISA,AS10123702,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",22.67,22.67,1,564233724,Completed,,GBP,CASH,Cash',
+      '2022-02-11,11 Feb 2022,Cash Dividend,Cash,Investment ISA,AS10000002,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",22.67,22.67,1,442183607,Completed,,GBP,CASH,Cash',
     ]);
 
     expect(result.txs[0]!.instrumentDescription).toBe("GBP");
@@ -746,7 +747,7 @@ describe("what a posting resolves to", () => {
 
   it("keeps a security's own description and offers its ticker", () => {
     const result = convert([
-      '2022-02-08,10 Feb 2022,Sell,"WISE PLC, CLS A ORD GBP0.01 (WISE)",SIPP - Pension Savings Account,AP10013127,,-7266.49,1242,5.85,563466569,Completed,LON,WISE,STOCK,Sell',
+      '2022-02-08,10 Feb 2022,Sell,"WISE PLC, CLS A ORD GBP0.01 (WISE)",SIPP - Pension Savings Account,AP10000001,,-7266.49,1242,5.85,441416452,Completed,LON,WISE,STOCK,Sell',
     ]);
 
     expect(result.txs[0]!.instrumentDescription).toContain("WISE PLC");
@@ -760,7 +761,7 @@ describe("what a posting resolves to", () => {
     // exchange. Passing that on as a ticker would resolve to nothing and leave the
     // name in the security master twice, so the row goes on its description alone.
     const result = convert([
-      "2022-03-24,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10123702,,31.65,21.09,1.5,582193319,Completed,LON,Baillie Gifford Responsible Global Equity Income B Inc,FUND,Buy",
+      "2022-03-24,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10000002,,31.65,21.09,1.5,460143202,Completed,LON,Baillie Gifford Responsible Global Equity Income B Inc,FUND,Buy",
     ]);
 
     expect(result.txs[0]!.identifierHints).toEqual([]);
@@ -771,8 +772,8 @@ describe("what a posting resolves to", () => {
     // A ticker identifies an instrument only within an exchange. An exchange with
     // no MIC here is passed on bare rather than under a guess.
     const result = convert([
-      '2024-06-03,05 Jun 2024,Buy,"RHEINMETALL AG, ORD NPV (RHM)",Investment Account,AG10041188,,5000,10,500,1000000001,Completed,ETR,RHM,STOCK,Buy',
-      '2024-06-03,05 Jun 2024,Buy,"SAFRAN SA, ORD EUR0.20 (SAF)",Investment Account,AG10041188,,5000,25,200,1000000002,Completed,XXX,SAF,STOCK,Buy',
+      '2024-06-03,05 Jun 2024,Buy,"RHEINMETALL AG, ORD NPV (RHM)",Investment Account,AG10000001,,5000,10,500,1000000001,Completed,ETR,RHM,STOCK,Buy',
+      '2024-06-03,05 Jun 2024,Buy,"SAFRAN SA, ORD EUR0.20 (SAF)",Investment Account,AG10000001,,5000,25,200,1000000002,Completed,XXX,SAF,STOCK,Buy',
     ]);
 
     expect(result.txs[0]!.identifierHints[0]!.domain).toBe("XETR");
@@ -800,7 +801,7 @@ describe("counter-legs", () => {
     convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
 
   it("names the account a charge went to", () => {
-    const result = convert([row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "563466600")]);
+    const result = convert([row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "441416483")]);
 
     expect(result.txs).toHaveLength(2);
     expect(result.txs[1].type).toBe(TxType.INVEXPENSE);
@@ -811,7 +812,7 @@ describe("counter-legs", () => {
   });
 
   it("names the account a dividend came from", () => {
-    const result = convert([row("Cash Dividend", "Cash", "AG1", "23.40", "23.40", "1", "563466601")]);
+    const result = convert([row("Cash Dividend", "Cash", "AG1", "23.40", "23.40", "1", "441416484")]);
 
     expect(result.txs).toHaveLength(2);
     expect(result.txs[1].accountType).toBe(AccountType.INCOME);
@@ -821,8 +822,8 @@ describe("counter-legs", () => {
 
   it("leaves a trade and its cash leg alone -- the source supplied both", () => {
     const result = convert([
-      row("Sell", "WISE PLC (WISE)", "AG1", "-7265.70", "1242", "5.85", "563466569"),
-      row("Cash In From Sell", "Cash", "AG1", "7265.70", "7265.70", "1", "563466571"),
+      row("Sell", "WISE PLC (WISE)", "AG1", "-7265.70", "1242", "5.85", "441416452"),
+      row("Cash In From Sell", "Cash", "AG1", "7265.70", "7265.70", "1", "441416454"),
     ]);
 
     expect(result.txs).toHaveLength(2);
@@ -831,9 +832,9 @@ describe("counter-legs", () => {
 
   it("balances a trade, its cash leg and the charge reported beside it", () => {
     const result = convert([
-      row("Sell", "WISE PLC (WISE)", "AG1", "-7265.70", "1242", "5.85", "563466569"),
-      row("Cash In From Sell", "Cash", "AG1", "7265.70", "7265.70", "1", "563466571"),
-      row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "563466600", "8 Feb 2022"),
+      row("Sell", "WISE PLC (WISE)", "AG1", "-7265.70", "1242", "5.85", "441416452"),
+      row("Cash In From Sell", "Cash", "AG1", "7265.70", "7265.70", "1", "441416454"),
+      row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "441416483", "8 Feb 2022"),
     ]);
 
     expect(result.txs).toHaveLength(4);
@@ -841,7 +842,7 @@ describe("counter-legs", () => {
   });
 
   it("does not invent a leg for a journal, whose other side is another account", () => {
-    const result = convert([row("Cash In", "Cash", "AG1", "5000", "5000", "1", "563466602")]);
+    const result = convert([row("Cash In", "Cash", "AG1", "5000", "5000", "1", "441416485")]);
 
     expect(result.txs).toHaveLength(1);
     expect(result.txs[0].type).toBe(TxType.JRNLFUND);
@@ -858,8 +859,8 @@ describe("trade cash legs", () => {
   // residual was routed to TRANSFER_CLEARING instead of IMBALANCE.
   it("are CASHFLOW, keeping their direction and currency", () => {
     const result = convert([
-      "8 Feb 2022,10 Feb 2022,Cash Out For Buy,Cash,Investment Account,AG1,,-401,401,1,730493547,Completed",
-      "8 Feb 2022,10 Feb 2022,Cash In From Sell,Cash,Investment Account,AG1,,7265.70,7265.70,1,563466571,Completed",
+      "8 Feb 2022,10 Feb 2022,Cash Out For Buy,Cash,Investment Account,AG1,,-401,401,1,608443430,Completed",
+      "8 Feb 2022,10 Feb 2022,Cash In From Sell,Cash,Investment Account,AG1,,7265.70,7265.70,1,441416454,Completed",
     ]);
 
     expect(result.txs[0].type).toBe(TxType.CASHFLOW);
@@ -881,13 +882,13 @@ describe("source references", () => {
   // last month's when the amounts are identical.
   it("carries the broker's reference onto every transcribed posting", () => {
     const result = convert([
-      "2022-05-06,2022-05-06,Transfer To Cash Management Account For Fees,Cash,SIPP,AP1,,-2.19,2.19,1,603102266,Completed",
-      "2022-05-06,2022-05-06,Cash In Ring-fenced For Fees,Cash,Cash Management Account,AW1,,2.19,2.19,1,603102269,Completed",
+      "2022-05-06,2022-05-06,Transfer To Cash Management Account For Fees,Cash,SIPP,AP1,,-2.19,2.19,1,481052149,Completed",
+      "2022-05-06,2022-05-06,Cash In Ring-fenced For Fees,Cash,Cash Management Account,AW1,,2.19,2.19,1,481052152,Completed",
     ]);
 
     expect(result.txs).toHaveLength(2);
-    expect(result.txs[0].brokerRef).toBe("603102266");
-    expect(result.txs[1].brokerRef).toBe("603102269");
+    expect(result.txs[0].brokerRef).toBe("481052149");
+    expect(result.txs[1].brokerRef).toBe("481052152");
   });
 
   // The export's "Source investment" column holds an asset name rather than an
@@ -895,7 +896,7 @@ describe("source references", () => {
   // not pretend otherwise.
   it("names no counterparty, because the CSV export carries none", () => {
     const result = convert([
-      "8 Feb 2022,10 Feb 2022,Sell,\"WISE PLC (WISE)\",Investment Account,AG1,Cash,-7266.49,1242,5.85,563466569,Completed",
+      "8 Feb 2022,10 Feb 2022,Sell,\"WISE PLC (WISE)\",Investment Account,AG1,Cash,-7266.49,1242,5.85,441416452,Completed",
     ]);
 
     expect(result.txs[0].counterpartyAccount).toBe("");
@@ -914,11 +915,11 @@ describe("source references", () => {
   // invention indistinguishable from a transcription.
   it("does not give a derived counter-leg a reference it never had", () => {
     const result = convert([
-      "8 Feb 2022,10 Feb 2022,Cash Dividend,Cash,Investment Account,AG1,,23.40,23.40,1,563466600,Completed",
+      "8 Feb 2022,10 Feb 2022,Cash Dividend,Cash,Investment Account,AG1,,23.40,23.40,1,441416483,Completed",
     ]);
 
     expect(result.txs).toHaveLength(2);
-    expect(result.txs[0].brokerRef).toBe("563466600");
+    expect(result.txs[0].brokerRef).toBe("441416483");
     expect(result.txs[1].accountType).toBe(AccountType.INCOME);
     expect(result.txs[1].brokerRef).toBe("");
     // Both legs still belong to one event.

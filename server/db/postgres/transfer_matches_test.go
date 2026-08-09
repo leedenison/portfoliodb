@@ -37,8 +37,8 @@ func transferFixture(t *testing.T, p *Postgres, userID, instID string) (from, to
 		}
 	}
 	f, b := period()
-	txs := append(side("AG10041188", "-20000", "1093663528", ""),
-		side("AW10075724", "20000", "1093663531", "AG10041188")...)
+	txs := append(side("AG10000001", "-20000", "971613411", ""),
+		side("AW10000001", "20000", "971613414", "AG10000001")...)
 	ids := []string{instID, instID, instID, instID}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", f, b, txs, ids, nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
@@ -101,7 +101,7 @@ func TestListUnmatchedTransferSides_ReadsBothSidesWithTheirEvidence(t *testing.T
 	for _, s := range sides {
 		byAccount[s.Account] = s
 	}
-	departure, arrival := byAccount["AG10041188"], byAccount["AW10075724"]
+	departure, arrival := byAccount["AG10000001"], byAccount["AW10000001"]
 	if !departure.Amount.Add(arrival.Amount).IsZero() {
 		t.Errorf("sides sum to %v, want a pair summing to exactly zero",
 			departure.Amount.Add(arrival.Amount))
@@ -110,15 +110,15 @@ func TestListUnmatchedTransferSides_ReadsBothSidesWithTheirEvidence(t *testing.T
 		t.Errorf("departure amount = %v, want positive: the value left this account", departure.Amount)
 	}
 	// The evidence comes from the journal leg, not from the residual beside it.
-	if len(departure.BrokerRefs) != 1 || departure.BrokerRefs[0] != "1093663528" {
-		t.Errorf("departure broker refs = %v, want [1093663528]", departure.BrokerRefs)
+	if len(departure.BrokerRefs) != 1 || departure.BrokerRefs[0] != "971613411" {
+		t.Errorf("departure broker refs = %v, want [971613411]", departure.BrokerRefs)
 	}
 	if len(departure.CounterpartyAccounts) != 0 {
 		t.Errorf("departure counterparties = %v, want none: only the receiving side names one",
 			departure.CounterpartyAccounts)
 	}
-	if len(arrival.CounterpartyAccounts) != 1 || arrival.CounterpartyAccounts[0] != "AG10041188" {
-		t.Errorf("arrival counterparties = %v, want [AG10041188]", arrival.CounterpartyAccounts)
+	if len(arrival.CounterpartyAccounts) != 1 || arrival.CounterpartyAccounts[0] != "AG10000001" {
+		t.Errorf("arrival counterparties = %v, want [AG10000001]", arrival.CounterpartyAccounts)
 	}
 }
 

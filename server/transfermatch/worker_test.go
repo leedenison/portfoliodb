@@ -19,8 +19,8 @@ func TestRunCycle_WritesThePairsItFinds(t *testing.T) {
 
 	mockDB.EXPECT().ListUnmatchedTransferSides(gomock.Any(), db.TransferSideOpts{}).
 		Return([]db.TransferSide{
-			side("g-cma", "AW10075724", "20000", 0, "1093663547"),
-			side("g-isa", "AS10110796", "-20000", 0, "1093663548"),
+			side("g-cma", "AW10000001", "20000", 0, "971613430"),
+			side("g-isa", "AS10000001", "-20000", 0, "971613431"),
 		}, nil)
 	mockDB.EXPECT().CreateTransferMatches(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, ms []db.TransferMatch) (int, error) {
@@ -61,7 +61,7 @@ func TestRunCycle_WritesNothingWhenNothingPairs(t *testing.T) {
 	mockDB := mock.NewMockDB(ctrl)
 
 	mockDB.EXPECT().ListUnmatchedTransferSides(gomock.Any(), gomock.Any()).
-		Return([]db.TransferSide{side("g-isa", "AS10110796", "-19599", 0, "675163172")}, nil)
+		Return([]db.TransferSide{side("g-isa", "AS10000001", "-19599", 0, "553113055")}, nil)
 	// No CreateTransferMatches call is expected: gomock fails the test if one comes.
 
 	runCycle(context.Background(), mockDB, nil, nil, nil)
@@ -87,8 +87,8 @@ func TestRunCycle_SurvivesAWriteError(t *testing.T) {
 
 	mockDB.EXPECT().ListUnmatchedTransferSides(gomock.Any(), gomock.Any()).
 		Return([]db.TransferSide{
-			side("g-cma", "AW10075724", "20000", 0, "1093663547"),
-			side("g-isa", "AS10110796", "-20000", 0, "1093663548"),
+			side("g-cma", "AW10000001", "20000", 0, "971613430"),
+			side("g-isa", "AS10000001", "-20000", 0, "971613431"),
 		}, nil)
 	mockDB.EXPECT().CreateTransferMatches(gomock.Any(), gomock.Any()).
 		Return(0, errors.New("deadlock detected"))

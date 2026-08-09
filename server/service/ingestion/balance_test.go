@@ -120,7 +120,7 @@ func TestRouteResiduals(t *testing.T) {
 	}, {
 		// An option is quoted per share and traded per contract, so its leg only
 		// reaches the cash it was exchanged for once the contract size is applied.
-		// Figures from local/masters/U7033034_20250107_20260107.qfx: 8 contracts at
+		// Figures from local/masters/U1000001_20250107_20260107.qfx: 8 contracts at
 		// 20.1105585 settles at -16088.4468 before commission.
 		name: "option trade balances against the cash it settled for",
 		postings: []posting{

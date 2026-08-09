@@ -306,3 +306,168 @@ func TestListEnabledPluginConfigs_CategoryIsolation(t *testing.T) {
 		t.Errorf("expected only price-plugin, got %+v", priceRows)
 	}
 }
+
+// seedPluginConfigs inserts rows the way the service does at startup: one per
+// registered plugin, disabled, with spaced-out precedences.
+func seedPluginConfigs(t *testing.T, p *Postgres, category string, pluginIDs ...string) {
+	t.Helper()
+	ctx := context.Background()
+	for i, id := range pluginIDs {
+		if _, err := p.InsertPluginConfig(ctx, category, id, false, 10*(i+1), []byte(`{}`), nil); err != nil {
+			t.Fatalf("seed %s/%s: %v", category, id, err)
+		}
+	}
+}
+
+func TestListAllPluginConfigs(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	seedPluginConfigs(t, p, db.PluginCategoryPrice, "eodhd", "massive")
+	seedPluginConfigs(t, p, db.PluginCategoryInflation, "ons")
+
+	rows, err := p.ListAllPluginConfigs(ctx)
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(rows))
+	}
+	// Ordered by category, then precedence descending.
+	if rows[0].Category != db.PluginCategoryInflation || rows[0].PluginID != "ons" {
+		t.Fatalf("first row = %+v", rows[0])
+	}
+	if rows[1].PluginID != "massive" || rows[2].PluginID != "eodhd" {
+		t.Fatalf("price order = %s, %s", rows[1].PluginID, rows[2].PluginID)
+	}
+}
+
+// The ordinary case: the file names every plugin in the category, so the stored
+// precedences come out exactly as the file stated them even though the
+// instance's own values were in the way.
+func TestRestorePluginConfigs_AppliesTheFilesPrecedencesExactly(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	seedPluginConfigs(t, p, db.PluginCategoryPrice, "eodhd", "massive")
+
+	if err := p.RestorePluginConfigs(ctx, []db.PluginConfigWithCategory{
+		{PluginID: "eodhd", Category: db.PluginCategoryPrice, Enabled: true, Precedence: 20, Config: []byte(`{"eodhd_api_key":"k"}`)},
+		{PluginID: "massive", Category: db.PluginCategoryPrice, Enabled: false, Precedence: 10},
+	}); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+
+	rows, err := p.ListPluginConfigs(ctx, db.PluginCategoryPrice)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0].PluginID != "eodhd" || rows[0].Precedence != 20 || !rows[0].Enabled {
+		t.Fatalf("first row = %+v", rows[0])
+	}
+	if !jsonEqual(rows[0].Config, []byte(`{"eodhd_api_key":"k"}`)) {
+		t.Fatalf("config = %s", rows[0].Config)
+	}
+	if rows[1].PluginID != "massive" || rows[1].Precedence != 10 {
+		t.Fatalf("second row = %+v", rows[1])
+	}
+}
+
+// A plugin this build registers and the file does not name keeps its row and
+// goes below everything the file states. An import that said nothing about a
+// plugin must not leave it preferred over the ordering it did state.
+func TestRestorePluginConfigs_UnnamedPluginIsDemotedNotDropped(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	seedPluginConfigs(t, p, db.PluginCategoryPrice, "eodhd", "massive", "quandl")
+
+	// The file knows two of the three, and ranks eodhd top.
+	if err := p.RestorePluginConfigs(ctx, []db.PluginConfigWithCategory{
+		{PluginID: "eodhd", Category: db.PluginCategoryPrice, Enabled: true, Precedence: 2},
+		{PluginID: "massive", Category: db.PluginCategoryPrice, Enabled: true, Precedence: 1},
+	}); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+
+	rows, err := p.ListPluginConfigs(ctx, db.PluginCategoryPrice)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(rows))
+	}
+	if rows[0].PluginID != "eodhd" || rows[1].PluginID != "massive" || rows[2].PluginID != "quandl" {
+		t.Fatalf("order = %s, %s, %s", rows[0].PluginID, rows[1].PluginID, rows[2].PluginID)
+	}
+	// Every precedence stays positive and distinct, so a later export is valid.
+	seen := map[int]bool{}
+	for _, r := range rows {
+		if r.Precedence < 1 {
+			t.Fatalf("%s has precedence %d", r.PluginID, r.Precedence)
+		}
+		if seen[r.Precedence] {
+			t.Fatalf("duplicate precedence %d", r.Precedence)
+		}
+		seen[r.Precedence] = true
+	}
+}
+
+// Two plugins swapping places is the case the unique constraint makes awkward,
+// and the one an import does every time it restores a reordered category.
+func TestRestorePluginConfigs_SwapsPrecedences(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	seedPluginConfigs(t, p, db.PluginCategoryPrice, "eodhd", "massive")
+
+	if err := p.RestorePluginConfigs(ctx, []db.PluginConfigWithCategory{
+		{PluginID: "eodhd", Category: db.PluginCategoryPrice, Precedence: 20},
+		{PluginID: "massive", Category: db.PluginCategoryPrice, Precedence: 10},
+	}); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	rows, err := p.ListPluginConfigs(ctx, db.PluginCategoryPrice)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if rows[0].PluginID != "eodhd" {
+		t.Fatalf("expected eodhd on top, got %s", rows[0].PluginID)
+	}
+}
+
+// One category's rows do not disturb another's.
+func TestRestorePluginConfigs_LeavesOtherCategoriesAlone(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	seedPluginConfigs(t, p, db.PluginCategoryPrice, "eodhd")
+	seedPluginConfigs(t, p, db.PluginCategoryInflation, "ons")
+
+	if err := p.RestorePluginConfigs(ctx, []db.PluginConfigWithCategory{
+		{PluginID: "eodhd", Category: db.PluginCategoryPrice, Enabled: true, Precedence: 5},
+	}); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	rows, err := p.ListPluginConfigs(ctx, db.PluginCategoryInflation)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Precedence != 10 || rows[0].Enabled {
+		t.Fatalf("inflation row disturbed: %+v", rows[0])
+	}
+}
+
+// A row with no config row to update is the caller's mistake -- the import
+// rejects unregistered plugins before it gets here -- and fails rather than
+// silently doing nothing.
+func TestRestorePluginConfigs_UnknownPluginFails(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	seedPluginConfigs(t, p, db.PluginCategoryPrice, "eodhd")
+
+	err := p.RestorePluginConfigs(ctx, []db.PluginConfigWithCategory{
+		{PluginID: "quandl", Category: db.PluginCategoryPrice, Precedence: 5},
+	})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+}

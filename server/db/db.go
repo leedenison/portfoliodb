@@ -169,6 +169,21 @@ type PluginConfigDB interface {
 	// UpdatePluginConfig updates enabled, precedence, config, and/or max_history_days for a plugin.
 	// For maxHistoryDays: nil = no change, pointer to 0 = clear (NULL), pointer to N = set.
 	UpdatePluginConfig(ctx context.Context, category, pluginID string, enabled *bool, precedence *int, config []byte, maxHistoryDays *int) (*PluginConfigRowFull, error)
+	// ListAllPluginConfigs returns every plugin config row across every
+	// category, ordered by category then precedence descending. Used by the
+	// archive, which has no one category to ask about.
+	ListAllPluginConfigs(ctx context.Context) ([]PluginConfigWithCategory, error)
+	// RestorePluginConfigs applies an archive's plugin configuration, one
+	// category at a time. Every named (category, plugin_id) must already have a
+	// row -- the caller is expected to have rejected the rest -- because a
+	// config row for a plugin this build does not register is one nothing will
+	// ever read.
+	//
+	// A category's rows are applied as a set: the file's precedences are used
+	// exactly, and a plugin the file does not name is moved below all of them
+	// rather than left where it was, so an unnamed plugin cannot end up
+	// preferred over the restored ordering.
+	RestorePluginConfigs(ctx context.Context, configs []PluginConfigWithCategory) error
 	// ReorderPluginConfigs sets precedence for all plugins in a category.
 	// pluginIDs is ordered from highest to lowest precedence. All existing
 	// plugin IDs for the category must be present.
@@ -440,6 +455,18 @@ type PluginConfigRow struct {
 	MaxHistoryDays *int
 }
 
+// PluginConfigWithCategory is a plugin_config row that names its own category,
+// which PluginConfigRowFull does not: the admin API always knows the category it
+// asked for, and an archive part does not.
+type PluginConfigWithCategory struct {
+	PluginID       string
+	Category       string
+	Enabled        bool
+	Precedence     int
+	Config         []byte
+	MaxHistoryDays *int
+}
+
 // PluginConfigRowFull is a full row from identifier_plugin_config (includes enabled). Used for admin list/update.
 // MaxHistoryDays is only populated for price plugins; nil for identifier/description plugins.
 type PluginConfigRowFull struct {
@@ -595,6 +622,46 @@ func AssetClassToStr(ac typev1.AssetClass) string {
 		return ""
 	}
 	return ac.String()
+}
+
+// PluginCategoryToStr converts a proto plugin category to the string
+// plugin_config.category holds. It is the one shared vocabulary whose column
+// spelling differs from its enum name, so the mapping lives here rather than
+// being a String() call at each site.
+func PluginCategoryToStr(c typev1.PluginCategory) string {
+	switch c {
+	case typev1.PluginCategory_IDENTIFIER:
+		return PluginCategoryIdentifier
+	case typev1.PluginCategory_DESCRIPTION:
+		return PluginCategoryDescription
+	case typev1.PluginCategory_PRICE:
+		return PluginCategoryPrice
+	case typev1.PluginCategory_INFLATION:
+		return PluginCategoryInflation
+	case typev1.PluginCategory_CORPORATE_EVENT:
+		return PluginCategoryCorporateEvent
+	default:
+		return ""
+	}
+}
+
+// StrToPluginCategory converts a plugin_config.category value to its proto
+// enum. An unrecognised string maps to PLUGIN_CATEGORY_UNSPECIFIED.
+func StrToPluginCategory(s string) typev1.PluginCategory {
+	switch s {
+	case PluginCategoryIdentifier:
+		return typev1.PluginCategory_IDENTIFIER
+	case PluginCategoryDescription:
+		return typev1.PluginCategory_DESCRIPTION
+	case PluginCategoryPrice:
+		return typev1.PluginCategory_PRICE
+	case PluginCategoryInflation:
+		return typev1.PluginCategory_INFLATION
+	case PluginCategoryCorporateEvent:
+		return typev1.PluginCategory_CORPORATE_EVENT
+	default:
+		return typev1.PluginCategory_PLUGIN_CATEGORY_UNSPECIFIED
+	}
 }
 
 // StrToAssetClass converts a DB asset class string to its proto enum. An

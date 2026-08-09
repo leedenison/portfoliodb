@@ -219,6 +219,17 @@ func (e *exportArchiveStreamMock) unhandledEventGroups() []*archivev1.UnhandledE
 	return out
 }
 
+// pluginConfigs returns the plugin config rows the export streamed.
+func (e *exportArchiveStreamMock) pluginConfigs() []*archivev1.PluginConfig {
+	var out []*archivev1.PluginConfig
+	for _, m := range e.sent {
+		if v := m.GetPluginConfig(); v != nil {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // shape describes the stream as a sequence of item kinds, which is what the
 // client's reassembly reads.
 func (e *exportArchiveStreamMock) shape() []string {
@@ -241,6 +252,8 @@ func (e *exportArchiveStreamMock) shape() []string {
 			out = append(out, "fetch_block_group")
 		case m.GetUnhandledEventGroup() != nil:
 			out = append(out, "unhandled_event_group")
+		case m.GetPluginConfig() != nil:
+			out = append(out, "plugin_config")
 		}
 	}
 	return out

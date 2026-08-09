@@ -2,12 +2,15 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/residual"
+	"github.com/lib/pq"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -95,24 +98,8 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 		if err != nil {
 			return fmt.Errorf("period_before: %w", err)
 		}
-		// Delete whole groups and let the FK cascade take their postings, so that a
-		// replace can never leave half an economic event behind.
-		// Synthetic txs (e.g. INITIALIZE rows backing holding declarations) are
-		// managed by the declaration / recalc machinery, not by ingestion. Their
-		// groups never match here, so a bulk replace cannot collaterally delete them.
-		_, err = exec.ExecContext(ctx, `
-			DELETE FROM tx_groups g
-			WHERE g.user_id = $1
-			  AND EXISTS (
-			    SELECT 1 FROM txs t
-			    WHERE t.group_id = g.id
-			      AND t.broker = $2
-			      AND t.timestamp >= $3 AND t.timestamp < $4
-			      AND t.synthetic_purpose IS NULL
-			  )
-		`, userUUID, broker, fromT, beforeT)
-		if err != nil {
-			return fmt.Errorf("delete tx groups in period: %w", err)
+		if err := clearPeriod(ctx, exec, userUUID, broker, fromT, beforeT); err != nil {
+			return err
 		}
 		return insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, shareCountBasis, "")
 	})
@@ -433,4 +420,304 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string) ([]db.Ex
 		out[i] = db.ExportPosting(r)
 	}
 	return out, nil
+}
+
+// residualAccountTypes are the account types a routed counterparty takes.
+const residualAccountTypes = `'IMBALANCE', 'TRANSFER_CLEARING', 'SOURCE_ROUNDING'`
+
+// survivorPredicate selects the postings of a touched group that a replace leaves
+// standing, and is the one definition of that. $1 is the broker, $2 and $3 the period
+// bounds.
+//
+// A routed counterparty never survives. Residuals are derived again against the legs a
+// group ends with, so a group carries one per commodity however many replaces have
+// reached it rather than a stack of them.
+//
+// Two kinds of posting do survive, and both were destroyed by the whole-group delete
+// this replaces. A posting of another broker is not this upload's to replace. A
+// synthetic INITIALIZE posting is the declaration machinery's rather than ingestion's.
+const survivorPredicate = `
+	t.account_type NOT IN (` + residualAccountTypes + `)
+	AND NOT (t.broker = $1 AND t.timestamp >= $2 AND t.timestamp < $3
+	         AND t.synthetic_purpose IS NULL)
+`
+
+// touchedGroups is the set of groups a replace reaches: those holding a non-synthetic
+// posting of this broker inside the period. $4 is the user.
+const touchedGroups = `
+	SELECT DISTINCT t.group_id
+	FROM txs t
+	WHERE t.user_id = $4
+	  AND t.broker = $1
+	  AND t.timestamp >= $2 AND t.timestamp < $3
+	  AND t.synthetic_purpose IS NULL
+`
+
+// deleteReplacedPostingsSQL removes what a replace is replacing, and names the groups
+// it reached so the statements below can finish the job on them.
+//
+// It deletes postings rather than whole groups. A group's postings need not share a
+// timestamp -- the Fidelity deposit-run pass keys on reference proximity, and a run in
+// the sample export settles across two days -- so a whole-group delete destroys legs
+// outside the period, which the upload that triggered it does not carry and nothing
+// re-inserts.
+//
+// The legs that survive are left exactly as they are, on the group they were already
+// in. Nothing is rewritten, so nothing derived is derived again: the stored weight that
+// carries the balance (docs/adr/0029-posting-weight-is-stored.md), the split adjustment
+// carrying any corporate action since ingest, and a restating source's
+// share_count_basis.
+const deleteReplacedPostingsSQL = `
+	WITH touched AS (` + touchedGroups + `)
+	DELETE FROM txs t
+	USING touched
+	WHERE t.group_id = touched.group_id
+	  AND NOT (` + survivorPredicate + `)
+	RETURNING t.group_id
+`
+
+// deleteEmptiedGroupsSQL removes the groups the delete emptied, which is every group
+// that did not straddle the period. The whole-group delete this replaces left the same
+// rows behind.
+const deleteEmptiedGroupsSQL = `
+	DELETE FROM tx_groups g
+	WHERE g.id = ANY($1)
+	  AND NOT EXISTS (SELECT 1 FROM txs t WHERE t.group_id = g.id)
+`
+
+// deleteTouchedMatchesSQL drops the transfer matches naming a touched group. A match is
+// a link between two groups rather than a posting, and it used to cascade with the
+// group a replace deleted; a group that survives with a different residual needs it
+// dropped explicitly, or the link outlives the evidence for it. The matcher runs after
+// ingest and rebuilds what still holds.
+// See docs/adr/0037-transfer-matches-are-links-not-postings.md.
+const deleteTouchedMatchesSQL = `
+	DELETE FROM transfer_matches m
+	WHERE m.from_group_id = ANY($1) OR m.to_group_id = ANY($1)
+`
+
+// repointGroupTimestampsSQL re-dates a group whose first leg the delete took.
+// tx_groups.timestamp is the timestamp of the first posting that named the group and is
+// derived rather than data, so it has to follow the legs that are left.
+const repointGroupTimestampsSQL = `
+	UPDATE tx_groups g
+	SET timestamp = s.first_timestamp
+	FROM (
+		SELECT group_id, MIN(timestamp) AS first_timestamp
+		FROM txs
+		WHERE group_id = ANY($1)
+		GROUP BY group_id
+	) s
+	WHERE g.id = s.group_id AND g.timestamp <> s.first_timestamp
+`
+
+// survivingResidualsSQL returns what each group the delete touched has left over, with
+// everything the counterparty that balances it is built from.
+//
+// The sum is over the stored weight per weight_commodity, which is exactly what
+// check_tx_group_balance() checks and what routeResiduals accumulates -- so no weight
+// rule is re-derived here and none is written in SQL. The account type the residual
+// takes is chosen in Go, by the rule the ingest balancer uses.
+//
+// first is the group's earliest surviving posting, matching the balancer taking the
+// group's first leg: the residual keeps the broker, account, date and tx type of the
+// group it balances, so it stays attributable. commodity is the earliest surviving leg
+// weighing in that commodity, which is where a residual in a security takes its
+// instrument and description from.
+const survivingResidualsSQL = `
+	SELECT r.group_id, r.weight_commodity, r.residual,
+	       types.tx_types,
+	       first.timestamp, first.tx_type, first.broker, first.account,
+	       first.trading_currency, first.settlement_currency,
+	       commodity.instrument_description, commodity.instrument_id
+	FROM (
+		SELECT group_id, weight_commodity, SUM(weight) AS residual
+		FROM txs
+		WHERE group_id = ANY($1)
+		GROUP BY group_id, weight_commodity
+		HAVING SUM(weight) <> 0
+	) r
+	JOIN LATERAL (
+		SELECT array_agg(DISTINCT t.tx_type) AS tx_types
+		FROM txs t WHERE t.group_id = r.group_id
+	) types ON true
+	JOIN LATERAL (
+		SELECT t.timestamp, t.tx_type, t.broker, t.account,
+		       t.trading_currency, t.settlement_currency
+		FROM txs t WHERE t.group_id = r.group_id
+		ORDER BY t.timestamp, t.id LIMIT 1
+	) first ON true
+	JOIN LATERAL (
+		SELECT t.instrument_description, t.instrument_id
+		FROM txs t
+		WHERE t.group_id = r.group_id AND t.weight_commodity = r.weight_commodity
+		ORDER BY t.timestamp, t.id LIMIT 1
+	) commodity ON true
+	ORDER BY r.group_id, r.weight_commodity
+`
+
+// currencyInstrumentSQL resolves the seeded instrument a money residual is denominated
+// in. It runs on the replace's own transaction rather than through
+// FindInstrumentByIdentifier so that the whole operation is one statement stream.
+const currencyInstrumentSQL = `
+	SELECT instrument_id FROM instrument_identifiers
+	WHERE identifier_type = 'CURRENCY' AND domain IS NULL AND value = $1
+`
+
+// survivingResidual is one commodity a group the replace cut no longer balances in, and
+// the group attributes the counterparty for it is built from.
+type survivingResidual struct {
+	groupID      uuid.UUID
+	commodity    string
+	amount       decimal.Decimal
+	txTypes      pq.StringArray
+	timestamp    time.Time
+	txType       string
+	broker       string
+	account      string
+	trading      *string
+	settlement   *string
+	description  string
+	instrumentID *uuid.UUID
+}
+
+// clearPeriod deletes the postings a replace covers and re-balances the groups it left
+// standing.
+//
+// A group that straddles the period keeps its postings outside it and gains a routed
+// counterparty for what those legs no longer balance to. The result is stable under
+// repetition rather than identical to what came before: re-importing a period leaves
+// the out-of-period legs where they were and the in-period legs in a new group, each
+// balanced by a routed residual.
+//
+// The delete and the routed insert commit together, and check_tx_group_balance() is
+// DEFERRABLE INITIALLY DEFERRED, so the group is never observed unbalanced.
+func clearPeriod(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, fromT, beforeT time.Time) error {
+	touched, err := deleteReplacedPostings(ctx, exec, userUUID, broker, fromT, beforeT)
+	if err != nil {
+		return err
+	}
+	if len(touched) == 0 {
+		return nil
+	}
+	ids := pq.Array(touched)
+	if _, err := exec.ExecContext(ctx, deleteEmptiedGroupsSQL, ids); err != nil {
+		return fmt.Errorf("delete emptied tx groups: %w", err)
+	}
+	if _, err := exec.ExecContext(ctx, deleteTouchedMatchesSQL, ids); err != nil {
+		return fmt.Errorf("delete transfer matches: %w", err)
+	}
+	if _, err := exec.ExecContext(ctx, repointGroupTimestampsSQL, ids); err != nil {
+		return fmt.Errorf("repoint tx group timestamps: %w", err)
+	}
+	return routeSurvivors(ctx, exec, userUUID, ids)
+}
+
+// deleteReplacedPostings removes what the replace is replacing and returns the distinct
+// groups it reached.
+func deleteReplacedPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, fromT, beforeT time.Time) ([]uuid.UUID, error) {
+	rows, err := exec.QueryContext(ctx, deleteReplacedPostingsSQL, broker, fromT, beforeT, userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("delete txs in period: %w", err)
+	}
+	defer rows.Close()
+	seen := map[uuid.UUID]bool{}
+	var touched []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("delete txs in period: %w", err)
+		}
+		if !seen[id] {
+			seen[id] = true
+			touched = append(touched, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("delete txs in period: %w", err)
+	}
+	return touched, nil
+}
+
+// routeSurvivors writes the counterparty that balances each group the delete left
+// unbalanced, by the family rule the ingest balancer applies to an upload. The
+// tolerance is not applied: see residual.SplitType.
+func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, groupIDs interface{}) error {
+	rows, err := exec.QueryContext(ctx, survivingResidualsSQL, groupIDs)
+	if err != nil {
+		return fmt.Errorf("surviving residuals: %w", err)
+	}
+	defer rows.Close()
+	var residuals []survivingResidual
+	for rows.Next() {
+		var r survivingResidual
+		if err := rows.Scan(&r.groupID, &r.commodity, &r.amount, &r.txTypes,
+			&r.timestamp, &r.txType, &r.broker, &r.account,
+			&r.trading, &r.settlement, &r.description, &r.instrumentID); err != nil {
+			return fmt.Errorf("surviving residuals: %w", err)
+		}
+		residuals = append(residuals, r)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("surviving residuals: %w", err)
+	}
+
+	byCurrency := map[string]uuid.UUID{}
+	for _, r := range residuals {
+		amount := r.amount.Neg()
+		txTypes := make([]typev1.TxType, 0, len(r.txTypes))
+		for _, t := range r.txTypes {
+			txTypes = append(txTypes, db.StrToTxType(t))
+		}
+		acctType, err := accountTypeToStr(residual.SplitType(txTypes))
+		if err != nil {
+			return err
+		}
+
+		// A residual in a security carries the instrument and description of the legs
+		// it balances; one in money resolves the seeded currency instrument and takes
+		// the code as its description, matching how an ordinary cash row arrives so
+		// nothing downstream has to treat it specially.
+		desc, trading, settlement := r.description, r.trading, r.settlement
+		instID := r.instrumentID
+		if code, money := residual.CurrencyOf(r.commodity); money {
+			id, err := currencyInstrument(ctx, exec, byCurrency, code)
+			if err != nil {
+				return err
+			}
+			instID, desc, trading, settlement = &id, code, &code, &code
+		}
+
+		// NULL share_count_basis leaves the insert trigger to seed it from the
+		// posting's own timestamp, and the split-adjusted pair is seeded the same way,
+		// exactly as for an uploaded posting. A routed leg has no source row, so it
+		// carries neither a broker reference nor a counterparty account.
+		if _, err := exec.ExecContext(ctx, insertPostingInGroupSQL,
+			userUUID, r.broker, r.account, r.timestamp, desc, r.txType, amount,
+			trading, settlement, nil, nullUUID(instID), nil, acctType,
+			amount, r.commodity, nil, nil, r.groupID,
+		); err != nil {
+			return fmt.Errorf("insert routed posting: %w", err)
+		}
+	}
+	return nil
+}
+
+// currencyInstrument resolves and caches the seeded instrument a currency code names.
+func currencyInstrument(ctx context.Context, exec queryable, cache map[string]uuid.UUID, code string) (uuid.UUID, error) {
+	if id, ok := cache[code]; ok {
+		return id, nil
+	}
+	var id uuid.UUID
+	switch err := exec.QueryRowContext(ctx, currencyInstrumentSQL, code).Scan(&id); {
+	case err == sql.ErrNoRows:
+		// Currencies are seeded, so this is a safety net rather than a live path.
+		// Naming the commodity is the only way the failure says anything useful: the
+		// alternative is the deferred constraint rejecting the whole replace at COMMIT.
+		return uuid.UUID{}, fmt.Errorf("no instrument for residual currency %q", code)
+	case err != nil:
+		return uuid.UUID{}, fmt.Errorf("resolve currency %s: %w", code, err)
+	}
+	cache[code] = id
+	return id, nil
 }

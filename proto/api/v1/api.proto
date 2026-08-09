@@ -5,8 +5,12 @@ package portfoliodb.api.v1;
 import "archive/v1/archive.proto";
 import "archive/v1/common.proto";
 import "archive/v1/corporate_events.proto";
+import "archive/v1/fetch_blocks.proto";
+import "archive/v1/inflation.proto";
 import "archive/v1/instruments.proto";
+import "archive/v1/plugin_config.proto";
 import "archive/v1/prices.proto";
+import "archive/v1/unhandled_events.proto";
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 import "google/type/date.proto";
@@ -561,6 +565,11 @@ message ExportSystemArchiveResponse {
     portfoliodb.archive.v1.Instrument instrument = 3;
     portfoliodb.archive.v1.PriceGroup price_group = 4;
     portfoliodb.archive.v1.CorporateEventGroup corporate_event_group = 5;
+    portfoliodb.archive.v1.InflationGroup inflation_group = 6;
+    portfoliodb.archive.v1.FetchBlockGroup fetch_block_group = 7;
+    portfoliodb.archive.v1.UnhandledEventGroup unhandled_event_group = 8;
+    // A flat list, so one row per message rather than one group.
+    portfoliodb.archive.v1.PluginConfig plugin_config = 9;
   }
 }
 
@@ -570,8 +579,8 @@ message ArchivePartBegin {
 }
 
 // ImportSystemArchiveRequest carries one whole system archive. The parts are
-// applied server-side in restore order -- instruments, prices, corporate events
-// -- so a client that navigates away mid-import does not stop it, and the caller
+// applied server-side in restore order -- the order ArchivePart numbers them --
+// so a client that navigates away mid-import does not stop it, and the caller
 // polls one job rather than sequencing the parts itself.
 //
 // A part absent from the document is not applied. A part present and empty is

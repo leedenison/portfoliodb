@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package portfoliodb.archive.v1;
+
+import "buf/validate/validate.proto";
+
+option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
+
+// InflationPart is the inflation-index section of a system archive: monthly
+// index values grouped by the currency whose purchasing power they measure.
+//
+// Index values are refetchable in principle and so are carried for cost rather
+// than for irreplaceability -- except that a revision replaces its predecessor
+// in place and leaves no record (docs/spec/bitemporality.md), so what a refetch
+// returns is the current revision and not what this file holds.
+message InflationPart {
+  repeated InflationGroup groups = 1;
+}
+
+// InflationGroup is one currency's series.
+//
+// There is no coverage list here, unlike the price and corporate-event groups.
+// A series is dense: an index is published for every month until the series
+// ends, so the rows say what is held and a gap is missing data rather than a
+// month a provider was asked about and had nothing to report. inflation_indices
+// stores no coverage either, and a file must not claim more than the table can
+// answer for.
+message InflationGroup {
+  string currency = 1; // ISO 4217
+  repeated InflationRow rows = 2;
+}
+
+// InflationRow is one month's index value.
+message InflationRow {
+  // The month described, written as its first day: "2024-03-01".
+  string month = 1 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-01$"];
+  // decimal; relative to base_year July = 100.
+  string index_value = 2 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
+  // The year the value is based on, where July = 100. It is on the row rather
+  // than on the group because a rebasing changes it partway through a series,
+  // and both halves travel in the one group; reading a rebased value against the
+  // wrong base is not an error but a wrong number.
+  int32 base_year = 3 [(buf.validate.field).int32.gte = 1900];
+}

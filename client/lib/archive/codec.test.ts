@@ -185,7 +185,7 @@ describe("archive codec", () => {
   // What makes the version gate safe to be one-sided.
   it("ignores a field added by a later writer", () => {
     const doc = JSON.parse(marshalSystem(systemFixture()));
-    doc.inflation_indices = [{ series: "CPIH" }];
+    doc.portfolios = [{ name: "a part this build has never heard of" }];
     doc.envelope.written_by = "a later portfoliodb";
     expect(() => unmarshalSystem(JSON.stringify(doc))).not.toThrow();
   });

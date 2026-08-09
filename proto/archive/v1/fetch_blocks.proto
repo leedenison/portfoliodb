@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package portfoliodb.archive.v1;
+
+import "archive/v1/common.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+import "type/v1/type.proto";
+
+option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
+
+// FetchBlockPart is the fetch-block section of a system archive: the
+// (instrument, plugin) pairs a fetcher has been told permanently to stop asking
+// about, grouped by instrument.
+//
+// One part covers both price_fetch_blocks and corporate_event_fetch_blocks. The
+// two tables are the same statement about two fetchers, the reason someone wrote
+// down reads the same way in both, and splitting them would put two rows in the
+// export menu where an admin thinks of one.
+//
+// Losing these is not losing a cache. A rebuild without them resumes querying
+// providers that were deliberately stopped, at the cost the block was created to
+// avoid, and the reason is gone.
+message FetchBlockPart {
+  repeated FetchBlockGroup groups = 1;
+}
+
+// FetchBlockGroup is one instrument's blocks, across both fetchers and every
+// plugin.
+message FetchBlockGroup {
+  InstrumentRef instrument = 1 [(buf.validate.field).required = true];
+  repeated FetchBlock blocks = 2;
+}
+
+// FetchBlock is one blocked (instrument, plugin) pair.
+message FetchBlock {
+  // Which fetcher is blocked, named by the plugin category it runs. Only PRICE
+  // and CORPORATE_EVENT have a fetch-block table; a file naming any other
+  // category is describing a table that does not exist.
+  portfoliodb.type.v1.PluginCategory category = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    in: [3, 5] // PRICE, CORPORATE_EVENT
+  }];
+  // The plugin that was blocked, as the plugin registry spells it. A block for a
+  // plugin the importing instance does not register is rejected rather than
+  // stored: nothing would ever consult it.
+  string plugin_id = 2 [(buf.validate.field).string.min_len = 1];
+  // Why the pair was blocked, as the plugin reported it -- a 404, a 403, a
+  // provider saying it has never heard of the symbol. Free text rather than a
+  // vocabulary, because that is what ErrPermanent carries and what the column
+  // holds, and because it is read by a person deciding whether to unblock.
+  string reason = 3 [(buf.validate.field).string.min_len = 1];
+  // Knowledge time: when the pair was first blocked. Never overwritten, so an
+  // import keeps the earlier of the stored and the supplied value. Absent falls
+  // back to the envelope's exported_at.
+  optional google.protobuf.Timestamp first_blocked_at = 4;
+}

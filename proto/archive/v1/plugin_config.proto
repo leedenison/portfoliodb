@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package portfoliodb.archive.v1;
+
+import "buf/validate/validate.proto";
+import "type/v1/type.proto";
+
+option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
+
+// PluginConfigPart is the plugin-configuration section of a system archive:
+// which plugins are on, the order they are tried in, and what each was
+// configured with.
+//
+// **A document carrying this part is a secret.** config_json holds live API
+// keys, in full and unredacted, because a rebuild that needs an admin to
+// re-enter every provider credential by hand is a rebuild that has not
+// restored. That is why the export menu leaves this part unticked: including it
+// changes where the file can safely be kept, and that has to be a decision
+// somebody made rather than a default they inherited.
+//
+// It is a flat list rather than a grouped one. A config row has no aggregate
+// root above it -- category is a column on the row, not an entity the rows hang
+// off -- so grouping by category would invent a level the data does not have.
+message PluginConfigPart {
+  repeated PluginConfig configs = 1;
+}
+
+// PluginConfig is one row of plugin_config: one plugin's settings in one
+// category.
+message PluginConfig {
+  // The plugin, as the plugin registry spells it. A row naming a plugin this
+  // build does not register is rejected: a config row nothing will ever read is
+  // not worth storing, and the mismatch is worth saying out loud.
+  string plugin_id = 1 [(buf.validate.field).string.min_len = 1];
+  // Which kind of work the plugin does. A plugin can hold a row in more than one
+  // category, so the pair is what identifies a row.
+  portfoliodb.type.v1.PluginCategory category = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  bool enabled = 3;
+  // Higher is preferred, and the order is unique within a category. It is an
+  // ordering somebody chose between providers that disagree, so nothing can
+  // guess it back.
+  int32 precedence = 4 [(buf.validate.field).int32.gte = 1];
+  // The plugin's own settings as the JSON text the column holds, opaque here
+  // because its shape belongs to the plugin. **This is where the API keys are.**
+  optional string config_json = 5;
+  // How far back a price or corporate-event plugin may be asked to look, in
+  // days. Absent means unlimited, which is not the same as zero.
+  optional int32 max_history_days = 6 [(buf.validate.field).int32.gt = 0];
+}

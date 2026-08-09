@@ -287,7 +287,7 @@ func TestUnmarshal_IgnoresUnknownFields(t *testing.T) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	doc["inflation_indices"] = []any{map[string]any{"series": "CPIH"}}
+	doc["portfolios"] = []any{map[string]any{"name": "a part this build has never heard of"}}
 	doc["envelope"].(map[string]any)["written_by"] = "a later portfoliodb"
 	b, err = json.Marshal(doc)
 	if err != nil {

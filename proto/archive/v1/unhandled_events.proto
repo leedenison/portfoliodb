@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package portfoliodb.archive.v1;
+
+import "archive/v1/common.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
+
+// UnhandledEventPart is the unhandled-corporate-event section of a system
+// archive: the events PortfolioDB could not apply on its own and put in front of
+// an admin, with whatever call the admin made.
+//
+// The whole row is carried, resolved and unresolved alike, rather than only the
+// resolved flag. These rows exist only because a corporate-event fetch detected
+// something it could not process, and a restore writes events from the file
+// instead of fetching them, so nothing re-creates the row a bare resolution
+// would need to attach to. Carrying the row restores both halves of the state
+// that matters: the judgements already made, and the queue still waiting for
+// one.
+message UnhandledEventPart {
+  repeated UnhandledEventGroup groups = 1;
+}
+
+// UnhandledEventGroup is one instrument's unhandled events.
+message UnhandledEventGroup {
+  InstrumentRef instrument = 1 [(buf.validate.field).required = true];
+  repeated UnhandledEvent events = 2;
+}
+
+// UnhandledEvent is one event awaiting or holding an admin's decision.
+message UnhandledEvent {
+  // What could not be applied: REVERSE_SPLIT, NON_WHOLE_SPLIT, MERGER,
+  // EXTRAORDINARY_DIVIDEND, SPECIAL_CASH_DIVIDEND, FUTURES_SPLIT. Free text
+  // rather than a vocabulary, because the column is free text and the detector
+  // is free to name a case it has just learned to recognise.
+  string event_type = 1 [(buf.validate.field).string.min_len = 1];
+  // Valid time: when the event took effect. Absent for the rare event with no
+  // date, which the dedup index treats as distinct from every other.
+  optional string ex_date = 2 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
+  // A sentence for the admin reading the queue.
+  string detail = 3;
+  // The detector's own context, carried as the JSON text it stored rather than
+  // as a structured value: it is an opaque payload whose shape belongs to
+  // whichever detector wrote it, and protojson would carry its numbers as
+  // doubles. See docs/adr/0027-decimal-values-cross-the-wire-as-strings.md.
+  optional string data_json = 4;
+  // Whether an admin has already made the call. This is the field the part
+  // exists for: it is the only trace that a person looked at a reverse split or
+  // a merger and decided, and nothing can reconstruct it.
+  bool resolved = 5;
+  // Knowledge time: when the event was detected. Absent falls back to the
+  // envelope's exported_at.
+  optional google.protobuf.Timestamp detected_at = 6;
+}

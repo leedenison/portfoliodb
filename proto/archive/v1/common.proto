@@ -66,8 +66,10 @@ enum ArchivePart {
   INSTRUMENTS = 1;
   PRICES = 2;
   CORPORATE_EVENTS = 3;
-  // 4 onwards are the remaining parts: inflation indices, fetch blocks,
-  // unhandled event resolutions, plugin config.
+  INFLATION_INDICES = 4;
+  FETCH_BLOCKS = 5;
+  UNHANDLED_EVENTS = 6;
+  PLUGIN_CONFIG = 7;
 }
 
 // Envelope carries only what cannot differ between two rows of a valid file.

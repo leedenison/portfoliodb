@@ -17,14 +17,24 @@ import (
 // period rather than appending to it, so the second would delete what the first
 // had just written. See docs/adr/0002-transaction-ingestion-model.md.
 //
-// The period is derived from the postings the window carries -- the first
-// posting's instant to the day after the last one's -- so the window provably
-// contains everything in it and no group straddles its edge. A period-scoped
-// export, which can split a group, is 0094.
+// The requested period, where there is one, is the window's period verbatim: an
+// export adheres strictly to the period asked for, so the window says what was
+// asked for rather than what happened to land in it, and a group straddling a
+// bound contributes only its in-period legs. The exported group then does not
+// balance, which the format accepts -- the importer routes the residual.
+//
+// Without a period, each bound is derived from the postings the window carries --
+// the first posting's instant to the day after the last one's -- so the window
+// provably contains everything in it and no group straddles its edge. A bound
+// given on one side only is honoured on that side and derived on the other.
+//
+// A broker with no posting in the period gets no window. An export is a picture of
+// what is stored, and an empty window is an instruction to clear a period, which
+// is not something the export was asked to say.
 //
 // The rows arrive ordered by broker, then group, then posting, so the whole
 // thing is a scan and the output order follows the query's.
-func txWindows(rows []db.ExportPosting) []*archivev1.TxWindow {
+func txWindows(rows []db.ExportPosting, periodFrom, periodBefore *timestamppb.Timestamp) []*archivev1.TxWindow {
 	var out []*archivev1.TxWindow
 	var cur *archivev1.TxWindow
 	var curGroup *archivev1.TxGroup
@@ -32,8 +42,15 @@ func txWindows(rows []db.ExportPosting) []*archivev1.TxWindow {
 	var from, last time.Time
 
 	closeWindow := func() {
-		if cur != nil {
+		if cur == nil {
+			return
+		}
+		cur.PeriodFrom = periodFrom
+		if cur.PeriodFrom == nil {
 			cur.PeriodFrom = timestamppb.New(from)
+		}
+		cur.PeriodBefore = periodBefore
+		if cur.PeriodBefore == nil {
 			cur.PeriodBefore = timestamppb.New(last.UTC().Truncate(24*time.Hour).AddDate(0, 0, 1))
 		}
 	}

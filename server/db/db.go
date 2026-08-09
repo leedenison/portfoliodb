@@ -337,7 +337,11 @@ type TxDB interface {
 	// then by group, then by posting. Synthetic INITIALIZE groups are excluded --
 	// they are derived from holding declarations, which the archive carries as the
 	// declarations they come from.
-	ListTxsForExport(ctx context.Context, userID string) ([]ExportPosting, error)
+	//
+	// The half-open [periodFrom, periodBefore) bounds are optional and filter the
+	// postings rather than the groups holding them, so a group straddling a bound
+	// contributes only its in-period legs. A nil bound is open-ended.
+	ListTxsForExport(ctx context.Context, userID string, periodFrom, periodBefore *timestamppb.Timestamp) ([]ExportPosting, error)
 }
 
 // HoldingsDB computes holdings at a point in time.

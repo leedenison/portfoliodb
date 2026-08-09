@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Replace a period without destroying a straddling group
 milestone: M14
 dependencies: [0077]
@@ -79,11 +79,40 @@ is the half of that needing a person's judgement.
 This fixes broker statement uploads as well as archive imports; both paths go
 through `ReplaceTxsInPeriod`.
 
-The delete half has landed. Rebuilding the group around its survivors was tried on the
-way and abandoned: creating a new group and moving the legs into it should have let the
-cascade replace four hand-written statements, but measured it swapped four for four and
-added id-mapping machinery, churned group ids for nothing, and put the survivors through
-an insert that reseeds the split-adjusted columns from the raw ones. The tests written to
-catch that last one are kept.
+Closed. Both halves landed: the replace deletes the postings inside the period rather
+than the groups holding them, and the export takes a period and adheres to it.
+adr/0039-replace-by-period-deletes-postings-not-groups.md records the delete;
+docs/spec/postings.md and docs/spec/archive-format.md say what each side now does.
 
-The export half is what remains.
+The classification rule did not go into SQL. Summing the stored weights was right --
+it is what `check_tx_group_balance()` itself does -- but writing the transfer tx-type
+set and the tolerances there as well would have been the second copy adr/0029 rejected
+for the weight rules. The rule lives in `server/residual` and both the ingest balancer
+and the delete call it.
+
+The tolerance does not apply to a residual left by a cut. That residual is the value of
+the legs removed rather than the source disagreeing with itself, so it is never
+SOURCE_ROUNDING however small. A distinct account type saying "cut here" was considered
+and rejected: it reads as an instruction to restore what was there, which is stale
+advice when the re-uploaded rows may genuinely differ.
+
+Rebuilding the group around its survivors was tried on the way and abandoned. Creating
+a new group and moving the legs into it should have let the cascade replace the four
+statements this needs by hand -- dropping the emptied group row, dropping the transfer
+matches, re-dating the group, and clearing its stale residuals. Measured, it swapped
+four statements for four and added id-mapping machinery, at 218 lines of code against
+194. It churned group ids for nothing, and it put the survivors through an insert,
+where default_split_adjusted_tx() reseeds the split-adjusted columns and
+share_count_basis from the raw ones -- a hazard the in-place delete never had, because
+it never rewrites a surviving row. `idx_txs_initialize_unique` also rejects a copied
+INITIALIZE posting for as long as the original exists. The tests written during the
+detour are kept: the property is worth pinning whatever the implementation.
+
+A period-scoped export writes no window for a broker with nothing in the period. An
+empty window is an instruction to clear a period, and an export asked for a period was
+not asked to say that about every broker the user has ever traded with.
+
+The e2e fixture had to carry `JRNLFUND` rather than `TRANSFER`: both are transfer
+family for routing, but `TRANSFER` implies no asset class and validation rejects that
+against the `CASH` instrument a cash journal leg resolves to. Worth knowing before
+writing the next cash-transfer fixture.

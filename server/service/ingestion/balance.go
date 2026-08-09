@@ -253,8 +253,9 @@ func groupPostings(txs []*apiv1.Tx) ([]string, map[string][]int) {
 // Only a group that already sums to exactly zero produces none. A group can produce
 // more than one when its residual spans commodities, as beancount's residual
 // inventory and ledger's Imbalance:<CUR> both can. Which account type each takes is
-// residual.Type's, shared with the partial delete in replace-by-period so that a
-// group's residual does not depend on which path produced it.
+// residual.Type's. Replace-by-period shares the family half of that rule, so whether a
+// residual reads as a transfer or as a missing leg does not depend on which path
+// produced it; only this one applies the tolerance. See residual.SplitType.
 //
 // It assigns a synthetic group_ref to any posting that has none, so that a routed
 // counterparty is stored in the same group as the posting it balances.

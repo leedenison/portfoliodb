@@ -377,10 +377,31 @@ type exportPosting struct {
 // description on the way back in. bestIdentifierJoinOn rather than a
 // hand-written lateral so this export agrees with every other one about which
 // identifier is best.
-func (p *Postgres) ListTxsForExport(ctx context.Context, userID string) ([]db.ExportPosting, error) {
+func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFrom, periodBefore *timestamppb.Timestamp) ([]db.ExportPosting, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	args := []interface{}{userUUID}
+	// The bounds filter the postings, not the groups that hold them: a period-scoped
+	// export adheres to the period asked for, so a group straddling a bound
+	// contributes only its in-period legs.
+	period := ""
+	if periodFrom != nil {
+		from, err := tsToTime(periodFrom)
+		if err != nil {
+			return nil, fmt.Errorf("period_from: %w", err)
+		}
+		args = append(args, from)
+		period += fmt.Sprintf("\n\t\t  AND t.timestamp >= $%d", len(args))
+	}
+	if periodBefore != nil {
+		before, err := tsToTime(periodBefore)
+		if err != nil {
+			return nil, fmt.Errorf("period_before: %w", err)
+		}
+		args = append(args, before)
+		period += fmt.Sprintf("\n\t\t  AND t.timestamp < $%d", len(args))
 	}
 	q := `
 		SELECT t.broker, t.group_id::text AS group_id, g.timestamp AS group_timestamp,
@@ -408,11 +429,11 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string) ([]db.Ex
 		  AND NOT EXISTS (
 		    SELECT 1 FROM txs s
 		    WHERE s.group_id = t.group_id AND s.synthetic_purpose IS NOT NULL
-		  )
+		  )` + period + `
 		ORDER BY t.broker, g.timestamp, g.id, t.timestamp, t.id
 	`
 	var rows []exportPosting
-	if err := p.q.SelectContext(ctx, &rows, q, userUUID); err != nil {
+	if err := p.q.SelectContext(ctx, &rows, q, args...); err != nil {
 		return nil, fmt.Errorf("list txs for export: %w", err)
 	}
 	out := make([]db.ExportPosting, len(rows))

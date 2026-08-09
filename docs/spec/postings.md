@@ -163,6 +163,10 @@ order, and each leg on its own leaves the group unbalanced. A group deleted whol
 matches no rows and passes vacuously, which is what lets replace-by-period delete
 groups and let the cascade take their postings; deleting a single leg does not.
 
+It is also what lets a replace delete part of a group. Deleting one leg of a balanced
+group is a violation on its own; the counterparty that negates what is left is written
+in the same transaction, so the group is settled before COMMIT.
+
 The exactness is what makes the check arguable-free. There is no tolerance in it,
 because every non-zero residual is routed at ingest -- including the sub-tolerance ones,
 which go to `SOURCE_ROUNDING` -- so a group sums to zero by construction. It reads the
@@ -227,8 +231,9 @@ The routed posting takes the `IMBALANCE` type, or `TRANSFER_CLEARING` when the
 group is a journal. It keeps the broker, account, date and `tx_type` of the group
 it balances, so the residual stays attributable to the account and the kind of
 event that produced it. Its commodity is carried by `instrument_id`, never encoded
-in a name. It is written into the group it balances, so replace-by-period takes it
-with the cascade.
+in a name. It is written into the group it balances, and a replace that cuts that group
+deletes it along with the in-period postings: the remainder is routed fresh, so a group
+carries one residual per commodity however many replaces have reached it.
 
 ### Source rounding
 
@@ -320,12 +325,41 @@ group, so an appended posting is balanced like any other.
 ## Deletion
 
 The group is the unit of deletion. Deleting a group deletes its postings, so no code
-path can leave half an economic event behind.
+path can leave half an economic event behind by deleting the group it belonged to.
 
-Bulk upload replaces a period by deleting the groups whose postings fall inside it
-(see adr/0002-transaction-ingestion-model.md). Synthetic INITIALIZE postings are
-managed by the declaration machinery rather than by ingestion, so their groups are
-excluded from that delete and survive a replace (see fixed-point.md).
+Bulk upload replaces a period (see adr/0002-transaction-ingestion-model.md) by
+deleting **the postings** inside it, not the groups that hold them. A group's postings
+need not share a timestamp -- the Fidelity deposit-run pass groups on reference
+proximity rather than the date bucket, because a run in the sample export settles
+across two days -- so a group can straddle any boundary, and deleting it whole would
+take legs the upload that triggered the delete does not carry and nothing would
+re-insert. Widening the period until it holds whole groups is not available either,
+because the upload does not cover the widened range; see
+adr/0040-delete-window-widens-only-to-dataset-coverage.md.
+
+A group left with nothing is deleted with its postings, which is every group that did
+not straddle. A group left with something keeps it exactly where it is, is re-dated to
+its earliest surviving posting, and gets a counterparty routed for what those postings
+no longer balance to. Its own routed counterparties are re-derived rather than kept, so
+a group carries one residual per commodity however many replaces have reached it. See
+adr/0039-replace-by-period-deletes-postings-not-groups.md.
+
+A posting survives a replace unless it is a routed counterparty, or a non-synthetic
+posting of that upload's own broker inside the period. So a leg of another broker
+survives -- an upload speaks only for its own -- and so does a synthetic INITIALIZE
+posting, which is the declaration machinery's rather than ingestion's (see
+fixed-point.md).
+
+The routed counterparty is classified by family, so a journal keeps
+`TRANSFER_CLEARING`, but never as source rounding: a residual left by a cut is the
+value of the legs removed, not the source disagreeing with itself, so it is not
+`SOURCE_ROUNDING` however small it is.
+
+The result is stable under repetition rather than identical to what came before:
+re-importing a period leaves the out-of-period legs where they were and the in-period
+legs in a new group, each balanced by a routed residual. Two groups where a converter
+wrote one; rejoining them is the grouping pass's job (see
+adr/0041-server-owns-transaction-grouping.md).
 
 ## Where grouping is decided
 

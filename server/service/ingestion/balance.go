@@ -6,6 +6,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/leedenison/portfoliodb/server/residual"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/proto"
 	"sort"
@@ -48,41 +49,6 @@ var exchangeTypes = map[typev1.TxType]bool{
 	typev1.TxType_REINVEST:   true,
 	typev1.TxType_CLOSUREOPT: true,
 }
-
-// transferTypes are the journals whose other side is a different account. Their
-// residual is an unmatched transfer rather than a data-quality problem, so it is
-// routed to TRANSFER_CLEARING and holds the value in transit until the pair is
-// matched.
-var transferTypes = map[typev1.TxType]bool{
-	typev1.TxType_TRANSFER: true,
-	typev1.TxType_JRNLFUND: true,
-	typev1.TxType_JRNLSEC:  true,
-}
-
-// Tolerances below which a residual is the source disagreeing with itself rather
-// than a leg it left out. A trade of 37 shares at 12.3456 costs 456.7872 against a
-// broker cash row of -456.79: the 0.0028 is an artefact of the source being
-// written to 2dp, not a real discrepancy. Beancount infers half the last
-// significant digit for exactly this case, and half a cent is what it would infer
-// for 2dp money.
-//
-// Quantities are exact decimals now, so this is no longer absorbing arithmetic
-// error -- it is the disagreement between two figures the source rounded
-// differently, which exactness does not remove. Both beancount and ledger keep a
-// tolerance for the same reason. Inferring it from the scale of the contributing
-// amounts, rather than fixing it, is a change to how residuals get classified and
-// is deliberately not made here.
-//
-// The tolerance decides the account type a residual is routed to, not whether it
-// is routed at all. Suppressing the small ones would leave the group summing to a
-// small non-zero value, which is exactly what the balance constraint rejects; and
-// dropping them into IMBALANCE alongside genuinely missing legs would throw away
-// the one thing already known about them. See
-// docs/adr/0024-group-balance-is-checked-on-weight.md.
-var (
-	moneyTolerance     = decimal.RequireFromString("0.005")
-	commodityTolerance = decimal.New(1, -6)
-)
 
 // balanceInstrument is what balancing needs to know about a posting's commodity.
 // Currencies are instruments, so telling money from a security is a property of
@@ -131,21 +97,12 @@ type commodity struct {
 func (c commodity) key() string {
 	switch {
 	case c.currency != "":
-		return "cur:" + c.currency
+		return residual.CurrencyPrefix + c.currency
 	case c.instrumentID != "":
-		return "inst:" + c.instrumentID
+		return residual.InstrumentPrefix + c.instrumentID
 	default:
-		return "desc:" + c.description
+		return residual.DescriptionPrefix + c.description
 	}
-}
-
-// tolerance returns the residual below which a difference in this commodity reads
-// as the source's own rounding rather than as a leg it omitted.
-func (c commodity) tolerance() decimal.Decimal {
-	if c.currency != "" {
-		return moneyTolerance
-	}
-	return commodityTolerance
 }
 
 // routedPosting is a counterparty the server writes to make a group balance.
@@ -295,10 +252,9 @@ func groupPostings(txs []*apiv1.Tx) ([]string, map[string][]int) {
 // routeResiduals returns the counterparty postings that make every group balance.
 // Only a group that already sums to exactly zero produces none. A group can produce
 // more than one when its residual spans commodities, as beancount's residual
-// inventory and ledger's Imbalance:<CUR> both can. The account type says which kind
-// of residual it is: IMBALANCE for a leg the source omitted, TRANSFER_CLEARING for
-// the unmatched side of a journal, and SOURCE_ROUNDING for a difference small
-// enough to be the source's own rounding.
+// inventory and ledger's Imbalance:<CUR> both can. Which account type each takes is
+// residual.Type's, shared with the partial delete in replace-by-period so that a
+// group's residual does not depend on which path produced it.
 //
 // It assigns a synthetic group_ref to any posting that has none, so that a routed
 // counterparty is stored in the same group as the posting it balances.
@@ -320,12 +276,10 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 		// the leg it balances rather than invented.
 		descs := map[string]string{}
 		var keys []string
-		transfer := false
+		var txTypes []typev1.TxType
 		for _, i := range idxs {
 			t := txs[i]
-			if transferTypes[t.GetType()] {
-				transfer = true
-			}
+			txTypes = append(txTypes, t.GetType())
 			amount, c, ok := weighPosting(t, instrumentIDs[i], instruments[instrumentIDs[i]])
 			if !ok {
 				continue
@@ -343,26 +297,13 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 		// the map iteration gave.
 		sort.Strings(keys)
 		first := txs[idxs[0]]
-		residual := typev1.AccountType_ACCOUNT_TYPE_IMBALANCE
-		if transfer {
-			residual = typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING
-		}
 		for _, k := range keys {
 			c := commodities[k]
 			if sums[k].IsZero() {
 				continue
 			}
-			// Below tolerance the residual is the source disagreeing with itself
-			// rather than a leg the source left out, and saying so is worth more
-			// than leaving it unposted: it keeps the group summing to exactly zero
-			// while classifying the difference as what it is. A sub-tolerance
-			// residual on a journal is rounding too, so this beats the transfer
-			// case rather than the other way round.
-			accountType := residual
-			if sums[k].Abs().LessThan(c.tolerance()) {
-				accountType = typev1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING
-			}
-			out = append(out, routedFor(first, ref, c, descs[k], sums[k].Neg(), accountType))
+			amount := sums[k].Neg()
+			out = append(out, routedFor(first, ref, c, descs[k], amount, residual.Type(k, amount, txTypes)))
 		}
 	}
 	return out

@@ -6,14 +6,14 @@ import { ErrorAlert } from "@/app/components/error-alert";
 import { useAuthedQuery } from "@/hooks/use-authed-query";
 import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
-import { exportSystemArchive, getJob, listJobs } from "@/lib/portfolio-api";
-import { marshalSystem } from "@/lib/archive/codec";
-import { assembleSystemArchive } from "@/lib/archive/assemble";
+import { exportSystemArchive, getJob, importSystemArchive, listJobs } from "@/lib/portfolio-api";
+import { marshalSystem, unmarshalSystem } from "@/lib/archive/codec";
+import { assembleSystemArchive, systemPartCounts } from "@/lib/archive/assemble";
 import { SYSTEM_ARCHIVE_PART_OPTIONS } from "@/lib/archive/parts";
 import { ArchivePart } from "@/gen/archive/v1/common_pb";
 import { JobStatus } from "@/gen/api/v1/api_pb";
-import { ImportArchivePanel } from "./import-panel";
-import { JobPartsTable } from "./job-parts";
+import { ImportArchivePanel } from "@/app/components/archive/import-panel";
+import { JobPartsTable } from "@/app/components/archive/job-parts";
 
 const SYSTEM_ARCHIVE_JOB_TYPE = "system_archive";
 
@@ -160,7 +160,14 @@ export default function ArchivePage() {
         </button>
       </section>
 
-      <ImportArchivePanel running={running} onStarted={handleImportStarted} />
+      <ImportArchivePanel
+        running={running}
+        onStarted={handleImportStarted}
+        parse={unmarshalSystem}
+        counts={systemPartCounts}
+        submit={importSystemArchive}
+        note="The parts are applied in order on the server, so an import finishes whether or not this page stays open. To import one kind of data, upload an archive carrying only that part."
+      />
 
       {job.data && (
         <section className="rounded-lg border border-border bg-surface p-4" data-testid="archive-job">

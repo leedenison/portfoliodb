@@ -88,6 +88,12 @@ export function UserMenu({ inverted }: { inverted?: boolean }) {
               Uploads
             </Link>
             <Link
+              href="/archive"
+              className="block px-4 py-2 text-sm text-text-primary transition-colors hover:bg-primary-light/10"
+            >
+              Archive
+            </Link>
+            <Link
               href="/settings"
               className="block px-4 py-2 text-sm text-text-primary transition-colors hover:bg-primary-light/10"
             >

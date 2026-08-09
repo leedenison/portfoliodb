@@ -2,29 +2,43 @@
 
 import { useRef, useState } from "react";
 import { ErrorAlert } from "@/app/components/error-alert";
-import { archiveErrorMessage, unmarshalSystem } from "@/lib/archive/codec";
-import { partCounts } from "@/lib/archive/assemble";
-import { importSystemArchive } from "@/lib/portfolio-api";
+import { archiveErrorMessage } from "@/lib/archive/codec";
 import { errorMessage } from "@/lib/errors";
-import type { SystemArchive } from "@/gen/archive/v1/archive_pb";
 
 /**
- * Upload one system archive.
+ * Upload one archive, of either kind.
  *
- * The file is parsed here so that a file that is not an archive at all is
- * refused before anything is queued: whether a file is a valid archive is an
- * all-or-nothing question answered at parse time. Whether its contents resolve
- * against this instance is a separate, per-part question the job answers.
+ * The file is parsed here so that a file that is not an archive at all -- or is
+ * the other kind of archive -- is refused before anything is queued: whether a
+ * file is a valid archive of this kind is an all-or-nothing question answered at
+ * parse time. Whether its contents resolve against this instance is a separate,
+ * per-part question the job answers.
+ *
+ * Both pages share this rather than each writing it, because the sequence of
+ * states is the behaviour, not the decoration: parse before queue, say what the
+ * file carries, and refuse to start a second import over a running one.
  */
-export function ImportArchivePanel({
+export function ImportArchivePanel<T>({
   running,
   onStarted,
+  parse,
+  counts,
+  submit,
+  note,
 }: {
   running: boolean;
   onStarted: (jobId: string) => void;
+  /** Parse the file's text into a document, throwing if it is not one. */
+  parse: (text: string) => T;
+  /** What the parsed document carries, for the preview line. */
+  counts: (archive: T) => { label: string; count: number }[];
+  /** Queue the document, returning the job to poll. */
+  submit: (archive: T, filename: string) => Promise<string>;
+  /** What this page's import does, in a sentence or two. */
+  note: React.ReactNode;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [archive, setArchive] = useState<SystemArchive | null>(null);
+  const [archive, setArchive] = useState<T | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -47,7 +61,7 @@ export function ImportArchivePanel({
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        setArchive(unmarshalSystem(ev.target?.result as string));
+        setArchive(parse(ev.target?.result as string));
         setParseError(null);
       } catch (err) {
         setArchive(null);
@@ -62,7 +76,7 @@ export function ImportArchivePanel({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const jobId = await importSystemArchive(archive, file.name);
+      const jobId = await submit(archive, file.name);
       onStarted(jobId);
       reset();
     } catch (e) {
@@ -72,15 +86,12 @@ export function ImportArchivePanel({
     }
   }
 
-  const counts = archive ? partCounts(archive) : [];
+  const partCounts = archive ? counts(archive) : [];
 
   return (
     <section className="rounded-lg border border-border bg-surface p-4" data-testid="archive-import">
       <h2 className="font-display text-base font-semibold text-text-primary">Import</h2>
-      <p className="mt-1 text-sm text-text-muted">
-        The parts are applied in order on the server, so an import finishes whether or not this page
-        stays open. To import one kind of data, upload an archive carrying only that part.
-      </p>
+      <div className="mt-1 text-sm text-text-muted">{note}</div>
 
       <div className="mt-3 space-y-3">
         <input
@@ -116,15 +127,15 @@ export function ImportArchivePanel({
         {archive && !parseError && (
           <>
             <p className="text-sm text-text-primary">
-              {counts.length === 0
+              {partCounts.length === 0
                 ? "This archive carries no parts."
-                : `Carries ${counts.map((c) => `${c.count.toLocaleString()} ${c.label}`).join(", ")}.`}
+                : `Carries ${partCounts.map((c) => `${c.count.toLocaleString()} ${c.label}`).join(", ")}.`}
             </p>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={handleImport}
-                disabled={submitting || running || counts.length === 0}
+                disabled={submitting || running || partCounts.length === 0}
                 data-testid="start-archive-import"
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
               >

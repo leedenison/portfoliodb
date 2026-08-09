@@ -104,7 +104,11 @@ function PartProblems({ part }: { part: JobPartResult }) {
             <tbody>
               {part.validationErrors.map((e, i) => (
                 <tr key={i} className="border-b border-border/40 last:border-0">
-                  <td className="px-3 py-1.5 font-mono text-text-muted">{e.rowIndex}</td>
+                  {/* A part whose unit is a setting rather than a row reports -1:
+                      there is nothing to point at. */}
+                  <td className="px-3 py-1.5 font-mono text-text-muted">
+                    {e.rowIndex < 0 ? "\u2014" : e.rowIndex}
+                  </td>
                   <td className="px-3 py-1.5 font-mono text-text-primary">{e.field}</td>
                   <td className="px-3 py-1.5 text-accent-dark">{e.message}</td>
                 </tr>

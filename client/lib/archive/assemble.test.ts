@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { assembleSystemArchive, partCounts } from "./assemble";
-import { marshalSystem } from "./codec";
-import { ExportSystemArchiveResponseSchema } from "@/gen/api/v1/api_pb";
+import { assembleSystemArchive, assembleUserArchive, systemPartCounts, userPartCounts } from "./assemble";
+import { marshalSystem, marshalUser } from "./codec";
+import { ExportSystemArchiveResponseSchema, ExportUserArchiveResponseSchema } from "@/gen/api/v1/api_pb";
 import { ArchivePart } from "@/gen/archive/v1/common_pb";
 import { PluginCategory } from "@/gen/type/v1/type_pb";
-import type { ExportSystemArchiveResponse } from "@/gen/api/v1/api_pb";
+import type { ExportSystemArchiveResponse, ExportUserArchiveResponse } from "@/gen/api/v1/api_pb";
 
 const ENVELOPE = {
   formatVersion: 1,
@@ -93,7 +93,7 @@ describe("assembleSystemArchive", () => {
     expect(doc.inflationIndices?.groups).toHaveLength(1);
     expect(doc.inflationIndices?.groups[0].currency).toBe("GBP");
     expect(doc.inflationIndices?.groups[0].rows[0].baseYear).toBe(2015);
-    expect(partCounts(doc)).toEqual([{ label: "inflation index values", count: 1 }]);
+    expect(systemPartCounts(doc)).toEqual([{ label: "inflation index values", count: 1 }]);
   });
 
   // Both fetch-block tables travel in one part, so a group holds blocks of more
@@ -119,7 +119,7 @@ describe("assembleSystemArchive", () => {
     );
     expect(doc.fetchBlocks?.groups).toHaveLength(1);
     expect(doc.fetchBlocks?.groups[0].blocks).toHaveLength(2);
-    expect(partCounts(doc)).toEqual([{ label: "fetch blocks", count: 2 }]);
+    expect(systemPartCounts(doc)).toEqual([{ label: "fetch blocks", count: 2 }]);
   });
 
   // Resolved and unresolved events travel together: the flag is the point of
@@ -146,7 +146,7 @@ describe("assembleSystemArchive", () => {
     expect(doc.unhandledEvents?.groups[0].events).toHaveLength(2);
     expect(doc.unhandledEvents?.groups[0].events[0].resolved).toBe(true);
     expect(doc.unhandledEvents?.groups[0].events[1].resolved).toBe(false);
-    expect(partCounts(doc)).toEqual([{ label: "unhandled corporate events", count: 2 }]);
+    expect(systemPartCounts(doc)).toEqual([{ label: "unhandled corporate events", count: 2 }]);
   });
 
   // Plugin config is the one flat part: the stream carries a row per message
@@ -171,11 +171,11 @@ describe("assembleSystemArchive", () => {
     );
     expect(doc.pluginConfig?.configs).toHaveLength(1);
     expect(doc.pluginConfig?.configs[0].pluginId).toBe("eodhd");
-    expect(partCounts(doc)).toEqual([{ label: "plugin config rows", count: 1 }]);
+    expect(systemPartCounts(doc)).toEqual([{ label: "plugin config rows", count: 1 }]);
   });
 });
 
-describe("partCounts", () => {
+describe("systemPartCounts", () => {
   it("counts rows rather than groups, and says nothing about absent parts", () => {
     const doc = assembleSystemArchive(
       stream(
@@ -192,6 +192,80 @@ describe("partCounts", () => {
         },
       ),
     );
-    expect(partCounts(doc)).toEqual([{ label: "prices", count: 2 }]);
+    expect(systemPartCounts(doc)).toEqual([{ label: "prices", count: 2 }]);
+  });
+});
+
+describe("assembleUserArchive", () => {
+  const USER_ENVELOPE = { ...ENVELOPE, kind: 2 };
+
+  function userStream(
+    ...items: Parameters<typeof create<typeof ExportUserArchiveResponseSchema>>[1][]
+  ): ExportUserArchiveResponse[] {
+    return items.map((i) => create(ExportUserArchiveResponseSchema, i));
+  }
+
+  it("refuses a stream that carried no envelope", () => {
+    expect(() =>
+      assembleUserArchive(userStream({ item: { case: "partBegin", value: { part: ArchivePart.PREFERENCES } } })),
+    ).toThrow(/no envelope/);
+  });
+
+  // The marker creates the container for a whole-part message just as it does
+  // for a series of items, so a part asked for and holding nothing survives.
+  it("keeps a selected empty part present", () => {
+    const doc = assembleUserArchive(
+      userStream(
+        { item: { case: "envelope", value: USER_ENVELOPE } },
+        { item: { case: "partBegin", value: { part: ArchivePart.PREFERENCES } } },
+      ),
+    );
+    expect(doc.preferences).toBeDefined();
+    expect(doc.preferences?.displayCurrency).toBeUndefined();
+    expect(marshalUser(doc)).toContain('"preferences":{}');
+  });
+
+  it("files the whole-part message under its marker", () => {
+    const doc = assembleUserArchive(
+      userStream(
+        { item: { case: "envelope", value: USER_ENVELOPE } },
+        { item: { case: "partBegin", value: { part: ArchivePart.PREFERENCES } } },
+        {
+          item: {
+            case: "preferences",
+            value: {
+              displayCurrency: "GBP",
+              ignoredAssetClasses: { rules: [{ broker: 2, account: "U123", assetClass: 5 }] },
+            },
+          },
+        },
+      ),
+    );
+    expect(doc.preferences?.displayCurrency).toBe("GBP");
+    expect(doc.preferences?.ignoredAssetClasses?.rules).toHaveLength(1);
+  });
+});
+
+describe("userPartCounts", () => {
+  // Settings rather than rows, so the preview and the job's own total agree.
+  it("counts the settings the file states", () => {
+    const doc = assembleUserArchive([
+      create(ExportUserArchiveResponseSchema, { item: { case: "envelope", value: { ...ENVELOPE, kind: 2 } } }),
+      create(ExportUserArchiveResponseSchema, { item: { case: "partBegin", value: { part: ArchivePart.PREFERENCES } } }),
+      create(ExportUserArchiveResponseSchema, {
+        item: { case: "preferences", value: { displayCurrency: "GBP" } },
+      }),
+    ]);
+    expect(userPartCounts(doc)).toEqual([{ label: "preference settings", count: 1 }]);
+  });
+
+  // A part present and empty is present with nothing in it, which is a
+  // different statement from a part that was never asked for.
+  it("reports an empty part as zero settings rather than omitting it", () => {
+    const doc = assembleUserArchive([
+      create(ExportUserArchiveResponseSchema, { item: { case: "envelope", value: { ...ENVELOPE, kind: 2 } } }),
+      create(ExportUserArchiveResponseSchema, { item: { case: "partBegin", value: { part: ArchivePart.PREFERENCES } } }),
+    ]);
+    expect(userPartCounts(doc)).toEqual([{ label: "preference settings", count: 0 }]);
   });
 });

@@ -144,10 +144,16 @@ had nothing; dropping it leaves valuation treating the days between reported
 bars as unpriced. See `docs/adr/0023-price-coverage-is-stored-not-inferred.md`.
 
 **Vocabularies** -- asset classes, identifier types, transaction types, account
-types, brokers -- are written by name, and the names are the same strings the
-database stores: `"STOCK"`, `"ISIN"`, `"BUYSTOCK"`. They come from
-`proto/type/v1/type.proto`, which does not remove or rename a value. See
-`docs/adr/0038-controlled-vocabularies-are-shared.md`.
+types, brokers -- are written by name: `"STOCK"`, `"ISIN"`, `"BUYSTOCK"`. They
+come from `proto/type/v1/type.proto`, which does not remove or rename a value.
+See `docs/adr/0038-controlled-vocabularies-are-shared.md`.
+
+The names are the strings the database stores, with one exception. An account
+type keeps its prefix -- `"ACCOUNT_TYPE_EQUITY"` in a file, `EQUITY` in the
+column -- because protojson writes an enum by its own name and `AccountType`
+cannot be unprefixed the way `AssetClass` was: enum values share package scope
+and `TxType` already defines `INCOME` and `TRANSFER`. The mapping lives in one
+place on the server, as the plugin category's does.
 
 ## The envelope
 
@@ -538,18 +544,33 @@ The window has to state its own period rather than have one inferred from the
 postings it holds, because **a window holding no groups is a valid instruction to
 clear that period**, and an inferred window could never say that.
 
+An export writes one window per broker, running from its first posting to the
+day after its last, so the window provably contains everything it carries and no
+group straddles its edge. Its `source` names the export -- `"FIDELITY:archive:export"`
+-- rather than an ingestion job: a window carries one source and a broker's
+postings come from several. Nothing is lost, because a posting's own source,
+where one was recorded, is the `domain` of its `BROKER_DESCRIPTION` identifier,
+which is where it was stored and where it travels.
+
 | Level | Field | Notes |
 | --- | --- | --- |
 | window | `broker` | |
 | window | `period_from`, `period_before` | half-open, instants |
 | window | `source` | `"<broker>:<client>:<source>"`; the domain of the fallback description identifier |
-| window | `share_count_basis` | optional; absent means as-traded |
 | group | `postings[]` | at least one |
 | posting | `timestamp`, `instrument_description`, `type`, `quantity` | |
 | posting | `account`, `account_type` | `account_type` absent reads as `ACCOUNT_TYPE_USER` |
 | posting | `identifier_hints[]` | zero or more identifier triples |
 | posting | `unit_price`, `trading_currency`, `settlement_currency` | optional |
 | posting | `broker_ref`, `counterparty_account` | optional |
+| posting | `share_count_basis` | optional; absent means the posting's own timestamp date |
+
+`share_count_basis` is on the posting rather than on the window for the same
+reason it is on a price row rather than on its group: a window-wide value can
+only say "one date for everything", which cannot express the ordinary case,
+where every posting is as-traded and so carries a different basis from its
+neighbours. Absent is what an ordinary export writes, and the importing instance
+takes the posting's own date.
 
 Grouping is structural: a group is a list of postings, not a shared key. It is
 the converter's output and nothing can rebuild it -- the server does not pair

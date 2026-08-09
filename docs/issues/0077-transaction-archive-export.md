@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Carry transactions in the user archive
 milestone: M14
 dependencies: [0078]
@@ -103,3 +103,47 @@ it.
 The user archive export stream, the client assembler and the include menu landed
 under 0085. This needs the `TxPart` writer, its `ExportUserArchiveResponse` item,
 the `archiveimport` reader and one menu row.
+
+Closed. Transactions travel in the user archive both ways, and the round trip is
+pinned end to end: a seeded corpus exports, is deleted, imports back, and every
+group balances again with no residual routed on top. Four things settled here,
+and two issues opened.
+
+`share_count_basis` moved from the window to the posting. A window-wide value can
+only say "one date for everything", which cannot express the ordinary case, where
+every posting is as-traded and so carries a different basis from its neighbours.
+It costs nothing: the column is NOT NULL and its insert trigger already seeds it
+from the posting's own timestamp, so an absent field needs no reader to test for
+null.
+
+The window's `source` names the export rather than an ingestion job. A window is
+one replacement scope per broker so it carries one source, but `txs` has no
+source column and one broker's postings come from several jobs. Nothing is lost:
+a posting's own source, where one was recorded, is the `domain` of its
+`BROKER_DESCRIPTION` identifier.
+
+The window's period is derived from the postings it carries, so it contains all
+of them and the straddling question does not arise. A period-scoped export is
+0094, along with the defect it exposed: `ReplaceTxsInPeriod` deletes whole groups
+on an `EXISTS` over postings in the window, so a later upload catching one leg of
+a group that spans days destroys legs it will not replace. Real today, and not
+about the archive.
+
+Routed residuals are exported, and the balancer was checked rather than assumed:
+`routeResiduals` skips a commodity whose postings already sum to zero, so a group
+exported with its residual routes nothing a second time.
+
+The ingestion pipeline below the payload became `ingestBatch`, shared with the
+broker upload rather than written twice, reporting through the reporter
+`archiveimport` already had.
+
+0095 asks how to rejoin groups that should be one, and records that adr/0037's
+link-not-merge is scoped to transfers: the link is what preserves the account
+boundary money-weighted return needs, and an `IMBALANCE` residual has no such
+boundary.
+
+One documentation defect fell out. Account types are the one vocabulary whose
+file spelling is not the column's -- protojson writes `ACCOUNT_TYPE_EQUITY`,
+because `AccountType` cannot be unprefixed the way `AssetClass` was while
+`TxType` defines `INCOME` and `TRANSFER` in the same package scope.
+docs/spec/archive-format.md said otherwise and now says this.

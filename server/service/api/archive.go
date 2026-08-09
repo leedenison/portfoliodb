@@ -80,6 +80,9 @@ func presentParts(a *archivev1.SystemArchive) []archivev1.ArchivePart {
 	if a.GetCorporateEvents() != nil {
 		parts = append(parts, archivev1.ArchivePart_CORPORATE_EVENTS)
 	}
+	if a.GetInflationIndices() != nil {
+		parts = append(parts, archivev1.ArchivePart_INFLATION_INDICES)
+	}
 	return parts
 }
 
@@ -119,6 +122,8 @@ func (s *Server) ExportSystemArchive(req *apiv1.ExportSystemArchiveRequest, stre
 			err = s.sendPricePart(ctx, stream)
 		case archivev1.ArchivePart_CORPORATE_EVENTS:
 			err = s.sendCorporateEventPart(ctx, stream)
+		case archivev1.ArchivePart_INFLATION_INDICES:
+			err = s.sendInflationPart(ctx, stream)
 		}
 		if err != nil {
 			return err
@@ -140,6 +145,7 @@ func requestedParts(req []archivev1.ArchivePart) []archivev1.ArchivePart {
 		archivev1.ArchivePart_INSTRUMENTS,
 		archivev1.ArchivePart_PRICES,
 		archivev1.ArchivePart_CORPORATE_EVENTS,
+		archivev1.ArchivePart_INFLATION_INDICES,
 	} {
 		if seen[p] {
 			out = append(out, p)
@@ -222,4 +228,43 @@ func (s *Server) sendCorporateEventPart(ctx context.Context, stream apiv1.ApiSer
 		}
 	}
 	return nil
+}
+
+// sendInflationPart streams one group per currency.
+//
+// There is no coverage to send alongside the rows, and it is the only part
+// where that is true: an index series is dense, so the rows say what is held
+// and inflation_indices stores no coverage to contradict them.
+func (s *Server) sendInflationPart(ctx context.Context, stream apiv1.ApiService_ExportSystemArchiveServer) error {
+	rows, err := s.db.ListInflationIndicesForExport(ctx)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	for _, g := range inflationGroups(rows) {
+		if err := stream.Send(&apiv1.ExportSystemArchiveResponse{
+			Item: &apiv1.ExportSystemArchiveResponse_InflationGroup{InflationGroup: g},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// inflationGroups turns the flat export rows into one group per currency. The
+// query orders by currency, so the grouping is a scan.
+func inflationGroups(rows []db.InflationIndex) []*archivev1.InflationGroup {
+	var out []*archivev1.InflationGroup
+	var cur *archivev1.InflationGroup
+	for _, r := range rows {
+		if cur == nil || cur.GetCurrency() != r.Currency {
+			cur = &archivev1.InflationGroup{Currency: r.Currency}
+			out = append(out, cur)
+		}
+		cur.Rows = append(cur.Rows, &archivev1.InflationRow{
+			Month:      r.Month.Format("2006-01-02"),
+			IndexValue: r.IndexValue.String(),
+			BaseYear:   int32(r.BaseYear),
+		})
+	}
+	return out
 }

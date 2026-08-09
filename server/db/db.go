@@ -39,6 +39,10 @@ const (
 // plugin, so the fetcher does not treat a hand-curated range as one of its own.
 const PriceProviderImport = "import"
 
+// InflationProviderImport tags inflation index rows that came from an import
+// rather than a plugin. It is the same sentinel for the same reason.
+const InflationProviderImport = "import"
+
 // Job type constants for the ingestion_jobs table.
 const (
 	JobTypeTx            = "tx"
@@ -887,8 +891,16 @@ type InflationIndexDB interface {
 	// InflationCoverage returns months with inflation data for the given currency, ordered ascending.
 	InflationCoverage(ctx context.Context, currency string) ([]time.Time, error)
 	// UpsertInflationIndices inserts or updates monthly inflation index values.
-	// On conflict (currency, month), overwrites with new data.
-	UpsertInflationIndices(ctx context.Context, indices []InflationIndex) error
+	// On conflict (currency, month), overwrites with new data. fetchedAt is the
+	// knowledge time to stamp on the rows; nil means now, which is what a fetch
+	// wants and an import does not -- an imported row is only as fresh as the
+	// file it came from.
+	UpsertInflationIndices(ctx context.Context, indices []InflationIndex, fetchedAt *time.Time) error
+	// ListInflationIndicesForExport returns every inflation index row, ordered
+	// by currency then month, for the archive's inflation part. Unlike the price
+	// and corporate event exports there is no coverage to join: a series is
+	// dense and inflation_indices stores none.
+	ListInflationIndicesForExport(ctx context.Context) ([]InflationIndex, error)
 	// ListInflationIndices returns inflation data for admin UI listing with pagination.
 	// currency is an optional filter (empty = all); the half-open
 	// [dateFrom, dateBefore) range filters on month, and a nil bound is

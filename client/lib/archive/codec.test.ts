@@ -46,6 +46,14 @@ function systemFixture() {
         },
       ],
     },
+    inflationIndices: {
+      groups: [
+        {
+          currency: "GBP",
+          rows: [{ month: "2024-01-01", indexValue: "131.5", baseYear: 2015 }],
+        },
+      ],
+    },
   };
 }
 

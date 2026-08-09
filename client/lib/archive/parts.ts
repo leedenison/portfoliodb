@@ -46,10 +46,11 @@ export const ARCHIVE_PART_OPTIONS: ArchivePartOption[] = [
     defaultSelected: true,
   },
   {
+    part: ArchivePart.INFLATION_INDICES,
     label: "Inflation indices",
-    note: "Not carried by the archive format yet.",
-    available: false,
-    defaultSelected: false,
+    note: "Monthly index values per currency, for real-terms performance.",
+    available: true,
+    defaultSelected: true,
   },
   {
     label: "Fetch blocks",
@@ -76,4 +77,5 @@ export const ARCHIVE_PART_LABELS: Record<number, string> = {
   [ArchivePart.INSTRUMENTS]: "Instruments",
   [ArchivePart.PRICES]: "Prices",
   [ArchivePart.CORPORATE_EVENTS]: "Corporate events",
+  [ArchivePart.INFLATION_INDICES]: "Inflation indices",
 };

@@ -31,33 +31,61 @@ func (p *Postgres) InflationCoverage(ctx context.Context, currency string) ([]ti
 }
 
 // UpsertInflationIndices implements db.InflationIndexDB.
-func (p *Postgres) UpsertInflationIndices(ctx context.Context, indices []db.InflationIndex) error {
+func (p *Postgres) UpsertInflationIndices(ctx context.Context, indices []db.InflationIndex, fetchedAt *time.Time) error {
 	if len(indices) == 0 {
 		return nil
 	}
 
+	// One placeholder shared by every row: the whole write is one reading of
+	// knowledge time, whether it came from a fetch or from a file.
 	var b strings.Builder
 	b.WriteString(`INSERT INTO inflation_indices (currency, month, index_value, base_year, data_provider, last_fetched_at)
 		VALUES `)
-	args := make([]interface{}, 0, len(indices)*5)
+	args := make([]interface{}, 0, len(indices)*5+1)
+	stamp := time.Now()
+	if fetchedAt != nil {
+		stamp = *fetchedAt
+	}
+	args = append(args, stamp)
 	for i, idx := range indices {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		base := i * 5
-		fmt.Fprintf(&b, "($%d, $%d, $%d, $%d, $%d, now())", base+1, base+2, base+3, base+4, base+5)
+		base := i*5 + 1
+		fmt.Fprintf(&b, "($%d, $%d, $%d, $%d, $%d, $1)", base+1, base+2, base+3, base+4, base+5)
 		args = append(args, idx.Currency, idx.Month, idx.IndexValue, idx.BaseYear, idx.DataProvider)
 	}
 	b.WriteString(` ON CONFLICT (currency, month) DO UPDATE SET
 		index_value = EXCLUDED.index_value,
 		base_year = EXCLUDED.base_year,
 		data_provider = EXCLUDED.data_provider,
-		last_fetched_at = now()`)
+		last_fetched_at = EXCLUDED.last_fetched_at`)
 
 	if _, err := p.q.ExecContext(ctx, b.String(), args...); err != nil {
 		return fmt.Errorf("upsert inflation indices: %w", err)
 	}
 	return nil
+}
+
+// ListInflationIndicesForExport implements db.InflationIndexDB.
+func (p *Postgres) ListInflationIndicesForExport(ctx context.Context) ([]db.InflationIndex, error) {
+	const q = `SELECT currency, month, index_value, base_year, data_provider
+		FROM inflation_indices ORDER BY currency, month`
+	rows, err := p.q.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list inflation indices for export: %w", err)
+	}
+	defer rows.Close()
+
+	var out []db.InflationIndex
+	for rows.Next() {
+		var r db.InflationIndex
+		if err := rows.Scan(&r.Currency, &r.Month, &r.IndexValue, &r.BaseYear, &r.DataProvider); err != nil {
+			return nil, fmt.Errorf("scan inflation index for export: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // ListInflationIndices implements db.InflationIndexDB.

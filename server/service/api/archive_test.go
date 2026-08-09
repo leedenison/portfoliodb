@@ -186,6 +186,17 @@ func (e *exportArchiveStreamMock) eventGroups() []*archivev1.CorporateEventGroup
 	return out
 }
 
+// inflationGroups returns the inflation groups the export streamed.
+func (e *exportArchiveStreamMock) inflationGroups() []*archivev1.InflationGroup {
+	var out []*archivev1.InflationGroup
+	for _, m := range e.sent {
+		if v := m.GetInflationGroup(); v != nil {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // shape describes the stream as a sequence of item kinds, which is what the
 // client's reassembly reads.
 func (e *exportArchiveStreamMock) shape() []string {
@@ -202,6 +213,8 @@ func (e *exportArchiveStreamMock) shape() []string {
 			out = append(out, "price_group")
 		case m.GetCorporateEventGroup() != nil:
 			out = append(out, "corporate_event_group")
+		case m.GetInflationGroup() != nil:
+			out = append(out, "inflation_group")
 		}
 	}
 	return out
@@ -242,11 +255,13 @@ func TestExportSystemArchive_PartsInRestoreOrder(t *testing.T) {
 	mockDB.EXPECT().ListCorporateEventCoverageForExport(gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().ListStockSplitsForExport(gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().ListCashDividendsForExport(gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().ListInflationIndicesForExport(gomock.Any()).Return(nil, nil)
 
 	stream := &exportArchiveStreamMock{ctx: adminCtx("user-1", "sub|1")}
 	// Asked for out of order, and with a duplicate.
 	if err := srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{
 		Parts: []archivev1.ArchivePart{
+			archivev1.ArchivePart_INFLATION_INDICES,
 			archivev1.ArchivePart_CORPORATE_EVENTS,
 			archivev1.ArchivePart_INSTRUMENTS,
 			archivev1.ArchivePart_CORPORATE_EVENTS,
@@ -254,7 +269,7 @@ func TestExportSystemArchive_PartsInRestoreOrder(t *testing.T) {
 	}, stream); err != nil {
 		t.Fatalf("ExportSystemArchive: %v", err)
 	}
-	want := []string{"envelope", "begin:INSTRUMENTS", "instrument", "begin:CORPORATE_EVENTS"}
+	want := []string{"envelope", "begin:INSTRUMENTS", "instrument", "begin:CORPORATE_EVENTS", "begin:INFLATION_INDICES"}
 	if got := stream.shape(); !equalStrings(got, want) {
 		t.Fatalf("stream = %v, want %v", got, want)
 	}

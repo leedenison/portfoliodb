@@ -98,6 +98,8 @@ func processSystemImport(ctx context.Context, database db.DB, registry *identifi
 			out.pricesPersisted, partErr = importPricePart(ctx, database, registry, a.GetPrices(), asOf, resolveCache, rep)
 		case archivev1.ArchivePart_CORPORATE_EVENTS:
 			out.eventsPersisted, partErr = importCorporateEventPart(ctx, database, registry, a.GetCorporateEvents(), asOf, resolveCache, rep)
+		case archivev1.ArchivePart_INFLATION_INDICES:
+			_, partErr = archiveimport.InflationPart(ctx, database, a.GetInflationIndices(), asOf, rep)
 		default:
 			partErr = errUnknownPart
 		}

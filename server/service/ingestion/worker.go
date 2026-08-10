@@ -264,14 +264,11 @@ func recomputeSplitAdjustedTxs(ctx context.Context, database db.DB, instrumentID
 	}
 }
 
-// filterStoredTxs returns only txs with stored types that are not ignored, along with their original indices.
-func filterStoredTxs(txs []*apiv1.Tx, broker string, ignored []db.IgnoredAssetClass) ([]*apiv1.Tx, []int) {
+// filterIgnoredTxs returns only txs not matching an ignore rule, along with their original indices.
+func filterIgnoredTxs(txs []*apiv1.Tx, broker string, ignored []db.IgnoredAssetClass) ([]*apiv1.Tx, []int) {
 	var filtered []*apiv1.Tx
 	var indices []int
 	for i, tx := range txs {
-		if !TxTypeStored(tx.Type) {
-			continue
-		}
 		if TxIgnored(tx, broker, ignored) {
 			continue
 		}

@@ -33,8 +33,7 @@ func (s *Server) SetIgnoredAssetClasses(ctx context.Context, req *apiv1.SetIgnor
 	if err != nil {
 		return nil, err
 	}
-	mapping := db.AssetClassToTxTypesMap(rules)
-	if err := s.db.SetIgnoredAssetClasses(ctx, u.ID, rules, mapping); err != nil {
+	if err := s.db.SetIgnoredAssetClasses(ctx, u.ID, rules); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return &apiv1.SetIgnoredAssetClassesResponse{}, nil
@@ -50,8 +49,7 @@ func (s *Server) CountIgnoredTxs(ctx context.Context, req *apiv1.CountIgnoredTxs
 	if err != nil {
 		return nil, err
 	}
-	mapping := db.AssetClassToTxTypesMap(rules)
-	txCount, declCount, err := s.db.CountIgnoredTxs(ctx, u.ID, rules, mapping)
+	txCount, declCount, err := s.db.CountIgnoredTxs(ctx, u.ID, rules)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

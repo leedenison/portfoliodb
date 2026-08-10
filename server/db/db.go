@@ -979,34 +979,6 @@ func TxTypeToInstrumentKind(t typev1.TxType) string {
 	}
 }
 
-// AssetClassToTxTypeStrings returns the tx_type DB strings that map to the given asset class.
-func AssetClassToTxTypeStrings(assetClass string) []string {
-	var strs []string
-	for i := range typev1.TxType_name {
-		t := typev1.TxType(i)
-		if t == typev1.TxType_TX_TYPE_UNSPECIFIED {
-			continue
-		}
-		if TxTypeToAssetClass(t) == assetClass {
-			strs = append(strs, t.String())
-		}
-	}
-	return strs
-}
-
-// AssetClassToTxTypesMap builds the asset-class-to-tx-types mapping the ignore
-// rule writers need, covering exactly the asset classes the rules name.
-func AssetClassToTxTypesMap(rules []IgnoredAssetClass) map[string][]string {
-	mapping := make(map[string][]string)
-	for _, r := range rules {
-		if _, seen := mapping[r.AssetClass]; seen {
-			continue
-		}
-		mapping[r.AssetClass] = AssetClassToTxTypeStrings(r.AssetClass)
-	}
-	return mapping
-}
-
 // currencyCodeRE is the shape users.display_currency holds: an ISO 4217 code.
 var currencyCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
 
@@ -1255,11 +1227,12 @@ type IgnoredAssetClassDB interface {
 	ListIgnoredAssetClasses(ctx context.Context, userID string) ([]IgnoredAssetClass, error)
 	// SetIgnoredAssetClasses replaces all ignore rules for the user and deletes
 	// matching txs, synthetic INITIALIZE txs, and holding declarations atomically.
-	// assetClassToTxTypes maps each asset class to its tx_type DB strings.
-	SetIgnoredAssetClasses(ctx context.Context, userID string, rules []IgnoredAssetClass, assetClassToTxTypes map[string][]string) error
+	// A tx matches when its instrument's asset class matches a rule; a tx whose
+	// instrument is unresolved matches nothing.
+	SetIgnoredAssetClasses(ctx context.Context, userID string, rules []IgnoredAssetClass) error
 	// CountIgnoredTxs returns the number of regular txs and holding declarations
 	// that would be deleted if the given rules were applied (net new vs current).
-	CountIgnoredTxs(ctx context.Context, userID string, rules []IgnoredAssetClass, assetClassToTxTypes map[string][]string) (txCount int32, declCount int32, err error)
+	CountIgnoredTxs(ctx context.Context, userID string, rules []IgnoredAssetClass) (txCount int32, declCount int32, err error)
 }
 
 // StockSplit is a single stock split row. SplitFrom and SplitTo are the raw

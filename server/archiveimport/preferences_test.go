@@ -36,8 +36,7 @@ func TestPreferencePart_AppliesBothSettings(t *testing.T) {
 	database.EXPECT().SetDisplayCurrency(gomock.Any(), "user-1", "GBP").Return(nil)
 	database.EXPECT().
 		SetIgnoredAssetClasses(gomock.Any(), "user-1",
-			[]db.IgnoredAssetClass{{Broker: "IBKR", Account: "U123", AssetClass: "OPTION"}},
-			gomock.Any()).
+			[]db.IgnoredAssetClass{{Broker: "IBKR", Account: "U123", AssetClass: "OPTION"}}).
 		Return(nil)
 
 	res := applyPreferences(t, database, rep, &archivev1.PreferencePart{
@@ -66,7 +65,7 @@ func TestPreferencePart_CurrencyOnly(t *testing.T) {
 
 func TestPreferencePart_RulesOnly(t *testing.T) {
 	database, rep := newPartTest(t)
-	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-1", gomock.Any(), gomock.Any()).Return(nil)
+	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-1", gomock.Any()).Return(nil)
 
 	res := applyPreferences(t, database, rep, &archivev1.PreferencePart{
 		IgnoredAssetClasses: ignored(rule(typev1.Broker_FIDELITY, "", typev1.AssetClass_STOCK)),
@@ -81,7 +80,7 @@ func TestPreferencePart_RulesOnly(t *testing.T) {
 func TestPreferencePart_EmptyRulesClearsThem(t *testing.T) {
 	database, rep := newPartTest(t)
 	database.EXPECT().
-		SetIgnoredAssetClasses(gomock.Any(), "user-1", []db.IgnoredAssetClass{}, gomock.Any()).
+		SetIgnoredAssetClasses(gomock.Any(), "user-1", []db.IgnoredAssetClass{}).
 		Return(nil)
 
 	res := applyPreferences(t, database, rep, &archivev1.PreferencePart{IgnoredAssetClasses: ignored()})
@@ -107,7 +106,7 @@ func TestPreferencePart_NeitherSettingWritesNothing(t *testing.T) {
 // row index of -1 because there is no row to point at.
 func TestPreferencePart_BadCurrencyRejectedAloneAndRulesStillLand(t *testing.T) {
 	database, rep := newPartTest(t)
-	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-1", gomock.Any(), gomock.Any()).Return(nil)
+	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-1", gomock.Any()).Return(nil)
 
 	res := applyPreferences(t, database, rep, &archivev1.PreferencePart{
 		DisplayCurrency:     proto.String("gbp"),

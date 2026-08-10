@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Carry correlation evidence in the standard format
 milestone: M15
 dependencies: [0092]

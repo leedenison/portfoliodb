@@ -871,62 +871,6 @@ describe("trade cash legs", () => {
   });
 });
 
-describe("source references", () => {
-  const HEAD =
-    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
-  const convert = (rows: string[]) =>
-    convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
-
-  // The two sides of one transfer hop, verbatim from the master export. Their
-  // references differ by 3, which is what tells this month's fee transfer from
-  // last month's when the amounts are identical.
-  it("carries the broker's reference onto every transcribed posting", () => {
-    const result = convert([
-      "2022-05-06,2022-05-06,Transfer To Cash Management Account For Fees,Cash,SIPP,AP1,,-2.19,2.19,1,481052149,Completed",
-      "2022-05-06,2022-05-06,Cash In Ring-fenced For Fees,Cash,Cash Management Account,AW1,,2.19,2.19,1,481052152,Completed",
-    ]);
-
-    expect(result.postings).toHaveLength(2);
-    expect(result.postings[0].brokerRef).toBe("481052149");
-    expect(result.postings[1].brokerRef).toBe("481052152");
-  });
-
-  // The export's "Source investment" column holds an asset name rather than an
-  // account, so this file names no counterparty anywhere and the converter must
-  // not pretend otherwise.
-  it("names no counterparty, because the CSV export carries none", () => {
-    const result = convert([
-      "8 Feb 2022,10 Feb 2022,Sell,\"WISE PLC (WISE)\",Investment Account,AG1,Cash,-7266.49,1242,5.85,441416452,Completed",
-    ]);
-
-    expect(result.postings[0].counterpartyAccount).toBeUndefined();
-  });
-
-  it("leaves a posting the source gave no reference for unreferenced", () => {
-    const result = convert([
-      "8 Feb 2022,10 Feb 2022,Cash Interest,Cash,Investment Account,AG1,,1.18,1.18,1,,Completed",
-    ]);
-
-    expect(result.postings[0].brokerRef).toBeUndefined();
-  });
-
-  // A dividend's income leg is the converter's invention: the source wrote one
-  // row and we write two. Handing the second the first's reference would make an
-  // invention indistinguishable from a transcription.
-  it("does not give a derived counter-leg a reference it never had", () => {
-    const result = convert([
-      "8 Feb 2022,10 Feb 2022,Cash Dividend,Cash,Investment Account,AG1,,23.40,23.40,1,441416483,Completed",
-    ]);
-
-    expect(result.postings).toHaveLength(2);
-    expect(result.postings[0].brokerRef).toBe("441416483");
-    expect(result.postings[1].accountType).toBe(AccountType.INCOME);
-    expect(result.postings[1].brokerRef).toBeUndefined();
-    // Both legs still belong to one event.
-    expect(result.postings[1].groupRef).toBe(result.postings[0].groupRef);
-  });
-});
-
 // What the source said about why a row might belong with another one. A Fidelity
 // reference number is honestly comparable both ways -- two rows of one event are
 // numbered near each other, and one row is named by exactly one reference -- so
@@ -937,11 +881,17 @@ describe("correlations", () => {
   const convert = (rows: string[]) =>
     convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
 
-  it("states what a reference number is comparable by", () => {
+  // The two sides of one transfer hop, verbatim from the master export. Their
+  // references differ by 3, which is what tells this month's fee transfer from
+  // last month's when the amounts are identical -- and what the ordinal is for.
+  it("states what a reference number is comparable by, on every transcribed row", () => {
     const result = convert([
       "2022-05-06,2022-05-06,Transfer To Cash Management Account For Fees,Cash,SIPP,AP1,,-2.19,2.19,1,481052149,Completed",
+      "2022-05-06,2022-05-06,Cash In Ring-fenced For Fees,Cash,Cash Management Account,AW1,,2.19,2.19,1,481052152,Completed",
     ]);
 
+    expect(result.postings).toHaveLength(2);
+    expect(result.postings[1].correlations[0]!.ordinal).toBe(481052152n);
     expect(result.postings[0].correlations).toHaveLength(1);
     const c = result.postings[0].correlations[0]!;
     expect(c.label).toBe("");

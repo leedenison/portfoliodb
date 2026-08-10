@@ -6,7 +6,9 @@ import (
 	"github.com/shopspring/decimal"
 	"math/rand"
 	"reflect"
+	"slices"
 	"sort"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -14,9 +16,10 @@ import (
 var day0 = time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC)
 
 // side builds one unmatched side. amount is signed: positive left the account,
-// negative arrived in it.
+// negative arrived in it. refs are reference numbers, as a Fidelity export
+// supplies them: comparable by equality and by distance.
 func side(group, account, amount string, day int, refs ...string) db.TransferSide {
-	return db.TransferSide{
+	s := db.TransferSide{
 		UserID:       "u1",
 		GroupID:      group,
 		Broker:       typev1.Broker_FIDELITY,
@@ -24,13 +27,29 @@ func side(group, account, amount string, day int, refs ...string) db.TransferSid
 		InstrumentID: "gbp",
 		Amount:       decimal.RequireFromString(amount),
 		Timestamp:    day0.AddDate(0, 0, day),
-		BrokerRefs:   refs,
 	}
+	for _, r := range refs {
+		c := db.Correlation{Token: r, Scope: "FILE", Match: []string{db.MatchExact}}
+		// A reference the converter could take a number out of declares so; one
+		// it could not offers equality alone, which is what an opaque identifier
+		// like an OFX FITID leaves the matcher with.
+		if n, err := strconv.ParseInt(r, 10, 64); err == nil {
+			c.Ordinal = &n
+			c.Match = append(c.Match, db.MatchOrdinal)
+		}
+		s.Correlations = append(s.Correlations, c)
+	}
+	return s
 }
 
 // pointing copies a side with the account it names as its other side.
 func pointing(s db.TransferSide, counterparty string) db.TransferSide {
-	s.CounterpartyAccounts = []string{counterparty}
+	s.Correlations = append(slices.Clone(s.Correlations), db.Correlation{
+		Label: "counterparty",
+		Token: counterparty,
+		Scope: "BROKER",
+		Match: []string{db.MatchAccount},
+	})
 	return s
 }
 

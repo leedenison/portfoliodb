@@ -108,11 +108,16 @@ constant would be wrong for every broker but one.
 
 **`broker_ref` and `counterparty_account` fold in.** Settled as the field lands, in
 [0096](../issues/0096-correlation-evidence-in-the-standard-format.md). Every
-`broker_ref` is exactly a correlation token, on exactly the postings a correlation
-goes on, so keeping both would put the same string on the wire twice and leave two
-places to improve. `counterparty_account` folds too. The fold is staged: the field
-lands and the converters populate it first, and the two columns go once there is
-evidence to replace them with.
+`broker_ref` was exactly a correlation token, on exactly the postings a correlation
+goes on, so keeping both would have put the same string on the wire twice and left two
+places to improve. `counterparty_account` folded too.
+
+Transfer matching is what read them, and reading correlations instead moved the one
+piece of broker knowledge it held back to the converter: it parsed each reference with
+`strconv.ParseInt` to get a proximity signal, which is the inference this ADR reserves
+for the converter, and an opaque identifier merely happened to fail the parse. Now the
+correlation says whether it has an ordinal, and a source with no numbering declares
+none rather than being discovered to have none.
 
 **`Match` gains `MATCH_ACCOUNT`.** A counterparty pointer is comparable, but
 asymmetrically: the token names *another posting's account* rather than a token that

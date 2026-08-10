@@ -56,14 +56,10 @@ export function counterLeg(p: Posting): Posting | undefined {
   const leg = clone(PostingSchema, p);
   leg.quantity = new Big(p.quantity).times(-1).toString();
   leg.accountType = accountType;
-  // A derived leg names no source row, because the source wrote none for it. The
-  // clone above would otherwise hand it the reference of the posting it mirrors,
-  // making an invention indistinguishable from a transcription. The correlations
-  // go for the same reason, and go harder: a copied one would state that the
-  // source correlated a row it never wrote. moneyLeg builds from scratch and
-  // needs no such reset. See docs/spec/postings.md.
-  leg.brokerRef = undefined;
-  leg.counterpartyAccount = undefined;
+  // A derived leg transcribes no source row, because the source wrote none for
+  // it. The clone above would otherwise hand it the evidence of the posting it
+  // mirrors, stating that the source correlated a row it never wrote. moneyLeg
+  // builds from scratch and needs no such reset. See docs/spec/postings.md.
   leg.correlations = [];
   return leg;
 }

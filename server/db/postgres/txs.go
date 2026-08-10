@@ -27,14 +27,14 @@ var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 const insertPostingSQL = `
 	WITH g AS (
 		INSERT INTO tx_groups (user_id, timestamp, job_id)
-		VALUES ($1, $4, $18)
+		VALUES ($1, $4, $16)
 		RETURNING id
 	)
 	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 instrument_id, share_count_basis, account_type,
-	                 weight, weight_commodity, broker_ref, counterparty_account, group_id)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, $16, $17, g.id FROM g
+	                 weight, weight_commodity, group_id)
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, g.id FROM g
 	RETURNING id, group_id
 `
 
@@ -44,8 +44,8 @@ const insertPostingInGroupSQL = `
 	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 instrument_id, share_count_basis, account_type,
-	                 weight, weight_commodity, broker_ref, counterparty_account, group_id)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, $16, $17, $18)
+	                 weight, weight_commodity, group_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, $16)
 	RETURNING id
 `
 
@@ -174,10 +174,6 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 			userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, qty,
 			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullDecimal(price),
 			instUUID, basis, acctTypeStr, w.Amount, w.Commodity,
-			// Stored as the source wrote them, and NULL where it wrote nothing:
-			// absent evidence is not the same as an empty reference, and only a
-			// derived posting is expected to carry none at all.
-			nullStr(t.GetBrokerRef()), nullStr(t.GetCounterpartyAccount()),
 		}
 		ref := t.GetGroupRef()
 		var txID uuid.UUID
@@ -390,25 +386,23 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, b
 // exportPosting is a sqlx-scannable version of db.ExportPosting, less the
 // correlations, which are read in a second pass and attached by posting id.
 type exportPosting struct {
-	Broker              string           `db:"broker"`
-	ID                  string           `db:"id"`
-	GroupID             string           `db:"group_id"`
-	GroupTimestamp      time.Time        `db:"group_timestamp"`
-	Timestamp           time.Time        `db:"timestamp"`
-	Account             string           `db:"account"`
-	AccountType         string           `db:"account_type"`
-	TxType              string           `db:"tx_type"`
-	Description         string           `db:"instrument_description"`
-	IdentifierType      string           `db:"identifier_type"`
-	IdentifierValue     string           `db:"value"`
-	IdentifierDomain    string           `db:"domain"`
-	Quantity            decimal.Decimal  `db:"quantity"`
-	UnitPrice           *decimal.Decimal `db:"unit_price"`
-	TradingCurrency     string           `db:"trading_currency"`
-	SettlementCurrency  string           `db:"settlement_currency"`
-	BrokerRef           string           `db:"broker_ref"`
-	CounterpartyAccount string           `db:"counterparty_account"`
-	ShareCountBasis     *time.Time       `db:"share_count_basis"`
+	Broker             string           `db:"broker"`
+	ID                 string           `db:"id"`
+	GroupID            string           `db:"group_id"`
+	GroupTimestamp     time.Time        `db:"group_timestamp"`
+	Timestamp          time.Time        `db:"timestamp"`
+	Account            string           `db:"account"`
+	AccountType        string           `db:"account_type"`
+	TxType             string           `db:"tx_type"`
+	Description        string           `db:"instrument_description"`
+	IdentifierType     string           `db:"identifier_type"`
+	IdentifierValue    string           `db:"value"`
+	IdentifierDomain   string           `db:"domain"`
+	Quantity           decimal.Decimal  `db:"quantity"`
+	UnitPrice          *decimal.Decimal `db:"unit_price"`
+	TradingCurrency    string           `db:"trading_currency"`
+	SettlementCurrency string           `db:"settlement_currency"`
+	ShareCountBasis    *time.Time       `db:"share_count_basis"`
 }
 
 // ListTxsForExport implements db.TxDB.
@@ -458,8 +452,6 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 			t.quantity, t.unit_price,
 			COALESCE(t.trading_currency, '') AS trading_currency,
 			COALESCE(t.settlement_currency, '') AS settlement_currency,
-			COALESCE(t.broker_ref, '') AS broker_ref,
-			COALESCE(t.counterparty_account, '') AS counterparty_account,
 			-- A basis equal to the posting's own date is the as-traded
 			-- convention and says nothing a reader cannot infer. The column is
 			-- NOT NULL and the insert trigger defaults it to that date, so
@@ -487,25 +479,23 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 	for i, r := range rows {
 		ids[i] = r.ID
 		out[i] = db.ExportPosting{
-			Broker:              r.Broker,
-			ID:                  r.ID,
-			GroupID:             r.GroupID,
-			GroupTimestamp:      r.GroupTimestamp,
-			Timestamp:           r.Timestamp,
-			Account:             r.Account,
-			AccountType:         r.AccountType,
-			TxType:              r.TxType,
-			Description:         r.Description,
-			IdentifierType:      r.IdentifierType,
-			IdentifierValue:     r.IdentifierValue,
-			IdentifierDomain:    r.IdentifierDomain,
-			Quantity:            r.Quantity,
-			UnitPrice:           r.UnitPrice,
-			TradingCurrency:     r.TradingCurrency,
-			SettlementCurrency:  r.SettlementCurrency,
-			BrokerRef:           r.BrokerRef,
-			CounterpartyAccount: r.CounterpartyAccount,
-			ShareCountBasis:     r.ShareCountBasis,
+			Broker:             r.Broker,
+			ID:                 r.ID,
+			GroupID:            r.GroupID,
+			GroupTimestamp:     r.GroupTimestamp,
+			Timestamp:          r.Timestamp,
+			Account:            r.Account,
+			AccountType:        r.AccountType,
+			TxType:             r.TxType,
+			Description:        r.Description,
+			IdentifierType:     r.IdentifierType,
+			IdentifierValue:    r.IdentifierValue,
+			IdentifierDomain:   r.IdentifierDomain,
+			Quantity:           r.Quantity,
+			UnitPrice:          r.UnitPrice,
+			TradingCurrency:    r.TradingCurrency,
+			SettlementCurrency: r.SettlementCurrency,
+			ShareCountBasis:    r.ShareCountBasis,
 		}
 	}
 	// A second pass rather than an aggregate in the scan above: the postings are
@@ -827,13 +817,17 @@ func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 
 		// NULL share_count_basis leaves the insert trigger to seed it from the
 		// posting's own timestamp, and the split-adjusted pair is seeded the same way,
-		// exactly as for an uploaded posting. A routed leg has no source row, so it
-		// carries neither a broker reference nor a counterparty account.
-		if _, err := exec.ExecContext(ctx, insertPostingInGroupSQL,
+		// exactly as for an uploaded posting. A routed leg has no source row, so no
+		// correlation is written for it: it transcribes nothing and there is nothing
+		// the source said about why it belongs with anything. The returned id is
+		// read and dropped: the statement returns one because the upload path
+		// needs it to hang correlations on.
+		var txID uuid.UUID
+		if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL,
 			userUUID, r.broker, r.account, r.timestamp, desc, r.txType, amount,
 			trading, settlement, nil, nullUUID(instID), nil, acctType,
-			amount, r.commodity, nil, nil, r.groupID,
-		); err != nil {
+			amount, r.commodity, r.groupID,
+		).Scan(&txID); err != nil {
 			return fmt.Errorf("insert routed posting: %w", err)
 		}
 	}

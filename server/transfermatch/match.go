@@ -11,8 +11,8 @@
 package transfermatch
 
 import (
+	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -262,20 +262,32 @@ func pairable(a, b db.TransferSide, opts Opts) bool {
 // counterparty *account*, not the occurrence, and the sample's monthly fee transfers
 // move the same amounts between the same account pair every month -- which a pointer
 // plus an amount matches twelve times a year.
+// A correlation declaring MATCH_ACCOUNT is what a pointer is: its token names some
+// other posting's account rather than a token that posting carries. Reading the
+// declaration rather than a field of its own is what lets a source say the same
+// thing in whatever field it happens to use.
 func pointerFeasible(a, b db.TransferSide, _ Opts) (bool, int64) {
 	if a.Broker != b.Broker {
 		return false, 0
 	}
-	return names(a.CounterpartyAccounts, b.Account) || names(b.CounterpartyAccounts, a.Account), 0
+	return names(a.Correlations, b.Account) || names(b.Correlations, a.Account), 0
 }
 
-func names(accounts []string, account string) bool {
-	for _, c := range accounts {
-		if strings.EqualFold(strings.TrimSpace(c), strings.TrimSpace(account)) {
+func names(cs []db.Correlation, account string) bool {
+	for _, c := range cs {
+		if !declares(c, db.MatchAccount) {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(c.Token), strings.TrimSpace(account)) {
 			return true
 		}
 	}
 	return false
+}
+
+// declares reports whether a correlation offers the given comparison.
+func declares(c db.Correlation, match string) bool {
+	return slices.Contains(c.Match, match)
 }
 
 // referenceFeasible reports whether the two sides' broker references are near enough
@@ -289,14 +301,17 @@ func names(accounts []string, account string) bool {
 // sample's lump sum is three consecutive references against a fourth, where the
 // nearest gap is 1 and the widest is 3.
 //
-// A reference that is not a number simply makes this pass inapplicable. An OFX FITID
-// is opaque and unique within one statement, so two of them are never comparable
-// across accounts, either by distance or by equality.
+// A source whose identifiers are opaque simply makes this pass inapplicable: it
+// declares no MATCH_ORDINAL, so nothing here has an ordinal to compare. That is an
+// OFX FITID, which is unique within one account and carries a number nothing but the
+// institution knows how to take, so two of them are never comparable across accounts
+// by distance. Whether a reference carries a number is the converter's to say, since
+// it is the only thing that knows its broker's numbering.
 func referenceFeasible(a, b db.TransferSide, opts Opts) (bool, int64) {
 	if a.Broker != b.Broker {
 		return false, 0
 	}
-	as, bs := refNumbers(a.BrokerRefs), refNumbers(b.BrokerRefs)
+	as, bs := ordinals(a.Correlations), ordinals(b.Correlations)
 	if len(as) == 0 || len(bs) == 0 {
 		return false, 0
 	}
@@ -318,11 +333,14 @@ func referenceFeasible(a, b db.TransferSide, opts Opts) (bool, int64) {
 	return true, nearest
 }
 
-func refNumbers(refs []string) []int64 {
-	out := make([]int64, 0, len(refs))
-	for _, r := range refs {
-		if n, err := strconv.ParseInt(strings.TrimSpace(r), 10, 64); err == nil {
-			out = append(out, n)
+// ordinals collects the numbers the correlations declaring MATCH_ORDINAL carry.
+// Nothing is parsed here: the ordinal arrives as a number because the converter put
+// one there, and a correlation without one has already said it has none.
+func ordinals(cs []db.Correlation) []int64 {
+	out := make([]int64, 0, len(cs))
+	for _, c := range cs {
+		if declares(c, db.MatchOrdinal) && c.Ordinal != nil {
+			out = append(out, *c.Ordinal)
 		}
 	}
 	return out

@@ -193,9 +193,6 @@ func TestArchiveTx_UnstatedFieldsStayUnset(t *testing.T) {
 	if len(tx.GetCorrelations()) != 0 {
 		t.Fatalf("correlations = %v, want none", tx.GetCorrelations())
 	}
-	if tx.GetBrokerRef() != "" || tx.GetCounterpartyAccount() != "" {
-		t.Fatalf("refs = %q, %q, want empty", tx.GetBrokerRef(), tx.GetCounterpartyAccount())
-	}
 	if len(tx.GetIdentifierHints()) != 1 {
 		t.Fatalf("identifier_hints = %v, want the one the export chose", tx.GetIdentifierHints())
 	}

@@ -715,17 +715,15 @@ export function convertFidelityToStandard(
       ref: refCol >= 0 ? parseInt(get(refCol), 10) : NaN,
       cashAsset,
     });
-    // The cell, not the parsed number the leg carries: broker_ref is opaque and a
-    // reference the source wrote in some other shape should survive rather than
-    // become NaN. The correlation beside it carries the number, in a field of its
-    // own, because knowing how to take a number out of this broker's references
-    // is exactly what a converter uniquely knows.
+    // The cell verbatim becomes the token and the number it carries becomes the
+    // ordinal, in a field of its own: knowing how to take a number out of this
+    // broker's references is exactly what a converter uniquely knows, and a
+    // reference written in some other shape has to survive rather than become NaN.
     //
-    // No counterpartyAccount. The export's "Source investment" column holds an
-    // asset name, not an account, so this file names no counterparty anywhere.
+    // No counterparty correlation. The export's "Source investment" column holds
+    // an asset name, not an account, so this file names no counterparty anywhere.
     // Only the JSON the extension reads does.
-    const brokerRef = refCol >= 0 ? get(refCol) : "";
-    const correlation = fidelityRefCorrelation(brokerRef);
+    const correlation = fidelityRefCorrelation(refCol >= 0 ? get(refCol) : "");
     postings.push(
       create(PostingSchema, {
         timestamp: timestampFromDate(date),
@@ -737,7 +735,6 @@ export function convertFidelityToStandard(
         ...(isCashTxType(ofxType) ? { tradingCurrency: currency } : {}),
         // Presence, not truthiness: a reported price of zero is a price.
         ...(unitPriceDec !== undefined ? { unitPrice: unitPriceDec.toString() } : {}),
-        ...(brokerRef ? { brokerRef } : {}),
         ...(correlation ? { correlations: [correlation] } : {}),
         ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })

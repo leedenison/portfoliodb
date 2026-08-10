@@ -132,30 +132,10 @@ message Tx {
   // Unset means USER, so an upload that says nothing about kind reads as an ordinary
   // broker account posting.
   portfoliodb.type.v1.AccountType account_type = 15 [(buf.validate.field).enum.defined_only = true];
-  // The source's own identifier for the row this posting was transcribed from:
-  // Fidelity's Reference Number, OFX's FITID. Set by the broker converter and
-  // stored, so unlike group_ref it is durable and means the same thing across
-  // uploads.
-  //
-  // Not a natural key. Ingestion idempotency is by replacement rather than by
-  // dedup on an identifier (docs/adr/0002-transaction-ingestion-model.md), and
-  // one source transaction can produce several postings that share a reference.
-  // Transfer matching reads it as a proximity signal, because a broker issues
-  // the two sides of one transfer adjacent references.
-  //
-  // Present only on postings transcribed from a source row: a converter's
-  // derived counter-leg and a server-routed residual carry none.
-  string broker_ref = 16;
-  // The account the source names as the other side of this row, in the same
-  // broker. Set by the broker converter where the source supplies it.
-  //
-  // Advisory rather than authoritative, because a source can use the same field
-  // for something else -- Fidelity puts the product account a service fee was
-  // charged for in it, which is attribution and not a transfer counterparty. It
-  // is read as a transfer pointer only for a group that produced a
-  // TRANSFER_CLEARING residual. Present only on transcribed postings, as
-  // broker_ref is.
-  string counterparty_account = 17;
+  // 16 was broker_ref and 17 counterparty_account. Both are correlations: the
+  // first a token compared by MATCH_EXACT, the second one compared by
+  // MATCH_ACCOUNT, and both sat on exactly the postings a correlation sits on.
+  reserved 16, 17;
   // Why this posting might belong with another one, as the source stated it:
   // an identifier, what may be compared about it, and over what set of
   // postings. Set by the broker converter, which is the only thing that knows

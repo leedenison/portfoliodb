@@ -14,27 +14,7 @@ A posting is a signed amount of one commodity in one account at one point in tim
 | Commodity | `instrument_id`               |
 | Amount    | `quantity` (signed)           |
 | Date      | `timestamp`                   |
-| Source id | `broker_ref`                  |
-| Other side| `counterparty_account`        |
 | Evidence  | `tx_correlations`             |
-
-The last three are what the source said about the row, kept rather than discarded.
-`broker_ref` is the source's own identifier for it -- a Fidelity `Reference Number`, an OFX
-`FITID` -- and `counterparty_account` is the account the source names as the other side,
-in the same broker. Both are set only on postings **transcribed from a source row**: a
-converter's derived counter-leg carries neither, and neither does a routed residual, so a
-value that is present always names something the source itself issued.
-
-`broker_ref` is not a natural key and carries no uniqueness constraint. Ingestion is
-idempotent by replacement (adr/0002-transaction-ingestion-model.md) and one source
-transaction can produce several postings sharing a reference. It is kept because a broker
-issues the two sides of one transfer adjacent references, which is what
-[matching](#transfers) reads.
-
-`counterparty_account` is advisory. A source can use the same field for something else --
-Fidelity puts the product account a service fee was charged for in it, which is attribution
-rather than a transfer counterparty -- so it is read as a pointer only for a group that
-produced a `TRANSFER_CLEARING` residual.
 
 ### Correlations
 
@@ -69,15 +49,27 @@ everything that archive carried rather than within the uploads it was assembled 
 A converter may only **transcribe**, never infer. A token may be synthesised from the
 source's own structure -- nesting, containment, an explicit order column -- and never
 from amounts, dates or proximity. Nothing distinguishes a transcribed token from an
-inferred one once stored, so this is the discipline the format rests on. It is the
-same contract `broker_ref` carries, and correlations are present on the same postings:
-a derived counter-leg and a routed residual transcribe nothing and correlate with
-nothing.
+inferred one once stored, so this is the discipline the format rests on. Only a
+posting transcribed from a source row carries any: a derived counter-leg and a routed
+residual transcribe nothing and correlate with nothing, so a token that is present
+always names something the source itself issued.
 
-Nothing reads correlations to decide the partition yet. They are carried and stored
-from here on because the server is becoming the thing that decides it
+A token is not a natural key and carries no uniqueness constraint. Ingestion is
+idempotent by replacement (adr/0002-transaction-ingestion-model.md) and one source
+transaction can produce several postings sharing a reference.
+
+A `MATCH_ACCOUNT` token is advisory rather than authoritative. A source can use the
+field it comes from for something else -- Fidelity puts the product account a service
+fee was charged for in the same field it names a transfer's source in, which is
+attribution rather than a transfer counterparty -- so it is read as a pointer only for
+a group that produced a `TRANSFER_CLEARING` residual.
+
+Nothing reads correlations to decide the transaction partition yet. They are carried
+and stored from here on because the server is becoming the thing that decides it
 (adr/0041-server-owns-transaction-grouping.md), and a rebuild from an archive would
-otherwise have nothing left to group on.
+otherwise have nothing left to group on. [Transfer matching](#transfers) already reads
+them, which is a different question -- which two groups are the two halves of one
+movement, not which postings are legs of one event.
 
 Currencies are instruments, so a cash movement is an ordinary posting and needs no
 separate representation. Nothing in the read path distinguishes a cash posting from a
@@ -329,10 +321,18 @@ adr/0037-transfer-matches-are-links-not-postings.md.
 
 A pair is found on evidence that identifies the occurrence, in this order:
 
-1. **An explicit pointer** -- the source names the other account outright, in
-   `counterparty_account`.
-2. **Reference proximity** -- the two sides' `broker_ref` values are near, a broker
-   issuing the references of one movement together.
+1. **An explicit pointer** -- the source names the other account outright, in a
+   correlation declaring `MATCH_ACCOUNT`.
+2. **Reference proximity** -- the two sides carry correlations declaring
+   `MATCH_ORDINAL` whose ordinals are near, a broker issuing the references of one
+   movement together.
+
+Each pass reads the correlations of the whole group rather than of the clearing leg,
+which is routed and transcribes nothing. Which pass can read a given correlation is
+the correlation's own to say: an OFX `FITID` declares neither `MATCH_ORDINAL` nor
+`MATCH_ACCOUNT`, so both passes pass over it, which is right -- it is opaque and
+unique within one account. Whether an identifier carries a number is the converter's
+to say, since it is the only thing that knows its broker's numbering.
 
 Both additionally require an exactly equal and opposite amount in the same commodity,
 two different accounts of the same user, and a date window. The window exists because

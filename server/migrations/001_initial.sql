@@ -75,21 +75,10 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 -- The amounts as the source wrote them: quantity, unit_price, trading_currency,
 -- settlement_currency. Transcribed and exact; see Numeric types below.
 --
--- What the source called this row: broker_ref, counterparty_account.
--- broker_ref is the source's own identifier for the row a posting was transcribed from:
--- Fidelity's Reference Number, OFX's FITID. counterparty_account is the account the
--- source named as the other side, in the same broker. Both are set only on postings
--- transcribed from a source row -- never on a converter's derived counter-leg and never
--- on a routed residual -- so a non-null value always names something the source itself
--- issued.
--- broker_ref is not a natural key and carries no uniqueness constraint: ingestion
--- idempotency is by replacement, and one source transaction can produce several
--- postings that share a reference. Transfer matching reads it as a proximity signal,
--- because a broker issues the two sides of one transfer adjacent references.
--- counterparty_account is advisory rather than authoritative. A source can reuse the
--- same field for something else -- Fidelity puts the product account a service fee was
--- charged for in it, which is attribution and not a transfer counterparty -- so it is
--- read as a pointer only for a group that produced a TRANSFER_CLEARING residual.
+-- What the source called this row lives in tx_correlations below, not in columns
+-- here: a reference number and a counterparty pointer are two series of the same
+-- kind of thing, and a column per series would grow the posting one nullable field
+-- per broker.
 --
 -- What kind of leg it is: account_type, synthetic_purpose.
 -- account_type classifies the account this row lands in. USER is an ordinary broker
@@ -157,9 +146,6 @@ CREATE TABLE txs (
   unit_price                NUMERIC,
   trading_currency          TEXT,
   settlement_currency       TEXT,
-
-  broker_ref                TEXT,
-  counterparty_account      TEXT,
 
   account_type              TEXT NOT NULL DEFAULT 'USER'
                               CHECK (account_type IN ('USER', 'EQUITY', 'INCOME', 'EXPENSE',

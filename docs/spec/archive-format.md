@@ -583,7 +583,6 @@ stored and where it travels.
 | posting | `account`, `account_type` | `account_type` absent reads as `ACCOUNT_TYPE_USER` |
 | posting | `identifier_hints[]` | zero or more identifier triples |
 | posting | `unit_price`, `trading_currency`, `settlement_currency` | optional |
-| posting | `broker_ref`, `counterparty_account` | optional |
 | posting | `share_count_basis` | optional; absent means the posting's own timestamp date |
 | posting | `correlations[]` | zero or more; why this posting might belong with another |
 | posting | `group_ref` | optional; transitional, see below |
@@ -625,7 +624,8 @@ resolves it against its own job instead.
 
 Only a posting transcribed from a source row carries any. A converter's derived
 counter-leg and a routed residual transcribe nothing, so they correlate with
-nothing, as they carry no `broker_ref`.
+nothing, and a token that is present always names something the source itself
+issued.
 
 A posting may carry several `identifier_hints`, which the CSV could not express
 -- it had one `symbol_type`/`symbol` pair per row. The paired

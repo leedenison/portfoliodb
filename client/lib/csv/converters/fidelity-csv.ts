@@ -9,10 +9,11 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "@/lib/dates";
-import type { Tx } from "@/gen/api/v1/api_pb";
-import { InstrumentIdentifierSchema, TxSchema } from "@/gen/api/v1/api_pb";
+import type { Posting } from "@/gen/archive/v1/txs_pb";
+import { PostingSchema } from "@/gen/archive/v1/txs_pb";
+import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { IdentifierType, TxType } from "@/gen/type/v1/type_pb";
-import type { StandardParseResult, ParseError } from "@/lib/csv/standard";
+import type { StandardParseResult, ParseError } from "@/lib/csv/parse-result";
 import { parseCSVLine } from "@/lib/csv/standard";
 import { counterLegs, currencyHint } from "@/lib/csv/postings";
 import { Big, parseDecimal } from "@/lib/decimal";
@@ -459,12 +460,12 @@ export function assignFidelityGroups(legs: FidelityLeg[]): FidelityGroups {
  * JRNLFUND it would make the trade group read as a transfer, so the group's
  * residual would be routed to TRANSFER_CLEARING rather than IMBALANCE.
  */
-export function asTradeCashLeg(tx: Tx, currency: string): void {
-  if (tx.type !== TxType.JRNLFUND) return;
-  tx.type = TxType.CASHFLOW;
+export function asTradeCashLeg(p: Posting, currency: string): void {
+  if (p.type !== TxType.JRNLFUND) return;
+  p.type = TxType.CASHFLOW;
   // isCashTxType covers CASHFLOW but not JRNLFUND, so the currency the row was
   // denied as a journal is owed to it as a cash leg.
-  if (currency) tx.tradingCurrency = currency;
+  if (currency) p.tradingCurrency = currency;
 }
 
 export function convertFidelityToStandard(
@@ -475,7 +476,7 @@ export function convertFidelityToStandard(
   const currency = (options?.currency as string) ?? "";
   if (!currency) {
     return {
-      txs: [],
+      postings: [],
       periodFrom: new Date(0),
       periodBefore: new Date(0),
       errors: [{ rowIndex: 0, field: "options", message: "Currency is required" }],
@@ -485,7 +486,7 @@ export function convertFidelityToStandard(
   const lines = csvText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   if (lines.length === 0) {
     return {
-      txs: [],
+      postings: [],
       periodFrom: new Date(0),
       periodBefore: new Date(0),
       errors: [{ rowIndex: 0, field: "file", message: "File is empty" }],
@@ -505,7 +506,7 @@ export function convertFidelityToStandard(
   }
   if (headerRowIndex < 0) {
     return {
-      txs: [],
+      postings: [],
       periodFrom: new Date(0),
       periodBefore: new Date(0),
       errors: [{ rowIndex: 0, field: "file", message: "Could not find Fidelity data header (Order date)" }],
@@ -537,14 +538,14 @@ export function convertFidelityToStandard(
 
   if (orderDateCol < 0 || txTypeCol < 0 || investmentsCol < 0) {
     return {
-      txs: [],
+      postings: [],
       periodFrom: new Date(0),
       periodBefore: new Date(0),
       errors: [{ rowIndex: headerRowIndex + 1, field: "header", message: "Missing required Fidelity columns" }],
     };
   }
 
-  const txs: Tx[] = [];
+  const postings: Posting[] = [];
   const legs: FidelityLeg[] = [];
   let minTime = Infinity;
   let maxTime = -Infinity;
@@ -621,10 +622,9 @@ export function convertFidelityToStandard(
         : []
       : symbol && exchange && listed
         ? [
-            create(InstrumentIdentifierSchema, {
+            create(InstrumentRefSchema, {
               type: IdentifierType.MIC_TICKER,
               value: symbol,
-              canonical: false,
               ...(MIC_BY_EXCHANGE[exchange] ? { domain: MIC_BY_EXCHANGE[exchange] } : {}),
             }),
           ]
@@ -660,8 +660,8 @@ export function convertFidelityToStandard(
     // asset name, not an account, so this file names no counterparty anywhere.
     // Only the JSON the extension reads does.
     const brokerRef = refCol >= 0 ? get(refCol) : "";
-    txs.push(
-      create(TxSchema, {
+    postings.push(
+      create(PostingSchema, {
         timestamp: timestampFromDate(date),
         instrumentDescription,
         type: ofxType,
@@ -679,19 +679,19 @@ export function convertFidelityToStandard(
 
   const groups = assignFidelityGroups(legs);
   groups.refs.forEach((ref, i) => {
-    if (ref) txs[i].groupRef = ref;
+    if (ref) postings[i].groupRef = ref;
   });
   groups.cashLegs.forEach((paired, i) => {
-    if (paired) asTradeCashLeg(txs[i], currency);
+    if (paired) asTradeCashLeg(postings[i], currency);
   });
   // After the refs are stamped, since that loop is index-parallel with legs.
   // Fidelity nets nothing into a trade total, so no fee is derived here: its
   // charges arrive as their own rows and only need the account they went to.
-  txs.push(...counterLegs(txs));
+  postings.push(...counterLegs(postings));
 
   const periodFrom = minTime === Infinity ? new Date(0) : new Date(minTime);
   const periodBefore =
     maxTime === -Infinity ? new Date(0) : startOfNextDay(new Date(maxTime));
 
-  return { txs, periodFrom, periodBefore, errors };
+  return { postings, periodFrom, periodBefore, errors };
 }

@@ -41,13 +41,13 @@ export async function dryRun(req: DryRunRequest): Promise<DryRunResult> {
     }
 
     return {
-      ok: parsed.txs.length > 0,
+      ok: parsed.postings.length > 0,
       requested,
       ...(rowCount !== undefined ? { rowCount } : {}),
-      txCount: parsed.txs.length,
+      txCount: parsed.postings.length,
       droppedCount: parsed.errors.length,
       droppedTypes: droppedTypes(parsed.errors),
-      ...(parsed.txs.length === 0
+      ...(parsed.postings.length === 0
         ? {
             error: parsed.errors[0]?.message ?? "the export contained no transactions",
             preview: captured.body.slice(0, 300),

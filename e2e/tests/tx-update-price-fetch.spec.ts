@@ -39,7 +39,7 @@ test.describe("no redundant price fetch after transaction update", () => {
     // Upload initial transaction: buy 10 INTC ~6 months ago.
     // This triggers identification and price fetch for the held period.
     await uploadCSVAndWait(page, browser, "tx-update-initial.csv", {
-      expectedTxCount: 1,
+      expectedPostingCount: 1,
     });
 
     // Verify the holding appears.
@@ -59,7 +59,7 @@ test.describe("no redundant price fetch after transaction update", () => {
     // The holding period is unchanged (still ~6 months ago to today),
     // just with a larger position from ~3 months ago onwards.
     await uploadCSVAndWait(page, browser, "tx-update-additional.csv", {
-      expectedTxCount: 1,
+      expectedPostingCount: 1,
     });
 
     // Wait for the price fetcher cycle triggered by the new transaction.

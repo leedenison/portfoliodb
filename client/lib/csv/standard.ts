@@ -8,43 +8,14 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "@/lib/dates";
 import { parseDecimal } from "@/lib/decimal";
-import type { Tx } from "@/gen/api/v1/api_pb";
-import { InstrumentIdentifierSchema, TxSchema } from "@/gen/api/v1/api_pb";
+import type { Posting } from "@/gen/archive/v1/txs_pb";
+import { PostingSchema } from "@/gen/archive/v1/txs_pb";
+import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
+import type { ParseError, StandardParseResult } from "@/lib/csv/parse-result";
 import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
-
-export interface ParseError {
-  rowIndex: number;
-  field: string;
-  message: string;
-}
 
 /** Comment line carrying the share count basis, e.g. "# share_count_basis=2026-07-29". */
 const SHARE_COUNT_BASIS_PREFIX = "# share_count_basis=";
-
-export interface StandardParseResult {
-  txs: Tx[];
-  periodFrom: Date;
-  /** Exclusive: local midnight after the last transaction's day. */
-  periodBefore: Date;
-  errors: ParseError[];
-  /**
-   * The share count the quantities and unit prices are denominated in, as
-   * "YYYY-MM-DD".
-   *
-   * Omit for an as-traded source: each row reflects the splits that happened
-   * before its own transaction date and nothing after it, which is what
-   * brokers normally supply and what the server assumes. Set it only when the
-   * source has post-adjusted historical rows for splits that happened *after*
-   * the transaction -- then this is the date those quantities are current as
-   * of, and the server will not apply those splits a second time.
-   *
-   * The converter declares the convention rather than undoing the arithmetic:
-   * reversing it here would need the split table, which lives server-side, and
-   * would store numbers the broker never printed. See
-   * docs/spec/bitemporality.md.
-   */
-  shareCountBasis?: string;
-}
 
 const TX_TYPE_BY_NAME = new Map<string, TxType>(
   (Object.entries(TxType) as [string, number][]).filter(([, v]) => typeof v === "number").map(([k, v]) => [k, v as TxType])
@@ -103,7 +74,7 @@ export function parseCSVLine(line: string): string[] {
 }
 
 /**
- * Parse standard-format CSV text into Tx array and period.
+ * Parse standard-format CSV text into archive postings and a period.
  * Header names are case-insensitive. Required: date (or timestamp), instrument_description, type, quantity.
  * Optional: trading_currency, settlement_currency, unit_price, account, symbol_type, symbol, exchange_type,
  * exchange, group_ref, account_type, broker_ref, counterparty_account.
@@ -129,7 +100,7 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
     lines.push(line);
   }
   if (lines.length === 0) {
-    return { txs: [], periodFrom: new Date(0), periodBefore: new Date(0), errors: [{ rowIndex: 0, field: "file", message: "File is empty or has no header" }] };
+    return { postings: [], periodFrom: new Date(0), periodBefore: new Date(0), errors: [{ rowIndex: 0, field: "file", message: "File is empty or has no header" }] };
   }
 
   const headerRow = parseCSVLine(lines[0]);
@@ -163,9 +134,9 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
   if (descCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: instrument_description" });
   if (typeCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: type" });
   if (qtyCol < 0) errors.push({ rowIndex: 0, field: "header", message: "Missing required column: quantity" });
-  if (errors.length > 0) return { txs: [], periodFrom: new Date(0), periodBefore: new Date(0), errors };
+  if (errors.length > 0) return { postings: [], periodFrom: new Date(0), periodBefore: new Date(0), errors };
 
-  const txs: Tx[] = [];
+  const postings: Posting[] = [];
   let minTime = Infinity;
   let maxTime = -Infinity;
 
@@ -263,8 +234,8 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
     if (ts < minTime) minTime = ts;
     if (ts > maxTime) maxTime = ts;
 
-    txs.push(
-      create(TxSchema, {
+    postings.push(
+      create(PostingSchema, {
         timestamp: timestampFromDate(date),
         instrumentDescription,
         type: txType,
@@ -277,10 +248,14 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
         ...(tradingCurrency ? { tradingCurrency } : {}),
         ...(settlementCurrency ? { settlementCurrency } : {}),
         ...(unitPrice !== undefined ? { unitPrice } : {}),
+        // The comment line declares one basis for the whole file, so every
+        // posting carries it. The archive states it per posting, because a file
+        // can restate some rows and not others.
+        ...(shareCountBasis ? { shareCountBasis } : {}),
         ...(identifierHints.length > 0
           ? {
               identifierHints: identifierHints.map((h) =>
-                create(InstrumentIdentifierSchema, { type: h.type, value: h.value, canonical: false, ...(h.domain ? { domain: h.domain } : {}) })
+                create(InstrumentRefSchema, { type: h.type, value: h.value, ...(h.domain ? { domain: h.domain } : {}) })
               ),
             }
           : {}),
@@ -292,5 +267,5 @@ export function parseStandardCSV(csvText: string): StandardParseResult {
   const periodBefore =
     maxTime === -Infinity ? new Date(0) : startOfNextDay(new Date(maxTime));
 
-  return { txs, periodFrom, periodBefore, errors, shareCountBasis };
+  return { postings, periodFrom, periodBefore, errors };
 }

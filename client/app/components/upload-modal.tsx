@@ -94,19 +94,20 @@ function UploadModalBody({
   }, []);
 
   const handleUpload = useCallback(async () => {
-    if (!parseResult || parseResult.errors.length > 0 || parseResult.txs.length === 0) return;
+    if (!parseResult || parseResult.errors.length > 0 || parseResult.postings.length === 0) return;
     setSubmitError(null);
     try {
       const sourcePrefix = getSourcePrefix(broker);
       const source = `${sourcePrefix}:web:${formatId}`;
       const res = await upsertTxs({
-        broker,
-        source,
-        periodFrom: timestampFromDate(parseResult.periodFrom),
-        periodBefore: timestampFromDate(parseResult.periodBefore),
-        txs: parseResult.txs,
+        window: {
+          broker,
+          source,
+          periodFrom: timestampFromDate(parseResult.periodFrom),
+          periodBefore: timestampFromDate(parseResult.periodBefore),
+          postings: parseResult.postings,
+        },
         filename: file?.name,
-        shareCountBasis: parseResult.shareCountBasis,
       });
       onJobStarted(res.jobId);
     } catch (e) {
@@ -137,7 +138,7 @@ function UploadModalBody({
   const canUpload =
     parseResult &&
     parseResult.errors.length === 0 &&
-    parseResult.txs.length > 0 &&
+    parseResult.postings.length > 0 &&
     optionsValid &&
     !jobId;
 
@@ -333,7 +334,7 @@ function UploadModalBody({
                 ) : (
                   <>
                     <div data-testid="upload-parse-preview" className="text-sm text-text-primary">
-                      {parseResult.txs.length} transaction(s), from{" "}
+                      {parseResult.postings.length} posting(s), from{" "}
                       {parseResult.periodFrom.toLocaleDateString()} to{" "}
                       {lastCoveredDay(parseResult.periodBefore).toLocaleDateString()}.
                     </div>

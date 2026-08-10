@@ -8,7 +8,7 @@
  * precisely enough to extend the converter's map.
  */
 
-import type { ParseError } from "@/lib/csv/standard";
+import type { ParseError } from "@/lib/csv/parse-result";
 
 /**
  * Distinct broker transaction types the converter did not recognise.

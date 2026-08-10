@@ -80,30 +80,37 @@ describe("sync", () => {
     const { entry } = await run();
 
     expect(entry.status).toBe("success");
-    const req = upsertTxs.mock.calls[0]![2] as { periodFrom: { seconds: bigint }; periodBefore: { seconds: bigint } };
+    const req = upsertTxs.mock.calls[0]![2] as {
+      window: { periodFrom: { seconds: bigint }; periodBefore: { seconds: bigint } };
+    };
     // Window is 14 days before the last known transaction (20 Jul) up to the
     // start of today (27 Jul) -- wider than the single 21 Jul row that came
     // back, which is what lets the replace delete anything the broker
     // cancelled.
-    expect(Number(req.periodFrom.seconds)).toBe(Math.floor(new Date(2026, 6, 6).getTime() / 1000));
-    expect(Number(req.periodBefore.seconds)).toBe(
+    expect(Number(req.window.periodFrom.seconds)).toBe(Math.floor(new Date(2026, 6, 6).getTime() / 1000));
+    expect(Number(req.window.periodBefore.seconds)).toBe(
       Math.floor(new Date(2026, 6, 27).getTime() / 1000)
     );
   });
 
   it("sends the source string the web client already uses", async () => {
     await run();
-    const req = upsertTxs.mock.calls[0]![2] as { source: string };
-    expect(req.source).toBe("Fidelity:web:fidelity-csv");
+    const req = upsertTxs.mock.calls[0]![2] as { window: { source: string } };
+    expect(req.window.source).toBe("Fidelity:web:fidelity-csv");
   });
 
   it("leaves the share count undeclared when the converter does not declare one", async () => {
     await run();
-    const req = upsertTxs.mock.calls[0]![2] as { shareCountBasis: string };
+    const req = upsertTxs.mock.calls[0]![2] as {
+      window: { postings: { shareCountBasis?: string }[] };
+    };
     // Declaring a basis on an as-traded export would tell the server the
     // quantities are already post-split, and historical rows spanning a split
-    // would be left unadjusted.
-    expect(req.shareCountBasis).toBe("");
+    // would be left unadjusted. The archive states it per posting, so an
+    // as-traded export states it nowhere.
+    for (const p of req.window.postings) {
+      expect(p.shareCountBasis).toBeUndefined();
+    }
   });
 
   it("asks only for the most recent transaction of that broker", async () => {
@@ -194,8 +201,8 @@ describe("sync", () => {
 
     await run();
 
-    const req = upsertTxs.mock.calls[0]![2] as { periodFrom: { seconds: bigint } };
-    expect(Number(req.periodFrom.seconds)).toBe(Math.floor(new Date(2025, 0, 6).getTime() / 1000));
+    const req = upsertTxs.mock.calls[0]![2] as { window: { periodFrom: { seconds: bigint } } };
+    expect(Number(req.window.periodFrom.seconds)).toBe(Math.floor(new Date(2025, 0, 6).getTime() / 1000));
   });
 
   it("stops before fetching when there is no session", async () => {

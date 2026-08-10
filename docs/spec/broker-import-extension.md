@@ -59,16 +59,17 @@ The window bounds are then materialised as local midnights in the runtime's own 
 
 ## Upload
 
-`UpsertTxs` is called with:
+`UpsertTxs` carries an archive transaction window -- the same message an archive
+document carries, so an upload describes itself. See
+[archive-format.md](archive-format.md).
 
 | Field | Value |
 | ----- | ----- |
-| `broker` | The target broker enum. |
-| `source` | The same source string the web UI produces for this broker and format, e.g. `Fidelity:web:fidelity-csv`. |
-| `period_from`, `period_before` | The **requested** window from step 3 -- not the minimum and maximum of the parsed rows. |
-| `txs` | The converted transactions. |
-| `filename` | A synthetic name identifying the run, e.g. `fidelity-ext-2026-07-27.csv`. |
-| `share_count_basis` | Whatever the converter declared; empty for an as-traded broker (see Share count below). |
+| `window.broker` | The target broker enum. |
+| `window.source` | The same source string the web UI produces for this broker and format, e.g. `Fidelity:web:fidelity-csv`. |
+| `window.period_from`, `window.period_before` | The **requested** window from step 3 -- not the minimum and maximum of the parsed rows. |
+| `window.postings` | The converted postings. |
+| `filename` | A synthetic name identifying the run, e.g. `fidelity-ext-2026-07-27.json`. |
 
 Two of these need care.
 
@@ -80,7 +81,7 @@ Two of these need care.
 
 The extension reads the broker's live web UI, which is the one import path where a broker could present historical rows restated into post-split terms.
 
-The default is as-traded: quantities and unit prices are denominated in the share count current on the row's own transaction date, and no broker found so far violates that. A converter for a broker that does restate sets `shareCountBasis` on its parse result, and the extension forwards it. The declaration sits on the converter rather than the recipe or the run because it is a property of how the broker reports, and because the converter is shared with the web upload path -- so both routes get it from one place. See [bitemporality.md](bitemporality.md#share-count-basis).
+The default is as-traded: quantities and unit prices are denominated in the share count current on the row's own transaction date, and no broker found so far violates that. A converter for a broker that does restate sets `share_count_basis` on the postings it emits, which is where the archive states it -- a file can restate some rows and not others. The declaration sits on the converter rather than the recipe or the run because it is a property of how the broker reports, and because the converter is shared with the web upload path -- so both routes get it from one place. See [bitemporality.md](bitemporality.md#share-count-basis).
 
 ### Account scope
 

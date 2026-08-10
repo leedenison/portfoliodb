@@ -187,30 +187,19 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		return false, ""
 	}
 
-	txs := req.GetTxs()
-	if txs == nil {
-		txs = []*apiv1.Tx{}
-	}
 	// A tx job has no part rows, so its reporter is the unscoped kind: it writes
 	// progress and problems against the job itself.
 	rep := archiveimport.NewPartReporter(database, j.JobID, archivev1.ArchivePart_ARCHIVE_PART_UNSPECIFIED)
 
-	// The upload declares one basis for every row it carries, so the per-row
-	// slice the store takes is that value repeated. A file that restates only
-	// some of its rows is the archive's shape, not the CSV's.
-	var basis []*time.Time
-	if b := req.GetShareCountBasis(); b != "" {
-		parsed, err := time.Parse("2006-01-02", b)
-		if err != nil {
-			rep.Errf(-1, "share_count_basis", fmt.Sprintf("invalid date %q: want YYYY-MM-DD", b))
-			rep.Flush(ctx)
-			finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
-			return false, ""
-		}
-		basis = make([]*time.Time, len(txs))
-		for i := range basis {
-			basis[i] = &parsed
-		}
+	// The payload is an archive window, so a broker upload and an archive
+	// document are read by the same code above the ingestion pipeline.
+	w := req.GetWindow()
+	txs, basis, rowIdx, err := windowTxs(w, 0, rep)
+	if err != nil {
+		rep.Flush(ctx)
+		log.Printf("ingestion job %s: %v", j.JobID, err)
+		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
+		return false, ""
 	}
 
 	res, err := ingestBatch(ctx, ingestDeps{
@@ -220,16 +209,17 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		Counter:      counter,
 	}, ingestParams{
 		UserID:          userID,
-		Broker:          db.BrokerToStr(req.Broker),
-		Source:          req.GetSource(),
+		Broker:          db.BrokerToStr(w.GetBroker()),
+		Source:          w.GetSource(),
 		JobID:           j.JobID,
 		Txs:             txs,
 		ShareCountBasis: basis,
+		RowIndices:      rowIdx,
 		// Both bounds present makes this a replacement rather than an append.
-		// CreateTx wraps its one tx in the same request with no period, which is
+		// CreateTx wraps its one posting in a window with no period, which is
 		// where the two paths diverge.
-		PeriodFrom:   req.PeriodFrom,
-		PeriodBefore: req.PeriodBefore,
+		PeriodFrom:   w.GetPeriodFrom(),
+		PeriodBefore: w.GetPeriodBefore(),
 	}, rep)
 	// Flushed before the job is marked terminal on both paths: the problems
 	// gathered before a failure are what explain it.

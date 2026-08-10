@@ -13,7 +13,7 @@
  */
 
 import type { Broker } from "@/gen/type/v1/type_pb";
-import type { StandardParseResult } from "@/lib/csv/standard";
+import type { StandardParseResult } from "@/lib/csv/parse-result";
 
 /**
  * A request to replay against the broker, with {{from}} and {{to}} substituted.

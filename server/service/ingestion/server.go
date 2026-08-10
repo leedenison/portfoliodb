@@ -3,7 +3,7 @@ package ingestion
 import (
 	"context"
 	"fmt"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -30,13 +30,14 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 	if authErr != nil {
 		return nil, authErr
 	}
-	if err := ValidateBroker(req.Broker); err != nil {
+	w := req.GetWindow()
+	if err := ValidateBroker(w.GetBroker()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Message)
 	}
-	if err := ValidateSource(req.GetSource()); err != nil {
+	if err := ValidateSource(w.GetSource()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Message)
 	}
-	periodErrs := ValidateBulkRequest(req.PeriodFrom, req.PeriodBefore)
+	periodErrs := ValidateBulkRequest(w.GetPeriodFrom(), w.GetPeriodBefore())
 	if len(periodErrs) > 0 {
 		return nil, status.Error(codes.InvalidArgument, periodErrs[0].Message)
 	}
@@ -44,15 +45,15 @@ func (s *Server) UpsertTxs(ctx context.Context, req *ingestionv1.UpsertTxsReques
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("serialize request: %v", err))
 	}
-	brokerStr := db.BrokerToStr(req.Broker)
+	brokerStr := db.BrokerToStr(w.GetBroker())
 	jobID, err := s.db.CreateJob(ctx, db.CreateJobParams{
 		UserID:       u.ID,
 		JobType:      "tx",
 		Broker:       brokerStr,
-		Source:       req.GetSource(),
+		Source:       w.GetSource(),
 		Filename:     req.GetFilename(),
-		PeriodFrom:   req.PeriodFrom,
-		PeriodBefore: req.PeriodBefore,
+		PeriodFrom:   w.GetPeriodFrom(),
+		PeriodBefore: w.GetPeriodBefore(),
 		Payload:      payload,
 	})
 	if err != nil {
@@ -78,16 +79,18 @@ func (s *Server) CreateTx(ctx context.Context, req *ingestionv1.CreateTxRequest)
 	if err := ValidateSource(req.GetSource()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Message)
 	}
-	if req.Tx == nil {
-		return nil, status.Error(codes.InvalidArgument, "tx required")
+	if req.Posting == nil {
+		return nil, status.Error(codes.InvalidArgument, "posting required")
 	}
-	// Wrap single tx in UpsertTxsRequest for uniform payload format.
+	// One payload shape for both paths: a window with no period, which is what
+	// makes this an append rather than a replacement.
 	brokerStr := db.BrokerToStr(req.Broker)
 	wrapped := &ingestionv1.UpsertTxsRequest{
-		Broker:          req.Broker,
-		Source:          req.GetSource(),
-		Txs:             []*apiv1.Tx{req.Tx},
-		ShareCountBasis: req.GetShareCountBasis(),
+		Window: &archivev1.TxWindow{
+			Broker:   req.Broker,
+			Source:   req.GetSource(),
+			Postings: []*archivev1.Posting{req.GetPosting()},
+		},
 	}
 	payload, err := proto.Marshal(wrapped)
 	if err != nil {

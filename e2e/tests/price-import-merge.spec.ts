@@ -112,7 +112,7 @@ test.describe("price-first instrument merge", () => {
     // instrument via ResolveByHintsDBOnly. The instrument is reused
     // without calling identifier plugins.
     await uploadCSVAndWait(page, browser, "single-aapl-stock.csv", {
-      expectedTxCount: 1,
+      expectedPostingCount: 1,
     });
 
     // Step 4: Verify the transaction was attached to the SAME instrument.

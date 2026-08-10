@@ -2,15 +2,15 @@ import { describe, it, expect } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import type { Tx } from "@/gen/api/v1/api_pb";
-import { TxSchema } from "@/gen/api/v1/api_pb";
+import type { Posting } from "@/gen/archive/v1/txs_pb";
+import { PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 import { counterLeg, counterLegs, feeLeg, refPrefix, reinvestLeg, FEE_EPSILON } from "./postings";
 import { Big } from "@/lib/decimal";
 import { expectGroupsBalance } from "./group-balance.test-utils";
 
-const tx = (fields: MessageInitShape<typeof TxSchema>): Tx =>
-  create(TxSchema, {
+const tx = (fields: MessageInitShape<typeof PostingSchema>): Posting =>
+  create(PostingSchema, {
     timestamp: timestampFromDate(new Date(2026, 1, 1)),
     instrumentDescription: "GBP",
     quantity: "0",

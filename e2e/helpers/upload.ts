@@ -12,7 +12,7 @@ export async function uploadCSVAndWait(
   page: Page,
   browser: Browser,
   fixtureName: string,
-  opts?: { expectedTxCount?: number }
+  opts?: { expectedPostingCount?: number }
 ): Promise<void> {
   await page.goto("/uploads");
   await expect(
@@ -38,10 +38,10 @@ export async function uploadCSVAndWait(
     page.locator("[data-testid='upload-parse-preview']")
   ).toBeVisible();
 
-  if (opts?.expectedTxCount != null) {
+  if (opts?.expectedPostingCount != null) {
     await expect(
       page.locator("[data-testid='upload-parse-preview']")
-    ).toContainText(`${opts.expectedTxCount} transaction(s)`);
+    ).toContainText(`${opts.expectedPostingCount} posting(s)`);
   }
 
   // Submit.

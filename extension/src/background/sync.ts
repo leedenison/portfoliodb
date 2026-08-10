@@ -133,13 +133,13 @@ export async function sync(opts: SyncOptions): Promise<SyncResult> {
   const counted: RunLogEntry = {
     ...withWindow,
     rowCount: rowCount(payload),
-    txCount: parsed.txs.length,
+    txCount: parsed.postings.length,
     droppedCount: parsed.errors.length,
     ...(parsed.errors.length > 0 ? { droppedRows: parsed.errors } : {}),
     ...(dropped.length > 0 ? { droppedTypes: dropped } : {}),
   };
 
-  if (parsed.txs.length === 0) {
+  if (parsed.postings.length === 0) {
     // Refusing rather than uploading nothing: the server marks a bulk upload with
     // no storable rows successful without performing the replace, so an empty
     // upload would report success while deleting nothing.
@@ -154,18 +154,16 @@ export async function sync(opts: SyncOptions): Promise<SyncResult> {
   let jobId: string;
   try {
     const res = await upsertTxs(config.portfoliodbOrigin, sessionId, {
-      broker: opts.broker,
-      source: sourceFor(recipe),
-      // The window that was requested, not the range of the rows that came back:
-      // that is what lets the replace delete transactions the broker cancelled.
-      periodFrom: timestampFromDate(win.from),
-      periodBefore: timestampFromDate(win.before),
-      txs: parsed.txs,
+      window: {
+        broker: opts.broker,
+        source: sourceFor(recipe),
+        // The window that was requested, not the range of the rows that came back:
+        // that is what lets the replace delete transactions the broker cancelled.
+        periodFrom: timestampFromDate(win.from),
+        periodBefore: timestampFromDate(win.before),
+        postings: parsed.postings,
+      },
       filename: `${recipe.id}-${formatDate(lastDay, "yyyy-MM-dd")}.json`,
-      // Declared by the converter, which knows its broker's convention. Empty
-      // for an as-traded export, which is denominated per row and is what the
-      // server assumes by default.
-      shareCountBasis: parsed.shareCountBasis ?? "",
     });
     jobId = res.jobId;
   } catch (e) {

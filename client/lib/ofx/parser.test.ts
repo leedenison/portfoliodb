@@ -1,7 +1,7 @@
 import { Big } from "@/lib/decimal";
 import { describe, it, expect } from "vitest";
 import { parseOfxStatement, parseOfxDate } from "./parser";
-import { AccountType, TxType, IdentifierType } from "@/gen/type/v1/type_pb";
+import { AccountType, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 
 describe("parseOfxDate", () => {
@@ -477,6 +477,29 @@ describe("groups and charges", () => {
     expect(refs.size).toBe(1);
     expect([...refs][0]).toBeTruthy();
     expectGroupsBalance(result.postings);
+  });
+
+  // The FITID is unique within the account rather than within the institution,
+  // which is the uniqueness the OFX spec gives it, and it is opaque: the string
+  // plainly carries a number but nothing here knows where it starts, so equality
+  // is all it honestly offers.
+  it("states what the FITID is comparable by, on the transcribed leg alone", () => {
+    const result = parse(GBP_BUY);
+    const correlated = result.postings.filter((t) => t.correlations.length > 0);
+    expect(correlated).toHaveLength(1);
+    const c = correlated[0]!.correlations[0]!;
+    expect(c.token).toBe("20251015U10000018371888432");
+    expect(c.scope).toBe(Scope.ACCOUNT);
+    expect(c.match).toEqual([Match.EXACT]);
+    expect(c.ordinal).toBeUndefined();
+  });
+
+  // The parser synthesises a group for legs the source gave no FITID for, so the
+  // group is inferred rather than transcribed. Emitting a correlation for it
+  // would state that the source said something it did not.
+  it("correlates nothing for a trade whose group it synthesised", () => {
+    const result = parse(GBP_BUY.replace("<FITID>20251015U10000018371888432", "<FITID>"));
+    expect(result.postings.every((t) => t.correlations.length === 0)).toBe(true);
   });
 
   it("names the account a dividend came from", () => {

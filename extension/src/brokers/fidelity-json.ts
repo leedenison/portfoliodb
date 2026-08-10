@@ -13,7 +13,7 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "../lib/dates";
-import type { Posting } from "@/gen/archive/v1/txs_pb";
+import type { Correlation, Posting } from "@/gen/archive/v1/txs_pb";
 import { PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { IdentifierType } from "@/gen/type/v1/type_pb";
@@ -21,6 +21,8 @@ import type { FidelityLeg } from "@/lib/csv/converters/fidelity-csv";
 import {
   assignFidelityGroups,
   asTradeCashLeg,
+  fidelityCounterpartyCorrelation,
+  fidelityRefCorrelation,
   FIDELITY_TYPE_TO_OFX,
   isCashMovement,
   isCashTxType,
@@ -195,6 +197,18 @@ export function convertFidelityJson(
     if (ts < minTime) minTime = ts;
     if (ts > maxTime) maxTime = ts;
 
+    // Two series, and they are kept apart: a reference number is comparable
+    // against another reference number, while the counterparty names an account
+    // and is compared against one. The builders are the CSV converter's, so the
+    // two readings of a Fidelity export cannot disagree about what its
+    // identifiers are comparable by.
+    const correlations: Correlation[] = [];
+    const refCorrelation = fidelityRefCorrelation(row.referenceId ?? "");
+    if (refCorrelation) correlations.push(refCorrelation);
+    if (row.sourceOrTargetAccount) {
+      correlations.push(fidelityCounterpartyCorrelation(row.sourceOrTargetAccount));
+    }
+
     // units, not the sign-corrected quantity: cash rows report their money as units,
     // which would make the check compare a total against itself.
     legs.push({
@@ -236,6 +250,7 @@ export function convertFidelityJson(
         // becoming NaN.
         ...(row.referenceId ? { brokerRef: row.referenceId } : {}),
         ...(row.sourceOrTargetAccount ? { counterpartyAccount: row.sourceOrTargetAccount } : {}),
+        ...(correlations.length > 0 ? { correlations } : {}),
         ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })
     );

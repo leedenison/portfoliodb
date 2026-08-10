@@ -10,9 +10,9 @@ import { create } from "@bufbuild/protobuf";
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "@/lib/dates";
 import type { Posting } from "@/gen/archive/v1/txs_pb";
-import { PostingSchema } from "@/gen/archive/v1/txs_pb";
+import { CorrelationSchema, PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
-import { IdentifierType, TxType } from "@/gen/type/v1/type_pb";
+import { IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/parse-result";
 import { counterLegs, feeLeg, refPrefix } from "@/lib/csv/postings";
 import { Big, parseDecimal } from "@/lib/decimal";
@@ -164,6 +164,22 @@ function buildIdentifierHints(
   }
 
   return hints;
+}
+
+/**
+ * What a FITID is comparable by.
+ *
+ * Account-scoped, because that is the uniqueness the OFX spec gives it: reading
+ * it file-wide would compare two accounts' identifier sequences, which are
+ * unrelated. Equality alone, since the string is opaque to anything but the
+ * institution that issued it.
+ */
+function fitIdCorrelation(fitId: string) {
+  return create(CorrelationSchema, {
+    token: fitId,
+    scope: Scope.ACCOUNT,
+    match: [Match.EXACT],
+  });
 }
 
 // ── Transaction type mapping ─────────────────────────────────────────
@@ -328,11 +344,19 @@ export function parseOfxStatement(text: string): OfxParseResult {
         tradingCurrency,
         settlementCurrency: tradingCurrency,
         groupRef: fitId,
-        // The same id in both fields, saying two different things: which postings
-        // are one event, and which statement record this one was transcribed from.
-        // Only this leg carries the reference -- the cash and fee legs below are
-        // derived from TOTAL and COMMISSION rather than from rows of their own.
-        ...(fitId ? { brokerRef: fitId } : {}),
+        // The same id in three places, saying three different things: which
+        // postings are one event, which statement record this one was
+        // transcribed from, and what it is comparable with. Only this leg
+        // carries the reference and the correlation -- the cash and fee legs
+        // below are derived from TOTAL and COMMISSION rather than from rows of
+        // their own, so they transcribe nothing.
+        //
+        // Scoped to the account rather than to the file: the OFX spec makes a
+        // FITID unique within the account, not within the institution. Equality
+        // alone, because a FITID is opaque -- 20251015U10000018371888432 plainly
+        // carries a number, but nothing here knows where it starts, and an
+        // ordering invented from the string would group unrelated rows silently.
+        ...(fitId ? { brokerRef: fitId, correlations: [fitIdCorrelation(fitId)] } : {}),
         ...(unitPrice !== undefined ? { unitPrice } : {}),
         ...(hintProtos.length > 0 ? { identifierHints: hintProtos } : {}),
       });

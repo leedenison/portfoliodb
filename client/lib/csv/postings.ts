@@ -58,10 +58,13 @@ export function counterLeg(p: Posting): Posting | undefined {
   leg.accountType = accountType;
   // A derived leg names no source row, because the source wrote none for it. The
   // clone above would otherwise hand it the reference of the posting it mirrors,
-  // making an invention indistinguishable from a transcription. moneyLeg builds
-  // from scratch and needs no such reset. See docs/spec/postings.md.
+  // making an invention indistinguishable from a transcription. The correlations
+  // go for the same reason, and go harder: a copied one would state that the
+  // source correlated a row it never wrote. moneyLeg builds from scratch and
+  // needs no such reset. See docs/spec/postings.md.
   leg.brokerRef = undefined;
   leg.counterpartyAccount = undefined;
+  leg.correlations = [];
   return leg;
 }
 

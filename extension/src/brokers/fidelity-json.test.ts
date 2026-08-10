@@ -5,7 +5,7 @@
 
 import { Big } from "@/lib/decimal";
 import { describe, expect, it } from "vitest";
-import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
+import { AccountType, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import { convertFidelityJson, isValidIsin } from "./fidelity-json";
 import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 
@@ -554,5 +554,92 @@ describe("source references", () => {
     const expense = result.postings.find((tx) => tx.accountType === AccountType.EXPENSE)!;
     expect(expense.brokerRef).toBeUndefined();
     expect(expense.counterpartyAccount).toBeUndefined();
+  });
+});
+
+// The JSON carries both series the format can express, and they are kept apart:
+// a reference number is compared against another reference number, while the
+// counterparty names an account and is compared against one.
+describe("correlations", () => {
+  const base = {
+    accountNumber: "AW10000001",
+    assetName: "Cash",
+    isin: "AA00K0000000",
+    currency: "GBP",
+    status: "Completed",
+    pricePerUnit: 1,
+    dealDate: "15/04/2025",
+    settlementDate: "15/04/2025",
+  };
+
+  it("states both series where the source supplies both", () => {
+    const result = convertFidelityJson(
+      json({
+        ...base,
+        transactionType: "Transfer Into Account",
+        debitCreditIndicator: "CREDIT",
+        units: 20000,
+        valuation: 20000,
+        referenceId: "971613414",
+        sourceOrTargetAccount: "AG10000001",
+      })
+    );
+
+    const got = result.postings[0]!.correlations;
+    expect(got).toHaveLength(2);
+    // Identical to what the CSV converter states for the same reference: the two
+    // readings of one export share the builder, so they cannot disagree.
+    expect(got[0]!.label).toBe("");
+    expect(got[0]!.token).toBe("971613414");
+    expect(got[0]!.ordinal).toBe(971613414n);
+    expect(got[0]!.scope).toBe(Scope.FILE);
+    expect(got[0]!.match).toEqual([Match.EXACT, Match.ORDINAL]);
+    // The pointer is broker-scoped, because an account label means nothing
+    // outside the broker that issued it and the two sides of one transfer
+    // routinely arrive in different exports.
+    expect(got[1]!.label).toBe("counterparty");
+    expect(got[1]!.token).toBe("AG10000001");
+    expect(got[1]!.scope).toBe(Scope.BROKER);
+    expect(got[1]!.match).toEqual([Match.ACCOUNT]);
+    expect(got[1]!.ordinal).toBeUndefined();
+  });
+
+  it("states only the reference where the source names no other side", () => {
+    const result = convertFidelityJson(
+      json({
+        ...base,
+        transactionType: "Transfer Out From Cash Management Account",
+        debitCreditIndicator: "DEBIT",
+        units: 20000,
+        valuation: 20000,
+        referenceId: "971613430",
+      })
+    );
+
+    const got = result.postings[0]!.correlations;
+    expect(got).toHaveLength(1);
+    expect(got[0]!.token).toBe("971613430");
+  });
+
+  // A derived leg transcribes nothing, so it correlates with nothing -- and the
+  // fee's attribution in particular must not be copied onto the expense leg,
+  // where it would name a counterparty the source never gave that row.
+  it("does not give a derived counter-leg a correlation", () => {
+    const result = convertFidelityJson(
+      json({
+        ...base,
+        assetName: "Relationship Cash Source",
+        transactionType: "Service Fee",
+        debitCreditIndicator: "DEBIT",
+        units: 5.13,
+        valuation: 5.13,
+        referenceId: "1177083111",
+        sourceOrTargetAccount: "AP10000001",
+      })
+    );
+
+    expect(result.postings[0]!.correlations).toHaveLength(2);
+    const expense = result.postings.find((tx) => tx.accountType === AccountType.EXPENSE)!;
+    expect(expense.correlations).toEqual([]);
   });
 });

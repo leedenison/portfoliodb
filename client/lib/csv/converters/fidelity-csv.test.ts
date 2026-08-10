@@ -1,6 +1,6 @@
 import { Big } from "@/lib/decimal";
 import { describe, it, expect } from "vitest";
-import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
+import { AccountType, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import { convertFidelityToStandard, FIDELITY_TYPE_TO_OFX } from "./fidelity-csv";
 import { expectGroupsBalance, residuals } from "@/lib/csv/group-balance.test-utils";
 
@@ -924,5 +924,71 @@ describe("source references", () => {
     expect(result.postings[1].brokerRef).toBeUndefined();
     // Both legs still belong to one event.
     expect(result.postings[1].groupRef).toBe(result.postings[0].groupRef);
+  });
+});
+
+// What the source said about why a row might belong with another one. A Fidelity
+// reference number is honestly comparable both ways -- two rows of one event are
+// numbered near each other, and one row is named by exactly one reference -- so
+// the correlation declares both and carries the number in a field of its own.
+describe("correlations", () => {
+  const HEAD =
+    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
+  const convert = (rows: string[]) =>
+    convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
+
+  it("states what a reference number is comparable by", () => {
+    const result = convert([
+      "2022-05-06,2022-05-06,Transfer To Cash Management Account For Fees,Cash,SIPP,AP1,,-2.19,2.19,1,481052149,Completed",
+    ]);
+
+    expect(result.postings[0].correlations).toHaveLength(1);
+    const c = result.postings[0].correlations[0]!;
+    expect(c.label).toBe("");
+    expect(c.token).toBe("481052149");
+    expect(c.ordinal).toBe(481052149n);
+    expect(c.scope).toBe(Scope.FILE);
+    expect(c.match).toEqual([Match.EXACT, Match.ORDINAL]);
+    // The span the deposit rule is measured against travels with the evidence,
+    // because how densely Fidelity issues references is a fact about its
+    // numbering rather than a grouping policy.
+    expect(c.ordinalSpan).toBe(8n);
+  });
+
+  // Nothing in the sample exports writes one, but the field is opaque and a
+  // reference in some other shape has to keep its equality half rather than
+  // become NaN.
+  it("keeps equality alone for a reference that carries no number", () => {
+    const result = convert([
+      "8 Feb 2022,10 Feb 2022,Cash Interest,Cash,Investment Account,AG1,,1.18,1.18,1,REF/2022/A,Completed",
+    ]);
+
+    const c = result.postings[0].correlations[0]!;
+    expect(c.token).toBe("REF/2022/A");
+    expect(c.ordinal).toBeUndefined();
+    expect(c.ordinalSpan).toBeUndefined();
+    expect(c.match).toEqual([Match.EXACT]);
+  });
+
+  it("correlates nothing for a row the source gave no reference for", () => {
+    const result = convert([
+      "8 Feb 2022,10 Feb 2022,Cash Interest,Cash,Investment Account,AG1,,1.18,1.18,1,,Completed",
+    ]);
+
+    expect(result.postings[0].correlations).toEqual([]);
+  });
+
+  // A derived leg transcribes nothing, so it correlates with nothing. Copying
+  // the correlation of the posting it mirrors would state that the source
+  // correlated a row it never wrote.
+  it("does not give a derived counter-leg a correlation", () => {
+    const result = convert([
+      "8 Feb 2022,10 Feb 2022,Cash Dividend,Cash,Investment Account,AG1,,23.40,23.40,1,441416483,Completed",
+    ]);
+
+    expect(result.postings).toHaveLength(2);
+    expect(result.postings[0].correlations).toHaveLength(1);
+    expect(result.postings[1].accountType).toBe(AccountType.INCOME);
+    expect(result.postings[1].correlations).toEqual([]);
   });
 });

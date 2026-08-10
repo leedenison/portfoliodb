@@ -9,10 +9,10 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "@/lib/dates";
-import type { Posting } from "@/gen/archive/v1/txs_pb";
-import { PostingSchema } from "@/gen/archive/v1/txs_pb";
+import type { Correlation, Posting } from "@/gen/archive/v1/txs_pb";
+import { CorrelationSchema, PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
-import { IdentifierType, TxType } from "@/gen/type/v1/type_pb";
+import { IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/parse-result";
 import { parseCSVLine } from "@/lib/csv/line";
 import { counterLegs, currencyHint } from "@/lib/csv/postings";
@@ -273,6 +273,69 @@ const DEPOSIT_ROWS = ["Cash Out For Buy", "Cash In"];
  * coincidence rather than a discriminator.
  */
 const DEPOSIT_REF_SPAN = 8;
+
+/**
+ * The label the counterparty pointer is correlated under.
+ *
+ * Distinct from the reference series, which uses the empty label, so an account
+ * name is never compared against a reference number. The pointer declares
+ * MATCH_ACCOUNT alone: its token names the account of some other posting rather
+ * than a token that posting carries, so equality against another token could
+ * never fire.
+ */
+const COUNTERPARTY_LABEL = "counterparty";
+
+/**
+ * The correlation a Fidelity reference number supplies, or undefined for a row
+ * the source gave no reference for.
+ *
+ * The cell verbatim as the token and the number it carries as the ordinal, which
+ * is what MATCH_ORDINAL means: the ordinal field is populated and comparable,
+ * never "parse the token as a number". A reference the source wrote in some shape
+ * this converter did not expect keeps its equality half rather than becoming NaN.
+ *
+ * Scoped to the file. DEPOSIT_REF_SPAN travels with it because how densely a
+ * broker issues references is a fact about its numbering rather than a grouping
+ * policy, and a server-side constant would be wrong for every broker but one.
+ *
+ * Shared with the extension's JSON converter, so the two cannot disagree about
+ * what a Fidelity reference is comparable by.
+ */
+export function fidelityRefCorrelation(ref: string): Correlation | undefined {
+  if (!ref) return undefined;
+  const ordinal = parseInt(ref, 10);
+  if (!Number.isFinite(ordinal)) {
+    return create(CorrelationSchema, {
+      token: ref,
+      scope: Scope.FILE,
+      match: [Match.EXACT],
+    });
+  }
+  return create(CorrelationSchema, {
+    token: ref,
+    ordinal: BigInt(ordinal),
+    ordinalSpan: BigInt(DEPOSIT_REF_SPAN),
+    scope: Scope.FILE,
+    match: [Match.EXACT, Match.ORDINAL],
+  });
+}
+
+/**
+ * The correlation the account Fidelity names as the other side of a row
+ * supplies.
+ *
+ * Scoped to the broker rather than to the file: an account label means nothing
+ * outside the broker that issued it, and the two sides of one transfer routinely
+ * arrive in different exports.
+ */
+export function fidelityCounterpartyCorrelation(account: string): Correlation {
+  return create(CorrelationSchema, {
+    label: COUNTERPARTY_LABEL,
+    token: account,
+    scope: Scope.BROKER,
+    match: [Match.ACCOUNT],
+  });
+}
 
 /**
  * The broker type of the cash row a trade settles through, or "" for a row that
@@ -654,12 +717,15 @@ export function convertFidelityToStandard(
     });
     // The cell, not the parsed number the leg carries: broker_ref is opaque and a
     // reference the source wrote in some other shape should survive rather than
-    // become NaN. Nothing here parses it -- that is the matcher's problem.
+    // become NaN. The correlation beside it carries the number, in a field of its
+    // own, because knowing how to take a number out of this broker's references
+    // is exactly what a converter uniquely knows.
     //
     // No counterpartyAccount. The export's "Source investment" column holds an
     // asset name, not an account, so this file names no counterparty anywhere.
     // Only the JSON the extension reads does.
     const brokerRef = refCol >= 0 ? get(refCol) : "";
+    const correlation = fidelityRefCorrelation(brokerRef);
     postings.push(
       create(PostingSchema, {
         timestamp: timestampFromDate(date),
@@ -672,6 +738,7 @@ export function convertFidelityToStandard(
         // Presence, not truthiness: a reported price of zero is a price.
         ...(unitPriceDec !== undefined ? { unitPrice: unitPriceDec.toString() } : {}),
         ...(brokerRef ? { brokerRef } : {}),
+        ...(correlation ? { correlations: [correlation] } : {}),
         ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })
     );

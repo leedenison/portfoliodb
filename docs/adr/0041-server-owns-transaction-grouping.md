@@ -38,10 +38,10 @@ improve, one place to test, and every rule available to every broker.
 ## Consequences
 
 `group_ref` retires, and grouping becomes derived state rather than an input. The
-archive currently carries transactions "and their grouping" as irreplaceable data,
-which has to be re-examined against
+archive carried transactions "and their grouping" as irreplaceable data;
+[0043](0043-grouping-does-not-travel-in-the-archive.md) re-examines that against
 [0032](0032-archive-preserves-inputs-not-derived-state.md) and
-[0035](0035-archive-nests-by-aggregate-root.md) once that is true.
+[0035](0035-archive-nests-by-aggregate-root.md) and drops the grouping from it.
 
 Group ids churn whenever the partition is recomputed. A machine-derived transfer match
 is cache and the matcher rebuilds it ([0037](0037-transfer-matches-are-links-not-postings.md)),

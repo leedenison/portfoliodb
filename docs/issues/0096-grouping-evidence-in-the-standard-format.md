@@ -42,5 +42,7 @@ they fold into correlation or stay alongside it.
 ## Scope
 
 The evidence has to be stored on `txs` and to travel in the user archive, or a rebuild
-from an archive would have nothing to group on. Converters populate it while still
-emitting `group_ref`; nothing reads it until 0097.
+from an archive would have nothing to group on. It lands on the same flat `Posting` the
+archive already carries in both directions after 0084, so there is no structural change
+to the format here -- only fields. Converters populate it while still emitting
+`group_ref`; nothing reads it until 0097.

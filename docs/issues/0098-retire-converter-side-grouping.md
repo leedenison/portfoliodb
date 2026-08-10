@@ -16,11 +16,17 @@ leaving them to emit rows and evidence; `Tx.group_ref` and its plumbing go.
 
 ## Consequences
 
-Grouping stops being an input and becomes derived state, so the user archive should no
-longer carry it: it currently lists transactions "and their grouping" as irreplaceable
-data. Re-examine against adr/0032-archive-preserves-inputs-not-derived-state.md and
-adr/0035-archive-nests-by-aggregate-root.md, and confirm that an archive carrying
-evidence alone regroups to the same partition on import.
+Grouping stops being an input and becomes derived state, so the archive stops carrying
+it. adr/0043-grouping-does-not-travel-in-the-archive.md settles that and 0084 already
+flattened the format for it, so what is left here is deleting the optional `group_ref`
+from `archive.v1.Posting` and confirming that an archive carrying evidence alone
+regroups to the same partition on import.
+
+Routed residual postings come out of the export with it. They are exported today because
+a group exported with its residual sums to zero and `routeResiduals` skips it, which is
+an argument about a partition that survives the trip. A residual carries no correlation
+evidence, so once the importer regroups there is nothing to say which postings it belongs
+with; it is routed fresh after the grouping pass instead.
 
 Fragments left by period replaces before this lands are repaired by the same run, since
 the engine works over stored postings rather than over an upload.

@@ -3,11 +3,13 @@ package postgres
 import (
 	"context"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -952,6 +954,187 @@ func TestReplaceTxsInPeriod_RoundTripsSourceReferences(t *testing.T) {
 	}
 	if arrival.counterparty == nil || *arrival.counterparty != "AG10000001" {
 		t.Errorf("arrival counterparty_account = %v, want AG10000001", arrival.counterparty)
+	}
+}
+
+// TestReplaceTxsInPeriod_RoundTripsCorrelations verifies a posting's evidence
+// survives storage exactly as its source stated it: both shapes a converter can
+// produce, in the order they were given, with the ingesting job recorded beside
+// them because that is what a FILE-scoped correlation is comparable within.
+func TestReplaceTxsInPeriod_RoundTripsCorrelations(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|corr", "U", "u@corr.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "Fidelity", Value: "GBP", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	base := time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC)
+	ordinal, span := int64(971613414), int64(8)
+	// The arrival carries both shapes at once: a reference number, which is
+	// comparable by equality and by distance, and the account the source named as
+	// the other side, which is compared against a posting's account rather than
+	// against another token.
+	txs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: typev1.TxType_TRANSFER,
+			Quantity: "20000", Account: "AW10000001", Correlations: []*archivev1.Correlation{
+				{
+					Token: "971613414", Ordinal: &ordinal, OrdinalSpan: &span,
+					Scope: typev1.Scope_SCOPE_FILE,
+					Match: []typev1.Match{typev1.Match_MATCH_EXACT, typev1.Match_MATCH_ORDINAL},
+				},
+				{
+					Label: "counterparty", Token: "AG10000001",
+					Scope: typev1.Scope_SCOPE_BROKER,
+					Match: []typev1.Match{typev1.Match_MATCH_ACCOUNT},
+				},
+			}},
+		// A derived leg transcribes nothing, so it correlates with nothing.
+		{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: typev1.TxType_TRANSFER,
+			Quantity: "-20000", Account: "AG10000001"},
+	}
+	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
+	jobID, err := p.CreateJob(ctx, db.CreateJobParams{
+		UserID: userID, JobType: "tx", Broker: "Fidelity", Source: "Fidelity:web:fidelity-csv",
+		Filename: "export.csv", PeriodFrom: from, PeriodBefore: to,
+	})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "Fidelity", jobID, from, to, txs, []string{instID, instID}, nil, nil); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	rows, err := p.ListTxsForExport(ctx, userID, nil, nil)
+	if err != nil {
+		t.Fatalf("list txs for export: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(rows))
+	}
+	byAccount := map[string][]db.Correlation{}
+	for _, r := range rows {
+		byAccount[r.Account] = r.Correlations
+	}
+	if got := byAccount["AG10000001"]; len(got) != 0 {
+		t.Errorf("derived leg correlations = %v, want none", got)
+	}
+	got := byAccount["AW10000001"]
+	want := []db.Correlation{
+		{Token: "971613414", Ordinal: &ordinal, OrdinalSpan: &span, Scope: "FILE", Match: []string{"EXACT", "ORDINAL"}},
+		{Label: "counterparty", Token: "AG10000001", Scope: "BROKER", Match: []string{"ACCOUNT"}},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("correlations = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i].Label != want[i].Label || got[i].Token != want[i].Token || got[i].Scope != want[i].Scope {
+			t.Errorf("correlation %d = %+v, want %+v", i, got[i], want[i])
+		}
+		if !slices.Equal(got[i].Match, want[i].Match) {
+			t.Errorf("correlation %d match = %v, want %v", i, got[i].Match, want[i].Match)
+		}
+		if !equalInt64Ptr(got[i].Ordinal, want[i].Ordinal) || !equalInt64Ptr(got[i].OrdinalSpan, want[i].OrdinalSpan) {
+			t.Errorf("correlation %d ordinal = %v/%v, want %v/%v",
+				i, got[i].Ordinal, got[i].OrdinalSpan, want[i].Ordinal, want[i].OrdinalSpan)
+		}
+	}
+
+	var storedJob string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT DISTINCT job_id::text FROM tx_correlations
+	`).Scan(&storedJob); err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if storedJob != jobID {
+		t.Errorf("job_id = %s, want %s", storedJob, jobID)
+	}
+}
+
+func equalInt64Ptr(a, b *int64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+// TestReplaceTxsInPeriod_DeletesCorrelationsWithTheirPosting verifies the
+// evidence does not outlive the posting it is about. A replace deletes postings,
+// and a correlation left behind would be evidence about a row that no longer
+// exists.
+func TestReplaceTxsInPeriod_DeletesCorrelationsWithTheirPosting(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|corr-del", "U", "u@corr-del.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "Fidelity", Value: "GBP", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	base := time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC)
+	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
+	tx := &apiv1.Tx{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP",
+		Type: typev1.TxType_JRNLFUND, Quantity: "100", Account: "A", Correlations: []*archivev1.Correlation{
+			{Token: "971613411", Scope: typev1.Scope_SCOPE_FILE, Match: []typev1.Match{typev1.Match_MATCH_EXACT}},
+		}}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "Fidelity", "", from, to, []*apiv1.Tx{tx}, []string{instID}, nil, nil); err != nil {
+		t.Fatalf("first replace: %v", err)
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "Fidelity", "", from, to, nil, nil, nil, nil); err != nil {
+		t.Fatalf("clearing replace: %v", err)
+	}
+
+	var left int
+	if err := p.q.QueryRowContext(ctx, `SELECT count(*) FROM tx_correlations`).Scan(&left); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if left != 0 {
+		t.Errorf("correlations left after the postings went = %d, want 0", left)
+	}
+}
+
+// TestTxCorrelations_VocabularyCheckConstraints verifies the scope and match
+// vocabularies are enforced by the database, not only by the enums on the way in.
+func TestTxCorrelations_VocabularyCheckConstraints(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|corr-check", "U", "u@corr-check.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "CHK", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	base := time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC)
+	if err := createTx(ctx, p, userID, "IBKR", "A", "",
+		&apiv1.Tx{Timestamp: timestamppb.New(base), InstrumentDescription: "CHK", Type: typev1.TxType_BUYSTOCK, Quantity: "1"},
+		instID, nil); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+	var txID string
+	if err := p.q.QueryRowContext(ctx, `SELECT id::text FROM txs WHERE user_id = $1`, userID).Scan(&txID); err != nil {
+		t.Fatalf("read tx id: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		scope   string
+		matches string
+	}{
+		{"scope outside the vocabulary", "UPLOAD", `{EXACT}`},
+		{"match outside the vocabulary", "FILE", `{NEAREST}`},
+		{"no match at all", "FILE", `{}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := p.q.ExecContext(ctx, `
+				INSERT INTO tx_correlations (tx_id, ordinality, label, token, scope, matches)
+				VALUES ($1::uuid, 0, '', 'T', $2, $3::text[])
+			`, txID, tc.scope, tc.matches)
+			if err == nil {
+				t.Fatal("want error, got none")
+			}
+		})
 	}
 }
 

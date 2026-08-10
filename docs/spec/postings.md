@@ -16,8 +16,9 @@ A posting is a signed amount of one commodity in one account at one point in tim
 | Date      | `timestamp`                   |
 | Source id | `broker_ref`                  |
 | Other side| `counterparty_account`        |
+| Evidence  | `tx_correlations`             |
 
-The last two are what the source said about the row, kept rather than discarded.
+The last three are what the source said about the row, kept rather than discarded.
 `broker_ref` is the source's own identifier for it -- a Fidelity `Reference Number`, an OFX
 `FITID` -- and `counterparty_account` is the account the source names as the other side,
 in the same broker. Both are set only on postings **transcribed from a source row**: a
@@ -34,6 +35,49 @@ issues the two sides of one transfer adjacent references, which is what
 Fidelity puts the product account a service fee was charged for in it, which is attribution
 rather than a transfer counterparty -- so it is read as a pointer only for a group that
 produced a `TRANSFER_CLEARING` residual.
+
+### Correlations
+
+A **correlation** is a broker-neutral statement of why a posting might belong with
+another one: an identifier the source issued, what may be compared about it, and over
+what set of postings. A posting carries however many its source supplies, in
+`tx_correlations`. See adr/0048-correlations-declare-their-own-semantics.md.
+
+| Field          | What it says                                                     |
+| -------------- | ---------------------------------------------------------------- |
+| `label`        | which series this identifier belongs to, and so what it is comparable with |
+| `token`        | the identifier as the source wrote it                            |
+| `ordinal`      | the number the token carries, where the converter knew how to take one |
+| `scope`        | `FILE`, `ACCOUNT` or `BROKER` -- exactly one                     |
+| `matches`      | `EXACT`, `ORDINAL`, `ACCOUNT` -- at least one                    |
+| `ordinal_span` | how far apart two ordinals can be and still be about one event   |
+
+`scope` and `matches` are two halves of one statement and neither is usable without
+the other: `BROKER` means this user's data for this broker, and `ACCOUNT` is not
+redundant with `FILE`, because an OFX `FITID` is unique within the account while a
+Fidelity export spans accounts. `matches` is a set rather than a choice, because a
+Fidelity reference number is honestly both equality-comparable and ordinally
+comparable. `MATCH_ACCOUNT` is the asymmetric one: the token names *another posting's
+account* rather than a token that posting carries, which is what a source-supplied
+counterparty pointer says.
+
+`FILE` scope is stored as the ingestion job that supplied the correlation, since a
+file has no identity of its own once its postings are rows. An archive import is one
+job, so file-scoped evidence re-imported from an archive is comparable across
+everything that archive carried rather than within the uploads it was assembled from.
+
+A converter may only **transcribe**, never infer. A token may be synthesised from the
+source's own structure -- nesting, containment, an explicit order column -- and never
+from amounts, dates or proximity. Nothing distinguishes a transcribed token from an
+inferred one once stored, so this is the discipline the format rests on. It is the
+same contract `broker_ref` carries, and correlations are present on the same postings:
+a derived counter-leg and a routed residual transcribe nothing and correlate with
+nothing.
+
+Nothing reads correlations to decide the partition yet. They are carried and stored
+from here on because the server is becoming the thing that decides it
+(adr/0041-server-owns-transaction-grouping.md), and a rebuild from an archive would
+otherwise have nothing left to group on.
 
 Currencies are instruments, so a cash movement is an ordinary posting and needs no
 separate representation. Nothing in the read path distinguishes a cash posting from a

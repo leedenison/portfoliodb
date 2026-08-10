@@ -134,5 +134,27 @@ func posting(r db.ExportPosting) *archivev1.Posting {
 	if r.ShareCountBasis != nil {
 		p.ShareCountBasis = proto.String(r.ShareCountBasis.Format("2006-01-02"))
 	}
+	for _, c := range r.Correlations {
+		p.Correlations = append(p.Correlations, correlation(c))
+	}
 	return p
+}
+
+// correlation converts one stored correlation to its archive form.
+//
+// The scope travels as it was stored, FILE included. A file has no identity in
+// another instance, so what an importer can do is stamp its own job on the way
+// in; rewriting the scope here would instead throw away what the source said.
+func correlation(c db.Correlation) *archivev1.Correlation {
+	out := &archivev1.Correlation{
+		Label:       c.Label,
+		Token:       c.Token,
+		Ordinal:     c.Ordinal,
+		Scope:       db.StrToScope(c.Scope),
+		OrdinalSpan: c.OrdinalSpan,
+	}
+	for _, m := range c.Match {
+		out.Match = append(out.Match, db.StrToMatch(m))
+	}
+	return out
 }

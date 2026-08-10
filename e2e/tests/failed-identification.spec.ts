@@ -5,7 +5,7 @@ import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { isRecordingSuite } from "../helpers/vcr";
 import { waitForWorkersIdle } from "../helpers/workers";
-import { uploadCSVAndWait } from "../helpers/upload";
+import { uploadArchiveAndWait } from "../helpers/upload";
 
 test.beforeAll(async () => {
   await loadCassette("failed-identification");
@@ -33,8 +33,8 @@ test.describe("failed instrument identification", () => {
     test.setTimeout(TIMEOUT_SLOW);
     await injectSession(context, sessionId);
 
-    // Upload CSV with one resolvable (AAPL) and one unresolvable (XYZFAKE).
-    await uploadCSVAndWait(page, browser, "mixed-identification.csv", {
+    // Upload one resolvable (AAPL) and one unresolvable (XYZFAKE).
+    await uploadArchiveAndWait(page, browser, "mixed-identification.json", {
       expectedPostingCount: 2,
     });
 

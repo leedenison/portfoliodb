@@ -5,7 +5,7 @@ import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { isRecordingSuite } from "../helpers/vcr";
 import { waitForWorkersIdle } from "../helpers/workers";
-import { uploadCSVAndWait } from "../helpers/upload";
+import { uploadArchiveAndWait } from "../helpers/upload";
 import { getCounter, closeCountersRedis } from "../helpers/counters";
 
 test.beforeAll(async ({ browser }) => {
@@ -38,7 +38,7 @@ test.describe("no redundant price fetch after transaction update", () => {
 
     // Upload initial transaction: buy 10 INTC ~6 months ago.
     // This triggers identification and price fetch for the held period.
-    await uploadCSVAndWait(page, browser, "tx-update-initial.csv", {
+    await uploadArchiveAndWait(page, browser, "tx-update-initial.json", {
       expectedPostingCount: 1,
     });
 
@@ -58,7 +58,7 @@ test.describe("no redundant price fetch after transaction update", () => {
     // Upload additional transaction: buy 5 more INTC ~3 months ago.
     // The holding period is unchanged (still ~6 months ago to today),
     // just with a larger position from ~3 months ago onwards.
-    await uploadCSVAndWait(page, browser, "tx-update-additional.csv", {
+    await uploadArchiveAndWait(page, browser, "tx-update-additional.json", {
       expectedPostingCount: 1,
     });
 

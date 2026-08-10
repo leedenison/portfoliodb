@@ -15,7 +15,7 @@ export interface ConverterOptionsProps {
 export interface FormatEntry {
   id: string;
   label: string;
-  /** File input accept attribute (e.g. ".ofx,.qfx"). Defaults to ".csv". */
+  /** File input accept attribute (e.g. ".ofx,.qfx"). Defaults to ".json". */
   accept?: string;
   convert?: (text: string, options?: Record<string, unknown>) => StandardParseResult;
   OptionsComponent?: ComponentType<ConverterOptionsProps>;
@@ -45,12 +45,15 @@ export function getBrokerEntry(broker: Broker): BrokerEntry | undefined {
   return registry.find((e) => e.broker === broker);
 }
 
-/** Format options for the selected broker: Standard (no convert) plus registered formats. */
+/**
+ * Format options for the selected broker: the archive document (no convert, so
+ * the file is read rather than converted) plus the broker's own formats.
+ */
 export function getFormatsForBroker(broker: Broker): FormatEntry[] {
   const entry = getBrokerEntry(broker);
   if (!entry) return [];
-  const standard: FormatEntry = { id: "standard", label: "Standard" };
-  return [standard, ...entry.formats];
+  const archive: FormatEntry = { id: "archive", label: "Archive document", accept: ".json" };
+  return [archive, ...entry.formats];
 }
 
 export function getBrokerLabel(broker: Broker): string {

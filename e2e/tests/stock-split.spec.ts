@@ -4,7 +4,7 @@ import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
-import { uploadCSVAndWait } from "../helpers/upload";
+import { uploadArchiveAndWait } from "../helpers/upload";
 import { triggerCorporateEventFetch, importCorporateEventsAndWait } from "../helpers/api";
 import { getCounter, closeCountersRedis } from "../helpers/counters";
 import { JobStatus } from "../gen/api/v1/api_pb";
@@ -13,7 +13,7 @@ import { AssetClass, IdentifierType } from "../gen/type/v1/type_pb";
 // ---------------------------------------------------------------------------
 // Case 1: Transactions uploaded BEFORE the split is discovered.
 //
-// Upload stock + option txs in a single CSV (pre/post split dates). Then
+// Upload stock + option txs in a single document (pre/post split dates). Then
 // trigger the corporate event fetcher which discovers the 4:1 split from
 // EODHD. Verify split-adjusted quantities and option OCC/strike update.
 // ---------------------------------------------------------------------------
@@ -43,9 +43,9 @@ test.describe("stock split: tx uploaded before split", () => {
     test.setTimeout(TIMEOUT_SLOW);
     await injectSession(context, userSession);
 
-    // Upload all txs in one CSV to avoid ReplaceTxsInPeriod conflicts
+    // Upload all txs in one document to avoid ReplaceTxsInPeriod conflicts
     // between overlapping date ranges on different instruments.
-    await uploadCSVAndWait(page, browser, "split-txs.csv", {
+    await uploadArchiveAndWait(page, browser, "split-txs.json", {
       expectedPostingCount: 3,
     });
 
@@ -175,8 +175,8 @@ test.describe("stock split: split uploaded before tx", () => {
     ]);
     expect(importResult.status).toBe(JobStatus.SUCCESS);
 
-    // Upload all txs in one CSV.
-    await uploadCSVAndWait(page, browser, "split-txs.csv", {
+    // Upload all txs in one document.
+    await uploadArchiveAndWait(page, browser, "split-txs.json", {
       expectedPostingCount: 3,
     });
 

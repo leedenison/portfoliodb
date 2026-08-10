@@ -8,7 +8,7 @@ interactions:
         proto_minor: 1
         content_length: 938
         host: api.openai.com
-        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: da74b617\ntype: STOCK\nDescription: AMZN - Amazon.com Inc.\n\nid: 5ce3067c\ntype: STOCK\nDescription: NVDA - NVIDIA Corp.\n\nid: f776a5f9\ntype: STOCK\nDescription: TSLA - Tesla Inc.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
+        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: 2d3ac65c\ntype: STOCK\nDescription: AMZN - Amazon.com Inc.\n\nid: fa70fe50\ntype: STOCK\nDescription: NVDA - NVIDIA Corp.\n\nid: 8b5fd57b\ntype: STOCK\nDescription: TSLA - Tesla Inc.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
         headers:
             Authorization:
                 - Bearer REDACTED
@@ -33,7 +33,7 @@ interactions:
                   "index": 0,
                   "message": {
                     "role": "assistant",
-                    "content": "{\n  \"da74b617\": {\n    \"TICKER\": \"AMZN\"\n  },\n  \"5ce3067c\": {\n    \"TICKER\": \"NVDA\"\n  },\n  \"f776a5f9\": {\n    \"TICKER\": \"TSLA\"\n  }\n}",
+                    "content": "{\n  \"2d3ac65c\": {\n    \"TICKER\": \"AMZN\"\n  },\n  \"fa70fe50\": {\n    \"TICKER\": \"NVDA\"\n  },\n  \"8b5fd57b\": {\n    \"TICKER\": \"TSLA\"\n  }\n}",
                     "refusal": null,
                     "annotations": []
                   },

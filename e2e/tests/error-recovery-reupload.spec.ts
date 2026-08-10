@@ -5,7 +5,7 @@ import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { isRecordingSuite } from "../helpers/vcr";
 import { waitForWorkersIdle } from "../helpers/workers";
-import { uploadCSVAndWait } from "../helpers/upload";
+import { uploadArchiveAndWait } from "../helpers/upload";
 
 test.beforeAll(async () => {
   await loadCassette("error-recovery-reupload");
@@ -34,7 +34,7 @@ test.describe("error recovery via corrected re-upload", () => {
     await injectSession(context, sessionId);
 
     // First upload: AAPL (resolvable) + XYZFAKE (unresolvable).
-    await uploadCSVAndWait(page, browser, "mixed-identification.csv", {
+    await uploadArchiveAndWait(page, browser, "mixed-identification.json", {
       expectedPostingCount: 2,
     });
 
@@ -65,7 +65,7 @@ test.describe("error recovery via corrected re-upload", () => {
 
     // Corrected re-upload: AAPL + MSFT (with ISIN) for same period.
     // This replaces the previous upload via idempotent bulk semantics.
-    await uploadCSVAndWait(page, browser, "identification-corrected.csv", {
+    await uploadArchiveAndWait(page, browser, "identification-corrected.json", {
       expectedPostingCount: 2,
     });
 

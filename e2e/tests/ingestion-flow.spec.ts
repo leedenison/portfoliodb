@@ -18,14 +18,14 @@ test.afterAll(async () => {
   await unloadCassette();
 });
 
-test.describe("CSV ingestion flow", () => {
+test.describe("archive ingestion flow", () => {
   let sessionId: string;
 
   test.beforeAll(async () => {
     sessionId = await seedSession("user");
   });
 
-  test("upload CSV, wait for job completion, verify holdings", async ({
+  test("upload an archive document, wait for job completion, verify holdings", async ({
     context,
     page,
     browser,
@@ -48,11 +48,11 @@ test.describe("CSV ingestion flow", () => {
     // Step 1: broker is pre-selected (Fidelity, the only option). Click Next.
     await page.getByRole("button", { name: "Next" }).click();
 
-    // Step 2: format defaults to "Standard". Set the CSV file on the hidden
+    // Step 2: format defaults to the archive document. Set the file on the hidden
     // input (Playwright can set files on hidden inputs directly).
     const fileInput = page.locator("#upload-file");
     await fileInput.setInputFiles(
-      path.resolve(__dirname, "../fixtures/standard-3-stocks.csv")
+      path.resolve(__dirname, "../fixtures/standard-3-stocks.json")
     );
 
     // Wait for the parse preview to appear.
@@ -108,7 +108,7 @@ test.describe("upload validation errors", () => {
     sessionId = await seedSession("user");
   });
 
-  test("malformed CSV shows parse errors and disables upload", async ({
+  test("a file the format rejects shows an error and disables upload", async ({
     context,
     page,
   }) => {
@@ -123,10 +123,10 @@ test.describe("upload validation errors", () => {
     // Step 1: click Next.
     await page.getByRole("button", { name: "Next" }).click();
 
-    // Step 2: upload the bad CSV.
+    // Step 2: upload the bad archive document.
     const fileInput = page.locator("#upload-file");
     await fileInput.setInputFiles(
-      path.resolve(__dirname, "../fixtures/bad-format.csv")
+      path.resolve(__dirname, "../fixtures/bad-format.json")
     );
 
     // The error list should appear with parse errors.
@@ -134,10 +134,11 @@ test.describe("upload validation errors", () => {
       page.locator("[data-testid='upload-parse-errors']")
     ).toBeVisible();
 
-    // There should be multiple error entries (invalid date, empty description,
-    // unknown type).
+    // Whether a file is a valid archive is an all-or-nothing question answered
+    // at parse time, so one error is what the format has to say about it. Which
+    // rows fail against this instance is a separate question the job answers.
     const errorItems = page.locator("[data-testid='upload-parse-errors'] li");
-    await expect(errorItems).toHaveCount(3);
+    await expect(errorItems).toHaveCount(1);
 
     // The upload button should NOT be visible (errors prevent upload).
     await expect(

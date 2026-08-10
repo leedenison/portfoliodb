@@ -4,27 +4,31 @@
  * two npm projects and is declared twice -- in tsconfig.json for the type checker
  * and in vite.config.ts for the bundler -- so it is easy to half-break.
  *
- * Parsing a row here exercises the whole chain in one go: the alias resolves into
- * client/, the generated protobuf types under client/gen are present, and
+ * Splitting a row here exercises the whole chain in one go: the alias resolves
+ * into client/, the generated protobuf types under client/gen are present, and
  * papaparse resolves from the extension's own dependencies.
  */
 
 import { describe, expect, it } from "vitest";
-import { parseStandardCSV } from "@/lib/csv/standard";
+import { create } from "@bufbuild/protobuf";
+import { parseCSVLine } from "@/lib/csv/line";
+import { PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { TxType } from "@/gen/type/v1/type_pb";
 
 describe("client module imports", () => {
-  it("parses a standard CSV row into a Tx", () => {
-    const csv = [
-      "date,instrument_description,type,quantity,settlement_currency",
-      "2026-01-15,AAPL - Apple Inc.,BUYSTOCK,10,GBP",
-    ].join("\n");
+  it("splits a quoted CSV row through the client's parser", () => {
+    expect(parseCSVLine('2026-01-15,"AAPL - Apple, Inc.",BUYSTOCK,10')).toEqual([
+      "2026-01-15",
+      "AAPL - Apple, Inc.",
+      "BUYSTOCK",
+      "10",
+    ]);
+  });
 
-    const result = parseStandardCSV(csv);
+  it("builds an archive posting from the client's generated types", () => {
+    const posting = create(PostingSchema, { type: TxType.BUYSTOCK, quantity: "10" });
 
-    expect(result.errors).toEqual([]);
-    expect(result.postings).toHaveLength(1);
-    expect(result.postings[0]!.type).toBe(TxType.BUYSTOCK);
-    expect(result.postings[0]!.quantity).toBe("10");
+    expect(posting.type).toBe(TxType.BUYSTOCK);
+    expect(posting.quantity).toBe("10");
   });
 });

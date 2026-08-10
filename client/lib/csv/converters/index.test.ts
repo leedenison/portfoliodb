@@ -35,7 +35,7 @@ describe("converter registry", () => {
     expect(`${getSourcePrefix(Broker.FIDELITY)}:web:fidelity-csv`).toBe("Fidelity:web:fidelity-csv");
   });
 
-  it("offers Standard alongside the broker formats", () => {
-    expect(getFormatsForBroker(Broker.FIDELITY).map((f) => f.id)).toEqual(["standard", "fidelity-csv"]);
+  it("offers the archive document alongside the broker formats", () => {
+    expect(getFormatsForBroker(Broker.FIDELITY).map((f) => f.id)).toEqual(["archive", "fidelity-csv"]);
   });
 });

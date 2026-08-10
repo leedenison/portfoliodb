@@ -14,7 +14,7 @@ import { PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/parse-result";
-import { parseCSVLine } from "@/lib/csv/standard";
+import { parseCSVLine } from "@/lib/csv/line";
 import { counterLegs, currencyHint } from "@/lib/csv/postings";
 import { Big, parseDecimal } from "@/lib/decimal";
 
@@ -585,7 +585,7 @@ export function convertFidelityToStandard(
     // the currency instrument rather than to a holding named after the broker's
     // wording. The export says "Cash" in the same column it names a security in,
     // so reading it through produced a security called Cash. See
-    // docs/spec/csv-format.md.
+    // docs/spec/archive-format.md.
     const instrumentDescription = isCashMovement(ofxType)
       ? currency
       : investments || txTypeStr;

@@ -7,7 +7,7 @@
 // (ResolveByHintsDBOnly matches MIC_TICKER "AAPL") and reuses it, so prices
 // and transactions share the same instrument_id.
 //
-// Note: the CSV fixture omits the ISIN column so the ingestion takes
+// Note: the archive fixture names no identifier so the ingestion takes
 // Path B (description extraction). If ISIN were present, Path A would
 // call plugins which return OPENFIGI_TICKER with a domain (e.g. "US"), and
 // EnsureInstrument would create a separate instrument because the
@@ -20,7 +20,7 @@ import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { waitForWorkersIdle } from "../helpers/workers";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { isRecordingSuite } from "../helpers/vcr";
-import { uploadCSVAndWait } from "../helpers/upload";
+import { uploadArchiveAndWait } from "../helpers/upload";
 import { importPricesAndWait } from "../helpers/api";
 import { JobStatus } from "../gen/api/v1/api_pb";
 import { IdentifierType } from "../gen/type/v1/type_pb";
@@ -107,11 +107,11 @@ test.describe("price-first instrument merge", () => {
     );
     expect(Number(prePrices.rows[0].cnt)).toBe(2);
 
-    // Step 3: Upload a CSV transaction (no ISIN column). Description
+    // Step 3: Upload one transaction naming no identifier. Description
     // extraction returns MIC_TICKER "AAPL" which matches the existing
     // instrument via ResolveByHintsDBOnly. The instrument is reused
     // without calling identifier plugins.
-    await uploadCSVAndWait(page, browser, "single-aapl-stock.csv", {
+    await uploadArchiveAndWait(page, browser, "single-aapl-stock.json", {
       expectedPostingCount: 1,
     });
 

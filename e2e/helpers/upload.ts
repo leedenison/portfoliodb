@@ -1,14 +1,14 @@
-// Shared helper for uploading a CSV fixture through the upload modal and
+// Shared helper for uploading an archive fixture through the upload modal and
 // waiting for all background workers to finish processing.
 
 import path from "path";
 import { expect, type Page, type Browser } from "@playwright/test";
 import { waitForWorkersIdle } from "./workers";
 
-// Upload a CSV fixture via the upload modal. The page must already be
+// Upload an archive fixture via the upload modal. The page must already be
 // authenticated. After the modal auto-closes on SUCCESS the function waits
 // for all background workers to reach idle.
-export async function uploadCSVAndWait(
+export async function uploadArchiveAndWait(
   page: Page,
   browser: Browser,
   fixtureName: string,
@@ -27,7 +27,7 @@ export async function uploadCSVAndWait(
   // Step 1: broker is pre-selected (Fidelity). Click Next.
   await page.getByRole("button", { name: "Next" }).click();
 
-  // Step 2: set the CSV file.
+  // Step 2: set the archive file.
   const fileInput = page.locator("#upload-file");
   await fileInput.setInputFiles(
     path.resolve(__dirname, "../fixtures", fixtureName)

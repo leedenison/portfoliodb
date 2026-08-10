@@ -160,12 +160,38 @@ func TestArchiveTx_CarriesTheRoutedAccountType(t *testing.T) {
 	}
 }
 
+// A posting's evidence travels into the ingestion form untouched. It says why
+// the posting might belong with another one, and a rebuild from an archive would
+// have nothing left to group on without it.
+func TestArchiveTx_CarriesCorrelations(t *testing.T) {
+	p := archivePosting("GBP", "20000", typev1.TxType_TRANSFER)
+	ordinal := int64(971613414)
+	p.Correlations = []*archivev1.Correlation{{
+		Token: "971613414", Ordinal: &ordinal,
+		Scope: typev1.Scope_SCOPE_FILE,
+		Match: []typev1.Match{typev1.Match_MATCH_EXACT, typev1.Match_MATCH_ORDINAL},
+	}}
+	got := archiveTx(p).GetCorrelations()
+	if len(got) != 1 {
+		t.Fatalf("correlations = %v, want 1", got)
+	}
+	if got[0].GetToken() != "971613414" || got[0].GetOrdinal() != ordinal {
+		t.Errorf("correlation = %q/%d", got[0].GetToken(), got[0].GetOrdinal())
+	}
+	if got[0].GetScope() != typev1.Scope_SCOPE_FILE || len(got[0].GetMatch()) != 2 {
+		t.Errorf("scope/match = %v/%v", got[0].GetScope(), got[0].GetMatch())
+	}
+}
+
 // Optional fields that the file does not state stay unset rather than becoming
 // an empty string or a zero price.
 func TestArchiveTx_UnstatedFieldsStayUnset(t *testing.T) {
 	tx := archiveTx(archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK))
 	if tx.UnitPrice != nil {
 		t.Fatalf("unit_price = %v, want unset", tx.UnitPrice)
+	}
+	if len(tx.GetCorrelations()) != 0 {
+		t.Fatalf("correlations = %v, want none", tx.GetCorrelations())
 	}
 	if tx.GetBrokerRef() != "" || tx.GetCounterpartyAccount() != "" {
 		t.Fatalf("refs = %q, %q, want empty", tx.GetBrokerRef(), tx.GetCounterpartyAccount())

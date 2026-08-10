@@ -181,6 +181,58 @@ CREATE TABLE txs (
 CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, timestamp);
 CREATE INDEX idx_txs_group_id ON txs (group_id);
 
+-- Why a posting might belong with another one, as its source stated it: an
+-- identifier the source issued, what may be compared about it, and over what set
+-- of postings. This is the evidence the transaction partition is derived from,
+-- in place of the partition being stated outright. See
+-- docs/adr/0048-correlations-declare-their-own-semantics.md.
+--
+-- A child table rather than columns on txs, because a posting carries however
+-- many correlations its source supplies -- a reference number and a counterparty
+-- pointer are two different series -- and a column per series would grow the
+-- posting one nullable field per broker.
+--
+-- ordinality preserves the order the source stated them in, so a posting written
+-- and read back is the posting that was written. Nothing compares on it.
+--
+-- token is the identifier verbatim and ordinal is the number it carries, where
+-- the converter knew how to take one. They are separate because proximity is
+-- load-bearing and cannot be recovered from the token: an IBKR FITID reads
+-- 20251015U10000018371888432, and an edit distance over such strings would make
+-- 1000000 and 0999999 four edits apart while 1000001 and 2000001 are one.
+--
+-- scope says what the identifier is comparable over and matches what may be done
+-- with it; both are the vocabularies in proto/type/v1/type.proto, spelled the
+-- same here, in the proto and in an archive file.
+--
+-- job_id is the ingestion job that supplied the correlation, and is what a
+-- FILE-scoped one is comparable within: a file has no identity of its own once
+-- its postings are rows. It is deliberately not a foreign key, for the reason
+-- tx_groups.job_id is not -- a posting must outlive its job, and a pruned job row
+-- still leaves an id that distinguishes one upload from another.
+CREATE TABLE tx_correlations (
+  tx_id        UUID NOT NULL REFERENCES txs (id) ON DELETE CASCADE,
+  ordinality   INT NOT NULL,
+
+  label        TEXT NOT NULL,
+  token        TEXT NOT NULL,
+  ordinal      BIGINT,
+  scope        TEXT NOT NULL CHECK (scope IN ('FILE', 'ACCOUNT', 'BROKER')),
+  matches      TEXT[] NOT NULL
+                 CHECK (cardinality(matches) > 0
+                        AND matches <@ ARRAY['EXACT', 'ORDINAL', 'ACCOUNT']),
+  ordinal_span BIGINT,
+
+  job_id       UUID,
+
+  PRIMARY KEY (tx_id, ordinality)
+);
+
+-- The lookup a grouping pass makes: everything correlated with this token in
+-- this series. Postings are reached from here rather than the other way round,
+-- since a pass starts from an identifier and asks who else holds it.
+CREATE INDEX idx_tx_correlations_token ON tx_correlations (label, token);
+
 -- Async ingestion jobs. status and validation_errors surfaced via front-end API.
 -- job_type distinguishes tx uploads from archive imports; broker/source are
 -- tx-specific.

@@ -7,6 +7,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/residual"
@@ -34,7 +35,7 @@ const insertPostingSQL = `
 	                 instrument_id, share_count_basis, account_type,
 	                 weight, weight_commodity, broker_ref, counterparty_account, group_id)
 	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, $16, $17, g.id FROM g
-	RETURNING group_id
+	RETURNING id, group_id
 `
 
 // insertPostingInGroupSQL inserts a tx as a posting of an existing tx group, for
@@ -45,6 +46,16 @@ const insertPostingInGroupSQL = `
 	                 instrument_id, share_count_basis, account_type,
 	                 weight, weight_commodity, broker_ref, counterparty_account, group_id)
 	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, $16, $17, $18)
+	RETURNING id
+`
+
+// insertCorrelationSQL records one of a posting's correlations. ordinality is the
+// position the source stated it in, so a posting read back is the posting that
+// was written.
+const insertCorrelationSQL = `
+	INSERT INTO tx_correlations (tx_id, ordinality, label, token, ordinal, scope, matches,
+	                             ordinal_span, job_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
 // groupResolver hands out the tx group for a tx's group_ref. An empty group_ref
@@ -169,18 +180,51 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 			nullStr(t.GetBrokerRef()), nullStr(t.GetCounterpartyAccount()),
 		}
 		ref := t.GetGroupRef()
+		var txID uuid.UUID
 		if groupID, ok := resolver.group(ref); ok {
-			if _, err := exec.ExecContext(ctx, insertPostingInGroupSQL, append(args, groupID)...); err != nil {
+			if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL, append(args, groupID)...).Scan(&txID); err != nil {
 				return fmt.Errorf("insert tx: %w", err)
 			}
-			continue
+		} else {
+			// The group takes the timestamp of the first leg that names it.
+			var groupID uuid.UUID
+			if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID)...).Scan(&txID, &groupID); err != nil {
+				return fmt.Errorf("insert tx: %w", err)
+			}
+			resolver.record(ref, groupID)
 		}
-		// The group takes the timestamp of the first leg that names it.
-		var groupID uuid.UUID
-		if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID)...).Scan(&groupID); err != nil {
-			return fmt.Errorf("insert tx: %w", err)
+		if err := insertCorrelations(ctx, exec, txID, jobUUID, t.GetCorrelations()); err != nil {
+			return err
 		}
-		resolver.record(ref, groupID)
+	}
+	return nil
+}
+
+// insertCorrelations records what a posting's source said about why it might
+// belong with another one. The job is stored beside each one because it is what a
+// FILE-scoped correlation is comparable within.
+func insertCorrelations(ctx context.Context, exec queryable, txID uuid.UUID, jobUUID interface{}, cs []*archivev1.Correlation) error {
+	for i, c := range cs {
+		scope, err := db.ScopeToStr(c.GetScope())
+		if err != nil {
+			return fmt.Errorf("correlation %q: %w", c.GetToken(), err)
+		}
+		matches := make(pq.StringArray, 0, len(c.GetMatch()))
+		for _, m := range c.GetMatch() {
+			s, err := db.MatchToStr(m)
+			if err != nil {
+				return fmt.Errorf("correlation %q: %w", c.GetToken(), err)
+			}
+			matches = append(matches, s)
+		}
+		if len(matches) == 0 {
+			return fmt.Errorf("correlation %q: no match declared", c.GetToken())
+		}
+		if _, err := exec.ExecContext(ctx, insertCorrelationSQL,
+			txID, i, c.GetLabel(), c.GetToken(), c.Ordinal, scope, matches, c.OrdinalSpan, jobUUID,
+		); err != nil {
+			return fmt.Errorf("insert tx correlation: %w", err)
+		}
 	}
 	return nil
 }
@@ -343,9 +387,11 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, b
 	return out, nextToken, nil
 }
 
-// exportPosting is a sqlx-scannable version of db.ExportPosting.
+// exportPosting is a sqlx-scannable version of db.ExportPosting, less the
+// correlations, which are read in a second pass and attached by posting id.
 type exportPosting struct {
 	Broker              string           `db:"broker"`
+	ID                  string           `db:"id"`
 	GroupID             string           `db:"group_id"`
 	GroupTimestamp      time.Time        `db:"group_timestamp"`
 	Timestamp           time.Time        `db:"timestamp"`
@@ -404,7 +450,7 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 		period += fmt.Sprintf("\n\t\t  AND t.timestamp < $%d", len(args))
 	}
 	q := `
-		SELECT t.broker, t.group_id::text AS group_id, g.timestamp AS group_timestamp,
+		SELECT t.broker, t.id::text AS id, t.group_id::text AS group_id, g.timestamp AS group_timestamp,
 			t.timestamp, t.account, t.account_type, t.tx_type, t.instrument_description,
 			COALESCE(best_id.identifier_type, '') AS identifier_type,
 			COALESCE(best_id.value, '') AS value,
@@ -436,9 +482,79 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 	if err := p.q.SelectContext(ctx, &rows, q, args...); err != nil {
 		return nil, fmt.Errorf("list txs for export: %w", err)
 	}
+	ids := make([]string, len(rows))
 	out := make([]db.ExportPosting, len(rows))
 	for i, r := range rows {
-		out[i] = db.ExportPosting(r)
+		ids[i] = r.ID
+		out[i] = db.ExportPosting{
+			Broker:              r.Broker,
+			ID:                  r.ID,
+			GroupID:             r.GroupID,
+			GroupTimestamp:      r.GroupTimestamp,
+			Timestamp:           r.Timestamp,
+			Account:             r.Account,
+			AccountType:         r.AccountType,
+			TxType:              r.TxType,
+			Description:         r.Description,
+			IdentifierType:      r.IdentifierType,
+			IdentifierValue:     r.IdentifierValue,
+			IdentifierDomain:    r.IdentifierDomain,
+			Quantity:            r.Quantity,
+			UnitPrice:           r.UnitPrice,
+			TradingCurrency:     r.TradingCurrency,
+			SettlementCurrency:  r.SettlementCurrency,
+			BrokerRef:           r.BrokerRef,
+			CounterpartyAccount: r.CounterpartyAccount,
+			ShareCountBasis:     r.ShareCountBasis,
+		}
+	}
+	// A second pass rather than an aggregate in the scan above: the postings are
+	// read as one ordered stream, and a lateral json_agg would make every row
+	// carry a document to be decoded whether it correlates with anything or not.
+	byTx, err := p.correlationsByTx(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Correlations = byTx[out[i].ID]
+	}
+	return out, nil
+}
+
+// correlationsByTx reads the correlations of the given postings, in the order
+// their sources stated them.
+func (p *Postgres) correlationsByTx(ctx context.Context, txIDs []string) (map[string][]db.Correlation, error) {
+	if len(txIDs) == 0 {
+		return nil, nil
+	}
+	const q = `
+		SELECT tx_id::text AS tx_id, label, token, ordinal, scope, matches, ordinal_span
+		FROM tx_correlations
+		WHERE tx_id = ANY($1::uuid[])
+		ORDER BY tx_id, ordinality
+	`
+	var rows []struct {
+		TxID        string         `db:"tx_id"`
+		Label       string         `db:"label"`
+		Token       string         `db:"token"`
+		Ordinal     *int64         `db:"ordinal"`
+		Scope       string         `db:"scope"`
+		Matches     pq.StringArray `db:"matches"`
+		OrdinalSpan *int64         `db:"ordinal_span"`
+	}
+	if err := p.q.SelectContext(ctx, &rows, q, pq.Array(txIDs)); err != nil {
+		return nil, fmt.Errorf("list tx correlations: %w", err)
+	}
+	out := make(map[string][]db.Correlation, len(rows))
+	for _, r := range rows {
+		out[r.TxID] = append(out[r.TxID], db.Correlation{
+			Label:       r.Label,
+			Token:       r.Token,
+			Ordinal:     r.Ordinal,
+			Scope:       r.Scope,
+			Match:       []string(r.Matches),
+			OrdinalSpan: r.OrdinalSpan,
+		})
 	}
 	return out, nil
 }

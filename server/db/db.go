@@ -277,6 +277,30 @@ type Weight struct {
 	Commodity string
 }
 
+// Correlation is a stored statement of why a posting might belong with another
+// one: an identifier its source issued, what may be compared about it, and over
+// what set of postings. See
+// docs/adr/0048-correlations-declare-their-own-semantics.md.
+//
+// Ordinal and OrdinalSpan are pointers because a source whose identifiers are
+// opaque supplies neither, and a zero ordinal is a position rather than an
+// absence. Scope and Match hold the stored vocabulary -- "FILE", "EXACT" -- so
+// one string spells the value in the proto, in the column and in an archive
+// file.
+//
+// JobID is the ingestion job that supplied this, and is what a FILE-scoped
+// correlation is comparable within. It is not written to an archive: another
+// instance's job ids mean nothing, and an import stamps its own.
+type Correlation struct {
+	Label       string
+	Token       string
+	Ordinal     *int64
+	Scope       string
+	Match       []string
+	OrdinalSpan *int64
+	JobID       string
+}
+
 // ExportPosting is one stored posting with the best identifier of the instrument
 // it names, plus the group identity an archive needs to nest it.
 //
@@ -285,7 +309,11 @@ type Weight struct {
 // is the timestamp of the first posting that names it, so both are derived. See
 // docs/adr/0035-archive-nests-by-aggregate-root.md.
 type ExportPosting struct {
-	Broker         string
+	Broker string
+	// The posting's own id. Not written to a file -- it means nothing in another
+	// instance, as a group id does not -- but the correlations are read in a
+	// second pass and this is what attaches them to their posting.
+	ID             string
 	GroupID        string
 	GroupTimestamp time.Time
 	Timestamp      time.Time
@@ -310,6 +338,9 @@ type ExportPosting struct {
 	// trigger defaults it to that date, so only a value that differs from it
 	// says anything, and only that value is worth writing to a file.
 	ShareCountBasis *time.Time
+	// Why this posting might belong with another one, in the order its source
+	// stated them. Empty for a derived posting, which transcribes nothing.
+	Correlations []Correlation
 }
 
 // TxDB provides transaction write, list and export.
@@ -753,6 +784,58 @@ func StrToAccountType(s string) typev1.AccountType {
 		return typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED
 	}
 	return typev1.AccountType(v)
+}
+
+// scopePrefix and matchPrefix are stripped from the enum names to get the stored
+// forms. The proto values are prefixed because Scope and Match both define an
+// ACCOUNT and enum values share package scope; the columns store the bare
+// vocabulary, as they do for AccountType.
+const (
+	scopePrefix = "SCOPE_"
+	matchPrefix = "MATCH_"
+)
+
+// ScopeToStr returns the stored form of a correlation scope: its enum name
+// without the prefix. Unspecified is an error rather than a default, because a
+// correlation that does not say what its identifier is comparable over cannot be
+// compared at all, and guessing a scope invents evidence the source never gave.
+func ScopeToStr(s typev1.Scope) (string, error) {
+	name, ok := typev1.Scope_name[int32(s)]
+	if !ok || s == typev1.Scope_SCOPE_UNSPECIFIED {
+		return "", fmt.Errorf("unknown correlation scope: %v", s)
+	}
+	return strings.TrimPrefix(name, scopePrefix), nil
+}
+
+// StrToScope converts a stored scope string to its proto enum. An unrecognised
+// string maps to SCOPE_UNSPECIFIED.
+func StrToScope(s string) typev1.Scope {
+	v, ok := typev1.Scope_value[scopePrefix+s]
+	if !ok {
+		return typev1.Scope_SCOPE_UNSPECIFIED
+	}
+	return typev1.Scope(v)
+}
+
+// MatchToStr returns the stored form of a correlation match: its enum name
+// without the prefix. Unspecified is an error for the reason an unspecified
+// scope is.
+func MatchToStr(m typev1.Match) (string, error) {
+	name, ok := typev1.Match_name[int32(m)]
+	if !ok || m == typev1.Match_MATCH_UNSPECIFIED {
+		return "", fmt.Errorf("unknown correlation match: %v", m)
+	}
+	return strings.TrimPrefix(name, matchPrefix), nil
+}
+
+// StrToMatch converts a stored match string to its proto enum. An unrecognised
+// string maps to MATCH_UNSPECIFIED.
+func StrToMatch(s string) typev1.Match {
+	v, ok := typev1.Match_value[matchPrefix+s]
+	if !ok {
+		return typev1.Match_MATCH_UNSPECIFIED
+	}
+	return typev1.Match(v)
 }
 
 // PluginCategoryToStr converts a proto plugin category to the string

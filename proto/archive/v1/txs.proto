@@ -51,6 +51,67 @@ message TxWindow {
   repeated Posting postings = 7;
 }
 
+// Correlation is a broker-neutral statement of why a posting might belong with
+// another one: an identifier the source issued, what may be compared about it,
+// and over what set of postings. It is the evidence the server derives the
+// transaction partition from, in place of being told the partition outright. See
+// docs/adr/0048-correlations-declare-their-own-semantics.md.
+//
+// A converter may only transcribe, never infer. A token may be synthesised from
+// the source's own structure -- nesting, containment, an explicit order column
+// -- and never from amounts, dates or proximity. Nothing here distinguishes a
+// transcribed token from an inferred one, so this is the discipline that keeps
+// the converter rules retirable rather than preserving them under a new name.
+message Correlation {
+  // MATCH_ORDINAL means "the ordinal field is populated and comparable", so the
+  // two travel together or not at all. 2 is MATCH_ORDINAL: CEL sees an enum as
+  // its number and has no way to name it.
+  option (buf.validate.message).cel = {
+    id: "correlation.ordinal_with_match_ordinal"
+    message: "ordinal is set exactly when MATCH_ORDINAL is declared"
+    expression: "has(this.ordinal) == (2 in this.match)"
+  };
+  option (buf.validate.message).cel = {
+    id: "correlation.ordinal_span_needs_ordinal"
+    message: "ordinal_span says how far apart two ordinals may be, so it needs one"
+    expression: "!has(this.ordinal_span) || has(this.ordinal)"
+  };
+
+  // Which series this identifier belongs to, and so what it is comparable with.
+  // An order id is never compared against a settlement reference, and the label
+  // is what keeps them apart. Free text agreed between a broker's converters
+  // rather than a controlled vocabulary: nothing outside the converter that
+  // wrote it and the pass that reads it has to spell it.
+  string label = 1;
+  // The identifier as the source wrote it, compared by MATCH_EXACT. Opaque: a
+  // reference in some shape a converter did not expect survives here rather
+  // than being normalised away.
+  string token = 2 [(buf.validate.field).string.min_len = 1];
+  // The number the token carries, where the converter knows how to take one.
+  // Explicitly optional because a source whose identifiers are genuinely opaque
+  // has none, and manufacturing an ordering it does not have would group
+  // unrelated rows silently.
+  optional int64 ordinal = 3;
+  // The set of postings this identifier is comparable over. Exactly one.
+  portfoliodb.type.v1.Scope scope = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  // What may be done with the identifier. At least one, and a set rather than a
+  // choice.
+  repeated portfoliodb.type.v1.Match match = 5 [
+    (buf.validate.field).repeated = {
+      min_items: 1
+      unique: true
+      items: {
+        enum: {defined_only: true, not_in: [0]}
+      }
+    }
+  ];
+  // How far apart two ordinals can be and still be about one event. Carried by
+  // the source because how densely a broker issues references is a fact about
+  // its numbering rather than a grouping policy, and a server-side constant
+  // would be wrong for every broker but one.
+  optional int64 ordinal_span = 6 [(buf.validate.field).int64.gt = 0];
+}
+
 // Posting is a signed amount of one commodity in one account at one point in
 // time. See docs/spec/postings.md.
 message Posting {
@@ -112,4 +173,14 @@ message Posting {
   // what a converter decided, and because the engine is validated by being
   // required to reproduce it exactly.
   optional string group_ref = 14;
+  // Why this posting might belong with another one, as the source stated it.
+  // Present only on transcribed postings: a converter's derived counter-leg and
+  // a server-routed residual transcribe nothing and so correlate with nothing.
+  //
+  // Durable, unlike group_ref, and stored. Nothing reads it to decide the
+  // partition yet -- that is
+  // docs/adr/0041-server-owns-transaction-grouping.md's arrival, not this
+  // field's -- but it has to be carried and stored from here on, or a rebuild
+  // from an archive would have nothing left to group on.
+  repeated Correlation correlations = 15;
 }

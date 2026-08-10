@@ -140,8 +140,11 @@ func archiveTx(p *archivev1.Posting) *apiv1.Tx {
 		GroupRef:              p.GetGroupRef(),
 		BrokerRef:             p.GetBrokerRef(),
 		CounterpartyAccount:   p.GetCounterpartyAccount(),
-		TradingCurrency:       p.GetTradingCurrency(),
-		SettlementCurrency:    p.GetSettlementCurrency(),
+		// The archive message, so the evidence travels by reference rather than
+		// being copied field by field into a second declaration of itself.
+		Correlations:       p.GetCorrelations(),
+		TradingCurrency:    p.GetTradingCurrency(),
+		SettlementCurrency: p.GetSettlementCurrency(),
 	}
 	if p.UnitPrice != nil {
 		tx.UnitPrice = proto.String(p.GetUnitPrice())

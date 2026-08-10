@@ -17,7 +17,9 @@ import {
   AccountType,
   Broker,
   IdentifierType,
+  Match,
   PluginCategory,
+  Scope,
   TxType,
 } from "@/gen/type/v1/type_pb";
 
@@ -132,6 +134,16 @@ function userFixture() {
               quantity: "10",
               unitPrice: "185.9",
               groupRef: "g0",
+              // An OFX FITID, which is unique within the account rather than
+              // within the institution, and opaque: no ordinal, so equality is
+              // all it offers.
+              correlations: [
+                {
+                  token: "20240115U10000018371888432",
+                  scope: Scope.ACCOUNT,
+                  match: [Match.EXACT],
+                },
+              ],
             },
           ],
         },

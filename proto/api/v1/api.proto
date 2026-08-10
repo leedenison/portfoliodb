@@ -156,6 +156,15 @@ message Tx {
   // TRANSFER_CLEARING residual. Present only on transcribed postings, as
   // broker_ref is.
   string counterparty_account = 17;
+  // Why this posting might belong with another one, as the source stated it:
+  // an identifier, what may be compared about it, and over what set of
+  // postings. Set by the broker converter, which is the only thing that knows
+  // how its broker encodes the evidence, and stored.
+  //
+  // The archive message rather than one of this package's own, because a
+  // correlation is written to an archive file and read back from one, and two
+  // declarations would need converting between on every ingest.
+  repeated portfoliodb.archive.v1.Correlation correlations = 18;
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,

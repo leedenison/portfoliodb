@@ -104,6 +104,34 @@ constant would be wrong for every broker but one.
 `counterparty_account` is a pointer of the same kind. Whether they fold into
 `Correlation` or stay alongside it is settled when the field lands.
 
+## Amendments
+
+**`broker_ref` and `counterparty_account` fold in.** Settled as the field lands, in
+[0096](../issues/0096-correlation-evidence-in-the-standard-format.md). Every
+`broker_ref` is exactly a correlation token, on exactly the postings a correlation
+goes on, so keeping both would put the same string on the wire twice and leave two
+places to improve. `counterparty_account` folds too. The fold is staged: the field
+lands and the converters populate it first, and the two columns go once there is
+evidence to replace them with.
+
+**`Match` gains `MATCH_ACCOUNT`.** A counterparty pointer is comparable, but
+asymmetrically: the token names *another posting's account* rather than a token that
+posting carries, so `MATCH_EXACT` on it would never fire -- each side's token names
+the other's account, and the two are never equal. `MATCH_ACCOUNT` states that
+reading, which is what transfer matching's pointer pass already does. It is a third
+operator rather than a second mechanism, so the pointer keeps being evidence the
+engine weighs rather than a special case beside it.
+
+**`SCOPE_FILE` resolves to the ingesting job.** A file has no identity of its own
+once its postings are rows, so a stored correlation records the job that supplied it
+and file-scoped evidence is comparable only within that job. The consequence is worth
+stating: an archive import is one job, so evidence re-imported from an archive is
+comparable across everything the archive carried rather than within the uploads it
+was assembled from. That widens `SCOPE_FILE` on a round trip, and the alternative --
+the archive carrying a per-file identity so an import could reconstruct the original
+boundaries -- would make the archive preserve which upload a posting arrived in,
+which nothing else about a posting does.
+
 ## Considered: a field per broker
 
 Carrying each source's grouping fields verbatim was rejected in 0042 and stays

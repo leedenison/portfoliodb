@@ -1,4 +1,17 @@
+---
+status: superseded by ADR-0048
+---
+
 # Grouping evidence in the standard format
+
+Superseded by [0048](0048-correlations-declare-their-own-semantics.md), which
+keeps the shape of the evidence and the token/ordinal split below but replaces
+`kind` and `namespace` with a `label` and an explicit declaration of what may be
+compared and over what scope. The `role` field described here does not survive:
+the problem it was aimed at is that `TxType` is the wrong shape, not that it is
+too coarse, and that is settled in
+[0044](0044-tx-type-is-declared-and-resolved.md) and
+[0045](0045-tx-type-does-not-encode-asset-class.md).
 
 [0041](0041-server-owns-transaction-grouping.md) makes the server the thing that
 decides which postings are legs of one event, which means the evidence a converter

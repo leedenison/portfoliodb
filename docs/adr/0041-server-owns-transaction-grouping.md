@@ -8,7 +8,7 @@ records as much: the references are stored on the posting.
 
 **The server decides which postings are legs of one event.** The converter's job is to
 synthesise its broker's data into the standard evidence shape
-([0042](0042-grouping-evidence-in-the-standard-format.md)); the server derives the
+([0048](0048-correlations-declare-their-own-semantics.md)); the server derives the
 partition from that evidence over the whole of a user's data rather than over one
 upload.
 
@@ -56,3 +56,24 @@ the converters express today: ordered passes that claim rows so a later pass can
 take them, bucketing by account and date, amount equality within a tolerance, a
 consideration cross-check, and directional distance between references. Expect
 broker-specific passes on the server, not their disappearance.
+
+## Amendments
+
+**Not all converter grouping is inference.**
+[0048](0048-correlations-declare-their-own-semantics.md) corrects the reading of
+"broker idiosyncrasy is an argument about *translation*, not about *decision*"
+above. For OFX the grouping is transcribed rather than inferred: the document
+nests a trade's legs and the parser copies the containing `INVTRAN`'s `FITID` onto
+each one. A server that re-derived that by amount-and-date inference would be
+replacing a stated fact with a guess. A source may therefore assert a grouping,
+and it does so as an ordinary correlation the engine consumes as evidence -- not
+as a partition the engine obeys, which is what this ADR and
+[0043](0043-grouping-does-not-travel-in-the-archive.md) both reject.
+
+**The broker-specific passes arrive as an ordering.**
+[0047](0047-grouping-runs-as-precedence-ordered-passes.md) makes the engine's pass
+order load-bearing for correctness rather than for tuning, and a single order has
+no one broker's data to justify it against. So "expect broker-specific passes on
+the server, not their disappearance" is likely to be realised first as a per-broker
+precedence list over shared passes.
+

@@ -143,16 +143,13 @@ message Posting {
   optional string unit_price = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   optional string trading_currency = 9;     // ISO 4217; the instrument's own currency
   optional string settlement_currency = 10; // ISO 4217; what actually paid
-  // The source's own reference for the row this was transcribed from: a Fidelity
-  // reference number, an OFX FITID. Durable, unlike grouping, but not a natural
-  // key -- one source transaction can produce several postings that share one.
-  // Present only on transcribed postings.
-  optional string broker_ref = 11;
-  // The account the source names as the other side of this row, within the same
-  // broker. Advisory: a source can use the same field for attribution instead,
-  // so it is read as a transfer pointer only where the group turns out to be
-  // one.
-  optional string counterparty_account = 12;
+  // 11 was broker_ref, the source's own reference for the row this was
+  // transcribed from, and 12 was counterparty_account, the account the source
+  // named as the other side. Both are correlations: the first is a token
+  // compared by MATCH_EXACT, the second one compared by MATCH_ACCOUNT, and both
+  // sat on exactly the postings a correlation sits on. Two spellings of one
+  // thing left two places to improve.
+  reserved 11, 12;
   // The share count this posting's quantity and unit price are denominated in,
   // as "YYYY-MM-DD". Absent means this posting's own timestamp date -- the
   // as-traded convention a broker log follows, since a log line accounts only

@@ -356,7 +356,7 @@ export function parseOfxStatement(text: string): OfxParseResult {
         // alone, because a FITID is opaque -- 20251015U10000018371888432 plainly
         // carries a number, but nothing here knows where it starts, and an
         // ordering invented from the string would group unrelated rows silently.
-        ...(fitId ? { brokerRef: fitId, correlations: [fitIdCorrelation(fitId)] } : {}),
+        ...(fitId ? { correlations: [fitIdCorrelation(fitId)] } : {}),
         ...(unitPrice !== undefined ? { unitPrice } : {}),
         ...(hintProtos.length > 0 ? { identifierHints: hintProtos } : {}),
       });

@@ -138,8 +138,6 @@ func archiveTx(p *archivev1.Posting) *apiv1.Tx {
 		Account:               p.GetAccount(),
 		AccountType:           p.GetAccountType(),
 		GroupRef:              p.GetGroupRef(),
-		BrokerRef:             p.GetBrokerRef(),
-		CounterpartyAccount:   p.GetCounterpartyAccount(),
 		// The archive message, so the evidence travels by reference rather than
 		// being copied field by field into a second declaration of itself.
 		Correlations:       p.GetCorrelations(),

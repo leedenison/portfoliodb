@@ -482,81 +482,6 @@ describe("convertFidelityJson grouping", () => {
   });
 });
 
-describe("source references", () => {
-  const base = {
-    accountNumber: "AW10000001",
-    assetName: "Cash",
-    isin: "AA00K0000000",
-    currency: "GBP",
-    status: "Completed",
-    pricePerUnit: 1,
-    dealDate: "15/04/2025",
-    settlementDate: "15/04/2025",
-  };
-
-  it("carries the reference and the account the source names as the other side", () => {
-    const result = convertFidelityJson(
-      json({
-        ...base,
-        transactionType: "Transfer Into Account",
-        debitCreditIndicator: "CREDIT",
-        units: 20000,
-        valuation: 20000,
-        referenceId: "971613414",
-        sourceOrTargetAccount: "AG10000001",
-      })
-    );
-
-    expect(result.errors).toEqual([]);
-    expect(result.postings[0]!.brokerRef).toBe("971613414");
-    expect(result.postings[0]!.counterpartyAccount).toBe("AG10000001");
-  });
-
-  it("leaves the counterparty empty where the source names none", () => {
-    const result = convertFidelityJson(
-      json({
-        ...base,
-        transactionType: "Transfer Out From Cash Management Account",
-        debitCreditIndicator: "DEBIT",
-        units: 20000,
-        valuation: 20000,
-        referenceId: "971613430",
-      })
-    );
-
-    expect(result.postings[0]!.brokerRef).toBe("971613430");
-    expect(result.postings[0]!.counterpartyAccount).toBeUndefined();
-  });
-
-  // Fidelity puts the product account a fee was charged for in the same field it
-  // names a transfer's source in. It is kept as the source wrote it: which of the
-  // two it means is not the converter's call, and a Service Fee is an INVEXPENSE
-  // whose group balances against an EXPENSE leg, so it never reaches the transfer
-  // matching that reads this as a pointer.
-  it("keeps a service fee's attribution, which is not a transfer counterparty", () => {
-    const result = convertFidelityJson(
-      json({
-        ...base,
-        assetName: "Relationship Cash Source",
-        transactionType: "Service Fee",
-        debitCreditIndicator: "DEBIT",
-        units: 5.13,
-        valuation: 5.13,
-        referenceId: "1177083111",
-        sourceOrTargetAccount: "AP10000001",
-      })
-    );
-
-    const fee = result.postings[0]!;
-    expect(fee.type).toBe(TxType.INVEXPENSE);
-    expect(fee.counterpartyAccount).toBe("AP10000001");
-    // The derived expense leg is the converter's own, so it names no source row.
-    const expense = result.postings.find((tx) => tx.accountType === AccountType.EXPENSE)!;
-    expect(expense.brokerRef).toBeUndefined();
-    expect(expense.counterpartyAccount).toBeUndefined();
-  });
-});
-
 // The JSON carries both series the format can express, and they are kept apart:
 // a reference number is compared against another reference number, while the
 // counterparty names an account and is compared against one.
@@ -621,6 +546,12 @@ describe("correlations", () => {
     expect(got[0]!.token).toBe("971613430");
   });
 
+  // Fidelity puts the product account a fee was charged for in the same field it
+  // names a transfer's source in, so the pointer is stated either way: which of
+  // the two it means is not the converter's call. A Service Fee is an INVEXPENSE
+  // whose group balances against an EXPENSE leg, so it never produces the
+  // TRANSFER_CLEARING residual that transfer matching reads a pointer for.
+  //
   // A derived leg transcribes nothing, so it correlates with nothing -- and the
   // fee's attribution in particular must not be copied onto the expense leg,
   // where it would name a counterparty the source never gave that row.
@@ -638,6 +569,7 @@ describe("correlations", () => {
       })
     );
 
+    expect(result.postings[0]!.type).toBe(TxType.INVEXPENSE);
     expect(result.postings[0]!.correlations).toHaveLength(2);
     const expense = result.postings.find((tx) => tx.accountType === AccountType.EXPENSE)!;
     expect(expense.correlations).toEqual([]);

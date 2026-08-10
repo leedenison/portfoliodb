@@ -3,9 +3,12 @@ package postgres
 import (
 	"context"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"slices"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -17,6 +20,30 @@ import (
 //
 // The rows are the 2025-04-15 lump sum from the Fidelity master, whose references
 // differ by 3.
+// fidelityCorrelations is the evidence a Fidelity export supplies for one row: a
+// reference number, comparable by equality and by distance, and the account the
+// source names as the other side where it names one.
+func fidelityCorrelations(t *testing.T, ref, counterparty string) []*archivev1.Correlation {
+	t.Helper()
+	ordinal, err := strconv.ParseInt(ref, 10, 64)
+	if err != nil {
+		t.Fatalf("reference %q: %v", ref, err)
+	}
+	out := []*archivev1.Correlation{{
+		Token: ref, Ordinal: &ordinal,
+		Scope: typev1.Scope_SCOPE_FILE,
+		Match: []typev1.Match{typev1.Match_MATCH_EXACT, typev1.Match_MATCH_ORDINAL},
+	}}
+	if counterparty != "" {
+		out = append(out, &archivev1.Correlation{
+			Label: "counterparty", Token: counterparty,
+			Scope: typev1.Scope_SCOPE_BROKER,
+			Match: []typev1.Match{typev1.Match_MATCH_ACCOUNT},
+		})
+	}
+	return out
+}
+
 func transferFixture(t *testing.T, p *Postgres, userID, instID string) (from, to string) {
 	t.Helper()
 	ctx := context.Background()
@@ -27,8 +54,8 @@ func transferFixture(t *testing.T, p *Postgres, userID, instID string) (from, to
 	side := func(account, qty, ref, counterparty string) []*apiv1.Tx {
 		return []*apiv1.Tx{
 			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: typev1.TxType_TRANSFER,
-				Quantity: qty, Account: account, GroupRef: ref, BrokerRef: ref,
-				CounterpartyAccount: counterparty},
+				Quantity: qty, Account: account, GroupRef: ref,
+				Correlations: fidelityCorrelations(t, ref, counterparty)},
 			// The clearing counterparty, equal and opposite, as routing writes it:
 			// no reference of its own, because it was transcribed from no row.
 			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: typev1.TxType_TRANSFER,
@@ -109,16 +136,32 @@ func TestListUnmatchedTransferSides_ReadsBothSidesWithTheirEvidence(t *testing.T
 	if !departure.Amount.IsPositive() {
 		t.Errorf("departure amount = %v, want positive: the value left this account", departure.Amount)
 	}
-	// The evidence comes from the journal leg, not from the residual beside it.
-	if len(departure.BrokerRefs) != 1 || departure.BrokerRefs[0] != "971613411" {
-		t.Errorf("departure broker refs = %v, want [971613411]", departure.BrokerRefs)
+	// The evidence comes from the journal leg, not from the residual beside it,
+	// which was transcribed from no row and correlates with nothing.
+	tokens := func(s db.TransferSide, match string) []string {
+		var out []string
+		for _, c := range s.Correlations {
+			if slices.Contains(c.Match, match) {
+				out = append(out, c.Token)
+			}
+		}
+		return out
 	}
-	if len(departure.CounterpartyAccounts) != 0 {
-		t.Errorf("departure counterparties = %v, want none: only the receiving side names one",
-			departure.CounterpartyAccounts)
+	if got := tokens(departure, db.MatchOrdinal); !slices.Equal(got, []string{"971613411"}) {
+		t.Errorf("departure references = %v, want [971613411]", got)
 	}
-	if len(arrival.CounterpartyAccounts) != 1 || arrival.CounterpartyAccounts[0] != "AG10000001" {
-		t.Errorf("arrival counterparties = %v, want [AG10000001]", arrival.CounterpartyAccounts)
+	if got := tokens(departure, db.MatchAccount); len(got) != 0 {
+		t.Errorf("departure pointers = %v, want none: only the receiving side names one", got)
+	}
+	if got := tokens(arrival, db.MatchAccount); !slices.Equal(got, []string{"AG10000001"}) {
+		t.Errorf("arrival pointers = %v, want [AG10000001]", got)
+	}
+	// The ordinal is the number the converter took out of the reference, not
+	// something the matcher parses back out of the token.
+	for _, c := range arrival.Correlations {
+		if slices.Contains(c.Match, db.MatchOrdinal) && (c.Ordinal == nil || *c.Ordinal != 971613414) {
+			t.Errorf("arrival ordinal = %v, want 971613414", c.Ordinal)
+		}
 	}
 }
 

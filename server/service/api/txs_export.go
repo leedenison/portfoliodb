@@ -125,12 +125,6 @@ func posting(r db.ExportPosting) *archivev1.Posting {
 	if r.SettlementCurrency != "" {
 		p.SettlementCurrency = proto.String(r.SettlementCurrency)
 	}
-	if r.BrokerRef != "" {
-		p.BrokerRef = proto.String(r.BrokerRef)
-	}
-	if r.CounterpartyAccount != "" {
-		p.CounterpartyAccount = proto.String(r.CounterpartyAccount)
-	}
 	if r.ShareCountBasis != nil {
 		p.ShareCountBasis = proto.String(r.ShareCountBasis.Format("2006-01-02"))
 	}

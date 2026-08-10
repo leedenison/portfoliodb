@@ -150,7 +150,7 @@ func TestTxWindows_CarriesRoutedResiduals(t *testing.T) {
 func TestPosting_OptionalFieldsWrittenOnlyWhenHeld(t *testing.T) {
 	bare := posting(exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"))
 	if bare.UnitPrice != nil || bare.TradingCurrency != nil || bare.SettlementCurrency != nil ||
-		bare.BrokerRef != nil || bare.CounterpartyAccount != nil || bare.ShareCountBasis != nil {
+		bare.ShareCountBasis != nil || len(bare.GetCorrelations()) != 0 {
 		t.Fatalf("bare posting states an absent field: %v", bare)
 	}
 
@@ -159,17 +159,12 @@ func TestPosting_OptionalFieldsWrittenOnlyWhenHeld(t *testing.T) {
 	r.UnitPrice = &price
 	r.TradingCurrency = "USD"
 	r.SettlementCurrency = "GBP"
-	r.BrokerRef = "REF-1"
-	r.CounterpartyAccount = "other"
 	full := posting(r)
 	if full.GetUnitPrice() != "185.9" {
 		t.Fatalf("unit_price = %q", full.GetUnitPrice())
 	}
 	if full.GetTradingCurrency() != "USD" || full.GetSettlementCurrency() != "GBP" {
 		t.Fatalf("currencies = %q, %q", full.GetTradingCurrency(), full.GetSettlementCurrency())
-	}
-	if full.GetBrokerRef() != "REF-1" || full.GetCounterpartyAccount() != "other" {
-		t.Fatalf("refs = %q, %q", full.GetBrokerRef(), full.GetCounterpartyAccount())
 	}
 }
 

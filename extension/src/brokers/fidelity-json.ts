@@ -245,11 +245,6 @@ export function convertFidelityJson(
         ...(row.pricePerUnit !== undefined
           ? { unitPrice: (decimalFromNumber(row.pricePerUnit) ?? ZERO).toString() }
           : {}),
-        // The string, not the number the leg carries: broker_ref is opaque, so a
-        // reference the source wrote in some other shape survives rather than
-        // becoming NaN.
-        ...(row.referenceId ? { brokerRef: row.referenceId } : {}),
-        ...(row.sourceOrTargetAccount ? { counterpartyAccount: row.sourceOrTargetAccount } : {}),
         ...(correlations.length > 0 ? { correlations } : {}),
         ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })

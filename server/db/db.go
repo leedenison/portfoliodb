@@ -324,15 +324,13 @@ type ExportPosting struct {
 	// The instrument's best identifier, or all three empty for a posting whose
 	// instrument never resolved. Chosen by bestIdentifierJoin so that every
 	// export naming one identifier per instrument agrees which one.
-	IdentifierType      string
-	IdentifierValue     string
-	IdentifierDomain    string
-	Quantity            decimal.Decimal
-	UnitPrice           *decimal.Decimal
-	TradingCurrency     string
-	SettlementCurrency  string
-	BrokerRef           string
-	CounterpartyAccount string
+	IdentifierType     string
+	IdentifierValue    string
+	IdentifierDomain   string
+	Quantity           decimal.Decimal
+	UnitPrice          *decimal.Decimal
+	TradingCurrency    string
+	SettlementCurrency string
 	// The share count this posting is denominated in, or nil when it is the
 	// posting's own timestamp date. The column is NOT NULL and the insert
 	// trigger defaults it to that date, so only a value that differs from it
@@ -793,6 +791,15 @@ func StrToAccountType(s string) typev1.AccountType {
 const (
 	scopePrefix = "SCOPE_"
 	matchPrefix = "MATCH_"
+)
+
+// The stored forms of the Match vocabulary, for the passes that ask a correlation
+// what may be done with it. Named rather than spelled at each site so a reader can
+// find every consumer of one comparison.
+const (
+	MatchExact   = "EXACT"
+	MatchOrdinal = "ORDINAL"
+	MatchAccount = "ACCOUNT"
 )
 
 // ScopeToStr returns the stored form of a correlation scope: its enum name
@@ -1620,13 +1627,19 @@ type TransferSide struct {
 	// sides summing to exactly zero.
 	Amount    decimal.Decimal
 	Timestamp time.Time
-	// BrokerRefs are the distinct source references of the group's postings, and
-	// CounterpartyAccounts the distinct accounts they name as the other side. Sets
-	// rather than single values: a group is several source rows, the evidence can
-	// sit on any of them, and the nearest reference over the whole set is what the
-	// sample data supports. Either may be empty, for a source that supplied none.
-	BrokerRefs           []string
-	CounterpartyAccounts []string
+	// Correlations is what the group's sources said about why its postings might
+	// belong with others: their own identifiers, and what may be compared about
+	// each. A set over the whole group rather than one value, because a group is
+	// several source rows, the evidence can sit on any of them, and the nearest
+	// reference over the whole set is what the sample data supports.
+	//
+	// Which pass can read a given correlation is the correlation's own to say:
+	// the reference pass takes those declaring MATCH_ORDINAL and compares their
+	// ordinals, the pointer pass those declaring MATCH_ACCOUNT and compares their
+	// tokens against the other side's account. An OFX FITID declares neither, so
+	// both passes pass over it, which is right -- it is opaque and unique within
+	// one account.
+	Correlations []Correlation
 }
 
 // TransferMatch links the two sides of one transfer in one commodity. FromGroupID is

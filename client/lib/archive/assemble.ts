@@ -169,12 +169,9 @@ export function userPartCounts(archive: UserArchive): { label: string; count: nu
     out.push({ label: "preference settings", count });
   }
   if (archive.txs) {
-    // Postings rather than windows or groups, so the preview reads the same
-    // number the import job counts.
-    const postings = archive.txs.windows.reduce(
-      (n, w) => n + w.groups.reduce((m, g) => m + g.postings.length, 0),
-      0,
-    );
+    // Postings rather than windows, so the preview reads the same number the
+    // import job counts.
+    const postings = archive.txs.windows.reduce((n, w) => n + w.postings.length, 0);
     out.push({ label: "postings", count: postings });
   }
   return out;

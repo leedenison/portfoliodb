@@ -67,7 +67,7 @@ test.describe("period-scoped user archive", () => {
     // holds the whole run.
     const whole = await exportUserTxWindows(sessionId);
     expect(whole).toHaveLength(1);
-    expect(whole[0].groups[0].postings).toHaveLength(2);
+    expect(whole[0].postings).toHaveLength(2);
 
     // Asked for the second day alone, the window states that day and the group
     // contributes one leg. The exported group does not balance, which the format
@@ -85,9 +85,9 @@ test.describe("period-scoped user archive", () => {
     expect(window.periodBefore?.seconds).toBe(
       BigInt(DAY_THREE.getTime() / 1000),
     );
-    expect(window.groups).toHaveLength(1);
-    expect(window.groups[0].postings).toHaveLength(1);
-    expect(window.groups[0].postings[0].quantity).toBe("5000");
+    expect(window.postings).toHaveLength(1);
+    expect(window.postings[0].quantity).toBe("5000");
+    expect(window.postings[0].groupRef).toBe("g0");
 
     // Re-importing that file replaces the second day. The first day's leg is
     // outside it and the file does not carry it, so the whole-group delete this

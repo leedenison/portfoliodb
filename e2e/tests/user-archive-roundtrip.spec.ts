@@ -171,18 +171,24 @@ test.describe("user archive page", () => {
     expect(window.period_from).toBe("2024-01-15T00:00:00Z");
     expect(window.period_before).toBe("2024-01-18T00:00:00Z");
 
-    // Grouping is structural, and nothing can rebuild it, so it is what the
-    // part exists to carry: three trades, each with the leg that balances it.
-    expect(window.groups).toHaveLength(3);
-    for (const group of window.groups) {
-      expect(group.postings).toHaveLength(2);
+    // Postings are flat and the grouping is a key on them, numbered within the
+    // window rather than being the stored id. Three trades, each with the leg
+    // that balances it. See
+    // docs/adr/0043-grouping-does-not-travel-in-the-archive.md.
+    const postings = window.postings as Record<string, unknown>[];
+    expect(postings).toHaveLength(6);
+    const byRef = new Map<string, Record<string, unknown>[]>();
+    for (const p of postings) {
+      const ref = p.group_ref as string;
+      byRef.set(ref, [...(byRef.get(ref) ?? []), p]);
+    }
+    expect([...byRef.keys()].sort()).toEqual(["g0", "g1", "g2"]);
+    for (const legs of byRef.values()) {
+      expect(legs).toHaveLength(2);
     }
     // Order within a group carries no meaning -- the legs of a trade share a
     // timestamp, so nothing stored distinguishes them -- and neither the file
     // nor a reader depends on it.
-    const postings = window.groups.flatMap(
-      (g: { postings: Record<string, unknown>[] }) => g.postings,
-    );
     const first = postings.find(
       (p) =>
         typeof p.instrument_description === "string" &&
@@ -220,8 +226,8 @@ test.describe("user archive page", () => {
     await page
       .locator("input[aria-label='Choose archive file']")
       .setInputFiles(exported);
-    // Postings rather than windows or groups, so the preview and the job's own
-    // total agree.
+    // Postings rather than windows, so the preview and the job's own total
+    // agree.
     await expect(page.locator("[data-testid='archive-import']")).toContainText(
       "Carries 6 postings",
     );

@@ -5,7 +5,7 @@ import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { isRecordingSuite } from "../helpers/vcr";
 import { waitForWorkersIdle } from "../helpers/workers";
-import { uploadCSVAndWait } from "../helpers/upload";
+import { uploadArchiveAndWait } from "../helpers/upload";
 
 test.beforeAll(async () => {
   await loadCassette("mixed-tx-types");
@@ -33,8 +33,8 @@ test.describe("mixed transaction types", () => {
     test.setTimeout(TIMEOUT_SLOW);
     await injectSession(context, sessionId);
 
-    // Upload CSV with BUY 100, BUY 50, SELL -30, SPLIT 2 (all AAPL).
-    await uploadCSVAndWait(page, browser, "mixed-tx-types.csv", {
+    // Upload BUY 100, BUY 50, SELL -30, SPLIT 2 (all AAPL).
+    await uploadArchiveAndWait(page, browser, "mixed-tx-types.json", {
       expectedPostingCount: 4,
     });
 

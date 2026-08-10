@@ -1,0 +1,26 @@
+{
+  "envelope": {
+    "format_version": 1,
+    "exported_at": "2026-08-01T00:00:00Z",
+    "source_instance": "e2e-fixture",
+    "kind": "USER"
+  },
+  "txs": {
+    "windows": [
+      {
+        "broker": "FIDELITY",
+        "period_from": "2024-01-15T00:00:00Z",
+        "period_before": "2024-01-19T00:00:00Z",
+        "source": "Fidelity:web:archive",
+        "postings": [
+          {
+            "timestamp": "2024-01-15T00:00:00Z",
+            "instrument_description": "AAPL",
+            "type": "NOT_A_TX_TYPE",
+            "quantity": "10"
+          }
+        ]
+      }
+    ]
+  }
+}

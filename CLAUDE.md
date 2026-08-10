@@ -101,10 +101,10 @@ Whenever you begin work in a new worktree you should:
 
 The informantion architecture of the user interface is described in docs/spec/information-architecture.md.  It describes key concepts for users (and admin users), how they relate to each other, the relative importance they carry for the user and gives the example of how the information architecture should impact global navigation.
 
-The archive format -- the single import and export format that replaces the
+The archive format -- the single import and export format that replaced the
 transaction CSV, the price CSV, the instrument JSON and the corporate event JSON
--- is documented in docs/spec/archive-format.md. The one format it has not yet
-replaced, the standard transaction CSV, is documented in docs/spec/csv-format.md.
+-- is documented in docs/spec/archive-format.md. Broker-specific files, which
+PortfolioDB reads but does not define, are converted into it on the way in.
 
 Automated transaction import via the browser extension is specified in docs/spec/broker-import-extension.md.
 

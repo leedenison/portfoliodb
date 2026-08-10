@@ -713,7 +713,7 @@ describe("trades the broker names for their reason", () => {
 
 // The export says "Cash" in the same column it names a security in, so reading it
 // through described money as an instrument. A posting is described by, and carries
-// the identifier of, whatever resolves it. See docs/spec/csv-format.md.
+// the identifier of, whatever resolves it. See docs/spec/archive-format.md.
 describe("what a posting resolves to", () => {
   const FULL =
     "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,Exchange,Symbol,Type,Action";

@@ -218,7 +218,7 @@ export function convertFidelityJson(
         // A cash posting is described by its currency, which is what resolves it
         // to the currency instrument rather than to a holding named after the
         // broker's wording -- the payload says "Cash" in the same field it names
-        // a security in. See docs/spec/csv-format.md.
+        // a security in. See docs/spec/archive-format.md.
         instrumentDescription: isCashMovement(ofxType)
           ? currency || typeStr
           : row.assetName || typeStr,

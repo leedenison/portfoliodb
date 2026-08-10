@@ -9,10 +9,14 @@ import { errorMessage } from "@/lib/errors";
 import { qk } from "@/lib/query-keys";
 import { getJob } from "@/lib/portfolio-api";
 import { upsertTxs } from "@/lib/ingestion-api";
-import { parseStandardCSV } from "@/lib/csv/standard";
+import { readTxDocument } from "@/lib/archive/tx-document";
 import { JobStatus } from "@/gen/api/v1/api_pb";
 import { Broker } from "@/gen/type/v1/type_pb";
-import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { TimestampSchema, timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { create } from "@bufbuild/protobuf";
+import type { MessageInitShape } from "@bufbuild/protobuf";
+import type { TxWindowSchema } from "@/gen/archive/v1/txs_pb";
+import type { ParseError } from "@/lib/csv/parse-result";
 import { lastCoveredDay } from "@/lib/dates";
 import {
   getBrokerOptionsForUpload,
@@ -22,6 +26,13 @@ import {
 
 const BROKER_OPTIONS = getBrokerOptionsForUpload();
 const DEFAULT_BROKER = BROKER_OPTIONS[0]?.value ?? Broker.FIDELITY;
+
+type TxWindowInit = MessageInitShape<typeof TxWindowSchema>;
+
+/** A window bound as a Date, for the preview. Absent reads as the epoch. */
+function windowDate(ts: TxWindowInit["periodFrom"]): Date {
+  return ts ? timestampDate(create(TimestampSchema, ts)) : new Date(0);
+}
 
 /**
  * Shell. The body is mounted only while the modal is open, so every field it
@@ -56,7 +67,7 @@ function UploadModalBody({
   const { closeUploadModal, onComplete } = useUploadModal();
   const [step, setStep] = useState<1 | 2>(1);
   const [broker, setBroker] = useState<Broker>(DEFAULT_BROKER);
-  const [formatId, setFormatId] = useState<string>("standard");
+  const [formatId, setFormatId] = useState<string>("archive");
   const [converterOptions, setConverterOptions] = useState<Record<string, unknown>>({});
   const [file, setFile] = useState<File | null>(null);
   const [fileText, setFileText] = useState<string | null>(null);
@@ -73,12 +84,27 @@ function UploadModalBody({
   // Reading the file is the event; parsing it is derivation. Holding the text
   // rather than the parsed rows means a format or option change re-parses
   // without re-reading, and without an effect to clear the stale result.
-  const parseResult = useMemo(() => {
+  //
+  // Both paths end at a window, which is what the upload sends. A converter
+  // reads a broker's own file and states only its postings and period, so the
+  // broker and source come from what was chosen here; an archive document
+  // states all four itself.
+  const parsed = useMemo((): { window?: TxWindowInit; errors: ParseError[] } | null => {
     if (fileText == null || !optionsValid) return null;
-    return selectedFormat?.convert
-      ? selectedFormat.convert(fileText, converterOptions)
-      : parseStandardCSV(fileText);
-  }, [fileText, selectedFormat, converterOptions, optionsValid]);
+    if (!selectedFormat?.convert) return readTxDocument(fileText);
+    const result = selectedFormat.convert(fileText, converterOptions);
+    if (result.errors.length > 0) return { errors: result.errors };
+    return {
+      window: {
+        broker,
+        source: `${getSourcePrefix(broker)}:web:${formatId}`,
+        periodFrom: timestampFromDate(result.periodFrom),
+        periodBefore: timestampFromDate(result.periodBefore),
+        postings: result.postings,
+      },
+      errors: [],
+    };
+  }, [fileText, selectedFormat, converterOptions, optionsValid, broker, formatId]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -94,26 +120,16 @@ function UploadModalBody({
   }, []);
 
   const handleUpload = useCallback(async () => {
-    if (!parseResult || parseResult.errors.length > 0 || parseResult.postings.length === 0) return;
+    const window = parsed?.window;
+    if (!window || parsed.errors.length > 0 || window.postings?.length === 0) return;
     setSubmitError(null);
     try {
-      const sourcePrefix = getSourcePrefix(broker);
-      const source = `${sourcePrefix}:web:${formatId}`;
-      const res = await upsertTxs({
-        window: {
-          broker,
-          source,
-          periodFrom: timestampFromDate(parseResult.periodFrom),
-          periodBefore: timestampFromDate(parseResult.periodBefore),
-          postings: parseResult.postings,
-        },
-        filename: file?.name,
-      });
+      const res = await upsertTxs({ window, filename: file?.name });
       onJobStarted(res.jobId);
     } catch (e) {
       setSubmitError(errorMessage(e));
     }
-  }, [broker, formatId, parseResult, file, onJobStarted]);
+  }, [parsed, file, onJobStarted]);
 
   // Poll until the job reaches a terminal status, then stop.
   const { data: jobStatus } = useAuthedQuery<Awaited<ReturnType<typeof getJob>>>({
@@ -136,9 +152,9 @@ function UploadModalBody({
   }, [succeeded, onComplete, closeUploadModal]);
 
   const canUpload =
-    parseResult &&
-    parseResult.errors.length === 0 &&
-    parseResult.postings.length > 0 &&
+    parsed?.window != null &&
+    parsed.errors.length === 0 &&
+    (parsed.window.postings?.length ?? 0) > 0 &&
     optionsValid &&
     !jobId;
 
@@ -227,7 +243,7 @@ function UploadModalBody({
                 value={broker}
                 onChange={(e) => {
                   setBroker(Number(e.target.value) as Broker);
-                  setFormatId("standard");
+                  setFormatId("archive");
                   setConverterOptions({});
                 }}
                 className="block w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary focus:border-primary focus:outline-hidden"
@@ -292,7 +308,7 @@ function UploadModalBody({
                 ref={fileInputRef}
                 id="upload-file"
                 type="file"
-                accept={selectedFormat?.accept ?? ".csv"}
+                accept={selectedFormat?.accept ?? ".json"}
                 onChange={handleFileChange}
                 className="sr-only"
                 aria-label="Choose transaction file"
@@ -318,13 +334,13 @@ function UploadModalBody({
                 </p>
               )}
             </div>
-            {parseResult && (
+            {parsed && (
               <div className="rounded-md border border-border bg-background p-4">
-                {parseResult.errors.length > 0 ? (
+                {parsed.errors.length > 0 || !parsed.window ? (
                   <div data-testid="upload-parse-errors">
                     <p className="font-medium text-accent-dark">Parse errors</p>
                     <ul className="mt-1 list-inside list-disc text-sm text-text-muted">
-                      {parseResult.errors.map((e, i) => (
+                      {parsed.errors.map((e, i) => (
                         <li key={i}>
                           Row {e.rowIndex}: {e.field} &ndash; {e.message}
                         </li>
@@ -334,9 +350,9 @@ function UploadModalBody({
                 ) : (
                   <>
                     <div data-testid="upload-parse-preview" className="text-sm text-text-primary">
-                      {parseResult.postings.length} posting(s), from{" "}
-                      {parseResult.periodFrom.toLocaleDateString()} to{" "}
-                      {lastCoveredDay(parseResult.periodBefore).toLocaleDateString()}.
+                      {parsed.window.postings?.length ?? 0} posting(s), from{" "}
+                      {windowDate(parsed.window.periodFrom).toLocaleDateString()} to{" "}
+                      {lastCoveredDay(windowDate(parsed.window.periodBefore)).toLocaleDateString()}.
                     </div>
                     <button
                       type="button"

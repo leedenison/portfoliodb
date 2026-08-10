@@ -1,0 +1,28 @@
+{
+  "envelope": {
+    "format_version": 1,
+    "exported_at": "2026-08-01T00:00:00Z",
+    "source_instance": "e2e-fixture",
+    "kind": "USER"
+  },
+  "txs": {
+    "windows": [
+      {
+        "broker": "FIDELITY",
+        "period_from": "2025-09-29T00:00:00Z",
+        "period_before": "2025-09-30T00:00:00Z",
+        "source": "Fidelity:web:archive",
+        "postings": [
+          {
+            "timestamp": "2025-09-29T00:00:00Z",
+            "instrument_description": "INTC - Intel Corp.",
+            "type": "BUYSTOCK",
+            "quantity": "10",
+            "trading_currency": "USD",
+            "unit_price": "22.5"
+          }
+        ]
+      }
+    ]
+  }
+}

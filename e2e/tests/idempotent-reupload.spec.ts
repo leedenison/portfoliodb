@@ -5,7 +5,7 @@ import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { isRecordingSuite } from "../helpers/vcr";
 import { waitForWorkersIdle } from "../helpers/workers";
-import { uploadCSVAndWait } from "../helpers/upload";
+import { uploadArchiveAndWait } from "../helpers/upload";
 
 test.beforeAll(async () => {
   await loadCassette("idempotent-reupload");
@@ -25,7 +25,7 @@ test.describe("idempotent bulk re-upload", () => {
     sessionId = await seedSession("user");
   });
 
-  test("re-uploading same CSV does not double-count holdings", async ({
+  test("re-uploading the same document does not double-count holdings", async ({
     context,
     page,
     browser,
@@ -34,7 +34,7 @@ test.describe("idempotent bulk re-upload", () => {
     await injectSession(context, sessionId);
 
     // First upload: AAPL 10, MSFT 5, GOOGL 20.
-    await uploadCSVAndWait(page, browser, "standard-3-stocks.csv", {
+    await uploadArchiveAndWait(page, browser, "standard-3-stocks.json", {
       expectedPostingCount: 3,
     });
 
@@ -51,8 +51,8 @@ test.describe("idempotent bulk re-upload", () => {
     await expect(table).toContainText("GOOGL");
     await expect(table).toContainText("20");
 
-    // Second upload: exact same CSV. Should replace, not append.
-    await uploadCSVAndWait(page, browser, "standard-3-stocks.csv", {
+    // Second upload: exactly the same document. Should replace, not append.
+    await uploadArchiveAndWait(page, browser, "standard-3-stocks.json", {
       expectedPostingCount: 3,
     });
 
@@ -76,7 +76,7 @@ test.describe("idempotent bulk re-upload", () => {
     await injectSession(context, sessionId);
 
     // Third upload: AAPL 15, MSFT 5, AMZN 8 (GOOGL removed).
-    await uploadCSVAndWait(page, browser, "reupload-modified.csv", {
+    await uploadArchiveAndWait(page, browser, "reupload-modified.json", {
       expectedPostingCount: 3,
     });
 

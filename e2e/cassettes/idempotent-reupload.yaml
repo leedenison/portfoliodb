@@ -8,7 +8,7 @@ interactions:
         proto_minor: 1
         content_length: 940
         host: api.openai.com
-        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: 06ed581b\ntype: STOCK\nDescription: AAPL - Apple Inc.\n\nid: 507aa11e\ntype: STOCK\nDescription: MSFT - Microsoft Corp.\n\nid: 17cb8608\ntype: STOCK\nDescription: GOOGL - Alphabet Inc.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
+        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: e8b4101c\ntype: STOCK\nDescription: AAPL - Apple Inc.\n\nid: ecbbc320\ntype: STOCK\nDescription: MSFT - Microsoft Corp.\n\nid: b2465732\ntype: STOCK\nDescription: GOOGL - Alphabet Inc.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
         headers:
             Authorization:
                 - Bearer REDACTED
@@ -33,7 +33,7 @@ interactions:
                   "index": 0,
                   "message": {
                     "role": "assistant",
-                    "content": "{\n  \"06ed581b\": {\n    \"TICKER\": \"AAPL\"\n  },\n  \"507aa11e\": {\n    \"TICKER\": \"MSFT\"\n  },\n  \"17cb8608\": {\n    \"TICKER\": \"GOOGL\"\n  }\n}",
+                    "content": "{\n  \"e8b4101c\": {\n    \"TICKER\": \"AAPL\"\n  },\n  \"ecbbc320\": {\n    \"TICKER\": \"MSFT\"\n  },\n  \"b2465732\": {\n    \"TICKER\": \"GOOGL\"\n  }\n}",
                     "refusal": null,
                     "annotations": []
                   },
@@ -604,7 +604,7 @@ interactions:
         proto_minor: 1
         content_length: 940
         host: api.openai.com
-        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: 06ed581b\ntype: STOCK\nDescription: AAPL - Apple Inc.\n\nid: 507aa11e\ntype: STOCK\nDescription: MSFT - Microsoft Corp.\n\nid: 17cb8608\ntype: STOCK\nDescription: GOOGL - Alphabet Inc.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
+        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: e8b4101c\ntype: STOCK\nDescription: AAPL - Apple Inc.\n\nid: ecbbc320\ntype: STOCK\nDescription: MSFT - Microsoft Corp.\n\nid: b2465732\ntype: STOCK\nDescription: GOOGL - Alphabet Inc.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
         headers:
             Authorization:
                 - Bearer REDACTED
@@ -629,7 +629,7 @@ interactions:
                   "index": 0,
                   "message": {
                     "role": "assistant",
-                    "content": "{ \"06ed581b\": { \"TICKER\": \"AAPL\" }, \"507aa11e\": { \"TICKER\": \"MSFT\" }, \"17cb8608\": { \"TICKER\": \"GOOGL\" } }",
+                    "content": "{ \"e8b4101c\": { \"TICKER\": \"AAPL\" }, \"ecbbc320\": { \"TICKER\": \"MSFT\" }, \"b2465732\": { \"TICKER\": \"GOOGL\" } }",
                     "refusal": null,
                     "annotations": []
                   },
@@ -819,7 +819,7 @@ interactions:
         proto_minor: 1
         content_length: 941
         host: api.openai.com
-        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: 06ed581b\ntype: STOCK\nDescription: AAPL - Apple Inc.\n\nid: 507aa11e\ntype: STOCK\nDescription: MSFT - Microsoft Corp.\n\nid: da74b617\ntype: STOCK\nDescription: AMZN - Amazon.com Inc.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
+        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: e8b4101c\ntype: STOCK\nDescription: AAPL - Apple Inc.\n\nid: ecbbc320\ntype: STOCK\nDescription: MSFT - Microsoft Corp.\n\nid: 2d3ac65c\ntype: STOCK\nDescription: AMZN - Amazon.com Inc.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
         headers:
             Authorization:
                 - Bearer REDACTED
@@ -844,7 +844,7 @@ interactions:
                   "index": 0,
                   "message": {
                     "role": "assistant",
-                    "content": "{\n  \"06ed581b\": {\n    \"TICKER\": \"AAPL\"\n  },\n  \"507aa11e\": {\n    \"TICKER\": \"MSFT\"\n  },\n  \"da74b617\": {\n    \"TICKER\": \"AMZN\"\n  }\n}",
+                    "content": "{\n  \"e8b4101c\": {\n    \"TICKER\": \"AAPL\"\n  },\n  \"ecbbc320\": {\n    \"TICKER\": \"MSFT\"\n  },\n  \"2d3ac65c\": {\n    \"TICKER\": \"AMZN\"\n  }\n}",
                     "refusal": null,
                     "annotations": []
                   },

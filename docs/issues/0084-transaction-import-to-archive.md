@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Move transaction import to the archive schema
 milestone: M14
 dependencies: [0078]
@@ -72,3 +72,32 @@ alias and is affected by whatever they return, so it moves with them.
 The broker-file upload UI is unaffected: converters still read Fidelity CSV,
 IBKR OFX and Schwab CSV, which are the brokers' own formats. Only the standard
 format in between is replaced.
+
+Closed. Transactions travel in the archive schema in both directions, the
+standard CSV is gone with `docs/spec/csv-format.md`, and every e2e fixture is an
+archive document. Four things settled here.
+
+The transaction part flattened first, under
+adr/0043-grouping-does-not-travel-in-the-archive.md, which resolved the conflict
+between this issue's original design, 0096 and adr/0041 over whether postings
+nest inside groups. They do not, in either direction, and `group_ref` survives on
+the posting until 0098.
+
+`UpsertTxsRequest` became a `TxWindow` plus a filename, so the broker upload and
+the archive import meet at `windowTxs` rather than each assembling their own
+`ingestBatch` call.
+
+The upload modal's Standard format became the archive document, read with the
+codec the archive page already uses. A file stating more than one window, or
+carrying a part other than transactions, is refused with a pointer to that page:
+this path replaces one broker's period and has nowhere to put the rest.
+
+The e2e cassettes had to move with the fixtures. A description-extraction batch
+id is a hash of the source and the description, and the fixtures' source changed
+with the format, so every recorded response key was rewritten to match. Eight
+suites were affected and two failed loudly; the other six would have degraded
+quietly, resolving by broker description instead of by extracted ticker.
+
+The converters in `local/scripts/` still write the retired columns. They live
+outside the repository and are the one downstream piece this issue does not
+carry.

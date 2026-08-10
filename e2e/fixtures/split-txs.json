@@ -1,0 +1,64 @@
+{
+  "envelope": {
+    "format_version": 1,
+    "exported_at": "2026-08-01T00:00:00Z",
+    "source_instance": "e2e-fixture",
+    "kind": "USER"
+  },
+  "txs": {
+    "windows": [
+      {
+        "broker": "FIDELITY",
+        "period_from": "2024-06-15T00:00:00Z",
+        "period_before": "2024-09-16T00:00:00Z",
+        "source": "Fidelity:web:archive",
+        "postings": [
+          {
+            "timestamp": "2024-06-15T00:00:00Z",
+            "instrument_description": "AAPL - Apple Inc.",
+            "type": "BUYSTOCK",
+            "quantity": "25",
+            "trading_currency": "USD",
+            "unit_price": "190",
+            "identifier_hints": [
+              {
+                "type": "MIC_TICKER",
+                "value": "AAPL",
+                "domain": "XNAS"
+              }
+            ]
+          },
+          {
+            "timestamp": "2024-09-15T00:00:00Z",
+            "instrument_description": "AAPL - Apple Inc.",
+            "type": "BUYSTOCK",
+            "quantity": "50",
+            "trading_currency": "USD",
+            "unit_price": "55",
+            "identifier_hints": [
+              {
+                "type": "MIC_TICKER",
+                "value": "AAPL",
+                "domain": "XNAS"
+              }
+            ]
+          },
+          {
+            "timestamp": "2024-06-15T00:00:00Z",
+            "instrument_description": "AAPL 250117C00760000",
+            "type": "BUYOPT",
+            "quantity": "1",
+            "trading_currency": "USD",
+            "unit_price": "15",
+            "identifier_hints": [
+              {
+                "type": "OCC",
+                "value": "AAPL250117C00760000"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

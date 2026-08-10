@@ -40,7 +40,7 @@ balances against its cash row and there is no residual for a gain to occupy. See
 
 A lot is opened or augmented by a `USER` posting whose quantity has the **same
 sign as the running position**, and reduced by one whose sign opposes it.
-Quantities are signed with no type-based sign flip (docs/spec/csv-format.md,
+Quantities are signed with no type-based sign flip (docs/spec/archive-format.md,
 adr/0020-double-entry-postings.md), so the rule needs no enumeration over the 24
 `TxType` values and covers `REINVEST`, `CLOSUREOPT`, inbound transfers, pads and
 short positions alike. A classification over tx types would also get a `BUY`

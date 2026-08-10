@@ -42,7 +42,7 @@ test.describe("fetch block full flow", () => {
     test.setTimeout(TIMEOUT_SLOW);
     await injectSession(context, userSessionId);
 
-    // Upload CSV to trigger ingestion -> identification -> price fetch (403).
+    // Upload to trigger ingestion -> identification -> price fetch (403).
     await page.goto("/uploads");
     await expect(
       page.locator("[data-testid='page-uploads']")
@@ -56,10 +56,10 @@ test.describe("fetch block full flow", () => {
     // Step 1: broker pre-selected, click Next.
     await page.getByRole("button", { name: "Next" }).click();
 
-    // Step 2: set the CSV file.
+    // Step 2: set the archive file.
     const fileInput = page.locator("#upload-file");
     await fileInput.setInputFiles(
-      path.resolve(__dirname, "../fixtures/fetch-blocks-stocks.csv")
+      path.resolve(__dirname, "../fixtures/fetch-blocks-stocks.json")
     );
 
     await expect(

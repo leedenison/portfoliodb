@@ -8,7 +8,7 @@ interactions:
         proto_minor: 1
         content_length: 809
         host: api.openai.com
-        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: 06ed581b\ntype: STOCK\nDescription: AAPL - Apple Inc.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
+        body: '{"max_completion_tokens":4000,"messages":[{"content":"Here is a list of broker instrument descriptions. Each has an id (short hash) and a type (security type). Return a JSON object whose keys are exactly those ids and whose values are objects. If type is \"OPTION\", extract and return the OCC symbol (21-character standard option symbol) in \"OCC\". Otherwise extract and return the primary exchange ticker in \"TICKER\". You must quote each id in the response. If you cannot identify a security, use an empty object for that id. Do not include any other text. Example: { \"a1b2c3d4\": { \"TICKER\": \"AAPL\" }, \"e5f6g7h8\": { \"OCC\": \"AAPL250117C00150000\" } }","role":"system"},{"content":"id: e8b4101c\ntype: STOCK\nDescription: AAPL - Apple Inc.","role":"user"}],"model":"gpt-4o-mini","temperature":0}'
         headers:
             Authorization:
                 - Bearer REDACTED
@@ -33,7 +33,7 @@ interactions:
                   "index": 0,
                   "message": {
                     "role": "assistant",
-                    "content": "{ \"06ed581b\": { \"TICKER\": \"AAPL\" } }",
+                    "content": "{ \"e8b4101c\": { \"TICKER\": \"AAPL\" } }",
                     "refusal": null,
                     "annotations": []
                   },

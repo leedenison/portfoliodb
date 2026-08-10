@@ -10,17 +10,23 @@ import (
 // HintsFromTx builds resolution hints from a transaction. Only trading_currency
 // is passed as the currency hint to plugins (never settlement_currency). The
 // security type hint is the asset class the source stated, and empty when it
-// made no claim -- an empty hint constrains nothing, so a hintless row is
-// offered to every plugin.
+// made no claim.
+//
+// The instrument kind defaults to SECURITY rather than to "anything": a row is
+// routed to the cash plugins only when its source stated CASH. An unstated hint
+// left both gates open, and the cash plugin then resolved an unidentifiable
+// security to its trading currency -- deleting a holding and putting money in
+// its place silently, which is the wrong direction to fail in. Every converter
+// states CASH on its money rows, so the row that loses cash routing here is one
+// no converter produces.
 func HintsFromTx(tx *apiv1.Tx) identifier.Hints {
 	if tx == nil {
 		return identifier.Hints{}
 	}
 	hint := ""
-	kind := ""
+	kind := db.InstrumentKindSecurity
 	if ac := tx.GetAssetClassHint(); ac != typev1.AssetClass_ASSET_CLASS_UNSPECIFIED {
 		hint = db.AssetClassToStr(ac)
-		kind = db.InstrumentKindSecurity
 		if ac == typev1.AssetClass_CASH {
 			kind = db.InstrumentKindCash
 		}

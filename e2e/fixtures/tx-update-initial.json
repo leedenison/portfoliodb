@@ -17,6 +17,7 @@
             "timestamp": "2025-09-29T00:00:00Z",
             "instrument_description": "INTC - Intel Corp.",
             "broker_tx_type": ["TRADE_ASSET"],
+            "asset_class_hint": "STOCK",
             "quantity": "10",
             "trading_currency": "USD",
             "unit_price": "22.5"

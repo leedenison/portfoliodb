@@ -19,8 +19,9 @@ func TestHintsFromTx_AssetClassHint(t *testing.T) {
 		{"stated STOCK", typev1.AssetClass_STOCK, identifier.SecurityTypeHintStock, db.InstrumentKindSecurity},
 		{"stated OPTION", typev1.AssetClass_OPTION, identifier.SecurityTypeHintOption, db.InstrumentKindSecurity},
 		{"stated UNKNOWN is a security of unstated class", typev1.AssetClass_UNKNOWN, identifier.SecurityTypeHintUnknown, db.InstrumentKindSecurity},
-		// No claim constrains nothing: the row is offered to every plugin.
-		{"unset states no claim", typev1.AssetClass_ASSET_CLASS_UNSPECIFIED, "", ""},
+		// No claim leaves the class unconstrained but still routes as a
+		// security: cash plugins run only for a stated CASH.
+		{"unset states no claim", typev1.AssetClass_ASSET_CLASS_UNSPECIFIED, "", db.InstrumentKindSecurity},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

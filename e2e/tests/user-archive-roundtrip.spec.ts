@@ -243,8 +243,8 @@ test.describe("user archive page", () => {
     // Every posting back, in three groups, with no residual routed on top: the
     // groups the file carried already balanced.
     const restored = (await rawQuery(
-      `SELECT t.instrument_description, t.tx_type, t.quantity, t.unit_price, t.account_type,
-              t.weight, t.weight_commodity, t.group_id
+      `SELECT t.instrument_description, t.broker_tx_type, t.resolved_tx_type, t.quantity,
+              t.unit_price, t.account_type, t.weight, t.weight_commodity, t.group_id
        FROM txs t WHERE t.user_id = $1 ORDER BY t.timestamp, t.account_type`,
       [TEST_USER_ID],
     )) as {

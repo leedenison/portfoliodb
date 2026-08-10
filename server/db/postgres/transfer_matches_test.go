@@ -53,12 +53,12 @@ func transferFixture(t *testing.T, p *Postgres, userID, instID string) (from, to
 	}
 	side := func(account, qty, ref, counterparty string) []*apiv1.Tx {
 		return []*apiv1.Tx{
-			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: typev1.TxType_TRANSFER,
+			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
 				Quantity: qty, Account: account, GroupRef: ref,
 				Correlations: fidelityCorrelations(t, ref, counterparty)},
 			// The clearing counterparty, equal and opposite, as routing writes it:
 			// no reference of its own, because it was transcribed from no row.
-			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", Type: typev1.TxType_TRANSFER,
+			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
 				Quantity: negate(t, qty), Account: account, GroupRef: ref,
 				AccountType: typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING},
 		}

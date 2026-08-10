@@ -342,25 +342,31 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 			// reason to agree; letting the trigger decide also left the basis behind
 			// whenever a recalculation moved the timestamp. It is in the DO UPDATE
 			// list so both legs keep the same denomination as the declaration moves.
+			// The type is the constant TRANSFER_EXTERNAL: a pad brings value in
+			// from outside the user's holdings, which is that value's definition,
+			// and its counter leg is already EQUITY. synthetic_purpose is what
+			// marks it as a pad.
 			if _, err := exec.ExecContext(ctx, `
 				INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
-				                 tx_type, quantity, instrument_id, synthetic_purpose,
-				                 account_type, weight, weight_commodity, share_count_basis, group_id)
-				SELECT $1, $2, $3, $4, 'INITIALIZE', $7, $5, $6, 'INITIALIZE', $8, $5,
+				                 broker_tx_type, resolved_tx_type, quantity, instrument_id,
+				                 synthetic_purpose, account_type, weight, weight_commodity,
+				                 share_count_basis, group_id)
+				SELECT $1, $2, $3, $4, 'INITIALIZE',
+				       ARRAY['TRANSFER_EXTERNAL'], 'TRANSFER_EXTERNAL', $5, $6,
+				       'INITIALIZE', $7, $5,
 				       CASE WHEN i.asset_class = 'CASH' AND i.currency IS NOT NULL
 				            THEN 'cur:' || upper(i.currency)
 				            ELSE 'inst:' || i.id::text END,
-				       $9, $10
+				       $8, $9
 				FROM instruments i WHERE i.id = $6
 				ON CONFLICT (user_id, broker, account, instrument_id, account_type)
 				  WHERE synthetic_purpose = 'INITIALIZE'
 				DO UPDATE SET timestamp = EXCLUDED.timestamp,
 				              quantity = EXCLUDED.quantity,
-				              tx_type = EXCLUDED.tx_type,
 				              weight = EXCLUDED.weight,
 				              weight_commodity = EXCLUDED.weight_commodity,
 				              share_count_basis = EXCLUDED.share_count_basis
-			`, userUUID, broker, account, init.Timestamp, leg.quantity, instUUID, init.TxType, leg.accountType, init.ShareCountBasis, groupID); err != nil {
+			`, userUUID, broker, account, init.Timestamp, leg.quantity, instUUID, leg.accountType, init.ShareCountBasis, groupID); err != nil {
 				return fmt.Errorf("upsert initialize %s posting: %w", leg.accountType, err)
 			}
 		}

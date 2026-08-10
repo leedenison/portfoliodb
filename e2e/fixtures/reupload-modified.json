@@ -16,7 +16,7 @@
           {
             "timestamp": "2024-01-15T00:00:00Z",
             "instrument_description": "AAPL - Apple Inc.",
-            "type": "BUYSTOCK",
+            "broker_tx_type": ["TRADE_ASSET"],
             "quantity": "15",
             "trading_currency": "USD",
             "unit_price": "185.5"
@@ -24,7 +24,7 @@
           {
             "timestamp": "2024-01-16T00:00:00Z",
             "instrument_description": "MSFT - Microsoft Corp.",
-            "type": "BUYSTOCK",
+            "broker_tx_type": ["TRADE_ASSET"],
             "quantity": "5",
             "trading_currency": "USD",
             "unit_price": "398.2"
@@ -32,7 +32,7 @@
           {
             "timestamp": "2024-01-17T00:00:00Z",
             "instrument_description": "AMZN - Amazon.com Inc.",
-            "type": "BUYSTOCK",
+            "broker_tx_type": ["TRADE_ASSET"],
             "quantity": "8",
             "trading_currency": "USD",
             "unit_price": "170"

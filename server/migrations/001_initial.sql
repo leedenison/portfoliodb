@@ -579,7 +579,7 @@ CREATE UNIQUE INDEX idx_txs_initialize_unique
 -- same for a transfer in either direction.
 --
 -- Keyed per (group, commodity) rather than per group, which is what the two unique
--- indexes say. Balancing emits one residual per commodity, so an unpaired JRNLSEC group
+-- indexes say. Balancing emits one residual per commodity, so an unpaired security transfer group
 -- can have a security side and a cash side in flight independently and each pairs with
 -- a different group. instrument_id moves with an instrument merge, alongside
 -- txs.instrument_id.

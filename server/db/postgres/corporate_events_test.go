@@ -561,7 +561,8 @@ func TestRecomputeSplitAdjustments_Txs(t *testing.T) {
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
 		{
-			Type:                  typev1.TxType_BUYSTOCK,
+			BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
+			ResolvedTxType:        typev1.TxType_TRADE_ASSET,
 			Timestamp:             ts(2010, 6, 1),
 			Quantity:              "100",
 			UnitPrice:             proto.String("280"),
@@ -717,7 +718,8 @@ func TestRecomputeSplitAdjustments_ForwardSplitIsExact(t *testing.T) {
 	instID := setupInstrument(t, p, "AAPL")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{{
-		Type:                  typev1.TxType_BUYSTOCK,
+		BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
+		ResolvedTxType:        typev1.TxType_TRADE_ASSET,
 		Timestamp:             ts(2010, 6, 1),
 		Quantity:              "100",
 		UnitPrice:             proto.String("280"),
@@ -763,7 +765,8 @@ func TestRecomputeSplitAdjustments_ReverseSplitRoundsToDeclaredScale(t *testing.
 	instID := setupInstrument(t, p, "RVRS")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{{
-		Type:                  typev1.TxType_BUYSTOCK,
+		BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
+		ResolvedTxType:        typev1.TxType_TRADE_ASSET,
 		Timestamp:             ts(2020, 1, 2),
 		Quantity:              "100",
 		UnitPrice:             proto.String("280"),
@@ -999,7 +1002,8 @@ func TestApplyOptionSplit(t *testing.T) {
 	// something to adjust.
 	userID := setupUser(t, p)
 	insertTxs(t, p, userID, optID, []*apiv1.Tx{{
-		Type:                  typev1.TxType_BUYSTOCK,
+		BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
+		ResolvedTxType:        typev1.TxType_TRADE_ASSET,
 		Timestamp:             ts(2024, 6, 1),
 		Quantity:              "1",
 		UnitPrice:             proto.String("150"),
@@ -1398,8 +1402,9 @@ func insertTxWithBasis(t *testing.T, p *Postgres, userID, instID string, ts time
 	var id string
 	err := p.q.QueryRowContext(context.Background(), `
 		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
-			tx_type, quantity, instrument_id, share_count_basis, weight, weight_commodity, group_id)
-		VALUES ($1::uuid, 'IBKR', '', $2, 'AAPL', 'BUYSTOCK', $3, $4::uuid, $5::date,
+			broker_tx_type, resolved_tx_type, quantity, instrument_id, share_count_basis,
+			weight, weight_commodity, group_id)
+		VALUES ($1::uuid, 'IBKR', '', $2, 'AAPL', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', $3, $4::uuid, $5::date,
 			$3, 'inst:' || $4, $6::uuid)
 		RETURNING id
 	`, userID, ts, qty, instID, basis, newTxGroup(t, p, userID)).Scan(&id)

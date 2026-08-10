@@ -1,7 +1,8 @@
 import { Big } from "@/lib/decimal";
 import { describe, it, expect } from "vitest";
 import { parseOfxStatement, parseOfxDate } from "./parser";
-import { AccountType, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
+import { AccountType, AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
+import { mustBe } from "@/lib/tx-type";
 import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 
 describe("parseOfxDate", () => {
@@ -147,7 +148,8 @@ describe("parseOfxStatement", () => {
     expect(result.postings.length).toBe(2); // security tx + cashflow
 
     const tx = result.postings[0]!;
-    expect(tx.type).toBe(TxType.BUYSTOCK);
+    expect(tx.brokerTxType).toEqual([TxType.TRADE_ASSET]);
+    expect(tx.assetClassHint).toBe(AssetClass.STOCK);
     expect(tx.quantity).toBe("20");
     expect(tx.unitPrice).toBe("156.55");
     expect(tx.tradingCurrency).toBe("USD");
@@ -158,7 +160,8 @@ describe("parseOfxStatement", () => {
     expect(tx.identifierHints[0]!.value).toBe("023135106");
 
     const cf = result.postings[1]!;
-    expect(cf.type).toBe(TxType.CASHFLOW);
+    expect(cf.brokerTxType).toEqual([TxType.TRADE_CASH]);
+    expect(cf.assetClassHint).toBe(AssetClass.CASH);
     expect(cf.quantity).toBe("-3131");
     expect(cf.unitPrice).toBe("1");
     expect(cf.tradingCurrency).toBe("USD");
@@ -177,14 +180,14 @@ describe("parseOfxStatement", () => {
     expect(result.postings.length).toBe(2); // security tx + cashflow
 
     const tx = result.postings[0]!;
-    expect(tx.type).toBe(TxType.SELLSTOCK);
+    expect(tx.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     expect(tx.quantity).toBe("-1230");
     expect(tx.instrumentDescription).toBe("SGLN ISHARES PHYSICAL GOLD ETC");
     expect(tx.identifierHints[0]!.type).toBe(IdentifierType.ISIN);
     expect(tx.identifierHints[0]!.value).toBe("IE00B4ND3602");
 
     const cf = result.postings[1]!;
-    expect(cf.type).toBe(TxType.CASHFLOW);
+    expect(cf.brokerTxType).toEqual([TxType.TRADE_CASH]);
     expect(cf.quantity).toBe("85939");
     expect(cf.unitPrice).toBe("1");
   });
@@ -195,7 +198,7 @@ describe("parseOfxStatement", () => {
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
     // 2 security txs + 2 cashflow txs = 4
-    const buys = result.postings.filter((t) => t.type === TxType.BUYSTOCK);
+    const buys = result.postings.filter((t) => mustBe(t.brokerTxType, TxType.TRADE_ASSET));
     expect(buys.length).toBe(2);
     expect(buys[0]!.quantity).toBe("10");
     expect(buys[1]!.quantity).toBe("20");
@@ -206,10 +209,12 @@ describe("parseOfxStatement", () => {
     const ofx = buildOfx({ transactions: txs });
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
-    // 2 security txs + 2 cashflow txs = 4
-    expect(result.postings.some((t) => t.type === TxType.BUYSTOCK)).toBe(true);
-    expect(result.postings.some((t) => t.type === TxType.SELLSTOCK)).toBe(true);
-    expect(result.postings.filter((t) => t.type === TxType.CASHFLOW).length).toBe(2);
+    // 2 security txs + 2 cashflow txs = 4. The direction is the quantity's
+    // sign now rather than a type of its own.
+    const assets = result.postings.filter((t) => mustBe(t.brokerTxType, TxType.TRADE_ASSET));
+    expect(assets.some((t) => new Big(t.quantity).gt(0))).toBe(true);
+    expect(assets.some((t) => new Big(t.quantity).lt(0))).toBe(true);
+    expect(result.postings.filter((t) => mustBe(t.brokerTxType, TxType.TRADE_CASH)).length).toBe(2);
   });
 
   it("parses INCOME with TOTAL as quantity and price=1", () => {

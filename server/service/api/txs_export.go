@@ -103,7 +103,8 @@ func posting(r db.ExportPosting) *archivev1.Posting {
 		Timestamp:             timestamppb.New(r.Timestamp),
 		Account:               r.Account,
 		AccountType:           db.StrToAccountType(r.AccountType),
-		Type:                  db.StrToTxType(r.TxType),
+		BrokerTxType:          db.StrsToTxTypes(r.BrokerTxTypes),
+		AssetClassHint:        db.StrToAssetClass(r.AssetClassHint),
 		InstrumentDescription: r.Description,
 		Quantity:              r.Quantity.String(),
 	}

@@ -45,29 +45,29 @@ func TestListResidualBalances_Success(t *testing.T) {
 	newest := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
 	db.EXPECT().ListResidualBalances(gomock.Any(), gomock.Any()).Return([]dbpkg.ResidualBalance{
 		{
-			AccountType:  typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
-			Broker:       typev1.Broker_FIDELITY,
-			Account:      "X123",
-			InstrumentID: "inst-1",
-			Commodity:    "USD",
-			AssetClass:   "CASH",
-			TxType:       typev1.TxType_INCOME,
-			Balance:      decimal.RequireFromString("-1234.56"),
-			PostingCount: 7,
-			Oldest:       &oldest,
-			Newest:       &newest,
+			AccountType:    typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
+			Broker:         typev1.Broker_FIDELITY,
+			Account:        "X123",
+			InstrumentID:   "inst-1",
+			Commodity:      "USD",
+			AssetClass:     "CASH",
+			ResolvedTxType: typev1.TxType_INCOME,
+			Balance:        decimal.RequireFromString("-1234.56"),
+			PostingCount:   7,
+			Oldest:         &oldest,
+			Newest:         &newest,
 		},
 		{
 			// A transfer with no posting on the outstanding side reports no age.
-			AccountType:  typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
-			Broker:       typev1.Broker_IBKR,
-			Account:      "U9",
-			InstrumentID: "inst-2",
-			Commodity:    "AAPL",
-			AssetClass:   "STOCK",
-			TxType:       typev1.TxType_JRNLSEC,
-			Balance:      decimal.RequireFromString("50"),
-			PostingCount: 1,
+			AccountType:    typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
+			Broker:         typev1.Broker_IBKR,
+			Account:        "U9",
+			InstrumentID:   "inst-2",
+			Commodity:      "AAPL",
+			AssetClass:     "STOCK",
+			ResolvedTxType: typev1.TxType_TRANSFER,
+			Balance:        decimal.RequireFromString("50"),
+			PostingCount:   1,
 		},
 	}, nil)
 
@@ -95,8 +95,8 @@ func TestListResidualBalances_Success(t *testing.T) {
 	if got.GetAssetClass() != typev1.AssetClass_CASH {
 		t.Errorf("asset class = %v, want CASH", got.GetAssetClass())
 	}
-	if got.GetTxType() != typev1.TxType_INCOME {
-		t.Errorf("tx type = %v, want INCOME", got.GetTxType())
+	if got.GetResolvedTxType() != typev1.TxType_INCOME {
+		t.Errorf("resolved tx type = %v, want INCOME", got.GetResolvedTxType())
 	}
 	if got.GetBalance() != "-1234.56" {
 		t.Errorf("balance = %v, want -1234.56", got.GetBalance())

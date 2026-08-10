@@ -16,7 +16,7 @@
           {
             "timestamp": "2024-01-15T00:00:00Z",
             "instrument_description": "AAPL",
-            "type": "NOT_A_TX_TYPE",
+            "broker_tx_type": ["NOT_A_TX_TYPE"],
             "quantity": "10"
           }
         ]

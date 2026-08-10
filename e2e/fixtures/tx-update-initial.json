@@ -16,7 +16,7 @@
           {
             "timestamp": "2025-09-29T00:00:00Z",
             "instrument_description": "INTC - Intel Corp.",
-            "type": "BUYSTOCK",
+            "broker_tx_type": ["TRADE_ASSET"],
             "quantity": "10",
             "trading_currency": "USD",
             "unit_price": "22.5"

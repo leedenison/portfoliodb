@@ -49,10 +49,11 @@ func balanceSeed(t *testing.T, p *Postgres, sub string) (string, string) {
 func insertRawPosting(t *testing.T, p *Postgres, userID, instID, groupID, qty, weight, commodity string) {
 	t.Helper()
 	_, err := p.q.ExecContext(context.Background(), `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
-		                 quantity, instrument_id, weight, weight_commodity, group_id)
-		VALUES ($1::uuid, 'IBKR', 'A', now(), 'USD', 'JRNLFUND', $2::numeric, $3::uuid,
-		        $4::numeric, $5, $6::uuid)
+		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+		                 broker_tx_type, resolved_tx_type, quantity, instrument_id, weight,
+		                 weight_commodity, group_id)
+		VALUES ($1::uuid, 'IBKR', 'A', now(), 'USD', ARRAY['TRANSFER'], 'TRANSFER', $2::numeric,
+		        $3::uuid, $4::numeric, $5, $6::uuid)
 	`, userID, qty, instID, weight, commodity, groupID)
 	if err != nil {
 		t.Fatalf("insert posting: %v", err)
@@ -195,9 +196,9 @@ func TestTxGroupBalance_SplitRecomputeIsNotAffected(t *testing.T) {
 	now := time.Now()
 	from, to := timestamppb.New(now.Add(-time.Hour)), timestamppb.New(now.Add(time.Hour))
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "SPLT", Type: typev1.TxType_BUYSTOCK,
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "SPLT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
 			Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD", GroupRef: "g1"},
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "USD", Type: typev1.TxType_BUYSTOCK,
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
 			Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD", GroupRef: "g1"},
 	}
 	ws := []db.Weight{{Amount: decf(1000), Commodity: "cur:USD"}, {Amount: decf(-1000), Commodity: "cur:USD"}}
@@ -228,7 +229,7 @@ func TestTxGroupBalance_SplitRecomputeIsNotAffected(t *testing.T) {
 // unbalanced.
 func TestTxGroupBalance_PartialPeriodDeleteIsBalanced(t *testing.T) {
 	p := testDBTx(t)
-	userID, usd, _, day2 := straddlingRun(t, p, "sub|balance-straddle", typev1.TxType_JRNLFUND, "5000")
+	userID, usd, _, day2 := straddlingRun(t, p, "sub|balance-straddle", typev1.TxType_TRANSFER, "5000")
 
 	replaceDay(t, p, userID, usd, day2, nil, nil)
 

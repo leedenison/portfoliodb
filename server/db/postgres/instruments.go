@@ -47,7 +47,7 @@ func mergeInstruments(ctx context.Context, exec queryable, survivor, mergedAway 
 	//
 	// This can in principle collide with idx_transfer_matches_from/_to, which are
 	// unique per (group, instrument): one group would have to hold matched
-	// residuals in both instruments being merged, which needs a JRNLSEC group whose
+	// residuals in both instruments being merged, which needs a security transfer group whose
 	// two securities turn out to be the same one. No converter emits that. It is
 	// left to fail the merge loudly rather than resolved with ON CONFLICT DO
 	// NOTHING, because silently dropping one of the two links would leave a side

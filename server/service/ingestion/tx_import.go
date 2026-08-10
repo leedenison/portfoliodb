@@ -133,11 +133,14 @@ func archiveTx(p *archivev1.Posting) *apiv1.Tx {
 	tx := &apiv1.Tx{
 		Timestamp:             p.GetTimestamp(),
 		InstrumentDescription: p.GetInstrumentDescription(),
-		Type:                  p.GetType(),
-		Quantity:              p.GetQuantity(),
-		Account:               p.GetAccount(),
-		AccountType:           p.GetAccountType(),
-		GroupRef:              p.GetGroupRef(),
+		// The declaration travels; the resolved value does not, and is
+		// re-derived by the ingest pipeline like any upload's.
+		BrokerTxType:   p.GetBrokerTxType(),
+		AssetClassHint: p.GetAssetClassHint(),
+		Quantity:       p.GetQuantity(),
+		Account:        p.GetAccount(),
+		AccountType:    p.GetAccountType(),
+		GroupRef:       p.GetGroupRef(),
 		// The archive message, so the evidence travels by reference rather than
 		// being copied field by field into a second declaration of itself.
 		Correlations:       p.GetCorrelations(),

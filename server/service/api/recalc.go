@@ -131,17 +131,7 @@ func recalcHoldingPad(ctx context.Context, database db.DB, decl *db.HoldingDecla
 	// superseded by it, and it is the outcome a checked declaration exists to
 	// report -- so the record stays and the pad is written as zero.
 	initQty := declaredQty.Sub(runningBalance)
-	var assetClass string
-	if inst := instByID[decl.InstrumentID]; inst != nil && inst.AssetClass != nil {
-		assetClass = *inst.AssetClass
-	} else if instByID == nil {
-		inst, err := database.GetInstrument(ctx, decl.InstrumentID)
-		if err == nil && inst != nil && inst.AssetClass != nil {
-			assetClass = *inst.AssetClass
-		}
-	}
 	return database.UpsertInitializeTx(ctx, decl.UserID, decl.Broker, decl.Account, decl.InstrumentID, db.InitializeTx{
-		TxType:          txTypeForAssetClass(assetClass, initQty),
 		Timestamp:       startDay,
 		Quantity:        initQty,
 		ShareCountBasis: decl.ShareCountBasis,

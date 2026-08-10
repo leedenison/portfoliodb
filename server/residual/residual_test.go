@@ -12,35 +12,58 @@ func TestType(t *testing.T) {
 		name      string
 		commodity string
 		amount    string
-		txTypes   []typev1.TxType
+		resolved  []typev1.TxType
 		want      typev1.AccountType
 	}{
 		{
 			name:      "missing cash leg",
 			commodity: "cur:USD",
 			amount:    "-1855",
-			txTypes:   []typev1.TxType{typev1.TxType_BUYSTOCK},
+			resolved:  []typev1.TxType{typev1.TxType_TRADE_ASSET},
 			want:      typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
 		},
 		{
 			name:      "one-sided journal",
 			commodity: "cur:USD",
 			amount:    "-500",
-			txTypes:   []typev1.TxType{typev1.TxType_JRNLFUND},
+			resolved:  []typev1.TxType{typev1.TxType_TRANSFER},
+			want:      typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
+		},
+		{
+			name:      "internal transfer routes to clearing",
+			commodity: "cur:USD",
+			amount:    "-500",
+			resolved:  []typev1.TxType{typev1.TxType_TRANSFER_INTERNAL},
+			want:      typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
+		},
+		{
+			name:      "external transfer routes to clearing",
+			commodity: "cur:USD",
+			amount:    "-500",
+			resolved:  []typev1.TxType{typev1.TxType_TRANSFER_EXTERNAL},
 			want:      typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
 		},
 		{
 			name:      "one transfer leg in a mixed group",
 			commodity: "cur:USD",
 			amount:    "-500",
-			txTypes:   []typev1.TxType{typev1.TxType_INVEXPENSE, typev1.TxType_TRANSFER},
+			resolved:  []typev1.TxType{typev1.TxType_EXPENSE, typev1.TxType_TRANSFER},
 			want:      typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
+		},
+		{
+			// A cross-branch declared set resolves to AMBIGUOUS, which is not a
+			// transfer under every reading, so its residual is a missing leg.
+			name:      "ambiguous resolution",
+			commodity: "cur:USD",
+			amount:    "-500",
+			resolved:  []typev1.TxType{typev1.TxType_AMBIGUOUS},
+			want:      typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
 		},
 		{
 			name:      "sub-cent difference",
 			commodity: "cur:USD",
 			amount:    "0.0028",
-			txTypes:   []typev1.TxType{typev1.TxType_BUYSTOCK},
+			resolved:  []typev1.TxType{typev1.TxType_TRADE_ASSET},
 			want:      typev1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING,
 		},
 		{
@@ -49,7 +72,7 @@ func TestType(t *testing.T) {
 			name:      "exactly at the money tolerance",
 			commodity: "cur:USD",
 			amount:    "0.005",
-			txTypes:   []typev1.TxType{typev1.TxType_BUYSTOCK},
+			resolved:  []typev1.TxType{typev1.TxType_TRADE_ASSET},
 			want:      typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
 		},
 		{
@@ -58,14 +81,14 @@ func TestType(t *testing.T) {
 			name:      "sub-cent difference on a journal",
 			commodity: "cur:USD",
 			amount:    "-0.001",
-			txTypes:   []typev1.TxType{typev1.TxType_JRNLSEC},
+			resolved:  []typev1.TxType{typev1.TxType_TRANSFER},
 			want:      typev1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING,
 		},
 		{
 			name:      "shares the source left out",
 			commodity: "inst:11111111-1111-1111-1111-111111111111",
 			amount:    "10",
-			txTypes:   []typev1.TxType{typev1.TxType_BUYSTOCK},
+			resolved:  []typev1.TxType{typev1.TxType_TRADE_ASSET},
 			want:      typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
 		},
 		{
@@ -74,14 +97,14 @@ func TestType(t *testing.T) {
 			name:      "fraction of a share",
 			commodity: "inst:11111111-1111-1111-1111-111111111111",
 			amount:    "0.001",
-			txTypes:   []typev1.TxType{typev1.TxType_BUYSTOCK},
+			resolved:  []typev1.TxType{typev1.TxType_TRADE_ASSET},
 			want:      typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
 		},
 		{
 			name:      "sub-tolerance quantity",
 			commodity: "inst:11111111-1111-1111-1111-111111111111",
 			amount:    "-0.0000001",
-			txTypes:   []typev1.TxType{typev1.TxType_JRNLSEC},
+			resolved:  []typev1.TxType{typev1.TxType_TRANSFER},
 			want:      typev1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING,
 		},
 		{
@@ -90,14 +113,14 @@ func TestType(t *testing.T) {
 			name:      "unresolved commodity",
 			commodity: "desc:MYSTERY HOLDING",
 			amount:    "0.001",
-			txTypes:   []typev1.TxType{typev1.TxType_CASHFLOW},
+			resolved:  []typev1.TxType{typev1.TxType_TRADE_CASH},
 			want:      typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := Type(tc.commodity, decimal.RequireFromString(tc.amount), tc.txTypes)
+			got := Type(tc.commodity, decimal.RequireFromString(tc.amount), tc.resolved)
 			if got != tc.want {
 				t.Fatalf("Type(%q, %s) = %v, want %v", tc.commodity, tc.amount, got, tc.want)
 			}

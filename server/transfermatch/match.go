@@ -114,7 +114,7 @@ func Match(sides []db.TransferSide, opts Opts) []db.TransferMatch {
 }
 
 // partition splits the sides into the sets a transfer can be found within. A transfer
-// never crosses a user, and never changes commodity: the two sides of a JRNLSEC are
+// never crosses a user, and never changes commodity: the two sides of a security transfer are
 // the same security and the two sides of a cash journal the same currency.
 //
 // Each partition is returned as a pair of index slices, departures first. A departure

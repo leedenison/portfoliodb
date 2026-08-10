@@ -53,7 +53,7 @@ test.describe("user archive page", () => {
     await setIgnoredAssetClasses(sessionId, [RULE]);
   });
 
-  // Three balanced groups under one broker: a priced BUYSTOCK and the EQUITY
+  // Three balanced groups under one broker: a priced TRADE_ASSET and the EQUITY
   // counterparty that makes it sum to zero.
   test.beforeAll(async () => {
     await seedFixture("user-archive-txs.sql");

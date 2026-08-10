@@ -12,10 +12,11 @@ import { startOfNextDay } from "@/lib/dates";
 import type { Correlation, Posting } from "@/gen/archive/v1/txs_pb";
 import { CorrelationSchema, PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
-import { IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
+import { AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/parse-result";
 import { parseCSVLine } from "@/lib/csv/line";
-import { counterLegs, currencyHint } from "@/lib/csv/postings";
+import { counterLegs, currencyHint, refPrefix, reinvestIncomeLeg } from "@/lib/csv/postings";
+import { mayBe, mustBe } from "@/lib/tx-type";
 import { Big, parseDecimal } from "@/lib/decimal";
 
 const ZERO = new Big(0);
@@ -29,6 +30,17 @@ const MIC_BY_EXCHANGE: Record<string, string> = {
   LON: "XLON",
   ETR: "XETR",
   EPA: "XPAR",
+};
+
+/**
+ * The export's own asset column ("Type": CASH, ETF, STOCK, FUND) as a stated
+ * asset class hint. FUND is an unlisted mutual fund. The hint routes
+ * resolution; the canonical class still comes from the identifier plugins.
+ */
+const ASSET_CLASS_HINT: Record<string, AssetClass> = {
+  STOCK: AssetClass.STOCK,
+  ETF: AssetClass.ETF,
+  FUND: AssetClass.MUTUAL_FUND,
 };
 
 const FIDELITY_DATE_FORMAT = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/;
@@ -68,114 +80,84 @@ function parseFidelityDate(value: string): Date | null {
 }
 
 /**
- * Broker transaction type strings this converter understands. A row whose type
- * is absent here is reported as a parse error and not converted; callers that
+ * Broker transaction type strings this converter understands, each mapped to the
+ * candidate set the row declares -- the most specific claim the broker's own
+ * wording defends, a set where it defends more than one. A row whose type is
+ * absent here is reported as a parse error and not converted; callers that
  * upload regardless use this map to name the types they dropped.
  */
-export const FIDELITY_TYPE_TO_OFX: Record<string, TxType> = {
-  "Buy": TxType.BUYSTOCK,
-  "Sell": TxType.SELLSTOCK,
+export const FIDELITY_TYPE_TO_TYPES: Record<string, TxType[]> = {
+  "Buy": [TxType.TRADE_ASSET],
+  "Sell": [TxType.TRADE_ASSET],
   // Fidelity names a trade for the reason it happened. All of these are ordinary
   // trades that settle through a cash row of their own; only the reinvestment is
   // different, and it is different in kind rather than in name.
-  "Buy From Dividend": TxType.BUYSTOCK,
-  "Buy From Rebate": TxType.BUYSTOCK,
-  "Buy For Switch": TxType.BUYSTOCK,
-  "Sell For Switch": TxType.SELLSTOCK,
-  // The only trade in the sample exports with no cash row anywhere beside it: the
-  // income buys the units without ever arriving as money, which is what REINVEST
-  // means. Its income leg is derived, since the source reports none.
-  "Reinvestment From Income": TxType.REINVEST,
-  "Cash Interest": TxType.INCOME,
-  "Cash Dividend": TxType.INCOME,
-  "Income Received": TxType.INCOME,
-  "Rebate": TxType.INCOME,
+  "Buy From Dividend": [TxType.TRADE_ASSET],
+  "Buy From Rebate": [TxType.TRADE_ASSET],
+  "Buy For Switch": [TxType.TRADE_ASSET],
+  "Sell For Switch": [TxType.TRADE_ASSET],
+  // A compressed two-event group: the income buys the units without ever
+  // arriving as money. The row is the trade's asset leg, and the dividend it
+  // consumed is emitted beside it (see reinvestIncomeLeg), since the source
+  // reports no row for it.
+  "Reinvestment From Income": [TxType.TRADE_ASSET],
+  "Cash Interest": [TxType.INTEREST],
+  "Cash Dividend": [TxType.DIVIDEND],
+  "Income Received": [TxType.INCOME],
+  "Rebate": [TxType.INCOME],
   // A correction to interest already paid, and in the sample a credit of 0.02.
-  "Interest Adjustment": TxType.INCOME,
+  "Interest Adjustment": [TxType.INTEREST],
   // Reverses a withdrawal in the same account on the same day, so it is the same
   // kind of movement as the row it undoes.
-  "Adjustment": TxType.JRNLFUND,
-  "Tax On Interest": TxType.INVEXPENSE,
-  "Dealing Fee": TxType.INVEXPENSE,
-  "Service Fee": TxType.INVEXPENSE,
-  "Fx Charge": TxType.INVEXPENSE,
-  "PTM Levy": TxType.INVEXPENSE,
-  "Stamp Duty Or Financial Transaction Tax": TxType.INVEXPENSE,
-  "Withdrawal": TxType.JRNLFUND,
-  "Transfer To Cash Management Account For Fees": TxType.TRANSFER,
-  "Transfer To Cash Management Account": TxType.TRANSFER,
-  "Transfer Out From Cash Management Account": TxType.TRANSFER,
-  "Transfer Into Account": TxType.TRANSFER,
-  "Cash In Ring-fenced For Fees": TxType.TRANSFER,
-  // Money arriving from outside the account. `Cash In` also settles the sale side
-  // of a switch, which no type map can express: whether a row is a journal or a
-  // trade's cash leg shows in whether it paired, so a paired one is retyped after
-  // grouping. See asTradeCashLeg.
-  "Cash In": TxType.JRNLFUND,
-  "Cash In Lump Sum": TxType.JRNLFUND,
-  "Cash In For Transfer": TxType.JRNLFUND,
-  // The cash leg of a trade, not a journal: these pair 1:1 with their trade rows
-  // and settle inside the account. Typing them JRNLFUND made the whole trade
-  // group read as a transfer, so its residual was routed to TRANSFER_CLEARING
-  // rather than IMBALANCE and never reached the report that measures converter
-  // lossiness. The types above keep JRNLFUND because their other side really is
-  // outside the account.
-  "Cash In From Sell": TxType.CASHFLOW,
-  "Cash Out": TxType.CASHFLOW,
-  "Cash Out For Buy": TxType.CASHFLOW,
-  "Cash Out For Buy From Transfer": TxType.CASHFLOW,
-  "Cash Out For Dividend Reinvestment": TxType.CASHFLOW,
+  "Adjustment": [TxType.TRANSFER],
+  // Neither basis, custody nor margin, so the branch node is the whole claim.
+  "Tax On Interest": [TxType.EXPENSE],
+  // Per-trade charges belong in cost basis; the service fee is a platform cost
+  // and does not. The leaves are cut by treatment, not by the broker's name.
+  "Dealing Fee": [TxType.TRANSACTION_COST],
+  "Service Fee": [TxType.HOLDING_COST],
+  "Fx Charge": [TxType.TRANSACTION_COST],
+  "PTM Levy": [TxType.TRANSACTION_COST],
+  "Stamp Duty Or Financial Transaction Tax": [TxType.TRANSACTION_COST],
+  "Withdrawal": [TxType.TRANSFER],
+  "Transfer To Cash Management Account For Fees": [TxType.TRANSFER],
+  "Transfer To Cash Management Account": [TxType.TRANSFER],
+  "Transfer Out From Cash Management Account": [TxType.TRANSFER],
+  "Transfer Into Account": [TxType.TRANSFER],
+  "Cash In Ring-fenced For Fees": [TxType.TRANSFER],
+  // Money arriving from outside the account -- except that `Cash In` also
+  // settles the sale side of a switch, and the broker's wording cannot tell the
+  // two apart. The set says exactly that: the row is a trade's cash leg or a
+  // transfer, and which one is grouping's to decide, not this map's.
+  "Cash In": [TxType.TRADE_CASH, TxType.TRANSFER],
+  "Cash In Lump Sum": [TxType.TRANSFER],
+  "Cash In For Transfer": [TxType.TRANSFER],
+  // The cash leg of a trade, not a transfer: these pair 1:1 with their trade
+  // rows and settle inside the account.
+  "Cash In From Sell": [TxType.TRADE_CASH],
+  "Cash Out": [TxType.TRADE_CASH],
+  "Cash Out For Buy": [TxType.TRADE_CASH],
+  "Cash Out For Buy From Transfer": [TxType.TRADE_CASH],
+  "Cash Out For Dividend Reinvestment": [TxType.TRADE_CASH],
 };
 
 /**
- * Types whose posting is money, so it carries a currency on both sides.
+ * Whether a declared set means the row's posting is money: the quantity is the
+ * amount that moved, the description is the currency, and the posting carries a
+ * currency on both sides.
  *
- * REINVEST is not one of them, though it names an income event: the posting is
- * the units the income bought, and the server weighs it at quantity times price
- * like any other security leg (transferTypes in
- * server/service/ingestion/balance.go). Reading its money total as a quantity
- * would post the dividend as a share count.
+ * Every row that cannot be a trade's asset leg is money in this export --
+ * income, charges, transfers and cash legs alike -- and a reinvestment is not,
+ * though it names an income event: the posting is the units the income bought,
+ * and reading its money total as a quantity would post the dividend as a share
+ * count.
  */
-export function isCashTxType(type: TxType): boolean {
-  return (
-    type === TxType.INCOME ||
-    type === TxType.INVEXPENSE ||
-    type === TxType.TRANSFER ||
-    type === TxType.MARGININTEREST ||
-    type === TxType.RETOFCAP ||
-    type === TxType.CASHFLOW
-  );
+export function isCashRow(types: readonly TxType[]): boolean {
+  return !mayBe(types, TxType.TRADE_ASSET);
 }
 
 /**
- * Types whose transacted item is cash rather than a security, so the transaction
- * quantity is the money that moved. JRNLFUND is included here but not in
- * isCashTxType, which governs the currency hint rather than the quantity.
- */
-export function isCashMovement(type: TxType): boolean {
-  return isCashTxType(type) || type === TxType.JRNLFUND;
-}
-
-/** Security sale types, whose quantity is a share count to be negated. */
-const SELL_TYPES = new Set<TxType>([
-  TxType.SELLSTOCK,
-  TxType.SELLMF,
-  TxType.SELLDEBT,
-  TxType.SELLOPT,
-  TxType.SELLOTHER,
-]);
-
-/** Security purchase types, the mirror of SELL_TYPES. */
-const BUY_TYPES = new Set<TxType>([
-  TxType.BUYSTOCK,
-  TxType.BUYMF,
-  TxType.BUYDEBT,
-  TxType.BUYOPT,
-  TxType.BUYOTHER,
-]);
-
-/**
- * The type a row carries once the asset it transacted is known.
+ * The declared set a row carries once the asset it transacted is known.
  *
  * Fidelity models an account's cash as a tradable asset, so money leaving an
  * account is reported as a sale of cash and money arriving as a purchase of it.
@@ -185,13 +167,13 @@ const BUY_TYPES = new Set<TxType>([
  *
  * They are cash movements, and they settle inside the account against the
  * `Cash In From Sell` or `Cash Out For Buy From Transfer` row Fidelity reports
- * beside them, so they are the same CASHFLOW as any other trade's cash leg. The
- * third row of the sequence -- a withdrawal or a transfer -- is the money that
- * actually moved, and it stands on its own.
+ * beside them, so they are the same TRADE_CASH as any other trade's cash leg.
+ * The third row of the sequence -- a withdrawal or a transfer -- is the money
+ * that actually moved, and it stands on its own.
  */
-export function typeForAsset(type: TxType, cashAsset: boolean): TxType {
-  if (!cashAsset) return type;
-  return BUY_TYPES.has(type) || SELL_TYPES.has(type) ? TxType.CASHFLOW : type;
+export function typeForAsset(types: TxType[], cashAsset: boolean): TxType[] {
+  if (!cashAsset) return types;
+  return mustBe(types, TxType.TRADE_ASSET) ? [TxType.TRADE_CASH] : types;
 }
 
 /**
@@ -254,7 +236,7 @@ const BUY_ROWS = ["Buy", "Buy From Dividend", "Buy From Rebate", "Buy For Switch
  * the subscription is credited, spent, and credited again as the money that
  * lands. No security is involved -- the `Cash Out For Buy` here has no `Buy`
  * anywhere beside it -- and the three are one event, so they belong in one group.
- * Left ungrouped they are three single-posting groups, two of them JRNLFUND, so
+ * Left ungrouped they are three single-posting groups, two of them transfers, so
  * the account reports twice the contribution it received and a residual the size
  * of the deposit lands in IMBALANCE.
  */
@@ -364,16 +346,9 @@ function cashLegType(leg: FidelityLeg): string {
   }
 }
 
-/** What assignFidelityGroups worked out about each leg, parallel to its input. */
-export interface FidelityGroups {
-  /** Group ref. An empty string means the leg is its own single-posting group. */
-  refs: string[];
-  /** Whether the leg was paired as a trade's cash leg. */
-  cashLegs: boolean[];
-}
-
 /**
- * Assigns a group_ref to each leg.
+ * Assigns a group_ref to each leg, returned parallel to the input; an empty
+ * string means the leg is its own single-posting group.
  *
  * Fidelity reports the cash side of a trade as a separate row, so the two legs are
  * paired here rather than a cash leg being derived, which would post the money
@@ -387,9 +362,8 @@ export interface FidelityGroups {
  * folding them in would misdate them, and their money is already accounted for by
  * their own rows.
  */
-export function assignFidelityGroups(legs: FidelityLeg[]): FidelityGroups {
+export function assignFidelityGroups(legs: FidelityLeg[]): string[] {
   const refs = legs.map(() => "");
-  const cashLegs = legs.map(() => false);
   // NUL separator, written as an escape so this file stays plain text. A Fidelity
   // date is "10 Feb 2022", so a separator a date could contain risks two different
   // (account, date) pairs collapsing onto one key.
@@ -415,7 +389,6 @@ export function assignFidelityGroups(legs: FidelityLeg[]): FidelityGroups {
     const ref = String(legs[securityIdx].ref);
     refs[securityIdx] = ref;
     refs[cashIdx] = ref;
-    cashLegs[cashIdx] = true;
   };
 
   // Both rules below match one broker-supplied total against another, so neither
@@ -502,33 +475,14 @@ export function assignFidelityGroups(legs: FidelityLeg[]): FidelityGroups {
     // A lump sum with no run is money paid in from outside -- the sample has
     // three, all into a cash management account -- and stands on its own.
     if (members.length === 0) continue;
-    // Only the group ref. None of these is a trade's cash leg, and the group
-    // needs to keep its JRNLFUND legs: they are what routes its residual to
+    // The lump sum's declared TRANSFER is what routes the group's residual to
     // TRANSFER_CLEARING, where the departure it answers is also waiting.
     const ref = String(legs[s].ref);
     refs[s] = ref;
     for (const m of members) refs[m] = ref;
   }
 
-  return { refs, cashLegs };
-}
-
-/**
- * Retypes a journal that turned out to be a trade's cash leg.
- *
- * `Cash In` is normally money arriving from outside the account, but a switch
- * settles its sale through the same row type, and no lookup on the broker's own
- * name can tell the two apart. Whether the row paired with a trade can: a leg
- * that did settles inside the account, which is what CASHFLOW says. Left as
- * JRNLFUND it would make the trade group read as a transfer, so the group's
- * residual would be routed to TRANSFER_CLEARING rather than IMBALANCE.
- */
-export function asTradeCashLeg(p: Posting, currency: string): void {
-  if (p.type !== TxType.JRNLFUND) return;
-  p.type = TxType.CASHFLOW;
-  // isCashTxType covers CASHFLOW but not JRNLFUND, so the currency the row was
-  // denied as a journal is owed to it as a cash leg.
-  if (currency) p.tradingCurrency = currency;
+  return refs;
 }
 
 export function convertFidelityToStandard(
@@ -633,8 +587,8 @@ export function convertFidelityToStandard(
     }
 
     const txTypeStr = get(txTypeCol);
-    const mappedType = txTypeStr ? FIDELITY_TYPE_TO_OFX[txTypeStr] : undefined;
-    if (mappedType === undefined) {
+    const mappedTypes = txTypeStr ? FIDELITY_TYPE_TO_TYPES[txTypeStr] : undefined;
+    if (mappedTypes === undefined) {
       errors.push({ rowIndex, field: "type", message: txTypeStr ? `Unknown transaction type: ${txTypeStr}` : "Missing transaction type" });
       continue;
     }
@@ -642,16 +596,15 @@ export function convertFidelityToStandard(
     const investments = get(investmentsCol);
     const assetClass = assetClassCol >= 0 ? get(assetClassCol) : "";
     const cashAsset = assetClass ? assetClass === "CASH" : investments === "Cash";
-    const ofxType = typeForAsset(mappedType, cashAsset);
+    const rowTypes = typeForAsset(mappedTypes, cashAsset);
+    const cashRow = isCashRow(rowTypes);
 
     // A cash posting is described by its currency, which is what resolves it to
     // the currency instrument rather than to a holding named after the broker's
     // wording. The export says "Cash" in the same column it names a security in,
     // so reading it through produced a security called Cash. See
     // docs/spec/archive-format.md.
-    const instrumentDescription = isCashMovement(ofxType)
-      ? currency
-      : investments || txTypeStr;
+    const instrumentDescription = cashRow ? currency : investments || txTypeStr;
     const account = accountCol >= 0 ? get(accountCol) : "";
     const qtyStr = get(qtyCol);
     const amountStr = amountCol >= 0 ? get(amountCol) : "";
@@ -659,14 +612,16 @@ export function convertFidelityToStandard(
 
     const rawQtyDec = parseDecimal(qtyStr);
     let quantity = rawQtyDec ?? ZERO;
-    if (isCashMovement(ofxType) && amountDec !== undefined) {
+    if (cashRow && amountDec !== undefined) {
       // Quantity is an unsigned magnitude: a fee and the interest that paid for
       // it both report a positive number, and the direction survives only in the
       // sign of Amount. Quantity is also 0 on some rows where money did move
       // (Tax On Interest reports 0 against an Amount of -0.20), so for cash the
       // transacted value is Amount itself rather than a sign-corrected Quantity.
       quantity = amountDec;
-    } else if (SELL_TYPES.has(ofxType)) {
+    } else if (SELL_ROWS.includes(txTypeStr)) {
+      // Direction lives in the sign of quantity now, and the export reports an
+      // unsigned share count, so a sale is negated by the broker's own wording.
       quantity = quantity.abs().times(-1);
     }
     const priceStr = priceCol >= 0 ? get(priceCol) : "";
@@ -679,7 +634,7 @@ export function convertFidelityToStandard(
     const symbol = symbolCol >= 0 ? get(symbolCol) : "";
     const exchange = exchangeCol >= 0 ? get(exchangeCol) : "";
     const listed = assetClass !== "FUND";
-    const identifierHints = isCashMovement(ofxType)
+    const identifierHints = cashRow
       ? currency
         ? [currencyHint(currency)]
         : []
@@ -728,11 +683,18 @@ export function convertFidelityToStandard(
       create(PostingSchema, {
         timestamp: timestampFromDate(date),
         instrumentDescription,
-        type: ofxType,
+        brokerTxType: rowTypes,
+        // A money row states CASH; a security row states what the export's own
+        // asset column says, and nothing when the column is absent.
+        ...(cashRow
+          ? { assetClassHint: AssetClass.CASH }
+          : ASSET_CLASS_HINT[assetClass]
+            ? { assetClassHint: ASSET_CLASS_HINT[assetClass] }
+            : {}),
         quantity: quantity.toString(),
         account,
         settlementCurrency: currency,
-        ...(isCashTxType(ofxType) ? { tradingCurrency: currency } : {}),
+        ...(cashRow ? { tradingCurrency: currency } : {}),
         // Presence, not truthiness: a reported price of zero is a price.
         ...(unitPriceDec !== undefined ? { unitPrice: unitPriceDec.toString() } : {}),
         ...(correlation ? { correlations: [correlation] } : {}),
@@ -741,14 +703,23 @@ export function convertFidelityToStandard(
     );
   }
 
-  const groups = assignFidelityGroups(legs);
-  groups.refs.forEach((ref, i) => {
+  const refs = assignFidelityGroups(legs);
+  refs.forEach((ref, i) => {
     if (ref) postings[i].groupRef = ref;
   });
-  groups.cashLegs.forEach((paired, i) => {
-    if (paired) asTradeCashLeg(postings[i], currency);
+  // After the refs are stamped, since legs is index-parallel with postings. A
+  // reinvestment is a compressed two-event group: the asset leg the source
+  // reported plus the dividend it consumed, which is derived here because no
+  // row exists for it. The pair needs a shared group for the money to balance
+  // the units.
+  const prefix = refPrefix(postings);
+  legs.forEach((leg, i) => {
+    if (leg.type !== "Reinvestment From Income") return;
+    const p = postings[i];
+    if (!p.groupRef) p.groupRef = `${prefix}${i}`;
+    const income = reinvestIncomeLeg(p);
+    if (income) postings.push(income);
   });
-  // After the refs are stamped, since that loop is index-parallel with legs.
   // Fidelity nets nothing into a trade total, so no fee is derived here: its
   // charges arrive as their own rows and only need the account they went to.
   postings.push(...counterLegs(postings));

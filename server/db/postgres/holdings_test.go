@@ -37,7 +37,7 @@ func TestComputeHoldings_instrumentNameOverTxDescription(t *testing.T) {
 	// An income transaction whose tx description is the source security, not
 	// the cash instrument name.
 	txs := []*apiv1.Tx{
-		{Timestamp: ts, InstrumentDescription: "MSFT MICROSOFT CORP", Type: typev1.TxType_INCOME, Quantity: "137.08", Account: ""},
+		{Timestamp: ts, InstrumentDescription: "MSFT MICROSOFT CORP", BrokerTxType: []typev1.TxType{typev1.TxType_INCOME}, ResolvedTxType: typev1.TxType_INCOME, Quantity: "137.08", Account: ""},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{cashID}, nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
@@ -69,7 +69,7 @@ func TestComputeHoldings_signedQuantity(t *testing.T) {
 	ts := timestamppb.New(now.Add(-30 * time.Minute))
 	// Only a sell with negative quantity: no buys. Net position should be -5.
 	txs := []*apiv1.Tx{
-		{Timestamp: ts, InstrumentDescription: "GOOG", Type: typev1.TxType_SELLSTOCK, Quantity: "-5", Account: ""},
+		{Timestamp: ts, InstrumentDescription: "GOOG", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-5", Account: ""},
 	}
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil, nil)
 	if err != nil {
@@ -120,7 +120,7 @@ func TestComputeHoldings_fractionalQuantitiesSumExactly(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		txs = append(txs, &apiv1.Tx{
 			Timestamp: at, InstrumentDescription: "FRAC",
-			Type: typev1.TxType_BUYSTOCK, Quantity: "0.1",
+			BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "0.1",
 		})
 		instIDs = append(instIDs, instID)
 	}
@@ -164,8 +164,8 @@ func TestComputeHoldings_excludesNonUserAccountTypes(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	txs := []*apiv1.Tx{
-		{Timestamp: ts, InstrumentDescription: "TSCO", Type: typev1.TxType_BUYSTOCK, Quantity: "40", Account: "A", GroupRef: "pad"},
-		{Timestamp: ts, InstrumentDescription: "TSCO", Type: typev1.TxType_BUYSTOCK, Quantity: "-40", Account: "A", GroupRef: "pad", AccountType: typev1.AccountType_ACCOUNT_TYPE_EQUITY},
+		{Timestamp: ts, InstrumentDescription: "TSCO", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "40", Account: "A", GroupRef: "pad"},
+		{Timestamp: ts, InstrumentDescription: "TSCO", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-40", Account: "A", GroupRef: "pad", AccountType: typev1.AccountType_ACCOUNT_TYPE_EQUITY},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
@@ -205,12 +205,12 @@ func splitStraddlingHolding(t *testing.T, p *Postgres, sub, buyQty, sellQty stri
 	addSplit(t, p, instID, exDate, from, to)
 
 	buy := &apiv1.Tx{Timestamp: timestamppb.New(preSplit), InstrumentDescription: "SPL" + sub,
-		Type: typev1.TxType_BUYSTOCK, Quantity: buyQty, Account: "A"}
+		BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: buyQty, Account: "A"}
 	if err := createTx(ctx, p, userID, "IBKR", "A", "", buy, instID, nil); err != nil {
 		t.Fatalf("create pre-split buy: %v", err)
 	}
 	sell := &apiv1.Tx{Timestamp: timestamppb.New(postSplit), InstrumentDescription: "SPL" + sub,
-		Type: typev1.TxType_SELLSTOCK, Quantity: sellQty, Account: "A"}
+		BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: sellQty, Account: "A"}
 	if err := createTx(ctx, p, userID, "IBKR", "A", "", sell, instID, nil); err != nil {
 		t.Fatalf("create post-split sell: %v", err)
 	}
@@ -284,13 +284,13 @@ func TestComputeHoldings_closedAcrossInexactSplit(t *testing.T) {
 
 	for _, q := range []string{"10", "10"} {
 		buy := &apiv1.Tx{Timestamp: timestamppb.New(preSplit), InstrumentDescription: "REV",
-			Type: typev1.TxType_BUYSTOCK, Quantity: q, Account: "A"}
+			BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: q, Account: "A"}
 		if err := createTx(ctx, p, userID, "IBKR", "A", "", buy, instID, nil); err != nil {
 			t.Fatalf("create pre-split buy: %v", err)
 		}
 	}
 	sell := &apiv1.Tx{Timestamp: timestamppb.New(postSplit), InstrumentDescription: "REV",
-		Type: typev1.TxType_SELLSTOCK, Quantity: "-6.666666666667", Account: "A"}
+		BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-6.666666666667", Account: "A"}
 	if err := createTx(ctx, p, userID, "IBKR", "A", "", sell, instID, nil); err != nil {
 		t.Fatalf("create post-split sell: %v", err)
 	}

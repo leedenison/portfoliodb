@@ -773,8 +773,8 @@ func TestCacheKeyWithHints_DifferentHintsDifferentKeys(t *testing.T) {
 // TestResolve_SameDescription_DifferentHints_NoCacheConflict verifies that a
 // security transaction and a cash transaction with the same instrument
 // description but different identifier hints resolve independently without
-// a cache conflict error.  This is the scenario where e.g. a BUYSTOCK for
-// "MSFT MICROSOFT CORP" (CUSIP hint) and a CASHFLOW for "MSFT MICROSOFT CORP"
+// a cache conflict error.  This is the scenario where e.g. a stock buy for
+// "MSFT MICROSOFT CORP" (CUSIP hint) and a cash trade for "MSFT MICROSOFT CORP"
 // (CURRENCY hint) appear in the same batch.
 func TestResolve_SameDescription_DifferentHints_NoCacheConflict(t *testing.T) {
 	ctrl := gomock.NewController(t)

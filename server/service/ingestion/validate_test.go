@@ -16,10 +16,19 @@ func TestValidateTx(t *testing.T) {
 		want   int
 	}{
 		{"nil tx", nil, 0, 1},
-		{"missing timestamp", &apiv1.Tx{InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "1"}, 0, 1},
-		{"missing instrument_description", &apiv1.Tx{Timestamp: validTs, Type: typev1.TxType_BUYSTOCK, Quantity: "1"}, 0, 1},
-		{"missing type", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", Quantity: "1"}, 0, 1},
-		{"valid", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "10"}, 0, 0},
+		{"missing timestamp", &apiv1.Tx{InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1"}, 0, 1},
+		{"missing instrument_description", &apiv1.Tx{Timestamp: validTs, BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1"}, 0, 1},
+		{"missing broker_tx_type", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", Quantity: "1"}, 0, 1},
+		{"unspecified member", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TX_TYPE_UNSPECIFIED}, Quantity: "1"}, 0, 1},
+		// AMBIGUOUS is the resolved spelling of an unresolved set; declaring it
+		// says less than the set itself.
+		{"AMBIGUOUS member", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_AMBIGUOUS}, Quantity: "1"}, 0, 1},
+		{"duplicate member", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET, typev1.TxType_TRADE_ASSET}, Quantity: "1"}, 0, 1},
+		// An ancestor beside its descendant says nothing the ancestor alone
+		// does not.
+		{"ancestor beside descendant", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER, typev1.TxType_TRANSFER_INTERNAL}, Quantity: "1"}, 0, 1},
+		{"valid", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10"}, 0, 0},
+		{"valid antichain set", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH, typev1.TxType_TRANSFER}, Quantity: "10"}, 0, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,8 +99,8 @@ func TestValidateTxs_sameTimestampAndDescriptionAllowed(t *testing.T) {
 	// No natural key: same (timestamp, instrument_description) in one batch is allowed.
 	ts := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: ts, InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "10"},
-		{Timestamp: ts, InstrumentDescription: "AAPL", Type: typev1.TxType_SELLSTOCK, Quantity: "5"},
+		{Timestamp: ts, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10"},
+		{Timestamp: ts, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "-5"},
 	}
 	errs := ValidateTxs(txs)
 	if len(errs) != 0 {
@@ -113,12 +122,12 @@ func TestValidateTxs_empty(t *testing.T) {
 func TestValidateTxs_perTxErrors(t *testing.T) {
 	validTs := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: validTs, InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "10"},
-		{Timestamp: validTs, InstrumentDescription: "GOOG", Quantity: "5"}, // missing type
+		{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10"},
+		{Timestamp: validTs, InstrumentDescription: "GOOG", Quantity: "5"}, // missing broker_tx_type
 	}
 	errs := ValidateTxs(txs)
 	if len(errs) == 0 {
-		t.Fatal("ValidateTxs() should return errors for missing type")
+		t.Fatal("ValidateTxs() should return errors for missing broker_tx_type")
 	}
 	if !containsMessage(errs, "required") {
 		t.Fatalf("expected a 'required' error, got %v", errs)

@@ -32,7 +32,7 @@ import (
 // Only a group that produced a TRANSFER_CLEARING residual is read, which is also
 // what keeps a counterparty that is not one out of the matcher's reach: Fidelity
 // names the product account a service fee was charged for in the same field, but a
-// service fee is an INVEXPENSE whose group balances against an EXPENSE leg and
+// service fee is a holding cost whose group balances against an EXPENSE leg and
 // routes nothing to clearing.
 const unmatchedTransferSidesSQL = `
 	SELECT t.user_id, t.group_id, t.broker, t.account, t.instrument_id,

@@ -331,7 +331,11 @@ CREATE UNIQUE INDEX idx_instrument_identifiers_inst_unique_non_null_domain ON in
 -- Global uniqueness: (identifier_type, domain, value) unique across the table.
 CREATE UNIQUE INDEX idx_instrument_identifiers_unique_null_domain ON instrument_identifiers (identifier_type, value) WHERE domain IS NULL;
 CREATE UNIQUE INDEX idx_instrument_identifiers_unique_non_null_domain ON instrument_identifiers (identifier_type, domain, value) WHERE domain IS NOT NULL;
-CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identifier_type, COALESCE(domain, ''), value);
+-- Domain-agnostic lookup by (identifier_type, value). The domain-aware paths are
+-- served by the two partial unique indexes above, so this one is deliberately narrow:
+-- an intermediate COALESCE(domain,'') column would block the prefix match on value
+-- for the queries that actually reach this index (FX pair, ticker, ISIN lookups).
+CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identifier_type, value);
 
 -- Trigger: recompute instruments.name and instruments.exchange whenever identifiers
 -- or the instrument itself change. Fires AFTER so that all rows are visible.
@@ -395,11 +399,11 @@ CREATE TABLE provider_instrument_identifiers (
   value           TEXT NOT NULL
 );
 
--- Per-instrument per-provider uniqueness.
+-- Per-instrument per-provider uniqueness. Both read paths -- loadProviderIdentifiers
+-- and FindProviderIdentifiers -- lead with instrument_id and are served by these
+-- indexes, so no separate lookup index is needed.
 CREATE UNIQUE INDEX idx_prov_instr_ident_unique_null_domain ON provider_instrument_identifiers (instrument_id, provider, identifier_type, value) WHERE domain IS NULL;
 CREATE UNIQUE INDEX idx_prov_instr_ident_unique_non_null_domain ON provider_instrument_identifiers (instrument_id, provider, identifier_type, domain, value) WHERE domain IS NOT NULL;
--- Reverse lookup by provider + identifier.
-CREATE INDEX idx_prov_instr_ident_lookup ON provider_instrument_identifiers (provider, identifier_type, value);
 
 -- Plugin config: which plugins are enabled, precedence (unique per category), plugin-specific config.
 -- category: 'identifier', 'description', 'price'.
@@ -467,9 +471,11 @@ CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);
 -- routed to balance a group its source data left one-sided -- are a small minority of
 -- txs, and the report that aggregates them reads every one across all users. A partial
 -- index over just those rows answers it without carrying the USER postings that
--- dominate the table. Column order follows the report's GROUP BY.
+-- dominate the table. The key is timestamp because the report filters on a time window
+-- and nothing else on the residual subset; grouping cannot be index-ordered anyway,
+-- because two GROUP BY keys come from the joined instruments table.
 CREATE INDEX idx_txs_residual_postings
-  ON txs (account_type, user_id, broker, account, instrument_id, tx_type)
+  ON txs (timestamp)
   WHERE account_type IN ('IMBALANCE', 'TRANSFER_CLEARING', 'SOURCE_ROUNDING');
 
 -- At most one INITIALIZE posting per holding per account type. account_type is part of

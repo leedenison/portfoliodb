@@ -85,3 +85,10 @@ so weight is written once at ingest and no recompute pass has to maintain it. Th
 one exception is the instrument merge, which must rewrite `weight_commodity`
 alongside `instrument_id` in the same statement. Both legs of a same-instrument
 group move together there, so the group stays balanced across the merge.
+
+Weight also does not depend on the group. Only the posting's own fields reach the
+rule -- quantity, price, currencies, contract size and the transaction type -- and
+[0046](0046-declared-ambiguity-is-bounded-by-weight-neutrality.md) keeps it that
+way by refusing a declared type set whose members would weigh differently. So
+regrouping a posting never rewrites its weight, and the deferred constraint is not
+disturbed by a partition that changes underneath it.

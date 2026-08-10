@@ -9,7 +9,7 @@ excluded.
 
 **The archive carries postings, not groups.** A `TxWindow` holds its postings directly,
 and the partition is recomputed on import from the evidence the postings carry
-([0042](0042-grouping-evidence-in-the-standard-format.md)).
+([0048](0048-correlations-declare-their-own-semantics.md)).
 
 The group level does not shrink, it goes. Every other aggregate root in the format
 carries fields of its own -- an instrument has its identifier, asset class and coverage,
@@ -64,3 +64,21 @@ tier 3 and is routed fresh after the grouping pass, at 0098 rather than now.
 or transfer match is replayed when group ids churn -- is an input, not a partition, and
 an archive that drops the partition still has to carry it. It travels as the assertion it
 is, alongside the postings, not as a shape imposed on them.
+
+**A source-asserted correlation is not the rejected alternative.** The option
+turned down above is a file recording a *partition* that the importer honours
+instead of regrouping. A correlation
+([0048](0048-correlations-declare-their-own-semantics.md)) is an identifier with
+declared comparison semantics, and the importer regroups from it like any other
+evidence -- so there is still exactly one thing deciding the partition. That the
+highest-precedence pass usually reproduces what the source intended is a property
+of the evidence being good, not of the file being obeyed.
+
+**The archive carries the declared transaction type, not the resolved one.**
+[0044](0044-tx-type-is-declared-and-resolved.md) splits the type into what the
+source said and what grouping concluded. The second is derived from the partition
+this ADR refuses to carry, so exporting it would ship a conclusion the importing
+server cannot justify and may contradict as soon as it regroups. It is 0032 tier 3
+for the same reason the routed residuals are, and is recomputed by the grouping
+pass on import.
+

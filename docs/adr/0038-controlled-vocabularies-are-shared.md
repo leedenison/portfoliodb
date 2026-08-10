@@ -37,3 +37,20 @@ not change that.
 This makes `buf lint`'s `ENUM_VALUE_PREFIX` rule permanently wrong for this
 repo, and `buf.yaml` excepts it explicitly rather than leaving the tree
 unlintable.
+
+`TxType` is replaced wholesale by
+[0044](0044-tx-type-is-declared-and-resolved.md) and
+[0045](0045-tx-type-does-not-encode-asset-class.md), which is exactly the break
+this contract forbids. It is spent deliberately and once, while the project is
+pre-release and no archive naming the old values exists outside the repository.
+After that the contract holds as stated, and a value added later -- a finer income
+or expense leaf, say -- costs a `format_version` bump rather than being free, which
+is why the vocabulary is cut at the specificity it is rather than at the smallest
+set anything consumes today.
+
+The resolved transaction type needs a value meaning "ambiguity survived", and it is
+a member of the vocabulary rather than the zero value. `AssetClass` already carries
+`UNKNOWN` alongside `ASSET_CLASS_UNSPECIFIED` for the same reason: "not set" and
+"looked at, still unknown" are different claims, and a shared vocabulary that
+conflates them cannot say which an archive meant.
+

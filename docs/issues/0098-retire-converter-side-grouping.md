@@ -30,3 +30,15 @@ with; it is routed fresh after the grouping pass instead.
 
 Fragments left by period replaces before this lands are repaired by the same run, since
 the engine works over stored postings rather than over an upload.
+
+`group_ref` is what retires, not the evidence. A correlation a source stated -- the
+`FITID` OFX puts on every leg of a trade -- stays, because it is evidence the engine
+consumes rather than a partition it obeys
+(adr/0048-correlations-declare-their-own-semantics.md). What the converters lose is
+their pairing rules and the answer those rules produced.
+
+`resolved_tx_type` comes out of the export for the same reason the residuals do. It is
+derived from the partition the importer re-derives, so shipping it would carry a
+conclusion the importing server cannot justify
+(adr/0044-tx-type-is-declared-and-resolved.md). The archive carries `broker_tx_type`.
+

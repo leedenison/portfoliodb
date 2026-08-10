@@ -67,10 +67,22 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 -- replace-by-period (user_id, broker, period); single-tx ingestion is append-only.
 -- See docs/adr/0002-transaction-ingestion-model.md.
 --
--- What moved: instrument_description, instrument_id, tx_type.
+-- What moved: instrument_description, instrument_id, broker_tx_type,
+-- resolved_tx_type, asset_class_hint.
 -- instrument_id is added by an ALTER further down, because instruments is created after
 -- this table and the foreign key needs it to exist. The column itself is declared here,
 -- where it belongs.
+-- broker_tx_type is the set of candidate event types the source declared, at
+-- whatever specificity it managed; resolved_tx_type is the single value grouping
+-- narrowed it to, and is what every consumer reads. Declared and derived are
+-- separate columns because an archive carries only the declaration and an import
+-- re-derives the resolution. Values are the TxType names from
+-- proto/type/v1/type.proto; AMBIGUOUS is legal only resolved, never declared.
+-- The antichain and weight-neutrality constraints on the declared set are
+-- server-enforced. See docs/adr/0044-tx-type-is-declared-and-resolved.md and
+-- docs/adr/0046-declared-ambiguity-is-bounded-by-weight-neutrality.md.
+-- asset_class_hint is the class the source stated for routing, NULL when it made
+-- no claim; the canonical class lives on the instrument.
 --
 -- The amounts as the source wrote them: quantity, unit_price, trading_currency,
 -- settlement_currency. Transcribed and exact; see Numeric types below.
@@ -140,7 +152,23 @@ CREATE TABLE txs (
 
   instrument_description    TEXT NOT NULL,
   instrument_id             UUID,
-  tx_type                   TEXT NOT NULL,
+  broker_tx_type            TEXT[] NOT NULL
+                              CHECK (cardinality(broker_tx_type) > 0
+                                     AND broker_tx_type <@ ARRAY['TRADE', 'TRADE_ASSET', 'TRADE_CASH',
+                                                                 'INCOME', 'DIVIDEND', 'INTEREST',
+                                                                 'RETURN_OF_CAPITAL', 'EXPENSE',
+                                                                 'TRANSACTION_COST', 'HOLDING_COST',
+                                                                 'FINANCING_COST', 'TRANSFER',
+                                                                 'TRANSFER_INTERNAL', 'TRANSFER_EXTERNAL']),
+  resolved_tx_type          TEXT NOT NULL
+                              CHECK (resolved_tx_type IN ('TRADE', 'TRADE_ASSET', 'TRADE_CASH',
+                                                          'INCOME', 'DIVIDEND', 'INTEREST',
+                                                          'RETURN_OF_CAPITAL', 'EXPENSE',
+                                                          'TRANSACTION_COST', 'HOLDING_COST',
+                                                          'FINANCING_COST', 'TRANSFER',
+                                                          'TRANSFER_INTERNAL', 'TRANSFER_EXTERNAL',
+                                                          'AMBIGUOUS')),
+  asset_class_hint          TEXT,
 
   quantity                  NUMERIC NOT NULL,
   unit_price                NUMERIC,

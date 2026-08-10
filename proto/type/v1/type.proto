@@ -11,7 +11,7 @@ syntax = "proto3";
 //
 // This package is the one part of proto/ that is not free to break. A value is
 // never renumbered and never removed, and a value name never changes, because
-// these names are the stored vocabulary -- txs.type holds "BUYSTOCK",
+// these names are the stored vocabulary -- txs.resolved_tx_type holds "TRADE_ASSET",
 // instrument_identifiers.identifier_type holds "ISIN" -- and they are what an
 // archive written years ago spells on disk. Adding a value is the only
 // backwards-compatible change, and even that makes a file naming it unreadable
@@ -34,35 +34,44 @@ enum Broker {
   FIDELITY = 3;
 }
 
-// OFX-style transaction types for investments.
+// TxType classifies what kind of economic event a posting is a leg of. The
+// values form a tree: a leaf is the specificity the system acts on, an internal
+// node is what a less specific source says, and both are legal values. A source
+// declares a set of candidates (broker_tx_type) at whatever specificity it can
+// defend, and grouping resolves the set to the single value everything
+// downstream reads (resolved_tx_type). The type carries the event only:
+// direction is the sign of quantity, and asset class is a stated hint. The
+// parent map is written in server/txtype (Go) and client/lib/tx-type.ts (TS),
+// both checked against the same golden fixture.
+// See docs/adr/0044-tx-type-is-declared-and-resolved.md and
+// docs/adr/0045-tx-type-does-not-encode-asset-class.md.
 enum TxType {
   TX_TYPE_UNSPECIFIED = 0;
-  // Buys
-  BUYDEBT  = 1;
-  BUYMF    = 2;
-  BUYOPT   = 3;
-  BUYOTHER = 4;
-  BUYSTOCK = 5;
-  // Sells
-  SELLDEBT  = 6;
-  SELLMF    = 7;
-  SELLOPT   = 8;
-  SELLOTHER = 9;
-  SELLSTOCK = 10;
-  // Other
-  INCOME         = 11;
-  INVEXPENSE     = 12;
-  REINVEST       = 13;
-  RETOFCAP       = 14;
-  SPLIT          = 15;
-  TRANSFER       = 16;
-  JRNLFUND       = 17;
-  JRNLSEC        = 18;
-  MARGININTEREST = 19;
-  CLOSUREOPT     = 20;
-  CASHFLOW       = 21;
-  BUYFUTURE      = 22;
-  SELLFUTURE     = 23;
+  // A commodity exchanged for consideration at a price.
+  TRADE       = 1;
+  TRADE_ASSET = 2;  // The acquired or disposed leg; weight converts at unit_price.
+  TRADE_CASH  = 3;  // The consideration leg; weight is its own amount.
+  // Value accruing without a disposal.
+  INCOME            = 4;
+  DIVIDEND          = 5;  // Distribution from an equity holding.
+  INTEREST          = 6;  // Interest received.
+  RETURN_OF_CAPITAL = 7;  // Return of principal, not earnings.
+  // A cost borne by the holder. The leaves are cut by how the cost is treated,
+  // not by what the broker calls the fee.
+  EXPENSE          = 8;
+  TRANSACTION_COST = 9;   // Commission, levy, stamp duty, FX charge; belongs in cost basis.
+  HOLDING_COST     = 10;  // Custody, platform and account fees; not basis.
+  FINANCING_COST   = 11;  // Margin interest; not basis.
+  // A commodity moving without a change in what is held.
+  TRANSFER          = 12;
+  TRANSFER_INTERNAL = 13;  // The other side is another account of this user.
+  TRANSFER_EXTERNAL = 14;  // The other side is outside the user's holdings.
+  // The root of the tree, and the value resolved_tx_type takes when nothing
+  // narrows a cross-branch set. Distinct from TX_TYPE_UNSPECIFIED ("the field
+  // was not set") and never legal in broker_tx_type, where a cross-branch set
+  // is the honest way to say "one of these". Named AMBIGUOUS rather than
+  // UNKNOWN because AssetClass already claims UNKNOWN in package scope.
+  AMBIGUOUS = 15;
 }
 
 // AccountType classifies the account a posting lands in, so that the non-asset side

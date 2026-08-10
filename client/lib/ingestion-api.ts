@@ -3,13 +3,12 @@
  */
 
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import type { MessageInitShape } from "@bufbuild/protobuf";
 import {
   UpsertTxsResponseSchema,
   UpsertTxsRequestSchema,
 } from "@/gen/ingestion/v1/ingestion_pb";
-import type { Tx } from "@/gen/api/v1/api_pb";
-import type { Broker } from "@/gen/type/v1/type_pb";
+import type { TxWindowSchema } from "@/gen/archive/v1/txs_pb";
 import type { UpsertTxsResponse } from "@/gen/ingestion/v1/ingestion_pb";
 import { unaryFetch } from "./grpc-web";
 
@@ -22,31 +21,20 @@ function getBaseUrl(): string {
 
 /** Parameters for bulk transaction upload. */
 export interface UpsertTxsParams {
-  broker: Broker;
-  source: string;
-  periodFrom?: Timestamp;
-  /** Exclusive: the first instant NOT replaced. */
-  periodBefore?: Timestamp;
-  txs: Tx[];
-  filename?: string;
   /**
-   * The share count the uploaded quantities and unit prices are denominated
-   * in, as "YYYY-MM-DD". Omit for an as-traded source, which is every CSV
-   * export the client handles. See docs/spec/bitemporality.md.
+   * The replacement scope and the postings inside it, in the archive schema.
+   * The window states its own broker, source and half-open period, so an upload
+   * describes itself. See docs/spec/archive-format.md.
    */
-  shareCountBasis?: string;
+  window: MessageInitShape<typeof TxWindowSchema>;
+  filename?: string;
 }
 
 export async function upsertTxs(params: UpsertTxsParams): Promise<UpsertTxsResponse> {
   const base = getBaseUrl();
   const req = create(UpsertTxsRequestSchema, {
-    broker: params.broker,
-    source: params.source,
-    periodFrom: params.periodFrom,
-    periodBefore: params.periodBefore,
-    txs: params.txs,
+    window: params.window,
     filename: params.filename ?? "",
-    shareCountBasis: params.shareCountBasis ?? "",
   });
   const resBytes = await unaryFetch(
     base,

@@ -60,7 +60,7 @@ describe("convertIbkrOfx", () => {
     const result = convertIbkrOfx(buildOfx(OPT_BUY, OPT_SEC_LIST));
     expect(result.errors).toEqual([]);
 
-    const security = result.txs.find((t) => t.type === TxType.BUYOPT)!;
+    const security = result.postings.find((t) => t.type === TxType.BUYOPT)!;
     expect(security.identifierHints).toHaveLength(1);
     expect(security.identifierHints[0]!.type).toBe(IdentifierType.OCC);
     expect(security.identifierHints[0]!.value).toBe("P RHM  20250919 560 M");
@@ -70,23 +70,23 @@ describe("convertIbkrOfx", () => {
     // The assertion that matters: expectGroupsBalance mirrors weightOf in
     // balance.go, so a group that balances here is one the server will not route
     // to IMBALANCE. Without the 100x it is out by 15927.56 EUR.
-    expectGroupsBalance(convertIbkrOfx(buildOfx(OPT_BUY, OPT_SEC_LIST)).txs);
+    expectGroupsBalance(convertIbkrOfx(buildOfx(OPT_BUY, OPT_SEC_LIST)).postings);
   });
 
   it("splits the commission out of the option's netted total", () => {
     const result = convertIbkrOfx(buildOfx(OPT_BUY, OPT_SEC_LIST));
 
-    const cash = result.txs.find((t) => t.type === TxType.CASHFLOW)!;
+    const cash = result.postings.find((t) => t.type === TxType.CASHFLOW)!;
     expect(cash.quantity).toBe("-16088.4468");
 
-    const fees = result.txs.filter((t) => t.type === TxType.INVEXPENSE);
+    const fees = result.postings.filter((t) => t.type === TxType.INVEXPENSE);
     expect(fees).toHaveLength(2);
     expect(fees.find((t) => t.accountType === AccountType.USER)!.quantity).toBe("-7.420248");
     expect(fees.find((t) => t.accountType === AccountType.EXPENSE)!.quantity).toBe("7.420248");
   });
 
   it("leaves an option with no SECLIST entry unhinted rather than guessing", () => {
-    const security = convertIbkrOfx(buildOfx(OPT_BUY, "")).txs.find(
+    const security = convertIbkrOfx(buildOfx(OPT_BUY, "")).postings.find(
       (t) => t.type === TxType.BUYOPT,
     )!;
     expect(security.identifierHints).toHaveLength(0);

@@ -3,8 +3,7 @@ syntax = "proto3";
 package portfoliodb.ingestion.v1;
 
 import "buf/validate/validate.proto";
-import "google/protobuf/timestamp.proto";
-import "api/v1/api.proto";
+import "archive/v1/txs.proto";
 import "type/v1/type.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/ingestion/v1;ingestionv1";
@@ -12,55 +11,43 @@ option go_package = "github.com/leedenison/portfoliodb/proto/ingestion/v1;ingest
 // IngestionService provides gRPC endpoints for uploading transaction data
 // (bulk and single).
 service IngestionService {
-  // UpsertTxs replaces all transactions for the given broker in the given
-  // period with the supplied list. Processed asynchronously; returns a job_id
-  // for status and validation errors via the front-end API.
+  // UpsertTxs replaces all transactions for the window's broker over the
+  // window's period with the postings it carries. Processed asynchronously;
+  // returns a job_id for status and validation errors via the front-end API.
   rpc UpsertTxs(UpsertTxsRequest) returns (UpsertTxsResponse);
-  // CreateTx appends one transaction. No natural key; not idempotent (duplicate
+  // CreateTx appends one posting. No natural key; not idempotent (duplicate
   // submissions create duplicate rows). Source required for instrument resolution. Processed
   // asynchronously; returns a job_id for status.
   rpc CreateTx(CreateTxRequest) returns (CreateTxResponse);
 }
 
-// UpsertTxsRequest replaces all transactions for the given broker in the
-// given period with the supplied list. User from auth.
+// UpsertTxsRequest replaces all transactions for the window's broker over the
+// window's period with the postings it carries. User from auth.
+//
+// The payload is an archive transaction window rather than a list plus a set of
+// request fields. A window already states its broker, its source, the half-open
+// period it replaces and the postings inside it, so an upload describes itself
+// and the two ways transactions arrive -- a broker file and an archive document
+// -- meet above the ingestion pipeline instead of each assembling their own
+// call. See docs/spec/archive-format.md.
 message UpsertTxsRequest {
-  // Broker. All transactions in this request are for this broker.
-  portfoliodb.type.v1.Broker broker = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
-  // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution.
-  string source = 2 [(buf.validate.field).string.min_len = 1];
-  // Half-open [period_from, period_before) period of transactions covered. Only
-  // transactions in this range for this broker are replaced; others are
-  // unchanged.
-  google.protobuf.Timestamp period_from   = 3 [(buf.validate.field).required = true]; // inclusive
-  google.protobuf.Timestamp period_before = 4 [(buf.validate.field).required = true]; // exclusive
-  // Transactions to store. Replaces any existing tx in
-  // [period_from, period_before) for this user and broker. Each tx carries its
-  // own account.
-  repeated portfoliodb.api.v1.Tx txs = 5;
-  // Original filename of the uploaded CSV file.
-  string filename = 6;
-  // The share count the quantities and unit prices in this upload are
-  // denominated in, as "YYYY-MM-DD". Optional; when empty each row falls back
-  // to its own transaction date, the as-traded assumption. Set it only for a
-  // source that restates historical rows into current share terms, such as a
-  // broker web UI that shows post-split quantities on pre-split trades.
-  // See docs/spec/bitemporality.md.
-  string share_count_basis = 7;
+  portfoliodb.archive.v1.TxWindow window = 1 [(buf.validate.field).required = true];
+  // Original filename of the uploaded file.
+  string filename = 2;
 }
 
-// CreateTxRequest appends one transaction.
+// CreateTxRequest appends one posting. There is no window because there is no
+// period: an append replaces nothing, which is the one thing the bulk path does
+// that this one does not.
 message CreateTxRequest {
-  // Broker for this transaction.
+  // Broker for this posting.
   portfoliodb.type.v1.Broker broker = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   // Source (opaque; e.g. "<broker>:<client>:<source>"). Required. Used for instrument resolution.
   string source = 2 [(buf.validate.field).string.min_len = 1];
-  // The transaction (must include account).
-  portfoliodb.api.v1.Tx tx = 3 [(buf.validate.field).required = true];
-  // The share count the quantity and unit price are denominated in, as
-  // "YYYY-MM-DD". Optional; when empty the row falls back to its own
-  // transaction date, the as-traded assumption. See UpsertTxsRequest.
-  string share_count_basis = 4;
+  // The posting (must include account). Its share_count_basis says what share
+  // count the quantity and unit price are denominated in; absent is the
+  // posting's own date, the as-traded assumption.
+  portfoliodb.archive.v1.Posting posting = 3 [(buf.validate.field).required = true];
 }
 
 // UpsertTxsResponse identifies the async job the upload became. Job status and
@@ -71,7 +58,7 @@ message UpsertTxsResponse {
   string job_id = 1;
 }
 
-// CreateTxResponse identifies the async job the transaction became.
+// CreateTxResponse identifies the async job the posting became.
 message CreateTxResponse {
   // Identifier for the async ingestion job. Use with front-end API to poll
   // status and retrieve validation errors.

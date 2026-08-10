@@ -46,7 +46,7 @@ test.describe("stock split: tx uploaded before split", () => {
     // Upload all txs in one CSV to avoid ReplaceTxsInPeriod conflicts
     // between overlapping date ranges on different instruments.
     await uploadCSVAndWait(page, browser, "split-txs.csv", {
-      expectedTxCount: 3,
+      expectedPostingCount: 3,
     });
 
     // Before the split: Adj Qty should show em-dash for all AAPL stock txs.
@@ -177,7 +177,7 @@ test.describe("stock split: split uploaded before tx", () => {
 
     // Upload all txs in one CSV.
     await uploadCSVAndWait(page, browser, "split-txs.csv", {
-      expectedTxCount: 3,
+      expectedPostingCount: 3,
     });
 
     // Trigger the fetcher to record coverage and process option splits.

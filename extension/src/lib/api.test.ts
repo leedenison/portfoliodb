@@ -68,29 +68,31 @@ describe("api", () => {
     const before = new Date("2026-07-27T00:00:00Z");
 
     const res = await upsertTxs(ORIGIN, SESSION, {
-      broker: Broker.FIDELITY,
-      source: "Fidelity:web:fidelity-csv",
-      periodFrom: timestampFromDate(from),
-      periodBefore: timestampFromDate(before),
+      window: {
+        broker: Broker.FIDELITY,
+        source: "Fidelity:web:fidelity-csv",
+        periodFrom: timestampFromDate(from),
+        periodBefore: timestampFromDate(before),
+        postings: [
+          {
+            timestamp: timestampFromDate(new Date("2026-07-10T00:00:00Z")),
+            instrumentDescription: "ISHARES II PLC INRG",
+            type: TxType.BUYSTOCK,
+            quantity: "10",
+          },
+        ],
+      },
       filename: "fidelity-ext-2026-07-27.csv",
-      txs: [
-        {
-          timestamp: timestampFromDate(new Date("2026-07-10T00:00:00Z")),
-          instrumentDescription: "ISHARES II PLC INRG",
-          type: TxType.BUYSTOCK,
-          quantity: "10",
-        },
-      ],
     });
 
     expect(res.jobId).toBe("job-1");
     const req = fromBinary(UpsertTxsRequestSchema, sentRequest(spy));
     // The period is the window that was requested, not the range of the rows:
     // that is what makes the replace delete transactions the broker cancelled.
-    expect(req.periodFrom?.seconds).toBe(BigInt(Math.floor(from.getTime() / 1000)));
-    expect(req.periodBefore?.seconds).toBe(BigInt(Math.floor(before.getTime() / 1000)));
-    expect(req.source).toBe("Fidelity:web:fidelity-csv");
-    expect(req.txs).toHaveLength(1);
+    expect(req.window?.periodFrom?.seconds).toBe(BigInt(Math.floor(from.getTime() / 1000)));
+    expect(req.window?.periodBefore?.seconds).toBe(BigInt(Math.floor(before.getTime() / 1000)));
+    expect(req.window?.source).toBe("Fidelity:web:fidelity-csv");
+    expect(req.window?.postings).toHaveLength(1);
   });
 
   it("propagates a gRPC error status from the response headers", async () => {

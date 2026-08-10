@@ -35,7 +35,7 @@ test.describe("failed instrument identification", () => {
 
     // Upload CSV with one resolvable (AAPL) and one unresolvable (XYZFAKE).
     await uploadCSVAndWait(page, browser, "mixed-identification.csv", {
-      expectedTxCount: 2,
+      expectedPostingCount: 2,
     });
 
     // Both instruments should appear in holdings.

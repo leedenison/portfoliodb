@@ -6,7 +6,7 @@
  * dropped rows names the broker transaction types it did not recognise.
  */
 
-import type { ParseError } from "@/lib/csv/standard";
+import type { ParseError } from "@/lib/csv/parse-result";
 
 const STORAGE_KEY = "runLog";
 const MAX_ENTRIES = 20;

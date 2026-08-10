@@ -2,7 +2,7 @@ package ingestion
 
 import (
 	"context"
-	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	ingestionv1 "github.com/leedenison/portfoliodb/proto/ingestion/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/auth"
@@ -37,27 +37,35 @@ func TestUpsertTxs(t *testing.T) {
 		wantCode codes.Code
 	}{
 		{"Unauthenticated", context.Background(), &ingestionv1.UpsertTxsRequest{
-			Broker:       typev1.Broker_IBKR,
-			Source:       "IBKR:test:statement",
-			PeriodFrom:   now,
-			PeriodBefore: now,
+			Window: &archivev1.TxWindow{
+				Broker:       typev1.Broker_IBKR,
+				Source:       "IBKR:test:statement",
+				PeriodFrom:   now,
+				PeriodBefore: now,
+			},
 		}, codes.Unauthenticated},
 		{"InvalidArgument_broker", authCtx("user-1"), &ingestionv1.UpsertTxsRequest{
-			Broker:       typev1.Broker_BROKER_UNSPECIFIED,
-			Source:       "IBKR:test:statement",
-			PeriodFrom:   now,
-			PeriodBefore: now,
+			Window: &archivev1.TxWindow{
+				Broker:       typev1.Broker_BROKER_UNSPECIFIED,
+				Source:       "IBKR:test:statement",
+				PeriodFrom:   now,
+				PeriodBefore: now,
+			},
 		}, codes.InvalidArgument},
 		{"InvalidArgument_source", authCtx("user-1"), &ingestionv1.UpsertTxsRequest{
-			Broker:       typev1.Broker_IBKR,
-			Source:       "",
-			PeriodFrom:   now,
-			PeriodBefore: now,
+			Window: &archivev1.TxWindow{
+				Broker:       typev1.Broker_IBKR,
+				Source:       "",
+				PeriodFrom:   now,
+				PeriodBefore: now,
+			},
 		}, codes.InvalidArgument},
 		{"InvalidArgument_period", authCtx("user-1"), &ingestionv1.UpsertTxsRequest{
-			Broker:       typev1.Broker_IBKR,
-			Source:       "IBKR:test:statement",
-			PeriodBefore: now,
+			Window: &archivev1.TxWindow{
+				Broker:       typev1.Broker_IBKR,
+				Source:       "IBKR:test:statement",
+				PeriodBefore: now,
+			},
 		}, codes.InvalidArgument},
 	}
 	for _, tc := range tests {
@@ -90,11 +98,12 @@ func TestUpsertTxs_Success(t *testing.T) {
 		})
 	ctx := authCtx("user-1")
 	resp, err := srv.UpsertTxs(ctx, &ingestionv1.UpsertTxsRequest{
-		Broker:       typev1.Broker_IBKR,
-		Source:       "IBKR:test:statement",
-		PeriodFrom:   periodFrom,
-		PeriodBefore: periodBefore,
-		Txs:          []*apiv1.Tx{},
+		Window: &archivev1.TxWindow{
+			Broker:       typev1.Broker_IBKR,
+			Source:       "IBKR:test:statement",
+			PeriodFrom:   periodFrom,
+			PeriodBefore: periodBefore,
+		},
 	})
 	if err != nil {
 		t.Fatalf("UpsertTxs: %v", err)

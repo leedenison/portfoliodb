@@ -35,7 +35,7 @@ test.describe("idempotent bulk re-upload", () => {
 
     // First upload: AAPL 10, MSFT 5, GOOGL 20.
     await uploadCSVAndWait(page, browser, "standard-3-stocks.csv", {
-      expectedTxCount: 3,
+      expectedPostingCount: 3,
     });
 
     // Verify initial holdings.
@@ -53,7 +53,7 @@ test.describe("idempotent bulk re-upload", () => {
 
     // Second upload: exact same CSV. Should replace, not append.
     await uploadCSVAndWait(page, browser, "standard-3-stocks.csv", {
-      expectedTxCount: 3,
+      expectedPostingCount: 3,
     });
 
     // Verify holdings are identical (not doubled).
@@ -77,7 +77,7 @@ test.describe("idempotent bulk re-upload", () => {
 
     // Third upload: AAPL 15, MSFT 5, AMZN 8 (GOOGL removed).
     await uploadCSVAndWait(page, browser, "reupload-modified.csv", {
-      expectedTxCount: 3,
+      expectedPostingCount: 3,
     });
 
     // Verify holdings reflect the replacement.

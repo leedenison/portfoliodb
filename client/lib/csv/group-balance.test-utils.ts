@@ -13,7 +13,7 @@
  */
 
 import { expect } from "vitest";
-import type { Tx } from "@/gen/api/v1/api_pb";
+import type { Posting } from "@/gen/archive/v1/txs_pb";
 import { Big } from "@/lib/decimal";
 import { IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 
@@ -59,14 +59,14 @@ const TOLERANCE = new Big("0.005");
 const OPTION_CONTRACT_SIZE = new Big(100);
 
 /** What one unit of quantity delivers: 100 for an option contract, else 1. */
-function contractSize(tx: Tx): Big {
+function contractSize(tx: Posting): Big {
   const isOption = tx.identifierHints.some((h) => h.type === IdentifierType.OCC);
   return isOption ? OPTION_CONTRACT_SIZE : new Big(1);
 }
 
 /** What a posting contributes to its group's balance, and in what commodity. */
-export function weigh(tx: Tx): { amount: Big; commodity: string } {
-  const settle = (tx.settlementCurrency || tx.tradingCurrency).toUpperCase();
+export function weigh(tx: Posting): { amount: Big; commodity: string } {
+  const settle = (tx.settlementCurrency || tx.tradingCurrency || "").toUpperCase();
   const qty = new Big(tx.quantity);
   if (EXCHANGE_TYPES.has(tx.type)) {
     // With no price there is nothing to convert at, so the residual stays in the
@@ -85,7 +85,7 @@ export function weigh(tx: Tx): { amount: Big; commodity: string } {
  *
  * A posting with no group_ref is its own group, as the server treats it.
  */
-export function residuals(txs: Tx[]): Record<string, Record<string, string>> {
+export function residuals(txs: Posting[]): Record<string, Record<string, string>> {
   const sums: Record<string, Record<string, Big>> = {};
   txs.forEach((tx, i) => {
     const ref = tx.groupRef || `#${i}`;
@@ -104,6 +104,6 @@ export function residuals(txs: Tx[]): Record<string, Record<string, string>> {
 }
 
 /** Asserts every group in the batch balances. */
-export function expectGroupsBalance(txs: Tx[]): void {
+export function expectGroupsBalance(txs: Posting[]): void {
   expect(residuals(txs)).toEqual({});
 }

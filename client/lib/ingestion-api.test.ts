@@ -1,7 +1,7 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Broker } from "@/gen/type/v1/type_pb";
-import { TxSchema } from "@/gen/api/v1/api_pb";
+import { PostingSchema } from "@/gen/archive/v1/txs_pb";
 import {
   UpsertTxsResponseSchema,
   UpsertTxsRequestSchema,
@@ -34,7 +34,7 @@ describe("ingestion-api", () => {
         )
       );
 
-      const tx = create(TxSchema, {
+      const posting = create(PostingSchema, {
         timestamp: timestampFromDate(new Date("2024-01-15")),
         instrumentDescription: "AAPL",
         type: 5, // BUYSTOCK
@@ -43,11 +43,13 @@ describe("ingestion-api", () => {
       });
 
       const result = await upsertTxs({
-        broker: Broker.IBKR,
-        source: "IBKR:web:standard",
-        periodFrom: timestampFromDate(new Date("2024-01-01")),
-        periodBefore: timestampFromDate(new Date("2024-02-01")),
-        txs: [tx],
+        window: {
+          broker: Broker.IBKR,
+          source: "IBKR:web:standard",
+          periodFrom: timestampFromDate(new Date("2024-01-01")),
+          periodBefore: timestampFromDate(new Date("2024-02-01")),
+          postings: [posting],
+        },
       });
 
       expect(result.jobId).toBe("job-abc");
@@ -61,12 +63,12 @@ describe("ingestion-api", () => {
       const reqBytes = mockUnaryFetch.mock.calls[0]?.[2];
       expect(reqBytes).toBeDefined();
       const decoded = fromBinary(UpsertTxsRequestSchema, reqBytes!);
-      expect(decoded.broker).toBe(Broker.IBKR);
-      expect(decoded.source).toBe("IBKR:web:standard");
-      expect(decoded.txs).toHaveLength(1);
-      expect(decoded.txs[0].instrumentDescription).toBe("AAPL");
-      expect(decoded.txs[0].quantity).toBe("10");
-      expect(decoded.txs[0].account).toBe("");
+      expect(decoded.window?.broker).toBe(Broker.IBKR);
+      expect(decoded.window?.source).toBe("IBKR:web:standard");
+      expect(decoded.window?.postings).toHaveLength(1);
+      expect(decoded.window?.postings[0].instrumentDescription).toBe("AAPL");
+      expect(decoded.window?.postings[0].quantity).toBe("10");
+      expect(decoded.window?.postings[0].account).toBe("");
     });
   });
 });

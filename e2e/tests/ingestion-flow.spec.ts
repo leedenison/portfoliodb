@@ -61,7 +61,7 @@ test.describe("CSV ingestion flow", () => {
     ).toBeVisible();
     await expect(
       page.locator("[data-testid='upload-parse-preview']")
-    ).toContainText("3 transaction(s)");
+    ).toContainText("3 posting(s)");
 
     // Click Upload.
     await page.locator("[data-testid='btn-upload-submit']").click();

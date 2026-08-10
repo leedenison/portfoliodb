@@ -13,8 +13,9 @@
 import { clone, create } from "@bufbuild/protobuf";
 import { Big } from "@/lib/decimal";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
-import type { Tx } from "@/gen/api/v1/api_pb";
-import { InstrumentIdentifierSchema, TxSchema } from "@/gen/api/v1/api_pb";
+import type { Posting } from "@/gen/archive/v1/txs_pb";
+import { PostingSchema } from "@/gen/archive/v1/txs_pb";
+import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 
 /**
@@ -46,21 +47,21 @@ export const FEE_EPSILON = new Big("0.005");
  * from or went to. Returns undefined when the type has no other side to name, or
  * when the posting is itself a counter-leg.
  */
-export function counterLeg(tx: Tx): Tx | undefined {
-  const accountType = COUNTER_TYPE.get(tx.type);
+export function counterLeg(p: Posting): Posting | undefined {
+  const accountType = COUNTER_TYPE.get(p.type);
   if (accountType === undefined) return undefined;
-  if (tx.accountType !== AccountType.USER && tx.accountType !== AccountType.UNSPECIFIED) {
+  if (p.accountType !== AccountType.USER && p.accountType !== AccountType.UNSPECIFIED) {
     return undefined;
   }
-  const leg = clone(TxSchema, tx);
-  leg.quantity = new Big(tx.quantity).times(-1).toString();
+  const leg = clone(PostingSchema, p);
+  leg.quantity = new Big(p.quantity).times(-1).toString();
   leg.accountType = accountType;
   // A derived leg names no source row, because the source wrote none for it. The
   // clone above would otherwise hand it the reference of the posting it mirrors,
   // making an invention indistinguishable from a transcription. moneyLeg builds
   // from scratch and needs no such reset. See docs/spec/postings.md.
-  leg.brokerRef = "";
-  leg.counterpartyAccount = "";
+  leg.brokerRef = undefined;
+  leg.counterpartyAccount = undefined;
   return leg;
 }
 
@@ -69,10 +70,9 @@ export function counterLeg(tx: Tx): Tx | undefined {
  * after its description.
  */
 export function currencyHint(currency: string) {
-  return create(InstrumentIdentifierSchema, {
+  return create(InstrumentRefSchema, {
     type: IdentifierType.CURRENCY,
     value: currency,
-    canonical: false,
   });
 }
 
@@ -82,9 +82,9 @@ export function currencyHint(currency: string) {
  * The instrument description is the currency code, matching how an ordinary cash
  * row arrives, so nothing downstream has to treat a derived posting specially.
  */
-function moneyLeg(from: Tx, type: TxType, accountType: AccountType, quantity: Big): Tx {
+function moneyLeg(from: Posting, type: TxType, accountType: AccountType, quantity: Big): Posting {
   const currency = from.settlementCurrency || from.tradingCurrency;
-  return create(TxSchema, {
+  return create(PostingSchema, {
     ...(from.timestamp ? { timestamp: clone(TimestampSchema, from.timestamp) } : {}),
     instrumentDescription: currency,
     type,
@@ -111,7 +111,7 @@ function moneyLeg(from: Tx, type: TxType, accountType: AccountType, quantity: Bi
  * counterLeg, so a derived fee and a separately reported one end up identical.
  * Returns undefined below FEE_EPSILON.
  */
-export function feeLeg(from: Tx, fee: Big | undefined): Tx | undefined {
+export function feeLeg(from: Posting, fee: Big | undefined): Posting | undefined {
   if (fee === undefined || fee.abs().lt(FEE_EPSILON)) return undefined;
   return moneyLeg(from, TxType.INVEXPENSE, AccountType.USER, fee.abs().times(-1));
 }
@@ -130,7 +130,7 @@ export function feeLeg(from: Tx, fee: Big | undefined): Tx | undefined {
  * quoted price, and taking the broker's would leave the group short by a residual
  * of our choosing rather than one the source has.
  */
-export function reinvestLeg(from: Tx): Tx | undefined {
+export function reinvestLeg(from: Posting): Posting | undefined {
   if (from.type !== TxType.REINVEST) return undefined;
   const value = new Big(from.quantity).times(from.unitPrice || "0");
   if (value.abs().lt(FEE_EPSILON)) return undefined;
@@ -142,10 +142,10 @@ export function reinvestLeg(from: Tx): Tx | undefined {
  * synthesised ref cannot collide with a broker's own. Mirrors groupPostings in
  * server/service/ingestion/balance.go.
  */
-export function refPrefix(txs: Tx[]): string {
+export function refPrefix(postings: Posting[]): string {
   let prefix = "p";
-  for (const tx of txs) {
-    while (tx.groupRef.startsWith(prefix)) prefix += "_";
+  for (const p of postings) {
+    while (p.groupRef?.startsWith(prefix)) prefix += "_";
   }
   return prefix;
 }
@@ -155,17 +155,17 @@ export function refPrefix(txs: Tx[]): string {
  * to append. Postings that had no group_ref are given one in place, since a leg
  * only balances the posting it mirrors if the two share a group.
  */
-export function counterLegs(txs: Tx[]): Tx[] {
-  const prefix = refPrefix(txs);
-  const legs: Tx[] = [];
-  txs.forEach((tx, i) => {
+export function counterLegs(postings: Posting[]): Posting[] {
+  const prefix = refPrefix(postings);
+  const legs: Posting[] = [];
+  postings.forEach((p, i) => {
     // A reinvestment's other side is money it never held, so it is built rather
     // than mirrored; everything else that has one is a sign flip.
-    const leg = reinvestLeg(tx) ?? counterLeg(tx);
+    const leg = reinvestLeg(p) ?? counterLeg(p);
     if (!leg) return;
-    if (!tx.groupRef) {
-      tx.groupRef = `${prefix}${i}`;
-      leg.groupRef = tx.groupRef;
+    if (!p.groupRef) {
+      p.groupRef = `${prefix}${i}`;
+      leg.groupRef = p.groupRef;
     }
     legs.push(leg);
   });

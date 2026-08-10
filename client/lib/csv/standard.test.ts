@@ -11,17 +11,17 @@ describe("parseStandardCSV", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(2);
-    expect(result.txs[0].instrumentDescription).toBe("AAPL - Apple Inc.");
-    expect(result.txs[0].type).toBe(TxType.BUYSTOCK);
-    expect(result.txs[0].quantity).toBe("10");
-    expect(result.txs[0].tradingCurrency).toBe("USD");
-    expect(result.txs[0].settlementCurrency).toBe("USD");
-    expect(result.txs[0].unitPrice).toBe("185.5");
+    expect(result.postings).toHaveLength(2);
+    expect(result.postings[0].instrumentDescription).toBe("AAPL - Apple Inc.");
+    expect(result.postings[0].type).toBe(TxType.BUYSTOCK);
+    expect(result.postings[0].quantity).toBe("10");
+    expect(result.postings[0].tradingCurrency).toBe("USD");
+    expect(result.postings[0].settlementCurrency).toBe("USD");
+    expect(result.postings[0].unitPrice).toBe("185.5");
 
-    expect(result.txs[1].instrumentDescription).toBe("MSFT - Microsoft");
-    expect(result.txs[1].type).toBe(TxType.SELLSTOCK);
-    expect(result.txs[1].quantity).toBe("-5");
+    expect(result.postings[1].instrumentDescription).toBe("MSFT - Microsoft");
+    expect(result.postings[1].type).toBe(TxType.SELLSTOCK);
+    expect(result.postings[1].quantity).toBe("-5");
 
     expect(result.periodFrom.getTime()).toBe(new Date("2024-01-10").getTime());
     // Exclusive: midnight after the last row's day, so the last row is inside.
@@ -39,8 +39,8 @@ describe("parseStandardCSV", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].timestamp).toBeDefined();
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].timestamp).toBeDefined();
   });
 
   it("accepts case-insensitive headers", () => {
@@ -50,14 +50,14 @@ describe("parseStandardCSV", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].instrumentDescription).toBe("FOO");
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].instrumentDescription).toBe("FOO");
   });
 
   it("returns error for empty file", () => {
     const result = parseStandardCSV("");
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].field).toBe("file");
     expect(result.errors[0].message).toContain("empty");
@@ -69,7 +69,7 @@ describe("parseStandardCSV", () => {
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors.some((e) => e.field === "header" && e.message.includes("type"))).toBe(true);
     expect(result.errors.some((e) => e.field === "header" && e.message.includes("quantity"))).toBe(true);
   });
@@ -80,7 +80,7 @@ not-a-date,AAPL,BUYSTOCK,10`;
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].field).toBe("date");
     expect(result.errors[0].message).toContain("Invalid");
@@ -92,7 +92,7 @@ not-a-date,AAPL,BUYSTOCK,10`;
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].field).toBe("type");
     expect(result.errors[0].message).toContain("Unknown");
@@ -104,7 +104,7 @@ not-a-date,AAPL,BUYSTOCK,10`;
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].field).toBe("quantity");
     expect(result.errors[0].message).toContain("number");
@@ -116,7 +116,7 @@ not-a-date,AAPL,BUYSTOCK,10`;
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].field).toBe("instrument_description");
   });
@@ -128,8 +128,8 @@ not-a-date,AAPL,BUYSTOCK,10`;
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].instrumentDescription).toBe("Apple, Inc. - AAPL");
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].instrumentDescription).toBe("Apple, Inc. - AAPL");
   });
 
   it("allows optional trading_currency, settlement_currency and unit_price to be omitted", () => {
@@ -139,12 +139,12 @@ not-a-date,AAPL,BUYSTOCK,10`;
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].quantity).toBe("10");
-    expect(result.txs[0].instrumentDescription).toBe("AAPL");
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].quantity).toBe("10");
+    expect(result.postings[0].instrumentDescription).toBe("AAPL");
     // Optional fields may be unset or proto default ("" or 0)
-    expect([undefined, ""]).toContain(result.txs[0].settlementCurrency);
-    expect([undefined, ""]).toContain(result.txs[0].tradingCurrency);
+    expect([undefined, ""]).toContain(result.postings[0].settlementCurrency);
+    expect([undefined, ""]).toContain(result.postings[0].tradingCurrency);
   });
 
   it("returns error for invalid unit_price when present", () => {
@@ -153,7 +153,7 @@ not-a-date,AAPL,BUYSTOCK,10`;
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].field).toBe("unit_price");
   });
@@ -166,9 +166,9 @@ not-a-date,FOO,BUYSTOCK,5
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(2);
-    expect(result.txs[0].instrumentDescription).toBe("AAPL");
-    expect(result.txs[1].instrumentDescription).toBe("MSFT");
+    expect(result.postings).toHaveLength(2);
+    expect(result.postings[0].instrumentDescription).toBe("AAPL");
+    expect(result.postings[1].instrumentDescription).toBe("MSFT");
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].rowIndex).toBe(3);
     expect(result.errors[0].field).toBe("date");
@@ -184,10 +184,10 @@ not-a-date,FOO,BUYSTOCK,5
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].account).toBe("ACC-123");
-    expect(result.txs[0].tradingCurrency).toBe("EUR");
-    expect(result.txs[0].settlementCurrency).toBe("GBP");
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].account).toBe("ACC-123");
+    expect(result.postings[0].tradingCurrency).toBe("EUR");
+    expect(result.postings[0].settlementCurrency).toBe("GBP");
   });
 
   it("parses symbol_type + symbol as identifier hint", () => {
@@ -197,10 +197,10 @@ not-a-date,FOO,BUYSTOCK,5
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.MIC_TICKER, value: "AAPL", canonical: false })
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].identifierHints).toHaveLength(1);
+    expect(result.postings[0].identifierHints).toContainEqual(
+      expect.objectContaining({ type: IdentifierType.MIC_TICKER, value: "AAPL" })
     );
   });
 
@@ -211,10 +211,10 @@ not-a-date,FOO,BUYSTOCK,5
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS", canonical: false })
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].identifierHints).toHaveLength(1);
+    expect(result.postings[0].identifierHints).toContainEqual(
+      expect.objectContaining({ type: IdentifierType.MIC_TICKER, value: "AAPL", domain: "XNAS" })
     );
   });
 
@@ -225,10 +225,10 @@ not-a-date,FOO,BUYSTOCK,5
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.OPENFIGI_TICKER, value: "AAPL", domain: "US", canonical: false })
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].identifierHints).toHaveLength(1);
+    expect(result.postings[0].identifierHints).toContainEqual(
+      expect.objectContaining({ type: IdentifierType.OPENFIGI_TICKER, value: "AAPL", domain: "US" })
     );
   });
 
@@ -239,10 +239,10 @@ not-a-date,FOO,BUYSTOCK,5
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.ISIN, value: "US0378331005", canonical: false })
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].identifierHints).toHaveLength(1);
+    expect(result.postings[0].identifierHints).toContainEqual(
+      expect.objectContaining({ type: IdentifierType.ISIN, value: "US0378331005" })
     );
   });
 
@@ -253,10 +253,10 @@ not-a-date,FOO,BUYSTOCK,5
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toContainEqual(
-      expect.objectContaining({ type: IdentifierType.OCC, value: "AAPL  240119C00185000", canonical: false })
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].identifierHints).toHaveLength(1);
+    expect(result.postings[0].identifierHints).toContainEqual(
+      expect.objectContaining({ type: IdentifierType.OCC, value: "AAPL  240119C00185000" })
     );
   });
 
@@ -266,7 +266,7 @@ not-a-date,FOO,BUYSTOCK,5
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].field).toBe("symbol_type");
     expect(result.errors[0].message).toContain("Unknown");
@@ -278,7 +278,7 @@ not-a-date,FOO,BUYSTOCK,5
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].field).toBe("exchange_type");
     expect(result.errors[0].message).toContain("Unknown");
@@ -290,7 +290,7 @@ not-a-date,FOO,BUYSTOCK,5
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].field).toBe("symbol");
   });
@@ -301,7 +301,7 @@ not-a-date,FOO,BUYSTOCK,5
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].field).toBe("exchange");
   });
@@ -313,8 +313,8 @@ not-a-date,FOO,BUYSTOCK,5
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toHaveLength(0);
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].identifierHints).toHaveLength(0);
   });
 
   it("produces no hint when symbol_type and symbol are both empty", () => {
@@ -324,8 +324,8 @@ not-a-date,FOO,BUYSTOCK,5
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.txs[0].identifierHints).toHaveLength(0);
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].identifierHints).toHaveLength(0);
   });
 
 describe("share count basis", () => {
@@ -336,15 +336,17 @@ describe("share count basis", () => {
     const result = parseStandardCSV(rows);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.shareCountBasis).toBeUndefined();
+    expect(result.postings[0].shareCountBasis).toBeUndefined();
   });
 
-  it("reads the basis from a comment line", () => {
+  // The comment declares one basis for the whole file; the archive states it per
+  // posting, so every posting carries the declared value.
+  it("reads the basis from a comment line onto every posting", () => {
     const result = parseStandardCSV(`# share_count_basis=2026-07-29\n${rows}`);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
-    expect(result.shareCountBasis).toBe("2026-07-29");
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].shareCountBasis).toBe("2026-07-29");
   });
 
   it("rejects a basis that is not a plain date", () => {
@@ -358,7 +360,7 @@ describe("share count basis", () => {
     const result = parseStandardCSV(`# exported from somewhere\n${rows}`);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(1);
+    expect(result.postings).toHaveLength(1);
   });
 });
 });
@@ -373,11 +375,11 @@ describe("group_ref", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(3);
-    expect(result.txs[0].groupRef).toBe("441416452");
-    expect(result.txs[1].groupRef).toBe("441416452");
+    expect(result.postings).toHaveLength(3);
+    expect(result.postings[0].groupRef).toBe("441416452");
+    expect(result.postings[1].groupRef).toBe("441416452");
     // A separately-reported charge is its own event, so it names no group.
-    expect(result.txs[2].groupRef).toBe("");
+    expect(result.postings[2].groupRef).toBeUndefined();
   });
 
   it("defaults to empty when the column is absent", () => {
@@ -387,7 +389,7 @@ describe("group_ref", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs[0].groupRef).toBe("");
+    expect(result.postings[0].groupRef).toBeUndefined();
   });
 });
 
@@ -400,12 +402,12 @@ describe("source references", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(2);
-    expect(result.txs[0].brokerRef).toBe("971613411");
+    expect(result.postings).toHaveLength(2);
+    expect(result.postings[0].brokerRef).toBe("971613411");
     // Only the receiving side names the counterparty; the departure does not.
-    expect(result.txs[0].counterpartyAccount).toBe("");
-    expect(result.txs[1].brokerRef).toBe("971613414");
-    expect(result.txs[1].counterpartyAccount).toBe("AG10000001");
+    expect(result.postings[0].counterpartyAccount).toBeUndefined();
+    expect(result.postings[1].brokerRef).toBe("971613414");
+    expect(result.postings[1].counterpartyAccount).toBe("AG10000001");
   });
 
   it("is opaque: a reference that is not a number survives verbatim", () => {
@@ -415,7 +417,7 @@ describe("source references", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs[0].brokerRef).toBe("20240301U1234567");
+    expect(result.postings[0].brokerRef).toBe("20240301U1234567");
   });
 
   it("defaults to empty when the columns are absent", () => {
@@ -425,8 +427,8 @@ describe("source references", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs[0].brokerRef).toBe("");
-    expect(result.txs[0].counterpartyAccount).toBe("");
+    expect(result.postings[0].brokerRef).toBeUndefined();
+    expect(result.postings[0].counterpartyAccount).toBeUndefined();
   });
 });
 
@@ -439,12 +441,12 @@ describe("account_type", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs).toHaveLength(2);
+    expect(result.postings).toHaveLength(2);
     // The cash arriving in the account is an ordinary posting; the income it came
     // from is the other side of the same event.
-    expect(result.txs[0].accountType).toBe(AccountType.USER);
-    expect(result.txs[1].accountType).toBe(AccountType.INCOME);
-    expect(result.txs[1].groupRef).toBe("div-8842");
+    expect(result.postings[0].accountType).toBe(AccountType.USER);
+    expect(result.postings[1].accountType).toBe(AccountType.INCOME);
+    expect(result.postings[1].groupRef).toBe("div-8842");
   });
 
   it("is case-insensitive and accepts the whole vocabulary", () => {
@@ -457,7 +459,7 @@ describe("account_type", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs.map((t) => t.accountType)).toEqual([
+    expect(result.postings.map((t) => t.accountType)).toEqual([
       AccountType.EQUITY,
       AccountType.EXPENSE,
       AccountType.IMBALANCE,
@@ -472,7 +474,7 @@ describe("account_type", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs[0].accountType).toBe(AccountType.USER);
+    expect(result.postings[0].accountType).toBe(AccountType.USER);
   });
 
   it("rejects an unknown value rather than falling back to USER", () => {
@@ -481,7 +483,7 @@ describe("account_type", () => {
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].field).toBe("account_type");
   });
@@ -492,7 +494,7 @@ describe("account_type", () => {
 
     const result = parseStandardCSV(csv);
 
-    expect(result.txs).toHaveLength(0);
+    expect(result.postings).toHaveLength(0);
     expect(result.errors[0].field).toBe("account_type");
   });
 });
@@ -508,7 +510,7 @@ describe("unit_price", () => {
     const result = parseStandardCSV(csv);
 
     expect(result.errors).toHaveLength(0);
-    expect(result.txs[0].unitPrice).toBe("0");
-    expect(result.txs[1].unitPrice).toBeUndefined();
+    expect(result.postings[0].unitPrice).toBe("0");
+    expect(result.postings[1].unitPrice).toBeUndefined();
   });
 });

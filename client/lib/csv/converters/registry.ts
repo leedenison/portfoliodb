@@ -5,7 +5,7 @@
 
 import type { ComponentType } from "react";
 import type { Broker } from "@/gen/type/v1/type_pb";
-import type { StandardParseResult } from "@/lib/csv/standard";
+import type { StandardParseResult } from "@/lib/csv/parse-result";
 
 export interface ConverterOptionsProps {
   onOptionsChange: (opts: Record<string, unknown>) => void;

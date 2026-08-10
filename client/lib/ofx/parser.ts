@@ -9,10 +9,11 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "@/lib/dates";
-import type { Tx } from "@/gen/api/v1/api_pb";
-import { InstrumentIdentifierSchema, TxSchema } from "@/gen/api/v1/api_pb";
+import type { Posting } from "@/gen/archive/v1/txs_pb";
+import { PostingSchema } from "@/gen/archive/v1/txs_pb";
+import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { IdentifierType, TxType } from "@/gen/type/v1/type_pb";
-import type { StandardParseResult, ParseError } from "@/lib/csv/standard";
+import type { StandardParseResult, ParseError } from "@/lib/csv/parse-result";
 import { counterLegs, feeLeg, refPrefix } from "@/lib/csv/postings";
 import { Big, parseDecimal } from "@/lib/decimal";
 import { parseOfxSgml } from "./sgml";
@@ -201,7 +202,7 @@ export function parseOfxStatement(text: string): OfxParseResult {
   );
   if (!stmtRs) {
     return {
-      txs: [],
+      postings: [],
       periodFrom: new Date(0),
       periodBefore: new Date(0),
       errors: [{ rowIndex: 0, field: "file", message: "No investment statement found in OFX file" }],
@@ -216,7 +217,7 @@ export function parseOfxStatement(text: string): OfxParseResult {
   const tranList = one(stmtRs.INVTRANLIST);
   if (!tranList) {
     return {
-      txs: [],
+      postings: [],
       periodFrom: new Date(0),
       periodBefore: new Date(0),
       errors: [{ rowIndex: 0, field: "file", message: "No transaction list found in OFX file" }],
@@ -232,12 +233,12 @@ export function parseOfxStatement(text: string): OfxParseResult {
   const periodFrom = parseOfxDate(str(tranList, "DTSTART")) ?? new Date(0);
   const dtEnd = parseOfxDate(str(tranList, "DTEND")) ?? new Date(0);
 
-  const txs: Tx[] = [];
+  const postings: Posting[] = [];
   // Legs of transactions the source gave no FITID for, so they can be given a
   // synthesised group once every real ref is known. FITID is mandatory in OFX,
   // but without a group a trade and its cash leg would land as two groups and
   // neither would balance -- too quiet a failure to leave to the source.
-  const unreferenced: Tx[][] = [];
+  const unreferenced: Posting[][] = [];
   let txIndex = 0;
 
   for (const [tag, def] of Object.entries(TX_TYPES)) {
@@ -311,15 +312,14 @@ export function parseOfxStatement(text: string): OfxParseResult {
 
       const ts = timestampFromDate(date);
       const hintProtos = identifierHints.map((h) =>
-        create(InstrumentIdentifierSchema, {
+        create(InstrumentRefSchema, {
           type: h.type,
           value: h.value,
-          canonical: false,
         }),
       );
 
-      const legs: Tx[] = [];
-      const security = create(TxSchema, {
+      const legs: Posting[] = [];
+      const security = create(PostingSchema, {
         timestamp: ts,
         instrumentDescription: description,
         type: def.txType,
@@ -356,14 +356,13 @@ export function parseOfxStatement(text: string): OfxParseResult {
 
         if (total !== undefined && !total.eq(ZERO)) {
           const cashHints = [
-            create(InstrumentIdentifierSchema, {
+            create(InstrumentRefSchema, {
               type: IdentifierType.CURRENCY,
               value: tradingCurrency,
-              canonical: false,
             }),
           ];
           legs.push(
-            create(TxSchema, {
+            create(PostingSchema, {
               timestamp: ts,
               instrumentDescription: description,
               type: TxType.CASHFLOW,
@@ -385,13 +384,13 @@ export function parseOfxStatement(text: string): OfxParseResult {
         if (fee) legs.push(fee);
       }
 
-      txs.push(...legs);
+      postings.push(...legs);
       if (!fitId) unreferenced.push(legs);
     }
   }
 
   if (unreferenced.length > 0) {
-    const prefix = refPrefix(txs);
+    const prefix = refPrefix(postings);
     unreferenced.forEach((legs, i) => {
       for (const leg of legs) leg.groupRef = `${prefix}${i}`;
     });
@@ -399,15 +398,15 @@ export function parseOfxStatement(text: string): OfxParseResult {
 
   // The income a dividend came from and the expense a commission went to. After
   // the loop so a derived fee gets its counter-leg too.
-  txs.push(...counterLegs(txs));
+  postings.push(...counterLegs(postings));
 
-  txs.sort((a, b) =>
+  postings.sort((a, b) =>
     Number(a.timestamp?.seconds ?? 0) - Number(b.timestamp?.seconds ?? 0),
   );
 
-  const lastTx = txs[txs.length - 1]?.timestamp;
-  const afterLastTx = lastTx ? startOfNextDay(timestampDate(lastTx)) : new Date(0);
-  const periodBefore = afterLastTx > dtEnd ? afterLastTx : dtEnd;
+  const last = postings[postings.length - 1]?.timestamp;
+  const afterLast = last ? startOfNextDay(timestampDate(last)) : new Date(0);
+  const periodBefore = afterLast > dtEnd ? afterLast : dtEnd;
 
-  return { txs, periodFrom, periodBefore, errors, secList };
+  return { postings, periodFrom, periodBefore, errors, secList };
 }

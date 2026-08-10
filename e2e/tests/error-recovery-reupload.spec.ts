@@ -35,7 +35,7 @@ test.describe("error recovery via corrected re-upload", () => {
 
     // First upload: AAPL (resolvable) + XYZFAKE (unresolvable).
     await uploadCSVAndWait(page, browser, "mixed-identification.csv", {
-      expectedTxCount: 2,
+      expectedPostingCount: 2,
     });
 
     // Verify holdings show both (AAPL resolved, XYZFAKE as description).
@@ -66,7 +66,7 @@ test.describe("error recovery via corrected re-upload", () => {
     // Corrected re-upload: AAPL + MSFT (with ISIN) for same period.
     // This replaces the previous upload via idempotent bulk semantics.
     await uploadCSVAndWait(page, browser, "identification-corrected.csv", {
-      expectedTxCount: 2,
+      expectedPostingCount: 2,
     });
 
     // Verify holdings now show AAPL + MSFT (both resolved). XYZFAKE gone.

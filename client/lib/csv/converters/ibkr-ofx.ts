@@ -4,9 +4,9 @@
  */
 
 import { create } from "@bufbuild/protobuf";
-import { InstrumentIdentifierSchema } from "@/gen/api/v1/api_pb";
+import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { Broker, IdentifierType } from "@/gen/type/v1/type_pb";
-import type { StandardParseResult } from "@/lib/csv/standard";
+import type { StandardParseResult } from "@/lib/csv/parse-result";
 import { parseOfxStatement } from "@/lib/ofx/parser";
 import { register } from "./registry";
 
@@ -17,19 +17,18 @@ export function convertIbkrOfx(text: string): StandardParseResult {
   // carries the OCC-format TICKER for these contracts. Add OCC hints
   // for any transaction whose SECID has no standard identifier hints
   // but can be resolved via SECLIST.
-  for (const tx of result.txs) {
-    const hasStandardHint = tx.identifierHints.length > 0;
+  for (const posting of result.postings) {
+    const hasStandardHint = posting.identifierHints.length > 0;
     if (hasStandardHint) continue;
 
     // Look up the instrument description in the SECLIST by matching
     // on secName (which is what we set as instrumentDescription).
     for (const [, sec] of result.secList) {
-      if (sec.secName === tx.instrumentDescription && sec.uniqueIdType === "CONID" && sec.ticker) {
-        tx.identifierHints.push(
-          create(InstrumentIdentifierSchema, {
+      if (sec.secName === posting.instrumentDescription && sec.uniqueIdType === "CONID" && sec.ticker) {
+        posting.identifierHints.push(
+          create(InstrumentRefSchema, {
             type: IdentifierType.OCC,
             value: sec.ticker,
-            canonical: false,
           }),
         );
         break;

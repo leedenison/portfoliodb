@@ -13,8 +13,9 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { startOfNextDay } from "../lib/dates";
-import type { Tx } from "@/gen/api/v1/api_pb";
-import { InstrumentIdentifierSchema, TxSchema } from "@/gen/api/v1/api_pb";
+import type { Posting } from "@/gen/archive/v1/txs_pb";
+import { PostingSchema } from "@/gen/archive/v1/txs_pb";
+import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { IdentifierType } from "@/gen/type/v1/type_pb";
 import type { FidelityLeg } from "@/lib/csv/converters/fidelity-csv";
 import {
@@ -25,7 +26,7 @@ import {
   isCashTxType,
   typeForAsset,
 } from "@/lib/csv/converters/fidelity-csv";
-import type { ParseError, StandardParseResult } from "@/lib/csv/standard";
+import type { ParseError, StandardParseResult } from "@/lib/csv/parse-result";
 import { counterLegs, currencyHint } from "@/lib/csv/postings";
 import { Big, decimalFromNumber } from "@/lib/decimal";
 import { parseSlashDate } from "../lib/dates";
@@ -94,7 +95,7 @@ export function isValidIsin(value: string): boolean {
 
 function fail(message: string): StandardParseResult {
   return {
-    txs: [],
+    postings: [],
     periodFrom: new Date(0),
     periodBefore: new Date(0),
     errors: [{ rowIndex: 0, field: "file", message }],
@@ -117,7 +118,7 @@ export function convertFidelityJson(
   }
 
   const errors: ParseError[] = [];
-  const txs: Tx[] = [];
+  const postings: Posting[] = [];
   const legs: FidelityLeg[] = [];
   let minTime = Infinity;
   let maxTime = -Infinity;
@@ -175,17 +176,15 @@ export function convertFidelityJson(
         : []
       : isValidIsin(isin)
         ? [
-            create(InstrumentIdentifierSchema, {
+            create(InstrumentRefSchema, {
               type: IdentifierType.ISIN,
               value: isin,
-              canonical: false,
             }),
             ...(sedol
               ? [
-                  create(InstrumentIdentifierSchema, {
+                  create(InstrumentRefSchema, {
                     type: IdentifierType.SEDOL,
                     value: sedol,
-                    canonical: false,
                   }),
                 ]
               : []),
@@ -213,8 +212,8 @@ export function convertFidelityJson(
       ref: parseInt(row.referenceId ?? "", 10),
       cashAsset,
     });
-    txs.push(
-      create(TxSchema, {
+    postings.push(
+      create(PostingSchema, {
         timestamp: timestampFromDate(date),
         // A cash posting is described by its currency, which is what resolves it
         // to the currency instrument rather than to a holding named after the
@@ -244,16 +243,16 @@ export function convertFidelityJson(
 
   const groups = assignFidelityGroups(legs);
   groups.refs.forEach((ref, i) => {
-    if (ref) txs[i].groupRef = ref;
+    if (ref) postings[i].groupRef = ref;
   });
   groups.cashLegs.forEach((paired, i) => {
-    if (paired) asTradeCashLeg(txs[i], txs[i].settlementCurrency);
+    if (paired) asTradeCashLeg(postings[i], postings[i].settlementCurrency ?? "");
   });
   // After the refs are stamped, since that loop is index-parallel with legs.
-  txs.push(...counterLegs(txs));
+  postings.push(...counterLegs(postings));
 
   return {
-    txs,
+    postings,
     periodFrom: minTime === Infinity ? new Date(0) : new Date(minTime),
     periodBefore:
       maxTime === -Infinity ? new Date(0) : startOfNextDay(new Date(maxTime)),

@@ -35,7 +35,7 @@ test.describe("mixed transaction types", () => {
 
     // Upload CSV with BUY 100, BUY 50, SELL -30, SPLIT 2 (all AAPL).
     await uploadCSVAndWait(page, browser, "mixed-tx-types.csv", {
-      expectedTxCount: 4,
+      expectedPostingCount: 4,
     });
 
     // Navigate to holdings and verify the aggregated result.

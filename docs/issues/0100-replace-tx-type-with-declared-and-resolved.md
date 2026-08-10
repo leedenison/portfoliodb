@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Replace TxType with a declared and resolved pair
 milestone: M15
 dependencies: [0092]
@@ -137,3 +137,14 @@ in between.
 - `docs/spec/portfoliodb-spec.md` L70-77 and L165 -- the resolution flow diagram
   and the security type hint paragraph.
 - `docs/spec/archive-format.md` L159 -- the `AccountType`/`TxType` name collision.
+
+Closed. Landed as three PRs: the ignore rules rekeyed on the instrument's asset
+class (with `TxTypeStored` deleted), the vocabulary swap itself, and the spec
+updates. Two decisions taken in flight: the ambiguity value is named `AMBIGUOUS`
+and modelled as the tree root, because `AssetClass` already claims `UNKNOWN` in
+package scope and a rooted tree makes common-ancestor resolution one rule; and a
+posting with no stated `asset_class_hint` routes to the security plugins, because
+leaving both gates open let the cash plugin resolve an unidentifiable security to
+its trading currency silently. Landed without 0097, so the predicted interim rise
+in reported imbalance (unpaired Fidelity `Cash In` resolving `AMBIGUOUS`) is in
+effect.

@@ -150,7 +150,7 @@ had nothing; dropping it leaves valuation treating the days between reported
 bars as unpriced. See `docs/adr/0023-price-coverage-is-stored-not-inferred.md`.
 
 **Vocabularies** -- asset classes, identifier types, transaction types, account
-types, brokers -- are written by name: `"STOCK"`, `"ISIN"`, `"BUYSTOCK"`. They
+types, brokers -- are written by name: `"STOCK"`, `"ISIN"`, `"TRADE_ASSET"`. They
 come from `proto/type/v1/type.proto`, which does not remove or rename a value.
 See `docs/adr/0038-controlled-vocabularies-are-shared.md`.
 

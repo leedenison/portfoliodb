@@ -93,15 +93,22 @@ A user may believe the system has mis-identified an instrument. It should be pos
 
 ### Security type and transaction handling
 
-Transactions that are **not stored** (e.g. SPLIT) are determined by **TxType** and are dropped before resolution. No resolution or DB insert is performed for such transactions.
-
-For transactions that are stored, the ingestion layer maps TxType to a **security type hint**. This hint is passed to description and identifier plugins for routing only (e.g. the cash plugin only accepts CASH). The hint vocabulary is the **same as asset class** (type alias).
+The **security type hint** is the asset class the source stated on the posting
+(`asset_class_hint`; see tx-types.md). It is passed to description and identifier
+plugins for routing only: a stated CASH routes to the cash plugins, any other
+stated class to the security plugins, and a posting with no stated hint routes as
+a security with no class constraint -- cash plugins run only for a stated CASH,
+so an unidentifiable security cannot silently resolve to its trading currency.
 
 #### Type layers
 
-- **TxType** (broker/proto): Transaction classification (BUYSTOCK, SPLIT, INCOME, …). Some TxTypes are not stored (e.g. SPLIT).
-- **Security type hint** (routing): Derived from TxType; vocabulary is the same as asset class: STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN. TxType cannot distinguish stock from ETF, so stock-like TxTypes map to STOCK (never ETF).
-- **Asset class** (canonical): STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE, CASH, UNKNOWN. Set by identifier plugins and stored on instruments.
+- **Transaction type** (declared/resolved): what kind of event the posting is a
+  leg of; says nothing about asset class. See tx-types.md.
+- **Security type hint** (routing): the stated `asset_class_hint`; vocabulary is
+  the same as asset class: STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION, FUTURE,
+  CASH, UNKNOWN. Empty when the source made no claim.
+- **Asset class** (canonical): STOCK, ETF, FIXED_INCOME, MUTUAL_FUND, OPTION,
+  FUTURE, CASH, UNKNOWN. Set by identifier plugins and stored on instruments.
 
 ### Description Plugins
 

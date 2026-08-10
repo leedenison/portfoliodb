@@ -225,14 +225,20 @@ A group's postings are in different commodities, so a plain `SUM(quantity)` cann
 say whether it balances: a buy is `+10 AAPL` and `-1855 USD`. Balance is checked on
 **weight**. A posting converts to the settlement currency at its `unit_price` when
 the units its counter-leg is expected in differ from its own; otherwise it weighs
-its own quantity in its own commodity. `tx_type` says which:
+its own quantity in its own commodity. The declared type says which, under the
+every-candidate rule of [tx-types.md](tx-types.md):
 
-| tx_type                                                     | Other side expected in | Converts               |
-| ----------------------------------------------------------- | ---------------------- | ---------------------- |
-| `BUY*`, `SELL*`, `REINVEST`, `CLOSUREOPT`                    | money                  | yes                    |
-| `INCOME`, `INVEXPENSE`, `MARGININTEREST`, `RETOFCAP`, `CASHFLOW` | the same currency  | only across currencies |
-| `TRANSFER`, `JRNLFUND`                                       | the same commodity, another account | only across currencies |
-| `JRNLSEC`                                                    | the same security, another account  | no        |
+| broker_tx_type                       | Other side expected in | Converts               |
+| ------------------------------------ | ---------------------- | ---------------------- |
+| must be `TRADE_ASSET`                | money                  | yes                    |
+| money posting, any other type        | the same currency      | only across currencies |
+| security posting, any other type     | the same commodity     | no                     |
+
+An ambiguous set does not convert -- a rule fires only if it holds for every
+candidate -- and weight neutrality makes that harmless: a priced set whose
+members would weigh differently is rejected at ingest, so declared ambiguity
+never moves a weight (see
+adr/0046-declared-ambiguity-is-bounded-by-weight-neutrality.md).
 
 "Across currencies" means `trading_currency != settlement_currency` -- a EUR
 dividend settling into a USD account, where `unit_price` is the FX rate. Two guards
@@ -256,17 +262,19 @@ adr/0028-cumulative-split-factor-is-an-exact-rational.md).
 
 Weights accumulate **per commodity**, so a group can produce more than one routed
 posting and the commodity is whatever is left over -- cash for a missing cash leg,
-the security for an unpaired `JRNLSEC`.
+the security for an unpaired security transfer.
 
 Weights are exact: a posting's weight is `quantity * unit_price * contract_size`,
 which is closed under multiplication, so a group's balance is a plain sum with
 nothing to absorb. Every non-zero residual is routed, and only a group that sums to
 exactly zero produces no posting at all.
 
-The routed posting takes the `IMBALANCE` type, or `TRANSFER_CLEARING` when the
-group is a journal. It keeps the broker, account, date and `tx_type` of the group
-it balances, so the residual stays attributable to the account and the kind of
-event that produced it. Its commodity is carried by `instrument_id`, never encoded
+The routed posting takes the `IMBALANCE` type, or `TRANSFER_CLEARING` when any
+of the group's legs resolved under `TRANSFER`; a leg whose declared set nothing
+has narrowed resolves `AMBIGUOUS` and routes to `IMBALANCE`, because it is not a
+transfer under every reading. The posting keeps the broker, account, date,
+declared set and resolved type of the group it balances, so the residual stays
+attributable to the account and the kind of event that produced it. Its commodity is carried by `instrument_id`, never encoded
 in a name. It is written into the group it balances, and a replace that cuts that group
 deletes it along with the in-period postings: the remainder is routed fresh, so a group
 carries one residual per commodity however many replaces have reached it.
@@ -300,7 +308,7 @@ An INITIALIZE pad is balanced by an `EQUITY` counterparty instead; see
 
 ### Transfers
 
-The two sides of a journal (`TRANSFER`, `JRNLFUND`, `JRNLSEC`) are not paired at
+The two sides of a journal (a leg resolved under `TRANSFER`) are not paired at
 ingest. Brokers report them in separate statements and sometimes in separate imports,
 so each side is balanced by a `TRANSFER_CLEARING` counterparty in the same commodity,
 which holds the value in transit.
@@ -409,7 +417,7 @@ adr/0041-server-owns-transaction-grouping.md).
 
 The broker-specific converter decides which postings are legs of one event; the
 server persists what it is given and never infers a missing leg, pairs rows, or folds
-a fee into a cash amount. Fees are expressed as postings with `type=INVEXPENSE`, not
+a fee into a cash amount. Fees are expressed as `EXPENSE`-family postings, not
 as a column on the upload. See adr/0021-converters-own-transaction-grouping.md.
 
 The decision to move grouping to the server, so that it can join legs a converter

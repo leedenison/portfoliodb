@@ -1,7 +1,8 @@
 import { Big } from "@/lib/decimal";
 import { describe, it, expect } from "vitest";
-import { AccountType, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
-import { convertFidelityToStandard, FIDELITY_TYPE_TO_OFX } from "./fidelity-csv";
+import { AccountType, AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
+import { mustBe } from "@/lib/tx-type";
+import { convertFidelityToStandard, FIDELITY_TYPE_TO_TYPES } from "./fidelity-csv";
 import { expectGroupsBalance, residuals } from "@/lib/csv/group-balance.test-utils";
 
 const HEADER =
@@ -38,7 +39,7 @@ describe("convertFidelityToStandard", () => {
     expect(result.postings.length).toBe(1);
     expect(result.postings[0]!.instrumentDescription).toContain("INVESCO");
     expect(result.postings[0]!.quantity).toBe("-70");
-    expect(result.postings[0]!.type).toBe(10); // SELLSTOCK
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     expect(result.postings[0]!.settlementCurrency).toBe("GBP");
     expect(result.postings[0]!.tradingCurrency).toBeUndefined(); // Sell is not Cash type
     expect(result.postings[0]!.account).toBe("AG10000001");
@@ -73,7 +74,7 @@ describe("convertFidelityToStandard", () => {
     expect(result.periodFrom).toEqual(new Date(2026, 0, 23));
   });
 
-  it("parses Cash Interest as INCOME", () => {
+  it("parses Cash Interest as INTEREST", () => {
     const csv = [
       "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit",
       "16 Feb 2026,23 Feb 2026,Cash Interest,Cash,AP10000001,3.27,1",
@@ -82,7 +83,7 @@ describe("convertFidelityToStandard", () => {
     expect(result.errors).toEqual([]);
     // The cash row plus the income it came from.
     expect(result.postings.length).toBe(2);
-    expect(result.postings[0]!.type).toBe(11); // INCOME
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.INTEREST]);
     expect(result.postings[0]!.quantity).toBe("3.27");
     expect(result.postings[0]!.settlementCurrency).toBe("USD");
   });
@@ -90,21 +91,22 @@ describe("convertFidelityToStandard", () => {
   // The exported map is the set of types the converter accepts. Consumers that
   // upload despite dropped rows use it to name the types they dropped, so a type
   // present in the map must not be rejected by the converter.
-  it("accepts every transaction type in FIDELITY_TYPE_TO_OFX", () => {
-    const types = Object.keys(FIDELITY_TYPE_TO_OFX);
+  it("accepts every transaction type in FIDELITY_TYPE_TO_TYPES", () => {
+    const types = Object.keys(FIDELITY_TYPE_TO_TYPES);
     const csv = [
       HEADER,
       ...types.map((t) => `20 Oct 2025,22 Oct 2025,${t},ISHARES II PLC INRG,SIPP,1,7.16`),
     ].join("\n");
     const result = convertFidelityToStandard(csv, { currency: "GBP" });
     expect(result.errors).toEqual([]);
-    // Counter-legs are appended for the one-sided rows, so count the postings
-    // that came from a source row: those are the ones a type maps to.
+    // Counter-legs and derived income legs are appended for the one-sided rows,
+    // so count the postings that came from a source row: those are the ones a
+    // type maps to, in row order, each carrying its declared set.
     const source = result.postings.filter((tx) => tx.accountType === AccountType.UNSPECIFIED);
     expect(source.length).toBe(types.length);
-    expect(new Set(source.map((tx) => tx.type))).toEqual(
-      new Set(Object.values(FIDELITY_TYPE_TO_OFX))
-    );
+    source.forEach((tx, i) => {
+      expect(tx.brokerTxType).toEqual(FIDELITY_TYPE_TO_TYPES[types[i]!]);
+    });
   });
 
   it("names the offending type when a row's type is unrecognised", () => {
@@ -231,7 +233,8 @@ describe("convertFidelityToStandard", () => {
       const result = convert([SELL]);
       expect(result.errors).toEqual([]);
       expect(result.postings).toHaveLength(1);
-      expect(result.postings[0]!.type).toBe(TxType.CASHFLOW);
+      expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_CASH]);
+      expect(result.postings[0]!.assetClassHint).toBe(AssetClass.CASH);
       // The signed Amount, not the unsigned share count the row also carries.
       expect(result.postings[0]!.quantity).toBe("-401");
       expect(result.postings[0]!.tradingCurrency).toBe("GBP");
@@ -253,14 +256,16 @@ describe("convertFidelityToStandard", () => {
       expect(result.errors).toEqual([]);
       const total = result.postings.reduce((sum, tx) => sum.plus(tx.quantity), new Big(0));
       expect(total.eq(-401)).toBe(true);
-      expect(result.postings.some((tx) => tx.type === TxType.SELLSTOCK)).toBe(false);
+      expect(result.postings.some((tx) => mustBe(tx.brokerTxType, TxType.TRADE_ASSET))).toBe(false);
     });
 
     it("still reads a security sale as one", () => {
       const result = convert([
         '2022-02-08,10 Feb 2022,Sell,"WISE PLC, CLS A ORD GBP0.01 (WISE)",SIPP - Pension Savings Account,AP10000001,,-7266.49,1242,5.85,441416452,Completed,LON,WISE,STOCK,Sell',
       ]);
-      expect(result.postings[0]!.type).toBe(TxType.SELLSTOCK);
+      expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
+      // The export's own asset column, stated as a hint.
+      expect(result.postings[0]!.assetClassHint).toBe(AssetClass.STOCK);
       expect(result.postings[0]!.quantity).toBe("-1242");
     });
 
@@ -289,8 +294,8 @@ describe("convertFidelityToStandard", () => {
         "8 Feb 2022,10 Feb 2022,Sell,ISHARES II PLC INRG,AG10000001,100,7.16",
       ].join("\n");
       const result = convertFidelityToStandard(csv, { currency: "GBP" });
-      expect(result.postings[0]!.type).toBe(TxType.CASHFLOW);
-      expect(result.postings[1]!.type).toBe(TxType.SELLSTOCK);
+      expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_CASH]);
+      expect(result.postings[1]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     });
   });
 
@@ -302,7 +307,7 @@ describe("convertFidelityToStandard", () => {
     const result = convertFidelityToStandard(csv, { currency: "GBP" });
     expect(result.errors).toEqual([]);
     expect(result.postings.length).toBe(1);
-    expect(result.postings[0]!.type).toBe(5); // BUYSTOCK
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     expect(result.postings[0]!.quantity).toBe("12783");
     expect(result.postings[0]!.settlementCurrency).toBe("GBP");
     expect(result.postings[0]!.tradingCurrency).toBeUndefined(); // Buy is not Cash type
@@ -476,7 +481,7 @@ describe("transaction grouping", () => {
 // same amount -- the subscription credited, spent, and credited again as the
 // money that lands -- with no security anywhere in it. Every row below is
 // verbatim from the master exports. Left ungrouped the run is three
-// single-posting groups, two of them JRNLFUND, so the account reports twice the
+// single-posting groups, two of them transfers, so the account reports twice the
 // contribution it received and a residual the size of the deposit lands in
 // IMBALANCE.
 describe("deposits into a product account", () => {
@@ -515,16 +520,16 @@ describe("deposits into a product account", () => {
     });
   });
 
-  it("keeps the run's journals so its residual reads as a transfer", () => {
-    // The group has to carry a JRNLFUND for the server to route its residual to
-    // TRANSFER_CLEARING rather than IMBALANCE, so nothing here is retyped the way
-    // a trade's cash leg is.
+  it("keeps the run's declared transfers so its residual reads as one", () => {
+    // The lump sum's declared TRANSFER is what routes the group's residual to
+    // TRANSFER_CLEARING rather than IMBALANCE, and grouping does not rewrite
+    // what the broker declared: the ambiguous Cash In keeps both its readings.
     const result = convert([LUMP_SUM, SPEND, ARRIVAL]);
 
-    expect(result.postings.map((tx) => tx.type)).toEqual([
-      TxType.JRNLFUND,
-      TxType.CASHFLOW,
-      TxType.JRNLFUND,
+    expect(result.postings.map((tx) => tx.brokerTxType)).toEqual([
+      [TxType.TRANSFER],
+      [TxType.TRADE_CASH],
+      [TxType.TRADE_CASH, TxType.TRANSFER],
     ]);
   });
 
@@ -537,7 +542,7 @@ describe("deposits into a product account", () => {
 
     expect(result.postings).toHaveLength(1);
     expect(result.postings[0]!.groupRef).toBeUndefined();
-    expect(result.postings[0]!.type).toBe(TxType.JRNLFUND);
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRANSFER]);
   });
 
   it("groups a run whose rows settled on different days", () => {
@@ -615,10 +620,11 @@ describe("trades the broker names for their reason", () => {
 
     expect(result.errors).toEqual([]);
     // A plain purchase: the dividend has already posted as its own Cash Dividend
-    // row, so typing this REINVEST would count the income twice.
-    expect(result.postings[0]!.type).toBe(TxType.BUYSTOCK);
+    // row, so deriving a reinvestment income leg here would count it twice.
+    expect(result.postings).toHaveLength(2);
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     expect(result.postings[0]!.quantity).toBe("17");
-    expect(result.postings[1]!.type).toBe(TxType.CASHFLOW);
+    expect(result.postings[1]!.brokerTxType).toEqual([TxType.TRADE_CASH]);
     expect(result.postings[0]!.groupRef).toBe("442184379");
     expect(result.postings[1]!.groupRef).toBe("442184379");
   });
@@ -630,7 +636,7 @@ describe("trades the broker names for their reason", () => {
     ]);
 
     expect(result.errors).toEqual([]);
-    expect(result.postings[1]!.type).toBe(TxType.BUYSTOCK);
+    expect(result.postings[1]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     expect(result.postings[0]!.groupRef).toBe("452602204");
     expect(result.postings[1]!.groupRef).toBe("452602204");
     // The group does not weigh zero, and cannot: 9.24 units at the printed price
@@ -649,8 +655,9 @@ describe("trades the broker names for their reason", () => {
 
     expect(result.errors).toEqual([]);
     expect(result.postings).toHaveLength(2);
-    expect(result.postings[0]!.type).toBe(TxType.REINVEST);
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     expect(result.postings[0]!.quantity).toBe("21.09");
+    expect(result.postings[1]!.brokerTxType).toEqual([TxType.DIVIDEND]);
     expect(result.postings[1]!.accountType).toBe(AccountType.INCOME);
     // The posting's own weight, not the 31.65 the broker printed: taking that
     // would leave the group short by the rounding in the quoted price.
@@ -671,29 +678,32 @@ describe("trades the broker names for their reason", () => {
     expect(result.errors).toEqual([]);
     // The buy side names cash as the asset, so it is a movement of money rather
     // than a purchase of a security called Cash, and it nets against its cash out.
-    expect(result.postings[2]!.type).toBe(TxType.CASHFLOW);
+    expect(result.postings[2]!.brokerTxType).toEqual([TxType.TRADE_CASH]);
     expect(result.postings[0]!.groupRef).toBe("661638575");
     expect(result.postings[2]!.groupRef).toBe("661638575");
     // The sale side is a real disposal, and its proceeds arrive as a Cash In.
-    expect(result.postings[1]!.type).toBe(TxType.SELLSTOCK);
+    expect(result.postings[1]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     expect(result.postings[1]!.groupRef).toBe("661638570");
     expect(result.postings[3]!.groupRef).toBe("661638570");
   });
 
-  it("retypes a Cash In that turned out to be a sale's proceeds", () => {
-    // Cash In is normally money from outside the account, and no lookup on the
-    // broker's name can tell the two apart -- only whether the row paired.
+  it("keeps a Cash In's declared set whether or not it paired with a sale", () => {
+    // Cash In is money from outside the account or a sale's proceeds, and no
+    // lookup on the broker's name can tell the two apart. The declared set says
+    // exactly that, and pairing records itself in the group alone rather than
+    // rewriting what the broker declared.
     const paired = convert([
       "2023-06-28,04 Jul 2023,Sell For Switch,M&G European Index Tracker,SIPP - Pension Savings Account,AP10000002,,-12091.15,12147.03,1,661638570,Completed,LON,M&G European Index Tracker,FUND,Sell",
       "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638574,Completed,,GBP,CASH,Cash",
     ]);
-    expect(paired.postings[1]!.type).toBe(TxType.CASHFLOW);
+    expect(paired.postings[1]!.brokerTxType).toEqual([TxType.TRADE_CASH, TxType.TRANSFER]);
     expect(paired.postings[1]!.tradingCurrency).toBe("GBP");
+    expect(paired.postings[1]!.groupRef).toBe("661638570");
 
     const alone = convert([
       "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638574,Completed,,GBP,CASH,Cash",
     ]);
-    expect(alone.postings[0]!.type).toBe(TxType.JRNLFUND);
+    expect(alone.postings[0]!.brokerTxType).toEqual([TxType.TRADE_CASH, TxType.TRANSFER]);
     expect(alone.postings[0]!.groupRef).toBeUndefined();
   });
 
@@ -707,7 +717,7 @@ describe("trades the broker names for their reason", () => {
     expect(result.errors).toEqual([]);
     // The fee and its expense leg; nothing from the trade that never happened.
     expect(result.postings).toHaveLength(2);
-    expect(result.postings[0]!.type).toBe(TxType.INVEXPENSE);
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRANSACTION_COST]);
   });
 });
 
@@ -742,7 +752,7 @@ describe("what a posting resolves to", () => {
     ]);
 
     expect(result.postings[0]!.instrumentDescription).toBe("GBP");
-    expect(result.postings[0]!.type).toBe(TxType.INCOME);
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.DIVIDEND]);
   });
 
   it("keeps a security's own description and offers its ticker", () => {
@@ -804,7 +814,7 @@ describe("counter-legs", () => {
     const result = convert([row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "441416483")]);
 
     expect(result.postings).toHaveLength(2);
-    expect(result.postings[1].type).toBe(TxType.INVEXPENSE);
+    expect(result.postings[1].brokerTxType).toEqual([TxType.TRANSACTION_COST]);
     expect(result.postings[1].accountType).toBe(AccountType.EXPENSE);
     expect(result.postings[1].quantity).toBe("10");
     expect(result.postings[1].groupRef).toBe(result.postings[0].groupRef);
@@ -841,11 +851,11 @@ describe("counter-legs", () => {
     expectGroupsBalance(result.postings);
   });
 
-  it("does not invent a leg for a journal, whose other side is another account", () => {
+  it("does not invent a leg for a transfer, whose other side is another account", () => {
     const result = convert([row("Cash In", "Cash", "AG1", "5000", "5000", "1", "441416485")]);
 
     expect(result.postings).toHaveLength(1);
-    expect(result.postings[0].type).toBe(TxType.JRNLFUND);
+    expect(result.postings[0].brokerTxType).toEqual([TxType.TRADE_CASH, TxType.TRANSFER]);
   });
 });
 
@@ -855,18 +865,18 @@ describe("trade cash legs", () => {
   const convert = (rows: string[]) =>
     convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
 
-  // Typing these JRNLFUND made every trade group read as a transfer, so its
-  // residual was routed to TRANSFER_CLEARING instead of IMBALANCE.
-  it("are CASHFLOW, keeping their direction and currency", () => {
+  // Typing these transfers made every trade group read as one, so its residual
+  // was routed to TRANSFER_CLEARING instead of IMBALANCE.
+  it("are TRADE_CASH, keeping their direction and currency", () => {
     const result = convert([
       "8 Feb 2022,10 Feb 2022,Cash Out For Buy,Cash,Investment Account,AG1,,-401,401,1,608443430,Completed",
       "8 Feb 2022,10 Feb 2022,Cash In From Sell,Cash,Investment Account,AG1,,7265.70,7265.70,1,441416454,Completed",
     ]);
 
-    expect(result.postings[0].type).toBe(TxType.CASHFLOW);
+    expect(result.postings[0].brokerTxType).toEqual([TxType.TRADE_CASH]);
     expect(result.postings[0].quantity).toBe("-401");
     expect(result.postings[0].tradingCurrency).toBe("GBP");
-    expect(result.postings[1].type).toBe(TxType.CASHFLOW);
+    expect(result.postings[1].brokerTxType).toEqual([TxType.TRADE_CASH]);
     expect(result.postings[1].quantity).toBe("7265.7");
   });
 });

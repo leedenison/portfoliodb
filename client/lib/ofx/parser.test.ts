@@ -236,7 +236,8 @@ describe("parseOfxStatement", () => {
     expect(result.postings.length).toBe(2);
 
     const tx = result.postings[0]!;
-    expect(tx.type).toBe(TxType.INCOME);
+    expect(tx.brokerTxType).toEqual([TxType.INCOME]);
+    expect(tx.assetClassHint).toBe(AssetClass.CASH);
     expect(tx.quantity).toBe("137.08");
     expect(tx.unitPrice).toBe("1");
     expect(tx.instrumentDescription).toBe("MSFT MICROSOFT CORP");
@@ -267,7 +268,8 @@ describe("parseOfxStatement", () => {
     expect(result.postings.length).toBe(2); // security tx + cashflow
 
     const tx = result.postings[0]!;
-    expect(tx.type).toBe(TxType.BUYOPT);
+    expect(tx.brokerTxType).toEqual([TxType.TRADE_ASSET]);
+    expect(tx.assetClassHint).toBe(AssetClass.OPTION);
     expect(tx.quantity).toBe("3");
     expect(tx.instrumentDescription).toContain("BRKB");
     // CONID is not a standard identifier -- no hints from generic parser.
@@ -275,7 +277,7 @@ describe("parseOfxStatement", () => {
     expect(tx.identifierHints.length).toBe(0);
 
     const cf = result.postings[1]!;
-    expect(cf.type).toBe(TxType.CASHFLOW);
+    expect(cf.brokerTxType).toEqual([TxType.TRADE_CASH]);
     expect(cf.quantity).toBe("-4239");
   });
 
@@ -304,7 +306,7 @@ describe("parseOfxStatement", () => {
     const ofx = buildOfx({ curdef: "EUR", transactions: tx });
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
-    const buy = result.postings.find((t) => t.type === TxType.BUYSTOCK)!;
+    const buy = result.postings.find((t) => mustBe(t.brokerTxType, TxType.TRADE_ASSET))!;
     expect(buy.tradingCurrency).toBe("EUR");
   });
 
@@ -425,12 +427,12 @@ describe("groups and charges", () => {
   it("splits the commission out of the netted total", () => {
     const result = parse(GBP_BUY);
 
-    const cash = result.postings.find((t) => t.type === TxType.CASHFLOW)!;
+    const cash = result.postings.find((t) => mustBe(t.brokerTxType, TxType.TRADE_CASH))!;
     // toBe, not toBeCloseTo: the split is a decimal subtraction, so the result
     // is the exact value narrowed once rather than an accumulation of error.
     expect(cash.quantity).toBe("-23080.68");
 
-    const fees = result.postings.filter((t) => t.type === TxType.INVEXPENSE);
+    const fees = result.postings.filter((t) => mustBe(t.brokerTxType, TxType.EXPENSE));
     expect(fees).toHaveLength(2);
     expect(fees.find((t) => t.accountType === AccountType.USER)!.quantity).toBe("-11.54034");
     expect(fees.find((t) => t.accountType === AccountType.EXPENSE)!.quantity).toBe("11.54034");
@@ -441,7 +443,7 @@ describe("groups and charges", () => {
     // Summed in decimal so the assertion holds for any fixture rather than for
     // ones whose float64 sum happens to land. This one's does.
     const cash = result.postings
-      .filter((t) => t.accountType !== AccountType.EXPENSE && t.type !== TxType.BUYSTOCK)
+      .filter((t) => t.accountType !== AccountType.EXPENSE && !mustBe(t.brokerTxType, TxType.TRADE_ASSET))
       .reduce((sum, t) => sum.plus(t.quantity), new Big(0));
     expect(cash.toString()).toBe("-23092.22034");
   });
@@ -454,7 +456,7 @@ describe("groups and charges", () => {
     // CURDEF is GBP and CURRATE is the rate back to it. UNITPRICE, COMMISSION
     // and TOTAL are all EUR, so nothing needs converting before the split.
     const fee = parse(EUR_SELL).postings.find(
-      (t) => t.type === TxType.INVEXPENSE && t.accountType === AccountType.USER
+      (t) => mustBe(t.brokerTxType, TxType.EXPENSE) && t.accountType === AccountType.USER
     )!;
     expect(fee.settlementCurrency).toBe("EUR");
     expect(fee.tradingCurrency).toBe("EUR");
@@ -463,7 +465,7 @@ describe("groups and charges", () => {
 
   it("emits no charge postings for a commission-free trade", () => {
     const result = parse(buyStockTx());
-    expect(result.postings.filter((t) => t.type === TxType.INVEXPENSE)).toHaveLength(0);
+    expect(result.postings.filter((t) => mustBe(t.brokerTxType, TxType.EXPENSE))).toHaveLength(0);
     expect(result.postings).toHaveLength(2);
   });
 

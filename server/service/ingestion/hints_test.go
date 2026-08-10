@@ -5,7 +5,6 @@ import (
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
-	"sort"
 	"testing"
 )
 
@@ -78,55 +77,6 @@ func TestTxTypeToInstrumentKind(t *testing.T) {
 			t.Errorf("TxTypeToInstrumentKind(%v) = %q, want %q", tt.txType, got, tt.want)
 		}
 	}
-}
-
-func TestAssetClassToTxTypeStrings(t *testing.T) {
-	t.Run("CASH maps to expected types", func(t *testing.T) {
-		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintCash)
-		sort.Strings(strs)
-		want := []string{"CASHFLOW", "INCOME", "INVEXPENSE", "JRNLFUND", "MARGININTEREST", "RETOFCAP"}
-		sort.Strings(want)
-		if len(strs) != len(want) {
-			t.Fatalf("got %v, want %v", strs, want)
-		}
-		for i := range strs {
-			if strs[i] != want[i] {
-				t.Errorf("index %d: got %q, want %q", i, strs[i], want[i])
-			}
-		}
-	})
-	t.Run("FUTURE maps to BUYFUTURE and SELLFUTURE", func(t *testing.T) {
-		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintFuture)
-		sort.Strings(strs)
-		want := []string{"BUYFUTURE", "SELLFUTURE"}
-		if len(strs) != len(want) {
-			t.Fatalf("got %v, want %v", strs, want)
-		}
-		for i := range strs {
-			if strs[i] != want[i] {
-				t.Errorf("index %d: got %q, want %q", i, strs[i], want[i])
-			}
-		}
-	})
-	t.Run("ETF has no mapped types", func(t *testing.T) {
-		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintETF)
-		if len(strs) != 0 {
-			t.Errorf("expected empty, got %v", strs)
-		}
-	})
-	t.Run("OPTION maps correctly", func(t *testing.T) {
-		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintOption)
-		sort.Strings(strs)
-		want := []string{"BUYOPT", "CLOSUREOPT", "SELLOPT"}
-		if len(strs) != len(want) {
-			t.Fatalf("got %v, want %v", strs, want)
-		}
-		for i := range strs {
-			if strs[i] != want[i] {
-				t.Errorf("index %d: got %q, want %q", i, strs[i], want[i])
-			}
-		}
-	})
 }
 
 func TestTxIgnored(t *testing.T) {

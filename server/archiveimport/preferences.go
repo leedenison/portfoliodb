@@ -61,7 +61,7 @@ func PreferencePart(ctx context.Context, database db.DB, userID string, part *ar
 			// An empty set is applied rather than skipped: it clears the user's
 			// rules, and telling that apart from a file that does not state them
 			// is what the wrapper message exists for.
-			if err := database.SetIgnoredAssetClasses(ctx, userID, rules, db.AssetClassToTxTypesMap(rules)); err != nil {
+			if err := database.SetIgnoredAssetClasses(ctx, userID, rules); err != nil {
 				return out, fmt.Errorf("set ignored asset classes: %w", err)
 			}
 			out.Applied++

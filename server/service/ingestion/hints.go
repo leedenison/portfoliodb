@@ -7,16 +7,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
-// TxTypeStored returns whether transactions of this type are stored. When false (e.g. SPLIT), the transaction is dropped before resolution.
-func TxTypeStored(t typev1.TxType) bool {
-	switch t {
-	case typev1.TxType_SPLIT:
-		return false
-	default:
-		return true
-	}
-}
-
 // TxTypeToSecurityTypeHint maps transaction type to the security type hint vocabulary (identifier package constants).
 // Delegates to db.TxTypeToAssetClass since the vocabularies are identical.
 func TxTypeToSecurityTypeHint(t typev1.TxType) string {
@@ -39,12 +29,6 @@ func HintsFromTx(tx *apiv1.Tx) identifier.Hints {
 		InstrumentKind:   TxTypeToInstrumentKind(tx.GetType()),
 		SecurityTypeHint: TxTypeToSecurityTypeHint(tx.GetType()),
 	}
-}
-
-// AssetClassToTxTypeStrings returns tx_type DB strings for the given asset class.
-// Delegates to db.AssetClassToTxTypeStrings.
-func AssetClassToTxTypeStrings(assetClass string) []string {
-	return db.AssetClassToTxTypeStrings(assetClass)
 }
 
 // TxIgnored returns whether a transaction should be ignored based on the user's ignore rules.

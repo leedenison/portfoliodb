@@ -70,7 +70,7 @@ func TestProcessUserImport_AppliesPreferencesForTheJobsUser(t *testing.T) {
 		Parts:  partRows(archivev1.ArchivePart_PREFERENCES),
 	}, nil).AnyTimes()
 	database.EXPECT().SetDisplayCurrency(gomock.Any(), "user-7", "GBP").Return(nil)
-	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any(), gomock.Any()).Return(nil)
+	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any()).Return(nil)
 
 	var transitions []string
 	database.EXPECT().SetJobPartStatus(gomock.Any(), j.JobID, gomock.Any(), gomock.Any()).
@@ -106,7 +106,7 @@ func TestProcessUserImport_NoCurrencyEarnsNoNudge(t *testing.T) {
 	database.EXPECT().GetJob(gomock.Any(), j.JobID).Return(&db.JobDetail{
 		UserID: "user-7", Parts: partRows(archivev1.ArchivePart_PREFERENCES),
 	}, nil).AnyTimes()
-	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any(), gomock.Any()).Return(nil)
+	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any()).Return(nil)
 	database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	if res := processUserImport(context.Background(), ingestDeps{DB: database}, j); res.displayCurrencySet {
@@ -159,7 +159,7 @@ func TestProcessUserImport_ResetsPartialProgressOnRerun(t *testing.T) {
 	}, nil).AnyTimes()
 	database.EXPECT().ResetJobPartProgress(gomock.Any(), j.JobID, archivev1.ArchivePart_PREFERENCES).Return(nil)
 	database.EXPECT().SetDisplayCurrency(gomock.Any(), "user-7", "GBP").Return(nil)
-	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any(), gomock.Any()).Return(nil)
+	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any()).Return(nil)
 	database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	processUserImport(context.Background(), ingestDeps{DB: database}, j)
@@ -211,7 +211,7 @@ func TestProcessUserImport_JobCountersAreTheSumOverParts(t *testing.T) {
 		}, nil),
 	)
 	database.EXPECT().SetDisplayCurrency(gomock.Any(), "user-7", "GBP").Return(nil)
-	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any(), gomock.Any()).Return(nil)
+	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any()).Return(nil)
 	database.EXPECT().SetJobTotalCount(gomock.Any(), j.JobID, int32(2)).Return(nil)
 	database.EXPECT().SetJobProcessedCount(gomock.Any(), j.JobID, int32(2)).Return(nil)
 
@@ -254,7 +254,7 @@ func TestProcessJob_UserArchive_NudgesThePriceFetcherOnlyForACurrency(t *testing
 				UserID: "user-7", Parts: partRows(archivev1.ArchivePart_PREFERENCES),
 			}, nil).AnyTimes()
 			database.EXPECT().SetDisplayCurrency(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-			database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 			trigger := make(chan struct{}, 1)

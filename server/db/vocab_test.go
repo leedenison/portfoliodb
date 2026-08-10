@@ -48,25 +48,3 @@ func TestValidCurrencyCode(t *testing.T) {
 		}
 	}
 }
-
-// The mapping covers exactly the asset classes the rules name, and names one
-// of them once however many rules mention it.
-func TestAssetClassToTxTypesMap_CoversEachAssetClassOnce(t *testing.T) {
-	m := AssetClassToTxTypesMap([]IgnoredAssetClass{
-		{Broker: "IBKR", AssetClass: AssetClassOption},
-		{Broker: "FIDELITY", AssetClass: AssetClassOption},
-		{Broker: "IBKR", AssetClass: AssetClassStock},
-	})
-	if len(m) != 2 {
-		t.Fatalf("mapping = %v, want two asset classes", m)
-	}
-	if len(m[AssetClassOption]) == 0 || len(m[AssetClassStock]) == 0 {
-		t.Fatalf("mapping = %v, want tx types for both", m)
-	}
-}
-
-func TestAssetClassToTxTypesMap_NoRulesIsEmpty(t *testing.T) {
-	if m := AssetClassToTxTypesMap(nil); len(m) != 0 {
-		t.Fatalf("mapping = %v, want empty", m)
-	}
-}

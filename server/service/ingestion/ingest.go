@@ -97,12 +97,11 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 		log.Printf("ingest: load ignored asset classes: %v", err)
 		ignoredClasses = nil
 	}
-	// Drop non-stored tx types (SPLIT, which the corporate event path owns) and
-	// whatever the user's ignore rules cover. Where the caller declared the
+	// Drop whatever the user's ignore rules cover. Where the caller declared the
 	// total, a dropped posting still counts as processed: its total is what the
 	// file carried, and a job that ended below its own total would read as
 	// unfinished.
-	txs, filteredIdx := filterStoredTxs(p.Txs, p.Broker, ignoredClasses)
+	txs, filteredIdx := filterIgnoredTxs(p.Txs, p.Broker, ignoredClasses)
 	if p.TotalDeclared {
 		rep.Advance(ctx, len(p.Txs)-len(txs))
 	}

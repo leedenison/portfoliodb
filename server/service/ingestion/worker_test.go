@@ -176,7 +176,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
 }
 
-func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
+func TestProcessBulk_DropsIgnoredTxs(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -189,7 +189,7 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
 		{Timestamp: from, InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "", GroupRef: proto.String("ref-1")},
-		{Timestamp: from, InstrumentDescription: "SPLIT", Type: typev1.TxType_SPLIT, Quantity: "1", Account: "", GroupRef: proto.String("ref-1")},
+		{Timestamp: from, InstrumentDescription: "GBP", Type: typev1.TxType_JRNLFUND, Quantity: "1", Account: "", GroupRef: proto.String("ref-1")},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -200,14 +200,21 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 			Postings:     postings,
 		},
 	})
-	j := &JobRequest{JobID: "job-split", JobType: "tx"}
+	j := &JobRequest{JobID: "job-ignored", JobType: "tx"}
 
 	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-split", apiv1.JobStatus_RUNNING).
+		SetJobStatus(gomock.Any(), "job-ignored", apiv1.JobStatus_RUNNING).
 		Return(nil)
-	expectLoadPayload(database, "job-split", "user-1", payload)
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ignored").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ignored").Return(nil)
+	database.EXPECT().GetJob(gomock.Any(), "job-ignored").Return(
+		&db.JobDetail{Status: apiv1.JobStatus_RUNNING, UserID: "user-1"}, nil,
+	)
+	database.EXPECT().ListIgnoredAssetClasses(gomock.Any(), "user-1").Return(
+		[]db.IgnoredAssetClass{{Broker: "IBKR", AssetClass: "CASH"}}, nil,
+	)
 	database.EXPECT().
-		SetJobTotalCount(gomock.Any(), "job-split", int32(1)).
+		SetJobTotalCount(gomock.Any(), "job-ignored", int32(1)).
 		Return(nil)
 	database.EXPECT().
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "AAPL").
@@ -216,16 +223,16 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "AAPL", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		Return("aapl-id", nil)
 	database.EXPECT().
-		IncrJobProcessedCount(gomock.Any(), "job-split").
+		IncrJobProcessedCount(gomock.Any(), "job-ignored").
 		Return(nil)
 	database.EXPECT().
-		AppendIdentificationErrors(gomock.Any(), "job-split", gomock.Any()).
+		AppendIdentificationErrors(gomock.Any(), "job-ignored", gomock.Any()).
 		Return(nil)
 	database.EXPECT().
 		ListInstrumentsByIDs(gomock.Any(), []string{"aapl-id"}).
 		Return([]*db.InstrumentRow{{ID: "aapl-id"}}, nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-split", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-ignored", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _, _, _ string, _, _ *timestamppb.Timestamp, storedTxs []*apiv1.Tx, ids []string, ws []db.Weight, _ []*time.Time) error {
 			supplied := userPostings(storedTxs)
 			if len(supplied) != 1 || supplied[0].InstrumentDescription != "AAPL" || supplied[0].Type != typev1.TxType_BUYSTOCK {
@@ -253,7 +260,7 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		ListHoldingDeclarations(gomock.Any(), "user-1").
 		Return(nil, nil)
 	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-split", apiv1.JobStatus_SUCCESS).
+		SetJobStatus(gomock.Any(), "job-ignored", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
@@ -591,7 +598,7 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
 }
 
-func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
+func TestProcessSingle_DropsIgnoredTx(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -604,20 +611,27 @@ func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
 		Window: &archivev1.TxWindow{
 			Broker:   typev1.Broker_IBKR,
 			Source:   "IBKR:test:statement",
-			Postings: []*archivev1.Posting{{Timestamp: timestamppb.Now(), InstrumentDescription: "SPLIT", Type: typev1.TxType_SPLIT, Quantity: "1", Account: ""}},
+			Postings: []*archivev1.Posting{{Timestamp: timestamppb.Now(), InstrumentDescription: "GBP", Type: typev1.TxType_JRNLFUND, Quantity: "1", Account: ""}},
 		},
 	})
-	j := &JobRequest{JobID: "job-single-split", JobType: "tx"}
+	j := &JobRequest{JobID: "job-single-ignored", JobType: "tx"}
 
 	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-single-split", apiv1.JobStatus_RUNNING).
+		SetJobStatus(gomock.Any(), "job-single-ignored", apiv1.JobStatus_RUNNING).
 		Return(nil)
-	expectLoadPayload(database, "job-single-split", "user-1", payload)
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-single-ignored").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-single-ignored").Return(nil)
+	database.EXPECT().GetJob(gomock.Any(), "job-single-ignored").Return(
+		&db.JobDetail{Status: apiv1.JobStatus_RUNNING, UserID: "user-1"}, nil,
+	)
+	database.EXPECT().ListIgnoredAssetClasses(gomock.Any(), "user-1").Return(
+		[]db.IgnoredAssetClass{{Broker: "IBKR", AssetClass: "CASH"}}, nil,
+	)
 	database.EXPECT().
 		ListHoldingDeclarations(gomock.Any(), "user-1").
 		Return(nil, nil)
 	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-single-split", apiv1.JobStatus_SUCCESS).
+		SetJobStatus(gomock.Any(), "job-single-ignored", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)

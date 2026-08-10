@@ -17,7 +17,7 @@ function balance(overrides: Partial<ResidualBalance> = {}): ResidualBalance {
     instrumentId: "inst-usd",
     commodity: "USD",
     assetClass: AssetClass.CASH,
-    txType: TxType.INCOME,
+    resolvedTxType: TxType.INCOME,
     balance: "-100",
     postingCount: 1,
     ...overrides,
@@ -72,7 +72,7 @@ describe("groupByBroker", () => {
   it("subtotals per commodity and never sums across them", () => {
     const groups = groupByBroker([
       balance({ balance: "-100", commodity: "USD" }),
-      balance({ balance: "-50", commodity: "USD", txType: TxType.BUYSTOCK }),
+      balance({ balance: "-50", commodity: "USD", resolvedTxType: TxType.TRADE_ASSET }),
       balance({ balance: "25", commodity: "AAPL", assetClass: AssetClass.STOCK }),
     ]);
 

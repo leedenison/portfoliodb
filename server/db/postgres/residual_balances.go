@@ -22,8 +22,8 @@ import (
 // counts below, which ask whether something is wrong.
 //
 // The commodity is the instrument's name, not its currency: for money the two
-// agree, but a residual left by an unpaired JRNLSEC is a quantity of shares whose
-// instrument currency would render it as money and misstate it.
+// agree, but a residual left by an unpaired security transfer is a quantity of
+// shares whose instrument currency would render it as money and misstate it.
 //
 // A matched transfer is excluded. Both sides of a completed journal are
 // TRANSFER_CLEARING postings in different broker accounts, so before they were paired
@@ -37,11 +37,11 @@ const residualBalanceAgg = `
 	SELECT t.account_type, t.broker, t.account, t.instrument_id,
 		COALESCE(i.name, t.instrument_id::text) AS commodity,
 		COALESCE(i.asset_class, '')             AS asset_class,
-		t.tx_type,
+		t.resolved_tx_type,
 		-- The split-adjusted column, not the raw one: money never splits and the
-		-- two agree for it, but a residual left by an unpaired JRNLSEC is a
-		-- quantity of shares, and raw quantities recorded either side of a split
-		-- are in different denominations and do not sum. See qty_is_zero.
+		-- two agree for it, but a residual left by an unpaired security transfer
+		-- is a quantity of shares, and raw quantities recorded either side of a
+		-- split are in different denominations and do not sum. See qty_is_zero.
 		SUM(t.split_adjusted_quantity) AS balance,
 		COUNT(*)::int     AS posting_count,
 		MIN(t.timestamp)  AS oldest,
@@ -64,38 +64,38 @@ const residualBalanceAgg = `
 			WHERE m.instrument_id = t.instrument_id
 				AND (m.from_group_id = t.group_id OR m.to_group_id = t.group_id)
 		))
-	GROUP BY t.account_type, t.broker, t.account, t.instrument_id, i.name, i.asset_class, t.tx_type
+	GROUP BY t.account_type, t.broker, t.account, t.instrument_id, i.name, i.asset_class, t.resolved_tx_type
 	HAVING NOT qty_is_zero(
 		SUM(t.split_adjusted_quantity),
 		COUNT(*) FILTER (WHERE t.split_adjusted_quantity <> t.quantity)::int)`
 
 // residualBalanceRow is the sqlx-scannable shape for a residual balance.
 type residualBalanceRow struct {
-	AccountType  string          `db:"account_type"`
-	Broker       string          `db:"broker"`
-	Account      string          `db:"account"`
-	InstID       *string         `db:"instrument_id"`
-	Commodity    string          `db:"commodity"`
-	AssetClass   string          `db:"asset_class"`
-	TxType       string          `db:"tx_type"`
-	Balance      decimal.Decimal `db:"balance"`
-	PostingCount int32           `db:"posting_count"`
-	Oldest       *time.Time      `db:"oldest"`
-	Newest       *time.Time      `db:"newest"`
+	AccountType    string          `db:"account_type"`
+	Broker         string          `db:"broker"`
+	Account        string          `db:"account"`
+	InstID         *string         `db:"instrument_id"`
+	Commodity      string          `db:"commodity"`
+	AssetClass     string          `db:"asset_class"`
+	ResolvedTxType string          `db:"resolved_tx_type"`
+	Balance        decimal.Decimal `db:"balance"`
+	PostingCount   int32           `db:"posting_count"`
+	Oldest         *time.Time      `db:"oldest"`
+	Newest         *time.Time      `db:"newest"`
 }
 
 func (r *residualBalanceRow) toDomain() db.ResidualBalance {
 	b := db.ResidualBalance{
-		AccountType:  strToAccountType(r.AccountType),
-		Broker:       strToBroker(r.Broker),
-		Account:      r.Account,
-		Commodity:    r.Commodity,
-		AssetClass:   r.AssetClass,
-		TxType:       strToTxType(r.TxType),
-		Balance:      r.Balance,
-		PostingCount: r.PostingCount,
-		Oldest:       r.Oldest,
-		Newest:       r.Newest,
+		AccountType:    strToAccountType(r.AccountType),
+		Broker:         strToBroker(r.Broker),
+		Account:        r.Account,
+		Commodity:      r.Commodity,
+		AssetClass:     r.AssetClass,
+		ResolvedTxType: strToTxType(r.ResolvedTxType),
+		Balance:        r.Balance,
+		PostingCount:   r.PostingCount,
+		Oldest:         r.Oldest,
+		Newest:         r.Newest,
 	}
 	if r.InstID != nil {
 		b.InstrumentID = *r.InstID
@@ -114,7 +114,7 @@ func (p *Postgres) ListResidualBalances(ctx context.Context, opts db.ResidualBal
 		accountType = s
 	}
 	q := residualBalanceAgg + `
-		ORDER BY t.broker, t.account, commodity, t.tx_type`
+		ORDER BY t.broker, t.account, commodity, t.resolved_tx_type`
 	var rows []residualBalanceRow
 	if err := p.q.SelectContext(ctx, &rows, q, opts.From, opts.Before, accountType); err != nil {
 		return nil, fmt.Errorf("list residual balances: %w", err)

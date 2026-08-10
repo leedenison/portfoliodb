@@ -47,9 +47,9 @@ func seedBalancedGroups(t testing.TB, p *Postgres, groups int) (string, string) 
 		ref := fmt.Sprintf("g%d", i)
 		at := timestamppb.New(base.Add(time.Duration(i) * time.Minute))
 		txs = append(txs,
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "BENCH", Type: typev1.TxType_BUYSTOCK,
+			&apiv1.Tx{Timestamp: at, InstrumentDescription: "BENCH", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
 				Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD", GroupRef: ref},
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "USD", Type: typev1.TxType_BUYSTOCK,
+			&apiv1.Tx{Timestamp: at, InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
 				Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD", GroupRef: ref})
 		ids = append(ids, instID, usd)
 		ws = append(ws,
@@ -96,8 +96,8 @@ func seedPairedJournals(t testing.TB, p *Postgres, groups int) (string, string, 
 		ref := fmt.Sprintf("j%d", i)
 		at := timestamppb.New(base.Add(time.Duration(i) * time.Minute))
 		txs = append(txs,
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", Type: typev1.TxType_JRNLSEC, Quantity: "-10", GroupRef: ref},
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", Type: typev1.TxType_JRNLSEC, Quantity: "10", GroupRef: ref})
+			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-10", GroupRef: ref},
+			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "10", GroupRef: ref})
 		ids = append(ids, mergedAway, mergedAway)
 		ws = append(ws,
 			db.Weight{Amount: decf(-10), Commodity: commodity},

@@ -15,6 +15,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
 	"github.com/leedenison/portfoliodb/server/telemetry"
+	"github.com/leedenison/portfoliodb/server/txtype"
 )
 
 // errBatchRejected reports that a batch was not stored because its contents
@@ -89,6 +90,14 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 		rep.Errs(errs)
 		return out, errBatchRejected
 	}
+	// Resolve every declared set to its common ancestor, overwriting whatever the
+	// client sent: the resolved value is derived state, and this is the one place
+	// it is derived. Server-side grouping will refine this by letting the pass
+	// that claims a row resolve it; until then the common ancestor is what keeps
+	// whatever was known.
+	for _, tx := range p.Txs {
+		tx.ResolvedTxType = txtype.Resolve(tx.GetBrokerTxType())
+	}
 	// A rule this reader cannot load is not a reason to reject the batch: the
 	// filter narrows what is stored, and storing more than asked is better than
 	// storing nothing.
@@ -159,17 +168,24 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 		return out, fmt.Errorf("load instruments: %w", err)
 	}
 	// Catches contradictions that arise when two txs share (source, description)
-	// but their tx types imply different asset classes (e.g. BUYSTOCK + INCOME),
-	// as well as any other path where resolution lands on the wrong class.
+	// but state different asset classes (e.g. a trade stating STOCK beside
+	// income stating CASH), as well as any other path where resolution lands on
+	// the wrong class.
 	if classErrs := validateAssetClasses(txs, rowIdx, instrumentIDs, instByID); len(classErrs) > 0 {
 		rep.Errs(classErrs)
 		return out, errBatchRejected
 	}
 	// Balance every group by routing whatever its postings leave over to an
-	// explicit counterparty. This runs after filtering, so a dropped SPLIT leg
-	// cannot contribute a residual, and after resolution, because telling a
-	// currency commodity from a security one is a property of the instrument.
+	// explicit counterparty. This runs after filtering, so a dropped leg cannot
+	// contribute a residual, and after resolution, because telling a currency
+	// commodity from a security one is a property of the instrument.
 	balanceInsts := balanceInstruments(instByID)
+	// The neutrality check needs the contract size, which is why it runs here
+	// rather than with the shape checks in ValidateTxs.
+	if wErrs := validateWeightNeutrality(txs, rowIdx, instrumentIDs, balanceInsts); len(wErrs) > 0 {
+		rep.Errs(wErrs)
+		return out, errBatchRejected
+	}
 	routed := routeResiduals(txs, instrumentIDs, balanceInsts)
 	routedTxs, routedIDs, routedWeights, unresolved := resolveRouted(ctx, deps.DB, routed)
 	// A residual with no instrument to post it against leaves its group

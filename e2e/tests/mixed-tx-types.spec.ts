@@ -25,7 +25,7 @@ test.describe("mixed transaction types", () => {
     sessionId = await seedSession("user");
   });
 
-  test("BUY/SELL aggregate correctly and SPLIT is silently dropped", async ({
+  test("buys and sells aggregate into one holding", async ({
     context,
     page,
     browser,
@@ -33,9 +33,9 @@ test.describe("mixed transaction types", () => {
     test.setTimeout(TIMEOUT_SLOW);
     await injectSession(context, sessionId);
 
-    // Upload BUY 100, BUY 50, SELL -30, SPLIT 2 (all AAPL).
+    // Upload BUY 100, BUY 50, SELL -30 (all AAPL).
     await uploadArchiveAndWait(page, browser, "mixed-tx-types.json", {
-      expectedPostingCount: 4,
+      expectedPostingCount: 3,
     });
 
     // Navigate to holdings and verify the aggregated result.
@@ -48,7 +48,7 @@ test.describe("mixed transaction types", () => {
     const rows = page.locator("[data-testid='holdings-table'] tbody tr");
     await expect(rows).toHaveCount(1, { timeout: 10_000 });
 
-    // Quantity = 100 + 50 - 30 = 120. SPLIT row is dropped.
+    // Quantity = 100 + 50 - 30 = 120.
     const table = page.locator("[data-testid='holdings-table']");
     await expect(table).toContainText("AAPL");
     await expect(table).toContainText("120");

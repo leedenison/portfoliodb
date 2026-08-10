@@ -343,13 +343,7 @@ func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, ac
 		return db.InitializeTx{}, fmt.Errorf("compute running balance: %w", err)
 	}
 	initQty := declaredQty.Sub(runningBalance)
-	var assetClass string
-	inst, err := s.db.GetInstrument(ctx, instrumentID)
-	if err == nil && inst != nil && inst.AssetClass != nil {
-		assetClass = *inst.AssetClass
-	}
 	return db.InitializeTx{
-		TxType:          txTypeForAssetClass(assetClass, initQty),
 		Timestamp:       startDay,
 		Quantity:        initQty,
 		ShareCountBasis: basis,

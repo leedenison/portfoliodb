@@ -319,7 +319,11 @@ type ExportPosting struct {
 	Timestamp      time.Time
 	Account        string
 	AccountType    string
-	TxType         string
+	// The declared candidate set. The resolved value is deliberately not
+	// exported: an import re-derives the grouping the resolution depends on.
+	BrokerTxTypes []string
+	// The stated routing hint, empty when the source made no claim.
+	AssetClassHint string
 	Description    string
 	// The instrument's best identifier, or all three empty for a posting whose
 	// instrument never resolved. Chosen by bestIdentifierJoin so that every
@@ -752,6 +756,34 @@ func StrToTxType(s string) typev1.TxType {
 	return typev1.TxType(v)
 }
 
+// TxTypesToStrs returns the stored form of a declared tx type set. An empty set
+// is an error for the reason a single unspecified type is: a posting has to say
+// what kind of event it transcribes.
+func TxTypesToStrs(ts []typev1.TxType) ([]string, error) {
+	if len(ts) == 0 {
+		return nil, fmt.Errorf("broker tx type set empty")
+	}
+	strs := make([]string, len(ts))
+	for i, t := range ts {
+		s, err := TxTypeToStr(t)
+		if err != nil {
+			return nil, err
+		}
+		strs[i] = s
+	}
+	return strs, nil
+}
+
+// StrsToTxTypes converts a stored tx type set to proto enums. An unrecognised
+// string maps to TX_TYPE_UNSPECIFIED, as StrToTxType does.
+func StrsToTxTypes(strs []string) []typev1.TxType {
+	ts := make([]typev1.TxType, len(strs))
+	for i, s := range strs {
+		ts[i] = StrToTxType(s)
+	}
+	return ts
+}
+
 // accountTypePrefix is stripped from the enum name to get the stored form. The proto
 // values are prefixed because enum values share package scope and TxType already
 // defines INCOME and TRANSFER; the column stores the bare vocabulary the CHECK
@@ -895,32 +927,6 @@ func StrToAssetClass(s string) typev1.AssetClass {
 	return typev1.AssetClass(v)
 }
 
-// TxTypeToAssetClass maps a TxType to its asset class. Used for filtering and ignore rules.
-func TxTypeToAssetClass(t typev1.TxType) string {
-	switch t {
-	case typev1.TxType_BUYDEBT, typev1.TxType_SELLDEBT:
-		return AssetClassFixedIncome
-	case typev1.TxType_BUYMF, typev1.TxType_SELLMF:
-		return AssetClassMutualFund
-	case typev1.TxType_BUYOPT, typev1.TxType_SELLOPT, typev1.TxType_CLOSUREOPT:
-		return AssetClassOption
-	case typev1.TxType_BUYOTHER, typev1.TxType_SELLOTHER:
-		return AssetClassUnknown
-	case typev1.TxType_BUYSTOCK, typev1.TxType_SELLSTOCK:
-		return AssetClassStock
-	case typev1.TxType_BUYFUTURE, typev1.TxType_SELLFUTURE:
-		return AssetClassFuture
-	case typev1.TxType_INCOME, typev1.TxType_INVEXPENSE,
-		typev1.TxType_MARGININTEREST, typev1.TxType_RETOFCAP, typev1.TxType_JRNLFUND,
-		typev1.TxType_CASHFLOW:
-		return AssetClassCash
-	case typev1.TxType_TRANSFER, typev1.TxType_REINVEST, typev1.TxType_JRNLSEC, typev1.TxType_SPLIT:
-		return AssetClassUnknown
-	default:
-		return AssetClassUnknown
-	}
-}
-
 // assetClassEquivalents lists unordered pairs of asset classes that brokers
 // commonly conflate. The relation is intentionally non-transitive: STOCK and
 // MUTUAL_FUND are not equivalent even though both are paired with ETF.
@@ -931,17 +937,16 @@ var assetClassEquivalents = map[[2]string]bool{
 	{AssetClassETF, AssetClassMutualFund}: true,
 }
 
-// IsAssetClassCompatible reports whether a transaction whose TxType implies
-// asset class `implied` may legitimately be linked to an instrument with
-// asset class `resolved`.
+// IsAssetClassCompatible reports whether a transaction whose stated
+// asset_class_hint is `implied` may legitimately be linked to an instrument
+// with asset class `resolved`.
 //
 // Rules:
 //   - When `resolved` is empty or UNKNOWN (the instrument's class is unset
 //     or the identifier plugin could not classify it) there is no signal to
 //     contradict, so the tx is accepted.
-//   - When `implied` is UNKNOWN (TRANSFER, REINVEST, JRNLSEC, BUYOTHER,
-//     SELLOTHER) the tx represents a security position; any concrete class is
-//     accepted but CASH is rejected.
+//   - When `implied` is UNKNOWN (the source claims a security of unstated
+//     class) any concrete class is accepted but CASH is rejected.
 //   - STOCK <-> ETF and MUTUAL_FUND <-> ETF are treated as equivalent
 //     (non-transitive: STOCK and MUTUAL_FUND remain incompatible).
 //   - Otherwise, compatible iff the two strings are equal.
@@ -964,20 +969,6 @@ const (
 	InstrumentKindCash     = "CASH"
 	InstrumentKindSecurity = "SECURITY"
 )
-
-// TxTypeToInstrumentKind maps a TxType to its instrument kind. CASH kinds are
-// cash-flow transactions (dividends, fees, etc). SECURITY kinds represent
-// positions in instruments that need identification and pricing.
-func TxTypeToInstrumentKind(t typev1.TxType) string {
-	switch t {
-	case typev1.TxType_INCOME, typev1.TxType_INVEXPENSE,
-		typev1.TxType_MARGININTEREST, typev1.TxType_RETOFCAP, typev1.TxType_JRNLFUND,
-		typev1.TxType_CASHFLOW:
-		return InstrumentKindCash
-	default:
-		return InstrumentKindSecurity
-	}
-}
 
 // currencyCodeRE is the shape users.display_currency holds: an ISO 4217 code.
 var currencyCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
@@ -1064,9 +1055,10 @@ type DeclarationCheck struct {
 // that makes the declared quantity true, and the EQUITY counterparty that balances
 // it. Timestamp is the portfolio start date and ShareCountBasis is the declaration's,
 // which are independent -- the pad is dated when the history begins but denominated
-// where the declaration is. TxType is the OFX type string (e.g. "BUYSTOCK", "SELLOPT").
+// where the declaration is. The pad's tx type is not a field: value entering from
+// outside the user's holdings is TRANSFER_EXTERNAL by definition, and the upsert
+// writes that constant.
 type InitializeTx struct {
-	TxType          string
 	Timestamp       time.Time
 	Quantity        decimal.Decimal
 	ShareCountBasis time.Time
@@ -1538,11 +1530,11 @@ type ResidualBalance struct {
 	// Commodity is the instrument's name: the ISO code for money, the ticker for a
 	// security. AssetClass says which, and is empty when the instrument was never
 	// identified.
-	Commodity    string
-	AssetClass   string
-	TxType       typev1.TxType
-	Balance      decimal.Decimal
-	PostingCount int32
+	Commodity      string
+	AssetClass     string
+	ResolvedTxType typev1.TxType
+	Balance        decimal.Decimal
+	PostingCount   int32
 	// Oldest and Newest bound the postings that contribute to the balance. For a
 	// transfer that is the age of a missing side: a matched pair is excluded from
 	// the report, so what remains is a side whose counterpart never arrived.

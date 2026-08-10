@@ -5,7 +5,8 @@
 
 import { Big } from "@/lib/decimal";
 import { describe, expect, it } from "vitest";
-import { AccountType, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
+import { AccountType, AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
+import { mustBe } from "@/lib/tx-type";
 import { convertFidelityJson, isValidIsin } from "./fidelity-json";
 import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 
@@ -68,7 +69,7 @@ describe("convertFidelityJson", () => {
     const result = convertFidelityJson(json(BUY));
     expect(result.errors).toEqual([]);
     const tx = result.postings[0]!;
-    expect(tx.type).toBe(TxType.BUYSTOCK);
+    expect(tx.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     expect(tx.quantity).toBe("913");
     expect(tx.unitPrice).toBe("79.848724");
     expect(tx.settlementCurrency).toBe("GBP");
@@ -101,7 +102,8 @@ describe("convertFidelityJson", () => {
     const result = convertFidelityJson(json(SERVICE_FEE));
     const tx = result.postings[0]!;
     expect(tx.quantity).toBe("-5.2");
-    expect(tx.type).toBe(TxType.INVEXPENSE);
+    expect(tx.brokerTxType).toEqual([TxType.HOLDING_COST]);
+    expect(tx.assetClassHint).toBe(AssetClass.CASH);
     // Cash transactions carry the currency on both sides.
     expect(tx.tradingCurrency).toBe("GBP");
     expect(tx.settlementCurrency).toBe("GBP");
@@ -162,7 +164,7 @@ describe("convertFidelityJson", () => {
     );
     // The service fee and its expense leg; nothing from the cancelled buy.
     expect(result.postings).toHaveLength(2);
-    expect(result.postings[0]!.type).toBe(TxType.INVEXPENSE);
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.HOLDING_COST]);
     expect(result.errors).toEqual([]);
   });
 
@@ -227,7 +229,8 @@ describe("convertFidelityJson cash-asset rows", () => {
     const result = convertFidelityJson(json(BUY_CASH));
     expect(result.errors).toEqual([]);
     const tx = result.postings[0]!;
-    expect(tx.type).toBe(TxType.CASHFLOW);
+    expect(tx.brokerTxType).toEqual([TxType.TRADE_CASH]);
+    expect(tx.assetClassHint).toBe(AssetClass.CASH);
     expect(tx.quantity).toBe("12772.83");
     expect(tx.tradingCurrency).toBe("GBP");
     // Money, so it resolves to the currency and never to the pseudo-ISIN the row
@@ -252,7 +255,7 @@ describe("convertFidelityJson cash-asset rows", () => {
     expect(result.errors).toEqual([]);
     const total = result.postings.reduce((sum, tx) => sum.plus(tx.quantity), new Big(0));
     expect(total.eq(12772.83)).toBe(true);
-    expect(result.postings.some((tx) => tx.type === TxType.BUYSTOCK)).toBe(false);
+    expect(result.postings.some((tx) => mustBe(tx.brokerTxType, TxType.TRADE_ASSET))).toBe(false);
   });
 
   it("reads a sale of cash the same way", () => {
@@ -278,7 +281,7 @@ describe("convertFidelityJson cash-asset rows", () => {
     });
 
     const result = convertFidelityJson(json(sell, cashIn));
-    expect(result.postings[0]!.type).toBe(TxType.CASHFLOW);
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_CASH]);
     expect(result.postings[0]!.quantity).toBe("-20000");
     expect(result.postings[0]!.groupRef).toBe("971613412");
     expect(result.postings[1]!.groupRef).toBe("971613412");
@@ -287,12 +290,14 @@ describe("convertFidelityJson cash-asset rows", () => {
 
   it("still reads a purchase carrying a real identifier as a security trade", () => {
     const result = convertFidelityJson(json(BUY));
-    expect(result.postings[0]!.type).toBe(TxType.BUYSTOCK);
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
   });
 
-  it("retypes a Cash In that paired with a sale, keeping the row's own currency", () => {
-    // The payload names a currency per row rather than taking one from an upload
-    // option, so the retyped leg has to read it off the posting.
+  it("keeps a paired Cash In's declared set, with the row's own currency", () => {
+    // Pairing no longer rewrites what the broker declared: the Cash In stays
+    // {TRADE_CASH, TRANSFER} and the grouping alone records that it settled the
+    // sale. The payload names a currency per row rather than taking one from an
+    // upload option, so the cash leg reads it off the posting.
     const sale = cash({
       transactionType: "Sell For Switch",
       assetName: "M&G European Index Tracker",
@@ -312,8 +317,8 @@ describe("convertFidelityJson cash-asset rows", () => {
     });
 
     const result = convertFidelityJson(json(sale, proceeds));
-    expect(result.postings[0]!.type).toBe(TxType.SELLSTOCK);
-    expect(result.postings[1]!.type).toBe(TxType.CASHFLOW);
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
+    expect(result.postings[1]!.brokerTxType).toEqual([TxType.TRADE_CASH, TxType.TRANSFER]);
     expect(result.postings[1]!.tradingCurrency).toBe("GBP");
     expect(result.postings[1]!.groupRef).toBe("661638570");
   });
@@ -447,12 +452,13 @@ describe("convertFidelityJson grouping", () => {
       "971613428",
       "971613428",
     ]);
-    // The journals stay journals, which is what routes the group's residual to
-    // TRANSFER_CLEARING rather than IMBALANCE.
-    expect(result.postings.map((tx) => tx.type)).toEqual([
-      TxType.JRNLFUND,
-      TxType.CASHFLOW,
-      TxType.JRNLFUND,
+    // The declared sets survive grouping: the lump sum's TRANSFER is what routes
+    // the group's residual to TRANSFER_CLEARING rather than IMBALANCE, and the
+    // ambiguous Cash In keeps both its readings.
+    expect(result.postings.map((tx) => tx.brokerTxType)).toEqual([
+      [TxType.TRANSFER],
+      [TxType.TRADE_CASH],
+      [TxType.TRADE_CASH, TxType.TRANSFER],
     ]);
   });
 
@@ -548,7 +554,7 @@ describe("correlations", () => {
 
   // Fidelity puts the product account a fee was charged for in the same field it
   // names a transfer's source in, so the pointer is stated either way: which of
-  // the two it means is not the converter's call. A Service Fee is an INVEXPENSE
+  // the two it means is not the converter's call. A Service Fee is a holding cost
   // whose group balances against an EXPENSE leg, so it never produces the
   // TRANSFER_CLEARING residual that transfer matching reads a pointer for.
   //
@@ -569,7 +575,7 @@ describe("correlations", () => {
       })
     );
 
-    expect(result.postings[0]!.type).toBe(TxType.INVEXPENSE);
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.HOLDING_COST]);
     expect(result.postings[0]!.correlations).toHaveLength(2);
     const expense = result.postings.find((tx) => tx.accountType === AccountType.EXPENSE)!;
     expect(expense.correlations).toEqual([]);

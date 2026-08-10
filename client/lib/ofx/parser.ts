@@ -12,9 +12,9 @@ import { startOfNextDay } from "@/lib/dates";
 import type { Posting } from "@/gen/archive/v1/txs_pb";
 import { CorrelationSchema, PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
-import { IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
+import { AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/parse-result";
-import { counterLegs, feeLeg, refPrefix } from "@/lib/csv/postings";
+import { counterLegs, feeLeg, refPrefix, reinvestIncomeLeg } from "@/lib/csv/postings";
 import { Big, parseDecimal } from "@/lib/decimal";
 import { parseOfxSgml } from "./sgml";
 
@@ -185,25 +185,38 @@ function fitIdCorrelation(fitId: string) {
 // ── Transaction type mapping ─────────────────────────────────────────
 
 interface TxTypeDef {
-  txType: TxType;
+  /** The candidate set the wrapper element declares. */
+  types: TxType[];
+  /**
+   * The asset class the OFX tag states. OFX names the class in the tag itself
+   * (BUYSTOCK, BUYMF), which is exactly what the hint field carries now that
+   * the type does not. UNKNOWN for the tags that transact an unstated security.
+   */
+  hint: AssetClass;
   /** Path from the wrapper element to the INVBUY/INVSELL/INVTRAN container. */
   invTag: "INVBUY" | "INVSELL" | null;
 }
 
+// Direction is not read from the tag: OFX signs UNITS itself, so a SELLSTOCK's
+// quantity arrives negative and the sign is the direction.
 const TX_TYPES: Record<string, TxTypeDef> = {
-  BUYSTOCK:  { txType: TxType.BUYSTOCK,  invTag: "INVBUY" },
-  SELLSTOCK: { txType: TxType.SELLSTOCK, invTag: "INVSELL" },
-  BUYOPT:    { txType: TxType.BUYOPT,    invTag: "INVBUY" },
-  SELLOPT:   { txType: TxType.SELLOPT,   invTag: "INVSELL" },
-  BUYMF:     { txType: TxType.BUYMF,     invTag: "INVBUY" },
-  SELLMF:    { txType: TxType.SELLMF,    invTag: "INVSELL" },
-  BUYDEBT:   { txType: TxType.BUYDEBT,   invTag: "INVBUY" },
-  SELLDEBT:  { txType: TxType.SELLDEBT,  invTag: "INVSELL" },
-  BUYOTHER:  { txType: TxType.BUYOTHER,  invTag: "INVBUY" },
-  SELLOTHER: { txType: TxType.SELLOTHER, invTag: "INVSELL" },
-  INCOME:    { txType: TxType.INCOME,    invTag: null },
-  REINVEST:  { txType: TxType.REINVEST,  invTag: null },
-  TRANSFER:  { txType: TxType.TRANSFER,  invTag: null },
+  BUYSTOCK:  { types: [TxType.TRADE_ASSET], hint: AssetClass.STOCK,        invTag: "INVBUY" },
+  SELLSTOCK: { types: [TxType.TRADE_ASSET], hint: AssetClass.STOCK,        invTag: "INVSELL" },
+  BUYOPT:    { types: [TxType.TRADE_ASSET], hint: AssetClass.OPTION,       invTag: "INVBUY" },
+  SELLOPT:   { types: [TxType.TRADE_ASSET], hint: AssetClass.OPTION,       invTag: "INVSELL" },
+  BUYMF:     { types: [TxType.TRADE_ASSET], hint: AssetClass.MUTUAL_FUND,  invTag: "INVBUY" },
+  SELLMF:    { types: [TxType.TRADE_ASSET], hint: AssetClass.MUTUAL_FUND,  invTag: "INVSELL" },
+  BUYDEBT:   { types: [TxType.TRADE_ASSET], hint: AssetClass.FIXED_INCOME, invTag: "INVBUY" },
+  SELLDEBT:  { types: [TxType.TRADE_ASSET], hint: AssetClass.FIXED_INCOME, invTag: "INVSELL" },
+  BUYOTHER:  { types: [TxType.TRADE_ASSET], hint: AssetClass.UNKNOWN,      invTag: "INVBUY" },
+  SELLOTHER: { types: [TxType.TRADE_ASSET], hint: AssetClass.UNKNOWN,      invTag: "INVSELL" },
+  // Bare INCOME is honestly income of an unstated kind: the internal node is
+  // the claim, and grouping may narrow it later.
+  INCOME:    { types: [TxType.INCOME],      hint: AssetClass.CASH,         invTag: null },
+  // A compressed two-event group: the row is the trade's asset leg, and the
+  // dividend it consumed is emitted beside it below.
+  REINVEST:  { types: [TxType.TRADE_ASSET], hint: AssetClass.UNKNOWN,      invTag: null },
+  TRANSFER:  { types: [TxType.TRANSFER],    hint: AssetClass.UNKNOWN,      invTag: null },
 };
 
 // ── Main parser ──────────────────────────────────────────────────────
@@ -338,7 +351,8 @@ export function parseOfxStatement(text: string): OfxParseResult {
       const security = create(PostingSchema, {
         timestamp: ts,
         instrumentDescription: description,
-        type: def.txType,
+        brokerTxType: def.types,
+        assetClassHint: def.hint,
         quantity,
         account: acctId,
         tradingCurrency,
@@ -362,8 +376,16 @@ export function parseOfxStatement(text: string): OfxParseResult {
       });
       legs.push(security);
 
+      // The income a reinvestment consumed, derived because the source reports
+      // no row for it. It shares the trade's group so the money balances the
+      // units.
+      if (tag === "REINVEST") {
+        const income = reinvestIncomeLeg(security);
+        if (income) legs.push(income);
+      }
+
       // Security buys/sells carry a TOTAL that represents the cash leg.
-      // Emit a paired CASHFLOW transaction so each holding is updated by
+      // Emit a paired trade-cash posting so each holding is updated by
       // its own transaction.
       if (def.invTag !== null) {
         const total = dec(inner, "TOTAL");
@@ -389,7 +411,8 @@ export function parseOfxStatement(text: string): OfxParseResult {
             create(PostingSchema, {
               timestamp: ts,
               instrumentDescription: description,
-              type: TxType.CASHFLOW,
+              brokerTxType: [TxType.TRADE_CASH],
+              assetClassHint: AssetClass.CASH,
               // Decimal end to end now: the split is computed exactly and the
               // wire carries the result, so the two cash legs sum back to the
               // broker's total for any input.

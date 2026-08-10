@@ -26,9 +26,9 @@ describe("client module imports", () => {
   });
 
   it("builds an archive posting from the client's generated types", () => {
-    const posting = create(PostingSchema, { type: TxType.BUYSTOCK, quantity: "10" });
+    const posting = create(PostingSchema, { brokerTxType: [TxType.TRADE_ASSET], quantity: "10" });
 
-    expect(posting.type).toBe(TxType.BUYSTOCK);
+    expect(posting.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     expect(posting.quantity).toBe("10");
   });
 });

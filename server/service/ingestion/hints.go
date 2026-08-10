@@ -7,33 +7,46 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
-// TxTypeToSecurityTypeHint maps transaction type to the security type hint vocabulary (identifier package constants).
-// Delegates to db.TxTypeToAssetClass since the vocabularies are identical.
-func TxTypeToSecurityTypeHint(t typev1.TxType) string {
-	return db.TxTypeToAssetClass(t)
-}
-
-// TxTypeToInstrumentKind maps transaction type to instrument kind (CASH or SECURITY).
-// Delegates to db.TxTypeToInstrumentKind.
-func TxTypeToInstrumentKind(t typev1.TxType) string {
-	return db.TxTypeToInstrumentKind(t)
-}
-
-// HintsFromTx builds resolution hints from a transaction. Only trading_currency is passed as the currency hint to plugins (never settlement_currency).
+// HintsFromTx builds resolution hints from a transaction. Only trading_currency
+// is passed as the currency hint to plugins (never settlement_currency). The
+// security type hint is the asset class the source stated, and empty when it
+// made no claim.
+//
+// The instrument kind defaults to SECURITY rather than to "anything": a row is
+// routed to the cash plugins only when its source stated CASH. An unstated hint
+// left both gates open, and the cash plugin then resolved an unidentifiable
+// security to its trading currency -- deleting a holding and putting money in
+// its place silently, which is the wrong direction to fail in. Every converter
+// states CASH on its money rows, so the row that loses cash routing here is one
+// no converter produces.
 func HintsFromTx(tx *apiv1.Tx) identifier.Hints {
 	if tx == nil {
 		return identifier.Hints{}
 	}
+	hint := ""
+	kind := db.InstrumentKindSecurity
+	if ac := tx.GetAssetClassHint(); ac != typev1.AssetClass_ASSET_CLASS_UNSPECIFIED {
+		hint = db.AssetClassToStr(ac)
+		if ac == typev1.AssetClass_CASH {
+			kind = db.InstrumentKindCash
+		}
+	}
 	return identifier.Hints{
 		Currency:         tx.GetTradingCurrency(),
-		InstrumentKind:   TxTypeToInstrumentKind(tx.GetType()),
-		SecurityTypeHint: TxTypeToSecurityTypeHint(tx.GetType()),
+		InstrumentKind:   kind,
+		SecurityTypeHint: hint,
 	}
 }
 
-// TxIgnored returns whether a transaction should be ignored based on the user's ignore rules.
+// TxIgnored returns whether a transaction should be ignored based on the user's
+// ignore rules, by the asset class the source stated. A hintless row matches no
+// rule at ingest; if it resolves to an ignored class it is removed when the
+// rules are next applied to stored data.
 func TxIgnored(tx *apiv1.Tx, broker string, ignored []db.IgnoredAssetClass) bool {
-	hint := TxTypeToSecurityTypeHint(tx.GetType())
+	if tx.GetAssetClassHint() == typev1.AssetClass_ASSET_CLASS_UNSPECIFIED {
+		return false
+	}
+	hint := db.AssetClassToStr(tx.GetAssetClassHint())
 	for _, rule := range ignored {
 		if rule.Broker != broker {
 			continue

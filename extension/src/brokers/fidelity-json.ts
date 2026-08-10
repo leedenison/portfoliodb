@@ -18,18 +18,17 @@ import { PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { IdentifierType } from "@/gen/type/v1/type_pb";
 import type { FidelityLeg } from "@/lib/csv/converters/fidelity-csv";
+import { AssetClass } from "@/gen/type/v1/type_pb";
 import {
   assignFidelityGroups,
-  asTradeCashLeg,
   fidelityCounterpartyCorrelation,
   fidelityRefCorrelation,
-  FIDELITY_TYPE_TO_OFX,
-  isCashMovement,
-  isCashTxType,
+  FIDELITY_TYPE_TO_TYPES,
+  isCashRow,
   typeForAsset,
 } from "@/lib/csv/converters/fidelity-csv";
 import type { ParseError, StandardParseResult } from "@/lib/csv/parse-result";
-import { counterLegs, currencyHint } from "@/lib/csv/postings";
+import { counterLegs, currencyHint, refPrefix, reinvestIncomeLeg } from "@/lib/csv/postings";
 import { Big, decimalFromNumber } from "@/lib/decimal";
 import { parseSlashDate } from "../lib/dates";
 
@@ -61,10 +60,11 @@ interface FidelityRow {
    * attribution rather than a transfer counterparty.
    *
    * Carried through either way, because the field says what the source said and
-   * which of the two it means is not the converter's call. A Service Fee is an
-   * INVEXPENSE whose group balances against an EXPENSE leg, so it never produces
-   * the TRANSFER_CLEARING residual that transfer matching reads a pointer for;
-   * the fee attribution is left for whatever wants it. See docs/spec/postings.md.
+   * which of the two it means is not the converter's call. A Service Fee is a
+   * holding cost whose group balances against an EXPENSE leg, so it never
+   * produces the TRANSFER_CLEARING residual that transfer matching reads a
+   * pointer for; the fee attribution is left for whatever wants it. See
+   * docs/spec/postings.md.
    */
   sourceOrTargetAccount?: string | null;
 }
@@ -141,8 +141,8 @@ export function convertFidelityJson(
     }
 
     const typeStr = row.transactionType ?? "";
-    const mappedType = typeStr ? FIDELITY_TYPE_TO_OFX[typeStr] : undefined;
-    if (mappedType === undefined) {
+    const mappedTypes = typeStr ? FIDELITY_TYPE_TO_TYPES[typeStr] : undefined;
+    if (mappedTypes === undefined) {
       errors.push({
         rowIndex,
         field: "type",
@@ -157,13 +157,13 @@ export function convertFidelityJson(
     // row transacted cash. There is no equivalent of the CSV export's Type column
     // here; a row carrying no identifier at all falls back to the asset name.
     const cashAsset = isin ? !isValidIsin(isin) : row.assetName === "Cash";
-    const ofxType = typeForAsset(mappedType, cashAsset);
+    const rowTypes = typeForAsset(mappedTypes, cashAsset);
+    const cashRow = isCashRow(rowTypes);
 
     // units and valuation are both unsigned; direction lives only in the
     // indicator. For a cash movement the transacted value is the money, and
     // units is 0 on some rows where money did move, so valuation is used there.
-    const magnitude =
-      decimalFromNumber(isCashMovement(ofxType) ? row.valuation : row.units) ?? ZERO;
+    const magnitude = decimalFromNumber(cashRow ? row.valuation : row.units) ?? ZERO;
     const signed = magnitude.abs();
     const quantity = (row.debitCreditIndicator === "DEBIT" ? signed.times(-1) : signed).toString();
 
@@ -172,7 +172,7 @@ export function convertFidelityJson(
     // A cash movement resolves to its currency; anything else to the security its
     // identifiers name. The pseudo-identifiers a cash row carries would resolve to
     // a fictional instrument, so they are never passed on.
-    const identifierHints = isCashMovement(ofxType)
+    const identifierHints = cashRow
       ? currency
         ? [currencyHint(currency)]
         : []
@@ -233,14 +233,15 @@ export function convertFidelityJson(
         // to the currency instrument rather than to a holding named after the
         // broker's wording -- the payload says "Cash" in the same field it names
         // a security in. See docs/spec/archive-format.md.
-        instrumentDescription: isCashMovement(ofxType)
-          ? currency || typeStr
-          : row.assetName || typeStr,
-        type: ofxType,
+        instrumentDescription: cashRow ? currency || typeStr : row.assetName || typeStr,
+        brokerTxType: rowTypes,
+        // A money row states CASH; a security row's identity comes from its
+        // ISIN, and the payload has no asset column to state a class from.
+        ...(cashRow ? { assetClassHint: AssetClass.CASH } : {}),
         quantity,
         account: row.accountNumber ?? "",
         ...(currency ? { settlementCurrency: currency } : {}),
-        ...(currency && isCashTxType(ofxType) ? { tradingCurrency: currency } : {}),
+        ...(currency && cashRow ? { tradingCurrency: currency } : {}),
         // Presence, not truthiness: a reported price of zero is a price.
         ...(row.pricePerUnit !== undefined
           ? { unitPrice: (decimalFromNumber(row.pricePerUnit) ?? ZERO).toString() }
@@ -251,14 +252,21 @@ export function convertFidelityJson(
     );
   });
 
-  const groups = assignFidelityGroups(legs);
-  groups.refs.forEach((ref, i) => {
+  const refs = assignFidelityGroups(legs);
+  refs.forEach((ref, i) => {
     if (ref) postings[i].groupRef = ref;
   });
-  groups.cashLegs.forEach((paired, i) => {
-    if (paired) asTradeCashLeg(postings[i], postings[i].settlementCurrency ?? "");
+  // After the refs are stamped, since legs is index-parallel with postings. A
+  // reinvestment's income leg is derived beside its trade, exactly as the CSV
+  // converter does.
+  const prefix = refPrefix(postings);
+  legs.forEach((leg, i) => {
+    if (leg.type !== "Reinvestment From Income") return;
+    const p = postings[i];
+    if (!p.groupRef) p.groupRef = `${prefix}${i}`;
+    const income = reinvestIncomeLeg(p);
+    if (income) postings.push(income);
   });
-  // After the refs are stamped, since that loop is index-parallel with legs.
   postings.push(...counterLegs(postings));
 
   return {

@@ -138,8 +138,8 @@ func TestHeldRanges_BuySell(t *testing.T) {
 	instID := setupInstrument(t, p, "AAPL")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "100", Account: "A"},
-		{Timestamp: ts(2024, 3, 15), InstrumentDescription: "AAPL", Type: typev1.TxType_SELLSTOCK, Quantity: "-100", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "100", Account: "A"},
+		{Timestamp: ts(2024, 3, 15), InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-100", Account: "A"},
 	})
 
 	got, err := p.HeldRanges(ctx, db.HeldRangesOpts{})
@@ -158,7 +158,7 @@ func TestHeldRanges_OpenPosition(t *testing.T) {
 	instID := setupInstrument(t, p, "GOOG")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 6, 1), InstrumentDescription: "GOOG", Type: typev1.TxType_BUYSTOCK, Quantity: "50", Account: "A"},
+		{Timestamp: ts(2024, 6, 1), InstrumentDescription: "GOOG", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "50", Account: "A"},
 	})
 
 	today := time.Now().UTC().Truncate(db.Day)
@@ -179,7 +179,7 @@ func TestHeldRanges_OpenPositionNoExtend(t *testing.T) {
 	instID := setupInstrument(t, p, "MSFT")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 6, 1), InstrumentDescription: "MSFT", Type: typev1.TxType_BUYSTOCK, Quantity: "50", Account: "A"},
+		{Timestamp: ts(2024, 6, 1), InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "50", Account: "A"},
 	})
 
 	got, err := p.HeldRanges(ctx, db.HeldRangesOpts{ExtendToToday: false})
@@ -199,10 +199,10 @@ func TestHeldRanges_CloseAndReopen(t *testing.T) {
 	instID := setupInstrument(t, p, "TSLA")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "TSLA", Type: typev1.TxType_BUYSTOCK, Quantity: "100", Account: "A"},
-		{Timestamp: ts(2024, 2, 15), InstrumentDescription: "TSLA", Type: typev1.TxType_SELLSTOCK, Quantity: "-100", Account: "A"},
-		{Timestamp: ts(2024, 4, 1), InstrumentDescription: "TSLA", Type: typev1.TxType_BUYSTOCK, Quantity: "50", Account: "A"},
-		{Timestamp: ts(2024, 5, 1), InstrumentDescription: "TSLA", Type: typev1.TxType_SELLSTOCK, Quantity: "-50", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "TSLA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "100", Account: "A"},
+		{Timestamp: ts(2024, 2, 15), InstrumentDescription: "TSLA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-100", Account: "A"},
+		{Timestamp: ts(2024, 4, 1), InstrumentDescription: "TSLA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "50", Account: "A"},
+		{Timestamp: ts(2024, 5, 1), InstrumentDescription: "TSLA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-50", Account: "A"},
 	})
 
 	got, err := p.HeldRanges(ctx, db.HeldRangesOpts{})
@@ -222,9 +222,9 @@ func TestHeldRanges_UnidentifiedExcluded(t *testing.T) {
 
 	// Insert a tx with NULL instrument_id directly via SQL.
 	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity,
-		                 weight, weight_commodity, group_id)
-		VALUES ($1::uuid, 'TEST', 'A', $2, 'UNKNOWN', 'BUYSTOCK', 100, 100, 'desc:UNKNOWN', $3::uuid)
+		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+		                 broker_tx_type, resolved_tx_type, quantity, weight, weight_commodity, group_id)
+		VALUES ($1::uuid, 'TEST', 'A', $2, 'UNKNOWN', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 100, 100, 'desc:UNKNOWN', $3::uuid)
 	`, userID, d(2024, 6, 1), newTxGroup(t, p, userID))
 	if err != nil {
 		t.Fatalf("insert tx: %v", err)
@@ -248,18 +248,18 @@ func TestHeldRanges_MultipleInstruments(t *testing.T) {
 
 	// Insert txs for inst1.
 	insertTxs(t, p, userID, inst1, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "INST1", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
-		{Timestamp: ts(2024, 2, 1), InstrumentDescription: "INST1", Type: typev1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "INST1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 2, 1), InstrumentDescription: "INST1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A"},
 	})
 
 	// Insert txs for inst2 using CreateTx to avoid ReplaceTxsInPeriod conflict with same broker/period.
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 3, 1), InstrumentDescription: "INST2", Type: typev1.TxType_BUYSTOCK, Quantity: "20", Account: "A",
+		Timestamp: ts(2024, 3, 1), InstrumentDescription: "INST2", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "20", Account: "A",
 	}, inst2, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 4, 1), InstrumentDescription: "INST2", Type: typev1.TxType_SELLSTOCK, Quantity: "-20", Account: "A",
+		Timestamp: ts(2024, 4, 1), InstrumentDescription: "INST2", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-20", Account: "A",
 	}, inst2, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -288,18 +288,18 @@ func TestHeldRanges_MultipleUsers(t *testing.T) {
 
 	// User 1 holds Jan-Feb.
 	insertTxs(t, p, user1, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "SHARED", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
-		{Timestamp: ts(2024, 2, 1), InstrumentDescription: "SHARED", Type: typev1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "SHARED", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 2, 1), InstrumentDescription: "SHARED", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A"},
 	})
 
 	// User 2 holds Mar-Apr (separate broker to avoid replace conflict).
 	if err := createTx(ctx, p, user2, "TEST2", "B", "", &apiv1.Tx{
-		Timestamp: ts(2024, 3, 1), InstrumentDescription: "SHARED", Type: typev1.TxType_BUYSTOCK, Quantity: "5", Account: "B",
+		Timestamp: ts(2024, 3, 1), InstrumentDescription: "SHARED", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: "B",
 	}, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, user2, "TEST2", "B", "", &apiv1.Tx{
-		Timestamp: ts(2024, 4, 1), InstrumentDescription: "SHARED", Type: typev1.TxType_SELLSTOCK, Quantity: "-5", Account: "B",
+		Timestamp: ts(2024, 4, 1), InstrumentDescription: "SHARED", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-5", Account: "B",
 	}, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -454,8 +454,8 @@ func TestPriceGaps_NoPrices(t *testing.T) {
 	instID := setupInstrument(t, p, "GAPNONE")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPNONE", Type: typev1.TxType_BUYSTOCK, Quantity: "100", Account: "A"},
-		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "GAPNONE", Type: typev1.TxType_SELLSTOCK, Quantity: "-100", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPNONE", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "100", Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "GAPNONE", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-100", Account: "A"},
 	})
 
 	got, err := p.PriceGaps(ctx, db.HeldRangesOpts{})
@@ -475,8 +475,8 @@ func TestPriceGaps_FullCoverage(t *testing.T) {
 	instID := setupInstrument(t, p, "GAPFULL")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPFULL", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
-		{Timestamp: ts(2024, 1, 4), InstrumentDescription: "GAPFULL", Type: typev1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPFULL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 1, 4), InstrumentDescription: "GAPFULL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A"},
 	})
 
 	// Insert prices covering [Jan 1, Jan 4) fully.
@@ -499,8 +499,8 @@ func TestPriceGaps_PartialCoverage(t *testing.T) {
 	instID := setupInstrument(t, p, "GAPPART")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPPART", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPPART", Type: typev1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPPART", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPPART", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A"},
 	})
 
 	// Prices for Jan 3-5 only (gap before and after).
@@ -528,8 +528,8 @@ func TestPriceGaps_EmptyCoverageIsNotAGap(t *testing.T) {
 	instID := setupInstrument(t, p, "GAPEMPTY")
 
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPEMPTY", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPEMPTY", Type: typev1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
+		{Timestamp: ts(2024, 1, 1), InstrumentDescription: "GAPEMPTY", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "GAPEMPTY", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A"},
 	})
 
 	// The whole held period was asked about and came back with no bars at all.
@@ -823,26 +823,26 @@ func TestFXGaps_MixedCurrencies(t *testing.T) {
 
 	// Buy all three on Jan 10, sell on Feb 10.
 	insertTxs(t, p, userID, eurInst, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
-		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "SAP", Type: typev1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "SAP", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A"},
 	})
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 1, 10), InstrumentDescription: "HSBC", Type: typev1.TxType_BUYSTOCK, Quantity: "5", Account: "A",
+		Timestamp: ts(2024, 1, 10), InstrumentDescription: "HSBC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: "A",
 	}, gbpInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 2, 10), InstrumentDescription: "HSBC", Type: typev1.TxType_SELLSTOCK, Quantity: "-5", Account: "A",
+		Timestamp: ts(2024, 2, 10), InstrumentDescription: "HSBC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-5", Account: "A",
 	}, gbpInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "TEST3", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-FX", Type: typev1.TxType_BUYSTOCK, Quantity: "20", Account: "A",
+		Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-FX", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "20", Account: "A",
 	}, usdInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "TEST3", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-FX", Type: typev1.TxType_SELLSTOCK, Quantity: "-20", Account: "A",
+		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-FX", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-20", Account: "A",
 	}, usdInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -873,8 +873,8 @@ func TestFXGaps_PartialCoverage(t *testing.T) {
 
 	eurInst := setupInstrumentWithCurrency(t, p, "SAP-PC", "STOCK", "EUR")
 	insertTxs(t, p, userID, eurInst, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP-PC", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
-		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "SAP-PC", Type: typev1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP-PC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "SAP-PC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A"},
 	})
 
 	eurFX := lookupFXInstrument(t, p, "EUR")
@@ -903,8 +903,8 @@ func TestFXGaps_AllUSD(t *testing.T) {
 
 	usdInst := setupInstrumentWithCurrency(t, p, "AAPL-USD", "STOCK", "USD")
 	insertTxs(t, p, userID, usdInst, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-USD", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
-		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-USD", Type: typev1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A"},
 	})
 
 	got, err := p.FXGaps(ctx, db.HeldRangesOpts{})
@@ -926,16 +926,16 @@ func TestFXGaps_MultipleInstrumentsSameCurrency(t *testing.T) {
 	eurInst2 := setupInstrumentWithCurrency(t, p, "BMW-M1", "STOCK", "EUR")
 
 	insertTxs(t, p, userID, eurInst1, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 5), InstrumentDescription: "SAP-M1", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
-		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "SAP-M1", Type: typev1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
+		{Timestamp: ts(2024, 1, 5), InstrumentDescription: "SAP-M1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "SAP-M1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A"},
 	})
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 1, 15), InstrumentDescription: "BMW-M1", Type: typev1.TxType_BUYSTOCK, Quantity: "5", Account: "A",
+		Timestamp: ts(2024, 1, 15), InstrumentDescription: "BMW-M1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: "A",
 	}, eurInst2, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 1, 30), InstrumentDescription: "BMW-M1", Type: typev1.TxType_SELLSTOCK, Quantity: "-5", Account: "A",
+		Timestamp: ts(2024, 1, 30), InstrumentDescription: "BMW-M1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-5", Account: "A",
 	}, eurInst2, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -965,8 +965,8 @@ func TestFXGaps_DisplayCurrency_USDHoldings(t *testing.T) {
 
 	usdInst := setupInstrumentWithCurrency(t, p, "AAPL-DC", "STOCK", "USD")
 	insertTxs(t, p, userID, usdInst, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-DC", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
-		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC", Type: typev1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "AAPL-DC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A"},
 	})
 
 	eurFX := lookupFXInstrument(t, p, "EUR")
@@ -994,8 +994,8 @@ func TestFXGaps_DisplayCurrency_SkipsSameCurrency(t *testing.T) {
 
 	eurInst := setupInstrumentWithCurrency(t, p, "SAP-DC", "STOCK", "EUR")
 	insertTxs(t, p, userID, eurInst, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP-DC", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A"},
-		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "SAP-DC", Type: typev1.TxType_SELLSTOCK, Quantity: "-10", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "SAP-DC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{Timestamp: ts(2024, 2, 10), InstrumentDescription: "SAP-DC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A"},
 	})
 
 	eurFX := lookupFXInstrument(t, p, "EUR")
@@ -1028,16 +1028,16 @@ func TestFXGaps_DisplayCurrency_MixedHoldings(t *testing.T) {
 	usdInst := setupInstrumentWithCurrency(t, p, "AAPL-DC2", "STOCK", "USD")
 
 	insertTxs(t, p, userID, gbpInst, []*apiv1.Tx{
-		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "HSBC-DC", Type: typev1.TxType_BUYSTOCK, Quantity: "5", Account: "A"},
-		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "HSBC-DC", Type: typev1.TxType_SELLSTOCK, Quantity: "-5", Account: "A"},
+		{Timestamp: ts(2024, 1, 10), InstrumentDescription: "HSBC-DC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: "A"},
+		{Timestamp: ts(2024, 1, 20), InstrumentDescription: "HSBC-DC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-5", Account: "A"},
 	})
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 2, 1), InstrumentDescription: "AAPL-DC2", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "A",
+		Timestamp: ts(2024, 2, 1), InstrumentDescription: "AAPL-DC2", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A",
 	}, usdInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "TEST2", "A", "", &apiv1.Tx{
-		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC2", Type: typev1.TxType_SELLSTOCK, Quantity: "-10", Account: "A",
+		Timestamp: ts(2024, 2, 10), InstrumentDescription: "AAPL-DC2", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A",
 	}, usdInst, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}

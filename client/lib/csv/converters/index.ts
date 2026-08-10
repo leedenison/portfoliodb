@@ -23,4 +23,4 @@ export type {
   BrokerEntry,
 } from "./registry";
 export { FidelityOptions } from "./fidelity";
-export { FIDELITY_TYPE_TO_OFX, convertFidelityToStandard } from "./fidelity-csv";
+export { FIDELITY_TYPE_TO_TYPES, convertFidelityToStandard } from "./fidelity-csv";

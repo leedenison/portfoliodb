@@ -121,10 +121,27 @@ message Posting {
   // ACCOUNT_TYPE_USER, so a converter that says nothing produces ordinary broker
   // account postings.
   portfoliodb.type.v1.AccountType account_type = 3 [(buf.validate.field).enum.defined_only = true];
-  // What the broker called the event, in OFX vocabulary. Distinct from
-  // account_type: a dividend's cash leg and its income leg are both INCOME and
-  // differ only by account type.
-  portfoliodb.type.v1.TxType type = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  // The candidate event types, at whatever specificity the source manages: a
+  // singleton is a fully specific assertion, an internal node covers its
+  // subtree, and a larger set is a declared ambiguity the source could not
+  // narrow. An antichain -- no member an ancestor of another -- whose members
+  // must all weigh the posting identically
+  // (docs/adr/0046-declared-ambiguity-is-bounded-by-weight-neutrality.md).
+  // AMBIGUOUS (15) is excluded: it is the resolved spelling of an unresolved
+  // set, and declaring it would say less than the set itself. The resolved
+  // value is derived by the server and deliberately not carried here
+  // (docs/adr/0043-grouping-does-not-travel-in-the-archive.md). Distinct from
+  // account_type: a dividend's cash leg and its income leg are both DIVIDEND
+  // and differ only by account type.
+  repeated portfoliodb.type.v1.TxType broker_tx_type = 4 [
+    (buf.validate.field).repeated = {
+      min_items: 1
+      unique: true
+      items: {
+        enum: {defined_only: true, not_in: [0, 15]}
+      }
+    }
+  ];
   string instrument_description = 5 [(buf.validate.field).string.min_len = 1];
   // Identifier hints for resolution. An export writes the one identifier chosen
   // by bestIdentifierJoin; a converter may write several, which the flat CSV
@@ -180,4 +197,11 @@ message Posting {
   // field's -- but it has to be carried and stored from here on, or a rebuild
   // from an archive would have nothing left to group on.
   repeated Correlation correlations = 15;
+  // The asset class the source states for the instrument, as a routing hint for
+  // resolution. Unset means the source makes no claim, which is weaker than
+  // UNKNOWN ("a security of unknown class"). Not authoritative: the canonical
+  // class is set by identifier plugins and stored on the instrument.
+  // See docs/adr/0013-security-type-hint-vs-asset-class.md and
+  // docs/adr/0045-tx-type-does-not-encode-asset-class.md.
+  portfoliodb.type.v1.AssetClass asset_class_hint = 16 [(buf.validate.field).enum.defined_only = true];
 }

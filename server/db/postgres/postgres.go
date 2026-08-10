@@ -10,6 +10,7 @@ import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/lib/pq"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"strconv"
@@ -320,7 +321,9 @@ type txRow struct {
 	Account           string           `db:"account"`
 	Timestamp         time.Time        `db:"timestamp"`
 	InstDesc          string           `db:"instrument_description"`
-	TxType            string           `db:"tx_type"`
+	BrokerTxTypes     pq.StringArray   `db:"broker_tx_type"`
+	ResolvedTxType    string           `db:"resolved_tx_type"`
+	AssetClassHint    *string          `db:"asset_class_hint"`
 	Quantity          decimal.Decimal  `db:"quantity"`
 	SplitAdjQty       decimal.Decimal  `db:"split_adjusted_quantity"`
 	TradingCcy        *string          `db:"trading_currency"`
@@ -336,7 +339,8 @@ func (r *txRow) toProto() *apiv1.PortfolioTx {
 	tx := &apiv1.Tx{
 		Timestamp:             timeToTs(r.Timestamp),
 		InstrumentDescription: r.InstDesc,
-		Type:                  strToTxType(r.TxType),
+		BrokerTxType:          db.StrsToTxTypes(r.BrokerTxTypes),
+		ResolvedTxType:        strToTxType(r.ResolvedTxType),
 		// String() trims trailing zeros, so a value scanned out of the
 		// NUMERIC(38, 12) split-adjusted column arrives in the same form as the
 		// raw one it equals when no split applies. That is what lets the client
@@ -357,6 +361,9 @@ func (r *txRow) toProto() *apiv1.PortfolioTx {
 	tx.SplitAdjustedUnitPrice = decStrPtr(r.SplitAdjUnitPrice)
 	if r.InstID != nil {
 		tx.InstrumentId = *r.InstID
+	}
+	if r.AssetClassHint != nil {
+		tx.AssetClassHint = db.StrToAssetClass(*r.AssetClassHint)
 	}
 	if r.SyntheticPurpose != nil {
 		tx.SyntheticPurpose = *r.SyntheticPurpose

@@ -971,7 +971,7 @@ export interface ResidualBalance {
   instrumentId: string;
   commodity: string;
   assetClass: AssetClass;
-  txType: number;
+  resolvedTxType: number;
   /** Decimal string: a signed sum over exact weights, so it stays exact. */
   balance: string;
   postingCount: number;
@@ -1011,7 +1011,7 @@ export async function listResidualBalances(params?: {
     instrumentId: b.instrumentId,
     commodity: b.commodity,
     assetClass: b.assetClass,
-    txType: b.txType,
+    resolvedTxType: b.resolvedTxType,
     balance: b.balance,
     postingCount: b.postingCount,
     oldestTimestamp: b.oldestTimestamp ? timestampDate(b.oldestTimestamp) : undefined,

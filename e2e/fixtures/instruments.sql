@@ -22,7 +22,7 @@ ON CONFLICT DO NOTHING;
 
 -- Transactions referencing the instruments (for holdings/valuation). Every posting
 -- belongs to a group, so each trade gets one; the ids are explicit because the
--- postings reference them. A priced BUYSTOCK converts, so it weighs its
+-- postings reference them. A priced TRADE_ASSET converts, so it weighs its
 -- consideration in the settlement currency: quantity * unit_price, against an
 -- equal and opposite counterparty. The group has to balance -- the constraint is
 -- on.
@@ -33,11 +33,11 @@ VALUES
   ('e2e00000-0000-0000-0000-000000000203', 'e2e00000-0000-0000-0000-000000000001', '2024-01-17')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, unit_price, instrument_id, weight, weight_commodity, group_id)
+INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, broker_tx_type, resolved_tx_type, quantity, trading_currency, unit_price, instrument_id, weight, weight_commodity, group_id)
 VALUES
-  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-15', 'AMZN - Amazon.com Inc.', 'BUYSTOCK', 8, 'USD', 155.20, 'e2e00000-0000-0000-0000-000000000101', 1241.60, 'cur:USD', 'e2e00000-0000-0000-0000-000000000201'),
-  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-16', 'NVDA - NVIDIA Corp.', 'BUYSTOCK', 15, 'USD', 560.50, 'e2e00000-0000-0000-0000-000000000102', 8407.50, 'cur:USD', 'e2e00000-0000-0000-0000-000000000202'),
-  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-17', 'TSLA - Tesla Inc.', 'BUYSTOCK', 12, 'USD', 218.90, 'e2e00000-0000-0000-0000-000000000103', 2626.80, 'cur:USD', 'e2e00000-0000-0000-0000-000000000203')
+  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-15', 'AMZN - Amazon.com Inc.', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 8, 'USD', 155.20, 'e2e00000-0000-0000-0000-000000000101', 1241.60, 'cur:USD', 'e2e00000-0000-0000-0000-000000000201'),
+  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-16', 'NVDA - NVIDIA Corp.', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 15, 'USD', 560.50, 'e2e00000-0000-0000-0000-000000000102', 8407.50, 'cur:USD', 'e2e00000-0000-0000-0000-000000000202'),
+  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-17', 'TSLA - Tesla Inc.', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 12, 'USD', 218.90, 'e2e00000-0000-0000-0000-000000000103', 2626.80, 'cur:USD', 'e2e00000-0000-0000-0000-000000000203')
 ON CONFLICT DO NOTHING;
 
 -- The counterparty that makes each trade balance. EQUITY rather than a USER cash
@@ -45,8 +45,8 @@ ON CONFLICT DO NOTHING;
 -- EQUITY leg is value entering the holdings from outside the ledger, and only USER
 -- postings reach holdings and valuation, so the counterparty cannot show up as a
 -- negative cash balance in the specs that read them.
-INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity, trading_currency, settlement_currency, instrument_id, account_type, weight, weight_commodity, group_id)
-SELECT 'e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', v.at::timestamptz, 'USD', 'BUYSTOCK',
+INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, broker_tx_type, resolved_tx_type, quantity, trading_currency, settlement_currency, instrument_id, account_type, weight, weight_commodity, group_id)
+SELECT 'e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', v.at::timestamptz, 'USD', ARRAY['TRADE_ASSET'], 'TRADE_ASSET',
        v.qty, 'USD', 'USD', i.instrument_id, 'EQUITY', v.qty, 'cur:USD', v.group_id::uuid
 FROM (VALUES ('2024-01-15', -1241.60, 'e2e00000-0000-0000-0000-000000000201'),
              ('2024-01-16', -8407.50, 'e2e00000-0000-0000-0000-000000000202'),

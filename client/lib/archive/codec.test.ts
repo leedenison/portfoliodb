@@ -129,7 +129,7 @@ function userFixture() {
               timestamp: timestampFromDate(new Date("2024-01-15T00:00:00Z")),
               account: "U123",
               accountType: AccountType.USER,
-              type: TxType.BUYSTOCK,
+              brokerTxType: [TxType.TRADE_ASSET],
               instrumentDescription: "APPLE INC",
               quantity: "10",
               unitPrice: "185.9",

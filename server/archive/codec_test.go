@@ -145,7 +145,7 @@ func userFixture() *archivev1.UserArchive {
 					Timestamp:             timestamppb.New(time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)),
 					Account:               "U123",
 					AccountType:           typev1.AccountType_ACCOUNT_TYPE_USER,
-					Type:                  typev1.TxType_BUYSTOCK,
+					BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
 					InstrumentDescription: "APPLE INC",
 					Quantity:              "10",
 					UnitPrice:             proto.String("185.9"),

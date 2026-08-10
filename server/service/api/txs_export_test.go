@@ -33,7 +33,7 @@ func exportPostingFixture(broker, groupID, ts string) dbpkg.ExportPosting {
 		Timestamp:       at,
 		Account:         "acct",
 		AccountType:     "USER",
-		TxType:          "BUYSTOCK",
+		BrokerTxTypes:   []string{"TRADE_ASSET"},
 		Description:     "APPLE INC",
 		IdentifierType:  "MIC_TICKER",
 		IdentifierValue: "AAPL",

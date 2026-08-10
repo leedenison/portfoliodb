@@ -27,25 +27,27 @@ var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 const insertPostingSQL = `
 	WITH g AS (
 		INSERT INTO tx_groups (user_id, timestamp, job_id)
-		VALUES ($1, $4, $16)
+		VALUES ($1, $4, $18)
 		RETURNING id
 	)
-	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
+	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 instrument_id, share_count_basis, account_type,
 	                 weight, weight_commodity, group_id)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, g.id FROM g
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::date, $15, $16, $17, g.id FROM g
 	RETURNING id, group_id
 `
 
 // insertPostingInGroupSQL inserts a tx as a posting of an existing tx group, for
 // the second and subsequent legs of one economic event.
 const insertPostingInGroupSQL = `
-	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
+	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 instrument_id, share_count_basis, account_type,
 	                 weight, weight_commodity, group_id)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, $16)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::date, $15, $16, $17, $18)
 	RETURNING id
 `
 
@@ -134,7 +136,13 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 		if err != nil {
 			return err
 		}
-		txTypeStr, err := txTypeToStr(t.Type)
+		brokerTypes, err := db.TxTypesToStrs(t.GetBrokerTxType())
+		if err != nil {
+			return err
+		}
+		// Erroring on an unresolved value is what stops any path storing a
+		// posting the ingest pipeline did not resolve.
+		resolvedStr, err := txTypeToStr(t.GetResolvedTxType())
 		if err != nil {
 			return err
 		}
@@ -171,7 +179,8 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 			basis = shareCountBasis[i]
 		}
 		args := []interface{}{
-			userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, qty,
+			userUUID, broker, acc, ts, t.InstrumentDescription,
+			pq.Array(brokerTypes), resolvedStr, nullStr(db.AssetClassToStr(t.GetAssetClassHint())), qty,
 			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullDecimal(price),
 			instUUID, basis, acctTypeStr, w.Amount, w.Commodity,
 		}
@@ -276,7 +285,7 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *typev1.Br
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	qb := psql.Select("broker", "account", "timestamp", "instrument_description", "tx_type", "quantity", "split_adjusted_quantity", "trading_currency", "settlement_currency", "unit_price", "split_adjusted_unit_price", "instrument_id", "synthetic_purpose", "account_type").
+	qb := psql.Select("broker", "account", "timestamp", "instrument_description", "broker_tx_type", "resolved_tx_type", "asset_class_hint", "quantity", "split_adjusted_quantity", "trading_currency", "settlement_currency", "unit_price", "split_adjusted_unit_price", "instrument_id", "synthetic_purpose", "account_type").
 		From("txs").
 		Where(sq.Eq{"user_id": userUUID}).
 		OrderBy(txOrderBy("", descending)...)
@@ -336,7 +345,7 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, b
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	qb := psql.Select("t.broker", "t.account", "t.timestamp", "t.instrument_description", "t.tx_type", "t.quantity", "t.split_adjusted_quantity", "t.trading_currency", "t.settlement_currency", "t.unit_price", "t.split_adjusted_unit_price", "t.instrument_id", "t.synthetic_purpose", "t.account_type").
+	qb := psql.Select("t.broker", "t.account", "t.timestamp", "t.instrument_description", "t.broker_tx_type", "t.resolved_tx_type", "t.asset_class_hint", "t.quantity", "t.split_adjusted_quantity", "t.trading_currency", "t.settlement_currency", "t.unit_price", "t.split_adjusted_unit_price", "t.instrument_id", "t.synthetic_purpose", "t.account_type").
 		From("txs t").
 		Join("portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = ?", portUUID).
 		OrderBy(txOrderBy("t.", descending)...)
@@ -393,7 +402,8 @@ type exportPosting struct {
 	Timestamp          time.Time        `db:"timestamp"`
 	Account            string           `db:"account"`
 	AccountType        string           `db:"account_type"`
-	TxType             string           `db:"tx_type"`
+	BrokerTxTypes      pq.StringArray   `db:"broker_tx_type"`
+	AssetClassHint     string           `db:"asset_class_hint"`
 	Description        string           `db:"instrument_description"`
 	IdentifierType     string           `db:"identifier_type"`
 	IdentifierValue    string           `db:"value"`
@@ -445,7 +455,8 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 	}
 	q := `
 		SELECT t.broker, t.id::text AS id, t.group_id::text AS group_id, g.timestamp AS group_timestamp,
-			t.timestamp, t.account, t.account_type, t.tx_type, t.instrument_description,
+			t.timestamp, t.account, t.account_type, t.broker_tx_type,
+			COALESCE(t.asset_class_hint, '') AS asset_class_hint, t.instrument_description,
 			COALESCE(best_id.identifier_type, '') AS identifier_type,
 			COALESCE(best_id.value, '') AS value,
 			COALESCE(best_id.domain, '') AS domain,
@@ -486,7 +497,8 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 			Timestamp:          r.Timestamp,
 			Account:            r.Account,
 			AccountType:        r.AccountType,
-			TxType:             r.TxType,
+			BrokerTxTypes:      r.BrokerTxTypes,
+			AssetClassHint:     r.AssetClassHint,
 			Description:        r.Description,
 			IdentifierType:     r.IdentifierType,
 			IdentifierValue:    r.IdentifierValue,
@@ -653,8 +665,8 @@ const repointGroupTimestampsSQL = `
 // instrument and description from.
 const survivingResidualsSQL = `
 	SELECT r.group_id, r.weight_commodity, r.residual,
-	       types.tx_types,
-	       first.timestamp, first.tx_type, first.broker, first.account,
+	       types.resolved_tx_types,
+	       first.timestamp, first.broker_tx_type, first.resolved_tx_type, first.broker, first.account,
 	       first.trading_currency, first.settlement_currency,
 	       commodity.instrument_description, commodity.instrument_id
 	FROM (
@@ -665,11 +677,11 @@ const survivingResidualsSQL = `
 		HAVING SUM(weight) <> 0
 	) r
 	JOIN LATERAL (
-		SELECT array_agg(DISTINCT t.tx_type) AS tx_types
+		SELECT array_agg(DISTINCT t.resolved_tx_type) AS resolved_tx_types
 		FROM txs t WHERE t.group_id = r.group_id
 	) types ON true
 	JOIN LATERAL (
-		SELECT t.timestamp, t.tx_type, t.broker, t.account,
+		SELECT t.timestamp, t.broker_tx_type, t.resolved_tx_type, t.broker, t.account,
 		       t.trading_currency, t.settlement_currency
 		FROM txs t WHERE t.group_id = r.group_id
 		ORDER BY t.timestamp, t.id LIMIT 1
@@ -694,18 +706,22 @@ const currencyInstrumentSQL = `
 // survivingResidual is one commodity a group the replace cut no longer balances in, and
 // the group attributes the counterparty for it is built from.
 type survivingResidual struct {
-	groupID      uuid.UUID
-	commodity    string
-	amount       decimal.Decimal
-	txTypes      pq.StringArray
-	timestamp    time.Time
-	txType       string
-	broker       string
-	account      string
-	trading      *string
-	settlement   *string
-	description  string
-	instrumentID *uuid.UUID
+	groupID   uuid.UUID
+	commodity string
+	amount    decimal.Decimal
+	// The distinct resolved types of the group's surviving legs, for the
+	// family rule; the first leg's declared set and resolved value are what
+	// the routed counterparty carries.
+	resolvedTypes  pq.StringArray
+	timestamp      time.Time
+	brokerTxTypes  pq.StringArray
+	resolvedTxType string
+	broker         string
+	account        string
+	trading        *string
+	settlement     *string
+	description    string
+	instrumentID   *uuid.UUID
 }
 
 // clearPeriod deletes the postings a replace covers and re-balances the groups it left
@@ -778,8 +794,8 @@ func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 	var residuals []survivingResidual
 	for rows.Next() {
 		var r survivingResidual
-		if err := rows.Scan(&r.groupID, &r.commodity, &r.amount, &r.txTypes,
-			&r.timestamp, &r.txType, &r.broker, &r.account,
+		if err := rows.Scan(&r.groupID, &r.commodity, &r.amount, &r.resolvedTypes,
+			&r.timestamp, &r.brokerTxTypes, &r.resolvedTxType, &r.broker, &r.account,
 			&r.trading, &r.settlement, &r.description, &r.instrumentID); err != nil {
 			return fmt.Errorf("surviving residuals: %w", err)
 		}
@@ -792,11 +808,7 @@ func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 	byCurrency := map[string]uuid.UUID{}
 	for _, r := range residuals {
 		amount := r.amount.Neg()
-		txTypes := make([]typev1.TxType, 0, len(r.txTypes))
-		for _, t := range r.txTypes {
-			txTypes = append(txTypes, db.StrToTxType(t))
-		}
-		acctType, err := accountTypeToStr(residual.SplitType(txTypes))
+		acctType, err := accountTypeToStr(residual.SplitType(db.StrsToTxTypes(r.resolvedTypes)))
 		if err != nil {
 			return err
 		}
@@ -824,7 +836,8 @@ func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 		// needs it to hang correlations on.
 		var txID uuid.UUID
 		if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL,
-			userUUID, r.broker, r.account, r.timestamp, desc, r.txType, amount,
+			userUUID, r.broker, r.account, r.timestamp, desc,
+			r.brokerTxTypes, r.resolvedTxType, nil, amount,
 			trading, settlement, nil, nullUUID(instID), nil, acctType,
 			amount, r.commodity, r.groupID,
 		).Scan(&txID); err != nil {

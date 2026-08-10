@@ -17,6 +17,13 @@ import (
 	"github.com/leedenison/portfoliodb/server/db/mock"
 )
 
+// grouped returns p with the group_ref the file states, which is what a
+// converter decided and what an export numbers within its window.
+func grouped(p *archivev1.Posting, ref string) *archivev1.Posting {
+	p.GroupRef = proto.String(ref)
+	return p
+}
+
 func archivePosting(desc, qty string, txType typev1.TxType) *archivev1.Posting {
 	return &archivev1.Posting{
 		Timestamp:             timestamppb.New(mustParseDay("2024-01-15")),
@@ -38,21 +45,17 @@ func mustParseDay(s string) time.Time {
 	return v
 }
 
-// The archive nests its groups; the store rebuilds them from a shared key. The
-// key is invented per group and thrown away with the call, which is what
-// group_ref always was.
-func TestWindowTxs_SynthesisesAGroupRefPerGroup(t *testing.T) {
+// The file states the grouping as a key on the posting and the store rebuilds
+// the groups from it, so the key travels through untouched. See
+// docs/adr/0043-grouping-does-not-travel-in-the-archive.md.
+func TestWindowTxs_CarriesTheStatedGroupRef(t *testing.T) {
 	w := &archivev1.TxWindow{
 		Broker: typev1.Broker_IBKR,
 		Source: "IBKR:archive:export",
-		Groups: []*archivev1.TxGroup{
-			{Postings: []*archivev1.Posting{
-				archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK),
-				archivePosting("USD", "-1000", typev1.TxType_BUYSTOCK),
-			}},
-			{Postings: []*archivev1.Posting{
-				archivePosting("MSFT", "5", typev1.TxType_BUYSTOCK),
-			}},
+		Postings: []*archivev1.Posting{
+			grouped(archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK), "g0"),
+			grouped(archivePosting("USD", "-1000", typev1.TxType_BUYSTOCK), "g0"),
+			grouped(archivePosting("MSFT", "5", typev1.TxType_BUYSTOCK), "g1"),
 		},
 	}
 	txs, basis, rowIdx, err := windowTxs(w, 0, archiveimport.NewDetachedReporter())
@@ -81,14 +84,33 @@ func TestWindowTxs_SynthesisesAGroupRefPerGroup(t *testing.T) {
 	}
 }
 
+// A posting the file leaves ungrouped keeps no ref here. windowTxs invents
+// nothing: groupPostings gives it a non-colliding one of its own further down,
+// which is what makes it a single-posting group.
+func TestWindowTxs_LeavesAnUngroupedPostingUnkeyed(t *testing.T) {
+	w := &archivev1.TxWindow{
+		Broker: typev1.Broker_IBKR,
+		Postings: []*archivev1.Posting{
+			archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK),
+		},
+	}
+	txs, _, _, err := windowTxs(w, 0, archiveimport.NewDetachedReporter())
+	if err != nil {
+		t.Fatalf("windowTxs: %v", err)
+	}
+	if txs[0].GetGroupRef() != "" {
+		t.Fatalf("group_ref = %q, want empty", txs[0].GetGroupRef())
+	}
+}
+
 // Row indices run across the whole part rather than restarting per window, so a
 // problem points at a posting in the document.
 func TestWindowTxs_RowIndicesContinueAcrossWindows(t *testing.T) {
 	w := &archivev1.TxWindow{
 		Broker: typev1.Broker_IBKR,
-		Groups: []*archivev1.TxGroup{{Postings: []*archivev1.Posting{
-			archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK),
-		}}},
+		Postings: []*archivev1.Posting{
+			grouped(archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK), "g0"),
+		},
 	}
 	_, _, rowIdx, err := windowTxs(w, 7, archiveimport.NewDetachedReporter())
 	if err != nil {
@@ -106,10 +128,10 @@ func TestWindowTxs_CarriesARestatedBasis(t *testing.T) {
 	restated.ShareCountBasis = proto.String("2025-07-01")
 	w := &archivev1.TxWindow{
 		Broker: typev1.Broker_IBKR,
-		Groups: []*archivev1.TxGroup{{Postings: []*archivev1.Posting{
-			archivePosting("MSFT", "5", typev1.TxType_BUYSTOCK),
-			restated,
-		}}},
+		Postings: []*archivev1.Posting{
+			grouped(archivePosting("MSFT", "5", typev1.TxType_BUYSTOCK), "g0"),
+			grouped(restated, "g1"),
+		},
 	}
 	_, basis, _, err := windowTxs(w, 0, archiveimport.NewDetachedReporter())
 	if err != nil {
@@ -132,7 +154,7 @@ func TestWindowTxs_CarriesARestatedBasis(t *testing.T) {
 func TestArchiveTx_CarriesTheRoutedAccountType(t *testing.T) {
 	p := archivePosting("USD", "-3.5", typev1.TxType_BUYSTOCK)
 	p.AccountType = typev1.AccountType_ACCOUNT_TYPE_IMBALANCE
-	tx := archiveTx(p, "g0")
+	tx := archiveTx(p)
 	if tx.GetAccountType() != typev1.AccountType_ACCOUNT_TYPE_IMBALANCE {
 		t.Fatalf("account_type = %s, want IMBALANCE", tx.GetAccountType())
 	}
@@ -141,7 +163,7 @@ func TestArchiveTx_CarriesTheRoutedAccountType(t *testing.T) {
 // Optional fields that the file does not state stay unset rather than becoming
 // an empty string or a zero price.
 func TestArchiveTx_UnstatedFieldsStayUnset(t *testing.T) {
-	tx := archiveTx(archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK), "g0")
+	tx := archiveTx(archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK))
 	if tx.UnitPrice != nil {
 		t.Fatalf("unit_price = %v, want unset", tx.UnitPrice)
 	}
@@ -154,7 +176,7 @@ func TestArchiveTx_UnstatedFieldsStayUnset(t *testing.T) {
 }
 
 // A window is a replacement scope, so it is stored with the period it states
-// rather than one inferred from its groups.
+// rather than one inferred from its postings.
 //
 // The group here already sums to zero, as an exported one does, and comes back
 // with exactly the postings the file stated: the balancer routes nothing for a
@@ -194,10 +216,10 @@ func TestImportTxPart_StoresEachWindowWithItsOwnPeriod(t *testing.T) {
 		PeriodFrom:   from,
 		PeriodBefore: before,
 		Source:       "IBKR:archive:export",
-		Groups: []*archivev1.TxGroup{{Postings: []*archivev1.Posting{
-			archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK),
-			archivePosting("AAPL", "-10", typev1.TxType_SELLSTOCK),
-		}}},
+		Postings: []*archivev1.Posting{
+			grouped(archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK), "g0"),
+			grouped(archivePosting("AAPL", "-10", typev1.TxType_SELLSTOCK), "g0"),
+		},
 	}}}
 	stored, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, archiveimport.NewDetachedReporter())
 	if err != nil {
@@ -208,7 +230,7 @@ func TestImportTxPart_StoresEachWindowWithItsOwnPeriod(t *testing.T) {
 	}
 }
 
-// A window holding no groups still runs, and clears the period it names. An
+// A window holding no postings still runs, and clears the period it names. An
 // import that skipped it would leave the period as it found it, which is the
 // opposite instruction.
 func TestImportTxPart_EmptyWindowClearsItsPeriod(t *testing.T) {
@@ -257,12 +279,10 @@ func TestImportTxPart_TotalCountsPostings(t *testing.T) {
 		PeriodFrom:   timestamppb.New(mustParseDay("2024-01-01")),
 		PeriodBefore: timestamppb.New(mustParseDay("2024-02-01")),
 		Source:       "IBKR:archive:export",
-		Groups: []*archivev1.TxGroup{
-			{Postings: []*archivev1.Posting{
-				archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK),
-				archivePosting("USD", "-1000", typev1.TxType_BUYSTOCK),
-			}},
-			{Postings: []*archivev1.Posting{archivePosting("MSFT", "5", typev1.TxType_BUYSTOCK)}},
+		Postings: []*archivev1.Posting{
+			grouped(archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK), "g0"),
+			grouped(archivePosting("USD", "-1000", typev1.TxType_BUYSTOCK), "g0"),
+			grouped(archivePosting("MSFT", "5", typev1.TxType_BUYSTOCK), "g1"),
 		},
 	}}}
 	rep := archiveimport.NewPartReporter(database, "job-tx", archivev1.ArchivePart_TXS)
@@ -310,9 +330,9 @@ func TestImportTxPart_RoutesAResidualForASplitGroup(t *testing.T) {
 		PeriodFrom:   from,
 		PeriodBefore: before,
 		Source:       "IBKR:archive:export",
-		Groups: []*archivev1.TxGroup{{Postings: []*archivev1.Posting{
-			archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK),
-		}}},
+		Postings: []*archivev1.Posting{
+			grouped(archivePosting("AAPL", "10", typev1.TxType_BUYSTOCK), "g0"),
+		},
 	}}}
 	if _, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, archiveimport.NewDetachedReporter()); err != nil {
 		t.Fatalf("importTxPart: %v", err)

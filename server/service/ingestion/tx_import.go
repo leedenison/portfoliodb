@@ -16,9 +16,9 @@ import (
 // importTxPart applies an archive's transaction part, one window at a time.
 //
 // A window is a replacement scope, so each one is stored with the period it
-// states rather than with a period inferred from its groups: a window holding no
-// groups is a valid instruction to clear that period, and an inferred one could
-// never say that. See docs/adr/0002-transaction-ingestion-model.md.
+// states rather than with a period inferred from its postings: a window holding
+// no postings is a valid instruction to clear that period, and an inferred one
+// could never say that. See docs/adr/0002-transaction-ingestion-model.md.
 //
 // Split adjustments are recomputed once for the whole part rather than once per
 // window. The pass rescans every posting of each instrument it is given, so
@@ -30,9 +30,7 @@ func importTxPart(ctx context.Context, deps ingestDeps, userID, jobID string, pa
 	// and what a reader watching the job expects to see move.
 	total := 0
 	for _, w := range windows {
-		for _, g := range w.GetGroups() {
-			total += len(g.GetPostings())
-		}
+		total += len(w.GetPostings())
 	}
 	rep.Total(ctx, total)
 
@@ -78,34 +76,30 @@ func importTxPart(ctx context.Context, deps ingestDeps, userID, jobID string, pa
 	return stored, nil
 }
 
-// windowTxs flattens one window's nested groups into the postings the ingestion
-// pipeline takes, with a synthesised group_ref per group.
+// windowTxs turns one window's postings into the form the ingestion pipeline
+// takes.
 //
-// The archive nests its groups and the store rebuilds them from a shared key, so
-// the key is invented here and thrown away with the call. That is what group_ref
-// always was: an opaque token scoped to one upload, never stored, and the reason
-// the format replaced it with structure.
+// The store rebuilds groups from a shared key, and the file states one: a
+// posting's group_ref travels through unchanged, and a posting carrying none is
+// its own group, which groupPostings gives a non-colliding ref of its own.
 func windowTxs(w *archivev1.TxWindow, offset int, rep *archiveimport.PartReporter) ([]*apiv1.Tx, []*time.Time, []int, error) {
 	var txs []*apiv1.Tx
 	var basis []*time.Time
 	var rowIdx []int
 	anyBasis := false
-	for gi, g := range w.GetGroups() {
-		ref := fmt.Sprintf("g%d", gi)
-		for _, pos := range g.GetPostings() {
-			row := offset + len(txs)
-			b, err := postingBasis(pos)
-			if err != nil {
-				rep.Errf(row, "share_count_basis", err.Error())
-				return nil, nil, nil, fmt.Errorf("posting %d: %w", row, err)
-			}
-			if b != nil {
-				anyBasis = true
-			}
-			txs = append(txs, archiveTx(pos, ref))
-			basis = append(basis, b)
-			rowIdx = append(rowIdx, row)
+	for _, pos := range w.GetPostings() {
+		row := offset + len(txs)
+		b, err := postingBasis(pos)
+		if err != nil {
+			rep.Errf(row, "share_count_basis", err.Error())
+			return nil, nil, nil, fmt.Errorf("posting %d: %w", row, err)
 		}
+		if b != nil {
+			anyBasis = true
+		}
+		txs = append(txs, archiveTx(pos))
+		basis = append(basis, b)
+		rowIdx = append(rowIdx, row)
 	}
 	// A window that restates nothing carries no basis slice at all, which is
 	// what leaves every posting to the insert trigger and its own date.
@@ -135,7 +129,7 @@ func postingBasis(p *archivev1.Posting) (*time.Time, error) {
 // exported with its residual already sums to zero, and the balancer routes
 // nothing for a commodity that does, so re-importing one is idempotent rather
 // than doubling.
-func archiveTx(p *archivev1.Posting, groupRef string) *apiv1.Tx {
+func archiveTx(p *archivev1.Posting) *apiv1.Tx {
 	tx := &apiv1.Tx{
 		Timestamp:             p.GetTimestamp(),
 		InstrumentDescription: p.GetInstrumentDescription(),
@@ -143,7 +137,7 @@ func archiveTx(p *archivev1.Posting, groupRef string) *apiv1.Tx {
 		Quantity:              p.GetQuantity(),
 		Account:               p.GetAccount(),
 		AccountType:           p.GetAccountType(),
-		GroupRef:              groupRef,
+		GroupRef:              p.GetGroupRef(),
 		BrokerRef:             p.GetBrokerRef(),
 		CounterpartyAccount:   p.GetCounterpartyAccount(),
 		TradingCurrency:       p.GetTradingCurrency(),

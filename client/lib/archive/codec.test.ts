@@ -122,19 +122,16 @@ function userFixture() {
           periodFrom: timestampFromDate(new Date("2024-01-01T00:00:00Z")),
           periodBefore: timestampFromDate(new Date("2024-02-01T00:00:00Z")),
           source: "IBKR:web:ibkr-ofx",
-          groups: [
+          postings: [
             {
-              postings: [
-                {
-                  timestamp: timestampFromDate(new Date("2024-01-15T00:00:00Z")),
-                  account: "U123",
-                  accountType: AccountType.USER,
-                  type: TxType.BUYSTOCK,
-                  instrumentDescription: "APPLE INC",
-                  quantity: "10",
-                  unitPrice: "185.9",
-                },
-              ],
+              timestamp: timestampFromDate(new Date("2024-01-15T00:00:00Z")),
+              account: "U123",
+              accountType: AccountType.USER,
+              type: TxType.BUYSTOCK,
+              instrumentDescription: "APPLE INC",
+              quantity: "10",
+              unitPrice: "185.9",
+              groupRef: "g0",
             },
           ],
         },
@@ -164,11 +161,11 @@ describe("archive codec", () => {
   // worthless converts at zero, a posting with no price cannot convert at all.
   it("keeps an absent optional apart from a zero one", () => {
     const withZero = userFixture();
-    withZero.txs.windows[0].groups[0].postings[0].unitPrice = "0";
+    withZero.txs.windows[0].postings[0].unitPrice = "0";
     expect(marshalUser(withZero)).toContain('"unit_price":"0"');
 
     const absent = userFixture();
-    delete (absent.txs.windows[0].groups[0].postings[0] as { unitPrice?: string }).unitPrice;
+    delete (absent.txs.windows[0].postings[0] as { unitPrice?: string }).unitPrice;
     expect(marshalUser(absent)).not.toContain("unit_price");
   });
 
@@ -196,7 +193,7 @@ describe("archive codec", () => {
   it("round trips a user archive", () => {
     const got = unmarshalUser(marshalUser(userFixture()));
     expect(got.envelope?.kind).toBe(ArchiveKind.USER);
-    expect(got.txs?.windows[0].groups[0].postings[0].quantity).toBe("10");
+    expect(got.txs?.windows[0].postings[0].quantity).toBe("10");
   });
 
   // No call site can write a document that misdescribes its own version or kind.

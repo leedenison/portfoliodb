@@ -141,16 +141,15 @@ func userFixture() *archivev1.UserArchive {
 				PeriodFrom:   timestamppb.New(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)),
 				PeriodBefore: timestamppb.New(time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)),
 				Source:       "IBKR:web:ibkr-ofx",
-				Groups: []*archivev1.TxGroup{{
-					Postings: []*archivev1.Posting{{
-						Timestamp:             timestamppb.New(time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)),
-						Account:               "U123",
-						AccountType:           typev1.AccountType_ACCOUNT_TYPE_USER,
-						Type:                  typev1.TxType_BUYSTOCK,
-						InstrumentDescription: "APPLE INC",
-						Quantity:              "10",
-						UnitPrice:             proto.String("185.9"),
-					}},
+				Postings: []*archivev1.Posting{{
+					Timestamp:             timestamppb.New(time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)),
+					Account:               "U123",
+					AccountType:           typev1.AccountType_ACCOUNT_TYPE_USER,
+					Type:                  typev1.TxType_BUYSTOCK,
+					InstrumentDescription: "APPLE INC",
+					Quantity:              "10",
+					UnitPrice:             proto.String("185.9"),
+					GroupRef:              proto.String("g0"),
 				}},
 			}},
 		},
@@ -210,7 +209,7 @@ func TestMarshalSystem_WritesProtoNamesAndEnumNames(t *testing.T) {
 // declared price of zero, and a posting with no price cannot be converted at all.
 func TestMarshalUser_AbsentIsNotZero(t *testing.T) {
 	withZero := userFixture()
-	withZero.Txs.Windows[0].Groups[0].Postings[0].UnitPrice = proto.String("0")
+	withZero.Txs.Windows[0].Postings[0].UnitPrice = proto.String("0")
 	b, err := archive.MarshalUser(withZero)
 	if err != nil {
 		t.Fatalf("MarshalUser: %v", err)
@@ -220,7 +219,7 @@ func TestMarshalUser_AbsentIsNotZero(t *testing.T) {
 	}
 
 	absent := userFixture()
-	absent.Txs.Windows[0].Groups[0].Postings[0].UnitPrice = nil
+	absent.Txs.Windows[0].Postings[0].UnitPrice = nil
 	b, err = archive.MarshalUser(absent)
 	if err != nil {
 		t.Fatalf("MarshalUser: %v", err)

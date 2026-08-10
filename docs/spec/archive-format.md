@@ -19,7 +19,7 @@ difference decides what it carries.
 
 It carries two kinds of thing:
 
-- **Irreplaceable data.** Transactions and their grouping, holding declarations,
+- **Irreplaceable data.** Transactions, holding declarations,
   portfolios, preferences, plugin configuration, fetch-block reasons, the
   corporate events an admin was asked to judge and the calls made on them, and
   hand-recovered prices no provider still serves. Nothing can reconstruct these.
@@ -35,6 +35,11 @@ computed holdings and valuations. Exporting derived state would invite a round
 trip to change a number -- to carry a rounding, or to mix share counts -- which
 `docs/spec/bitemporality.md` forbids.
 
+Transaction grouping is joining that list. The server is becoming the thing that
+derives the partition, from the evidence a posting carries rather than from being
+told (`docs/adr/0043-grouping-does-not-travel-in-the-archive.md`); until it does,
+the file states the partition as a `group_ref` on the posting.
+
 Full reasoning: `docs/adr/0032-archive-preserves-inputs-not-derived-state.md`.
 
 ## The two archives
@@ -47,7 +52,7 @@ one file.
   inflation indices, fetch blocks, unhandled corporate events and plugin
   configuration.
 - The **user archive** carries one user's own data and no system data:
-  transactions and their grouping, holding declarations, and preferences.
+  transactions, holding declarations, and preferences.
 
 They have different owners, different authorisation and different lifecycles.
 Shared reference data is curated by an admin and refetchable in principle; user
@@ -71,9 +76,8 @@ A file has three levels, and each states its own scope in full.
 - **File.** The `envelope`, and nothing else. It carries `format_version`,
   `exported_at`, the source instance and which of the two archives this is.
 - **Group.** The entity's aggregate root: the instrument for prices and
-  corporate events, the transaction window and group for transactions, the
-  statement for holding declarations. Coverage, asset class and currency live
-  here.
+  corporate events, the window for transactions, the statement for holding
+  declarations. Coverage, asset class and currency live here.
 - **Row.** Only what varies per row. A price row is a date, a bar, and the share
   count basis the bar is denominated in when that is not its own date.
 
@@ -541,8 +545,8 @@ transactions have no natural key -- broker statements often supply a date and
 nothing else. See `docs/adr/0002-transaction-ingestion-model.md`.
 
 The window has to state its own period rather than have one inferred from the
-postings it holds, because **a window holding no groups is a valid instruction to
-clear that period**, and an inferred window could never say that.
+postings it holds, because **a window holding no postings is a valid instruction
+to clear that period**, and an inferred window could never say that.
 
 An export writes one window per broker. Asked for no period it runs from that
 broker's first posting to the day after its last, so the window provably contains
@@ -572,13 +576,14 @@ stored and where it travels.
 | window | `broker` | |
 | window | `period_from`, `period_before` | half-open, instants |
 | window | `source` | `"<broker>:<client>:<source>"`; the domain of the fallback description identifier |
-| group | `postings[]` | at least one |
+| window | `postings[]` | may be empty, which clears the period |
 | posting | `timestamp`, `instrument_description`, `type`, `quantity` | |
 | posting | `account`, `account_type` | `account_type` absent reads as `ACCOUNT_TYPE_USER` |
 | posting | `identifier_hints[]` | zero or more identifier triples |
 | posting | `unit_price`, `trading_currency`, `settlement_currency` | optional |
 | posting | `broker_ref`, `counterparty_account` | optional |
 | posting | `share_count_basis` | optional; absent means the posting's own timestamp date |
+| posting | `group_ref` | optional; transitional, see below |
 
 `share_count_basis` is on the posting rather than on the window for the same
 reason it is on a price row rather than on its group: a window-wide value can
@@ -587,16 +592,18 @@ where every posting is as-traded and so carries a different basis from its
 neighbours. Absent is what an ordinary export writes, and the importing instance
 takes the posting's own date.
 
-Grouping is structural: a group is a list of postings, not a shared key. It is
-the converter's output and nothing can rebuild it -- the server does not pair
-rows or infer a missing leg -- so an archive that dropped it would lose the
-balance invariant, residual attribution and the association between a fee and
-its trade, permanently. See
-`docs/adr/0021-converters-own-transaction-grouping.md`.
+**Grouping is transitional.** Postings are flat under the window, and postings
+sharing a non-empty `group_ref` are legs of one economic event; a posting with no
+`group_ref` is its own single-posting group. The key is scoped to the file and is
+never stored, so it means nothing in another one. An export numbers it within the
+window -- `g0`, `g1` -- rather than writing the stored group id, which the
+importing instance generates.
 
-That structure is what replaces `group_ref`. The CSV needed an opaque key
-because a flat file cannot nest; it was scoped to one upload and never stored,
-which is exactly what a nested list expresses directly.
+The field is here because the server does not derive the partition yet, and it
+goes when it does: grouping is derived state rather than data, and the archive
+carries neither it nor the residuals routed to balance it. See
+`docs/adr/0043-grouping-does-not-travel-in-the-archive.md` and
+`docs/adr/0041-server-owns-transaction-grouping.md`.
 
 A posting may carry several `identifier_hints`, which the CSV could not express
 -- it had one `symbol_type`/`symbol` pair per row. The paired

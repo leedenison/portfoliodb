@@ -258,7 +258,7 @@ describe("assembleUserArchive", () => {
             value: {
               broker: 1,
               source: "FIDELITY:archive:export",
-              groups: [{ postings: [{ quantity: "10", instrumentDescription: "AAPL", type: 1 }] }],
+              postings: [{ quantity: "10", instrumentDescription: "AAPL", type: 1, groupRef: "g0" }],
             },
           },
         },
@@ -268,7 +268,7 @@ describe("assembleUserArchive", () => {
             value: {
               broker: 2,
               source: "IBKR:archive:export",
-              groups: [{ postings: [{ quantity: "5", instrumentDescription: "MSFT", type: 1 }] }],
+              postings: [{ quantity: "5", instrumentDescription: "MSFT", type: 1, groupRef: "g0" }],
             },
           },
         },
@@ -307,8 +307,8 @@ describe("userPartCounts", () => {
     expect(userPartCounts(doc)).toEqual([{ label: "preference settings", count: 1 }]);
   });
 
-  // Postings rather than windows or groups, so the preview reads the same
-  // number the import job counts.
+  // Postings rather than windows, so the preview reads the same number the
+  // import job counts.
   it("counts postings for the transaction part", () => {
     const doc = assembleUserArchive([
       create(ExportUserArchiveResponseSchema, { item: { case: "envelope", value: { ...ENVELOPE, kind: 2 } } }),
@@ -319,9 +319,10 @@ describe("userPartCounts", () => {
           value: {
             broker: 1,
             source: "FIDELITY:archive:export",
-            groups: [
-              { postings: [{ quantity: "10", instrumentDescription: "AAPL", type: 1 }, { quantity: "-1000", instrumentDescription: "USD", type: 1 }] },
-              { postings: [{ quantity: "5", instrumentDescription: "MSFT", type: 1 }] },
+            postings: [
+              { quantity: "10", instrumentDescription: "AAPL", type: 1, groupRef: "g0" },
+              { quantity: "-1000", instrumentDescription: "USD", type: 1, groupRef: "g0" },
+              { quantity: "5", instrumentDescription: "MSFT", type: 1, groupRef: "g1" },
             ],
           },
         },

@@ -85,7 +85,17 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 -- no claim; the canonical class lives on the instrument.
 --
 -- The amounts as the source wrote them: quantity, unit_price, trading_currency,
--- settlement_currency. Transcribed and exact; see Numeric types below.
+-- settlement_currency, settlement_amount. Transcribed and exact; see Numeric types
+-- below.
+-- settlement_amount is the cash total the source stated for the row, in
+-- settlement_currency and unsigned. It is transcribed rather than worked out from
+-- other columns, which is what makes it independent of quantity * unit_price and so
+-- what lets grouping identify a cash leg on one figure and check the identification
+-- against the other. NULL on a posting whose own quantity is already money, since
+-- carrying the same total twice would leave two figures to disagree. It contributes
+-- nothing to weight: a TRADE_ASSET leg still weighs at quantity * unit_price, so the
+-- gap between the two figures stays visible as the group's SOURCE_ROUNDING residual.
+-- See docs/adr/0024-group-balance-is-checked-on-weight.md.
 --
 -- What the source called this row lives in tx_correlations below, not in columns
 -- here: a reference number and a counterparty pointer are two series of the same
@@ -174,6 +184,7 @@ CREATE TABLE txs (
   unit_price                NUMERIC,
   trading_currency          TEXT,
   settlement_currency       TEXT,
+  settlement_amount         NUMERIC CHECK (settlement_amount IS NULL OR settlement_amount >= 0),
 
   account_type              TEXT NOT NULL DEFAULT 'USER'
                               CHECK (account_type IN ('USER', 'EQUITY', 'INCOME', 'EXPENSE',

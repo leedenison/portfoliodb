@@ -120,6 +120,9 @@ func posting(r db.ExportPosting) *archivev1.Posting {
 	if r.UnitPrice != nil {
 		p.UnitPrice = proto.String(r.UnitPrice.String())
 	}
+	if r.SettlementAmount != nil {
+		p.SettlementAmount = proto.String(r.SettlementAmount.String())
+	}
 	if r.TradingCurrency != "" {
 		p.TradingCurrency = proto.String(r.TradingCurrency)
 	}

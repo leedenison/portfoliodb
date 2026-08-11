@@ -581,3 +581,39 @@ describe("correlations", () => {
     expect(expense.correlations).toEqual([]);
   });
 });
+
+describe("the source's own cash total", () => {
+  // valuation, not units times pricePerUnit: 913 x 79.848724 is 72901.88, which
+  // is the figure the cross-check compares against rather than the one grouping
+  // matches on.
+  it("transcribes valuation on a security row, unsigned", () => {
+    const result = convertFidelityJson(json({ ...BUY, debitCreditIndicator: "DEBIT" }));
+
+    expect(result.postings[0]!.settlementAmount).toBe("72909.39");
+    expect(result.postings[0]!.quantity).toBe("-913");
+  });
+
+  // A cash row's quantity is already the valuation, so stating it again would
+  // put the same figure on the posting twice.
+  it("states nothing on a cash row", () => {
+    const result = convertFidelityJson(
+      json({
+        accountNumber: "AW10000001",
+        transactionType: "Cash In From Sell",
+        assetName: "Cash",
+        isin: "AA00K0000000",
+        currency: "GBP",
+        status: "Completed",
+        pricePerUnit: 1,
+        dealDate: "15/04/2025",
+        settlementDate: "15/04/2025",
+        debitCreditIndicator: "CREDIT",
+        units: 20000,
+        valuation: 20000,
+      })
+    );
+
+    expect(result.postings[0]!.quantity).toBe("20000");
+    expect(result.postings[0]!.settlementAmount).toBeUndefined();
+  });
+});

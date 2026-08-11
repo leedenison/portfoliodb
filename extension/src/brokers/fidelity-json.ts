@@ -246,6 +246,17 @@ export function convertFidelityJson(
         ...(row.pricePerUnit !== undefined
           ? { unitPrice: (decimalFromNumber(row.pricePerUnit) ?? ZERO).toString() }
           : {}),
+        // The payload's own valuation for the row, on the rows where it is not
+        // already the quantity. A cash row's quantity is this figure; a security
+        // row's is a share count, and this is the second independently
+        // transcribed number grouping identifies its cash leg by.
+        ...(!cashRow && row.valuation !== undefined
+          ? {
+              settlementAmount: (decimalFromNumber(row.valuation) ?? ZERO)
+                .abs()
+                .toString(),
+            }
+          : {}),
         ...(correlations.length > 0 ? { correlations } : {}),
         ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })

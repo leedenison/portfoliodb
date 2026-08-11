@@ -133,3 +133,44 @@ func TestValidateTxs_perTxErrors(t *testing.T) {
 		t.Fatalf("expected a 'required' error, got %v", errs)
 	}
 }
+
+// TestValidateSettlementAmount pins where the source's own cash total may be
+// stated. A posting is money exactly when it cannot be a trade's asset leg, and
+// on such a posting the quantity is already that total.
+func TestValidateSettlementAmount(t *testing.T) {
+	validTs := timestamppb.Now()
+	amount := "20514.62"
+	tx := func(set []typev1.TxType, settlement *string) *apiv1.Tx {
+		return &apiv1.Tx{
+			Timestamp:             validTs,
+			InstrumentDescription: "AAPL",
+			BrokerTxType:          set,
+			Quantity:              "10",
+			SettlementAmount:      settlement,
+		}
+	}
+	tests := []struct {
+		name string
+		tx   *apiv1.Tx
+		want int
+	}{
+		{"stated on a trade's asset leg", tx([]typev1.TxType{typev1.TxType_TRADE_ASSET}, &amount), 0},
+		// The source said only TRADE, so the row may yet be an asset leg.
+		{"stated on an unnarrowed trade", tx([]typev1.TxType{typev1.TxType_TRADE}, &amount), 0},
+		{"stated on a trade's cash leg", tx([]typev1.TxType{typev1.TxType_TRADE_CASH}, &amount), 1},
+		{"stated on a transfer", tx([]typev1.TxType{typev1.TxType_TRANSFER}, &amount), 1},
+		// Fidelity's Cash In: money under either reading, so the quantity is
+		// already the amount.
+		{"stated on a declared ambiguity between two money readings", tx([]typev1.TxType{typev1.TxType_TRADE_CASH, typev1.TxType_TRANSFER}, &amount), 1},
+		{"absent on a money row", tx([]typev1.TxType{typev1.TxType_DIVIDEND}, nil), 0},
+		{"absent on an asset leg", tx([]typev1.TxType{typev1.TxType_TRADE_ASSET}, nil), 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ValidateTx(tc.tx, 0)
+			if len(got) != tc.want {
+				t.Fatalf("ValidateTx() returned %d errors, want %d: %v", len(got), tc.want, got)
+			}
+		})
+	}
+}

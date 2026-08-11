@@ -204,4 +204,33 @@ message Posting {
   // See docs/adr/0013-security-type-hint-vs-asset-class.md and
   // docs/adr/0045-tx-type-does-not-encode-asset-class.md.
   portfoliodb.type.v1.AssetClass asset_class_hint = 16 [(buf.validate.field).enum.defined_only = true];
+  // The cash total the source stated for the row this was transcribed from, in
+  // settlement_currency, unsigned.
+  //
+  // Transcribed, never computed: a converter that would have to work the figure
+  // out from other columns has inferred it and emits nothing. That is what makes
+  // it independent of quantity * unit_price, which is derived from different
+  // fields, and so what lets grouping use one to identify a cash leg and the
+  // other to check the identification.
+  //
+  // Present only where the posting's own quantity is not money -- that is, where
+  // the posting may be a TRADE_ASSET. On a money posting the quantity is already
+  // this total, and carrying it twice would create a second figure to disagree
+  // with the first.
+  //
+  // It is the source's own figure and nothing more, so it carries whatever the
+  // source put in it. Both sources that state one state the cash that actually
+  // settled, charges included: an OFX TOTAL carries the COMMISSION and TAXES the
+  // same record reports separately, and a Fidelity purchase carries its dealing
+  // fee. So it equals the cash leg it settles through only where the source
+  // levied nothing, and a reader that needs them to agree exactly wants the
+  // wrong number. Netting it out here would be the computation a converter is
+  // forbidden to do, because a computed figure is evidence of nothing.
+  //
+  // It has no part in weight or balance. A TRADE_ASSET leg weighs at
+  // quantity * unit_price and goes on doing so
+  // (docs/adr/0024-group-balance-is-checked-on-weight.md), so the difference
+  // between the two figures stays visible as the group's SOURCE_ROUNDING
+  // residual rather than being absorbed here.
+  optional string settlement_amount = 17 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
 }

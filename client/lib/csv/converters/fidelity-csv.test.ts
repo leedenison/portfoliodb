@@ -952,3 +952,53 @@ describe("correlations", () => {
     expect(result.postings[1].correlations).toEqual([]);
   });
 });
+
+
+describe("the source's own cash total", () => {
+  const HEAD =
+    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
+  const convert = (rows: string[]) =>
+    convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
+
+  // The number the pairing rules actually match on. It is independent of
+  // quantity * unit price, which the export rounds, so the two disagreeing is
+  // evidence that two legs do not belong together.
+  it("transcribes Amount on a security row, unsigned", () => {
+    const result = convert([
+      "8 Feb 2022,10 Feb 2022,Sell,Legal & General Global Health,ISA,AG1,,20514.62,2676,7.67,795832439,Completed",
+    ]);
+
+    expect(result.postings[0].settlementAmount).toBe("20514.62");
+    // Not quantity * unit price, which is 20524.92 here: the whole point is that
+    // the two come from different fields.
+    expect(result.postings[0].quantity).toBe("-2676");
+  });
+
+  it("keeps the magnitude of a purchase, which the export writes negative", () => {
+    const result = convert([
+      "8 Feb 2022,10 Feb 2022,Buy,Legal & General Global Health,ISA,AG1,,-4487.98,585,7.67,795832440,Completed",
+    ]);
+
+    expect(result.postings[0].settlementAmount).toBe("4487.98");
+  });
+
+  // A cash row's quantity is already the amount, so stating it again would put
+  // the same figure on the posting twice and leave two values to disagree.
+  it("states nothing on a cash row", () => {
+    const result = convert([
+      "8 Feb 2022,10 Feb 2022,Cash In From Sell,Cash,ISA,AG1,,20514.62,20514.62,1,795832441,Completed",
+    ]);
+
+    expect(result.postings[0].settlementAmount).toBeUndefined();
+  });
+
+  it("states nothing on a derived counter-leg", () => {
+    const result = convert([
+      "8 Feb 2022,10 Feb 2022,Cash Dividend,Cash,Investment Account,AG1,,23.40,23.40,1,441416483,Completed",
+    ]);
+
+    expect(result.postings).toHaveLength(2);
+    expect(result.postings[1].accountType).toBe(AccountType.INCOME);
+    expect(result.postings[1].settlementAmount).toBeUndefined();
+  });
+});

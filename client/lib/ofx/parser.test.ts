@@ -424,6 +424,35 @@ describe("groups and charges", () => {
     expect(refs).toEqual(new Set(["20251015U10000018371888432"]));
   });
 
+  // The cash that actually settled, charges included, which is not the cash leg
+  // this trade settles through: that one is the consideration alone, because the
+  // commission is posted as a leg of its own. The two differing by exactly the
+  // charge is what makes this an independent figure rather than a restatement.
+  it("transcribes TOTAL on the security leg, charge and all", () => {
+    const result = parse(GBP_BUY);
+
+    const security = result.postings.find((t) => mustBe(t.brokerTxType, TxType.TRADE_ASSET))!;
+    expect(security.settlementAmount).toBe("23092.22034");
+
+    const cash = result.postings.find((t) => mustBe(t.brokerTxType, TxType.TRADE_CASH))!;
+    expect(cash.quantity).toBe("-23080.68");
+    expect(cash.settlementAmount).toBeUndefined();
+  });
+
+  it("states nothing on an income row, whose quantity is already the amount", () => {
+    const result = parse(`<INCOME>
+      <INVTRAN><FITID>div-1</FITID><DTTRADE>20251016092129.000[-4:EDT]</DTTRADE></INVTRAN>
+      <SECID><UNIQUEID>IE00B4ND3603</UNIQUEID><UNIQUEIDTYPE>ISIN</UNIQUEIDTYPE></SECID>
+      <INCOMETYPE>DIV
+      <TOTAL>137.08
+      <CURRENCY><CURRATE>1.0</CURRATE><CURSYM>GBP</CURSYM></CURRENCY>
+    </INCOME>`);
+
+    const income = result.postings.find((t) => t.accountType !== AccountType.INCOME)!;
+    expect(income.quantity).toBe("137.08");
+    expect(income.settlementAmount).toBeUndefined();
+  });
+
   it("splits the commission out of the netted total", () => {
     const result = parse(GBP_BUY);
 

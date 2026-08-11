@@ -164,6 +164,12 @@ message Tx {
   // Unset means no claim. Not authoritative: the canonical class comes from
   // identifier plugins. See docs/adr/0013-security-type-hint-vs-asset-class.md.
   portfoliodb.type.v1.AssetClass asset_class_hint = 20 [(buf.validate.field).enum.defined_only = true];
+  // The cash total the source stated for this row, in settlement_currency,
+  // unsigned. Same semantics as the archive Posting's settlement_amount:
+  // transcribed rather than computed, and present only where the posting's own
+  // quantity is not money. Grouping evidence; it has no part in weight or
+  // balance.
+  optional string settlement_amount = 21 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,

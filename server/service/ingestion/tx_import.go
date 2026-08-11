@@ -150,6 +150,9 @@ func archiveTx(p *archivev1.Posting) *apiv1.Tx {
 	if p.UnitPrice != nil {
 		tx.UnitPrice = proto.String(p.GetUnitPrice())
 	}
+	if p.SettlementAmount != nil {
+		tx.SettlementAmount = proto.String(p.GetSettlementAmount())
+	}
 	// The archive can name several identifiers per posting, which the flat CSV
 	// could not. They are hints rather than an assertion: resolution still runs,
 	// and an instrument the importing instance already holds wins.

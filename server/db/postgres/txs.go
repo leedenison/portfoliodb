@@ -27,15 +27,15 @@ var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 const insertPostingSQL = `
 	WITH g AS (
 		INSERT INTO tx_groups (user_id, timestamp, job_id)
-		VALUES ($1, $4, $18)
+		VALUES ($1, $4, $19)
 		RETURNING id
 	)
 	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
 	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
-	                 instrument_id, share_count_basis, account_type,
+	                 settlement_amount, instrument_id, share_count_basis, account_type,
 	                 weight, weight_commodity, group_id)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::date, $15, $16, $17, g.id FROM g
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, g.id FROM g
 	RETURNING id, group_id
 `
 
@@ -45,9 +45,9 @@ const insertPostingInGroupSQL = `
 	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
 	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
-	                 instrument_id, share_count_basis, account_type,
+	                 settlement_amount, instrument_id, share_count_basis, account_type,
 	                 weight, weight_commodity, group_id)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::date, $15, $16, $17, $18)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19)
 	RETURNING id
 `
 
@@ -167,6 +167,10 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 		if err != nil {
 			return fmt.Errorf("invalid unit price %q: %w", t.GetUnitPrice(), err)
 		}
+		settlement, err := parseOptDecimal(t.SettlementAmount)
+		if err != nil {
+			return fmt.Errorf("invalid settlement amount %q: %w", t.GetSettlementAmount(), err)
+		}
 		w := db.Weight{Amount: qty, Commodity: "inst:" + instUUID.String()}
 		if i < len(weights) {
 			w = weights[i]
@@ -182,7 +186,7 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 			userUUID, broker, acc, ts, t.InstrumentDescription,
 			pq.Array(brokerTypes), resolvedStr, nullStr(db.AssetClassToStr(t.GetAssetClassHint())), qty,
 			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullDecimal(price),
-			instUUID, basis, acctTypeStr, w.Amount, w.Commodity,
+			nullDecimal(settlement), instUUID, basis, acctTypeStr, w.Amount, w.Commodity,
 		}
 		ref := t.GetGroupRef()
 		var txID uuid.UUID
@@ -412,6 +416,7 @@ type exportPosting struct {
 	UnitPrice          *decimal.Decimal `db:"unit_price"`
 	TradingCurrency    string           `db:"trading_currency"`
 	SettlementCurrency string           `db:"settlement_currency"`
+	SettlementAmount   *decimal.Decimal `db:"settlement_amount"`
 	ShareCountBasis    *time.Time       `db:"share_count_basis"`
 }
 
@@ -460,7 +465,7 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 			COALESCE(best_id.identifier_type, '') AS identifier_type,
 			COALESCE(best_id.value, '') AS value,
 			COALESCE(best_id.domain, '') AS domain,
-			t.quantity, t.unit_price,
+			t.quantity, t.unit_price, t.settlement_amount,
 			COALESCE(t.trading_currency, '') AS trading_currency,
 			COALESCE(t.settlement_currency, '') AS settlement_currency,
 			-- A basis equal to the posting's own date is the as-traded
@@ -507,6 +512,7 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 			UnitPrice:          r.UnitPrice,
 			TradingCurrency:    r.TradingCurrency,
 			SettlementCurrency: r.SettlementCurrency,
+			SettlementAmount:   r.SettlementAmount,
 			ShareCountBasis:    r.ShareCountBasis,
 		}
 	}
@@ -830,15 +836,16 @@ func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 		// NULL share_count_basis leaves the insert trigger to seed it from the
 		// posting's own timestamp, and the split-adjusted pair is seeded the same way,
 		// exactly as for an uploaded posting. A routed leg has no source row, so no
-		// correlation is written for it: it transcribes nothing and there is nothing
-		// the source said about why it belongs with anything. The returned id is
+		// correlation and no settlement amount is written for it: it transcribes
+		// nothing, so there is nothing the source said about why it belongs with
+		// anything, and no figure of the source's to carry. The returned id is
 		// read and dropped: the statement returns one because the upload path
 		// needs it to hang correlations on.
 		var txID uuid.UUID
 		if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL,
 			userUUID, r.broker, r.account, r.timestamp, desc,
 			r.brokerTxTypes, r.resolvedTxType, nil, amount,
-			trading, settlement, nil, nullUUID(instID), nil, acctType,
+			trading, settlement, nil, nil, nullUUID(instID), nil, acctType,
 			amount, r.commodity, r.groupID,
 		).Scan(&txID); err != nil {
 			return fmt.Errorf("insert routed posting: %w", err)

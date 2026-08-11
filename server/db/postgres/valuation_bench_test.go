@@ -184,18 +184,18 @@ func seedWeekdayBars(t testing.TB, p *Postgres, instrumentID string, from, befor
 // difference is what FX conversion costs, which a single-currency run reported
 // as zero because it never executed any of it.
 //
-// What that comes to at the load below: 3.4s, of which 85% is the position
-// lookup in daily_holdings. That LATERAL runs once per cell of the
-// instrument-by-day grid -- 91,350 times -- and each run rescans the whole
-// cumulative CTE to keep 11 rows out of 1,000. Its cost is linear in
-// transactions as well as in the grid, which is why one transaction per
-// instrument reported it as 183ms and twenty report it as 3s. The carry-forward
-// the query is usually discussed in terms of is 7%.
+// What that comes to at the load below: 410ms in USD and 427ms in GBP, so FX is
+// 4% and is kept for the coverage rather than the cost -- without a foreign
+// holding and a foreign display currency, four of the query's steps return no
+// rows. The carry-forward over prices is now the largest single node at 42%,
+// which is what this query was always assumed to be about.
 //
-// FX is 2%: the two display currencies come out within 60ms of each other.
-// Running both is worth it for the coverage -- without a foreign holding and a
-// foreign display currency, four of the query's steps return no rows -- but it
-// is not where the time goes, and a plan that only proved that would be enough.
+// It read 3.4s before daily_holdings stopped resolving each position with a
+// per-day lookup, 85% of which was that one node: it ran once per cell of the
+// instrument-by-day grid, 91,350 times, rescanning the whole cumulative CTE to
+// keep 11 rows out of 1,000. Its cost was linear in transactions as well as in
+// the grid, which is why the old load of one transaction per instrument reported
+// it as 183ms and hid the term. That is the measurement this load exists for.
 //
 // Any figure from here is only comparable to another one taken at the same
 // work_mem and against the same valuationLoad. The test stack pins the former

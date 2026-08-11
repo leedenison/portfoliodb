@@ -139,7 +139,7 @@ func TestShadowAgainstMasters(t *testing.T) {
 
 // breakdown counts which kind of event the engine decided each multi-posting group
 // is, so the run can be checked against the counts the converter's rules are pinned
-// to: sells 91/91, buys 78/78, and 21 deposit runs across both masters.
+// to: sells 88/88, buys 92/92, and 21 deposit runs across both masters.
 func breakdown(ps []db.GroupingPosting, gs []Group) string {
 	byID := map[string]db.GroupingPosting{}
 	for _, p := range ps {

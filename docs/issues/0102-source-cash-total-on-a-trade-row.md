@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Carry the source's own cash total for a trade row
 milestone: M15
 ---

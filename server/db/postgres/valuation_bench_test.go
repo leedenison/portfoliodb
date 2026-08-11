@@ -163,7 +163,7 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (string, t
 	// So this is what makes the benchmark measure the server rather than the
 	// harness. What it does not measure is an import's own aftermath, where the
 	// statistics are real but describe the table as it was before the import.
-	// See 0102.
+	// See 0103.
 	if _, err := p.q.ExecContext(ctx,
 		`ANALYZE txs, tx_groups, eod_prices, price_coverage, instruments, instrument_identifiers`); err != nil {
 		t.Fatalf("analyze: %v", err)

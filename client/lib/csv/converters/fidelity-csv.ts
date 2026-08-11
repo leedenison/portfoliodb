@@ -697,6 +697,14 @@ export function convertFidelityToStandard(
         ...(cashRow ? { tradingCurrency: currency } : {}),
         // Presence, not truthiness: a reported price of zero is a price.
         ...(unitPriceDec !== undefined ? { unitPrice: unitPriceDec.toString() } : {}),
+        // The export's own Amount for the row, unsigned, on the rows where it is
+        // not already the quantity. A cash row's quantity is this figure, so
+        // repeating it there would put the same number on the posting twice;
+        // a security row's quantity is a share count, and this is the second
+        // independently transcribed number grouping identifies its cash leg by.
+        ...(!cashRow && amountDec !== undefined
+          ? { settlementAmount: amountDec.abs().toString() }
+          : {}),
         ...(correlation ? { correlations: [correlation] } : {}),
         ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })

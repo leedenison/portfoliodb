@@ -335,6 +335,9 @@ type ExportPosting struct {
 	UnitPrice          *decimal.Decimal
 	TradingCurrency    string
 	SettlementCurrency string
+	// The cash total the source stated for the row, or nil on a posting whose
+	// own quantity is already money.
+	SettlementAmount *decimal.Decimal
 	// The share count this posting is denominated in, or nil when it is the
 	// posting's own timestamp date. The column is NOT NULL and the insert
 	// trigger defaults it to that date, so only a value that differs from it

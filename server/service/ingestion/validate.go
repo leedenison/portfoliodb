@@ -28,7 +28,30 @@ func ValidateTx(tx *apiv1.Tx, rowIndex int32) []*apiv1.ValidationError {
 		errs = append(errs, &apiv1.ValidationError{RowIndex: rowIndex, Field: "instrument_description", Message: "required"})
 	}
 	errs = append(errs, validateBrokerTxType(tx.GetBrokerTxType(), rowIndex)...)
+	errs = append(errs, validateSettlementAmount(tx, rowIndex)...)
 	return errs
+}
+
+// validateSettlementAmount rejects the source's cash total on a posting whose
+// own quantity is already that total.
+//
+// A posting is money exactly when it cannot be a trade's asset leg, which is the
+// same predicate the converters apply to decide whether to read a row's amount as
+// its quantity. Carrying the total again on such a row would put the same figure
+// on the posting twice and leave two values to disagree, and grouping reads it
+// precisely because it is a second, independently transcribed number.
+func validateSettlementAmount(tx *apiv1.Tx, rowIndex int32) []*apiv1.ValidationError {
+	if tx.SettlementAmount == nil {
+		return nil
+	}
+	if txtype.MayBe(tx.GetBrokerTxType(), typev1.TxType_TRADE_ASSET) {
+		return nil
+	}
+	return []*apiv1.ValidationError{{
+		RowIndex: rowIndex,
+		Field:    "settlement_amount",
+		Message:  "not carried on a money posting, whose quantity is already the amount",
+	}}
 }
 
 // validateBrokerTxType checks the declared candidate set: non-empty, every

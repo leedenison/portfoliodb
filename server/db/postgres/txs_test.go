@@ -1339,6 +1339,50 @@ func TestListTxsForExport_ShareCountBasisOnlyWhenRestated(t *testing.T) {
 	}
 }
 
+// The source's own cash total survives the round trip, because an archive that
+// dropped it would leave a rebuilt instance with less evidence to group on than
+// the upload had.
+func TestListTxsForExport_CarriesTheSourcesCashTotal(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|exp-amt", "U", "u@exp-amt.com")
+	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AMT", Canonical: false},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	ts := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	stated := "20514.62"
+	price := "7.67"
+	if err := createTx(ctx, p, userID, "IBKR", "a", "",
+		&apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "AMT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-2676", UnitPrice: &price, SettlementAmount: &stated},
+		instID, nil); err != nil {
+		t.Fatalf("create priced tx: %v", err)
+	}
+	if err := createTx(ctx, p, userID, "IBKR", "a", "",
+		&apiv1.Tx{Timestamp: timestamppb.New(ts.Add(time.Hour)), InstrumentDescription: "AMT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH}, ResolvedTxType: typev1.TxType_TRADE_CASH, Quantity: "20514.62"},
+		instID, nil); err != nil {
+		t.Fatalf("create cash tx: %v", err)
+	}
+
+	rows, err := p.ListTxsForExport(ctx, userID, nil, nil)
+	if err != nil {
+		t.Fatalf("list txs for export: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(rows))
+	}
+	if rows[0].SettlementAmount == nil || rows[0].SettlementAmount.String() != stated {
+		t.Fatalf("settlement amount = %v, want %s", rows[0].SettlementAmount, stated)
+	}
+	// A money posting's quantity is already the total, so nothing is stored
+	// beside it to disagree with.
+	if rows[1].SettlementAmount != nil {
+		t.Fatalf("money posting reports a settlement amount: %v", rows[1].SettlementAmount)
+	}
+}
+
 // Ordered by broker, then group, then posting, so the export assembles its
 // windows and groups in a single scan and two exports of the same data agree.
 func TestListTxsForExport_OrderedForGrouping(t *testing.T) {

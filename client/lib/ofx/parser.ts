@@ -376,6 +376,20 @@ export function parseOfxStatement(text: string): OfxParseResult {
       });
       legs.push(security);
 
+      // TOTAL verbatim, on the legs whose quantity is not already money. It is
+      // the cash that actually settled, so it carries the COMMISSION and TAXES
+      // the same record reports separately, and it therefore does not equal the
+      // cash leg derived below -- that one is the consideration alone, because
+      // the charge is posted as a leg of its own. Transcribing TOTAL rather than
+      // the difference is the point: the difference is computed here, and a
+      // computed figure is evidence of nothing.
+      if (!isCashTx) {
+        const stated = dec(inner, "TOTAL");
+        if (stated !== undefined) {
+          security.settlementAmount = stated.abs().toString();
+        }
+      }
+
       // The income a reinvestment consumed, derived because the source reports
       // no row for it. It shares the trade's group so the money balances the
       // units.

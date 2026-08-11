@@ -64,7 +64,7 @@ func DefaultOpts() Opts {
 // the rules, so a variant list is a table and not a restructuring. See
 // docs/adr/0047-grouping-runs-as-precedence-ordered-passes.md.
 func DefaultRules() []Rule {
-	return []Rule{Exact{}}
+	return []Rule{Exact{}, Disposal(), Acquisition(), CashTrade(), Deposit()}
 }
 
 // Member is one posting of a derived group and what the rule that claimed it

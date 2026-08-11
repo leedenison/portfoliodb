@@ -11,7 +11,6 @@
 package transfermatch
 
 import (
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -275,7 +274,7 @@ func pointerFeasible(a, b db.TransferSide, _ Opts) (bool, int64) {
 
 func names(cs []db.Correlation, account string) bool {
 	for _, c := range cs {
-		if !declares(c, db.MatchAccount) {
+		if !c.Declares(db.MatchAccount) {
 			continue
 		}
 		if strings.EqualFold(strings.TrimSpace(c.Token), strings.TrimSpace(account)) {
@@ -283,11 +282,6 @@ func names(cs []db.Correlation, account string) bool {
 		}
 	}
 	return false
-}
-
-// declares reports whether a correlation offers the given comparison.
-func declares(c db.Correlation, match string) bool {
-	return slices.Contains(c.Match, match)
 }
 
 // referenceFeasible reports whether the two sides' broker references are near enough
@@ -339,7 +333,7 @@ func referenceFeasible(a, b db.TransferSide, opts Opts) (bool, int64) {
 func ordinals(cs []db.Correlation) []int64 {
 	out := make([]int64, 0, len(cs))
 	for _, c := range cs {
-		if declares(c, db.MatchOrdinal) && c.Ordinal != nil {
+		if c.Declares(db.MatchOrdinal) && c.Ordinal != nil {
 			out = append(out, *c.Ordinal)
 		}
 	}

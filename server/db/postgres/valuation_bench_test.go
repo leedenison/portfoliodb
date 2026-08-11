@@ -80,6 +80,12 @@ func seedValuationLoad(t testing.TB, p *Postgres, instruments, years int) (strin
 // overstatement, since that comparison scans only the real bars while the
 // stored-fill design also held a row for every weekend and holiday.
 //
+// Any figure from here is only comparable to another one taken at the same
+// work_mem, which is why the test stack pins it rather than letting
+// timescaledb-tune size it from whatever the container could see. At this load
+// the four sorts peak at 8.8MB in memory against the pinned 16MB; below about
+// 9MB they spill and the same query reads a fifth slower for no other reason.
+//
 // Run with: BENCH_VALUATION=1 make db-test
 func TestValuationQueryPerformance(t *testing.T) {
 	if os.Getenv("BENCH_VALUATION") == "" {

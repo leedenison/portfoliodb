@@ -1,7 +1,18 @@
 services:
   postgres:
     image: timescale/timescaledb:latest-pg16
-    command: ["postgres", "-c", "shared_preload_libraries=timescaledb"]
+    # work_mem is pinned rather than left to timescaledb-tune, which sizes it from
+    # what the container can see at first init: 10MB under the dev overlay's 2g
+    # mem_limit, 3.4MB in a stack with no limit, and a third value again on a
+    # machine with different RAM. That makes a measured query time depend on which
+    # stack it ran in, which is no basis for comparing one.
+    #
+    # 16MB is set from the valuation query, the only one measured to spill: its
+    # four sorts peaked at 4.4MB for 50 instruments over 5 years. Note the budget
+    # is per sort node per connection, not per query -- that query alone can hold
+    # four at once -- so this is bounded on the other side by the service's
+    # connection cap. See PORTFOLIODB_DB_MAX_CONNS in server/cmd/portfoliodb.
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb", "-c", "work_mem=16MB"]
     environment:
       POSTGRES_USER: portfoliodb
       POSTGRES_PASSWORD: portfoliodb

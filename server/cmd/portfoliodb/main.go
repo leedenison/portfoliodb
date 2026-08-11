@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -68,6 +69,10 @@ import (
 // Set via -ldflags at build time.
 var buildRevision = "dev"
 
+// defaultDBMaxConns bounds the connection pool. See where it is applied for how
+// it is arrived at -- it is a memory budget as much as a handle count.
+const defaultDBMaxConns = 16
+
 func main() {
 	grpcAddr := flag.String("grpc-addr", envOrDefault("PORTFOLIODB_GRPC_ADDR", ":50051"), "gRPC listen address")
 	// Off until a shadow run over a corpus has been looked at: the cycle derives the
@@ -77,6 +82,7 @@ func main() {
 		"write the transaction groups the engine derives, rather than only reporting how they differ")
 	dbURL := flag.String("db-url", os.Getenv("PORTFOLIODB_DB_URL"), "PostgreSQL connection URL")
 	redisURL := flag.String("redis-url", envOrDefault("PORTFOLIODB_REDIS_URL", os.Getenv("REDIS_URL")), "Redis connection URL for sessions")
+	dbMaxConns := flag.Int("db-max-conns", parseInt(os.Getenv("PORTFOLIODB_DB_MAX_CONNS"), defaultDBMaxConns), "maximum open database connections")
 	flag.Parse()
 	if *dbURL == "" {
 		log.Fatal("PORTFOLIODB_DB_URL or -db-url required")
@@ -89,6 +95,20 @@ func main() {
 		log.Fatalf("db open: %v", err)
 	}
 	defer rawConn.Close()
+	// database/sql leaves the open connection count unlimited, so without this the
+	// only ceiling is postgres's max_connections -- which the workers, the API and
+	// migrations all draw from the same pool against. That matters beyond running
+	// out of handles: work_mem is charged per sort node per connection, and the
+	// valuation query holds four at once, so the server's real memory exposure is
+	// conns * 4 * work_mem. At the default 16 against the pinned 16MB that is a
+	// 1GB ceiling, which fits the dev stack's 2g postgres alongside its 512MB of
+	// shared buffers, and stays under its max_connections of 25 with room for a
+	// psql session. Raise both together or neither.
+	rawConn.SetMaxOpenConns(*dbMaxConns)
+	// Idle matched to open so a busy period does not reconnect on every request,
+	// with an idle timeout so a quiet one gives the backends back.
+	rawConn.SetMaxIdleConns(*dbMaxConns)
+	rawConn.SetConnMaxIdleTime(5 * time.Minute)
 	if err := rawConn.Ping(); err != nil {
 		log.Fatalf("db ping: %v", err)
 	}
@@ -370,6 +390,17 @@ func envOrDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// parseInt reads a positive integer setting, falling back on anything it cannot
+// use: an unset variable, a non-number, or a zero or negative count, since zero
+// means unlimited to SetMaxOpenConns and that is the state being closed off.
+func parseInt(s string, defaultVal int) int {
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return defaultVal
+	}
+	return n
 }
 
 func parseDuration(s string, defaultVal time.Duration) time.Duration {

@@ -1,7 +1,11 @@
 services:
   postgres:
     image: timescale/timescaledb:latest-pg16
-    command: ["postgres", "-c", "shared_preload_libraries=timescaledb"]
+    # Same pinned work_mem as the main stack, for the same reason and doubly so
+    # here: this is where the benchmarks run, so a figure from BENCH_VALUATION is
+    # only comparable to the last one if the memory budget behind it was the same.
+    # See the comment in docker-compose.yml.
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb", "-c", "work_mem=16MB"]
     environment:
       POSTGRES_USER: portfoliodb
       POSTGRES_PASSWORD: portfoliodb

@@ -86,35 +86,70 @@ cumulative AS (
         )::int AS inexact
     FROM merged_txs
 ),
+-- generate_series reports a fixed estimate of 1000 rows whatever it will
+-- actually return, having no statistics to estimate from, and every join above
+-- the grid is costed from that. Replacing it with a calendar table was tried and
+-- reverted: the table estimated the same window at 1847 rows against 1827, but
+-- the estimate at the join above the grid only moved from 111 to 205 against
+-- 91,350, the plan shapes did not change and neither did the timing. The error
+-- is not the leaf's. It is the range join in daily_holdings, which postgres has
+-- no selectivity model for, multiplying a near-zero guess onto whatever the leaf
+-- hands it -- so a better leaf buys a proportionally better wrong answer. The
+-- table would also have bounded the valuable range and pinned the driver, since
+-- the histogram only reaches a planner that can see the bounds and lib/pq is
+-- what keeps these queries on custom plans.
 date_series AS (
     SELECT d::date AS val_date
     FROM generate_series($2::date, $3::date - 1, '1 day'::interval) d
 ),
-inst_list AS (
-    SELECT DISTINCT instrument_id, instrument_description
+-- A position holds until a transaction changes it, so each running total covers
+-- the days from its own transaction up to the next one. Naming that span is what
+-- turns the day grid into a join.
+--
+-- It was once a per-day lookup for the latest transaction at or before each
+-- date, which asked the same question of the same rows once per cell of the
+-- grid: at 50 instruments over 5 years with 20 transactions each that was 91,350
+-- rescans of the whole portfolio's transactions, and 85% of the query. The
+-- window here runs over the transactions instead -- 1,000 rows, not 91,350 --
+-- and the grid falls out of joining the spans to the dates they cover.
+--
+-- GREATEST clamps a span opening before the window to the window's own start,
+-- which is how a position opened earlier is carried in without a lookup for it.
+-- Where two transactions both predate the window the earlier one's span comes
+-- out empty (from >= before) and contributes nothing, leaving the last one
+-- before the window holding the open, which is correct.
+holding_spans AS (
+    SELECT
+        instrument_id,
+        instrument_description,
+        position,
+        inexact,
+        GREATEST(tx_date, $2::date) AS from_date,
+        COALESCE(
+            lead(tx_date) OVER (
+                PARTITION BY instrument_id, instrument_description
+                ORDER BY tx_date
+            ),
+            $3::date
+        ) AS before_date
     FROM cumulative
 ),
+-- An inner join, so a date before an instrument's first transaction has no row
+-- rather than a row with a NULL position. Both read the same downstream: valued
+-- applies NOT qty_is_zero, and qty_is_zero answers true for NULL, so a row the
+-- old shape produced here was always discarded there. Not producing it is the
+-- same series, reached without materialising a cell per instrument per day for
+-- history that has not started yet.
 daily_holdings AS (
     SELECT
         ds.val_date,
-        i.instrument_id,
-        i.instrument_description,
-        c.position AS qty,
-        c.inexact
-    FROM date_series ds
-    CROSS JOIN inst_list i
-    -- LEFT JOIN, so a date before the instrument's first transaction has a NULL
-    -- position rather than no row: qty_is_zero reads that as closed, which is
-    -- what keeps the day grid from starting a series before its history does.
-    LEFT JOIN LATERAL (
-        SELECT cu.position, cu.inexact
-        FROM cumulative cu
-        WHERE cu.instrument_id IS NOT DISTINCT FROM i.instrument_id
-          AND cu.instrument_description IS NOT DISTINCT FROM i.instrument_description
-          AND cu.tx_date <= ds.val_date
-        ORDER BY cu.tx_date DESC
-        LIMIT 1
-    ) c ON true
+        hs.instrument_id,
+        hs.instrument_description,
+        hs.position AS qty,
+        hs.inexact
+    FROM holding_spans hs
+    JOIN date_series ds
+        ON ds.val_date >= hs.from_date AND ds.val_date < hs.before_date
 ),
 -- Map held instruments to their FX pair instrument IDs (for currencies != display).
 fx_instruments AS (
@@ -148,23 +183,18 @@ price_instruments AS (
 -- Only real bars are stored, so the days a market was shut have no row. The
 -- next four CTEs carry the last close forward over them.
 --
--- Spans merged across plugins: for "should this day have a price" it does not
--- matter which provider answered.
-coverage_spans AS (
-    SELECT instrument_id,
-        unnest(range_agg(daterange(covered_from, covered_before))) AS span
-    FROM price_coverage
-    WHERE instrument_id IN (SELECT instrument_id FROM price_instruments)
-    GROUP BY instrument_id
-),
 -- Carry-forward is bounded by coverage, so a delisted instrument's last close
 -- stops at the end of the span rather than being held for ever. Partitioning by
--- span below makes that fall out of the grouping instead of needing a guard.
+-- span_from below makes that fall out of the grouping instead of needing a
+-- guard, which is why the span's lower bound is carried down rather than just
+-- used to filter. merged_price_coverage unions the per-plugin spans: for
+-- "should this day have a price" it does not matter which provider answered.
 covered_grid AS (
-    SELECT cs.instrument_id, ds.val_date, lower(cs.span) AS span_from
-    FROM coverage_spans cs
+    SELECT mc.instrument_id, ds.val_date, mc.covered_from AS span_from
+    FROM merged_price_coverage mc
     JOIN date_series ds
-        ON ds.val_date >= lower(cs.span) AND ds.val_date < upper(cs.span)
+        ON ds.val_date >= mc.covered_from AND ds.val_date < mc.covered_before
+    WHERE mc.instrument_id IN (SELECT instrument_id FROM price_instruments)
 ),
 -- A window opening mid-span would otherwise read as unpriced until the first
 -- bar inside it. One lookup per (instrument, span), not per day.

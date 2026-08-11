@@ -1203,13 +1203,18 @@ func unpricedOn(t *testing.T, points []db.ValuationPoint, want time.Time) bool {
 	return false
 }
 
-// TestGetUserValuation_ExcludesDatesBeforeFirstTx covers qty_is_zero's NULL
-// branch. daily_holdings forward-fills the last known position with a LIMIT 1
-// lateral, so on every grid day before an instrument's first tx there is no row to
-// carry forward and the position is NULL rather than zero. The NULL branch
-// classifies that as "not held", so the row leaves the valued CTE and the day drops
-// out of the series entirely -- priced days before the first purchase are absent
-// rather than zero, and the instrument is never reported as unpriced on them.
+// TestGetUserValuation_ExcludesDatesBeforeFirstTx pins what a date before an
+// instrument's first transaction is worth. daily_holdings joins each running
+// total to the days its span covers, and a span only opens at a transaction, so
+// such a date has no row at all and never reaches valued -- priced days before
+// the first purchase are absent from the series rather than zero, and the
+// instrument is never reported as unpriced on them.
+//
+// It also guards qty_is_zero's NULL branch, which is the other way of arriving
+// at the same answer: daily_holdings once produced a row with a NULL position
+// for those days and left it to qty_is_zero to discard. Either shape has to
+// agree with this test, which is why it is written against the series rather
+// than against how the series is built.
 func TestGetUserValuation_ExcludesDatesBeforeFirstTx(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

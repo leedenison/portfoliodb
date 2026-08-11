@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,13 +44,20 @@ const groupingColumns = `
 const transcribedPostings = `
 	FROM txs t
 	JOIN tx_groups g ON g.id = t.group_id
-	WHERE t.user_id = $1
+	WHERE t.user_id = $1::uuid
 	  AND t.account_type = 'USER'
 	  AND NOT EXISTS (
 	    SELECT 1 FROM txs s
 	    WHERE s.group_id = t.group_id AND s.synthetic_purpose IS NOT NULL
 	  )
 `
+
+// anyUsersPostings is transcribedPostings with the user optional, for the seed read:
+// a cycle triggered by an import knows whose data it wrote, and one on a cadence
+// sweeps every user.
+var anyUsersPostings = strings.Replace(transcribedPostings,
+	"WHERE t.user_id = $1::uuid",
+	"WHERE ($1 = '' OR t.user_id = $1::uuid)", 1)
 
 // groupingRow is the scan shape for a posting the engine reads.
 type groupingRow struct {
@@ -86,12 +94,13 @@ func (r groupingRow) toDomain() db.GroupingPosting {
 
 // ListGroupingSeeds implements db.GroupingDB.
 func (p *Postgres) ListGroupingSeeds(ctx context.Context, opts db.GroupingSeedOpts) ([]db.GroupingPosting, error) {
-	userUUID, err := uuid.Parse(opts.UserID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid user id: %w", err)
+	if opts.UserID != "" {
+		if _, err := uuid.Parse(opts.UserID); err != nil {
+			return nil, fmt.Errorf("invalid user id: %w", err)
+		}
 	}
-	args := []interface{}{userUUID}
-	q := "SELECT" + groupingColumns + transcribedPostings
+	args := []interface{}{opts.UserID}
+	q := "SELECT" + groupingColumns + anyUsersPostings
 	if opts.Residual {
 		// The partial index over residual postings answers this directly. Source
 		// rounding is excluded: it is the source disagreeing with itself rather
@@ -112,7 +121,7 @@ func (p *Postgres) ListGroupingSeeds(ctx context.Context, opts db.GroupingSeedOp
 		args = append(args, jobUUID)
 		q += fmt.Sprintf("\n\t\t  AND g.job_id = $%d", len(args))
 	}
-	q += "\n\t\tORDER BY t.id"
+	q += "\n\t\tORDER BY t.user_id, t.id"
 	return p.groupingPostings(ctx, q, args)
 }
 

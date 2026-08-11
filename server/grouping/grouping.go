@@ -71,11 +71,18 @@ type Group struct {
 // Claim is one rule's proposal that these postings are legs of one event.
 //
 // A claim may name a posting an earlier rule already took. The effect is to merge
-// that posting's group with the rest of the claim, which is what makes an
-// exact-token claim a must-link that a later rule may add to but never split
-// (docs/adr/0048-correlations-declare-their-own-semantics.md). Only the members the
-// claim newly takes are resolved by it; an already-claimed member keeps the type
-// the rule that took it gave.
+// that posting's group with the rest of the claim, and only the members the claim
+// newly takes are resolved by it; an already-claimed member keeps the type the rule
+// that took it gave.
+//
+// So every claim is a must-link: a later rule may add to a group but can never take
+// a member out of one. That is
+// docs/adr/0047-grouping-runs-as-precedence-ordered-passes.md's irrevocable claim
+// seen from the other side, and it holds for every rule rather than for any
+// particular kind of evidence.
+// docs/adr/0048-correlations-declare-their-own-semantics.md names the case that
+// makes it matter -- a source stating two rows of a three-row event, where refusing
+// the merge would exclude the third.
 type Claim struct {
 	Members []Member
 }

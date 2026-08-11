@@ -19,11 +19,15 @@ const ExactPrecedence = 1000
 
 // Exact groups postings that carry the same correlation token.
 //
-// The claim is a must-link: a later rule may add to the group it forms but may
-// never take a member out of it, which the engine enforces by refusing any claim
-// that would re-role a claimed posting or join two existing groups. A source that
-// named two rows of a three-row event would otherwise exclude the third. See
-// docs/adr/0048-correlations-declare-their-own-semantics.md.
+// An ordinary rule holding the highest precedence, and nothing more. The must-link
+// behaviour this rule is usually described with -- a later rule may add to its group
+// but may never take a member out of it -- belongs to the engine and holds for every
+// rule's claims alike; docs/adr/0048-correlations-declare-their-own-semantics.md
+// names it here only because a source stating two rows of a three-row event is where
+// it visibly matters.
+//
+// What is particular to this rule is only what it compares and what it concludes:
+// token equality, and nothing whatever about the kind of event.
 type Exact struct{}
 
 func (Exact) Name() string { return "exact" }

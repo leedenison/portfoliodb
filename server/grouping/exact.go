@@ -61,16 +61,24 @@ func (Exact) Reach(p db.GroupingPosting) []Reach {
 	return out
 }
 
-// Propose returns one claim per set of postings sharing a token, ranked by that
-// token so the output does not depend on the order the postings arrived in.
+// Apply claims one group per set of postings sharing a token, in token order so the
+// result does not depend on the order the postings arrived in.
 //
 // Ranking does no other work here. Two postings either carry the same token or they
 // do not, so there is nothing to prefer between claims and nothing that can strand
 // anything: the sets are disjoint by construction, because a token belongs to one
 // series and a series to one set.
-func (Exact) Propose(ps []db.GroupingPosting, _ Opts) []Claim {
+//
+// A posting some other rule already took is left out of its token's set rather than
+// costing the whole set. Ordinarily nothing has, since this rule holds the highest
+// precedence, but a per-broker ordering may put a rule above it and the rows that
+// remain still share the token and still belong together.
+func (Exact) Apply(ps []db.GroupingPosting, st *State, _ Opts) {
 	byToken := map[tokenKey][]db.GroupingPosting{}
 	for _, p := range ps {
+		if st.Taken(p.ID) {
+			continue
+		}
 		for _, c := range p.Correlations {
 			if !c.Declares(db.MatchExact) {
 				continue
@@ -96,23 +104,21 @@ func (Exact) Propose(ps []db.GroupingPosting, _ Opts) []Claim {
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i].less(keys[j]) })
 
-	var out []Claim
 	for _, k := range keys {
-		members := dedupe(byToken[k])
-		if len(members) < 2 {
+		group := dedupe(byToken[k])
+		if len(group) < 2 {
 			continue
 		}
-		c := Claim{}
-		for _, p := range members {
+		ms := make([]Member, 0, len(group))
+		for _, p := range group {
 			// The rule states that these rows are one event; it states nothing
 			// about what kind of event, because a shared identifier does not say.
 			// So each member keeps whatever its own declaration narrows to, which
 			// is the common ancestor of its candidate set.
-			c.Members = append(c.Members, Member{ID: p.ID, Resolved: txtype.Resolve(p.Declared)})
+			ms = append(ms, Member{ID: p.ID, Resolved: txtype.Resolve(p.Declared)})
 		}
-		out = append(out, c)
+		st.Claim(ms...)
 	}
-	return out
 }
 
 // tokenKey is one comparability partition: a series, an identifier, and the set of

@@ -18,6 +18,8 @@ import (
 	"context"
 	"sort"
 
+	"github.com/shopspring/decimal"
+
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/txtype"
@@ -28,20 +30,30 @@ import (
 // and its tests state the numbers they depend on.
 type Opts struct {
 	// Money is the widest difference between two money figures that still reads as
-	// the same amount. It is residual.Tolerance's money value, and it is here
-	// rather than imported so a rule's band and the balancer's cannot drift apart
-	// silently: they are the same claim about how finely a source quotes money.
-	Money string
+	// the same amount. It is residual.Tolerance's money value said again, and
+	// deliberately: a difference this rule would tolerate is one the balancer will
+	// route to SOURCE_ROUNDING, so a pairing it accepts leaves a residual that
+	// reads as the source disagreeing with itself rather than as a missing leg.
+	Money decimal.Decimal
 	// ConsiderationBand is the widest relative gap tolerated between a cash leg and
-	// its trade's quantity * unit price. The export rounds the price it quotes, and
-	// the error that leaves is worst on a cheap unit.
-	ConsiderationBand string
+	// its trade's quantity * unit price.
+	//
+	// The two never agree exactly, because the export rounds the unit price it
+	// quotes and the error that leaves is the half-digit it dropped as a fraction
+	// of the price -- worst on a cheap unit, since the same half-digit is a larger
+	// share of a smaller number. The widest correctly paired trade in the sample
+	// exports is 0.56% out. This clears every real pairing while rejecting a
+	// swapped cash row, which is off by whole percentage points.
+	ConsiderationBand decimal.Decimal
 }
 
 // DefaultOpts is the calibrated configuration, measured against the sample exports
 // by the converter rules this engine has to reproduce.
 func DefaultOpts() Opts {
-	return Opts{Money: "0.005", ConsiderationBand: "0.0075"}
+	return Opts{
+		Money:             decimal.RequireFromString("0.005"),
+		ConsiderationBand: decimal.RequireFromString("0.0075"),
+	}
 }
 
 // DefaultRules is the ordering that applies to every source.

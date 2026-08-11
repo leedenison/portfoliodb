@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
@@ -837,6 +838,23 @@ const (
 	MatchAccount = "ACCOUNT"
 )
 
+// The stored forms of the Scope vocabulary, for the passes that ask a correlation
+// what set of postings its identifier means anything across. A scope is half of the
+// statement a correlation makes and the match is the other half; neither is usable
+// without the other, so they are named in the same place.
+const (
+	ScopeFile    = "FILE"
+	ScopeAccount = "ACCOUNT"
+	ScopeBroker  = "BROKER"
+)
+
+// Declares reports whether this correlation says the given comparison may be made
+// of it. Nothing is inferred: a source with no numbering declares no ordinal rather
+// than being discovered to have none, so a pass asks before it compares.
+func (c Correlation) Declares(match string) bool {
+	return slices.Contains(c.Match, match)
+}
+
 // ScopeToStr returns the stored form of a correlation scope: its enum name
 // without the prefix. Unspecified is an error rather than a default, because a
 // correlation that does not say what its identifier is comparable over cannot be
@@ -1644,4 +1662,101 @@ type TransferMatchDB interface {
 	// ListTransferMatches returns one user's links, newest first. For the report
 	// and for tests; the matching path itself reads none.
 	ListTransferMatches(ctx context.Context, userID string) ([]TransferMatch, error)
+}
+
+// The reads a grouping rule may make while growing the neighbourhood it is
+// partitioned over. One query type per access path, each carrying only its own
+// fields.
+//
+// A rule can express no reach these do not offer, which is the point: docs/adr/
+// 0050-grouping-recomputes-a-neighbourhood.md makes "state your reach as a bounded
+// indexed query" an admissibility test, and a rule limited to calling these cannot
+// state an unindexed one. A new access path is a new method here and a new statement
+// behind it, which is what a new access path honestly is.
+type (
+	// TokenQuery asks who else holds an identifier, in one series. AnyAccount
+	// widens it to the broker, for a token whose scope says it means something
+	// outside the account that issued it.
+	TokenQuery struct {
+		Broker     typev1.Broker
+		Account    string
+		AnyAccount bool
+		Label      string
+		Token      string
+	}
+
+	// DateQuery asks for one account's postings over a span of time, half-open as
+	// every interval in this system is
+	// (docs/adr/0018-half-open-date-intervals.md).
+	DateQuery struct {
+		Broker  typev1.Broker
+		Account string
+		From    time.Time
+		Before  time.Time
+	}
+
+	// OrdinalQuery asks for one account's postings whose reference falls in a
+	// span, inclusive at both ends because a span is stated as a distance rather
+	// than as a range.
+	OrdinalQuery struct {
+		Broker  typev1.Broker
+		Account string
+		Label   string
+		Low     int64
+		High    int64
+	}
+)
+
+// GroupingReader answers the reads above.
+//
+// Every method takes a batch and the ids the caller already holds, so a round of the
+// closure costs one statement per access path rather than one per posting asking, and
+// a posting is never read twice.
+type GroupingReader interface {
+	PostingsByToken(ctx context.Context, userID string, qs []TokenQuery, held []string) ([]GroupingPosting, error)
+	PostingsByDates(ctx context.Context, userID string, qs []DateQuery, held []string) ([]GroupingPosting, error)
+	PostingsByOrdinals(ctx context.Context, userID string, qs []OrdinalQuery, held []string) ([]GroupingPosting, error)
+}
+
+// GroupingPosting is one transcribed posting as the grouping engine reads it: the
+// fields its rules compare, the evidence its source supplied, and the group it
+// currently sits in.
+//
+// Routed residuals are not among them. They transcribe nothing and correlate with
+// nothing, so there is nothing to say which postings they belong with; they are
+// deleted and routed fresh once the partition is settled, rather than partitioned
+// (docs/adr/0043-grouping-does-not-travel-in-the-archive.md).
+type GroupingPosting struct {
+	ID      string
+	UserID  string
+	Broker  typev1.Broker
+	Account string
+	// Timestamp is what the trade rules bucket on. A group's postings need not
+	// share it -- a deposit run in the sample settles across two days -- so only
+	// the rules that say so use it.
+	Timestamp time.Time
+	// InstrumentID is the commodity, empty for a posting whose instrument never
+	// resolved.
+	InstrumentID string
+	// Quantity is signed, and its sign is what the trade rules read as the
+	// direction money moved: the broker row type that says so in the source is
+	// not carried, and the sign is what survives of it.
+	Quantity  decimal.Decimal
+	UnitPrice *decimal.Decimal
+	// SettlementAmount is the cash total the source stated for the row, absent on
+	// a posting whose quantity is already money. Independent of
+	// quantity * unit_price, which is what lets one rule identify a cash leg and
+	// the other check the identification.
+	SettlementAmount *decimal.Decimal
+	// Declared is the candidate type set the source stated. A rule may claim a
+	// posting only where this admits the rule's own type, which is 0044's *may be*
+	// predicate doing the work.
+	Declared []typev1.TxType
+	// JobID is the ingestion job that wrote the posting, and is what a SCOPE_FILE
+	// correlation is comparable within.
+	JobID string
+	// GroupID is the partition as it stands. The engine reads it only to compare
+	// its own answer against it, never as evidence.
+	GroupID      string
+	Correlations []Correlation
 }

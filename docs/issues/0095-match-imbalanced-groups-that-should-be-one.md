@@ -62,6 +62,20 @@ without anyone being asked. What is left here is the half 0097 cannot do -- the 
 whose evidence does not identify the occurrence, where the answer is a person's
 judgement rather than a rule.
 
+## Recording the human answer
+
+A hand-made grouping -- the merge repair above, not a transfer match -- is recorded as
+a correlation on the postings it joins: a synthesised token, `MATCH_EXACT`, and
+`SCOPE_USER`, which the grouping engine claims through its highest-precedence pass like
+any other exact match. adr/0049-a-human-assertion-is-a-correlation.md settles this. What
+lands here is the writer: the `SCOPE_USER` value in the vocabulary, the API and UI that
+create and remove an assertion, and the warning shown before a re-upload that would
+destroy one.
+
+A hand-made transfer match stays a link keyed on group ids, for the reason
+adr/0037-transfer-matches-are-links-not-postings.md gives, and survives on the engine
+writing only the groups it disagrees with.
+
 ## A manual match whose target stops making sense
 
 Distinct from the id churn adr/0037-transfer-matches-are-links-not-postings.md now records, and not fixed by anchoring a match to

@@ -74,3 +74,51 @@ tie-break. Two groups can each admit a row under the permissive reading, and
 nothing in the narrowing step ranks them; the converter's answer to that has always
 been to order the passes so the question never arises, and ordering the passes
 makes the second pass unnecessary rather than merely cheaper.
+
+## Amendments
+
+**The engine writes its disagreements, not its partition.** "A regroup must
+re-route inside the transaction that changes membership" above says what happens
+when membership moves, and leaves the impression that recomputing the partition
+means rewriting every group in reach. It does not. The engine compares its
+partition against the stored one and issues statements only where the two differ;
+a group it agrees with keeps its id, its residual and the `transfer_matches` rows
+keyed on it.
+
+That is the cheaper implementation as well as the safer one, but it is recorded
+here because something depends on it. The grouping job runs after every import,
+over a neighbourhood deliberately wider than the uploaded period
+([0097](../issues/0097-server-side-transaction-grouping.md)), so an engine that
+rebuilt the neighbourhood each cycle would churn ids for postings nobody
+uploaded, and would destroy a hand-made transfer match every time an unrelated
+month was imported. [0049](0049-a-human-assertion-is-a-correlation.md) leans on
+this: it lets a manual transfer match stay keyed on group ids rather than
+needing a durable anchor of its own.
+
+**Writing only its disagreements is not the same as not being allowed to
+disagree**, and the distinction is load-bearing. Every stored group balances --
+`check_tx_group_balance()` sees to that, and whatever is left over is routed to an
+explicit residual -- so "balanced" cannot be what marks a group as settled. Nor
+can "balanced with no residual worse than `SOURCE_ROUNDING`", tempting as it is,
+because that is exactly what a converter's *wrong* pairing looks like: two legs
+whose amounts happened to agree closely enough, joined when they should not have
+been, or one leg joined to the wrong counterpart of two similar trades on the same
+day. Those are the errors the engine exists to correct, and after
+[0098](../issues/0098-retire-converter-side-grouping.md) there is no converter
+partition left to defer to in any case.
+
+It would also not survive the order data arrives in. A fragment that balances on
+its own today may be one whose third leg arrives next month, and a rule that
+forbade disturbing it would stop the engine doing the one thing
+[0041](0041-server-owns-transaction-grouping.md) built it for.
+
+So the two things a balance test looks like it offers are supplied elsewhere and
+better. The *protection* is precedence: a group whose members carry a `SCOPE_USER`
+correlation ([0049](0049-a-human-assertion-is-a-correlation.md)) is claimed by the
+highest-precedence pass as a must-link, so no later pass can take a member from
+it, and that holds whether or not the group balances -- which matters, because a
+person may well assert a grouping precisely because the legs do not. The
+*efficiency* is where the neighbourhood is seeded: starting from postings whose
+groups carry an unresolved residual is a sound and cheap way to choose where to
+look. Neither may become a rule about what the engine is permitted to conclude
+once it is looking, or it can only ever repair and never correct.

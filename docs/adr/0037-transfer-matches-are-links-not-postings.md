@@ -87,6 +87,16 @@ natural key ([0002](0002-transaction-ingestion-model.md)). See
 [0095](../issues/0095-match-imbalanced-groups-that-should-be-one.md) and
 [0091](../issues/0091-manual-transfer-match.md).
 
+That question is settled in [0049](0049-a-human-assertion-is-a-correlation.md), and in
+two parts, because the paragraph above conflates a hand-made *grouping* with a hand-made
+*match*. A grouping needs no key at all: it is recorded as a correlation on the postings
+it names, so it is already attached to them. A match keeps its group ids and relies on
+the engine writing only the groups it disagrees with, so an id survives every cycle that
+does not genuinely repartition it
+([0047](0047-grouping-runs-as-precedence-ordered-passes.md)). What remains true is that
+a re-upload takes both with the postings, and that this is reported rather than
+repaired.
+
 ## Ambiguity is left unmatched
 
 Two transfers of the same amount between the same pair of accounts in the same window

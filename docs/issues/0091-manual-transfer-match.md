@@ -39,5 +39,9 @@ A hand-made match can stop making sense without anyone touching it: a later uplo
 change the residual of a group it names, or remove the clearing leg it was made
 against. 0095 carries the question of what happens then -- survive, drop, or flag for
 review -- and it needs an answer here too, because this is where the match is created.
-Related but separate is that a regroup churns group ids, so the anchor a manual match
-is keyed on has to outlive the groups it names; that is settled in 0097.
+
+The related worry about a regroup churning group ids is settled and does not land here:
+adr/0049-a-human-assertion-is-a-correlation.md keeps a match keyed on its group ids and
+requires the grouping engine to write only the groups it disagrees with, so a manual
+match survives every cycle that does not genuinely repartition it. A re-upload still
+takes it, along with the postings.

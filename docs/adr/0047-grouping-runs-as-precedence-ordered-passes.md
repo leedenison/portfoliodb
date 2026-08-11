@@ -74,3 +74,23 @@ tie-break. Two groups can each admit a row under the permissive reading, and
 nothing in the narrowing step ranks them; the converter's answer to that has always
 been to order the passes so the question never arises, and ordering the passes
 makes the second pass unnecessary rather than merely cheaper.
+
+## Amendments
+
+**The engine writes its disagreements, not its partition.** "A regroup must
+re-route inside the transaction that changes membership" above says what happens
+when membership moves, and leaves the impression that recomputing the partition
+means rewriting every group in reach. It does not. The engine compares its
+partition against the stored one and issues statements only where the two differ;
+a group it agrees with keeps its id, its residual and the `transfer_matches` rows
+keyed on it.
+
+That is the cheaper implementation as well as the safer one, but it is recorded
+here because something depends on it. The grouping job runs after every import,
+over a neighbourhood deliberately wider than the uploaded period
+([0097](../issues/0097-server-side-transaction-grouping.md)), so an engine that
+rebuilt the neighbourhood each cycle would churn ids for postings nobody
+uploaded, and would destroy a hand-made transfer match every time an unrelated
+month was imported. [0049](0049-a-human-assertion-is-a-correlation.md) leans on
+this: it lets a manual transfer match stay keyed on group ids rather than
+needing a durable anchor of its own.

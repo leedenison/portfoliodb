@@ -137,6 +137,21 @@ the archive carrying a per-file identity so an import could reconstruct the orig
 boundaries -- would make the archive preserve which upload a posting arrived in,
 which nothing else about a posting does.
 
+**`Scope` gains `SCOPE_USER`, and the asserter may be a person.** A hand-made
+grouping is recorded as a correlation on its member postings, with a synthesised
+token and `MATCH_EXACT`, so that the engine consumes a person's judgement and a
+source's stated grouping through one mechanism. None of the existing scopes fits:
+`FILE` binds to an ingestion job, and `ACCOUNT` and `BROKER` are both narrower
+than a grouping someone made precisely because the legs sat in different accounts
+or arrived from different brokers.
+
+The transcription contract above is unaffected. It binds converters, which must
+not manufacture evidence their source did not supply, and says nothing about a
+person deliberately supplying some. What it protects is the ability to tell
+inference from transcription on the wire, and a user assertion is neither -- it
+says so in its scope. See
+[0049](0049-a-human-assertion-is-a-correlation.md).
+
 ## Considered: a field per broker
 
 Carrying each source's grouping fields verbatim was rejected in 0042 and stays

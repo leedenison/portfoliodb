@@ -28,7 +28,7 @@ func TestRunCycle_SeedsFromResidualGroups(t *testing.T) {
 	mockDB.EXPECT().ListGroupingSeeds(gomock.Any(), db.GroupingSeedOpts{Residual: true}).
 		Return(nil, nil)
 
-	runCycle(context.Background(), mockDB, nil, nil, nil)
+	runCycle(context.Background(), mockDB, nil, nil, nil, false)
 }
 
 // TestRunCycle_WritesNothing is the property the shadow run rests on: until the engine
@@ -52,7 +52,7 @@ func TestRunCycle_WritesNothing(t *testing.T) {
 	mockDB.EXPECT().PostingsByOrdinals(gomock.Any(), "u1", gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 
-	runCycle(context.Background(), mockDB, nil, nil, nil)
+	runCycle(context.Background(), mockDB, nil, nil, nil, false)
 }
 
 // TestRunCycle_PartitionsEachUsersOwnData verifies a neighbourhood never crosses a
@@ -79,7 +79,7 @@ func TestRunCycle_PartitionsEachUsersOwnData(t *testing.T) {
 	mockDB.EXPECT().PostingsByOrdinals(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 
-	runCycle(context.Background(), mockDB, nil, nil, nil)
+	runCycle(context.Background(), mockDB, nil, nil, nil, false)
 
 	if !seen["u1"] || !seen["u2"] {
 		t.Fatalf("read for users %v, want both u1 and u2", seen)
@@ -95,7 +95,7 @@ func TestRunCycle_SurvivesAReadError(t *testing.T) {
 	mockDB.EXPECT().ListGroupingSeeds(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("read failed"))
 
-	runCycle(context.Background(), mockDB, nil, nil, nil)
+	runCycle(context.Background(), mockDB, nil, nil, nil, false)
 }
 
 // TestRunCycle_SurvivesOneUsersFailure verifies a neighbourhood that cannot be read
@@ -118,5 +118,5 @@ func TestRunCycle_SurvivesOneUsersFailure(t *testing.T) {
 	mockDB.EXPECT().PostingsByOrdinals(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 
-	runCycle(context.Background(), mockDB, nil, nil, nil)
+	runCycle(context.Background(), mockDB, nil, nil, nil, false)
 }

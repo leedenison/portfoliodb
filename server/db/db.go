@@ -1736,6 +1736,32 @@ type GroupingReader interface {
 	PostingsByOrdinals(ctx context.Context, userID string, qs []OrdinalQuery, held []string) ([]GroupingPosting, error)
 }
 
+// GroupChange is one group the engine drew that the stored partition does not have,
+// and what it concluded about each of its members.
+//
+// Only disagreements are carried. A group whose membership is already stored produces
+// no change at all, which is what keeps its id -- and the transfer matches keyed on
+// that id -- through a cycle that repartitioned nothing.
+type GroupChange struct {
+	Members []GroupMemberChange
+}
+
+// GroupMemberChange is one posting of a changed group.
+//
+// Moving separates the two things a regroup does to a posting. A member that is
+// moving joins the new group; one that is not is already where the engine wants it
+// and is only being retyped, because the resolved value is derived from the partition
+// and can change while the membership does not.
+type GroupMemberChange struct {
+	ID string
+	// FromGroupID is the group the posting is leaving, so its residuals can be
+	// routed again. Empty for a member that is not moving.
+	FromGroupID string
+	// Resolved is the stored spelling of what the claiming rule concluded.
+	Resolved string
+	Moving   bool
+}
+
 // GroupingDB is everything a grouping cycle reads.
 //
 // Reads only. The partition is computed in memory and written by a separate call, so
@@ -1746,6 +1772,11 @@ type GroupingDB interface {
 	// ListGroupingSeeds returns the transcribed postings a cycle starts from,
 	// ordered by id so a cycle is deterministic.
 	ListGroupingSeeds(ctx context.Context, opts GroupingSeedOpts) ([]GroupingPosting, error)
+	// ApplyGrouping writes the groups the engine drew that are not already stored,
+	// re-routing the residuals of every group it touched, and returns how many
+	// postings moved. All in one transaction: the deferred balance constraint is
+	// what lets a group be observed unbalanced between the move and the routing.
+	ApplyGrouping(ctx context.Context, userID string, changes []GroupChange) (int, error)
 }
 
 // GroupingPosting is one transcribed posting as the grouping engine reads it: the
@@ -1785,8 +1816,10 @@ type GroupingPosting struct {
 	// JobID is the ingestion job that wrote the posting, and is what a SCOPE_FILE
 	// correlation is comparable within.
 	JobID string
-	// GroupID is the partition as it stands. The engine reads it only to compare
-	// its own answer against it, never as evidence.
+	// GroupID is the partition as it stands, and Resolved what the last cycle
+	// concluded about this posting. The engine reads both only to tell its own
+	// answer from what is there, never as evidence.
 	GroupID      string
+	Resolved     string
 	Correlations []Correlation
 }

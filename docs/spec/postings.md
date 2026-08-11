@@ -14,26 +14,62 @@ A posting is a signed amount of one commodity in one account at one point in tim
 | Commodity | `instrument_id`               |
 | Amount    | `quantity` (signed)           |
 | Date      | `timestamp`                   |
-| Source id | `broker_ref`                  |
-| Other side| `counterparty_account`        |
+| Evidence  | `tx_correlations`             |
 
-The last two are what the source said about the row, kept rather than discarded.
-`broker_ref` is the source's own identifier for it -- a Fidelity `Reference Number`, an OFX
-`FITID` -- and `counterparty_account` is the account the source names as the other side,
-in the same broker. Both are set only on postings **transcribed from a source row**: a
-converter's derived counter-leg carries neither, and neither does a routed residual, so a
-value that is present always names something the source itself issued.
+### Correlations
 
-`broker_ref` is not a natural key and carries no uniqueness constraint. Ingestion is
+A **correlation** is a broker-neutral statement of why a posting might belong with
+another one: an identifier the source issued, what may be compared about it, and over
+what set of postings. A posting carries however many its source supplies, in
+`tx_correlations`. See adr/0048-correlations-declare-their-own-semantics.md.
+
+| Field          | What it says                                                     |
+| -------------- | ---------------------------------------------------------------- |
+| `label`        | which series this identifier belongs to, and so what it is comparable with |
+| `token`        | the identifier as the source wrote it                            |
+| `ordinal`      | the number the token carries, where the converter knew how to take one |
+| `scope`        | `FILE`, `ACCOUNT` or `BROKER` -- exactly one                     |
+| `matches`      | `EXACT`, `ORDINAL`, `ACCOUNT` -- at least one                    |
+| `ordinal_span` | how far apart two ordinals can be and still be about one event   |
+
+`scope` and `matches` are two halves of one statement and neither is usable without
+the other: `BROKER` means this user's data for this broker, and `ACCOUNT` is not
+redundant with `FILE`, because an OFX `FITID` is unique within the account while a
+Fidelity export spans accounts. `matches` is a set rather than a choice, because a
+Fidelity reference number is honestly both equality-comparable and ordinally
+comparable. `MATCH_ACCOUNT` is the asymmetric one: the token names *another posting's
+account* rather than a token that posting carries, which is what a source-supplied
+counterparty pointer says.
+
+`FILE` scope is stored as the ingestion job that supplied the correlation, since a
+file has no identity of its own once its postings are rows. An archive import is one
+job, so file-scoped evidence re-imported from an archive is comparable across
+everything that archive carried rather than within the uploads it was assembled from.
+
+A converter may only **transcribe**, never infer. A token may be synthesised from the
+source's own structure -- nesting, containment, an explicit order column -- and never
+from amounts, dates or proximity. Nothing distinguishes a transcribed token from an
+inferred one once stored, so this is the discipline the format rests on. Only a
+posting transcribed from a source row carries any: a derived counter-leg and a routed
+residual transcribe nothing and correlate with nothing, so a token that is present
+always names something the source itself issued.
+
+A token is not a natural key and carries no uniqueness constraint. Ingestion is
 idempotent by replacement (adr/0002-transaction-ingestion-model.md) and one source
-transaction can produce several postings sharing a reference. It is kept because a broker
-issues the two sides of one transfer adjacent references, which is what
-[matching](#transfers) reads.
+transaction can produce several postings sharing a reference.
 
-`counterparty_account` is advisory. A source can use the same field for something else --
-Fidelity puts the product account a service fee was charged for in it, which is attribution
-rather than a transfer counterparty -- so it is read as a pointer only for a group that
-produced a `TRANSFER_CLEARING` residual.
+A `MATCH_ACCOUNT` token is advisory rather than authoritative. A source can use the
+field it comes from for something else -- Fidelity puts the product account a service
+fee was charged for in the same field it names a transfer's source in, which is
+attribution rather than a transfer counterparty -- so it is read as a pointer only for
+a group that produced a `TRANSFER_CLEARING` residual.
+
+Nothing reads correlations to decide the transaction partition yet. They are carried
+and stored from here on because the server is becoming the thing that decides it
+(adr/0041-server-owns-transaction-grouping.md), and a rebuild from an archive would
+otherwise have nothing left to group on. [Transfer matching](#transfers) already reads
+them, which is a different question -- which two groups are the two halves of one
+movement, not which postings are legs of one event.
 
 Currencies are instruments, so a cash movement is an ordinary posting and needs no
 separate representation. Nothing in the read path distinguishes a cash posting from a
@@ -189,14 +225,20 @@ A group's postings are in different commodities, so a plain `SUM(quantity)` cann
 say whether it balances: a buy is `+10 AAPL` and `-1855 USD`. Balance is checked on
 **weight**. A posting converts to the settlement currency at its `unit_price` when
 the units its counter-leg is expected in differ from its own; otherwise it weighs
-its own quantity in its own commodity. `tx_type` says which:
+its own quantity in its own commodity. The declared type says which, under the
+every-candidate rule of [tx-types.md](tx-types.md):
 
-| tx_type                                                     | Other side expected in | Converts               |
-| ----------------------------------------------------------- | ---------------------- | ---------------------- |
-| `BUY*`, `SELL*`, `REINVEST`, `CLOSUREOPT`                    | money                  | yes                    |
-| `INCOME`, `INVEXPENSE`, `MARGININTEREST`, `RETOFCAP`, `CASHFLOW` | the same currency  | only across currencies |
-| `TRANSFER`, `JRNLFUND`                                       | the same commodity, another account | only across currencies |
-| `JRNLSEC`                                                    | the same security, another account  | no        |
+| broker_tx_type                       | Other side expected in | Converts               |
+| ------------------------------------ | ---------------------- | ---------------------- |
+| must be `TRADE_ASSET`                | money                  | yes                    |
+| money posting, any other type        | the same currency      | only across currencies |
+| security posting, any other type     | the same commodity     | no                     |
+
+An ambiguous set does not convert -- a rule fires only if it holds for every
+candidate -- and weight neutrality makes that harmless: a priced set whose
+members would weigh differently is rejected at ingest, so declared ambiguity
+never moves a weight (see
+adr/0046-declared-ambiguity-is-bounded-by-weight-neutrality.md).
 
 "Across currencies" means `trading_currency != settlement_currency` -- a EUR
 dividend settling into a USD account, where `unit_price` is the FX rate. Two guards
@@ -220,17 +262,19 @@ adr/0028-cumulative-split-factor-is-an-exact-rational.md).
 
 Weights accumulate **per commodity**, so a group can produce more than one routed
 posting and the commodity is whatever is left over -- cash for a missing cash leg,
-the security for an unpaired `JRNLSEC`.
+the security for an unpaired security transfer.
 
 Weights are exact: a posting's weight is `quantity * unit_price * contract_size`,
 which is closed under multiplication, so a group's balance is a plain sum with
 nothing to absorb. Every non-zero residual is routed, and only a group that sums to
 exactly zero produces no posting at all.
 
-The routed posting takes the `IMBALANCE` type, or `TRANSFER_CLEARING` when the
-group is a journal. It keeps the broker, account, date and `tx_type` of the group
-it balances, so the residual stays attributable to the account and the kind of
-event that produced it. Its commodity is carried by `instrument_id`, never encoded
+The routed posting takes the `IMBALANCE` type, or `TRANSFER_CLEARING` when any
+of the group's legs resolved under `TRANSFER`; a leg whose declared set nothing
+has narrowed resolves `AMBIGUOUS` and routes to `IMBALANCE`, because it is not a
+transfer under every reading. The posting keeps the broker, account, date,
+declared set and resolved type of the group it balances, so the residual stays
+attributable to the account and the kind of event that produced it. Its commodity is carried by `instrument_id`, never encoded
 in a name. It is written into the group it balances, and a replace that cuts that group
 deletes it along with the in-period postings: the remainder is routed fresh, so a group
 carries one residual per commodity however many replaces have reached it.
@@ -264,7 +308,7 @@ An INITIALIZE pad is balanced by an `EQUITY` counterparty instead; see
 
 ### Transfers
 
-The two sides of a journal (`TRANSFER`, `JRNLFUND`, `JRNLSEC`) are not paired at
+The two sides of a journal (a leg resolved under `TRANSFER`) are not paired at
 ingest. Brokers report them in separate statements and sometimes in separate imports,
 so each side is balanced by a `TRANSFER_CLEARING` counterparty in the same commodity,
 which holds the value in transit.
@@ -285,10 +329,18 @@ adr/0037-transfer-matches-are-links-not-postings.md.
 
 A pair is found on evidence that identifies the occurrence, in this order:
 
-1. **An explicit pointer** -- the source names the other account outright, in
-   `counterparty_account`.
-2. **Reference proximity** -- the two sides' `broker_ref` values are near, a broker
-   issuing the references of one movement together.
+1. **An explicit pointer** -- the source names the other account outright, in a
+   correlation declaring `MATCH_ACCOUNT`.
+2. **Reference proximity** -- the two sides carry correlations declaring
+   `MATCH_ORDINAL` whose ordinals are near, a broker issuing the references of one
+   movement together.
+
+Each pass reads the correlations of the whole group rather than of the clearing leg,
+which is routed and transcribes nothing. Which pass can read a given correlation is
+the correlation's own to say: an OFX `FITID` declares neither `MATCH_ORDINAL` nor
+`MATCH_ACCOUNT`, so both passes pass over it, which is right -- it is opaque and
+unique within one account. Whether an identifier carries a number is the converter's
+to say, since it is the only thing that knows its broker's numbering.
 
 Both additionally require an exactly equal and opposite amount in the same commodity,
 two different accounts of the same user, and a date window. The window exists because
@@ -365,7 +417,7 @@ adr/0041-server-owns-transaction-grouping.md).
 
 The broker-specific converter decides which postings are legs of one event; the
 server persists what it is given and never infers a missing leg, pairs rows, or folds
-a fee into a cash amount. Fees are expressed as postings with `type=INVEXPENSE`, not
+a fee into a cash amount. Fees are expressed as `EXPENSE`-family postings, not
 as a column on the upload. See adr/0021-converters-own-transaction-grouping.md.
 
 The decision to move grouping to the server, so that it can join legs a converter

@@ -11,7 +11,7 @@ syntax = "proto3";
 //
 // This package is the one part of proto/ that is not free to break. A value is
 // never renumbered and never removed, and a value name never changes, because
-// these names are the stored vocabulary -- txs.type holds "BUYSTOCK",
+// these names are the stored vocabulary -- txs.resolved_tx_type holds "TRADE_ASSET",
 // instrument_identifiers.identifier_type holds "ISIN" -- and they are what an
 // archive written years ago spells on disk. Adding a value is the only
 // backwards-compatible change, and even that makes a file naming it unreadable
@@ -19,8 +19,8 @@ syntax = "proto3";
 //
 // Value names are unprefixed wherever the enum name is not needed to
 // disambiguate, so that a name is the same in the proto, in the database and in
-// an archive file, with no prefix stripping in between. AccountType is the
-// exception and is documented at its declaration.
+// an archive file, with no prefix stripping in between. AccountType, Scope and
+// Match are the exceptions and are documented at their declarations.
 package portfoliodb.type.v1;
 
 option go_package = "github.com/leedenison/portfoliodb/proto/type/v1;typev1";
@@ -34,35 +34,44 @@ enum Broker {
   FIDELITY = 3;
 }
 
-// OFX-style transaction types for investments.
+// TxType classifies what kind of economic event a posting is a leg of. The
+// values form a tree: a leaf is the specificity the system acts on, an internal
+// node is what a less specific source says, and both are legal values. A source
+// declares a set of candidates (broker_tx_type) at whatever specificity it can
+// defend, and grouping resolves the set to the single value everything
+// downstream reads (resolved_tx_type). The type carries the event only:
+// direction is the sign of quantity, and asset class is a stated hint. The
+// parent map is written in server/txtype (Go) and client/lib/tx-type.ts (TS),
+// both checked against the same golden fixture.
+// See docs/adr/0044-tx-type-is-declared-and-resolved.md and
+// docs/adr/0045-tx-type-does-not-encode-asset-class.md.
 enum TxType {
   TX_TYPE_UNSPECIFIED = 0;
-  // Buys
-  BUYDEBT  = 1;
-  BUYMF    = 2;
-  BUYOPT   = 3;
-  BUYOTHER = 4;
-  BUYSTOCK = 5;
-  // Sells
-  SELLDEBT  = 6;
-  SELLMF    = 7;
-  SELLOPT   = 8;
-  SELLOTHER = 9;
-  SELLSTOCK = 10;
-  // Other
-  INCOME         = 11;
-  INVEXPENSE     = 12;
-  REINVEST       = 13;
-  RETOFCAP       = 14;
-  SPLIT          = 15;
-  TRANSFER       = 16;
-  JRNLFUND       = 17;
-  JRNLSEC        = 18;
-  MARGININTEREST = 19;
-  CLOSUREOPT     = 20;
-  CASHFLOW       = 21;
-  BUYFUTURE      = 22;
-  SELLFUTURE     = 23;
+  // A commodity exchanged for consideration at a price.
+  TRADE       = 1;
+  TRADE_ASSET = 2;  // The acquired or disposed leg; weight converts at unit_price.
+  TRADE_CASH  = 3;  // The consideration leg; weight is its own amount.
+  // Value accruing without a disposal.
+  INCOME            = 4;
+  DIVIDEND          = 5;  // Distribution from an equity holding.
+  INTEREST          = 6;  // Interest received.
+  RETURN_OF_CAPITAL = 7;  // Return of principal, not earnings.
+  // A cost borne by the holder. The leaves are cut by how the cost is treated,
+  // not by what the broker calls the fee.
+  EXPENSE          = 8;
+  TRANSACTION_COST = 9;   // Commission, levy, stamp duty, FX charge; belongs in cost basis.
+  HOLDING_COST     = 10;  // Custody, platform and account fees; not basis.
+  FINANCING_COST   = 11;  // Margin interest; not basis.
+  // A commodity moving without a change in what is held.
+  TRANSFER          = 12;
+  TRANSFER_INTERNAL = 13;  // The other side is another account of this user.
+  TRANSFER_EXTERNAL = 14;  // The other side is outside the user's holdings.
+  // The root of the tree, and the value resolved_tx_type takes when nothing
+  // narrows a cross-branch set. Distinct from TX_TYPE_UNSPECIFIED ("the field
+  // was not set") and never legal in broker_tx_type, where a cross-branch set
+  // is the honest way to say "one of these". Named AMBIGUOUS rather than
+  // UNKNOWN because AssetClass already claims UNKNOWN in package scope.
+  AMBIGUOUS = 15;
 }
 
 // AccountType classifies the account a posting lands in, so that the non-asset side
@@ -80,6 +89,54 @@ enum AccountType {
   ACCOUNT_TYPE_IMBALANCE = 5;         // The residual of a group that does not sum to zero.
   ACCOUNT_TYPE_TRANSFER_CLEARING = 6; // One side of a transfer whose other side is not yet known.
   ACCOUNT_TYPE_SOURCE_ROUNDING = 7;   // A residual small enough to be the source rounding, not missing data.
+}
+
+// Scope is the set of postings a correlation's identifier is comparable over.
+// Exactly one is stated. See
+// docs/adr/0048-correlations-declare-their-own-semantics.md.
+//
+// SCOPE_ACCOUNT is not redundant with SCOPE_FILE: an OFX FITID is unique within
+// the account rather than within the institution, and a Fidelity export spans
+// accounts, so reading an account-scoped token file-wide would produce false
+// positives silently.
+//
+// Values are prefixed because Scope and Match both need an ACCOUNT and proto
+// enum values share package scope. The column stores the bare name, as it does
+// for AccountType.
+enum Scope {
+  SCOPE_UNSPECIFIED = 0;
+  // The one upload the correlation arrived in, stored as the ingestion job that
+  // supplied it: a file has no identity of its own once its postings are rows.
+  // An archive import is one job, so file-scoped evidence re-imported from an
+  // archive is comparable across everything that archive carried.
+  SCOPE_FILE = 1;
+  // The broker account the posting names.
+  SCOPE_ACCOUNT = 2;
+  // This user's data for this broker. A Fidelity reference means nothing across
+  // users, and an account label means nothing outside the broker that issued it.
+  SCOPE_BROKER = 3;
+}
+
+// Match is what may be done with a correlation's identifier once two postings
+// hold one. A correlation states at least one, because an identifier can be
+// honestly comparable more than one way: a Fidelity reference number is both
+// equality-comparable and ordinally comparable, and declaring only one of those
+// would understate what the source supplies.
+enum Match {
+  MATCH_UNSPECIFIED = 0;
+  // The tokens are equal. Two postings sharing a token under one label are
+  // saying the same thing about themselves.
+  MATCH_EXACT = 1;
+  // The ordinals are near. This means "the ordinal field is populated and
+  // comparable", never "parse the token as a number": an IBKR FITID reads
+  // 20251015U10000018371888432, which is not an integer but plainly carries
+  // one, and only the converter knows how to take it.
+  MATCH_ORDINAL = 2;
+  // The token names another posting's account rather than a token that posting
+  // carries, so it is compared against the account and never against another
+  // token. This is what a source-supplied counterparty pointer says, and it is
+  // asymmetric: only one side of a transfer usually names the other.
+  MATCH_ACCOUNT = 3;
 }
 
 // IdentifierType is the controlled vocabulary for instrument identifier types.

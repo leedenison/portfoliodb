@@ -45,7 +45,7 @@ func (s *Server) ListResidualBalances(ctx context.Context, req *apiv1.ListResidu
 			InstrumentId:    b.InstrumentID,
 			Commodity:       b.Commodity,
 			AssetClass:      db.StrToAssetClass(b.AssetClass),
-			TxType:          b.TxType,
+			ResolvedTxType:  b.ResolvedTxType,
 			Balance:         decStr(b.Balance),
 			PostingCount:    b.PostingCount,
 			OldestTimestamp: timePtrToTs(b.Oldest),
@@ -117,4 +117,28 @@ func (s *Server) TriggerTransferMatch(ctx context.Context, req *apiv1.TriggerTra
 		}
 	}
 	return &apiv1.TriggerTransferMatchResponse{}, nil
+}
+
+// TriggerGrouping signals the grouping engine to run a cycle. Admin only. Returns
+// immediately; the pass runs asynchronously.
+//
+// The same shape as TriggerTransferMatch and for the same reasons: an external cron
+// job or CLI calls this, the ingestion worker fires the same channel after a tx
+// import, and the channel is buffered to one so a burst of either collapses into a
+// single pass.
+//
+// A cycle currently derives the partition and reports how it differs from the one
+// stored, without writing. So calling it is cheap in the strongest sense -- there is
+// nothing it can leave behind.
+func (s *Server) TriggerGrouping(ctx context.Context, req *apiv1.TriggerGroupingRequest) (*apiv1.TriggerGroupingResponse, error) {
+	if _, authErr := auth.RequireAdmin(ctx); authErr != nil {
+		return nil, authErr
+	}
+	if s.groupingTrigger != nil {
+		select {
+		case s.groupingTrigger <- struct{}{}:
+		default:
+		}
+	}
+	return &apiv1.TriggerGroupingResponse{}, nil
 }

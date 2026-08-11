@@ -48,7 +48,7 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "UNKNOWN", Type: typev1.TxType_BUYSTOCK, Quantity: "1", Account: ""},
+		{Timestamp: from, InstrumentDescription: "UNKNOWN", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -124,8 +124,8 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: timestamppb.New(from.AsTime().Add(-1)), InstrumentDescription: "CACHED", Type: typev1.TxType_BUYSTOCK, Quantity: "1", Account: ""},
-		{Timestamp: timestamppb.New(from.AsTime().Add(1)), InstrumentDescription: "CACHED", Type: typev1.TxType_BUYSTOCK, Quantity: "2", Account: ""},
+		{Timestamp: timestamppb.New(from.AsTime().Add(-1)), InstrumentDescription: "CACHED", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", Account: ""},
+		{Timestamp: timestamppb.New(from.AsTime().Add(1)), InstrumentDescription: "CACHED", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "2", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -176,7 +176,7 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
 }
 
-func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
+func TestProcessBulk_DropsIgnoredTxs(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -188,8 +188,10 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "AAPL", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "", GroupRef: proto.String("ref-1")},
-		{Timestamp: from, InstrumentDescription: "SPLIT", Type: typev1.TxType_SPLIT, Quantity: "1", Account: "", GroupRef: proto.String("ref-1")},
+		{Timestamp: from, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10", Account: "", GroupRef: proto.String("ref-1")},
+		// The ignore rules match the stated asset class, so the cash journal
+		// carries the CASH claim the broker's file made.
+		{Timestamp: from, InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "1", Account: "", GroupRef: proto.String("ref-1")},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -200,14 +202,21 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 			Postings:     postings,
 		},
 	})
-	j := &JobRequest{JobID: "job-split", JobType: "tx"}
+	j := &JobRequest{JobID: "job-ignored", JobType: "tx"}
 
 	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-split", apiv1.JobStatus_RUNNING).
+		SetJobStatus(gomock.Any(), "job-ignored", apiv1.JobStatus_RUNNING).
 		Return(nil)
-	expectLoadPayload(database, "job-split", "user-1", payload)
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ignored").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ignored").Return(nil)
+	database.EXPECT().GetJob(gomock.Any(), "job-ignored").Return(
+		&db.JobDetail{Status: apiv1.JobStatus_RUNNING, UserID: "user-1"}, nil,
+	)
+	database.EXPECT().ListIgnoredAssetClasses(gomock.Any(), "user-1").Return(
+		[]db.IgnoredAssetClass{{Broker: "IBKR", AssetClass: "CASH"}}, nil,
+	)
 	database.EXPECT().
-		SetJobTotalCount(gomock.Any(), "job-split", int32(1)).
+		SetJobTotalCount(gomock.Any(), "job-ignored", int32(1)).
 		Return(nil)
 	database.EXPECT().
 		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "AAPL").
@@ -216,20 +225,20 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		EnsureInstrument(gomock.Any(), "", "", "", "AAPL", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
 		Return("aapl-id", nil)
 	database.EXPECT().
-		IncrJobProcessedCount(gomock.Any(), "job-split").
+		IncrJobProcessedCount(gomock.Any(), "job-ignored").
 		Return(nil)
 	database.EXPECT().
-		AppendIdentificationErrors(gomock.Any(), "job-split", gomock.Any()).
+		AppendIdentificationErrors(gomock.Any(), "job-ignored", gomock.Any()).
 		Return(nil)
 	database.EXPECT().
 		ListInstrumentsByIDs(gomock.Any(), []string{"aapl-id"}).
 		Return([]*db.InstrumentRow{{ID: "aapl-id"}}, nil)
 	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-split", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-ignored", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _, _, _ string, _, _ *timestamppb.Timestamp, storedTxs []*apiv1.Tx, ids []string, ws []db.Weight, _ []*time.Time) error {
 			supplied := userPostings(storedTxs)
-			if len(supplied) != 1 || supplied[0].InstrumentDescription != "AAPL" || supplied[0].Type != typev1.TxType_BUYSTOCK {
-				t.Errorf("ReplaceTxsInPeriod called with %d supplied txs, expected 1 (AAPL BUYSTOCK)", len(supplied))
+			if len(supplied) != 1 || supplied[0].InstrumentDescription != "AAPL" || supplied[0].GetResolvedTxType() != typev1.TxType_TRADE_ASSET {
+				t.Errorf("ReplaceTxsInPeriod called with %d supplied txs, expected 1 (AAPL TRADE_ASSET)", len(supplied))
 			}
 			// Dropping a leg must not lose the surviving legs' grouping.
 			if got := supplied[0].GetGroupRef(); got != "ref-1" {
@@ -253,7 +262,7 @@ func TestProcessBulk_DropsTxTypeSplitTransactions(t *testing.T) {
 		ListHoldingDeclarations(gomock.Any(), "user-1").
 		Return(nil, nil)
 	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-split", apiv1.JobStatus_SUCCESS).
+		SetJobStatus(gomock.Any(), "job-ignored", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
@@ -275,12 +284,12 @@ func userPostings(txs []*apiv1.Tx) []*apiv1.Tx {
 // strPtr returns a pointer to s, for use in InstrumentRow.AssetClass.
 func strPtr(s string) *string { return &s }
 
-// TestProcessBulk_BuystockIncomeSameDescriptionFails verifies that when a
-// BUYSTOCK and an INCOME tx share the same (source, description) and the
-// resolved instrument has asset class STOCK, the INCOME row is flagged as a
-// contradiction (implied CASH vs resolved STOCK), the whole batch is failed,
+// TestProcessBulk_StatedCashOnStockInstrumentFails verifies that when a stock
+// buy and an income tx share the same (source, description) and the resolved
+// instrument has asset class STOCK, the income row is flagged as a
+// contradiction (stated CASH vs resolved STOCK), the whole batch is failed,
 // and no transactions are persisted.
-func TestProcessBulk_BuystockIncomeSameDescriptionFails(t *testing.T) {
+func TestProcessBulk_StatedCashOnStockInstrumentFails(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -292,8 +301,8 @@ func TestProcessBulk_BuystockIncomeSameDescriptionFails(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "MICROSOFT INC", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
-		{Timestamp: from, InstrumentDescription: "MICROSOFT INC", Type: typev1.TxType_INCOME, Quantity: "0", Account: ""},
+		{Timestamp: from, InstrumentDescription: "MICROSOFT INC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, AssetClassHint: typev1.AssetClass_STOCK, Quantity: "10", Account: ""},
+		{Timestamp: from, InstrumentDescription: "MICROSOFT INC", BrokerTxType: []typev1.TxType{typev1.TxType_INCOME}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "0", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -335,10 +344,10 @@ func TestProcessBulk_BuystockIncomeSameDescriptionFails(t *testing.T) {
 				return nil
 			}
 			if errs[0].RowIndex != 1 {
-				t.Errorf("validation error row index = %d, want 1 (INCOME row)", errs[0].RowIndex)
+				t.Errorf("validation error row index = %d, want 1 (income row)", errs[0].RowIndex)
 			}
-			if errs[0].Field != "type" {
-				t.Errorf("validation error field = %q, want %q", errs[0].Field, "type")
+			if errs[0].Field != "asset_class_hint" {
+				t.Errorf("validation error field = %q, want %q", errs[0].Field, "asset_class_hint")
 			}
 			return nil
 		})
@@ -349,8 +358,8 @@ func TestProcessBulk_BuystockIncomeSameDescriptionFails(t *testing.T) {
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
 }
 
-// TestProcessBulk_StockEtfEquivalence verifies that BUYSTOCK resolved to an
-// ETF instrument is accepted as compatible (broker-level equivalence).
+// TestProcessBulk_StockEtfEquivalence verifies that a stated STOCK resolved to
+// an ETF instrument is accepted as compatible (broker-level equivalence).
 func TestProcessBulk_StockEtfEquivalence(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -363,7 +372,7 @@ func TestProcessBulk_StockEtfEquivalence(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "SPY", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
+		{Timestamp: from, InstrumentDescription: "SPY", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, AssetClassHint: typev1.AssetClass_STOCK, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -411,7 +420,7 @@ func TestProcessBulk_StockEtfEquivalence(t *testing.T) {
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
 }
 
-// TestProcessBulk_StockMutualFundNotEquivalent verifies that BUYSTOCK
+// TestProcessBulk_StockMutualFundNotEquivalent verifies that a stated STOCK
 // resolved to a MUTUAL_FUND instrument is rejected (no transitive
 // equivalence through ETF).
 func TestProcessBulk_StockMutualFundNotEquivalent(t *testing.T) {
@@ -426,7 +435,7 @@ func TestProcessBulk_StockMutualFundNotEquivalent(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "VFIAX", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: ""},
+		{Timestamp: from, InstrumentDescription: "VFIAX", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, AssetClassHint: typev1.AssetClass_STOCK, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -473,8 +482,9 @@ func TestProcessBulk_StockMutualFundNotEquivalent(t *testing.T) {
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
 }
 
-// TestProcessBulk_TransferToCashRejected verifies that an UNKNOWN-implied tx
-// (TRANSFER) resolved to a CASH instrument is rejected.
+// TestProcessBulk_TransferToCashRejected verifies that a transfer stating
+// UNKNOWN -- a security of unstated class -- resolved to a CASH instrument is
+// rejected.
 func TestProcessBulk_TransferToCashRejected(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -487,7 +497,7 @@ func TestProcessBulk_TransferToCashRejected(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "USD CASH", Type: typev1.TxType_TRANSFER, Quantity: "10", Account: ""},
+		{Timestamp: from, InstrumentDescription: "USD CASH", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_UNKNOWN, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -529,8 +539,8 @@ func TestProcessBulk_TransferToCashRejected(t *testing.T) {
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
 }
 
-// TestProcessBulk_TransferToStockAllowed verifies that an UNKNOWN-implied tx
-// (TRANSFER) resolved to a STOCK instrument is accepted.
+// TestProcessBulk_TransferToStockAllowed verifies that a transfer stating
+// UNKNOWN resolved to a STOCK instrument is accepted.
 func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -543,7 +553,7 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "MSFT", Type: typev1.TxType_TRANSFER, Quantity: "10", Account: ""},
+		{Timestamp: from, InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_UNKNOWN, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -591,7 +601,7 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
 }
 
-func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
+func TestProcessSingle_DropsIgnoredTx(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -604,20 +614,27 @@ func TestProcessSingle_DropsTxTypeSplitTransaction(t *testing.T) {
 		Window: &archivev1.TxWindow{
 			Broker:   typev1.Broker_IBKR,
 			Source:   "IBKR:test:statement",
-			Postings: []*archivev1.Posting{{Timestamp: timestamppb.Now(), InstrumentDescription: "SPLIT", Type: typev1.TxType_SPLIT, Quantity: "1", Account: ""}},
+			Postings: []*archivev1.Posting{{Timestamp: timestamppb.Now(), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "1", Account: ""}},
 		},
 	})
-	j := &JobRequest{JobID: "job-single-split", JobType: "tx"}
+	j := &JobRequest{JobID: "job-single-ignored", JobType: "tx"}
 
 	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-single-split", apiv1.JobStatus_RUNNING).
+		SetJobStatus(gomock.Any(), "job-single-ignored", apiv1.JobStatus_RUNNING).
 		Return(nil)
-	expectLoadPayload(database, "job-single-split", "user-1", payload)
+	database.EXPECT().LoadJobPayload(gomock.Any(), "job-single-ignored").Return(payload, nil)
+	database.EXPECT().ClearJobPayload(gomock.Any(), "job-single-ignored").Return(nil)
+	database.EXPECT().GetJob(gomock.Any(), "job-single-ignored").Return(
+		&db.JobDetail{Status: apiv1.JobStatus_RUNNING, UserID: "user-1"}, nil,
+	)
+	database.EXPECT().ListIgnoredAssetClasses(gomock.Any(), "user-1").Return(
+		[]db.IgnoredAssetClass{{Broker: "IBKR", AssetClass: "CASH"}}, nil,
+	)
 	database.EXPECT().
 		ListHoldingDeclarations(gomock.Any(), "user-1").
 		Return(nil, nil)
 	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-single-split", apiv1.JobStatus_SUCCESS).
+		SetJobStatus(gomock.Any(), "job-single-ignored", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)

@@ -16,7 +16,7 @@ import (
 // initTx builds a pad denominated in the share count current on its own date, which
 // is what the tests that are not about denomination want.
 func initTx(at time.Time, qty float64) db.InitializeTx {
-	return db.InitializeTx{TxType: "BUYSTOCK", Timestamp: at, Quantity: decf(qty), ShareCountBasis: at}
+	return db.InitializeTx{Timestamp: at, Quantity: decf(qty), ShareCountBasis: at}
 }
 
 // addSplit records a stock split. Splits are written by the corporate event path in
@@ -229,7 +229,7 @@ func TestGetPortfolioStartDate(t *testing.T) {
 	// Add a tx
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "SD1", Canonical: false}}, "", nil, nil, nil)
 	ts := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
-	tx := &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "SD1", Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "acct1"}
+	tx := &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "SD1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "acct1"}
 	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", tx, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -254,10 +254,10 @@ func TestComputeRunningBalance(t *testing.T) {
 
 	ts1 := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
 	ts2 := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
-	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts1), InstrumentDescription: "RB1", Type: typev1.TxType_BUYSTOCK, Quantity: "100", Account: "acct1"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts1), InstrumentDescription: "RB1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "100", Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create buy: %v", err)
 	}
-	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts2), InstrumentDescription: "RB1", Type: typev1.TxType_SELLSTOCK, Quantity: "-30", Account: "acct1"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts2), InstrumentDescription: "RB1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-30", Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create sell: %v", err)
 	}
 
@@ -291,6 +291,21 @@ func TestUpsertAndDeleteInitializeTx(t *testing.T) {
 		typev1.AccountType_ACCOUNT_TYPE_EQUITY: "-50",
 	}) {
 		t.Fatalf("INITIALIZE legs after create: got %v", got)
+	}
+
+	// The pad's type is not caller data: value entering from outside the user's
+	// holdings is TRANSFER_EXTERNAL by definition, and the upsert writes that
+	// constant on every leg.
+	var mistyped int
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*) FROM txs
+		WHERE user_id = $1 AND synthetic_purpose = 'INITIALIZE'
+		  AND (broker_tx_type <> ARRAY['TRANSFER_EXTERNAL'] OR resolved_tx_type <> 'TRANSFER_EXTERNAL')
+	`, userID).Scan(&mistyped); err != nil {
+		t.Fatalf("read pad tx types: %v", err)
+	}
+	if mistyped != 0 {
+		t.Errorf("INITIALIZE legs not typed TRANSFER_EXTERNAL: %d", mistyped)
 	}
 
 	// Upsert again with different qty (should update, not duplicate). Both legs
@@ -466,10 +481,10 @@ func TestComputeRunningBalance_excludesNonUser(t *testing.T) {
 	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "RB2", Canonical: false}}, "", nil, nil, nil)
 
 	ts := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
-	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "RB2", Type: typev1.TxType_BUYSTOCK, Quantity: "100", Account: "acct1"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "RB2", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "100", Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create buy: %v", err)
 	}
-	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "RB2", Type: typev1.TxType_BUYSTOCK, Quantity: "-100", Account: "acct1", AccountType: typev1.AccountType_ACCOUNT_TYPE_EQUITY}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "RB2", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-100", Account: "acct1", AccountType: typev1.AccountType_ACCOUNT_TYPE_EQUITY}, instID, nil); err != nil {
 		t.Fatalf("create equity leg: %v", err)
 	}
 
@@ -541,10 +556,10 @@ func TestComputeRunningBalance_ConvertsToDeclarationBasis(t *testing.T) {
 
 	// 50 shares bought before the split, and 50 more after -- 100 post-split shares
 	// for the first buy, plus 50, is 150 in post-split terms and 75 in pre-split.
-	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(preSplit), InstrumentDescription: "BC1", Type: typev1.TxType_BUYSTOCK, Quantity: "50", Account: "acct1"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(preSplit), InstrumentDescription: "BC1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "50", Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create pre-split buy: %v", err)
 	}
-	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(postSplit), InstrumentDescription: "BC1", Type: typev1.TxType_BUYSTOCK, Quantity: "50", Account: "acct1"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(postSplit), InstrumentDescription: "BC1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "50", Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create post-split buy: %v", err)
 	}
 
@@ -587,11 +602,11 @@ func TestListHoldingDeclarations_ChecksAgainstTheHolding(t *testing.T) {
 
 	// A pad of 500 at the start, one real buy of 150, and an assertion of 650.
 	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, db.InitializeTx{
-		TxType: "BUYSTOCK", Timestamp: padDate, Quantity: decf(500), ShareCountBasis: padDate,
+		Timestamp: padDate, Quantity: decf(500), ShareCountBasis: padDate,
 	}); err != nil {
 		t.Fatalf("upsert pad: %v", err)
 	}
-	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(buyAt), InstrumentDescription: "VF1", Type: typev1.TxType_BUYSTOCK, Quantity: "150", Account: "acct1"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(buyAt), InstrumentDescription: "VF1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "150", Account: "acct1"}, instID, nil); err != nil {
 		t.Fatalf("create buy: %v", err)
 	}
 	if _, err := p.CreateHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "500", padDate, time.Time{}); err != nil {
@@ -653,7 +668,7 @@ func TestListHoldingDeclarations_ChecksAcrossASplit(t *testing.T) {
 	addSplit(t, p, instID, exDate, 1, 2)
 
 	for _, at := range []time.Time{preSplit, postSplit} {
-		if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "VS1", Type: typev1.TxType_BUYSTOCK, Quantity: "50", Account: "acct1"}, instID, nil); err != nil {
+		if err := createTx(ctx, p, userID, "IBKR", "acct1", "", &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "VS1", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "50", Account: "acct1"}, instID, nil); err != nil {
 			t.Fatalf("create buy at %s: %v", at.Format("2006-01-02"), err)
 		}
 	}
@@ -748,7 +763,7 @@ func TestUpsertInitializeTx_DenominatesThePad(t *testing.T) {
 	startDay := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	basis := time.Date(2025, 8, 5, 0, 0, 0, 0, time.UTC)
 	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, db.InitializeTx{
-		TxType: "BUYSTOCK", Timestamp: startDay, Quantity: decf(50), ShareCountBasis: basis,
+		Timestamp: startDay, Quantity: decf(50), ShareCountBasis: basis,
 	}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -773,7 +788,7 @@ func TestUpsertInitializeTx_DenominatesThePad(t *testing.T) {
 	// the declaration's and must not follow.
 	moved := startDay.AddDate(0, 0, -30)
 	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, db.InitializeTx{
-		TxType: "BUYSTOCK", Timestamp: moved, Quantity: decf(75), ShareCountBasis: basis,
+		Timestamp: moved, Quantity: decf(75), ShareCountBasis: basis,
 	}); err != nil {
 		t.Fatalf("re-upsert: %v", err)
 	}

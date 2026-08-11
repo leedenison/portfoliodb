@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { convertIbkrOfx } from "./ibkr-ofx";
-import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
+import { AccountType, AssetClass, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
+import { mustBe } from "@/lib/tx-type";
 import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 
 /**
@@ -60,7 +61,7 @@ describe("convertIbkrOfx", () => {
     const result = convertIbkrOfx(buildOfx(OPT_BUY, OPT_SEC_LIST));
     expect(result.errors).toEqual([]);
 
-    const security = result.postings.find((t) => t.type === TxType.BUYOPT)!;
+    const security = result.postings.find((t) => t.assetClassHint === AssetClass.OPTION)!;
     expect(security.identifierHints).toHaveLength(1);
     expect(security.identifierHints[0]!.type).toBe(IdentifierType.OCC);
     expect(security.identifierHints[0]!.value).toBe("P RHM  20250919 560 M");
@@ -76,10 +77,10 @@ describe("convertIbkrOfx", () => {
   it("splits the commission out of the option's netted total", () => {
     const result = convertIbkrOfx(buildOfx(OPT_BUY, OPT_SEC_LIST));
 
-    const cash = result.postings.find((t) => t.type === TxType.CASHFLOW)!;
+    const cash = result.postings.find((t) => mustBe(t.brokerTxType, TxType.TRADE_CASH))!;
     expect(cash.quantity).toBe("-16088.4468");
 
-    const fees = result.postings.filter((t) => t.type === TxType.INVEXPENSE);
+    const fees = result.postings.filter((t) => mustBe(t.brokerTxType, TxType.EXPENSE));
     expect(fees).toHaveLength(2);
     expect(fees.find((t) => t.accountType === AccountType.USER)!.quantity).toBe("-7.420248");
     expect(fees.find((t) => t.accountType === AccountType.EXPENSE)!.quantity).toBe("7.420248");
@@ -87,7 +88,7 @@ describe("convertIbkrOfx", () => {
 
   it("leaves an option with no SECLIST entry unhinted rather than guessing", () => {
     const security = convertIbkrOfx(buildOfx(OPT_BUY, "")).postings.find(
-      (t) => t.type === TxType.BUYOPT,
+      (t) => t.assetClassHint === AssetClass.OPTION,
     )!;
     expect(security.identifierHints).toHaveLength(0);
   });

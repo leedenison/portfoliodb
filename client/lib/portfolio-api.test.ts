@@ -279,7 +279,7 @@ describe("portfolio-api", () => {
                 instrumentId: "inst-1",
                 commodity: "USD",
                 assetClass: AssetClass.CASH,
-                txType: TxType.INCOME,
+                resolvedTxType: TxType.INCOME,
                 balance: "-1234.56",
                 postingCount: 7,
                 oldestTimestamp: timestampFromDate(oldest),
@@ -298,7 +298,7 @@ describe("portfolio-api", () => {
         account: "X123",
         commodity: "USD",
         assetClass: AssetClass.CASH,
-        txType: TxType.INCOME,
+        resolvedTxType: TxType.INCOME,
         balance: "-1234.56",
         postingCount: 7,
       });

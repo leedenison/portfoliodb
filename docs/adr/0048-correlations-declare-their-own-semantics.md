@@ -104,6 +104,54 @@ constant would be wrong for every broker but one.
 `counterparty_account` is a pointer of the same kind. Whether they fold into
 `Correlation` or stay alongside it is settled when the field lands.
 
+## Amendments
+
+**`broker_ref` and `counterparty_account` fold in.** Settled as the field lands, in
+[0096](../issues/0096-correlation-evidence-in-the-standard-format.md). Every
+`broker_ref` was exactly a correlation token, on exactly the postings a correlation
+goes on, so keeping both would have put the same string on the wire twice and left two
+places to improve. `counterparty_account` folded too.
+
+Transfer matching is what read them, and reading correlations instead moved the one
+piece of broker knowledge it held back to the converter: it parsed each reference with
+`strconv.ParseInt` to get a proximity signal, which is the inference this ADR reserves
+for the converter, and an opaque identifier merely happened to fail the parse. Now the
+correlation says whether it has an ordinal, and a source with no numbering declares
+none rather than being discovered to have none.
+
+**`Match` gains `MATCH_ACCOUNT`.** A counterparty pointer is comparable, but
+asymmetrically: the token names *another posting's account* rather than a token that
+posting carries, so `MATCH_EXACT` on it would never fire -- each side's token names
+the other's account, and the two are never equal. `MATCH_ACCOUNT` states that
+reading, which is what transfer matching's pointer pass already does. It is a third
+operator rather than a second mechanism, so the pointer keeps being evidence the
+engine weighs rather than a special case beside it.
+
+**`SCOPE_FILE` resolves to the ingesting job.** A file has no identity of its own
+once its postings are rows, so a stored correlation records the job that supplied it
+and file-scoped evidence is comparable only within that job. The consequence is worth
+stating: an archive import is one job, so evidence re-imported from an archive is
+comparable across everything the archive carried rather than within the uploads it
+was assembled from. That widens `SCOPE_FILE` on a round trip, and the alternative --
+the archive carrying a per-file identity so an import could reconstruct the original
+boundaries -- would make the archive preserve which upload a posting arrived in,
+which nothing else about a posting does.
+
+**`Scope` gains `SCOPE_USER`, and the asserter may be a person.** A hand-made
+grouping is recorded as a correlation on its member postings, with a synthesised
+token and `MATCH_EXACT`, so that the engine consumes a person's judgement and a
+source's stated grouping through one mechanism. None of the existing scopes fits:
+`FILE` binds to an ingestion job, and `ACCOUNT` and `BROKER` are both narrower
+than a grouping someone made precisely because the legs sat in different accounts
+or arrived from different brokers.
+
+The transcription contract above is unaffected. It binds converters, which must
+not manufacture evidence their source did not supply, and says nothing about a
+person deliberately supplying some. What it protects is the ability to tell
+inference from transcription on the wire, and a user assertion is neither -- it
+says so in its scope. See
+[0049](0049-a-human-assertion-is-a-correlation.md).
+
 ## Considered: a field per broker
 
 Carrying each source's grouping fields verbatim was rejected in 0042 and stays

@@ -67,29 +67,40 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 -- replace-by-period (user_id, broker, period); single-tx ingestion is append-only.
 -- See docs/adr/0002-transaction-ingestion-model.md.
 --
--- What moved: instrument_description, instrument_id, tx_type.
+-- What moved: instrument_description, instrument_id, broker_tx_type,
+-- resolved_tx_type, asset_class_hint.
 -- instrument_id is added by an ALTER further down, because instruments is created after
 -- this table and the foreign key needs it to exist. The column itself is declared here,
 -- where it belongs.
+-- broker_tx_type is the set of candidate event types the source declared, at
+-- whatever specificity it managed; resolved_tx_type is the single value grouping
+-- narrowed it to, and is what every consumer reads. Declared and derived are
+-- separate columns because an archive carries only the declaration and an import
+-- re-derives the resolution. Values are the TxType names from
+-- proto/type/v1/type.proto; AMBIGUOUS is legal only resolved, never declared.
+-- The antichain and weight-neutrality constraints on the declared set are
+-- server-enforced. See docs/adr/0044-tx-type-is-declared-and-resolved.md and
+-- docs/adr/0046-declared-ambiguity-is-bounded-by-weight-neutrality.md.
+-- asset_class_hint is the class the source stated for routing, NULL when it made
+-- no claim; the canonical class lives on the instrument.
 --
 -- The amounts as the source wrote them: quantity, unit_price, trading_currency,
--- settlement_currency. Transcribed and exact; see Numeric types below.
+-- settlement_currency, settlement_amount. Transcribed and exact; see Numeric types
+-- below.
+-- settlement_amount is the cash total the source stated for the row, in
+-- settlement_currency and unsigned. It is transcribed rather than worked out from
+-- other columns, which is what makes it independent of quantity * unit_price and so
+-- what lets grouping identify a cash leg on one figure and check the identification
+-- against the other. NULL on a posting whose own quantity is already money, since
+-- carrying the same total twice would leave two figures to disagree. It contributes
+-- nothing to weight: a TRADE_ASSET leg still weighs at quantity * unit_price, so the
+-- gap between the two figures stays visible as the group's SOURCE_ROUNDING residual.
+-- See docs/adr/0024-group-balance-is-checked-on-weight.md.
 --
--- What the source called this row: broker_ref, counterparty_account.
--- broker_ref is the source's own identifier for the row a posting was transcribed from:
--- Fidelity's Reference Number, OFX's FITID. counterparty_account is the account the
--- source named as the other side, in the same broker. Both are set only on postings
--- transcribed from a source row -- never on a converter's derived counter-leg and never
--- on a routed residual -- so a non-null value always names something the source itself
--- issued.
--- broker_ref is not a natural key and carries no uniqueness constraint: ingestion
--- idempotency is by replacement, and one source transaction can produce several
--- postings that share a reference. Transfer matching reads it as a proximity signal,
--- because a broker issues the two sides of one transfer adjacent references.
--- counterparty_account is advisory rather than authoritative. A source can reuse the
--- same field for something else -- Fidelity puts the product account a service fee was
--- charged for in it, which is attribution and not a transfer counterparty -- so it is
--- read as a pointer only for a group that produced a TRANSFER_CLEARING residual.
+-- What the source called this row lives in tx_correlations below, not in columns
+-- here: a reference number and a counterparty pointer are two series of the same
+-- kind of thing, and a column per series would grow the posting one nullable field
+-- per broker.
 --
 -- What kind of leg it is: account_type, synthetic_purpose.
 -- account_type classifies the account this row lands in. USER is an ordinary broker
@@ -151,15 +162,29 @@ CREATE TABLE txs (
 
   instrument_description    TEXT NOT NULL,
   instrument_id             UUID,
-  tx_type                   TEXT NOT NULL,
+  broker_tx_type            TEXT[] NOT NULL
+                              CHECK (cardinality(broker_tx_type) > 0
+                                     AND broker_tx_type <@ ARRAY['TRADE', 'TRADE_ASSET', 'TRADE_CASH',
+                                                                 'INCOME', 'DIVIDEND', 'INTEREST',
+                                                                 'RETURN_OF_CAPITAL', 'EXPENSE',
+                                                                 'TRANSACTION_COST', 'HOLDING_COST',
+                                                                 'FINANCING_COST', 'TRANSFER',
+                                                                 'TRANSFER_INTERNAL', 'TRANSFER_EXTERNAL']),
+  resolved_tx_type          TEXT NOT NULL
+                              CHECK (resolved_tx_type IN ('TRADE', 'TRADE_ASSET', 'TRADE_CASH',
+                                                          'INCOME', 'DIVIDEND', 'INTEREST',
+                                                          'RETURN_OF_CAPITAL', 'EXPENSE',
+                                                          'TRANSACTION_COST', 'HOLDING_COST',
+                                                          'FINANCING_COST', 'TRANSFER',
+                                                          'TRANSFER_INTERNAL', 'TRANSFER_EXTERNAL',
+                                                          'AMBIGUOUS')),
+  asset_class_hint          TEXT,
 
   quantity                  NUMERIC NOT NULL,
   unit_price                NUMERIC,
   trading_currency          TEXT,
   settlement_currency       TEXT,
-
-  broker_ref                TEXT,
-  counterparty_account      TEXT,
+  settlement_amount         NUMERIC CHECK (settlement_amount IS NULL OR settlement_amount >= 0),
 
   account_type              TEXT NOT NULL DEFAULT 'USER'
                               CHECK (account_type IN ('USER', 'EQUITY', 'INCOME', 'EXPENSE',
@@ -180,6 +205,58 @@ CREATE TABLE txs (
 
 CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, timestamp);
 CREATE INDEX idx_txs_group_id ON txs (group_id);
+
+-- Why a posting might belong with another one, as its source stated it: an
+-- identifier the source issued, what may be compared about it, and over what set
+-- of postings. This is the evidence the transaction partition is derived from,
+-- in place of the partition being stated outright. See
+-- docs/adr/0048-correlations-declare-their-own-semantics.md.
+--
+-- A child table rather than columns on txs, because a posting carries however
+-- many correlations its source supplies -- a reference number and a counterparty
+-- pointer are two different series -- and a column per series would grow the
+-- posting one nullable field per broker.
+--
+-- ordinality preserves the order the source stated them in, so a posting written
+-- and read back is the posting that was written. Nothing compares on it.
+--
+-- token is the identifier verbatim and ordinal is the number it carries, where
+-- the converter knew how to take one. They are separate because proximity is
+-- load-bearing and cannot be recovered from the token: an IBKR FITID reads
+-- 20251015U10000018371888432, and an edit distance over such strings would make
+-- 1000000 and 0999999 four edits apart while 1000001 and 2000001 are one.
+--
+-- scope says what the identifier is comparable over and matches what may be done
+-- with it; both are the vocabularies in proto/type/v1/type.proto, spelled the
+-- same here, in the proto and in an archive file.
+--
+-- job_id is the ingestion job that supplied the correlation, and is what a
+-- FILE-scoped one is comparable within: a file has no identity of its own once
+-- its postings are rows. It is deliberately not a foreign key, for the reason
+-- tx_groups.job_id is not -- a posting must outlive its job, and a pruned job row
+-- still leaves an id that distinguishes one upload from another.
+CREATE TABLE tx_correlations (
+  tx_id        UUID NOT NULL REFERENCES txs (id) ON DELETE CASCADE,
+  ordinality   INT NOT NULL,
+
+  label        TEXT NOT NULL,
+  token        TEXT NOT NULL,
+  ordinal      BIGINT,
+  scope        TEXT NOT NULL CHECK (scope IN ('FILE', 'ACCOUNT', 'BROKER')),
+  matches      TEXT[] NOT NULL
+                 CHECK (cardinality(matches) > 0
+                        AND matches <@ ARRAY['EXACT', 'ORDINAL', 'ACCOUNT']),
+  ordinal_span BIGINT,
+
+  job_id       UUID,
+
+  PRIMARY KEY (tx_id, ordinality)
+);
+
+-- The lookup a grouping pass makes: everything correlated with this token in
+-- this series. Postings are reached from here rather than the other way round,
+-- since a pass starts from an identifier and asks who else holds it.
+CREATE INDEX idx_tx_correlations_token ON tx_correlations (label, token);
 
 -- Async ingestion jobs. status and validation_errors surfaced via front-end API.
 -- job_type distinguishes tx uploads from archive imports; broker/source are
@@ -331,7 +408,11 @@ CREATE UNIQUE INDEX idx_instrument_identifiers_inst_unique_non_null_domain ON in
 -- Global uniqueness: (identifier_type, domain, value) unique across the table.
 CREATE UNIQUE INDEX idx_instrument_identifiers_unique_null_domain ON instrument_identifiers (identifier_type, value) WHERE domain IS NULL;
 CREATE UNIQUE INDEX idx_instrument_identifiers_unique_non_null_domain ON instrument_identifiers (identifier_type, domain, value) WHERE domain IS NOT NULL;
-CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identifier_type, COALESCE(domain, ''), value);
+-- Domain-agnostic lookup by (identifier_type, value). The domain-aware paths are
+-- served by the two partial unique indexes above, so this one is deliberately narrow:
+-- an intermediate COALESCE(domain,'') column would block the prefix match on value
+-- for the queries that actually reach this index (FX pair, ticker, ISIN lookups).
+CREATE INDEX idx_instrument_identifiers_lookup ON instrument_identifiers (identifier_type, value);
 
 -- Trigger: recompute instruments.name and instruments.exchange whenever identifiers
 -- or the instrument itself change. Fires AFTER so that all rows are visible.
@@ -395,11 +476,11 @@ CREATE TABLE provider_instrument_identifiers (
   value           TEXT NOT NULL
 );
 
--- Per-instrument per-provider uniqueness.
+-- Per-instrument per-provider uniqueness. Both read paths -- loadProviderIdentifiers
+-- and FindProviderIdentifiers -- lead with instrument_id and are served by these
+-- indexes, so no separate lookup index is needed.
 CREATE UNIQUE INDEX idx_prov_instr_ident_unique_null_domain ON provider_instrument_identifiers (instrument_id, provider, identifier_type, value) WHERE domain IS NULL;
 CREATE UNIQUE INDEX idx_prov_instr_ident_unique_non_null_domain ON provider_instrument_identifiers (instrument_id, provider, identifier_type, domain, value) WHERE domain IS NOT NULL;
--- Reverse lookup by provider + identifier.
-CREATE INDEX idx_prov_instr_ident_lookup ON provider_instrument_identifiers (provider, identifier_type, value);
 
 -- Plugin config: which plugins are enabled, precedence (unique per category), plugin-specific config.
 -- category: 'identifier', 'description', 'price'.
@@ -467,9 +548,11 @@ CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);
 -- routed to balance a group its source data left one-sided -- are a small minority of
 -- txs, and the report that aggregates them reads every one across all users. A partial
 -- index over just those rows answers it without carrying the USER postings that
--- dominate the table. Column order follows the report's GROUP BY.
+-- dominate the table. The key is timestamp because the report filters on a time window
+-- and nothing else on the residual subset; grouping cannot be index-ordered anyway,
+-- because two GROUP BY keys come from the joined instruments table.
 CREATE INDEX idx_txs_residual_postings
-  ON txs (account_type, user_id, broker, account, instrument_id, tx_type)
+  ON txs (timestamp)
   WHERE account_type IN ('IMBALANCE', 'TRANSFER_CLEARING', 'SOURCE_ROUNDING');
 
 -- At most one INITIALIZE posting per holding per account type. account_type is part of
@@ -507,7 +590,7 @@ CREATE UNIQUE INDEX idx_txs_initialize_unique
 -- same for a transfer in either direction.
 --
 -- Keyed per (group, commodity) rather than per group, which is what the two unique
--- indexes say. Balancing emits one residual per commodity, so an unpaired JRNLSEC group
+-- indexes say. Balancing emits one residual per commodity, so an unpaired security transfer group
 -- can have a security side and a cash side in flight independently and each pairs with
 -- a different group. instrument_id moves with an instrument merge, alongside
 -- txs.instrument_id.

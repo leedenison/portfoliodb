@@ -16,7 +16,8 @@
           {
             "timestamp": "2024-01-15T00:00:00Z",
             "instrument_description": "AAPL - Apple Inc.",
-            "type": "BUYSTOCK",
+            "broker_tx_type": ["TRADE_ASSET"],
+            "asset_class_hint": "STOCK",
             "quantity": "100",
             "trading_currency": "USD",
             "unit_price": "185.5"
@@ -24,7 +25,8 @@
           {
             "timestamp": "2024-01-16T00:00:00Z",
             "instrument_description": "AAPL - Apple Inc.",
-            "type": "BUYSTOCK",
+            "broker_tx_type": ["TRADE_ASSET"],
+            "asset_class_hint": "STOCK",
             "quantity": "50",
             "trading_currency": "USD",
             "unit_price": "187"
@@ -32,17 +34,11 @@
           {
             "timestamp": "2024-01-17T00:00:00Z",
             "instrument_description": "AAPL - Apple Inc.",
-            "type": "SELLSTOCK",
+            "broker_tx_type": ["TRADE_ASSET"],
+            "asset_class_hint": "STOCK",
             "quantity": "-30",
             "trading_currency": "USD",
             "unit_price": "190"
-          },
-          {
-            "timestamp": "2024-01-18T00:00:00Z",
-            "instrument_description": "AAPL - Apple Inc.",
-            "type": "SPLIT",
-            "quantity": "2",
-            "trading_currency": "USD"
           }
         ]
       }

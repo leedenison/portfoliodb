@@ -32,6 +32,7 @@ type Server struct {
 	corporateEventRegistry *corporateevents.Registry
 	corporateEventTrigger  chan<- struct{}
 	transferMatchTrigger   chan<- struct{}
+	groupingTrigger        chan<- struct{}
 	workerRegistry         *worker.Registry
 	enqueueJob             JobEnqueuer
 }
@@ -50,6 +51,7 @@ type ServerConfig struct {
 	CorporateEventRegistry *corporateevents.Registry  // optional; enables display_name in corporate event plugin list
 	CorporateEventTrigger  chan<- struct{}            // optional; when set, TriggerCorporateEventFetch sends on it
 	TransferMatchTrigger   chan<- struct{}            // optional; when set, TriggerTransferMatch sends on it
+	GroupingTrigger        chan<- struct{}            // optional; when set, TriggerGrouping sends on it
 	WorkerRegistry         *worker.Registry           // optional; when set, ListWorkers returns worker status
 	EnqueueJob             JobEnqueuer                // optional; when set, ImportPrices enqueues async jobs
 }
@@ -69,6 +71,7 @@ func NewServer(cfg ServerConfig) *Server {
 		corporateEventRegistry: cfg.CorporateEventRegistry,
 		corporateEventTrigger:  cfg.CorporateEventTrigger,
 		transferMatchTrigger:   cfg.TransferMatchTrigger,
+		groupingTrigger:        cfg.GroupingTrigger,
 		workerRegistry:         cfg.WorkerRegistry,
 		enqueueJob:             cfg.EnqueueJob,
 	}

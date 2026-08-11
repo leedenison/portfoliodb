@@ -5,35 +5,34 @@ import (
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
-	"sort"
 	"testing"
 )
 
-func TestTxTypeToSecurityTypeHint(t *testing.T) {
+func TestHintsFromTx_AssetClassHint(t *testing.T) {
 	tests := []struct {
-		txType typev1.TxType
-		want   string
+		name     string
+		hint     typev1.AssetClass
+		wantHint string
+		wantKind string
 	}{
-		{typev1.TxType_JRNLFUND, identifier.SecurityTypeHintCash},
-		{typev1.TxType_JRNLSEC, identifier.SecurityTypeHintUnknown},
-		{typev1.TxType_SPLIT, identifier.SecurityTypeHintUnknown},
-		{typev1.TxType_BUYOTHER, identifier.SecurityTypeHintUnknown},
-		{typev1.TxType_SELLOTHER, identifier.SecurityTypeHintUnknown},
-		{typev1.TxType_BUYSTOCK, identifier.SecurityTypeHintStock},
-		{typev1.TxType_INCOME, identifier.SecurityTypeHintCash},
-		{typev1.TxType_BUYOPT, identifier.SecurityTypeHintOption},
-		{typev1.TxType_BUYDEBT, identifier.SecurityTypeHintFixedIncome},
-		{typev1.TxType_BUYMF, identifier.SecurityTypeHintMutualFund},
-		{typev1.TxType_BUYFUTURE, identifier.SecurityTypeHintFuture},
-		{typev1.TxType_SELLFUTURE, identifier.SecurityTypeHintFuture},
-		{typev1.TxType_TRANSFER, identifier.SecurityTypeHintUnknown},
-		{typev1.TxType_REINVEST, identifier.SecurityTypeHintUnknown},
+		{"stated CASH", typev1.AssetClass_CASH, identifier.SecurityTypeHintCash, db.InstrumentKindCash},
+		{"stated STOCK", typev1.AssetClass_STOCK, identifier.SecurityTypeHintStock, db.InstrumentKindSecurity},
+		{"stated OPTION", typev1.AssetClass_OPTION, identifier.SecurityTypeHintOption, db.InstrumentKindSecurity},
+		{"stated UNKNOWN is a security of unstated class", typev1.AssetClass_UNKNOWN, identifier.SecurityTypeHintUnknown, db.InstrumentKindSecurity},
+		// No claim leaves the class unconstrained but still routes as a
+		// security: cash plugins run only for a stated CASH.
+		{"unset states no claim", typev1.AssetClass_ASSET_CLASS_UNSPECIFIED, "", db.InstrumentKindSecurity},
 	}
 	for _, tt := range tests {
-		got := TxTypeToSecurityTypeHint(tt.txType)
-		if got != tt.want {
-			t.Errorf("TxTypeToSecurityTypeHint(%v) = %q, want %q", tt.txType, got, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			h := HintsFromTx(&apiv1.Tx{AssetClassHint: tt.hint})
+			if h.SecurityTypeHint != tt.wantHint {
+				t.Errorf("SecurityTypeHint = %q, want %q", h.SecurityTypeHint, tt.wantHint)
+			}
+			if h.InstrumentKind != tt.wantKind {
+				t.Errorf("InstrumentKind = %q, want %q", h.InstrumentKind, tt.wantKind)
+			}
+		})
 	}
 }
 
@@ -53,82 +52,6 @@ func TestHintsFromTx_Currency(t *testing.T) {
 	})
 }
 
-func TestTxTypeToInstrumentKind(t *testing.T) {
-	tests := []struct {
-		txType typev1.TxType
-		want   string
-	}{
-		{typev1.TxType_BUYSTOCK, db.InstrumentKindSecurity},
-		{typev1.TxType_SELLSTOCK, db.InstrumentKindSecurity},
-		{typev1.TxType_BUYOPT, db.InstrumentKindSecurity},
-		{typev1.TxType_TRANSFER, db.InstrumentKindSecurity},
-		{typev1.TxType_REINVEST, db.InstrumentKindSecurity},
-		{typev1.TxType_JRNLSEC, db.InstrumentKindSecurity},
-		{typev1.TxType_BUYOTHER, db.InstrumentKindSecurity},
-		{typev1.TxType_INCOME, db.InstrumentKindCash},
-		{typev1.TxType_CASHFLOW, db.InstrumentKindCash},
-		{typev1.TxType_JRNLFUND, db.InstrumentKindCash},
-		{typev1.TxType_MARGININTEREST, db.InstrumentKindCash},
-		{typev1.TxType_INVEXPENSE, db.InstrumentKindCash},
-		{typev1.TxType_RETOFCAP, db.InstrumentKindCash},
-	}
-	for _, tt := range tests {
-		got := TxTypeToInstrumentKind(tt.txType)
-		if got != tt.want {
-			t.Errorf("TxTypeToInstrumentKind(%v) = %q, want %q", tt.txType, got, tt.want)
-		}
-	}
-}
-
-func TestAssetClassToTxTypeStrings(t *testing.T) {
-	t.Run("CASH maps to expected types", func(t *testing.T) {
-		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintCash)
-		sort.Strings(strs)
-		want := []string{"CASHFLOW", "INCOME", "INVEXPENSE", "JRNLFUND", "MARGININTEREST", "RETOFCAP"}
-		sort.Strings(want)
-		if len(strs) != len(want) {
-			t.Fatalf("got %v, want %v", strs, want)
-		}
-		for i := range strs {
-			if strs[i] != want[i] {
-				t.Errorf("index %d: got %q, want %q", i, strs[i], want[i])
-			}
-		}
-	})
-	t.Run("FUTURE maps to BUYFUTURE and SELLFUTURE", func(t *testing.T) {
-		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintFuture)
-		sort.Strings(strs)
-		want := []string{"BUYFUTURE", "SELLFUTURE"}
-		if len(strs) != len(want) {
-			t.Fatalf("got %v, want %v", strs, want)
-		}
-		for i := range strs {
-			if strs[i] != want[i] {
-				t.Errorf("index %d: got %q, want %q", i, strs[i], want[i])
-			}
-		}
-	})
-	t.Run("ETF has no mapped types", func(t *testing.T) {
-		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintETF)
-		if len(strs) != 0 {
-			t.Errorf("expected empty, got %v", strs)
-		}
-	})
-	t.Run("OPTION maps correctly", func(t *testing.T) {
-		strs := AssetClassToTxTypeStrings(identifier.SecurityTypeHintOption)
-		sort.Strings(strs)
-		want := []string{"BUYOPT", "CLOSUREOPT", "SELLOPT"}
-		if len(strs) != len(want) {
-			t.Fatalf("got %v, want %v", strs, want)
-		}
-		for i := range strs {
-			if strs[i] != want[i] {
-				t.Errorf("index %d: got %q, want %q", i, strs[i], want[i])
-			}
-		}
-	})
-}
-
 func TestTxIgnored(t *testing.T) {
 	rules := []db.IgnoredAssetClass{
 		{Broker: "IBKR", Account: "", AssetClass: "CASH"},
@@ -143,38 +66,46 @@ func TestTxIgnored(t *testing.T) {
 	}{
 		{
 			name:   "CASH tx for IBKR is ignored (broker-level)",
-			tx:     &apiv1.Tx{Type: typev1.TxType_CASHFLOW, Account: "ANY"},
+			tx:     &apiv1.Tx{AssetClassHint: typev1.AssetClass_CASH, Account: "ANY"},
 			broker: "IBKR",
 			want:   true,
 		},
 		{
 			name:   "CASH tx for IBKR different account still ignored",
-			tx:     &apiv1.Tx{Type: typev1.TxType_INCOME, Account: "ACC-2"},
+			tx:     &apiv1.Tx{AssetClassHint: typev1.AssetClass_CASH, Account: "ACC-2"},
 			broker: "IBKR",
 			want:   true,
 		},
 		{
 			name:   "STOCK tx for IBKR is not ignored",
-			tx:     &apiv1.Tx{Type: typev1.TxType_BUYSTOCK, Account: "ACC-1"},
+			tx:     &apiv1.Tx{AssetClassHint: typev1.AssetClass_STOCK, Account: "ACC-1"},
 			broker: "IBKR",
 			want:   false,
 		},
 		{
 			name:   "OPTION tx for SCHB ACC-1 is ignored (account-level)",
-			tx:     &apiv1.Tx{Type: typev1.TxType_BUYOPT, Account: "ACC-1"},
+			tx:     &apiv1.Tx{AssetClassHint: typev1.AssetClass_OPTION, Account: "ACC-1"},
 			broker: "SCHB",
 			want:   true,
 		},
 		{
 			name:   "OPTION tx for SCHB ACC-2 is NOT ignored",
-			tx:     &apiv1.Tx{Type: typev1.TxType_BUYOPT, Account: "ACC-2"},
+			tx:     &apiv1.Tx{AssetClassHint: typev1.AssetClass_OPTION, Account: "ACC-2"},
 			broker: "SCHB",
 			want:   false,
 		},
 		{
 			name:   "Fidelity tx is not ignored (no rules)",
-			tx:     &apiv1.Tx{Type: typev1.TxType_CASHFLOW, Account: "ACC-1"},
+			tx:     &apiv1.Tx{AssetClassHint: typev1.AssetClass_CASH, Account: "ACC-1"},
 			broker: "FIDELITY",
+			want:   false,
+		},
+		{
+			// The rules match the stated hint only: a row with no claim matches
+			// no rule at ingest, whatever it later resolves to.
+			name:   "hintless row matches no rule",
+			tx:     &apiv1.Tx{Account: "ACC-1"},
+			broker: "IBKR",
 			want:   false,
 		},
 	}
@@ -188,7 +119,7 @@ func TestTxIgnored(t *testing.T) {
 	}
 
 	t.Run("empty rules never ignores", func(t *testing.T) {
-		tx := &apiv1.Tx{Type: typev1.TxType_CASHFLOW}
+		tx := &apiv1.Tx{AssetClassHint: typev1.AssetClass_CASH}
 		if TxIgnored(tx, "IBKR", nil) {
 			t.Error("expected false with nil rules")
 		}

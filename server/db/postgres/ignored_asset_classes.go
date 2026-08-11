@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -37,7 +36,7 @@ func (p *Postgres) ListIgnoredAssetClasses(ctx context.Context, userID string) (
 }
 
 // SetIgnoredAssetClasses implements db.IgnoredAssetClassDB.
-func (p *Postgres) SetIgnoredAssetClasses(ctx context.Context, userID string, rules []db.IgnoredAssetClass, assetClassToTxTypes map[string][]string) error {
+func (p *Postgres) SetIgnoredAssetClasses(ctx context.Context, userID string, rules []db.IgnoredAssetClass) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -58,8 +57,8 @@ func (p *Postgres) SetIgnoredAssetClasses(ctx context.Context, userID string, ru
 			}
 		}
 
-		// 3. Delete matching regular txs and synthetic INITIALIZE txs.
-		if err := deleteIgnoredTxs(ctx, tx, userUUID, rules, assetClassToTxTypes); err != nil {
+		// 3. Delete matching txs, synthetic INITIALIZE txs included.
+		if err := deleteIgnoredTxs(ctx, tx, userUUID, rules); err != nil {
 			return err
 		}
 
@@ -72,7 +71,7 @@ func (p *Postgres) SetIgnoredAssetClasses(ctx context.Context, userID string, ru
 }
 
 // CountIgnoredTxs implements db.IgnoredAssetClassDB.
-func (p *Postgres) CountIgnoredTxs(ctx context.Context, userID string, rules []db.IgnoredAssetClass, assetClassToTxTypes map[string][]string) (int32, int32, error) {
+func (p *Postgres) CountIgnoredTxs(ctx context.Context, userID string, rules []db.IgnoredAssetClass) (int32, int32, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return 0, 0, fmt.Errorf("invalid user id: %w", err)
@@ -81,7 +80,7 @@ func (p *Postgres) CountIgnoredTxs(ctx context.Context, userID string, rules []d
 		return 0, 0, nil
 	}
 
-	txCount, err := countMatchingTxs(ctx, p.q, userUUID, rules, assetClassToTxTypes)
+	txCount, err := countMatchingTxs(ctx, p.q, userUUID, rules)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -92,24 +91,14 @@ func (p *Postgres) CountIgnoredTxs(ctx context.Context, userID string, rules []d
 	return txCount, declCount, nil
 }
 
-// deleteIgnoredTxs deletes regular and synthetic txs matching the ignore rules.
-// Regular txs are matched by tx_type (reverse-mapped from asset class).
-// Synthetic INITIALIZE txs are matched by joining to instruments.asset_class.
-func deleteIgnoredTxs(ctx context.Context, tx queryable, userUUID uuid.UUID, rules []db.IgnoredAssetClass, assetClassToTxTypes map[string][]string) error {
+// deleteIgnoredTxs deletes txs, synthetic or not, whose instrument's asset
+// class matches an ignore rule. A posting whose instrument is unresolved has
+// no asset class and is left alone.
+func deleteIgnoredTxs(ctx context.Context, tx queryable, userUUID uuid.UUID, rules []db.IgnoredAssetClass) error {
 	for _, r := range rules {
-		txTypes := assetClassToTxTypes[r.AssetClass]
-		if len(txTypes) == 0 {
-			continue
-		}
-		// Delete regular txs by tx_type.
-		query, args := buildDeleteTxsQuery(userUUID, r, txTypes)
+		query, args := buildDeleteTxsQuery(userUUID, r)
 		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return fmt.Errorf("delete ignored txs: %w", err)
-		}
-		// Delete synthetic INITIALIZE txs by instrument asset_class.
-		query, args = buildDeleteSyntheticTxsQuery(userUUID, r)
-		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
-			return fmt.Errorf("delete ignored synthetic txs: %w", err)
 		}
 	}
 	return nil
@@ -126,38 +115,8 @@ func deleteIgnoredDeclarations(ctx context.Context, tx queryable, userUUID uuid.
 	return nil
 }
 
-// buildDeleteTxsQuery builds a DELETE for regular txs matching the rule's tx types.
-func buildDeleteTxsQuery(userUUID uuid.UUID, r db.IgnoredAssetClass, txTypes []string) (string, []any) {
-	// Build tx_type IN (...) placeholders starting at $3 or $4.
-	baseIdx := 3
-	if r.Account != "" {
-		baseIdx = 4
-	}
-	placeholders := make([]string, len(txTypes))
-	args := []any{userUUID, r.Broker}
-	if r.Account != "" {
-		args = append(args, r.Account)
-	}
-	for i, t := range txTypes {
-		placeholders[i] = fmt.Sprintf("$%d", baseIdx+i)
-		args = append(args, t)
-	}
-
-	accountClause := ""
-	if r.Account != "" {
-		accountClause = " AND account = $3"
-	}
-	query := fmt.Sprintf(`
-		DELETE FROM txs
-		WHERE user_id = $1 AND broker = $2%s
-		  AND synthetic_purpose IS NULL
-		  AND tx_type IN (%s)
-	`, accountClause, strings.Join(placeholders, ", "))
-	return query, args
-}
-
-// buildDeleteSyntheticTxsQuery builds a DELETE for synthetic INITIALIZE txs where the instrument's asset class matches.
-func buildDeleteSyntheticTxsQuery(userUUID uuid.UUID, r db.IgnoredAssetClass) (string, []any) {
+// buildDeleteTxsQuery builds a DELETE for txs where the instrument's asset class matches.
+func buildDeleteTxsQuery(userUUID uuid.UUID, r db.IgnoredAssetClass) (string, []any) {
 	args := []any{userUUID, r.Broker, r.AssetClass}
 	accountClause := ""
 	if r.Account != "" {
@@ -168,7 +127,6 @@ func buildDeleteSyntheticTxsQuery(userUUID uuid.UUID, r db.IgnoredAssetClass) (s
 		DELETE FROM txs t
 		USING instruments i
 		WHERE t.user_id = $1 AND t.broker = $2%s
-		  AND t.synthetic_purpose = 'INITIALIZE'
 		  AND t.instrument_id = i.id
 		  AND i.asset_class = $3
 	`, accountClause)
@@ -193,37 +151,25 @@ func buildDeleteDeclarationsQuery(userUUID uuid.UUID, r db.IgnoredAssetClass) (s
 	return query, args
 }
 
-// countMatchingTxs counts regular txs that match the given ignore rules.
-func countMatchingTxs(ctx context.Context, q queryable, userUUID uuid.UUID, rules []db.IgnoredAssetClass, assetClassToTxTypes map[string][]string) (int32, error) {
+// countMatchingTxs counts regular txs whose instrument's asset class matches the
+// given ignore rules. Synthetic txs are excluded: they are derived from holding
+// declarations, which are counted separately.
+func countMatchingTxs(ctx context.Context, q queryable, userUUID uuid.UUID, rules []db.IgnoredAssetClass) (int32, error) {
 	var total int32
 	for _, r := range rules {
-		txTypes := assetClassToTxTypes[r.AssetClass]
-		if len(txTypes) == 0 {
-			continue
-		}
-		baseIdx := 3
-		if r.Account != "" {
-			baseIdx = 4
-		}
-		placeholders := make([]string, len(txTypes))
-		args := []any{userUUID, r.Broker}
-		if r.Account != "" {
-			args = append(args, r.Account)
-		}
-		for i, t := range txTypes {
-			placeholders[i] = fmt.Sprintf("$%d", baseIdx+i)
-			args = append(args, t)
-		}
+		args := []any{userUUID, r.Broker, r.AssetClass}
 		accountClause := ""
 		if r.Account != "" {
-			accountClause = " AND account = $3"
+			accountClause = " AND t.account = $4"
+			args = append(args, r.Account)
 		}
 		query := fmt.Sprintf(`
-			SELECT COUNT(*) FROM txs
-			WHERE user_id = $1 AND broker = $2%s
-			  AND synthetic_purpose IS NULL
-			  AND tx_type IN (%s)
-		`, accountClause, strings.Join(placeholders, ", "))
+			SELECT COUNT(*) FROM txs t
+			JOIN instruments i ON t.instrument_id = i.id
+			WHERE t.user_id = $1 AND t.broker = $2%s
+			  AND t.synthetic_purpose IS NULL
+			  AND i.asset_class = $3
+		`, accountClause)
 		var count int32
 		if err := q.QueryRowxContext(ctx, query, args...).Scan(&count); err != nil {
 			return 0, fmt.Errorf("count ignored txs: %w", err)

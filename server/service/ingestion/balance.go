@@ -7,6 +7,7 @@ import (
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/residual"
+	"github.com/leedenison/portfoliodb/server/txtype"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/proto"
 	"sort"
@@ -25,30 +26,6 @@ import (
 // Weights accumulate per commodity, and whatever is left over is routed to an
 // explicit posting rather than rejected. See
 // docs/adr/0024-group-balance-is-checked-on-weight.md.
-
-// exchangeTypes are the tx types whose counter-leg is money rather than the
-// commodity the posting is in: a security is exchanged for cash, so the security
-// leg has to be converted at its price to reach the other side. Every other type
-// moves a commodity without converting it -- a journal, a charge and a dividend
-// all have their counter-leg in the units they are already in -- and converting
-// one would move its residual into the wrong commodity, which for a JRNLSEC means
-// losing the transferred shares.
-var exchangeTypes = map[typev1.TxType]bool{
-	typev1.TxType_BUYDEBT:    true,
-	typev1.TxType_BUYFUTURE:  true,
-	typev1.TxType_BUYMF:      true,
-	typev1.TxType_BUYOPT:     true,
-	typev1.TxType_BUYOTHER:   true,
-	typev1.TxType_BUYSTOCK:   true,
-	typev1.TxType_SELLDEBT:   true,
-	typev1.TxType_SELLFUTURE: true,
-	typev1.TxType_SELLMF:     true,
-	typev1.TxType_SELLOPT:    true,
-	typev1.TxType_SELLOTHER:  true,
-	typev1.TxType_SELLSTOCK:  true,
-	typev1.TxType_REINVEST:   true,
-	typev1.TxType_CLOSUREOPT: true,
-}
 
 // balanceInstrument is what balancing needs to know about a posting's commodity.
 // Currencies are instruments, so telling money from a security is a property of
@@ -147,7 +124,11 @@ func ownCommodity(tx *apiv1.Tx, instID string, inst balanceInstrument) commodity
 // qty and price are the posting's parsed quantity and unit price. price is nil
 // when the source supplied none, which is not the same as a price of zero -- the
 // first case below turns on exactly that distinction.
-func weightOf(tx *apiv1.Tx, qty decimal.Decimal, price *decimal.Decimal, instID string, inst balanceInstrument) (decimal.Decimal, commodity) {
+//
+// The declared type set is a parameter rather than read off the posting so that
+// the weight-neutrality check can run the same rule once per candidate; every
+// live weighing passes the posting's own set.
+func weightOf(tx *apiv1.Tx, types []typev1.TxType, qty decimal.Decimal, price *decimal.Decimal, instID string, inst balanceInstrument) (decimal.Decimal, commodity) {
 	own := ownCommodity(tx, instID, inst)
 	settle := settleCurrency(tx)
 	convert := func() (decimal.Decimal, commodity) {
@@ -176,7 +157,14 @@ func weightOf(tx *apiv1.Tx, qty decimal.Decimal, price *decimal.Decimal, instID 
 	// plain cash posting with a price.
 	case own.currency != "" && own.currency == settle:
 		return qty, own
-	case exchangeTypes[tx.GetType()]:
+	// The asset leg of a trade is the one type whose counter-leg is money
+	// rather than the commodity the posting is in, so it converts at its price.
+	// Every other type moves a commodity without converting it -- a transfer, a
+	// charge and a dividend all have their counter-leg in the units they are
+	// already in -- and under the every-candidate rule an ambiguous set does not
+	// convert, which weight neutrality makes harmless: a priced set whose
+	// members disagree is rejected at ingest.
+	case txtype.MustBe(types, typev1.TxType_TRADE_ASSET):
 		return convert()
 	// A movement event across currencies -- a EUR dividend settling into a USD
 	// account -- does have its counter-leg in different units after all, and the
@@ -203,8 +191,55 @@ func weighPosting(tx *apiv1.Tx, instID string, inst balanceInstrument) (decimal.
 	if err != nil {
 		return decimal.Decimal{}, ownCommodity(tx, instID, inst), false
 	}
-	amount, c := weightOf(tx, qty, price, instID, inst)
+	amount, c := weightOf(tx, tx.GetBrokerTxType(), qty, price, instID, inst)
 	return amount, c, true
+}
+
+// validateWeightNeutrality rejects a posting whose declared type set names
+// candidates that weigh it differently. Weight is stored against a deferred
+// constraint that has no way to hold a maybe, so a set is admissible only if
+// every member yields the same amount in the same commodity for the posting's
+// own quantity, price and currencies -- checked by running the real weight rule
+// once per candidate, never a summary of it. In practice only a priced security
+// row can diverge, which is the case where the source has already answered the
+// question: a price is what a trade has and a transfer does not.
+// See docs/adr/0046-declared-ambiguity-is-bounded-by-weight-neutrality.md.
+//
+// rowIdx maps each tx back to its position in the uploaded batch, so an error
+// names the row the user can see. A posting whose decimals do not parse is
+// skipped here; the weight rule leaves it out of its group's sums.
+func validateWeightNeutrality(txs []*apiv1.Tx, rowIdx []int, instrumentIDs []string, instruments map[string]balanceInstrument) []*apiv1.ValidationError {
+	var errs []*apiv1.ValidationError
+	for i, t := range txs {
+		set := t.GetBrokerTxType()
+		if len(set) < 2 {
+			continue
+		}
+		qty, err := decimal.NewFromString(t.GetQuantity())
+		if err != nil {
+			continue
+		}
+		price, err := parseOptDec(t.UnitPrice)
+		if err != nil {
+			continue
+		}
+		inst := instruments[instrumentIDs[i]]
+		firstAmount, firstC := weightOf(t, set[:1], qty, price, instrumentIDs[i], inst)
+		for _, candidate := range set[1:] {
+			amount, c := weightOf(t, []typev1.TxType{candidate}, qty, price, instrumentIDs[i], inst)
+			if amount.Equal(firstAmount) && c.key() == firstC.key() {
+				continue
+			}
+			errs = append(errs, &apiv1.ValidationError{
+				RowIndex: int32(rowIdx[i]),
+				Field:    "broker_tx_type",
+				Message: fmt.Sprintf("candidates %s and %s weigh the posting differently; a priced row must declare which it is",
+					set[0], candidate),
+			})
+			break
+		}
+	}
+	return errs
 }
 
 // weights returns what each posting contributes to its group's balance, parallel to
@@ -277,10 +312,10 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 		// the leg it balances rather than invented.
 		descs := map[string]string{}
 		var keys []string
-		var txTypes []typev1.TxType
+		var resolved []typev1.TxType
 		for _, i := range idxs {
 			t := txs[i]
-			txTypes = append(txTypes, t.GetType())
+			resolved = append(resolved, t.GetResolvedTxType())
 			amount, c, ok := weighPosting(t, instrumentIDs[i], instruments[instrumentIDs[i]])
 			if !ok {
 				continue
@@ -304,7 +339,7 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 				continue
 			}
 			amount := sums[k].Neg()
-			out = append(out, routedFor(first, ref, c, descs[k], amount, residual.Type(k, amount, txTypes)))
+			out = append(out, routedFor(first, ref, c, descs[k], amount, residual.Type(k, amount, resolved)))
 		}
 	}
 	return out
@@ -316,12 +351,13 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 // left it -- which is what the imbalance report reads.
 func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount decimal.Decimal, accountType typev1.AccountType) routedPosting {
 	tx := &apiv1.Tx{
-		Timestamp:   proto.CloneOf(first.GetTimestamp()),
-		Type:        first.GetType(),
-		Quantity:    amount.String(),
-		Account:     first.GetAccount(),
-		GroupRef:    ref,
-		AccountType: accountType,
+		Timestamp:      proto.CloneOf(first.GetTimestamp()),
+		BrokerTxType:   append([]typev1.TxType(nil), first.GetBrokerTxType()...),
+		ResolvedTxType: first.GetResolvedTxType(),
+		Quantity:       amount.String(),
+		Account:        first.GetAccount(),
+		GroupRef:       ref,
+		AccountType:    accountType,
 	}
 	// The routed posting weighs the residual it negates, in the commodity that
 	// residual accumulated in. That is what makes the group sum to zero.

@@ -38,7 +38,9 @@ trip to change a number -- to carry a rounding, or to mix share counts -- which
 Transaction grouping is joining that list. The server is becoming the thing that
 derives the partition, from the evidence a posting carries rather than from being
 told (`docs/adr/0043-grouping-does-not-travel-in-the-archive.md`); until it does,
-the file states the partition as a `group_ref` on the posting.
+the file states the partition as a `group_ref` on the posting. The evidence itself
+-- a posting's `correlations` -- is irreplaceable data and stays, since a rebuild
+that had only the answer could never derive it again.
 
 Full reasoning: `docs/adr/0032-archive-preserves-inputs-not-derived-state.md`.
 
@@ -148,7 +150,7 @@ had nothing; dropping it leaves valuation treating the days between reported
 bars as unpriced. See `docs/adr/0023-price-coverage-is-stored-not-inferred.md`.
 
 **Vocabularies** -- asset classes, identifier types, transaction types, account
-types, brokers -- are written by name: `"STOCK"`, `"ISIN"`, `"BUYSTOCK"`. They
+types, brokers -- are written by name: `"STOCK"`, `"ISIN"`, `"TRADE_ASSET"`. They
 come from `proto/type/v1/type.proto`, which does not remove or rename a value.
 See `docs/adr/0038-controlled-vocabularies-are-shared.md`.
 
@@ -581,8 +583,8 @@ stored and where it travels.
 | posting | `account`, `account_type` | `account_type` absent reads as `ACCOUNT_TYPE_USER` |
 | posting | `identifier_hints[]` | zero or more identifier triples |
 | posting | `unit_price`, `trading_currency`, `settlement_currency` | optional |
-| posting | `broker_ref`, `counterparty_account` | optional |
 | posting | `share_count_basis` | optional; absent means the posting's own timestamp date |
+| posting | `correlations[]` | zero or more; why this posting might belong with another |
 | posting | `group_ref` | optional; transitional, see below |
 
 `share_count_basis` is on the posting rather than on the window for the same
@@ -604,6 +606,26 @@ goes when it does: grouping is derived state rather than data, and the archive
 carries neither it nor the residuals routed to balance it. See
 `docs/adr/0043-grouping-does-not-travel-in-the-archive.md` and
 `docs/adr/0041-server-owns-transaction-grouping.md`.
+
+**The evidence is not.** A posting's `correlations` are what its source said about
+why it might belong with another posting -- an identifier, what may be compared
+about it, and over what set of postings -- and they are irreplaceable data rather
+than a partition. Each states a `label`, a `token`, an optional `ordinal`, one
+`scope` (`SCOPE_FILE`, `SCOPE_ACCOUNT` or `SCOPE_BROKER`), at least one `match`
+(`MATCH_EXACT`, `MATCH_ORDINAL`, `MATCH_ACCOUNT`) and an optional `ordinal_span`.
+`docs/spec/postings.md` says what each means; the shape is settled in
+`docs/adr/0048-correlations-declare-their-own-semantics.md`.
+
+They travel because a rebuild from an archive has to be able to derive the same
+groups the original data did, and the derivation reads evidence rather than being
+told the answer. The `scope` travels as the source stated it, `SCOPE_FILE`
+included: rewriting it here would throw away what the source said, so an importer
+resolves it against its own job instead.
+
+Only a posting transcribed from a source row carries any. A converter's derived
+counter-leg and a routed residual transcribe nothing, so they correlate with
+nothing, and a token that is present always names something the source itself
+issued.
 
 A posting may carry several `identifier_hints`, which the CSV could not express
 -- it had one `symbol_type`/`symbol` pair per row. The paired

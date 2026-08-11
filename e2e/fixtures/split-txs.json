@@ -16,7 +16,8 @@
           {
             "timestamp": "2024-06-15T00:00:00Z",
             "instrument_description": "AAPL - Apple Inc.",
-            "type": "BUYSTOCK",
+            "broker_tx_type": ["TRADE_ASSET"],
+            "asset_class_hint": "STOCK",
             "quantity": "25",
             "trading_currency": "USD",
             "unit_price": "190",
@@ -31,7 +32,8 @@
           {
             "timestamp": "2024-09-15T00:00:00Z",
             "instrument_description": "AAPL - Apple Inc.",
-            "type": "BUYSTOCK",
+            "broker_tx_type": ["TRADE_ASSET"],
+            "asset_class_hint": "STOCK",
             "quantity": "50",
             "trading_currency": "USD",
             "unit_price": "55",
@@ -46,7 +48,8 @@
           {
             "timestamp": "2024-06-15T00:00:00Z",
             "instrument_description": "AAPL 250117C00760000",
-            "type": "BUYOPT",
+            "broker_tx_type": ["TRADE_ASSET"],
+            "asset_class_hint": "OPTION",
             "quantity": "1",
             "trading_currency": "USD",
             "unit_price": "15",

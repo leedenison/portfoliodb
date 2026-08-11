@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/txtype"
 	"github.com/shopspring/decimal"
 )
 
@@ -30,16 +31,6 @@ const (
 	InstrumentPrefix  = "inst:"
 	DescriptionPrefix = "desc:"
 )
-
-// transferTypes are the journals whose other side is a different account. Their
-// residual is an unmatched transfer rather than a data-quality problem, so it is
-// routed to TRANSFER_CLEARING and holds the value in transit until the pair is
-// matched.
-var transferTypes = map[typev1.TxType]bool{
-	typev1.TxType_TRANSFER: true,
-	typev1.TxType_JRNLFUND: true,
-	typev1.TxType_JRNLSEC:  true,
-}
 
 // Tolerances below which a residual is the source disagreeing with itself rather
 // than a leg it left out. A trade of 37 shares at 12.3456 costs 456.7872 against a
@@ -69,7 +60,7 @@ func Tolerance(commodity string) decimal.Decimal {
 }
 
 // Type returns the account type the residual of amount in commodity is routed to,
-// for a group whose postings have the given tx types.
+// for a group whose postings resolved to the given tx types.
 //
 // The tolerance decides the account type, not whether the residual is routed at
 // all: suppressing the small ones would leave the group summing to a small
@@ -78,11 +69,11 @@ func Tolerance(commodity string) decimal.Decimal {
 // the one thing already known about them. A sub-tolerance residual on a journal
 // is rounding too, so SOURCE_ROUNDING beats the transfer case rather than the
 // other way round.
-func Type(commodity string, amount decimal.Decimal, txTypes []typev1.TxType) typev1.AccountType {
+func Type(commodity string, amount decimal.Decimal, resolved []typev1.TxType) typev1.AccountType {
 	if amount.Abs().LessThan(Tolerance(commodity)) {
 		return typev1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING
 	}
-	return family(txTypes)
+	return family(resolved)
 }
 
 // SplitType returns the account type the residual of a group cut by a period replace
@@ -94,15 +85,18 @@ func Type(commodity string, amount decimal.Decimal, txTypes []typev1.TxType) typ
 // small by coincidence. Calling that SOURCE_ROUNDING would assert something about the
 // source that is false, and would file it below the size at which anything looks
 // again. See docs/adr/0039-replace-by-period-deletes-postings-not-groups.md.
-func SplitType(txTypes []typev1.TxType) typev1.AccountType {
-	return family(txTypes)
+func SplitType(resolved []typev1.TxType) typev1.AccountType {
+	return family(resolved)
 }
 
-// family is the part both callers share: a residual on a journal is a transfer
-// awaiting its other side, and anything else is a leg the source did not supply.
-func family(txTypes []typev1.TxType) typev1.AccountType {
-	for _, t := range txTypes {
-		if transferTypes[t] {
+// family is the part both callers share: a residual on a transfer is value in
+// transit awaiting its other side, and anything else is a leg the source did not
+// supply. The test is must-be over each posting's resolved type, so a posting
+// that may be a transfer but resolved as ambiguous routes to IMBALANCE -- it is
+// not a transfer under every reading, and grouping is what settles it.
+func family(resolved []typev1.TxType) typev1.AccountType {
+	for _, t := range resolved {
+		if txtype.ResolvedMustBe(t, typev1.TxType_TRANSFER) {
 			return typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING
 		}
 	}

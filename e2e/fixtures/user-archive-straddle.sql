@@ -17,16 +17,14 @@ VALUES ('e2e00000-0000-0000-0000-000000000421', 'e2e00000-0000-0000-0000-0000000
 ON CONFLICT (id) DO NOTHING;
 
 -- Money leaving one account on the tenth and arriving in another on the
--- eleventh. JRNLFUND on both legs -- a cash journal, which is what a deposit run
+-- eleventh. TRANSFER on both legs -- a cash journal, which is what a deposit run
 -- is -- so a residual routed for either half is classed as transfer clearing
 -- rather than as an imbalance and the surviving half stays visible to the
--- transfer matcher. JRNLFUND rather than TRANSFER because the leg is a cash
--- instrument and TRANSFER implies no asset class, which validation rejects
--- against CASH on the way back in.
-INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type, quantity,
+-- transfer matcher.
+INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, broker_tx_type, resolved_tx_type, quantity,
                  trading_currency, settlement_currency, instrument_id,
                  weight, weight_commodity, group_id)
-SELECT 'e2e00000-0000-0000-0000-000000000001', 'FIDELITY', v.account, v.at::timestamptz, 'USD', 'JRNLFUND',
+SELECT 'e2e00000-0000-0000-0000-000000000001', 'FIDELITY', v.account, v.at::timestamptz, 'USD', ARRAY['TRANSFER'], 'TRANSFER',
        v.qty, 'USD', 'USD', i.instrument_id, v.qty, 'cur:USD',
        'e2e00000-0000-0000-0000-000000000421'
 FROM (VALUES ('2024-03-10', -5000.00, 'ACC-1'),

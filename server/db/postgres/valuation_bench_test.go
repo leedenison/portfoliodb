@@ -132,8 +132,9 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (string, t
 			}
 			txs = append(txs, &apiv1.Tx{
 				Timestamp: timestamppb.New(at), InstrumentDescription: desc,
-				Type: typev1.TxType_BUYSTOCK, Quantity: "10", Account: "main",
-				TradingCurrency: cur,
+				BrokerTxType:   []typev1.TxType{typev1.TxType_TRADE_ASSET},
+				ResolvedTxType: typev1.TxType_TRADE_ASSET,
+				Quantity:       "10", Account: "main", TradingCurrency: cur,
 			})
 			instIDs = append(instIDs, instID)
 		}

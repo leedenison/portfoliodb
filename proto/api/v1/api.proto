@@ -82,8 +82,18 @@ message Tx {
   google.protobuf.Timestamp timestamp = 1 [(buf.validate.field).required = true];
   // Broker's instrument description string. Required.
   string instrument_description = 2 [(buf.validate.field).string.min_len = 1];
-  // OFX transaction type. Required.
-  portfoliodb.type.v1.TxType type = 3 [(buf.validate.field).enum.defined_only = true];
+  // The candidate event types the source declared, at whatever specificity it
+  // manages. Same semantics as the archive Posting's broker_tx_type: an
+  // antichain, weight-neutral, AMBIGUOUS (15) excluded.
+  repeated portfoliodb.type.v1.TxType broker_tx_type = 3 [
+    (buf.validate.field).repeated = {
+      min_items: 1
+      unique: true
+      items: {
+        enum: {defined_only: true, not_in: [0, 15]}
+      }
+    }
+  ];
   // Signed quantity as a decimal string: positive for buys/adds, negative for
   // sells/reductions. Exact, because a holding is a sum of these and a group's
   // balance is a sum of their weights.
@@ -132,30 +142,34 @@ message Tx {
   // Unset means USER, so an upload that says nothing about kind reads as an ordinary
   // broker account posting.
   portfoliodb.type.v1.AccountType account_type = 15 [(buf.validate.field).enum.defined_only = true];
-  // The source's own identifier for the row this posting was transcribed from:
-  // Fidelity's Reference Number, OFX's FITID. Set by the broker converter and
-  // stored, so unlike group_ref it is durable and means the same thing across
-  // uploads.
+  // 16 was broker_ref and 17 counterparty_account. Both are correlations: the
+  // first a token compared by MATCH_EXACT, the second one compared by
+  // MATCH_ACCOUNT, and both sat on exactly the postings a correlation sits on.
+  reserved 16, 17;
+  // Why this posting might belong with another one, as the source stated it:
+  // an identifier, what may be compared about it, and over what set of
+  // postings. Set by the broker converter, which is the only thing that knows
+  // how its broker encodes the evidence, and stored.
   //
-  // Not a natural key. Ingestion idempotency is by replacement rather than by
-  // dedup on an identifier (docs/adr/0002-transaction-ingestion-model.md), and
-  // one source transaction can produce several postings that share a reference.
-  // Transfer matching reads it as a proximity signal, because a broker issues
-  // the two sides of one transfer adjacent references.
-  //
-  // Present only on postings transcribed from a source row: a converter's
-  // derived counter-leg and a server-routed residual carry none.
-  string broker_ref = 16;
-  // The account the source names as the other side of this row, in the same
-  // broker. Set by the broker converter where the source supplies it.
-  //
-  // Advisory rather than authoritative, because a source can use the same field
-  // for something else -- Fidelity puts the product account a service fee was
-  // charged for in it, which is attribution and not a transfer counterparty. It
-  // is read as a transfer pointer only for a group that produced a
-  // TRANSFER_CLEARING residual. Present only on transcribed postings, as
-  // broker_ref is.
-  string counterparty_account = 17;
+  // The archive message rather than one of this package's own, because a
+  // correlation is written to an archive file and read back from one, and two
+  // declarations would need converting between on every ingest.
+  repeated portfoliodb.archive.v1.Correlation correlations = 18;
+  // The single value grouping narrowed broker_tx_type to: a leaf where a pass
+  // claimed the posting, the common ancestor of the surviving candidates where
+  // nothing did, AMBIGUOUS for an unresolved cross-branch set. Server-derived;
+  // ignored on upload and always present on the way out.
+  portfoliodb.type.v1.TxType resolved_tx_type = 19 [(buf.validate.field).enum.defined_only = true];
+  // The asset class the source states for the instrument, as a routing hint.
+  // Unset means no claim. Not authoritative: the canonical class comes from
+  // identifier plugins. See docs/adr/0013-security-type-hint-vs-asset-class.md.
+  portfoliodb.type.v1.AssetClass asset_class_hint = 20 [(buf.validate.field).enum.defined_only = true];
+  // The cash total the source stated for this row, in settlement_currency,
+  // unsigned. Same semantics as the archive Posting's settlement_amount:
+  // transcribed rather than computed, and present only where the posting's own
+  // quantity is not money. Grouping evidence; it has no part in weight or
+  // balance.
+  optional string settlement_amount = 21 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,
@@ -273,6 +287,11 @@ service ApiService {
   // correction. A cycle reads every unmatched side rather than a window, so
   // running it more often than needed costs one query and finds nothing new.
   rpc TriggerTransferMatch(TriggerTransferMatchRequest) returns (TriggerTransferMatchResponse);
+  // Trigger a transaction grouping cycle (admin-only). Returns immediately; the
+  // pass runs async. For use by an external cron job or CLI, and after an import.
+  // A cycle derives the partition from stored evidence and reports how it differs
+  // from the one stored; it writes nothing until the converters are retired.
+  rpc TriggerGrouping(TriggerGroupingRequest) returns (TriggerGroupingResponse);
 
   // Corporate event import / export. Mirrors the price import/export RPCs:
   // import is async via the job queue, export streams every event with the
@@ -1149,6 +1168,10 @@ message TriggerCorporateEventFetchRequest {}
 
 message TriggerCorporateEventFetchResponse {}
 
+message TriggerGroupingRequest {}
+
+message TriggerGroupingResponse {}
+
 message TriggerTransferMatchRequest {}
 
 message TriggerTransferMatchResponse {}
@@ -1213,7 +1236,7 @@ message ResidualBalance {
   string instrument_id = 4;
   string commodity = 5;          // instrument name: the ISO code for money, the ticker for a security
   portfoliodb.type.v1.AssetClass asset_class = 6;    // CASH means the balance is money; anything else is a quantity
-  portfoliodb.type.v1.TxType tx_type = 7;            // the kind of event that left the balance
+  portfoliodb.type.v1.TxType resolved_tx_type = 7;   // the kind of event that left the balance
   // Decimal; a signed sum over the contributing postings' split-adjusted
   // quantities, which is the only denomination they share. Money never splits,
   // so a cash residual is exact and one reported here is real rather than an

@@ -2,10 +2,10 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/lib/pq"
 	"github.com/shopspring/decimal"
 
 	"github.com/leedenison/portfoliodb/server/db"
@@ -32,7 +32,7 @@ import (
 // Only a group that produced a TRANSFER_CLEARING residual is read, which is also
 // what keeps a counterparty that is not one out of the matcher's reach: Fidelity
 // names the product account a service fee was charged for in the same field, but a
-// service fee is an INVEXPENSE whose group balances against an EXPENSE leg and
+// service fee is a holding cost whose group balances against an EXPENSE leg and
 // routes nothing to clearing.
 const unmatchedTransferSidesSQL = `
 	SELECT t.user_id, t.group_id, t.broker, t.account, t.instrument_id,
@@ -41,15 +41,21 @@ const unmatchedTransferSidesSQL = `
 		-- side of a split are in different denominations and would not cancel.
 		t.split_adjusted_quantity AS amount,
 		t.timestamp,
-		COALESCE(e.refs, '{}')           AS broker_refs,
-		COALESCE(e.counterparties, '{}') AS counterparty_accounts
+		COALESCE(e.correlations, '[]'::jsonb) AS correlations
 	FROM txs t
+	-- The evidence of the whole group, not of the clearing leg, which is routed
+	-- and transcribes nothing. As JSON because a correlation is a record rather
+	-- than a value, and the alternative -- one row per correlation on a scan
+	-- that is already one row per side -- would multiply the sides out and make
+	-- the caller re-collapse them.
 	LEFT JOIN LATERAL (
-		SELECT array_agg(DISTINCT p.broker_ref)
-			FILTER (WHERE p.broker_ref IS NOT NULL) AS refs,
-		       array_agg(DISTINCT p.counterparty_account)
-			FILTER (WHERE p.counterparty_account IS NOT NULL) AS counterparties
+		SELECT jsonb_agg(DISTINCT jsonb_build_object(
+			'token', c.token,
+			'ordinal', c.ordinal,
+			'match', c.matches
+		)) AS correlations
 		FROM txs p
+		JOIN tx_correlations c ON c.tx_id = p.id
 		WHERE p.group_id = t.group_id
 	) e ON true
 	WHERE t.account_type = 'TRANSFER_CLEARING'
@@ -66,30 +72,49 @@ const unmatchedTransferSidesSQL = `
 	ORDER BY t.user_id, t.instrument_id, t.timestamp, t.group_id`
 
 // transferSideRow is the sqlx-scannable shape for one unmatched side.
+//
+// Correlations arrive as the JSON the lateral built. Only the three fields a
+// matching pass reads are selected: the label partitions series for grouping
+// rather than for matching, and the scope is a statement about which postings are
+// comparable that the passes already make for themselves -- both are same-broker,
+// and a pointer is compared against an account rather than against another token.
 type transferSideRow struct {
-	UserID               string          `db:"user_id"`
-	GroupID              string          `db:"group_id"`
-	Broker               string          `db:"broker"`
-	Account              string          `db:"account"`
-	InstrumentID         string          `db:"instrument_id"`
-	Amount               decimal.Decimal `db:"amount"`
-	Timestamp            time.Time       `db:"timestamp"`
-	BrokerRefs           pq.StringArray  `db:"broker_refs"`
-	CounterpartyAccounts pq.StringArray  `db:"counterparty_accounts"`
+	UserID       string          `db:"user_id"`
+	GroupID      string          `db:"group_id"`
+	Broker       string          `db:"broker"`
+	Account      string          `db:"account"`
+	InstrumentID string          `db:"instrument_id"`
+	Amount       decimal.Decimal `db:"amount"`
+	Timestamp    time.Time       `db:"timestamp"`
+	Correlations []byte          `db:"correlations"`
 }
 
-func (r *transferSideRow) toDomain() db.TransferSide {
-	return db.TransferSide{
-		UserID:               r.UserID,
-		GroupID:              r.GroupID,
-		Broker:               strToBroker(r.Broker),
-		Account:              r.Account,
-		InstrumentID:         r.InstrumentID,
-		Amount:               r.Amount,
-		Timestamp:            r.Timestamp,
-		BrokerRefs:           []string(r.BrokerRefs),
-		CounterpartyAccounts: []string(r.CounterpartyAccounts),
+func (r *transferSideRow) toDomain() (db.TransferSide, error) {
+	var cs []struct {
+		Token   string   `json:"token"`
+		Ordinal *int64   `json:"ordinal"`
+		Match   []string `json:"match"`
 	}
+	if err := json.Unmarshal(r.Correlations, &cs); err != nil {
+		return db.TransferSide{}, fmt.Errorf("correlations of group %s: %w", r.GroupID, err)
+	}
+	side := db.TransferSide{
+		UserID:       r.UserID,
+		GroupID:      r.GroupID,
+		Broker:       strToBroker(r.Broker),
+		Account:      r.Account,
+		InstrumentID: r.InstrumentID,
+		Amount:       r.Amount,
+		Timestamp:    r.Timestamp,
+	}
+	for _, c := range cs {
+		side.Correlations = append(side.Correlations, db.Correlation{
+			Token:   c.Token,
+			Ordinal: c.Ordinal,
+			Match:   c.Match,
+		})
+	}
+	return side, nil
 }
 
 // ListUnmatchedTransferSides implements db.TransferMatchDB.
@@ -100,7 +125,11 @@ func (p *Postgres) ListUnmatchedTransferSides(ctx context.Context, opts db.Trans
 	}
 	out := make([]db.TransferSide, len(rows))
 	for i := range rows {
-		out[i] = rows[i].toDomain()
+		side, err := rows[i].toDomain()
+		if err != nil {
+			return nil, fmt.Errorf("list unmatched transfer sides: %w", err)
+		}
+		out[i] = side
 	}
 	return out, nil
 }

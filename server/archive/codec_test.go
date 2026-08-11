@@ -145,11 +145,19 @@ func userFixture() *archivev1.UserArchive {
 					Timestamp:             timestamppb.New(time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)),
 					Account:               "U123",
 					AccountType:           typev1.AccountType_ACCOUNT_TYPE_USER,
-					Type:                  typev1.TxType_BUYSTOCK,
+					BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
 					InstrumentDescription: "APPLE INC",
 					Quantity:              "10",
 					UnitPrice:             proto.String("185.9"),
 					GroupRef:              proto.String("g0"),
+					// An OFX FITID, which is unique within the account rather
+					// than within the institution, and opaque: no ordinal, so
+					// equality is all it offers.
+					Correlations: []*archivev1.Correlation{{
+						Token: "20240115U10000018371888432",
+						Scope: typev1.Scope_SCOPE_ACCOUNT,
+						Match: []typev1.Match{typev1.Match_MATCH_EXACT},
+					}},
 				}},
 			}},
 		},

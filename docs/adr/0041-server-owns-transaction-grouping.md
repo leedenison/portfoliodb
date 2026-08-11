@@ -70,6 +70,13 @@ and it does so as an ordinary correlation the engine consumes as evidence -- not
 as a partition the engine obeys, which is what this ADR and
 [0043](0043-grouping-does-not-travel-in-the-archive.md) both reject.
 
+**Human assertions need no anchor.** "Human assertions have to become inputs to the
+grouping pass, replayed on every run, which needs the postings they name to be
+identifiable" above assumes an assertion is stored beside the postings and has to find
+them again. [0049](0049-a-human-assertion-is-a-correlation.md) records that it is not:
+a hand-made grouping is a correlation written onto its members, so it is a field of the
+thing it names and 0002's missing natural key never comes up.
+
 **The broker-specific passes arrive as an ordering.**
 [0047](0047-grouping-runs-as-precedence-ordered-passes.md) makes the engine's pass
 order load-bearing for correctness rather than for tuning, and a single order has

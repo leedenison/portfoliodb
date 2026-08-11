@@ -38,7 +38,7 @@ test.describe("admin imbalance page", () => {
     const rows = page.locator("[data-testid='imbalance-row']");
     await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: "Income" })).toHaveCount(1);
-    await expect(rows.filter({ hasText: "Buy Stock" })).toHaveCount(1);
+    await expect(rows.filter({ hasText: "Trade (Asset)" })).toHaveCount(1);
 
     // One broker, and its subtotal nets the two.
     await expect(page.locator("[data-testid='imbalance-broker-group']")).toHaveCount(1);

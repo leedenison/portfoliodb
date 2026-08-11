@@ -16,7 +16,8 @@
           {
             "timestamp": "2024-02-01T00:00:00Z",
             "instrument_description": "AMZN - Amazon.com Inc.",
-            "type": "BUYSTOCK",
+            "broker_tx_type": ["TRADE_ASSET"],
+            "asset_class_hint": "STOCK",
             "quantity": "5",
             "trading_currency": "USD",
             "unit_price": "170",
@@ -30,7 +31,8 @@
           {
             "timestamp": "2024-02-02T00:00:00Z",
             "instrument_description": "NVDA - NVIDIA Corp.",
-            "type": "BUYSTOCK",
+            "broker_tx_type": ["TRADE_ASSET"],
+            "asset_class_hint": "STOCK",
             "quantity": "3",
             "trading_currency": "USD",
             "unit_price": "680",
@@ -44,7 +46,8 @@
           {
             "timestamp": "2024-02-03T00:00:00Z",
             "instrument_description": "TSLA - Tesla Inc.",
-            "type": "BUYSTOCK",
+            "broker_tx_type": ["TRADE_ASSET"],
+            "asset_class_hint": "STOCK",
             "quantity": "10",
             "trading_currency": "USD",
             "unit_price": "190",

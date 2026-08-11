@@ -1,6 +1,6 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { Broker } from "@/gen/type/v1/type_pb";
+import { Broker, TxType } from "@/gen/type/v1/type_pb";
 import { PostingSchema } from "@/gen/archive/v1/txs_pb";
 import {
   UpsertTxsResponseSchema,
@@ -37,7 +37,7 @@ describe("ingestion-api", () => {
       const posting = create(PostingSchema, {
         timestamp: timestampFromDate(new Date("2024-01-15")),
         instrumentDescription: "AAPL",
-        type: 5, // BUYSTOCK
+        brokerTxType: [TxType.TRADE_ASSET],
         quantity: "10",
         account: "",
       });

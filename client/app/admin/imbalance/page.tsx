@@ -150,11 +150,13 @@ export default function AdminImbalancePage() {
           blurb={
             <>
               Expect uncategorised income to dominate until each converter emits the income
-              and expense legs of its single-row dividends and charges. The tx type separates
-              the two: an {TX_TYPE_LABEL[TxType.INCOME]} balance is a dividend we do not
-              categorise yet, a trade balance is a fee the broker did not report. A negative
-              balance is value arriving from outside the ledger, which is what an
-              uncategorised dividend looks like.
+              and expense legs of its single-row dividends and charges. The resolved tx type
+              separates the cases: an {TX_TYPE_LABEL[TxType.INCOME]} balance is income we do
+              not categorise yet, a {TX_TYPE_LABEL[TxType.TRADE]} balance is a fee the broker
+              did not report, and an {TX_TYPE_LABEL[TxType.AMBIGUOUS]} one is a row whose
+              declared candidates nothing has narrowed yet. A negative balance is value
+              arriving from outside the ledger, which is what an uncategorised dividend looks
+              like.
             </>
           }
         />
@@ -241,13 +243,13 @@ function ResidualTab({
             </tr>
             {g.rows.map((r) => (
               <tr
-                key={`${r.account}|${r.instrumentId}|${r.txType}`}
+                key={`${r.account}|${r.instrumentId}|${r.resolvedTxType}`}
                 data-testid="imbalance-row"
                 className="border-b border-border"
               >
                 <td className="py-2 pr-4 pl-4 font-mono text-text-primary">{r.account || "\u2014"}</td>
                 <td className="py-2 pr-4 font-mono text-text-muted">{r.commodity}</td>
-                <td className="py-2 pr-4 text-text-muted">{TX_TYPE_LABEL[r.txType] ?? r.txType}</td>
+                <td className="py-2 pr-4 text-text-muted">{TX_TYPE_LABEL[r.resolvedTxType] ?? r.resolvedTxType}</td>
                 <td className="py-2 pr-4 text-right font-mono tabular-nums text-text-primary">
                   {amount(r)}
                 </td>
@@ -300,7 +302,7 @@ function TransfersTab({
             const days = ageInDays(r.oldestTimestamp, now);
             return (
               <tr
-                key={`${r.broker}|${r.account}|${r.instrumentId}|${r.txType}`}
+                key={`${r.broker}|${r.account}|${r.instrumentId}|${r.resolvedTxType}`}
                 data-testid="transfer-row"
                 data-age-bucket={bucket}
                 className="border-b border-border"
@@ -308,7 +310,7 @@ function TransfersTab({
                 <td className="py-2 pr-4 text-text-primary">{getBrokerLabel(r.broker as Broker)}</td>
                 <td className="py-2 pr-4 font-mono text-text-primary">{r.account || "\u2014"}</td>
                 <td className="py-2 pr-4 font-mono text-text-muted">{r.commodity}</td>
-                <td className="py-2 pr-4 text-text-muted">{TX_TYPE_LABEL[r.txType] ?? r.txType}</td>
+                <td className="py-2 pr-4 text-text-muted">{TX_TYPE_LABEL[r.resolvedTxType] ?? r.resolvedTxType}</td>
                 <td className="py-2 pr-4 text-right font-mono tabular-nums text-text-primary">
                   {amount(r)}
                 </td>

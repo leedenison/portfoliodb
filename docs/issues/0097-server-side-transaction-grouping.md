@@ -2,7 +2,7 @@
 status: open
 title: Derive transaction groups on the server
 milestone: M15
-dependencies: [0096, 0100]
+dependencies: [0096, 0100, 0102]
 ---
 
 Build the pass that decides which postings are legs of one economic event, from
@@ -61,15 +61,37 @@ the engine can run in shadow over stored postings and be required to reproduce
 `group_ref` exactly before anything depends on it. Do this before 0098 flips the
 switch.
 
-## Open
+The oracle is not infallible, and the bar has to be read with that in mind. The
+engine is free to disagree with a converter's pairing, including one that balances
+with nothing worse than a `SOURCE_ROUNDING` residual, because that is what a
+wrong pairing of two similar trades looks like
+(adr/0047-grouping-runs-as-precedence-ordered-passes.md). So a divergence may be
+the engine being right. Zero divergences is still the bar to start from, since
+any other number is unfalsifiable, but each one is looked at rather than counted
+as a failure.
 
-A regroup churns group ids, so a human assertion -- a hand-made transfer match, and
-later a hand-made grouping -- cannot be keyed on them. Human judgement has to become an
-input replayed on every run, anchored on something durable, and a posting has no
-natural key (adr/0002-transaction-ingestion-model.md). Settle this here rather than in 0091 or 0095, both of which
-depend on the answer.
+## Settled: how a human assertion survives
 
-A source-asserted grouping is the same mechanism with a different asserter: an
-assertion, replayed on every run, that the engine consumes as its
-highest-precedence evidence (adr/0048-correlations-declare-their-own-semantics.md).
-One design should serve both.
+adr/0049-a-human-assertion-is-a-correlation.md answers the question this issue was
+asked to settle, and answers it by removing it. A hand-made grouping is a correlation
+written onto the postings it names, with a synthesised token, `MATCH_EXACT` and a new
+`SCOPE_USER`, so there is no anchor to resolve: the assertion is a field of the thing
+it names. It dies with a re-upload, which the user is warned about rather than having
+rebuilt, and survives an archive round trip because the archive carries correlations.
+The engine consumes it through the same exact-token pass that honours an OFX `FITID`,
+which is what "one design should serve both asserters" comes to.
+
+A hand-made transfer *match* is a different object -- a link between groups, not a
+join between postings -- and keeps its group ids. What makes that safe is the engine
+writing only the groups it disagrees with, so a cycle that repartitions nothing churns
+no ids. That is a requirement on this issue's write path, not a detail of it.
+
+The writer, the `SCOPE_USER` value, the manual-grouping API and UI, and the re-upload
+warning land in 0095.
+
+## Evidence this needs and does not have
+
+The converters compare two independently transcribed cash totals; the standard format
+carries only one of them, because a security trade row's `Amount` is used inside
+`assignFidelityGroups` and then discarded. 0102 closes that before the engine is
+built.

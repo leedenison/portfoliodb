@@ -45,29 +45,29 @@ func TestListResidualBalances_Success(t *testing.T) {
 	newest := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
 	db.EXPECT().ListResidualBalances(gomock.Any(), gomock.Any()).Return([]dbpkg.ResidualBalance{
 		{
-			AccountType:  typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
-			Broker:       typev1.Broker_FIDELITY,
-			Account:      "X123",
-			InstrumentID: "inst-1",
-			Commodity:    "USD",
-			AssetClass:   "CASH",
-			TxType:       typev1.TxType_INCOME,
-			Balance:      decimal.RequireFromString("-1234.56"),
-			PostingCount: 7,
-			Oldest:       &oldest,
-			Newest:       &newest,
+			AccountType:    typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
+			Broker:         typev1.Broker_FIDELITY,
+			Account:        "X123",
+			InstrumentID:   "inst-1",
+			Commodity:      "USD",
+			AssetClass:     "CASH",
+			ResolvedTxType: typev1.TxType_INCOME,
+			Balance:        decimal.RequireFromString("-1234.56"),
+			PostingCount:   7,
+			Oldest:         &oldest,
+			Newest:         &newest,
 		},
 		{
 			// A transfer with no posting on the outstanding side reports no age.
-			AccountType:  typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
-			Broker:       typev1.Broker_IBKR,
-			Account:      "U9",
-			InstrumentID: "inst-2",
-			Commodity:    "AAPL",
-			AssetClass:   "STOCK",
-			TxType:       typev1.TxType_JRNLSEC,
-			Balance:      decimal.RequireFromString("50"),
-			PostingCount: 1,
+			AccountType:    typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
+			Broker:         typev1.Broker_IBKR,
+			Account:        "U9",
+			InstrumentID:   "inst-2",
+			Commodity:      "AAPL",
+			AssetClass:     "STOCK",
+			ResolvedTxType: typev1.TxType_TRANSFER,
+			Balance:        decimal.RequireFromString("50"),
+			PostingCount:   1,
 		},
 	}, nil)
 
@@ -95,8 +95,8 @@ func TestListResidualBalances_Success(t *testing.T) {
 	if got.GetAssetClass() != typev1.AssetClass_CASH {
 		t.Errorf("asset class = %v, want CASH", got.GetAssetClass())
 	}
-	if got.GetTxType() != typev1.TxType_INCOME {
-		t.Errorf("tx type = %v, want INCOME", got.GetTxType())
+	if got.GetResolvedTxType() != typev1.TxType_INCOME {
+		t.Errorf("resolved tx type = %v, want INCOME", got.GetResolvedTxType())
 	}
 	if got.GetBalance() != "-1234.56" {
 		t.Errorf("balance = %v, want -1234.56", got.GetBalance())
@@ -287,5 +287,56 @@ func TestTriggerTransferMatch_NilTrigger(t *testing.T) {
 	ctx := adminCtx("admin-1", "sub|admin")
 	if _, err := srv.TriggerTransferMatch(ctx, &apiv1.TriggerTransferMatchRequest{}); err != nil {
 		t.Fatalf("TriggerTransferMatch with nil trigger should succeed: %v", err)
+	}
+}
+
+func TestTriggerGrouping_RequiresAdmin(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	ctx := authCtx("user-1", "sub|user")
+	_, err := srv.TriggerGrouping(ctx, &apiv1.TriggerGroupingRequest{})
+	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
+}
+
+func TestTriggerGrouping_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(func() { ctrl.Finish() })
+	mockDB := mock.NewMockDB(ctrl)
+	trigger := make(chan struct{}, 1)
+	srv := NewServer(ServerConfig{DB: mockDB, GroupingTrigger: trigger})
+
+	ctx := adminCtx("admin-1", "sub|admin")
+	if _, err := srv.TriggerGrouping(ctx, &apiv1.TriggerGroupingRequest{}); err != nil {
+		t.Fatalf("TriggerGrouping: %v", err)
+	}
+	select {
+	case <-trigger:
+	default:
+		t.Error("expected a signal on the trigger channel")
+	}
+}
+
+// TestTriggerGrouping_NonBlocking verifies a cron job calling this while a pass is
+// already pending returns rather than waiting, as the other trigger endpoints do.
+func TestTriggerGrouping_NonBlocking(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(func() { ctrl.Finish() })
+	mockDB := mock.NewMockDB(ctrl)
+	trigger := make(chan struct{}, 1)
+	trigger <- struct{}{}
+	srv := NewServer(ServerConfig{DB: mockDB, GroupingTrigger: trigger})
+
+	ctx := adminCtx("admin-1", "sub|admin")
+	if _, err := srv.TriggerGrouping(ctx, &apiv1.TriggerGroupingRequest{}); err != nil {
+		t.Fatalf("TriggerGrouping should not block: %v", err)
+	}
+}
+
+// TestTriggerGrouping_NilTrigger verifies the RPC is a no-op rather than an error
+// where no worker is wired.
+func TestTriggerGrouping_NilTrigger(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	ctx := adminCtx("admin-1", "sub|admin")
+	if _, err := srv.TriggerGrouping(ctx, &apiv1.TriggerGroupingRequest{}); err != nil {
+		t.Fatalf("TriggerGrouping with nil trigger should succeed: %v", err)
 	}
 }

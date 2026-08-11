@@ -55,6 +55,10 @@ type WorkerOptions struct {
 	// TransferMatchTrigger is fired after a tx import that produced new state;
 	// nil disables transfer-matcher nudging.
 	TransferMatchTrigger chan<- struct{}
+	// GroupingTrigger is fired alongside it, for the same reason: an import can
+	// have supplied a leg that belongs with one stored months ago. nil disables
+	// grouping nudging.
+	GroupingTrigger chan<- struct{}
 	// Workers is the per-process worker status registry shown in the admin
 	// UI; nil disables status reporting.
 	Workers *worker.Registry
@@ -111,6 +115,7 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			// import may also have supplied the second side of a transfer
 			// whose first side arrived months ago.
 			pluginutil.Trigger(opts.TransferMatchTrigger)
+			pluginutil.Trigger(opts.GroupingTrigger)
 		}
 	case db.JobTypeSystemArchive:
 		res := processSystemImport(ctx, opts.DB, opts.IdentifierRegistry, j)
@@ -144,6 +149,7 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 				log.Printf("user archive job %s: recalc INITIALIZE txs: %v", j.JobID, err)
 			}
 			pluginutil.Trigger(opts.TransferMatchTrigger)
+			pluginutil.Trigger(opts.GroupingTrigger)
 		}
 		if res.displayCurrencySet || res.txsStored {
 			pluginutil.Trigger(opts.PriceTrigger)
@@ -264,14 +270,11 @@ func recomputeSplitAdjustedTxs(ctx context.Context, database db.DB, instrumentID
 	}
 }
 
-// filterStoredTxs returns only txs with stored types that are not ignored, along with their original indices.
-func filterStoredTxs(txs []*apiv1.Tx, broker string, ignored []db.IgnoredAssetClass) ([]*apiv1.Tx, []int) {
+// filterIgnoredTxs returns only txs not matching an ignore rule, along with their original indices.
+func filterIgnoredTxs(txs []*apiv1.Tx, broker string, ignored []db.IgnoredAssetClass) ([]*apiv1.Tx, []int) {
 	var filtered []*apiv1.Tx
 	var indices []int
 	for i, tx := range txs {
-		if !TxTypeStored(tx.Type) {
-			continue
-		}
 		if TxIgnored(tx, broker, ignored) {
 			continue
 		}

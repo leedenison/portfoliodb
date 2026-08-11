@@ -7,6 +7,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/residual"
@@ -26,25 +27,37 @@ var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 const insertPostingSQL = `
 	WITH g AS (
 		INSERT INTO tx_groups (user_id, timestamp, job_id)
-		VALUES ($1, $4, $18)
+		VALUES ($1, $4, $19)
 		RETURNING id
 	)
-	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
+	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
-	                 instrument_id, share_count_basis, account_type,
-	                 weight, weight_commodity, broker_ref, counterparty_account, group_id)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, $16, $17, g.id FROM g
-	RETURNING group_id
+	                 settlement_amount, instrument_id, share_count_basis, account_type,
+	                 weight, weight_commodity, group_id)
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, g.id FROM g
+	RETURNING id, group_id
 `
 
 // insertPostingInGroupSQL inserts a tx as a posting of an existing tx group, for
 // the second and subsequent legs of one economic event.
 const insertPostingInGroupSQL = `
-	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description, tx_type,
+	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
-	                 instrument_id, share_count_basis, account_type,
-	                 weight, weight_commodity, broker_ref, counterparty_account, group_id)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, $16, $17, $18)
+	                 settlement_amount, instrument_id, share_count_basis, account_type,
+	                 weight, weight_commodity, group_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19)
+	RETURNING id
+`
+
+// insertCorrelationSQL records one of a posting's correlations. ordinality is the
+// position the source stated it in, so a posting read back is the posting that
+// was written.
+const insertCorrelationSQL = `
+	INSERT INTO tx_correlations (tx_id, ordinality, label, token, ordinal, scope, matches,
+	                             ordinal_span, job_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
 // groupResolver hands out the tx group for a tx's group_ref. An empty group_ref
@@ -123,7 +136,13 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 		if err != nil {
 			return err
 		}
-		txTypeStr, err := txTypeToStr(t.Type)
+		brokerTypes, err := db.TxTypesToStrs(t.GetBrokerTxType())
+		if err != nil {
+			return err
+		}
+		// Erroring on an unresolved value is what stops any path storing a
+		// posting the ingest pipeline did not resolve.
+		resolvedStr, err := txTypeToStr(t.GetResolvedTxType())
 		if err != nil {
 			return err
 		}
@@ -148,6 +167,10 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 		if err != nil {
 			return fmt.Errorf("invalid unit price %q: %w", t.GetUnitPrice(), err)
 		}
+		settlement, err := parseOptDecimal(t.SettlementAmount)
+		if err != nil {
+			return fmt.Errorf("invalid settlement amount %q: %w", t.GetSettlementAmount(), err)
+		}
 		w := db.Weight{Amount: qty, Commodity: "inst:" + instUUID.String()}
 		if i < len(weights) {
 			w = weights[i]
@@ -160,27 +183,57 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 			basis = shareCountBasis[i]
 		}
 		args := []interface{}{
-			userUUID, broker, acc, ts, t.InstrumentDescription, txTypeStr, qty,
+			userUUID, broker, acc, ts, t.InstrumentDescription,
+			pq.Array(brokerTypes), resolvedStr, nullStr(db.AssetClassToStr(t.GetAssetClassHint())), qty,
 			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullDecimal(price),
-			instUUID, basis, acctTypeStr, w.Amount, w.Commodity,
-			// Stored as the source wrote them, and NULL where it wrote nothing:
-			// absent evidence is not the same as an empty reference, and only a
-			// derived posting is expected to carry none at all.
-			nullStr(t.GetBrokerRef()), nullStr(t.GetCounterpartyAccount()),
+			nullDecimal(settlement), instUUID, basis, acctTypeStr, w.Amount, w.Commodity,
 		}
 		ref := t.GetGroupRef()
+		var txID uuid.UUID
 		if groupID, ok := resolver.group(ref); ok {
-			if _, err := exec.ExecContext(ctx, insertPostingInGroupSQL, append(args, groupID)...); err != nil {
+			if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL, append(args, groupID)...).Scan(&txID); err != nil {
 				return fmt.Errorf("insert tx: %w", err)
 			}
-			continue
+		} else {
+			// The group takes the timestamp of the first leg that names it.
+			var groupID uuid.UUID
+			if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID)...).Scan(&txID, &groupID); err != nil {
+				return fmt.Errorf("insert tx: %w", err)
+			}
+			resolver.record(ref, groupID)
 		}
-		// The group takes the timestamp of the first leg that names it.
-		var groupID uuid.UUID
-		if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID)...).Scan(&groupID); err != nil {
-			return fmt.Errorf("insert tx: %w", err)
+		if err := insertCorrelations(ctx, exec, txID, jobUUID, t.GetCorrelations()); err != nil {
+			return err
 		}
-		resolver.record(ref, groupID)
+	}
+	return nil
+}
+
+// insertCorrelations records what a posting's source said about why it might
+// belong with another one. The job is stored beside each one because it is what a
+// FILE-scoped correlation is comparable within.
+func insertCorrelations(ctx context.Context, exec queryable, txID uuid.UUID, jobUUID interface{}, cs []*archivev1.Correlation) error {
+	for i, c := range cs {
+		scope, err := db.ScopeToStr(c.GetScope())
+		if err != nil {
+			return fmt.Errorf("correlation %q: %w", c.GetToken(), err)
+		}
+		matches := make(pq.StringArray, 0, len(c.GetMatch()))
+		for _, m := range c.GetMatch() {
+			s, err := db.MatchToStr(m)
+			if err != nil {
+				return fmt.Errorf("correlation %q: %w", c.GetToken(), err)
+			}
+			matches = append(matches, s)
+		}
+		if len(matches) == 0 {
+			return fmt.Errorf("correlation %q: no match declared", c.GetToken())
+		}
+		if _, err := exec.ExecContext(ctx, insertCorrelationSQL,
+			txID, i, c.GetLabel(), c.GetToken(), c.Ordinal, scope, matches, c.OrdinalSpan, jobUUID,
+		); err != nil {
+			return fmt.Errorf("insert tx correlation: %w", err)
+		}
 	}
 	return nil
 }
@@ -236,7 +289,7 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *typev1.Br
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	qb := psql.Select("broker", "account", "timestamp", "instrument_description", "tx_type", "quantity", "split_adjusted_quantity", "trading_currency", "settlement_currency", "unit_price", "split_adjusted_unit_price", "instrument_id", "synthetic_purpose", "account_type").
+	qb := psql.Select("broker", "account", "timestamp", "instrument_description", "broker_tx_type", "resolved_tx_type", "asset_class_hint", "quantity", "split_adjusted_quantity", "trading_currency", "settlement_currency", "unit_price", "split_adjusted_unit_price", "instrument_id", "synthetic_purpose", "account_type").
 		From("txs").
 		Where(sq.Eq{"user_id": userUUID}).
 		OrderBy(txOrderBy("", descending)...)
@@ -296,7 +349,7 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, b
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	qb := psql.Select("t.broker", "t.account", "t.timestamp", "t.instrument_description", "t.tx_type", "t.quantity", "t.split_adjusted_quantity", "t.trading_currency", "t.settlement_currency", "t.unit_price", "t.split_adjusted_unit_price", "t.instrument_id", "t.synthetic_purpose", "t.account_type").
+	qb := psql.Select("t.broker", "t.account", "t.timestamp", "t.instrument_description", "t.broker_tx_type", "t.resolved_tx_type", "t.asset_class_hint", "t.quantity", "t.split_adjusted_quantity", "t.trading_currency", "t.settlement_currency", "t.unit_price", "t.split_adjusted_unit_price", "t.instrument_id", "t.synthetic_purpose", "t.account_type").
 		From("txs t").
 		Join("portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = ?", portUUID).
 		OrderBy(txOrderBy("t.", descending)...)
@@ -343,26 +396,28 @@ func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, b
 	return out, nextToken, nil
 }
 
-// exportPosting is a sqlx-scannable version of db.ExportPosting.
+// exportPosting is a sqlx-scannable version of db.ExportPosting, less the
+// correlations, which are read in a second pass and attached by posting id.
 type exportPosting struct {
-	Broker              string           `db:"broker"`
-	GroupID             string           `db:"group_id"`
-	GroupTimestamp      time.Time        `db:"group_timestamp"`
-	Timestamp           time.Time        `db:"timestamp"`
-	Account             string           `db:"account"`
-	AccountType         string           `db:"account_type"`
-	TxType              string           `db:"tx_type"`
-	Description         string           `db:"instrument_description"`
-	IdentifierType      string           `db:"identifier_type"`
-	IdentifierValue     string           `db:"value"`
-	IdentifierDomain    string           `db:"domain"`
-	Quantity            decimal.Decimal  `db:"quantity"`
-	UnitPrice           *decimal.Decimal `db:"unit_price"`
-	TradingCurrency     string           `db:"trading_currency"`
-	SettlementCurrency  string           `db:"settlement_currency"`
-	BrokerRef           string           `db:"broker_ref"`
-	CounterpartyAccount string           `db:"counterparty_account"`
-	ShareCountBasis     *time.Time       `db:"share_count_basis"`
+	Broker             string           `db:"broker"`
+	ID                 string           `db:"id"`
+	GroupID            string           `db:"group_id"`
+	GroupTimestamp     time.Time        `db:"group_timestamp"`
+	Timestamp          time.Time        `db:"timestamp"`
+	Account            string           `db:"account"`
+	AccountType        string           `db:"account_type"`
+	BrokerTxTypes      pq.StringArray   `db:"broker_tx_type"`
+	AssetClassHint     string           `db:"asset_class_hint"`
+	Description        string           `db:"instrument_description"`
+	IdentifierType     string           `db:"identifier_type"`
+	IdentifierValue    string           `db:"value"`
+	IdentifierDomain   string           `db:"domain"`
+	Quantity           decimal.Decimal  `db:"quantity"`
+	UnitPrice          *decimal.Decimal `db:"unit_price"`
+	TradingCurrency    string           `db:"trading_currency"`
+	SettlementCurrency string           `db:"settlement_currency"`
+	SettlementAmount   *decimal.Decimal `db:"settlement_amount"`
+	ShareCountBasis    *time.Time       `db:"share_count_basis"`
 }
 
 // ListTxsForExport implements db.TxDB.
@@ -404,16 +459,15 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 		period += fmt.Sprintf("\n\t\t  AND t.timestamp < $%d", len(args))
 	}
 	q := `
-		SELECT t.broker, t.group_id::text AS group_id, g.timestamp AS group_timestamp,
-			t.timestamp, t.account, t.account_type, t.tx_type, t.instrument_description,
+		SELECT t.broker, t.id::text AS id, t.group_id::text AS group_id, g.timestamp AS group_timestamp,
+			t.timestamp, t.account, t.account_type, t.broker_tx_type,
+			COALESCE(t.asset_class_hint, '') AS asset_class_hint, t.instrument_description,
 			COALESCE(best_id.identifier_type, '') AS identifier_type,
 			COALESCE(best_id.value, '') AS value,
 			COALESCE(best_id.domain, '') AS domain,
-			t.quantity, t.unit_price,
+			t.quantity, t.unit_price, t.settlement_amount,
 			COALESCE(t.trading_currency, '') AS trading_currency,
 			COALESCE(t.settlement_currency, '') AS settlement_currency,
-			COALESCE(t.broker_ref, '') AS broker_ref,
-			COALESCE(t.counterparty_account, '') AS counterparty_account,
 			-- A basis equal to the posting's own date is the as-traded
 			-- convention and says nothing a reader cannot infer. The column is
 			-- NOT NULL and the insert trigger defaults it to that date, so
@@ -436,9 +490,79 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 	if err := p.q.SelectContext(ctx, &rows, q, args...); err != nil {
 		return nil, fmt.Errorf("list txs for export: %w", err)
 	}
+	ids := make([]string, len(rows))
 	out := make([]db.ExportPosting, len(rows))
 	for i, r := range rows {
-		out[i] = db.ExportPosting(r)
+		ids[i] = r.ID
+		out[i] = db.ExportPosting{
+			Broker:             r.Broker,
+			ID:                 r.ID,
+			GroupID:            r.GroupID,
+			GroupTimestamp:     r.GroupTimestamp,
+			Timestamp:          r.Timestamp,
+			Account:            r.Account,
+			AccountType:        r.AccountType,
+			BrokerTxTypes:      r.BrokerTxTypes,
+			AssetClassHint:     r.AssetClassHint,
+			Description:        r.Description,
+			IdentifierType:     r.IdentifierType,
+			IdentifierValue:    r.IdentifierValue,
+			IdentifierDomain:   r.IdentifierDomain,
+			Quantity:           r.Quantity,
+			UnitPrice:          r.UnitPrice,
+			TradingCurrency:    r.TradingCurrency,
+			SettlementCurrency: r.SettlementCurrency,
+			SettlementAmount:   r.SettlementAmount,
+			ShareCountBasis:    r.ShareCountBasis,
+		}
+	}
+	// A second pass rather than an aggregate in the scan above: the postings are
+	// read as one ordered stream, and a lateral json_agg would make every row
+	// carry a document to be decoded whether it correlates with anything or not.
+	byTx, err := p.correlationsByTx(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Correlations = byTx[out[i].ID]
+	}
+	return out, nil
+}
+
+// correlationsByTx reads the correlations of the given postings, in the order
+// their sources stated them.
+func (p *Postgres) correlationsByTx(ctx context.Context, txIDs []string) (map[string][]db.Correlation, error) {
+	if len(txIDs) == 0 {
+		return nil, nil
+	}
+	const q = `
+		SELECT tx_id::text AS tx_id, label, token, ordinal, scope, matches, ordinal_span
+		FROM tx_correlations
+		WHERE tx_id = ANY($1::uuid[])
+		ORDER BY tx_id, ordinality
+	`
+	var rows []struct {
+		TxID        string         `db:"tx_id"`
+		Label       string         `db:"label"`
+		Token       string         `db:"token"`
+		Ordinal     *int64         `db:"ordinal"`
+		Scope       string         `db:"scope"`
+		Matches     pq.StringArray `db:"matches"`
+		OrdinalSpan *int64         `db:"ordinal_span"`
+	}
+	if err := p.q.SelectContext(ctx, &rows, q, pq.Array(txIDs)); err != nil {
+		return nil, fmt.Errorf("list tx correlations: %w", err)
+	}
+	out := make(map[string][]db.Correlation, len(rows))
+	for _, r := range rows {
+		out[r.TxID] = append(out[r.TxID], db.Correlation{
+			Label:       r.Label,
+			Token:       r.Token,
+			Ordinal:     r.Ordinal,
+			Scope:       r.Scope,
+			Match:       []string(r.Matches),
+			OrdinalSpan: r.OrdinalSpan,
+		})
 	}
 	return out, nil
 }
@@ -547,8 +671,8 @@ const repointGroupTimestampsSQL = `
 // instrument and description from.
 const survivingResidualsSQL = `
 	SELECT r.group_id, r.weight_commodity, r.residual,
-	       types.tx_types,
-	       first.timestamp, first.tx_type, first.broker, first.account,
+	       types.resolved_tx_types,
+	       first.timestamp, first.broker_tx_type, first.resolved_tx_type, first.broker, first.account,
 	       first.trading_currency, first.settlement_currency,
 	       commodity.instrument_description, commodity.instrument_id
 	FROM (
@@ -559,11 +683,11 @@ const survivingResidualsSQL = `
 		HAVING SUM(weight) <> 0
 	) r
 	JOIN LATERAL (
-		SELECT array_agg(DISTINCT t.tx_type) AS tx_types
+		SELECT array_agg(DISTINCT t.resolved_tx_type) AS resolved_tx_types
 		FROM txs t WHERE t.group_id = r.group_id
 	) types ON true
 	JOIN LATERAL (
-		SELECT t.timestamp, t.tx_type, t.broker, t.account,
+		SELECT t.timestamp, t.broker_tx_type, t.resolved_tx_type, t.broker, t.account,
 		       t.trading_currency, t.settlement_currency
 		FROM txs t WHERE t.group_id = r.group_id
 		ORDER BY t.timestamp, t.id LIMIT 1
@@ -588,18 +712,22 @@ const currencyInstrumentSQL = `
 // survivingResidual is one commodity a group the replace cut no longer balances in, and
 // the group attributes the counterparty for it is built from.
 type survivingResidual struct {
-	groupID      uuid.UUID
-	commodity    string
-	amount       decimal.Decimal
-	txTypes      pq.StringArray
-	timestamp    time.Time
-	txType       string
-	broker       string
-	account      string
-	trading      *string
-	settlement   *string
-	description  string
-	instrumentID *uuid.UUID
+	groupID   uuid.UUID
+	commodity string
+	amount    decimal.Decimal
+	// The distinct resolved types of the group's surviving legs, for the
+	// family rule; the first leg's declared set and resolved value are what
+	// the routed counterparty carries.
+	resolvedTypes  pq.StringArray
+	timestamp      time.Time
+	brokerTxTypes  pq.StringArray
+	resolvedTxType string
+	broker         string
+	account        string
+	trading        *string
+	settlement     *string
+	description    string
+	instrumentID   *uuid.UUID
 }
 
 // clearPeriod deletes the postings a replace covers and re-balances the groups it left
@@ -672,8 +800,8 @@ func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 	var residuals []survivingResidual
 	for rows.Next() {
 		var r survivingResidual
-		if err := rows.Scan(&r.groupID, &r.commodity, &r.amount, &r.txTypes,
-			&r.timestamp, &r.txType, &r.broker, &r.account,
+		if err := rows.Scan(&r.groupID, &r.commodity, &r.amount, &r.resolvedTypes,
+			&r.timestamp, &r.brokerTxTypes, &r.resolvedTxType, &r.broker, &r.account,
 			&r.trading, &r.settlement, &r.description, &r.instrumentID); err != nil {
 			return fmt.Errorf("surviving residuals: %w", err)
 		}
@@ -686,11 +814,7 @@ func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 	byCurrency := map[string]uuid.UUID{}
 	for _, r := range residuals {
 		amount := r.amount.Neg()
-		txTypes := make([]typev1.TxType, 0, len(r.txTypes))
-		for _, t := range r.txTypes {
-			txTypes = append(txTypes, db.StrToTxType(t))
-		}
-		acctType, err := accountTypeToStr(residual.SplitType(txTypes))
+		acctType, err := accountTypeToStr(residual.SplitType(db.StrsToTxTypes(r.resolvedTypes)))
 		if err != nil {
 			return err
 		}
@@ -711,13 +835,19 @@ func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 
 		// NULL share_count_basis leaves the insert trigger to seed it from the
 		// posting's own timestamp, and the split-adjusted pair is seeded the same way,
-		// exactly as for an uploaded posting. A routed leg has no source row, so it
-		// carries neither a broker reference nor a counterparty account.
-		if _, err := exec.ExecContext(ctx, insertPostingInGroupSQL,
-			userUUID, r.broker, r.account, r.timestamp, desc, r.txType, amount,
-			trading, settlement, nil, nullUUID(instID), nil, acctType,
-			amount, r.commodity, nil, nil, r.groupID,
-		); err != nil {
+		// exactly as for an uploaded posting. A routed leg has no source row, so no
+		// correlation and no settlement amount is written for it: it transcribes
+		// nothing, so there is nothing the source said about why it belongs with
+		// anything, and no figure of the source's to carry. The returned id is
+		// read and dropped: the statement returns one because the upload path
+		// needs it to hang correlations on.
+		var txID uuid.UUID
+		if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL,
+			userUUID, r.broker, r.account, r.timestamp, desc,
+			r.brokerTxTypes, r.resolvedTxType, nil, amount,
+			trading, settlement, nil, nil, nullUUID(instID), nil, acctType,
+			amount, r.commodity, r.groupID,
+		).Scan(&txID); err != nil {
 			return fmt.Errorf("insert routed posting: %w", err)
 		}
 	}

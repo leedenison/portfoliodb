@@ -1,6 +1,7 @@
 package api
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -32,7 +33,7 @@ func exportPostingFixture(broker, groupID, ts string) dbpkg.ExportPosting {
 		Timestamp:       at,
 		Account:         "acct",
 		AccountType:     "USER",
-		TxType:          "BUYSTOCK",
+		BrokerTxTypes:   []string{"TRADE_ASSET"},
 		Description:     "APPLE INC",
 		IdentifierType:  "MIC_TICKER",
 		IdentifierValue: "AAPL",
@@ -149,7 +150,7 @@ func TestTxWindows_CarriesRoutedResiduals(t *testing.T) {
 func TestPosting_OptionalFieldsWrittenOnlyWhenHeld(t *testing.T) {
 	bare := posting(exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"))
 	if bare.UnitPrice != nil || bare.TradingCurrency != nil || bare.SettlementCurrency != nil ||
-		bare.BrokerRef != nil || bare.CounterpartyAccount != nil || bare.ShareCountBasis != nil {
+		bare.ShareCountBasis != nil || len(bare.GetCorrelations()) != 0 {
 		t.Fatalf("bare posting states an absent field: %v", bare)
 	}
 
@@ -158,8 +159,6 @@ func TestPosting_OptionalFieldsWrittenOnlyWhenHeld(t *testing.T) {
 	r.UnitPrice = &price
 	r.TradingCurrency = "USD"
 	r.SettlementCurrency = "GBP"
-	r.BrokerRef = "REF-1"
-	r.CounterpartyAccount = "other"
 	full := posting(r)
 	if full.GetUnitPrice() != "185.9" {
 		t.Fatalf("unit_price = %q", full.GetUnitPrice())
@@ -167,8 +166,50 @@ func TestPosting_OptionalFieldsWrittenOnlyWhenHeld(t *testing.T) {
 	if full.GetTradingCurrency() != "USD" || full.GetSettlementCurrency() != "GBP" {
 		t.Fatalf("currencies = %q, %q", full.GetTradingCurrency(), full.GetSettlementCurrency())
 	}
-	if full.GetBrokerRef() != "REF-1" || full.GetCounterpartyAccount() != "other" {
-		t.Fatalf("refs = %q, %q", full.GetBrokerRef(), full.GetCounterpartyAccount())
+}
+
+// A posting's evidence travels as it was stored: the scope verbatim, FILE
+// included, and every match the source declared. Rewriting a scope on the way out
+// would throw away what the source said; what an importer can do is stamp its own
+// job on the way in.
+func TestPosting_CarriesCorrelationsAsStored(t *testing.T) {
+	r := exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z")
+	ordinal, span := int64(971613414), int64(8)
+	r.Correlations = []dbpkg.Correlation{
+		{Token: "971613414", Ordinal: &ordinal, OrdinalSpan: &span, Scope: "FILE",
+			Match: []string{"EXACT", "ORDINAL"}},
+		{Label: "counterparty", Token: "AG10000001", Scope: "BROKER", Match: []string{"ACCOUNT"}},
+	}
+	got := posting(r).GetCorrelations()
+	if len(got) != 2 {
+		t.Fatalf("correlations = %v, want 2", got)
+	}
+	ref := got[0]
+	if ref.GetLabel() != "" || ref.GetToken() != "971613414" {
+		t.Errorf("reference = %q/%q, want \"\"/971613414", ref.GetLabel(), ref.GetToken())
+	}
+	if ref.GetOrdinal() != ordinal || ref.GetOrdinalSpan() != span {
+		t.Errorf("ordinal = %d/%d, want %d/%d", ref.GetOrdinal(), ref.GetOrdinalSpan(), ordinal, span)
+	}
+	if ref.GetScope() != typev1.Scope_SCOPE_FILE {
+		t.Errorf("scope = %v, want SCOPE_FILE", ref.GetScope())
+	}
+	wantMatch := []typev1.Match{typev1.Match_MATCH_EXACT, typev1.Match_MATCH_ORDINAL}
+	if !slices.Equal(ref.GetMatch(), wantMatch) {
+		t.Errorf("match = %v, want %v", ref.GetMatch(), wantMatch)
+	}
+	pointer := got[1]
+	if pointer.GetLabel() != "counterparty" || pointer.GetToken() != "AG10000001" {
+		t.Errorf("pointer = %q/%q", pointer.GetLabel(), pointer.GetToken())
+	}
+	if pointer.GetScope() != typev1.Scope_SCOPE_BROKER ||
+		!slices.Equal(pointer.GetMatch(), []typev1.Match{typev1.Match_MATCH_ACCOUNT}) {
+		t.Errorf("pointer scope/match = %v/%v", pointer.GetScope(), pointer.GetMatch())
+	}
+	// An opaque identifier has no number in it, and a correlation that names one
+	// anyway would invent an ordering the source does not have.
+	if pointer.Ordinal != nil || pointer.OrdinalSpan != nil {
+		t.Errorf("pointer states an ordinal: %v/%v", pointer.Ordinal, pointer.OrdinalSpan)
 	}
 }
 

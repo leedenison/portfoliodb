@@ -133,18 +133,25 @@ func archiveTx(p *archivev1.Posting) *apiv1.Tx {
 	tx := &apiv1.Tx{
 		Timestamp:             p.GetTimestamp(),
 		InstrumentDescription: p.GetInstrumentDescription(),
-		Type:                  p.GetType(),
-		Quantity:              p.GetQuantity(),
-		Account:               p.GetAccount(),
-		AccountType:           p.GetAccountType(),
-		GroupRef:              p.GetGroupRef(),
-		BrokerRef:             p.GetBrokerRef(),
-		CounterpartyAccount:   p.GetCounterpartyAccount(),
-		TradingCurrency:       p.GetTradingCurrency(),
-		SettlementCurrency:    p.GetSettlementCurrency(),
+		// The declaration travels; the resolved value does not, and is
+		// re-derived by the ingest pipeline like any upload's.
+		BrokerTxType:   p.GetBrokerTxType(),
+		AssetClassHint: p.GetAssetClassHint(),
+		Quantity:       p.GetQuantity(),
+		Account:        p.GetAccount(),
+		AccountType:    p.GetAccountType(),
+		GroupRef:       p.GetGroupRef(),
+		// The archive message, so the evidence travels by reference rather than
+		// being copied field by field into a second declaration of itself.
+		Correlations:       p.GetCorrelations(),
+		TradingCurrency:    p.GetTradingCurrency(),
+		SettlementCurrency: p.GetSettlementCurrency(),
 	}
 	if p.UnitPrice != nil {
 		tx.UnitPrice = proto.String(p.GetUnitPrice())
+	}
+	if p.SettlementAmount != nil {
+		tx.SettlementAmount = proto.String(p.GetSettlementAmount())
 	}
 	// The archive can name several identifiers per posting, which the flat CSV
 	// could not. They are hints rather than an assertion: resolution still runs,

@@ -51,6 +51,67 @@ message TxWindow {
   repeated Posting postings = 7;
 }
 
+// Correlation is a broker-neutral statement of why a posting might belong with
+// another one: an identifier the source issued, what may be compared about it,
+// and over what set of postings. It is the evidence the server derives the
+// transaction partition from, in place of being told the partition outright. See
+// docs/adr/0048-correlations-declare-their-own-semantics.md.
+//
+// A converter may only transcribe, never infer. A token may be synthesised from
+// the source's own structure -- nesting, containment, an explicit order column
+// -- and never from amounts, dates or proximity. Nothing here distinguishes a
+// transcribed token from an inferred one, so this is the discipline that keeps
+// the converter rules retirable rather than preserving them under a new name.
+message Correlation {
+  // MATCH_ORDINAL means "the ordinal field is populated and comparable", so the
+  // two travel together or not at all. 2 is MATCH_ORDINAL: CEL sees an enum as
+  // its number and has no way to name it.
+  option (buf.validate.message).cel = {
+    id: "correlation.ordinal_with_match_ordinal"
+    message: "ordinal is set exactly when MATCH_ORDINAL is declared"
+    expression: "has(this.ordinal) == (2 in this.match)"
+  };
+  option (buf.validate.message).cel = {
+    id: "correlation.ordinal_span_needs_ordinal"
+    message: "ordinal_span says how far apart two ordinals may be, so it needs one"
+    expression: "!has(this.ordinal_span) || has(this.ordinal)"
+  };
+
+  // Which series this identifier belongs to, and so what it is comparable with.
+  // An order id is never compared against a settlement reference, and the label
+  // is what keeps them apart. Free text agreed between a broker's converters
+  // rather than a controlled vocabulary: nothing outside the converter that
+  // wrote it and the pass that reads it has to spell it.
+  string label = 1;
+  // The identifier as the source wrote it, compared by MATCH_EXACT. Opaque: a
+  // reference in some shape a converter did not expect survives here rather
+  // than being normalised away.
+  string token = 2 [(buf.validate.field).string.min_len = 1];
+  // The number the token carries, where the converter knows how to take one.
+  // Explicitly optional because a source whose identifiers are genuinely opaque
+  // has none, and manufacturing an ordering it does not have would group
+  // unrelated rows silently.
+  optional int64 ordinal = 3;
+  // The set of postings this identifier is comparable over. Exactly one.
+  portfoliodb.type.v1.Scope scope = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  // What may be done with the identifier. At least one, and a set rather than a
+  // choice.
+  repeated portfoliodb.type.v1.Match match = 5 [
+    (buf.validate.field).repeated = {
+      min_items: 1
+      unique: true
+      items: {
+        enum: {defined_only: true, not_in: [0]}
+      }
+    }
+  ];
+  // How far apart two ordinals can be and still be about one event. Carried by
+  // the source because how densely a broker issues references is a fact about
+  // its numbering rather than a grouping policy, and a server-side constant
+  // would be wrong for every broker but one.
+  optional int64 ordinal_span = 6 [(buf.validate.field).int64.gt = 0];
+}
+
 // Posting is a signed amount of one commodity in one account at one point in
 // time. See docs/spec/postings.md.
 message Posting {
@@ -60,10 +121,27 @@ message Posting {
   // ACCOUNT_TYPE_USER, so a converter that says nothing produces ordinary broker
   // account postings.
   portfoliodb.type.v1.AccountType account_type = 3 [(buf.validate.field).enum.defined_only = true];
-  // What the broker called the event, in OFX vocabulary. Distinct from
-  // account_type: a dividend's cash leg and its income leg are both INCOME and
-  // differ only by account type.
-  portfoliodb.type.v1.TxType type = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  // The candidate event types, at whatever specificity the source manages: a
+  // singleton is a fully specific assertion, an internal node covers its
+  // subtree, and a larger set is a declared ambiguity the source could not
+  // narrow. An antichain -- no member an ancestor of another -- whose members
+  // must all weigh the posting identically
+  // (docs/adr/0046-declared-ambiguity-is-bounded-by-weight-neutrality.md).
+  // AMBIGUOUS (15) is excluded: it is the resolved spelling of an unresolved
+  // set, and declaring it would say less than the set itself. The resolved
+  // value is derived by the server and deliberately not carried here
+  // (docs/adr/0043-grouping-does-not-travel-in-the-archive.md). Distinct from
+  // account_type: a dividend's cash leg and its income leg are both DIVIDEND
+  // and differ only by account type.
+  repeated portfoliodb.type.v1.TxType broker_tx_type = 4 [
+    (buf.validate.field).repeated = {
+      min_items: 1
+      unique: true
+      items: {
+        enum: {defined_only: true, not_in: [0, 15]}
+      }
+    }
+  ];
   string instrument_description = 5 [(buf.validate.field).string.min_len = 1];
   // Identifier hints for resolution. An export writes the one identifier chosen
   // by bestIdentifierJoin; a converter may write several, which the flat CSV
@@ -82,16 +160,13 @@ message Posting {
   optional string unit_price = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   optional string trading_currency = 9;     // ISO 4217; the instrument's own currency
   optional string settlement_currency = 10; // ISO 4217; what actually paid
-  // The source's own reference for the row this was transcribed from: a Fidelity
-  // reference number, an OFX FITID. Durable, unlike grouping, but not a natural
-  // key -- one source transaction can produce several postings that share one.
-  // Present only on transcribed postings.
-  optional string broker_ref = 11;
-  // The account the source names as the other side of this row, within the same
-  // broker. Advisory: a source can use the same field for attribution instead,
-  // so it is read as a transfer pointer only where the group turns out to be
-  // one.
-  optional string counterparty_account = 12;
+  // 11 was broker_ref, the source's own reference for the row this was
+  // transcribed from, and 12 was counterparty_account, the account the source
+  // named as the other side. Both are correlations: the first is a token
+  // compared by MATCH_EXACT, the second one compared by MATCH_ACCOUNT, and both
+  // sat on exactly the postings a correlation sits on. Two spellings of one
+  // thing left two places to improve.
+  reserved 11, 12;
   // The share count this posting's quantity and unit price are denominated in,
   // as "YYYY-MM-DD". Absent means this posting's own timestamp date -- the
   // as-traded convention a broker log follows, since a log line accounts only
@@ -112,4 +187,50 @@ message Posting {
   // what a converter decided, and because the engine is validated by being
   // required to reproduce it exactly.
   optional string group_ref = 14;
+  // Why this posting might belong with another one, as the source stated it.
+  // Present only on transcribed postings: a converter's derived counter-leg and
+  // a server-routed residual transcribe nothing and so correlate with nothing.
+  //
+  // Durable, unlike group_ref, and stored. Nothing reads it to decide the
+  // partition yet -- that is
+  // docs/adr/0041-server-owns-transaction-grouping.md's arrival, not this
+  // field's -- but it has to be carried and stored from here on, or a rebuild
+  // from an archive would have nothing left to group on.
+  repeated Correlation correlations = 15;
+  // The asset class the source states for the instrument, as a routing hint for
+  // resolution. Unset means the source makes no claim, which is weaker than
+  // UNKNOWN ("a security of unknown class"). Not authoritative: the canonical
+  // class is set by identifier plugins and stored on the instrument.
+  // See docs/adr/0013-security-type-hint-vs-asset-class.md and
+  // docs/adr/0045-tx-type-does-not-encode-asset-class.md.
+  portfoliodb.type.v1.AssetClass asset_class_hint = 16 [(buf.validate.field).enum.defined_only = true];
+  // The cash total the source stated for the row this was transcribed from, in
+  // settlement_currency, unsigned.
+  //
+  // Transcribed, never computed: a converter that would have to work the figure
+  // out from other columns has inferred it and emits nothing. That is what makes
+  // it independent of quantity * unit_price, which is derived from different
+  // fields, and so what lets grouping use one to identify a cash leg and the
+  // other to check the identification.
+  //
+  // Present only where the posting's own quantity is not money -- that is, where
+  // the posting may be a TRADE_ASSET. On a money posting the quantity is already
+  // this total, and carrying it twice would create a second figure to disagree
+  // with the first.
+  //
+  // It is the source's own figure and nothing more, so it carries whatever the
+  // source put in it. Both sources that state one state the cash that actually
+  // settled, charges included: an OFX TOTAL carries the COMMISSION and TAXES the
+  // same record reports separately, and a Fidelity purchase carries its dealing
+  // fee. So it equals the cash leg it settles through only where the source
+  // levied nothing, and a reader that needs them to agree exactly wants the
+  // wrong number. Netting it out here would be the computation a converter is
+  // forbidden to do, because a computed figure is evidence of nothing.
+  //
+  // It has no part in weight or balance. A TRADE_ASSET leg weighs at
+  // quantity * unit_price and goes on doing so
+  // (docs/adr/0024-group-balance-is-checked-on-weight.md), so the difference
+  // between the two figures stays visible as the group's SOURCE_ROUNDING
+  // residual rather than being absorbed here.
+  optional string settlement_amount = 17 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
 }

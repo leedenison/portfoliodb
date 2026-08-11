@@ -16,24 +16,7 @@ import { expect } from "vitest";
 import type { Posting } from "@/gen/archive/v1/txs_pb";
 import { Big } from "@/lib/decimal";
 import { IdentifierType, TxType } from "@/gen/type/v1/type_pb";
-
-/** Types whose counter-leg is money, so the posting converts at its price. */
-const EXCHANGE_TYPES = new Set<TxType>([
-  TxType.BUYDEBT,
-  TxType.BUYFUTURE,
-  TxType.BUYMF,
-  TxType.BUYOPT,
-  TxType.BUYOTHER,
-  TxType.BUYSTOCK,
-  TxType.SELLDEBT,
-  TxType.SELLFUTURE,
-  TxType.SELLMF,
-  TxType.SELLOPT,
-  TxType.SELLOTHER,
-  TxType.SELLSTOCK,
-  TxType.REINVEST,
-  TxType.CLOSUREOPT,
-]);
+import { mustBe } from "@/lib/tx-type";
 
 /**
  * Half a cent, matching moneyTolerance in balance.go.
@@ -68,7 +51,9 @@ function contractSize(tx: Posting): Big {
 export function weigh(tx: Posting): { amount: Big; commodity: string } {
   const settle = (tx.settlementCurrency || tx.tradingCurrency || "").toUpperCase();
   const qty = new Big(tx.quantity);
-  if (EXCHANGE_TYPES.has(tx.type)) {
+  // The asset leg of a trade is the one type whose counter-leg is money, and
+  // the every-candidate rule means an ambiguous set does not convert.
+  if (mustBe(tx.brokerTxType, TxType.TRADE_ASSET)) {
     // With no price there is nothing to convert at, so the residual stays in the
     // security -- which is the signal that the source omitted a price.
     if (tx.unitPrice === undefined || !settle) {

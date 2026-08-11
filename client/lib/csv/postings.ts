@@ -16,22 +16,25 @@ import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import type { Posting } from "@/gen/archive/v1/txs_pb";
 import { PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
-import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
+import { AccountType, AssetClass, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
+import { mustBe } from "@/lib/tx-type";
 
 /**
  * Where the other side of a one-sided cash event came from or went to. A
  * dividend's money comes from income and a charge's goes to expense; the broker
- * reports only the cash. Types absent here either already balance against
- * another posting the source supplied (a trade against its cash leg) or have
- * their other side in a different account entirely (a journal), which is 0068's
- * problem rather than a leg to invent.
+ * reports only the cash. The test is must-be over the declared set: a row that
+ * is income under every reading gets an income counter-leg, and an ambiguous one
+ * gets none, because inventing a leg for one of its readings would assert it.
+ * Types with no branch here either already balance against another posting the
+ * source supplied (a trade against its cash leg) or have their other side in a
+ * different account entirely (a transfer), which is 0068's problem rather than a
+ * leg to invent.
  */
-const COUNTER_TYPE = new Map<TxType, AccountType>([
-  [TxType.INCOME, AccountType.INCOME],
-  [TxType.RETOFCAP, AccountType.INCOME],
-  [TxType.INVEXPENSE, AccountType.EXPENSE],
-  [TxType.MARGININTEREST, AccountType.EXPENSE],
-]);
+function counterAccountType(set: readonly TxType[]): AccountType | undefined {
+  if (mustBe(set, TxType.INCOME)) return AccountType.INCOME;
+  if (mustBe(set, TxType.EXPENSE)) return AccountType.EXPENSE;
+  return undefined;
+}
 
 /**
  * Smallest fee worth a posting, in the settlement currency.
@@ -48,7 +51,7 @@ export const FEE_EPSILON = new Big("0.005");
  * when the posting is itself a counter-leg.
  */
 export function counterLeg(p: Posting): Posting | undefined {
-  const accountType = COUNTER_TYPE.get(p.type);
+  const accountType = counterAccountType(p.brokerTxType);
   if (accountType === undefined) return undefined;
   if (p.accountType !== AccountType.USER && p.accountType !== AccountType.UNSPECIFIED) {
     return undefined;
@@ -56,12 +59,11 @@ export function counterLeg(p: Posting): Posting | undefined {
   const leg = clone(PostingSchema, p);
   leg.quantity = new Big(p.quantity).times(-1).toString();
   leg.accountType = accountType;
-  // A derived leg names no source row, because the source wrote none for it. The
-  // clone above would otherwise hand it the reference of the posting it mirrors,
-  // making an invention indistinguishable from a transcription. moneyLeg builds
-  // from scratch and needs no such reset. See docs/spec/postings.md.
-  leg.brokerRef = undefined;
-  leg.counterpartyAccount = undefined;
+  // A derived leg transcribes no source row, because the source wrote none for
+  // it. The clone above would otherwise hand it the evidence of the posting it
+  // mirrors, stating that the source correlated a row it never wrote. moneyLeg
+  // builds from scratch and needs no such reset. See docs/spec/postings.md.
+  leg.correlations = [];
   return leg;
 }
 
@@ -82,12 +84,13 @@ export function currencyHint(currency: string) {
  * The instrument description is the currency code, matching how an ordinary cash
  * row arrives, so nothing downstream has to treat a derived posting specially.
  */
-function moneyLeg(from: Posting, type: TxType, accountType: AccountType, quantity: Big): Posting {
+function moneyLeg(from: Posting, types: TxType[], accountType: AccountType, quantity: Big): Posting {
   const currency = from.settlementCurrency || from.tradingCurrency;
   return create(PostingSchema, {
     ...(from.timestamp ? { timestamp: clone(TimestampSchema, from.timestamp) } : {}),
     instrumentDescription: currency,
-    type,
+    brokerTxType: types,
+    assetClassHint: AssetClass.CASH,
     quantity: quantity.toString(),
     unitPrice: "1",
     account: from.account,
@@ -113,28 +116,30 @@ function moneyLeg(from: Posting, type: TxType, accountType: AccountType, quantit
  */
 export function feeLeg(from: Posting, fee: Big | undefined): Posting | undefined {
   if (fee === undefined || fee.abs().lt(FEE_EPSILON)) return undefined;
-  return moneyLeg(from, TxType.INVEXPENSE, AccountType.USER, fee.abs().times(-1));
+  return moneyLeg(from, [TxType.TRANSACTION_COST], AccountType.USER, fee.abs().times(-1));
 }
 
 /**
  * The income a reinvestment consumed.
  *
- * A REINVEST posting increases a holding with no cash row beside it: the income
+ * A reinvestment increases a holding with no cash row beside it: the income
  * buys the units without ever arriving as money, so there is nothing for the
  * source to have reported and nothing to pair with. Its other side is therefore
  * derived, and unlike counterLeg's it is not a sign flip -- the posting's
- * quantity is a share count, and what balances it is money.
+ * quantity is a share count, and what balances it is money. The converter calls
+ * this for the rows it knows are reinvestments; nothing on the posting itself
+ * says so any more, because "reinvest" was a compressed two-event group rather
+ * than a kind of event.
  *
  * The money is the posting's own weight, quantity times unit price, rather than
  * the total the broker printed on the row. The two differ by the rounding in the
  * quoted price, and taking the broker's would leave the group short by a residual
  * of our choosing rather than one the source has.
  */
-export function reinvestLeg(from: Posting): Posting | undefined {
-  if (from.type !== TxType.REINVEST) return undefined;
+export function reinvestIncomeLeg(from: Posting): Posting | undefined {
   const value = new Big(from.quantity).times(from.unitPrice || "0");
   if (value.abs().lt(FEE_EPSILON)) return undefined;
-  return moneyLeg(from, TxType.INCOME, AccountType.INCOME, value.times(-1));
+  return moneyLeg(from, [TxType.DIVIDEND], AccountType.INCOME, value.times(-1));
 }
 
 /**
@@ -159,9 +164,7 @@ export function counterLegs(postings: Posting[]): Posting[] {
   const prefix = refPrefix(postings);
   const legs: Posting[] = [];
   postings.forEach((p, i) => {
-    // A reinvestment's other side is money it never held, so it is built rather
-    // than mirrored; everything else that has one is a sign flip.
-    const leg = reinvestLeg(p) ?? counterLeg(p);
+    const leg = counterLeg(p);
     if (!leg) return;
     if (!p.groupRef) {
       p.groupRef = `${prefix}${i}`;

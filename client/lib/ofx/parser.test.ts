@@ -1,7 +1,8 @@
 import { Big } from "@/lib/decimal";
 import { describe, it, expect } from "vitest";
 import { parseOfxStatement, parseOfxDate } from "./parser";
-import { AccountType, TxType, IdentifierType } from "@/gen/type/v1/type_pb";
+import { AccountType, AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
+import { mustBe } from "@/lib/tx-type";
 import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
 
 describe("parseOfxDate", () => {
@@ -147,7 +148,8 @@ describe("parseOfxStatement", () => {
     expect(result.postings.length).toBe(2); // security tx + cashflow
 
     const tx = result.postings[0]!;
-    expect(tx.type).toBe(TxType.BUYSTOCK);
+    expect(tx.brokerTxType).toEqual([TxType.TRADE_ASSET]);
+    expect(tx.assetClassHint).toBe(AssetClass.STOCK);
     expect(tx.quantity).toBe("20");
     expect(tx.unitPrice).toBe("156.55");
     expect(tx.tradingCurrency).toBe("USD");
@@ -158,7 +160,8 @@ describe("parseOfxStatement", () => {
     expect(tx.identifierHints[0]!.value).toBe("023135106");
 
     const cf = result.postings[1]!;
-    expect(cf.type).toBe(TxType.CASHFLOW);
+    expect(cf.brokerTxType).toEqual([TxType.TRADE_CASH]);
+    expect(cf.assetClassHint).toBe(AssetClass.CASH);
     expect(cf.quantity).toBe("-3131");
     expect(cf.unitPrice).toBe("1");
     expect(cf.tradingCurrency).toBe("USD");
@@ -177,14 +180,14 @@ describe("parseOfxStatement", () => {
     expect(result.postings.length).toBe(2); // security tx + cashflow
 
     const tx = result.postings[0]!;
-    expect(tx.type).toBe(TxType.SELLSTOCK);
+    expect(tx.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     expect(tx.quantity).toBe("-1230");
     expect(tx.instrumentDescription).toBe("SGLN ISHARES PHYSICAL GOLD ETC");
     expect(tx.identifierHints[0]!.type).toBe(IdentifierType.ISIN);
     expect(tx.identifierHints[0]!.value).toBe("IE00B4ND3602");
 
     const cf = result.postings[1]!;
-    expect(cf.type).toBe(TxType.CASHFLOW);
+    expect(cf.brokerTxType).toEqual([TxType.TRADE_CASH]);
     expect(cf.quantity).toBe("85939");
     expect(cf.unitPrice).toBe("1");
   });
@@ -195,7 +198,7 @@ describe("parseOfxStatement", () => {
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
     // 2 security txs + 2 cashflow txs = 4
-    const buys = result.postings.filter((t) => t.type === TxType.BUYSTOCK);
+    const buys = result.postings.filter((t) => mustBe(t.brokerTxType, TxType.TRADE_ASSET));
     expect(buys.length).toBe(2);
     expect(buys[0]!.quantity).toBe("10");
     expect(buys[1]!.quantity).toBe("20");
@@ -206,10 +209,12 @@ describe("parseOfxStatement", () => {
     const ofx = buildOfx({ transactions: txs });
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
-    // 2 security txs + 2 cashflow txs = 4
-    expect(result.postings.some((t) => t.type === TxType.BUYSTOCK)).toBe(true);
-    expect(result.postings.some((t) => t.type === TxType.SELLSTOCK)).toBe(true);
-    expect(result.postings.filter((t) => t.type === TxType.CASHFLOW).length).toBe(2);
+    // 2 security txs + 2 cashflow txs = 4. The direction is the quantity's
+    // sign now rather than a type of its own.
+    const assets = result.postings.filter((t) => mustBe(t.brokerTxType, TxType.TRADE_ASSET));
+    expect(assets.some((t) => new Big(t.quantity).gt(0))).toBe(true);
+    expect(assets.some((t) => new Big(t.quantity).lt(0))).toBe(true);
+    expect(result.postings.filter((t) => mustBe(t.brokerTxType, TxType.TRADE_CASH)).length).toBe(2);
   });
 
   it("parses INCOME with TOTAL as quantity and price=1", () => {
@@ -231,7 +236,8 @@ describe("parseOfxStatement", () => {
     expect(result.postings.length).toBe(2);
 
     const tx = result.postings[0]!;
-    expect(tx.type).toBe(TxType.INCOME);
+    expect(tx.brokerTxType).toEqual([TxType.INCOME]);
+    expect(tx.assetClassHint).toBe(AssetClass.CASH);
     expect(tx.quantity).toBe("137.08");
     expect(tx.unitPrice).toBe("1");
     expect(tx.instrumentDescription).toBe("MSFT MICROSOFT CORP");
@@ -262,7 +268,8 @@ describe("parseOfxStatement", () => {
     expect(result.postings.length).toBe(2); // security tx + cashflow
 
     const tx = result.postings[0]!;
-    expect(tx.type).toBe(TxType.BUYOPT);
+    expect(tx.brokerTxType).toEqual([TxType.TRADE_ASSET]);
+    expect(tx.assetClassHint).toBe(AssetClass.OPTION);
     expect(tx.quantity).toBe("3");
     expect(tx.instrumentDescription).toContain("BRKB");
     // CONID is not a standard identifier -- no hints from generic parser.
@@ -270,7 +277,7 @@ describe("parseOfxStatement", () => {
     expect(tx.identifierHints.length).toBe(0);
 
     const cf = result.postings[1]!;
-    expect(cf.type).toBe(TxType.CASHFLOW);
+    expect(cf.brokerTxType).toEqual([TxType.TRADE_CASH]);
     expect(cf.quantity).toBe("-4239");
   });
 
@@ -299,7 +306,7 @@ describe("parseOfxStatement", () => {
     const ofx = buildOfx({ curdef: "EUR", transactions: tx });
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
-    const buy = result.postings.find((t) => t.type === TxType.BUYSTOCK)!;
+    const buy = result.postings.find((t) => mustBe(t.brokerTxType, TxType.TRADE_ASSET))!;
     expect(buy.tradingCurrency).toBe("EUR");
   });
 
@@ -417,24 +424,44 @@ describe("groups and charges", () => {
     expect(refs).toEqual(new Set(["20251015U10000018371888432"]));
   });
 
-  // The same id says two different things: which postings are one event, and
-  // which statement record this one was transcribed from. Only the security leg
-  // is that record -- the cash and fee legs are derived from TOTAL and COMMISSION.
-  it("keeps the FITID as the transcribed leg's source reference", () => {
+  // The cash that actually settled, charges included, which is not the cash leg
+  // this trade settles through: that one is the consideration alone, because the
+  // commission is posted as a leg of its own. The two differing by exactly the
+  // charge is what makes this an independent figure rather than a restatement.
+  it("transcribes TOTAL on the security leg, charge and all", () => {
     const result = parse(GBP_BUY);
-    const refs = result.postings.map((t) => t.brokerRef);
-    expect(refs.filter((r) => r !== undefined)).toEqual(["20251015U10000018371888432"]);
+
+    const security = result.postings.find((t) => mustBe(t.brokerTxType, TxType.TRADE_ASSET))!;
+    expect(security.settlementAmount).toBe("23092.22034");
+
+    const cash = result.postings.find((t) => mustBe(t.brokerTxType, TxType.TRADE_CASH))!;
+    expect(cash.quantity).toBe("-23080.68");
+    expect(cash.settlementAmount).toBeUndefined();
+  });
+
+  it("states nothing on an income row, whose quantity is already the amount", () => {
+    const result = parse(`<INCOME>
+      <INVTRAN><FITID>div-1</FITID><DTTRADE>20251016092129.000[-4:EDT]</DTTRADE></INVTRAN>
+      <SECID><UNIQUEID>IE00B4ND3603</UNIQUEID><UNIQUEIDTYPE>ISIN</UNIQUEIDTYPE></SECID>
+      <INCOMETYPE>DIV
+      <TOTAL>137.08
+      <CURRENCY><CURRATE>1.0</CURRATE><CURSYM>GBP</CURSYM></CURRENCY>
+    </INCOME>`);
+
+    const income = result.postings.find((t) => t.accountType !== AccountType.INCOME)!;
+    expect(income.quantity).toBe("137.08");
+    expect(income.settlementAmount).toBeUndefined();
   });
 
   it("splits the commission out of the netted total", () => {
     const result = parse(GBP_BUY);
 
-    const cash = result.postings.find((t) => t.type === TxType.CASHFLOW)!;
+    const cash = result.postings.find((t) => mustBe(t.brokerTxType, TxType.TRADE_CASH))!;
     // toBe, not toBeCloseTo: the split is a decimal subtraction, so the result
     // is the exact value narrowed once rather than an accumulation of error.
     expect(cash.quantity).toBe("-23080.68");
 
-    const fees = result.postings.filter((t) => t.type === TxType.INVEXPENSE);
+    const fees = result.postings.filter((t) => mustBe(t.brokerTxType, TxType.EXPENSE));
     expect(fees).toHaveLength(2);
     expect(fees.find((t) => t.accountType === AccountType.USER)!.quantity).toBe("-11.54034");
     expect(fees.find((t) => t.accountType === AccountType.EXPENSE)!.quantity).toBe("11.54034");
@@ -445,7 +472,7 @@ describe("groups and charges", () => {
     // Summed in decimal so the assertion holds for any fixture rather than for
     // ones whose float64 sum happens to land. This one's does.
     const cash = result.postings
-      .filter((t) => t.accountType !== AccountType.EXPENSE && t.type !== TxType.BUYSTOCK)
+      .filter((t) => t.accountType !== AccountType.EXPENSE && !mustBe(t.brokerTxType, TxType.TRADE_ASSET))
       .reduce((sum, t) => sum.plus(t.quantity), new Big(0));
     expect(cash.toString()).toBe("-23092.22034");
   });
@@ -458,7 +485,7 @@ describe("groups and charges", () => {
     // CURDEF is GBP and CURRATE is the rate back to it. UNITPRICE, COMMISSION
     // and TOTAL are all EUR, so nothing needs converting before the split.
     const fee = parse(EUR_SELL).postings.find(
-      (t) => t.type === TxType.INVEXPENSE && t.accountType === AccountType.USER
+      (t) => mustBe(t.brokerTxType, TxType.EXPENSE) && t.accountType === AccountType.USER
     )!;
     expect(fee.settlementCurrency).toBe("EUR");
     expect(fee.tradingCurrency).toBe("EUR");
@@ -467,7 +494,7 @@ describe("groups and charges", () => {
 
   it("emits no charge postings for a commission-free trade", () => {
     const result = parse(buyStockTx());
-    expect(result.postings.filter((t) => t.type === TxType.INVEXPENSE)).toHaveLength(0);
+    expect(result.postings.filter((t) => mustBe(t.brokerTxType, TxType.EXPENSE))).toHaveLength(0);
     expect(result.postings).toHaveLength(2);
   });
 
@@ -477,6 +504,29 @@ describe("groups and charges", () => {
     expect(refs.size).toBe(1);
     expect([...refs][0]).toBeTruthy();
     expectGroupsBalance(result.postings);
+  });
+
+  // The FITID is unique within the account rather than within the institution,
+  // which is the uniqueness the OFX spec gives it, and it is opaque: the string
+  // plainly carries a number but nothing here knows where it starts, so equality
+  // is all it honestly offers.
+  it("states what the FITID is comparable by, on the transcribed leg alone", () => {
+    const result = parse(GBP_BUY);
+    const correlated = result.postings.filter((t) => t.correlations.length > 0);
+    expect(correlated).toHaveLength(1);
+    const c = correlated[0]!.correlations[0]!;
+    expect(c.token).toBe("20251015U10000018371888432");
+    expect(c.scope).toBe(Scope.ACCOUNT);
+    expect(c.match).toEqual([Match.EXACT]);
+    expect(c.ordinal).toBeUndefined();
+  });
+
+  // The parser synthesises a group for legs the source gave no FITID for, so the
+  // group is inferred rather than transcribed. Emitting a correlation for it
+  // would state that the source said something it did not.
+  it("correlates nothing for a trade whose group it synthesised", () => {
+    const result = parse(GBP_BUY.replace("<FITID>20251015U10000018371888432", "<FITID>"));
+    expect(result.postings.every((t) => t.correlations.length === 0)).toBe(true);
   });
 
   it("names the account a dividend came from", () => {

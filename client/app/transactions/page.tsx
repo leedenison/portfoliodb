@@ -215,7 +215,7 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
               {tx.syntheticPurpose}
             </span>
           ) : (
-            TX_TYPE_LABEL[tx.type] ?? "Unknown"
+            TX_TYPE_LABEL[tx.resolvedTxType] ?? "Unknown"
           )}
           {accountTypeLabel && (
             <span

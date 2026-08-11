@@ -18,7 +18,7 @@ function doc(extra: Record<string, unknown> = {}, windows?: unknown[]) {
             {
               timestamp: timestampFromDate(new Date("2024-01-15")),
               instrumentDescription: "AAPL",
-              type: TxType.BUYSTOCK,
+              brokerTxType: [TxType.TRADE_ASSET],
               quantity: "10",
             },
           ],

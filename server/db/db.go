@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
@@ -74,6 +75,7 @@ type DB interface {
 	CorporateEventDB
 	ResidualBalanceDB
 	TransferMatchDB
+	GroupingDB
 }
 
 // PriceFetchBlockDB manages permanently blocked (instrument, plugin) pairs.
@@ -277,6 +279,30 @@ type Weight struct {
 	Commodity string
 }
 
+// Correlation is a stored statement of why a posting might belong with another
+// one: an identifier its source issued, what may be compared about it, and over
+// what set of postings. See
+// docs/adr/0048-correlations-declare-their-own-semantics.md.
+//
+// Ordinal and OrdinalSpan are pointers because a source whose identifiers are
+// opaque supplies neither, and a zero ordinal is a position rather than an
+// absence. Scope and Match hold the stored vocabulary -- "FILE", "EXACT" -- so
+// one string spells the value in the proto, in the column and in an archive
+// file.
+//
+// JobID is the ingestion job that supplied this, and is what a FILE-scoped
+// correlation is comparable within. It is not written to an archive: another
+// instance's job ids mean nothing, and an import stamps its own.
+type Correlation struct {
+	Label       string
+	Token       string
+	Ordinal     *int64
+	Scope       string
+	Match       []string
+	OrdinalSpan *int64
+	JobID       string
+}
+
 // ExportPosting is one stored posting with the best identifier of the instrument
 // it names, plus the group identity an archive needs to nest it.
 //
@@ -285,31 +311,43 @@ type Weight struct {
 // is the timestamp of the first posting that names it, so both are derived. See
 // docs/adr/0035-archive-nests-by-aggregate-root.md.
 type ExportPosting struct {
-	Broker         string
+	Broker string
+	// The posting's own id. Not written to a file -- it means nothing in another
+	// instance, as a group id does not -- but the correlations are read in a
+	// second pass and this is what attaches them to their posting.
+	ID             string
 	GroupID        string
 	GroupTimestamp time.Time
 	Timestamp      time.Time
 	Account        string
 	AccountType    string
-	TxType         string
+	// The declared candidate set. The resolved value is deliberately not
+	// exported: an import re-derives the grouping the resolution depends on.
+	BrokerTxTypes []string
+	// The stated routing hint, empty when the source made no claim.
+	AssetClassHint string
 	Description    string
 	// The instrument's best identifier, or all three empty for a posting whose
 	// instrument never resolved. Chosen by bestIdentifierJoin so that every
 	// export naming one identifier per instrument agrees which one.
-	IdentifierType      string
-	IdentifierValue     string
-	IdentifierDomain    string
-	Quantity            decimal.Decimal
-	UnitPrice           *decimal.Decimal
-	TradingCurrency     string
-	SettlementCurrency  string
-	BrokerRef           string
-	CounterpartyAccount string
+	IdentifierType     string
+	IdentifierValue    string
+	IdentifierDomain   string
+	Quantity           decimal.Decimal
+	UnitPrice          *decimal.Decimal
+	TradingCurrency    string
+	SettlementCurrency string
+	// The cash total the source stated for the row, or nil on a posting whose
+	// own quantity is already money.
+	SettlementAmount *decimal.Decimal
 	// The share count this posting is denominated in, or nil when it is the
 	// posting's own timestamp date. The column is NOT NULL and the insert
 	// trigger defaults it to that date, so only a value that differs from it
 	// says anything, and only that value is worth writing to a file.
 	ShareCountBasis *time.Time
+	// Why this posting might belong with another one, in the order its source
+	// stated them. Empty for a derived posting, which transcribes nothing.
+	Correlations []Correlation
 }
 
 // TxDB provides transaction write, list and export.
@@ -723,6 +761,34 @@ func StrToTxType(s string) typev1.TxType {
 	return typev1.TxType(v)
 }
 
+// TxTypesToStrs returns the stored form of a declared tx type set. An empty set
+// is an error for the reason a single unspecified type is: a posting has to say
+// what kind of event it transcribes.
+func TxTypesToStrs(ts []typev1.TxType) ([]string, error) {
+	if len(ts) == 0 {
+		return nil, fmt.Errorf("broker tx type set empty")
+	}
+	strs := make([]string, len(ts))
+	for i, t := range ts {
+		s, err := TxTypeToStr(t)
+		if err != nil {
+			return nil, err
+		}
+		strs[i] = s
+	}
+	return strs, nil
+}
+
+// StrsToTxTypes converts a stored tx type set to proto enums. An unrecognised
+// string maps to TX_TYPE_UNSPECIFIED, as StrToTxType does.
+func StrsToTxTypes(strs []string) []typev1.TxType {
+	ts := make([]typev1.TxType, len(strs))
+	for i, s := range strs {
+		ts[i] = StrToTxType(s)
+	}
+	return ts
+}
+
 // accountTypePrefix is stripped from the enum name to get the stored form. The proto
 // values are prefixed because enum values share package scope and TxType already
 // defines INCOME and TRANSFER; the column stores the bare vocabulary the CHECK
@@ -753,6 +819,84 @@ func StrToAccountType(s string) typev1.AccountType {
 		return typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED
 	}
 	return typev1.AccountType(v)
+}
+
+// scopePrefix and matchPrefix are stripped from the enum names to get the stored
+// forms. The proto values are prefixed because Scope and Match both define an
+// ACCOUNT and enum values share package scope; the columns store the bare
+// vocabulary, as they do for AccountType.
+const (
+	scopePrefix = "SCOPE_"
+	matchPrefix = "MATCH_"
+)
+
+// The stored forms of the Match vocabulary, for the passes that ask a correlation
+// what may be done with it. Named rather than spelled at each site so a reader can
+// find every consumer of one comparison.
+const (
+	MatchExact   = "EXACT"
+	MatchOrdinal = "ORDINAL"
+	MatchAccount = "ACCOUNT"
+)
+
+// The stored forms of the Scope vocabulary, for the passes that ask a correlation
+// what set of postings its identifier means anything across. A scope is half of the
+// statement a correlation makes and the match is the other half; neither is usable
+// without the other, so they are named in the same place.
+const (
+	ScopeFile    = "FILE"
+	ScopeAccount = "ACCOUNT"
+	ScopeBroker  = "BROKER"
+)
+
+// Declares reports whether this correlation says the given comparison may be made
+// of it. Nothing is inferred: a source with no numbering declares no ordinal rather
+// than being discovered to have none, so a pass asks before it compares.
+func (c Correlation) Declares(match string) bool {
+	return slices.Contains(c.Match, match)
+}
+
+// ScopeToStr returns the stored form of a correlation scope: its enum name
+// without the prefix. Unspecified is an error rather than a default, because a
+// correlation that does not say what its identifier is comparable over cannot be
+// compared at all, and guessing a scope invents evidence the source never gave.
+func ScopeToStr(s typev1.Scope) (string, error) {
+	name, ok := typev1.Scope_name[int32(s)]
+	if !ok || s == typev1.Scope_SCOPE_UNSPECIFIED {
+		return "", fmt.Errorf("unknown correlation scope: %v", s)
+	}
+	return strings.TrimPrefix(name, scopePrefix), nil
+}
+
+// StrToScope converts a stored scope string to its proto enum. An unrecognised
+// string maps to SCOPE_UNSPECIFIED.
+func StrToScope(s string) typev1.Scope {
+	v, ok := typev1.Scope_value[scopePrefix+s]
+	if !ok {
+		return typev1.Scope_SCOPE_UNSPECIFIED
+	}
+	return typev1.Scope(v)
+}
+
+// MatchToStr returns the stored form of a correlation match: its enum name
+// without the prefix. Unspecified is an error for the reason an unspecified
+// scope is.
+func MatchToStr(m typev1.Match) (string, error) {
+	name, ok := typev1.Match_name[int32(m)]
+	if !ok || m == typev1.Match_MATCH_UNSPECIFIED {
+		return "", fmt.Errorf("unknown correlation match: %v", m)
+	}
+	return strings.TrimPrefix(name, matchPrefix), nil
+}
+
+// StrToMatch converts a stored match string to its proto enum. An unrecognised
+// string maps to MATCH_UNSPECIFIED.
+func StrToMatch(s string) typev1.Match {
+	v, ok := typev1.Match_value[matchPrefix+s]
+	if !ok {
+		return typev1.Match_MATCH_UNSPECIFIED
+	}
+	return typev1.Match(v)
 }
 
 // PluginCategoryToStr converts a proto plugin category to the string
@@ -805,32 +949,6 @@ func StrToAssetClass(s string) typev1.AssetClass {
 	return typev1.AssetClass(v)
 }
 
-// TxTypeToAssetClass maps a TxType to its asset class. Used for filtering and ignore rules.
-func TxTypeToAssetClass(t typev1.TxType) string {
-	switch t {
-	case typev1.TxType_BUYDEBT, typev1.TxType_SELLDEBT:
-		return AssetClassFixedIncome
-	case typev1.TxType_BUYMF, typev1.TxType_SELLMF:
-		return AssetClassMutualFund
-	case typev1.TxType_BUYOPT, typev1.TxType_SELLOPT, typev1.TxType_CLOSUREOPT:
-		return AssetClassOption
-	case typev1.TxType_BUYOTHER, typev1.TxType_SELLOTHER:
-		return AssetClassUnknown
-	case typev1.TxType_BUYSTOCK, typev1.TxType_SELLSTOCK:
-		return AssetClassStock
-	case typev1.TxType_BUYFUTURE, typev1.TxType_SELLFUTURE:
-		return AssetClassFuture
-	case typev1.TxType_INCOME, typev1.TxType_INVEXPENSE,
-		typev1.TxType_MARGININTEREST, typev1.TxType_RETOFCAP, typev1.TxType_JRNLFUND,
-		typev1.TxType_CASHFLOW:
-		return AssetClassCash
-	case typev1.TxType_TRANSFER, typev1.TxType_REINVEST, typev1.TxType_JRNLSEC, typev1.TxType_SPLIT:
-		return AssetClassUnknown
-	default:
-		return AssetClassUnknown
-	}
-}
-
 // assetClassEquivalents lists unordered pairs of asset classes that brokers
 // commonly conflate. The relation is intentionally non-transitive: STOCK and
 // MUTUAL_FUND are not equivalent even though both are paired with ETF.
@@ -841,17 +959,16 @@ var assetClassEquivalents = map[[2]string]bool{
 	{AssetClassETF, AssetClassMutualFund}: true,
 }
 
-// IsAssetClassCompatible reports whether a transaction whose TxType implies
-// asset class `implied` may legitimately be linked to an instrument with
-// asset class `resolved`.
+// IsAssetClassCompatible reports whether a transaction whose stated
+// asset_class_hint is `implied` may legitimately be linked to an instrument
+// with asset class `resolved`.
 //
 // Rules:
 //   - When `resolved` is empty or UNKNOWN (the instrument's class is unset
 //     or the identifier plugin could not classify it) there is no signal to
 //     contradict, so the tx is accepted.
-//   - When `implied` is UNKNOWN (TRANSFER, REINVEST, JRNLSEC, BUYOTHER,
-//     SELLOTHER) the tx represents a security position; any concrete class is
-//     accepted but CASH is rejected.
+//   - When `implied` is UNKNOWN (the source claims a security of unstated
+//     class) any concrete class is accepted but CASH is rejected.
 //   - STOCK <-> ETF and MUTUAL_FUND <-> ETF are treated as equivalent
 //     (non-transitive: STOCK and MUTUAL_FUND remain incompatible).
 //   - Otherwise, compatible iff the two strings are equal.
@@ -874,48 +991,6 @@ const (
 	InstrumentKindCash     = "CASH"
 	InstrumentKindSecurity = "SECURITY"
 )
-
-// TxTypeToInstrumentKind maps a TxType to its instrument kind. CASH kinds are
-// cash-flow transactions (dividends, fees, etc). SECURITY kinds represent
-// positions in instruments that need identification and pricing.
-func TxTypeToInstrumentKind(t typev1.TxType) string {
-	switch t {
-	case typev1.TxType_INCOME, typev1.TxType_INVEXPENSE,
-		typev1.TxType_MARGININTEREST, typev1.TxType_RETOFCAP, typev1.TxType_JRNLFUND,
-		typev1.TxType_CASHFLOW:
-		return InstrumentKindCash
-	default:
-		return InstrumentKindSecurity
-	}
-}
-
-// AssetClassToTxTypeStrings returns the tx_type DB strings that map to the given asset class.
-func AssetClassToTxTypeStrings(assetClass string) []string {
-	var strs []string
-	for i := range typev1.TxType_name {
-		t := typev1.TxType(i)
-		if t == typev1.TxType_TX_TYPE_UNSPECIFIED {
-			continue
-		}
-		if TxTypeToAssetClass(t) == assetClass {
-			strs = append(strs, t.String())
-		}
-	}
-	return strs
-}
-
-// AssetClassToTxTypesMap builds the asset-class-to-tx-types mapping the ignore
-// rule writers need, covering exactly the asset classes the rules name.
-func AssetClassToTxTypesMap(rules []IgnoredAssetClass) map[string][]string {
-	mapping := make(map[string][]string)
-	for _, r := range rules {
-		if _, seen := mapping[r.AssetClass]; seen {
-			continue
-		}
-		mapping[r.AssetClass] = AssetClassToTxTypeStrings(r.AssetClass)
-	}
-	return mapping
-}
 
 // currencyCodeRE is the shape users.display_currency holds: an ISO 4217 code.
 var currencyCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
@@ -1002,9 +1077,10 @@ type DeclarationCheck struct {
 // that makes the declared quantity true, and the EQUITY counterparty that balances
 // it. Timestamp is the portfolio start date and ShareCountBasis is the declaration's,
 // which are independent -- the pad is dated when the history begins but denominated
-// where the declaration is. TxType is the OFX type string (e.g. "BUYSTOCK", "SELLOPT").
+// where the declaration is. The pad's tx type is not a field: value entering from
+// outside the user's holdings is TRANSFER_EXTERNAL by definition, and the upsert
+// writes that constant.
 type InitializeTx struct {
-	TxType          string
 	Timestamp       time.Time
 	Quantity        decimal.Decimal
 	ShareCountBasis time.Time
@@ -1165,11 +1241,12 @@ type IgnoredAssetClassDB interface {
 	ListIgnoredAssetClasses(ctx context.Context, userID string) ([]IgnoredAssetClass, error)
 	// SetIgnoredAssetClasses replaces all ignore rules for the user and deletes
 	// matching txs, synthetic INITIALIZE txs, and holding declarations atomically.
-	// assetClassToTxTypes maps each asset class to its tx_type DB strings.
-	SetIgnoredAssetClasses(ctx context.Context, userID string, rules []IgnoredAssetClass, assetClassToTxTypes map[string][]string) error
+	// A tx matches when its instrument's asset class matches a rule; a tx whose
+	// instrument is unresolved matches nothing.
+	SetIgnoredAssetClasses(ctx context.Context, userID string, rules []IgnoredAssetClass) error
 	// CountIgnoredTxs returns the number of regular txs and holding declarations
 	// that would be deleted if the given rules were applied (net new vs current).
-	CountIgnoredTxs(ctx context.Context, userID string, rules []IgnoredAssetClass, assetClassToTxTypes map[string][]string) (txCount int32, declCount int32, err error)
+	CountIgnoredTxs(ctx context.Context, userID string, rules []IgnoredAssetClass) (txCount int32, declCount int32, err error)
 }
 
 // StockSplit is a single stock split row. SplitFrom and SplitTo are the raw
@@ -1475,11 +1552,11 @@ type ResidualBalance struct {
 	// Commodity is the instrument's name: the ISO code for money, the ticker for a
 	// security. AssetClass says which, and is empty when the instrument was never
 	// identified.
-	Commodity    string
-	AssetClass   string
-	TxType       typev1.TxType
-	Balance      decimal.Decimal
-	PostingCount int32
+	Commodity      string
+	AssetClass     string
+	ResolvedTxType typev1.TxType
+	Balance        decimal.Decimal
+	PostingCount   int32
 	// Oldest and Newest bound the postings that contribute to the balance. For a
 	// transfer that is the age of a missing side: a matched pair is excluded from
 	// the report, so what remains is a side whose counterpart never arrived.
@@ -1537,13 +1614,19 @@ type TransferSide struct {
 	// sides summing to exactly zero.
 	Amount    decimal.Decimal
 	Timestamp time.Time
-	// BrokerRefs are the distinct source references of the group's postings, and
-	// CounterpartyAccounts the distinct accounts they name as the other side. Sets
-	// rather than single values: a group is several source rows, the evidence can
-	// sit on any of them, and the nearest reference over the whole set is what the
-	// sample data supports. Either may be empty, for a source that supplied none.
-	BrokerRefs           []string
-	CounterpartyAccounts []string
+	// Correlations is what the group's sources said about why its postings might
+	// belong with others: their own identifiers, and what may be compared about
+	// each. A set over the whole group rather than one value, because a group is
+	// several source rows, the evidence can sit on any of them, and the nearest
+	// reference over the whole set is what the sample data supports.
+	//
+	// Which pass can read a given correlation is the correlation's own to say:
+	// the reference pass takes those declaring MATCH_ORDINAL and compares their
+	// ordinals, the pointer pass those declaring MATCH_ACCOUNT and compares their
+	// tokens against the other side's account. An OFX FITID declares neither, so
+	// both passes pass over it, which is right -- it is opaque and unique within
+	// one account.
+	Correlations []Correlation
 }
 
 // TransferMatch links the two sides of one transfer in one commodity. FromGroupID is
@@ -1580,4 +1663,163 @@ type TransferMatchDB interface {
 	// ListTransferMatches returns one user's links, newest first. For the report
 	// and for tests; the matching path itself reads none.
 	ListTransferMatches(ctx context.Context, userID string) ([]TransferMatch, error)
+}
+
+// GroupingSeedOpts chooses where a grouping cycle starts looking.
+//
+// Two sources, because one cannot find what the other can. Residual picks the groups
+// carrying something a missing leg would explain, which is most of what needs
+// repairing but never a converter's wrong pairing of two similar trades -- that
+// balances with only a rounding residual and looks settled from outside. JobID picks
+// what an import just wrote, whatever state its groups are in. An empty JobID with
+// Residual false reads everything the user has, which is the full partition the
+// worst case degenerates to anyway.
+type GroupingSeedOpts struct {
+	UserID string
+	// Residual seeds from groups holding a residual worse than SOURCE_ROUNDING.
+	Residual bool
+	// JobID seeds from the postings one ingestion job wrote.
+	JobID string
+}
+
+// The reads a grouping rule may make while growing the neighbourhood it is
+// partitioned over. One query type per access path, each carrying only its own
+// fields.
+//
+// A rule can express no reach these do not offer, which is the point: docs/adr/
+// 0050-grouping-recomputes-a-neighbourhood.md makes "state your reach as a bounded
+// indexed query" an admissibility test, and a rule limited to calling these cannot
+// state an unindexed one. A new access path is a new method here and a new statement
+// behind it, which is what a new access path honestly is.
+type (
+	// TokenQuery asks who else holds an identifier, in one series. AnyAccount
+	// widens it to the broker, for a token whose scope says it means something
+	// outside the account that issued it.
+	TokenQuery struct {
+		Broker     typev1.Broker
+		Account    string
+		AnyAccount bool
+		Label      string
+		Token      string
+	}
+
+	// DateQuery asks for one account's postings over a span of time, half-open as
+	// every interval in this system is
+	// (docs/adr/0018-half-open-date-intervals.md).
+	DateQuery struct {
+		Broker  typev1.Broker
+		Account string
+		From    time.Time
+		Before  time.Time
+	}
+
+	// OrdinalQuery asks for one account's postings whose reference falls in a
+	// span, inclusive at both ends because a span is stated as a distance rather
+	// than as a range.
+	OrdinalQuery struct {
+		Broker  typev1.Broker
+		Account string
+		Label   string
+		Low     int64
+		High    int64
+	}
+)
+
+// GroupingReader answers the reads above.
+//
+// Every method takes a batch and the ids the caller already holds, so a round of the
+// closure costs one statement per access path rather than one per posting asking, and
+// a posting is never read twice.
+type GroupingReader interface {
+	PostingsByToken(ctx context.Context, userID string, qs []TokenQuery, held []string) ([]GroupingPosting, error)
+	PostingsByDates(ctx context.Context, userID string, qs []DateQuery, held []string) ([]GroupingPosting, error)
+	PostingsByOrdinals(ctx context.Context, userID string, qs []OrdinalQuery, held []string) ([]GroupingPosting, error)
+}
+
+// GroupChange is one group the engine drew that the stored partition does not have,
+// and what it concluded about each of its members.
+//
+// Only disagreements are carried. A group whose membership is already stored produces
+// no change at all, which is what keeps its id -- and the transfer matches keyed on
+// that id -- through a cycle that repartitioned nothing.
+type GroupChange struct {
+	Members []GroupMemberChange
+}
+
+// GroupMemberChange is one posting of a changed group.
+//
+// Moving separates the two things a regroup does to a posting. A member that is
+// moving joins the new group; one that is not is already where the engine wants it
+// and is only being retyped, because the resolved value is derived from the partition
+// and can change while the membership does not.
+type GroupMemberChange struct {
+	ID string
+	// FromGroupID is the group the posting is leaving, so its residuals can be
+	// routed again. Empty for a member that is not moving.
+	FromGroupID string
+	// Resolved is the stored spelling of what the claiming rule concluded.
+	Resolved string
+	Moving   bool
+}
+
+// GroupingDB is everything a grouping cycle reads.
+//
+// Reads only. The partition is computed in memory and written by a separate call, so
+// a cycle can run in shadow -- deriving the groups and comparing them against what is
+// stored -- with no path through here writing anything.
+type GroupingDB interface {
+	GroupingReader
+	// ListGroupingSeeds returns the transcribed postings a cycle starts from,
+	// ordered by id so a cycle is deterministic.
+	ListGroupingSeeds(ctx context.Context, opts GroupingSeedOpts) ([]GroupingPosting, error)
+	// ApplyGrouping writes the groups the engine drew that are not already stored,
+	// re-routing the residuals of every group it touched, and returns how many
+	// postings moved. All in one transaction: the deferred balance constraint is
+	// what lets a group be observed unbalanced between the move and the routing.
+	ApplyGrouping(ctx context.Context, userID string, changes []GroupChange) (int, error)
+}
+
+// GroupingPosting is one transcribed posting as the grouping engine reads it: the
+// fields its rules compare, the evidence its source supplied, and the group it
+// currently sits in.
+//
+// Routed residuals are not among them. They transcribe nothing and correlate with
+// nothing, so there is nothing to say which postings they belong with; they are
+// deleted and routed fresh once the partition is settled, rather than partitioned
+// (docs/adr/0043-grouping-does-not-travel-in-the-archive.md).
+type GroupingPosting struct {
+	ID      string
+	UserID  string
+	Broker  typev1.Broker
+	Account string
+	// Timestamp is what the trade rules bucket on. A group's postings need not
+	// share it -- a deposit run in the sample settles across two days -- so only
+	// the rules that say so use it.
+	Timestamp time.Time
+	// InstrumentID is the commodity, empty for a posting whose instrument never
+	// resolved.
+	InstrumentID string
+	// Quantity is signed, and its sign is what the trade rules read as the
+	// direction money moved: the broker row type that says so in the source is
+	// not carried, and the sign is what survives of it.
+	Quantity  decimal.Decimal
+	UnitPrice *decimal.Decimal
+	// SettlementAmount is the cash total the source stated for the row, absent on
+	// a posting whose quantity is already money. Independent of
+	// quantity * unit_price, which is what lets one rule identify a cash leg and
+	// the other check the identification.
+	SettlementAmount *decimal.Decimal
+	// Declared is the candidate type set the source stated. A rule may claim a
+	// posting only where this admits the rule's own type, which is 0044's *may be*
+	// predicate doing the work.
+	Declared []typev1.TxType
+	// JobID is the ingestion job that wrote the posting, and is what a SCOPE_FILE
+	// correlation is comparable within.
+	JobID string
+	// GroupID is the partition as it stands, and Resolved what the last cycle
+	// concluded about this posting. The engine reads both only to tell its own
+	// answer from what is there, never as evidence.
+	GroupID      string
+	Resolved     string
+	Correlations []Correlation
 }

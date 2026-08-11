@@ -67,14 +67,12 @@ Exchange codes on MIC_TICKER identifiers are always stored as **operating MICs**
 
 ### Transaction ingestion: resolution cases
 
-The following diagram illustrates how each transaction is resolved to an instrument during upload. Optional client **hints** (exchange, currency, MIC, security type hint) are used only to narrow resolution; the decision tree is driven by whether the client supplies **identifier hints** (e.g. ISIN, TICKER) and by the outcomes of the **description** and **identifier** plugins. Transactions whose **TxType** is not stored (e.g. SPLIT) are dropped and not persisted.
+The following diagram illustrates how each transaction is resolved to an instrument during upload. Optional client **hints** (exchange, currency, MIC, security type hint) are used only to narrow resolution; the decision tree is driven by whether the client supplies **identifier hints** (e.g. ISIN, TICKER) and by the outcomes of the **description** and **identifier** plugins.
 
 ```mermaid
 flowchart TD
     Start([Tx upload: source + description + optional hints])
-    Start --> TxTypeDropped{TxType is SPLIT (not stored)?}
-    TxTypeDropped -->|Yes| Drop[Drop tx, do not store]
-    TxTypeDropped -->|No| HasIdHints{Client supplied identifier hints?}
+    Start --> HasIdHints{Client supplied identifier hints?}
 
     HasIdHints -->|Yes| LookupByHints[DB lookup by identifier hints]
     LookupByHints --> HintsOneId{Exactly one instrument?}
@@ -154,21 +152,18 @@ The system should support the ability to fetch data on stock splits, mergers, de
 
 ## Transaction Types
 
-Portfoliodb should support OFX style transaction types.  For investments:
+A posting's transaction type says what kind of economic event it is a leg of, as
+a declared candidate set (`broker_tx_type`) and a server-derived resolution
+(`resolved_tx_type`), over a named hierarchy: TRADE, INCOME, EXPENSE and
+TRANSFER families with leaves for the distinctions the system acts on. The
+vocabulary, the set semantics and the resolution rule are specified in
+[tx-types.md](tx-types.md). Broker and OFX type names are converter input, each
+mapped to a declared set; the asset class a source states travels separately as
+`asset_class_hint`, and direction is the sign of `quantity`.
 
-* Buys: BUYDEBT, BUYFUTURE, BUYMF, BUYOPT, BUYOTHER, BUYSTOCK
-* Sells: SELLDEBT, SELLFUTURE, SELLMF, SELLOPT, SELLOTHER, SELLSTOCK
-* Other actions: INCOME, INVEXPENSE, REINVEST, RETOFCAP, SPLIT, TRANSFER, JRNLFUND, JRNLSEC, MARGININTEREST, CLOSUREOPT, CASHFLOW
-
-CASHFLOW represents a change in cash balance, such as the cash leg of a security purchase or sale.  When a broker reports a trade as a single row containing both the security quantity change and the cash amount, uploaders may split this into two transactions: the security transaction (e.g. BUYSTOCK) and a CASHFLOW transaction for the corresponding cash movement.
-
-For instrument resolution, BUYFUTURE and SELLFUTURE are treated as security type hint Future, JRNLFUND and CASHFLOW as Cash, and JRNLSEC as Stock. TRANSFER and REINVEST are treated as instrument kind Security with unknown asset class (they represent security positions but the specific asset class is inferred during identification). Transaction types that are not stored (e.g. **TxType** SPLIT) are dropped on upload.
-
-For cash accounts (when support is added):
-
-* CREDIT, DEBIT, INT, DIV, FEE, SRVCHG, DEP, ATM, POS, XFER, CHECK, PAYMENT, CASH, DIRECTDEP, DIRECTDEBIT, REPEATPMT, OTHER
-
-These transaction types need only be interpreted enough to determine the change to the users holdings.  The supplied transaction type should be stored so that transactions can be filtered by type in the future.
+When a broker reports a trade as a single row containing both the security
+quantity change and the cash amount, converters split it into a `TRADE_ASSET`
+posting and a `TRADE_CASH` posting for the corresponding cash movement.
 
 ## User Interface
 

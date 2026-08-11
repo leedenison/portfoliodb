@@ -61,6 +61,15 @@ the engine can run in shadow over stored postings and be required to reproduce
 `group_ref` exactly before anything depends on it. Do this before 0098 flips the
 switch.
 
+The oracle is not infallible, and the bar has to be read with that in mind. The
+engine is free to disagree with a converter's pairing, including one that balances
+with nothing worse than a `SOURCE_ROUNDING` residual, because that is what a
+wrong pairing of two similar trades looks like
+(adr/0047-grouping-runs-as-precedence-ordered-passes.md). So a divergence may be
+the engine being right. Zero divergences is still the bar to start from, since
+any other number is unfalsifiable, but each one is looked at rather than counted
+as a failure.
+
 ## Settled: how a human assertion survives
 
 adr/0049-a-human-assertion-is-a-correlation.md answers the question this issue was

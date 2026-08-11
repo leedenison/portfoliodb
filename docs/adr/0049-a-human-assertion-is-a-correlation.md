@@ -91,6 +91,17 @@ difference is not marginal -- without it, importing one month of one broker woul
 destroy manual matches on postings nobody touched. See
 [0047](0047-grouping-runs-as-precedence-ordered-passes.md).
 
+**A manual grouping is protected by precedence, not by leaving it alone.** An
+exact-token claim is a must-link ([0048](0048-correlations-declare-their-own-semantics.md)),
+and the pass that makes it runs first, so a later pass can add to an asserted
+group but can never take a member out of it. Nothing else is needed, and in
+particular no rule that spares a group the engine finds already settled: such a
+rule would hold whether or not a person had said anything, and would stop the
+engine correcting a partition that is wrong but balances. It would also protect
+the wrong groups -- an assertion is often made precisely because the legs do not
+balance, which is the case a balance-based rule leaves unprotected. See
+[0047](0047-grouping-runs-as-precedence-ordered-passes.md).
+
 **A manual transfer match is a different object and keeps a different answer.** It
 links two groups rather than joining postings, because the link records which
 account holds the other side ([0037](0037-transfer-matches-are-links-not-postings.md)),

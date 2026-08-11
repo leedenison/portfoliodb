@@ -122,3 +122,26 @@ person may well assert a grouping precisely because the legs do not. The
 groups carry an unresolved residual is a sound and cheap way to choose where to
 look. Neither may become a rule about what the engine is permitted to conclude
 once it is looking, or it can only ever repair and never correct.
+
+**Precedence is data on the rule, not the order of its call site.** "Expect
+pressure toward a per-broker precedence list" above is much easier to satisfy if
+each rule carries a number than if the ordering lives in the shape of the code: a
+broker's ordering becomes a table that can be stated, tested and diffed rather
+than a restructuring.
+
+Execution stays a loop over rules in that order, and the loop is both the faster
+form and the only one that keeps the queries indexed. Collapsing to a single
+globally sorted candidate list is equivalent -- every higher-priority candidate
+sorts before every lower-priority one, and claiming is greedy either way -- but
+it requires generating every rule's candidates up front, where the loop lets each
+rule's claims shrink the pool before the next rule generates anything. The
+predicates are also too unlike each other for one query to serve them: token
+equality, amount equality, a fee-direction inequality, a directed ordinal span.
+
+**Claims stay irrevocable, and recomputation is what makes that affordable.**
+With [0050](0050-grouping-recomputes-a-neighbourhood.md) the engine partitions a
+neighbourhood from scratch rather than adjusting what is stored, so a claim is
+irrevocable within a run and no run inherits another's claims. The case that
+looks like it needs revocation -- a leg paired on a wide-but-passing gap whose
+true counterpart arrives later -- is answered by the global ranking above, which
+sees both candidates at once.

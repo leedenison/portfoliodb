@@ -151,6 +151,23 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (string, t
 		}
 		seedWeekdayBars(t, p, inst.id, histFrom, barsBefore, decf(100))
 	}
+
+	// Everything above was written inside the test's transaction, which rolls
+	// back, so autovacuum never sees any of it and the planner would otherwise
+	// cost the query against a database it believes to be empty. That is not a
+	// harmless difference: with no statistics the join above the day grid is
+	// estimated at 111 rows against 91,350, and with them at 11,208 -- three
+	// orders of magnitude wrong becomes one, which is the difference between a
+	// plan that tips into a nested loop and one that does not.
+	//
+	// So this is what makes the benchmark measure the server rather than the
+	// harness. What it does not measure is an import's own aftermath, where the
+	// statistics are real but describe the table as it was before the import.
+	// See 0102.
+	if _, err := p.q.ExecContext(ctx,
+		`ANALYZE txs, tx_groups, eod_prices, price_coverage, instruments, instrument_identifiers`); err != nil {
+		t.Fatalf("analyze: %v", err)
+	}
 	return userID, from, before
 }
 
@@ -184,11 +201,11 @@ func seedWeekdayBars(t testing.TB, p *Postgres, instrumentID string, from, befor
 // difference is what FX conversion costs, which a single-currency run reported
 // as zero because it never executed any of it.
 //
-// What that comes to at the load below: 410ms in USD and 427ms in GBP, so FX is
-// 4% and is kept for the coverage rather than the cost -- without a foreign
-// holding and a foreign display currency, four of the query's steps return no
-// rows. The carry-forward over prices is now the largest single node at 42%,
-// which is what this query was always assumed to be about.
+// What that comes to at the load below: 382ms in USD and 430ms in GBP, so FX is
+// around a tenth and is kept for the coverage rather than the cost -- without a
+// foreign holding and a foreign display currency, four of the query's steps
+// return no rows. The carry-forward over prices is the largest single node at
+// roughly 40%, which is what this query was always assumed to be about.
 //
 // It read 3.4s before daily_holdings stopped resolving each position with a
 // per-day lookup, 85% of which was that one node: it ran once per cell of the
@@ -198,9 +215,10 @@ func seedWeekdayBars(t testing.TB, p *Postgres, instrumentID string, from, befor
 // it as 183ms and hid the term. That is the measurement this load exists for.
 //
 // Any figure from here is only comparable to another one taken at the same
-// work_mem and against the same valuationLoad. The test stack pins the former
-// rather than letting timescaledb-tune size it from whatever the container could
-// see; the latter is stated below, and changing it invalidates the history. At
+// work_mem, against the same valuationLoad, and with statistics. The test stack
+// pins the first rather than letting timescaledb-tune size it from whatever the
+// container could see; the second is stated below, and changing it invalidates
+// the history; the third is what the ANALYZE in seedValuationLoad is for. At
 // this load the sorts peak at 8.8MB in memory against the pinned 16MB; below
 // about 9MB they spill and the same query reads a fifth slower for no other
 // reason.

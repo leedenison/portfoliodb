@@ -25,7 +25,7 @@ const name = "grouping"
 // clock in this process. The ingestion worker fires it after a tx import commits, so
 // legs that have just landed beside older ones are joined without waiting for the
 // next tick.
-func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry, apply bool) {
 	if workers != nil {
 		workers.SetIdle(name)
 	}
@@ -37,18 +37,19 @@ func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterInc
 			if !ok {
 				return
 			}
-			runCycle(ctx, database, counter, log, workers)
+			runCycle(ctx, database, counter, log, workers, apply)
 		}
 	}
 }
 
-// runCycle derives the partition of every neighbourhood a seed reaches, and reports
-// how it differs from what is stored.
+// runCycle derives the partition of every neighbourhood a seed reaches, reports how
+// it differs from what is stored, and writes the difference where asked to.
 //
-// It writes nothing. Until a shadow run reproduces the converters' partition there is
-// nothing to justify replacing it, so this cycle exists to measure the disagreement
-// and 0098 is what turns the answer into the stored one.
-func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) {
+// apply is off by default and 0098 is what turns it on, once a shadow run over a
+// corpus has been looked at. Off, the cycle is a measurement and can leave nothing
+// behind; on, it writes only what it disagrees with, so a cycle that repartitions
+// nothing writes nothing either way.
+func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry, apply bool) {
 	if counter != nil {
 		counter.Incr(ctx, "grouping.cycles")
 	}
@@ -81,7 +82,7 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 
 	total := Divergence{}
 	for _, userID := range usersOf(seeds) {
-		d, err := cycleUser(ctx, database, userID, byUser(seeds, userID))
+		d, err := cycleUser(ctx, database, userID, byUser(seeds, userID), apply)
 		if err != nil {
 			if log != nil {
 				log.ErrorContext(ctx, "grouping: derive", "user", userID, "err", err)
@@ -120,7 +121,7 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 // Neighbourhoods are grown one seed at a time and the ones that overlap are answered
 // from the same reads, since a posting already held is never asked for again. A seed
 // swallowed by an earlier neighbourhood costs one round that finds nothing.
-func cycleUser(ctx context.Context, database db.DB, userID string, seeds []db.GroupingPosting) (Divergence, error) {
+func cycleUser(ctx context.Context, database db.DB, userID string, seeds []db.GroupingPosting, apply bool) (Divergence, error) {
 	rules := DefaultRules()
 	opts := DefaultOpts()
 	done := map[string]bool{}
@@ -136,7 +137,17 @@ func cycleUser(ctx context.Context, database db.DB, userID string, seeds []db.Gr
 		for _, p := range ps {
 			done[p.ID] = true
 		}
-		d := Compare(ps, Partition(ps, rules, opts))
+		gs := Partition(ps, rules, opts)
+		if apply {
+			// Written per neighbourhood rather than per cycle: each is its own
+			// transaction, so a failure costs one region rather than the run, and
+			// the balance constraint is evaluated over a set of groups that were
+			// all decided together.
+			if _, err := database.ApplyGrouping(ctx, userID, Diff(ps, gs)); err != nil {
+				return Divergence{}, err
+			}
+		}
+		d := Compare(ps, gs)
 		total.Groups += d.Groups
 		total.Stored += d.Stored
 		total.Agreed += d.Agreed

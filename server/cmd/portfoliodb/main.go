@@ -70,6 +70,11 @@ var buildRevision = "dev"
 
 func main() {
 	grpcAddr := flag.String("grpc-addr", envOrDefault("PORTFOLIODB_GRPC_ADDR", ":50051"), "gRPC listen address")
+	// Off until a shadow run over a corpus has been looked at: the cycle derives the
+	// partition either way, and this decides whether it writes what it derived.
+	// 0098 is what turns it on for good.
+	applyGrouping := flag.Bool("apply-grouping", os.Getenv("PORTFOLIODB_APPLY_GROUPING") == "1",
+		"write the transaction groups the engine derives, rather than only reporting how they differ")
 	dbURL := flag.String("db-url", os.Getenv("PORTFOLIODB_DB_URL"), "PostgreSQL connection URL")
 	redisURL := flag.String("redis-url", envOrDefault("PORTFOLIODB_REDIS_URL", os.Getenv("REDIS_URL")), "Redis connection URL for sessions")
 	flag.Parse()
@@ -273,7 +278,7 @@ func main() {
 	go inflationfetcher.RunWorker(ctx, database, inflationRegistry, counter, logger.WithCategory(serverLogger, "server/inflationfetcher"), inflationTrigger, workers)
 	go corporateevents.RunWorker(ctx, database, corporateEventRegistry, counter, logger.WithCategory(serverLogger, "server/corporateevents"), corporateEventTrigger, workers)
 	go transfermatch.RunWorker(ctx, database, counter, logger.WithCategory(serverLogger, "server/transfermatch"), transferMatchTrigger, workers)
-	go grouping.RunWorker(ctx, database, counter, logger.WithCategory(serverLogger, "server/grouping"), groupingTrigger, workers)
+	go grouping.RunWorker(ctx, database, counter, logger.WithCategory(serverLogger, "server/grouping"), groupingTrigger, workers, *applyGrouping)
 	// Re-enqueue incomplete jobs from a previous run.
 	if pending, err := database.ListPendingJobs(ctx); err == nil {
 		for _, p := range pending {

@@ -31,7 +31,8 @@ const groupingColumns = `
 	t.settlement_amount,
 	t.broker_tx_type,
 	COALESCE(g.job_id::text, '') AS job_id,
-	t.group_id::text AS group_id
+	t.group_id::text AS group_id,
+	t.resolved_tx_type
 `
 
 // transcribedPostings is the population a partition is over.
@@ -73,6 +74,7 @@ type groupingRow struct {
 	BrokerTxTypes    pq.StringArray   `db:"broker_tx_type"`
 	JobID            string           `db:"job_id"`
 	GroupID          string           `db:"group_id"`
+	Resolved         string           `db:"resolved_tx_type"`
 }
 
 func (r groupingRow) toDomain() db.GroupingPosting {
@@ -89,6 +91,7 @@ func (r groupingRow) toDomain() db.GroupingPosting {
 		Declared:         db.StrsToTxTypes(r.BrokerTxTypes),
 		JobID:            r.JobID,
 		GroupID:          r.GroupID,
+		Resolved:         r.Resolved,
 	}
 }
 

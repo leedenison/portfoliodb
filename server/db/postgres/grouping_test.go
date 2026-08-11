@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
@@ -71,7 +72,7 @@ func (f *groupingFixture) writeWithResidual(t *testing.T, account string, ts tim
 		InstrumentDescription: "GRP",
 		BrokerTxType:          declared,
 		ResolvedTxType:        declared[0],
-		Quantity:              "-" + qty,
+		Quantity:              decimal.RequireFromString(qty).Neg().String(),
 		Account:               account,
 		AccountType:           residual,
 	}

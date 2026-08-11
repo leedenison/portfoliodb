@@ -28,6 +28,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/migrate"
 	"github.com/leedenison/portfoliodb/server/db/postgres"
+	"github.com/leedenison/portfoliodb/server/grouping"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
 	"github.com/leedenison/portfoliodb/server/inflationfetcher"
@@ -249,6 +250,7 @@ func main() {
 	priceTrigger := make(chan struct{}, 1)
 	corporateEventTrigger := make(chan struct{}, 1)
 	transferMatchTrigger := make(chan struct{}, 1)
+	groupingTrigger := make(chan struct{}, 1)
 	queue := make(chan *ingestion.JobRequest, 256)
 	workers := worker.NewRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -264,12 +266,14 @@ func main() {
 		PriceTrigger:          priceTrigger,
 		CorporateEventTrigger: corporateEventTrigger,
 		TransferMatchTrigger:  transferMatchTrigger,
+		GroupingTrigger:       groupingTrigger,
 		Workers:               workers,
 	})
 	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
 	go inflationfetcher.RunWorker(ctx, database, inflationRegistry, counter, logger.WithCategory(serverLogger, "server/inflationfetcher"), inflationTrigger, workers)
 	go corporateevents.RunWorker(ctx, database, corporateEventRegistry, counter, logger.WithCategory(serverLogger, "server/corporateevents"), corporateEventTrigger, workers)
 	go transfermatch.RunWorker(ctx, database, counter, logger.WithCategory(serverLogger, "server/transfermatch"), transferMatchTrigger, workers)
+	go grouping.RunWorker(ctx, database, counter, logger.WithCategory(serverLogger, "server/grouping"), groupingTrigger, workers)
 	// Re-enqueue incomplete jobs from a previous run.
 	if pending, err := database.ListPendingJobs(ctx); err == nil {
 		for _, p := range pending {
@@ -327,6 +331,7 @@ func main() {
 		CorporateEventRegistry: corporateEventRegistry,
 		CorporateEventTrigger:  corporateEventTrigger,
 		TransferMatchTrigger:   transferMatchTrigger,
+		GroupingTrigger:        groupingTrigger,
 		WorkerRegistry:         workers,
 		EnqueueJob:             api.JobEnqueuer(enqueueJob),
 	}))

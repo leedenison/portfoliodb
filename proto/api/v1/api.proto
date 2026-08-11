@@ -287,6 +287,11 @@ service ApiService {
   // correction. A cycle reads every unmatched side rather than a window, so
   // running it more often than needed costs one query and finds nothing new.
   rpc TriggerTransferMatch(TriggerTransferMatchRequest) returns (TriggerTransferMatchResponse);
+  // Trigger a transaction grouping cycle (admin-only). Returns immediately; the
+  // pass runs async. For use by an external cron job or CLI, and after an import.
+  // A cycle derives the partition from stored evidence and reports how it differs
+  // from the one stored; it writes nothing until the converters are retired.
+  rpc TriggerGrouping(TriggerGroupingRequest) returns (TriggerGroupingResponse);
 
   // Corporate event import / export. Mirrors the price import/export RPCs:
   // import is async via the job queue, export streams every event with the
@@ -1162,6 +1167,10 @@ message UpdateCorporateEventPluginResponse {
 message TriggerCorporateEventFetchRequest {}
 
 message TriggerCorporateEventFetchResponse {}
+
+message TriggerGroupingRequest {}
+
+message TriggerGroupingResponse {}
 
 message TriggerTransferMatchRequest {}
 

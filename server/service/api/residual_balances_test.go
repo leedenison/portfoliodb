@@ -289,3 +289,54 @@ func TestTriggerTransferMatch_NilTrigger(t *testing.T) {
 		t.Fatalf("TriggerTransferMatch with nil trigger should succeed: %v", err)
 	}
 }
+
+func TestTriggerGrouping_RequiresAdmin(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	ctx := authCtx("user-1", "sub|user")
+	_, err := srv.TriggerGrouping(ctx, &apiv1.TriggerGroupingRequest{})
+	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
+}
+
+func TestTriggerGrouping_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(func() { ctrl.Finish() })
+	mockDB := mock.NewMockDB(ctrl)
+	trigger := make(chan struct{}, 1)
+	srv := NewServer(ServerConfig{DB: mockDB, GroupingTrigger: trigger})
+
+	ctx := adminCtx("admin-1", "sub|admin")
+	if _, err := srv.TriggerGrouping(ctx, &apiv1.TriggerGroupingRequest{}); err != nil {
+		t.Fatalf("TriggerGrouping: %v", err)
+	}
+	select {
+	case <-trigger:
+	default:
+		t.Error("expected a signal on the trigger channel")
+	}
+}
+
+// TestTriggerGrouping_NonBlocking verifies a cron job calling this while a pass is
+// already pending returns rather than waiting, as the other trigger endpoints do.
+func TestTriggerGrouping_NonBlocking(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(func() { ctrl.Finish() })
+	mockDB := mock.NewMockDB(ctrl)
+	trigger := make(chan struct{}, 1)
+	trigger <- struct{}{}
+	srv := NewServer(ServerConfig{DB: mockDB, GroupingTrigger: trigger})
+
+	ctx := adminCtx("admin-1", "sub|admin")
+	if _, err := srv.TriggerGrouping(ctx, &apiv1.TriggerGroupingRequest{}); err != nil {
+		t.Fatalf("TriggerGrouping should not block: %v", err)
+	}
+}
+
+// TestTriggerGrouping_NilTrigger verifies the RPC is a no-op rather than an error
+// where no worker is wired.
+func TestTriggerGrouping_NilTrigger(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t)
+	ctx := adminCtx("admin-1", "sub|admin")
+	if _, err := srv.TriggerGrouping(ctx, &apiv1.TriggerGroupingRequest{}); err != nil {
+		t.Fatalf("TriggerGrouping with nil trigger should succeed: %v", err)
+	}
+}

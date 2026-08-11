@@ -15,6 +15,7 @@
 package grouping
 
 import (
+	"context"
 	"sort"
 
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
@@ -77,11 +78,20 @@ type Rule interface {
 	// order decides the partition rather than merely tuning it, because a claim is
 	// irrevocable within a run.
 	Precedence() int
-	// Reach states what this rule could link p to, as queries a store can answer
-	// from an index. It is what seeds the neighbourhood closure, and a rule that
-	// cannot state one is not admissible -- nothing could compute the region it
-	// needs. See docs/adr/0050-grouping-recomputes-a-neighbourhood.md.
-	Reach(p db.GroupingPosting) []Reach
+	// Expand returns the postings this rule could link to any of ps, by making the
+	// reads it needs.
+	//
+	// The rule issues its own reads rather than describing them for someone else to
+	// dispatch, because it is the only thing that knows what it would compare. What
+	// it may ask for is bounded by what the reader offers, which is how
+	// docs/adr/0050-grouping-recomputes-a-neighbourhood.md's admissibility test --
+	// a reach must be a bounded indexed query -- becomes structural rather than a
+	// convention: a rule cannot state a reach that has no index behind it, because
+	// there is no method for one.
+	//
+	// held is what the caller already has, passed through to the reader so a
+	// posting is never read twice and each round shrinks.
+	Expand(ctx context.Context, userID string, ps []db.GroupingPosting, r db.GroupingReader, held []string) ([]db.GroupingPosting, error)
 	// Apply claims what this rule can from the postings still free.
 	//
 	// The rule drives its own claiming rather than handing proposals back for the
@@ -122,6 +132,25 @@ func Partition(ps []db.GroupingPosting, rules []Rule, opts Opts) []Group {
 		r.Apply(ps, st, opts)
 	}
 	return st.groups(ps)
+}
+
+// distinct drops the repeats from a rule's queries.
+//
+// Repeats are the common case rather than the exception: every posting of one account
+// on one day asks the same date question, so a frontier of a hundred asks it once.
+// This is what keeps a read proportional to the distinct questions rather than to the
+// postings asking them.
+func distinct[T comparable](in []T) []T {
+	seen := make(map[T]bool, len(in))
+	out := make([]T, 0, len(in))
+	for _, v := range in {
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
 }
 
 // State is the partition under construction: which postings share a group, and

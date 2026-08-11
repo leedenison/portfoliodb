@@ -1,6 +1,7 @@
 package grouping
 
 import (
+	"context"
 	"sort"
 
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
@@ -34,31 +35,34 @@ func (Exact) Name() string { return "exact" }
 
 func (Exact) Precedence() int { return ExactPrecedence }
 
-// Reach asks for everything correlated with each token this posting carries, in
-// the same series. The index on (label, token) answers it directly, which is what
-// makes this rule admissible: it starts from an identifier and asks who else holds
-// it, rather than scanning for one.
-func (Exact) Reach(p db.GroupingPosting) []Reach {
-	var out []Reach
-	for _, c := range p.Correlations {
-		if !c.Declares(db.MatchExact) {
-			continue
+// Expand asks who else holds each token these postings carry, in the same series.
+//
+// The index over (label, token) answers it directly, which is what makes this rule
+// admissible: it starts from an identifier and asks who else holds it, rather than
+// scanning for one.
+func (Exact) Expand(ctx context.Context, userID string, ps []db.GroupingPosting, r db.GroupingReader, held []string) ([]db.GroupingPosting, error) {
+	var qs []db.TokenQuery
+	for _, p := range ps {
+		for _, c := range p.Correlations {
+			if !c.Declares(db.MatchExact) {
+				continue
+			}
+			qs = append(qs, db.TokenQuery{
+				Broker:  p.Broker,
+				Account: p.Account,
+				// A token whose scope reaches past the account it was issued in
+				// has to be looked for past it too, or the read would be
+				// narrower than the rule it serves.
+				AnyAccount: c.Scope != db.ScopeAccount,
+				Label:      c.Label,
+				Token:      c.Token,
+			})
 		}
-		r := Reach{
-			Kind:    ReachToken,
-			Broker:  p.Broker,
-			Account: p.Account,
-			Label:   c.Label,
-			Token:   c.Token,
-		}
-		// A token whose scope reaches past the account it was issued in has to be
-		// looked for past it too, or the reach would be narrower than the rule.
-		if c.Scope != db.ScopeAccount {
-			r.AnyAccount = true
-		}
-		out = append(out, r)
 	}
-	return out
+	if len(qs) == 0 {
+		return nil, nil
+	}
+	return r.PostingsByToken(ctx, userID, distinct(qs), held)
 }
 
 // Apply claims one group per set of postings sharing a token, in token order so the

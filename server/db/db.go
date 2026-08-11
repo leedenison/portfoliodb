@@ -1664,6 +1664,60 @@ type TransferMatchDB interface {
 	ListTransferMatches(ctx context.Context, userID string) ([]TransferMatch, error)
 }
 
+// The reads a grouping rule may make while growing the neighbourhood it is
+// partitioned over. One query type per access path, each carrying only its own
+// fields.
+//
+// A rule can express no reach these do not offer, which is the point: docs/adr/
+// 0050-grouping-recomputes-a-neighbourhood.md makes "state your reach as a bounded
+// indexed query" an admissibility test, and a rule limited to calling these cannot
+// state an unindexed one. A new access path is a new method here and a new statement
+// behind it, which is what a new access path honestly is.
+type (
+	// TokenQuery asks who else holds an identifier, in one series. AnyAccount
+	// widens it to the broker, for a token whose scope says it means something
+	// outside the account that issued it.
+	TokenQuery struct {
+		Broker     typev1.Broker
+		Account    string
+		AnyAccount bool
+		Label      string
+		Token      string
+	}
+
+	// DateQuery asks for one account's postings over a span of time, half-open as
+	// every interval in this system is
+	// (docs/adr/0018-half-open-date-intervals.md).
+	DateQuery struct {
+		Broker  typev1.Broker
+		Account string
+		From    time.Time
+		Before  time.Time
+	}
+
+	// OrdinalQuery asks for one account's postings whose reference falls in a
+	// span, inclusive at both ends because a span is stated as a distance rather
+	// than as a range.
+	OrdinalQuery struct {
+		Broker  typev1.Broker
+		Account string
+		Label   string
+		Low     int64
+		High    int64
+	}
+)
+
+// GroupingReader answers the reads above.
+//
+// Every method takes a batch and the ids the caller already holds, so a round of the
+// closure costs one statement per access path rather than one per posting asking, and
+// a posting is never read twice.
+type GroupingReader interface {
+	PostingsByToken(ctx context.Context, userID string, qs []TokenQuery, held []string) ([]GroupingPosting, error)
+	PostingsByDates(ctx context.Context, userID string, qs []DateQuery, held []string) ([]GroupingPosting, error)
+	PostingsByOrdinals(ctx context.Context, userID string, qs []OrdinalQuery, held []string) ([]GroupingPosting, error)
+}
+
 // GroupingPosting is one transcribed posting as the grouping engine reads it: the
 // fields its rules compare, the evidence its source supplied, and the group it
 // currently sits in.

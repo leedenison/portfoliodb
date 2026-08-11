@@ -634,6 +634,38 @@ CREATE TABLE price_coverage (
 
 CREATE INDEX idx_price_coverage_instrument ON price_coverage (instrument_id);
 
+-- Coverage merged across plugins. Every caller asks the same question of this
+-- table -- which date spans has anyone answered for -- and none of them cares
+-- who answered: the valuation carry-forward needs a bound, the gap scan needs
+-- what is already answered for, and the export needs what to write down. So the
+-- per-plugin rows are unioned into the fewest non-overlapping spans covering
+-- the same dates, once, here.
+--
+-- range_agg over a half-open daterange merges adjacent spans as well as
+-- overlapping ones, which matters to a carry-forward partitioned by span: two
+-- plugins covering [Jan, Feb) and [Feb, Mar) must come out as one span, or the
+-- spurious boundary restarts the fill and the first day of February reads as
+-- unpriced.
+--
+-- last_fetched_at is deliberately not carried. A merged span has no single
+-- constituent to take it from, and no caller needs it yet. When one does, the
+-- staleness rule stated on the table above -- a union is only as freshly
+-- confirmed as its stalest part -- belongs here rather than at the call site.
+--
+-- A view, not a repeated subquery, so the merge has one definition. Postgres
+-- inlines it, so a caller's instrument_id predicate still reaches the aggregate:
+-- instrument_id is the grouping key.
+CREATE VIEW merged_price_coverage AS
+SELECT instrument_id,
+       lower(span) AS covered_from,
+       upper(span) AS covered_before
+FROM (
+  SELECT instrument_id,
+         unnest(range_agg(daterange(covered_from, covered_before))) AS span
+  FROM price_coverage
+  GROUP BY instrument_id
+) s;
+
 -- Stock splits per instrument. ex_date is the effective/execution date. The
 -- split factor is split_to / split_from (e.g. 2:1 split = split_from=1,
 -- split_to=2, factor=2; 1:2 reverse split = split_from=2, split_to=1, factor=0.5).
@@ -698,6 +730,19 @@ CREATE TABLE corporate_event_coverage (
 );
 
 CREATE INDEX idx_corporate_event_coverage_instrument ON corporate_event_coverage (instrument_id);
+
+-- Coverage merged across plugins, as merged_price_coverage is for prices. See
+-- the comment there for why the merge lives in a view.
+CREATE VIEW merged_corporate_event_coverage AS
+SELECT instrument_id,
+       lower(span) AS covered_from,
+       upper(span) AS covered_before
+FROM (
+  SELECT instrument_id,
+         unnest(range_agg(daterange(covered_from, covered_before))) AS span
+  FROM corporate_event_coverage
+  GROUP BY instrument_id
+) s;
 
 -- Blocked (instrument, plugin) pairs for corporate-event fetches. Mirrors
 -- price_fetch_blocks: an entry here means the plugin returned a permanent

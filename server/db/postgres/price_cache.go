@@ -127,14 +127,9 @@ func (p *Postgres) PriceCoverage(ctx context.Context, instrumentIDs []string) ([
 	}
 
 	rows, err := p.q.QueryContext(ctx, `
-		SELECT instrument_id, lower(r) AS range_from, upper(r) AS range_before
-		FROM (
-			SELECT instrument_id,
-				unnest(range_agg(daterange(covered_from, covered_before))) AS r
-			FROM price_coverage
-			WHERE ($1::uuid[] IS NULL OR instrument_id = ANY($1))
-			GROUP BY instrument_id
-		) sub
+		SELECT instrument_id, covered_from AS range_from, covered_before AS range_before
+		FROM merged_price_coverage
+		WHERE ($1::uuid[] IS NULL OR instrument_id = ANY($1))
 		ORDER BY instrument_id, range_from
 	`, filter)
 	if err != nil {

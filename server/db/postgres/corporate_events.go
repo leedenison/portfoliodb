@@ -892,14 +892,9 @@ func (p *Postgres) ListCorporateEventCoverageForExport(ctx context.Context) ([]d
 	q := `
 		SELECT best_id.identifier_type, best_id.value, COALESCE(best_id.domain, '') AS domain,
 			COALESCE(i.asset_class, '') AS asset_class,
-			lower(sub.r) AS covered_from, upper(sub.r) AS covered_before
-		FROM (
-			SELECT instrument_id,
-				unnest(range_agg(daterange(covered_from, covered_before))) AS r
-			FROM corporate_event_coverage
-			GROUP BY instrument_id
-		) sub
-		JOIN instruments i ON i.id = sub.instrument_id
+			mc.covered_from, mc.covered_before
+		FROM merged_corporate_event_coverage mc
+		JOIN instruments i ON i.id = mc.instrument_id
 		` + bestIdentifierJoin + `
 		ORDER BY best_id.identifier_type, best_id.value, COALESCE(best_id.domain, ''), covered_from
 	`

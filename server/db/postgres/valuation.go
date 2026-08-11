@@ -148,23 +148,18 @@ price_instruments AS (
 -- Only real bars are stored, so the days a market was shut have no row. The
 -- next four CTEs carry the last close forward over them.
 --
--- Spans merged across plugins: for "should this day have a price" it does not
--- matter which provider answered.
-coverage_spans AS (
-    SELECT instrument_id,
-        unnest(range_agg(daterange(covered_from, covered_before))) AS span
-    FROM price_coverage
-    WHERE instrument_id IN (SELECT instrument_id FROM price_instruments)
-    GROUP BY instrument_id
-),
 -- Carry-forward is bounded by coverage, so a delisted instrument's last close
 -- stops at the end of the span rather than being held for ever. Partitioning by
--- span below makes that fall out of the grouping instead of needing a guard.
+-- span_from below makes that fall out of the grouping instead of needing a
+-- guard, which is why the span's lower bound is carried down rather than just
+-- used to filter. merged_price_coverage unions the per-plugin spans: for
+-- "should this day have a price" it does not matter which provider answered.
 covered_grid AS (
-    SELECT cs.instrument_id, ds.val_date, lower(cs.span) AS span_from
-    FROM coverage_spans cs
+    SELECT mc.instrument_id, ds.val_date, mc.covered_from AS span_from
+    FROM merged_price_coverage mc
     JOIN date_series ds
-        ON ds.val_date >= lower(cs.span) AND ds.val_date < upper(cs.span)
+        ON ds.val_date >= mc.covered_from AND ds.val_date < mc.covered_before
+    WHERE mc.instrument_id IN (SELECT instrument_id FROM price_instruments)
 ),
 -- A window opening mid-span would otherwise read as unpriced until the first
 -- bar inside it. One lookup per (instrument, span), not per day.

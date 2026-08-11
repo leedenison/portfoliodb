@@ -86,6 +86,18 @@ cumulative AS (
         )::int AS inexact
     FROM merged_txs
 ),
+-- generate_series reports a fixed estimate of 1000 rows whatever it will
+-- actually return, having no statistics to estimate from, and every join above
+-- the grid is costed from that. Replacing it with a calendar table was tried and
+-- reverted: the table estimated the same window at 1847 rows against 1827, but
+-- the estimate at the join above the grid only moved from 111 to 205 against
+-- 91,350, the plan shapes did not change and neither did the timing. The error
+-- is not the leaf's. It is the range join in daily_holdings, which postgres has
+-- no selectivity model for, multiplying a near-zero guess onto whatever the leaf
+-- hands it -- so a better leaf buys a proportionally better wrong answer. The
+-- table would also have bounded the valuable range and pinned the driver, since
+-- the histogram only reaches a planner that can see the bounds and lib/pq is
+-- what keeps these queries on custom plans.
 date_series AS (
     SELECT d::date AS val_date
     FROM generate_series($2::date, $3::date - 1, '1 day'::interval) d

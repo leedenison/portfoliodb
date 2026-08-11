@@ -75,6 +75,7 @@ type DB interface {
 	CorporateEventDB
 	ResidualBalanceDB
 	TransferMatchDB
+	GroupingDB
 }
 
 // PriceFetchBlockDB manages permanently blocked (instrument, plugin) pairs.
@@ -1664,6 +1665,23 @@ type TransferMatchDB interface {
 	ListTransferMatches(ctx context.Context, userID string) ([]TransferMatch, error)
 }
 
+// GroupingSeedOpts chooses where a grouping cycle starts looking.
+//
+// Two sources, because one cannot find what the other can. Residual picks the groups
+// carrying something a missing leg would explain, which is most of what needs
+// repairing but never a converter's wrong pairing of two similar trades -- that
+// balances with only a rounding residual and looks settled from outside. JobID picks
+// what an import just wrote, whatever state its groups are in. An empty JobID with
+// Residual false reads everything the user has, which is the full partition the
+// worst case degenerates to anyway.
+type GroupingSeedOpts struct {
+	UserID string
+	// Residual seeds from groups holding a residual worse than SOURCE_ROUNDING.
+	Residual bool
+	// JobID seeds from the postings one ingestion job wrote.
+	JobID string
+}
+
 // The reads a grouping rule may make while growing the neighbourhood it is
 // partitioned over. One query type per access path, each carrying only its own
 // fields.
@@ -1716,6 +1734,18 @@ type GroupingReader interface {
 	PostingsByToken(ctx context.Context, userID string, qs []TokenQuery, held []string) ([]GroupingPosting, error)
 	PostingsByDates(ctx context.Context, userID string, qs []DateQuery, held []string) ([]GroupingPosting, error)
 	PostingsByOrdinals(ctx context.Context, userID string, qs []OrdinalQuery, held []string) ([]GroupingPosting, error)
+}
+
+// GroupingDB is everything a grouping cycle reads.
+//
+// Reads only. The partition is computed in memory and written by a separate call, so
+// a cycle can run in shadow -- deriving the groups and comparing them against what is
+// stored -- with no path through here writing anything.
+type GroupingDB interface {
+	GroupingReader
+	// ListGroupingSeeds returns the transcribed postings a cycle starts from,
+	// ordered by id so a cycle is deterministic.
+	ListGroupingSeeds(ctx context.Context, opts GroupingSeedOpts) ([]GroupingPosting, error)
 }
 
 // GroupingPosting is one transcribed posting as the grouping engine reads it: the

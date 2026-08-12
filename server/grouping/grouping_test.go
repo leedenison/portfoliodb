@@ -182,6 +182,11 @@ func TestPartition_ExactToken(t *testing.T) {
 			want: [][]string{{"a", "b"}},
 		},
 		{
+			// An OFX trade in full: the security, the cash its TOTAL settled at,
+			// and the charge that total was stated net or gross of. All three are
+			// figures of one record rather than rows of their own, which is why
+			// the token has to reach them -- the trade rules pair an asset with a
+			// cash leg and would leave the charge standing alone.
 			name: "groups three legs a source named together",
 			ps: []db.GroupingPosting{
 				correlated(posting("a", typev1.TxType_TRADE_ASSET), "", "fit1", db.ScopeAccount, db.MatchExact),

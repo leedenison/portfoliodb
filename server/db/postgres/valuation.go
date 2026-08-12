@@ -11,29 +11,57 @@ import (
 )
 
 // valuationQuery returns the full SQL for portfolio valuation with FX conversion.
-// portfolioFilter is the WHERE clause fragment that scopes transactions:
-//   - Portfolio mode: "INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1"
-//   - User mode:      "WHERE t.user_id = $1 AND t.timestamp::date < $3"
+// portfolioMode selects the txSource fragment that scopes and filters the postings:
+// a join to portfolio_matched_txs, or a bare user_id predicate.
 //
 // The query uses $1 for the scope ID (portfolio or user), $2/$3 for the
 // half-open [from, before) date range,
 // and $4 for displayCurrency.
 func valuationQuery(portfolioMode bool) string {
 	var txSource string
-	// Only USER postings are valued. Income, charges and residuals are not positions,
-	// and an unmatched TRANSFER_CLEARING balance would assert that money in transit is
-	// coming back to an account we hold, which is the thing we do not know. Matched
-	// pairs whose accounts are both portfolio members are value in transit and belong
-	// in valuation; including them needs the pairing from 0068.
+	// USER postings are valued, and so are the TRANSFER_CLEARING legs of a matched pair
+	// whose other side is in scope. Income, charges and residuals are not positions, and
+	// an unmatched clearing balance is not one either: including it would assert that
+	// money in transit is coming back to an account we hold, which is the thing we do
+	// not know.
+	//
+	// A matched pair holds its value flat rather than needing anything carried over the
+	// days in between. The departure group is a negative leg and a positive clearing
+	// leg, the arrival group the mirror, so admitting both makes each group contribute
+	// exactly zero to daily_qty on its own date and the running position never moves.
+	// It generalises past the two-leg case: a journal charging a fee is USER -q,
+	// EXPENSE +f, TRANSFER_CLEARING +q-f, which nets to -f -- correct, since the fee
+	// really did leave.
+	//
+	// Which pairs a portfolio values is portfolio_in_flight_txs, defined beside
+	// portfolio_matched_txs because it is the same question about membership. The
+	// external flow query reads the same view the other way round, so the two cannot
+	// disagree about what nets.
+	//
+	// Written as an OR with account_type = 'USER' first so the subquery stays a subplan
+	// the scan skips for the USER postings that dominate the table, as
+	// residual_balances.go does for its anti-join.
 	if portfolioMode {
 		txSource = `
     FROM txs t
     INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
-    WHERE t.timestamp::date < $3 AND t.account_type = 'USER'`
+    WHERE t.timestamp::date < $3
+      AND (t.account_type = 'USER'
+           OR EXISTS (SELECT 1 FROM portfolio_in_flight_txs f
+                      WHERE f.tx_id = t.id AND f.portfolio_id = $1))`
 	} else {
+		// A match alone is the whole test here. Both groups belong to the same user by
+		// construction -- the matcher partitions its candidates by user before proposing
+		// anything -- and every account of the user is in scope, so there is no
+		// membership left to ask about and no need for the view.
 		txSource = `
     FROM txs t
-    WHERE t.user_id = $1 AND t.timestamp::date < $3 AND t.account_type = 'USER'`
+    WHERE t.user_id = $1 AND t.timestamp::date < $3
+      AND (t.account_type = 'USER'
+           OR (t.account_type = 'TRANSFER_CLEARING' AND EXISTS (
+               SELECT 1 FROM transfer_matches tm
+               WHERE tm.instrument_id = t.instrument_id
+                 AND (tm.from_group_id = t.group_id OR tm.to_group_id = t.group_id))))`
 	}
 
 	return `

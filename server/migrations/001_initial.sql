@@ -644,6 +644,55 @@ WHERE
        OR (t.instrument_id IS NOT NULL
            AND t.instrument_id::text IN (SELECT filter_value FROM portfolio_filters WHERE portfolio_id = p.id AND filter_type = 'instrument')));
 
+-- The TRANSFER_CLEARING postings a portfolio values: one side of a matched pair
+-- whose other side matches the same portfolio's filters.
+--
+-- An in-flight balance is never a position, so holdings exclude it always. Valuation
+-- is a different question. The two sides of a transfer are dated by their own
+-- statements, so dropping both clearing legs makes the transferred holding vanish for
+-- the days in between -- a dip in portfolio value and a fake return blip. Holding
+-- value in transit is what a clearing account is for. An unmatched leg is never here:
+-- including it would assert that money in transit is coming back to an account we
+-- hold, which is the thing we do not know. See docs/spec/postings.md and
+-- docs/adr/0022-typed-per-account-cash-flow-boundary.md.
+--
+-- The counterpart is tested through its own clearing leg rather than through its
+-- group, because that leg carries the counterpart account and the commodity the match
+-- is keyed on. That makes the test symmetric -- whichever of the two legs is being
+-- tested asks the same question of the other -- so a pair is admitted whole or not at
+-- all. A test against the counterpart's USER leg would not be, since an instrument
+-- filter can admit one and not the other.
+--
+-- No date bound. A match is a fact about the pair rather than about a valuation
+-- window, and value still in transit when a window closes is value held. Bounding it
+-- would reinstate the dip for exactly the days the pairing exists to cover.
+--
+-- The CASE picks the counterpart group: a plain equality on idx_txs_group_id, which
+-- CHECK (from_group_id <> to_group_id) makes unambiguous.
+--
+-- The counterpart's membership is an EXISTS rather than a fourth join, which reads
+-- the same -- portfolio_matched_txs holds at most one row per (portfolio, tx) -- and
+-- plans very differently. As a join the planner ordered it last and matched it with a
+-- join filter, materialising the filter view and discarding 43,160 rows to keep 40,
+-- which cost 90ms of a 490ms portfolio valuation. As a semi-join the equality reaches
+-- the scan and the cost returns to the noise floor. Every row estimate in here is 1,
+-- so the shape has to make the pushdown unavoidable rather than merely available.
+CREATE VIEW portfolio_in_flight_txs AS
+SELECT m.portfolio_id, t.id AS tx_id
+FROM txs t
+JOIN portfolio_matched_txs m ON m.tx_id = t.id
+JOIN transfer_matches tm
+  ON tm.instrument_id = t.instrument_id
+ AND (tm.from_group_id = t.group_id OR tm.to_group_id = t.group_id)
+JOIN txs c
+  ON c.group_id = CASE WHEN tm.from_group_id = t.group_id
+                       THEN tm.to_group_id ELSE tm.from_group_id END
+ AND c.account_type = 'TRANSFER_CLEARING'
+ AND c.instrument_id = tm.instrument_id
+WHERE t.account_type = 'TRANSFER_CLEARING'
+  AND EXISTS (SELECT 1 FROM portfolio_matched_txs cm
+              WHERE cm.tx_id = c.id AND cm.portfolio_id = m.portfolio_id);
+
 -- EOD price cache. Stores end-of-day OHLCV data per instrument per date.
 -- Every row is a bar a provider actually reported: non-trading days (weekends,
 -- holidays) simply have no row. Valuation carries the last close forward over

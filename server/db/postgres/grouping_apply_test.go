@@ -33,7 +33,7 @@ func residualsOf(t *testing.T, f *groupingFixture) int {
 	t.Helper()
 	var n int
 	err := f.p.q.QueryRowContext(f.ctx,
-		`SELECT count(*) FROM txs WHERE user_id = $1::uuid AND account_type IN (`+residualAccountTypes+`)`,
+		`SELECT count(*) FROM txs WHERE user_id = $1::uuid AND synthetic_purpose IN (`+routedPurpose+`)`,
 		f.userID).Scan(&n)
 	if err != nil {
 		t.Fatalf("count residuals: %v", err)

@@ -117,7 +117,15 @@ message Tx {
   string account = 9;
   // Optional external identifier hints (e.g. ISIN, CUSIP, FIGI, MIC_TICKER). When supplied, resolution uses these and does not store (source, description) on the instrument.
   repeated InstrumentIdentifier identifier_hints = 10;
-  // NULL for real transactions, 'INITIALIZE' for synthetic opening-balance transactions.
+  // Why the server made this posting, empty on one a source stated. 'RESIDUAL' is
+  // what a group's legs did not balance to, routed to an explicit counterparty;
+  // 'INITIALIZE' is a synthetic opening balance derived from a holding declaration.
+  //
+  // Server-derived, and rejected on upload: a posting carrying one is thrown away and
+  // derived again whenever its group changes, so a source that could claim it would
+  // have its row silently discarded. It is what separates derived from stated, since
+  // account_type cannot -- a routed residual and a leg a converter read out of a
+  // record land in the same account types.
   string synthetic_purpose = 11;
   // Split-adjusted quantity (quantity * cumulative split factor). Equal to
   // quantity when no splits exist for the instrument. A decimal string, carrying

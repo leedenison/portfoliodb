@@ -27,15 +27,15 @@ var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 const insertPostingSQL = `
 	WITH g AS (
 		INSERT INTO tx_groups (user_id, timestamp, job_id)
-		VALUES ($1, $4, $19)
+		VALUES ($1, $4, $20)
 		RETURNING id
 	)
 	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
 	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 settlement_amount, instrument_id, share_count_basis, account_type,
-	                 weight, weight_commodity, group_id)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, g.id FROM g
+	                 synthetic_purpose, weight, weight_commodity, group_id)
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19, g.id FROM g
 	RETURNING id, group_id
 `
 
@@ -46,8 +46,8 @@ const insertPostingInGroupSQL = `
 	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 settlement_amount, instrument_id, share_count_basis, account_type,
-	                 weight, weight_commodity, group_id)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19)
+	                 synthetic_purpose, weight, weight_commodity, group_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19, $20)
 	RETURNING id
 `
 
@@ -186,7 +186,8 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 			userUUID, broker, acc, ts, t.InstrumentDescription,
 			pq.Array(brokerTypes), resolvedStr, nullStr(db.AssetClassToStr(t.GetAssetClassHint())), qty,
 			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullDecimal(price),
-			nullDecimal(settlement), instUUID, basis, acctTypeStr, w.Amount, w.Commodity,
+			nullDecimal(settlement), instUUID, basis, acctTypeStr,
+			nullStr(t.GetSyntheticPurpose()), w.Amount, w.Commodity,
 		}
 		ref := t.GetGroupRef()
 		var txID uuid.UUID
@@ -479,10 +480,13 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 		` + bestIdentifierJoinOn("LEFT JOIN", "t.instrument_id", "best_id") + `
 		WHERE t.user_id = $1
 		  -- Excluded whole rather than per posting: a pad and its EQUITY
-		  -- counterparty share one group, and half a group is not a group.
+		  -- counterparty share one group, and half a group is not a group. The pad
+		  -- is named rather than inferred from a purpose being present, since a
+		  -- routed residual carries one too and its group is exported.
 		  AND NOT EXISTS (
 		    SELECT 1 FROM txs s
-		    WHERE s.group_id = t.group_id AND s.synthetic_purpose IS NOT NULL
+		    WHERE s.group_id = t.group_id
+		      AND s.synthetic_purpose = '` + db.InitializePurpose + `'
 		  )` + period + `
 		ORDER BY t.broker, g.timestamp, g.id, t.timestamp, t.id
 	`
@@ -567,8 +571,11 @@ func (p *Postgres) correlationsByTx(ctx context.Context, txIDs []string) (map[st
 	return out, nil
 }
 
-// residualAccountTypes are the account types a routed counterparty takes.
-const residualAccountTypes = `'IMBALANCE', 'TRANSFER_CLEARING', 'SOURCE_ROUNDING'`
+// routedPurpose is what synthetic_purpose says of a posting the server routed to
+// balance a group. It is what tells a routed leg from a stated one, and the account
+// type is not: a residual and a leg a converter read out of a record can land in the
+// same account type.
+const routedPurpose = `'RESIDUAL'`
 
 // survivorPredicate selects the postings of a touched group that a replace leaves
 // standing, and is the one definition of that. $1 is the broker, $2 and $3 the period
@@ -582,7 +589,7 @@ const residualAccountTypes = `'IMBALANCE', 'TRANSFER_CLEARING', 'SOURCE_ROUNDING
 // this replaces. A posting of another broker is not this upload's to replace. A
 // synthetic INITIALIZE posting is the declaration machinery's rather than ingestion's.
 const survivorPredicate = `
-	t.account_type NOT IN (` + residualAccountTypes + `)
+	(t.synthetic_purpose IS NULL OR t.synthetic_purpose NOT IN (` + routedPurpose + `))
 	AND NOT (t.broker = $1 AND t.timestamp >= $2 AND t.timestamp < $3
 	         AND t.synthetic_purpose IS NULL)
 `
@@ -838,15 +845,16 @@ func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 		// exactly as for an uploaded posting. A routed leg has no source row, so no
 		// correlation and no settlement amount is written for it: it transcribes
 		// nothing, so there is nothing the source said about why it belongs with
-		// anything, and no figure of the source's to carry. The returned id is
-		// read and dropped: the statement returns one because the upload path
-		// needs it to hang correlations on.
+		// anything, and no figure of the source's to carry. It says so in
+		// synthetic_purpose, which is what the next replace or regroup finds it by.
+		// The returned id is read and dropped: the statement returns one because the
+		// upload path needs it to hang correlations on.
 		var txID uuid.UUID
 		if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL,
 			userUUID, r.broker, r.account, r.timestamp, desc,
 			r.brokerTxTypes, r.resolvedTxType, nil, amount,
 			trading, settlement, nil, nil, nullUUID(instID), nil, acctType,
-			amount, r.commodity, r.groupID,
+			db.RoutedPurpose, amount, r.commodity, r.groupID,
 		).Scan(&txID); err != nil {
 			return fmt.Errorf("insert routed posting: %w", err)
 		}

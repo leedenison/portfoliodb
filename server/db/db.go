@@ -350,6 +350,23 @@ type ExportPosting struct {
 	Correlations []Correlation
 }
 
+// The values synthetic_purpose takes on a posting the server made, as against the
+// NULL a posting a source stated carries.
+//
+// It is what separates derived from stated, and account_type is not: a routed
+// residual and a leg a converter read out of a record both land in a non-USER
+// account type, so an account-type list cannot tell one from the other. A posting
+// with a purpose is recreated whenever the group it sits in changes; one without is
+// an input and survives.
+const (
+	// RoutedPurpose is what a group's legs did not balance to, posted to an
+	// explicit counterparty so the group sums to zero.
+	RoutedPurpose = "RESIDUAL"
+	// InitializePurpose is a synthetic opening balance, derived from a holding
+	// declaration rather than from the group it sits in.
+	InitializePurpose = "INITIALIZE"
+)
+
 // TxDB provides transaction write, list and export.
 type TxDB interface {
 	// Txs sharing a group_ref are written as postings of one tx group; the rest get

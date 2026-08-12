@@ -321,6 +321,81 @@ func TestReplaceTxsInPeriod_DeletesRoutedPostingsWithTheirGroup(t *testing.T) {
 	}
 }
 
+// What a replace destroys is what the server routed, whatever account type it
+// landed in. The account type cannot answer this on its own: a leg a converter read
+// out of a record lands in INCOME, exactly where a boundary leg the server derives
+// would, so the two are separated by synthetic_purpose or not at all.
+//
+// The posting here is stamped routed and left in a USER account, which no real path
+// produces. That is the point: it is the one shape the old account-type rule and the
+// purpose disagree about, so it fails if the rule reverts.
+func TestReplaceTxsInPeriod_DestroysARoutedLegByItsPurpose(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, usd, day1, day2 := straddlingRun(t, p, "sub|routed-purpose", typev1.TxType_TRANSFER, "5000")
+	// A weightless routed leg on the group, in an account type no residual takes, so
+	// the account-type rule would keep it and the purpose does not.
+	insertRawPostingAs(t, p, userID, usd, soleGroup(t, p, userID), "FIDELITY", day1, db.RoutedPurpose)
+
+	// Replacing day two reaches the group through its day-two leg and leaves the
+	// day-one leg standing, so the group survives for the predicate to be about.
+	replaceDay(t, p, userID, usd, day2, nil, nil)
+
+	var stale int
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT count(*) FROM txs
+		 WHERE user_id = $1 AND synthetic_purpose = $2 AND account_type = 'USER'`,
+		userID, db.RoutedPurpose).Scan(&stale); err != nil {
+		t.Fatalf("count routed postings: %v", err)
+	}
+	if stale != 0 {
+		t.Errorf("routed legs left after a replace reached their group: want 0, got %d", stale)
+	}
+	assertBalanced(t, p, userID)
+}
+
+// The other half of the same rule, and the half PR-order makes fragile: a leg a
+// converter read out of a record survives, even though it sits in an account type a
+// derived leg also uses.
+func TestReplaceTxsInPeriod_KeepsAStatedLegInADerivedAccountType(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, usd := balanceSeed(t, p, "sub|stated-income")
+	base := time.Date(2025, 7, 1, 12, 0, 0, 0, time.UTC)
+	outside := base.Add(-48 * time.Hour)
+	// One group, two legs: a dividend the source stated outside the period, and the
+	// income leg read out of the same record. Both survive a replace of a later day.
+	legs := []*apiv1.Tx{
+		{Timestamp: timestamppb.New(outside), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: "90", Account: "A", GroupRef: "d1"},
+		{Timestamp: timestamppb.New(outside), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: "-90", Account: "A", GroupRef: "d1", AccountType: typev1.AccountType_ACCOUNT_TYPE_INCOME},
+	}
+	weights := []db.Weight{
+		{Amount: decimal.RequireFromString("90"), Commodity: "cur:USD"},
+		{Amount: decimal.RequireFromString("-90"), Commodity: "cur:USD"},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
+		timestamppb.New(outside.Add(-time.Hour)), timestamppb.New(outside.Add(time.Hour)),
+		legs, []string{usd, usd}, weights, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	replaceDay(t, p, userID, usd, base, nil, nil)
+
+	var remaining int
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT count(*) FROM txs WHERE user_id = $1 AND synthetic_purpose IS NULL`,
+		userID).Scan(&remaining); err != nil {
+		t.Fatalf("count stated postings: %v", err)
+	}
+	if remaining != 2 {
+		t.Errorf("stated postings after replace: want both legs, got %d", remaining)
+	}
+	if routed := routedPostings(t, p, userID); len(routed) != 0 {
+		t.Errorf("routed postings: want none for a group that balances, got %v", routed)
+	}
+	assertBalanced(t, p, userID)
+}
+
 func TestReplaceTxsInPeriod_CreatesGroupPerTx(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
@@ -1504,7 +1579,7 @@ func routedPostings(t *testing.T, p *Postgres, userID string) [][3]string {
 	t.Helper()
 	rows, err := p.q.QueryContext(context.Background(), `
 		SELECT account_type, quantity::text, weight_commodity FROM txs
-		WHERE user_id = $1 AND account_type IN ('IMBALANCE', 'TRANSFER_CLEARING', 'SOURCE_ROUNDING')
+		WHERE user_id = $1 AND synthetic_purpose = '`+db.RoutedPurpose+`'
 		ORDER BY timestamp, quantity
 	`, userID)
 	if err != nil {

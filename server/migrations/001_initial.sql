@@ -109,6 +109,17 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 -- residual stays attributable to the account that produced it. Holdings and the other
 -- quantity aggregations read USER only. See docs/adr/0022-typed-per-account-cash-flow-boundary.md.
 --
+-- synthetic_purpose says whether the server made the row, and why. NULL is a posting
+-- a source stated, which carries evidence and survives every regroup; anything else
+-- is derived from the postings around it and is recreated whenever those move.
+-- 'RESIDUAL' is what a group's legs did not balance to, routed to an explicit
+-- counterparty. 'INITIALIZE' is a synthetic opening balance, which differs from the
+-- other two in being derived from a declaration rather than from its group.
+--
+-- It is what tells derived from stated, and account_type is not: a routed residual
+-- and a leg a converter read out of a record can land in the same account type, so
+-- the account-type list stopped separating them.
+--
 -- The event and its balance: group_id, weight, weight_commodity.
 -- group_id is the economic event this row is a posting of. Every posting belongs to
 -- exactly one group -- a lone posting is a group of one -- so that the balance
@@ -190,7 +201,8 @@ CREATE TABLE txs (
                               CHECK (account_type IN ('USER', 'EQUITY', 'INCOME', 'EXPENSE',
                                                       'IMBALANCE', 'TRANSFER_CLEARING',
                                                       'SOURCE_ROUNDING')),
-  synthetic_purpose         TEXT CHECK (synthetic_purpose IS NULL OR synthetic_purpose = 'INITIALIZE'),
+  synthetic_purpose         TEXT CHECK (synthetic_purpose IS NULL
+                                        OR synthetic_purpose IN ('INITIALIZE', 'RESIDUAL')),
 
   group_id                  UUID NOT NULL REFERENCES tx_groups (id) ON DELETE CASCADE,
   weight                    NUMERIC NOT NULL,

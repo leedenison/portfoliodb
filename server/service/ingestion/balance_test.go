@@ -355,6 +355,12 @@ func TestRouteResiduals_KeepsAttribution(t *testing.T) {
 	if r.GetGroupRef() != "t1" {
 		t.Errorf("group_ref = %q, want t1: the residual must land in the group it balances", r.GetGroupRef())
 	}
+	// The one thing that says the server made it, and what a later replace or
+	// regroup throws it away by. The account type cannot say it: a leg a converter
+	// read out of a record lands in the same types a derived leg does.
+	if r.GetSyntheticPurpose() != db.RoutedPurpose {
+		t.Errorf("synthetic_purpose = %q, want %q", r.GetSyntheticPurpose(), db.RoutedPurpose)
+	}
 	if r.GetInstrumentDescription() != "USD" {
 		t.Errorf("description = %q, want the currency code", r.GetInstrumentDescription())
 	}

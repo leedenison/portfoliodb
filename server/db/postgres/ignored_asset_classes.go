@@ -152,8 +152,9 @@ func buildDeleteDeclarationsQuery(userUUID uuid.UUID, r db.IgnoredAssetClass) (s
 }
 
 // countMatchingTxs counts regular txs whose instrument's asset class matches the
-// given ignore rules. Synthetic txs are excluded: they are derived from holding
-// declarations, which are counted separately.
+// given ignore rules. Only postings a source stated are counted: a pad comes from a
+// holding declaration, which is counted separately, and a routed residual is
+// arithmetic on legs the rule would have dropped before it was ever posted.
 func countMatchingTxs(ctx context.Context, q queryable, userUUID uuid.UUID, rules []db.IgnoredAssetClass) (int32, error) {
 	var total int32
 	for _, r := range rules {

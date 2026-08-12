@@ -3,6 +3,7 @@ package ingestion
 import (
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
+	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"testing"
 )
@@ -27,6 +28,9 @@ func TestValidateTx(t *testing.T) {
 		// An ancestor beside its descendant says nothing the ancestor alone
 		// does not.
 		{"ancestor beside descendant", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER, typev1.TxType_TRANSFER_INTERNAL}, Quantity: "1"}, 0, 1},
+		// synthetic_purpose says the server made the posting, so a row claiming one
+		// would be thrown away and derived again by the next replace.
+		{"claims a synthetic purpose", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", SyntheticPurpose: db.RoutedPurpose}, 0, 1},
 		{"valid", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10"}, 0, 0},
 		{"valid antichain set", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH, typev1.TxType_TRANSFER}, Quantity: "10"}, 0, 0},
 	}

@@ -70,9 +70,13 @@ type ingestParams struct {
 
 type ingestResult struct {
 	Stored int
-	// InstrumentIDs is every instrument the batch touched, routed residuals
-	// included, so a caller can recompute split adjustments once for several
-	// batches rather than once per batch.
+	// InstrumentIDs is every instrument the batch stored a posting against, so a
+	// caller can recompute split adjustments once for several batches rather than
+	// once per batch.
+	//
+	// The instruments of the counterparties the store routes are not among them
+	// and need not be: a money residual resolves to a currency, which has no
+	// splits, and one in a security carries the instrument of a leg already here.
 	InstrumentIDs []string
 }
 
@@ -186,37 +190,13 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 		rep.Errs(wErrs)
 		return out, errBatchRejected
 	}
-	routed := routeResiduals(txs, instrumentIDs, balanceInsts)
-	routedTxs, routedIDs, routedWeights, unresolved := resolveRouted(ctx, deps.DB, routed)
-	// A residual with no instrument to post it against leaves its group
-	// unbalanced, which the balance constraint rejects at COMMIT and which would
-	// surface as a constraint violation naming nothing. Naming the commodity
-	// here is what makes it legible. Currencies are seeded, so this is a safety
-	// net rather than a live path.
-	if len(unresolved) > 0 {
-		for _, cur := range unresolved {
-			log.Printf("ingest: no instrument for residual commodity %q", cur)
-			rep.Errf(-1, "instrument_description",
-				fmt.Sprintf("no instrument for residual commodity %q; the group it balances cannot be stored", cur))
-		}
-		return out, errBatchRejected
-	}
-	// Weighed after routing, which is what assigns a synthetic group_ref to a
-	// posting that had none, and before the routed postings are appended, since
-	// those carry the weight of the residual they negate rather than one derived
-	// from the tx.
+	// What each posting contributes to its group's balance, stored beside it. The
+	// counterparties that make the group sum to zero are the store's: it settles
+	// each group from these weights once the postings are in, inside the same
+	// transaction, so a group is never observed unbalanced and an upload cannot
+	// disagree with a replace about what a group owes.
 	txWeights := weights(txs, instrumentIDs, balanceInsts)
 	basis := filterBasis(p.ShareCountBasis, filteredIdx)
-	txs = append(txs, routedTxs...)
-	instrumentIDs = append(instrumentIDs, routedIDs...)
-	txWeights = append(txWeights, routedWeights...)
-	// A routed posting is denominated the way the leg it negates is, which is
-	// what a nil entry says: the store leaves it to the insert trigger, which
-	// takes the posting's own date, and a routed leg clones the first leg's
-	// timestamp.
-	for len(basis) > 0 && len(basis) < len(txs) {
-		basis = append(basis, nil)
-	}
 
 	if replacing {
 		err = deps.DB.ReplaceTxsInPeriod(ctx, p.UserID, p.Broker, p.JobID, p.PeriodFrom, p.PeriodBefore, txs, instrumentIDs, txWeights, basis)

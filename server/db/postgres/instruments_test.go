@@ -844,8 +844,12 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 		}
 		n++
 	}
-	if n != 2 {
-		t.Fatalf("expected 2 postings, got %d", n)
+	// Four, not two. Until the merge the two legs are in different commodities, so
+	// the group does not balance and the store routes a counterparty for each --
+	// which is the state the merge exists to resolve, and the routed legs are
+	// rewritten with the rest.
+	if n != 4 {
+		t.Fatalf("expected 4 postings, got %d", n)
 	}
 }
 

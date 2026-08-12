@@ -1,9 +1,14 @@
 package postgres
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/shopspring/decimal"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 )
@@ -119,6 +124,76 @@ func TestApplyGrouping_LeavesEveryGroupBalanced(t *testing.T) {
 	// never commits, so without this the constraint would never be evaluated and
 	// the test would prove nothing about balance at all.
 	if err := drainBalanceChecks(t, f.p); err != nil {
+		t.Fatalf("balance check after regroup: %v", err)
+	}
+}
+
+// A pairing the engine accepts leaves a residual that reads as the source
+// disagreeing with itself, not as a leg something is missing.
+//
+// The engine pairs money figures that differ by up to Opts.Money, which is
+// residual.Tolerance's money value said again, so the half-penny left over is
+// exactly what SOURCE_ROUNDING is for. Calling it an imbalance would redden the
+// dashboard on correct data and re-seed the next cycle from a group nothing is wrong
+// with, since the seed reads IMBALANCE and TRANSFER_CLEARING.
+func TestApplyGrouping_AssembledGroupRoundsRatherThanImbalances(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, usd := balanceSeed(t, p, "sub|regroup-rounding")
+	at := time.Date(2024, 3, 1, 10, 0, 0, 0, time.UTC)
+	// Two legs of one event in separate groups, a third of a penny apart: the
+	// difference between a price quoted to 4dp and a cash total written to 2dp.
+	// Money, because the tolerance that matters is the money one.
+	leg := func(qty string) *apiv1.Tx {
+		return &apiv1.Tx{
+			Timestamp: timestamppb.New(at), InstrumentDescription: "USD",
+			BrokerTxType:   []typev1.TxType{typev1.TxType_TRANSFER},
+			ResolvedTxType: typev1.TxType_TRANSFER, Quantity: qty, Account: "A1",
+			SettlementCurrency: "USD", TradingCurrency: "USD",
+		}
+	}
+	weight := func(v string) db.Weight {
+		return db.Weight{Amount: decimal.RequireFromString(v), Commodity: "cur:USD"}
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
+		timestamppb.New(at.Add(-time.Hour)), timestamppb.New(at.Add(time.Hour)),
+		[]*apiv1.Tx{leg("1000.003"), leg("-1000")}, []string{usd, usd},
+		[]db.Weight{weight("1000.003"), weight("-1000")}, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Both transcribed legs into one group, which is the engine deciding they are
+	// one event -- a pairing it is entitled to make, because the difference is
+	// inside Opts.Money.
+	rows, err := p.q.QueryContext(ctx,
+		`SELECT id::text, group_id::text FROM txs
+		 WHERE user_id = $1::uuid AND synthetic_purpose IS NULL`, userID)
+	if err != nil {
+		t.Fatalf("read postings: %v", err)
+	}
+	defer rows.Close()
+	var changes []db.GroupMemberChange
+	for rows.Next() {
+		var id, group string
+		if err := rows.Scan(&id, &group); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		changes = append(changes, db.GroupMemberChange{
+			ID: id, FromGroupID: group, Resolved: "TRANSFER", Moving: true,
+		})
+	}
+	if len(changes) != 2 {
+		t.Fatalf("seeded %d transcribed postings, want 2", len(changes))
+	}
+	if _, err := p.ApplyGrouping(ctx, userID, []db.GroupChange{{Members: changes}}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	got := routedPostings(t, p, userID)
+	if len(got) != 1 || got[0][0] != "SOURCE_ROUNDING" {
+		t.Errorf("residuals after the engine paired them: got %v, want one SOURCE_ROUNDING", got)
+	}
+	if err := drainBalanceChecks(t, p); err != nil {
 		t.Fatalf("balance check after regroup: %v", err)
 	}
 }

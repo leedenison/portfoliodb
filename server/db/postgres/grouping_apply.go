@@ -48,6 +48,23 @@ const dropResidualsSQL = `
 	  AND synthetic_purpose IN (` + routedPurpose + `)
 `
 
+// groupUUIDs parses the ids keep selects, for handing a subset of the touched
+// groups to settle.
+func groupUUIDs(ids []string, keep func(string) bool) ([]uuid.UUID, error) {
+	out := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		if !keep(id) {
+			continue
+		}
+		u, err := uuid.Parse(id)
+		if err != nil {
+			return nil, fmt.Errorf("invalid group id %q: %w", id, err)
+		}
+		out = append(out, u)
+	}
+	return out, nil
+}
+
 // ApplyGrouping implements db.GroupingDB.
 //
 // One transaction, because check_tx_group_balance() is DEFERRABLE INITIALLY DEFERRED
@@ -72,11 +89,21 @@ func (p *Postgres) ApplyGrouping(ctx context.Context, userID string, changes []d
 	}
 	moved := 0
 	err = p.runInTx(ctx, func(exec queryable) error {
+		// Every group the regroup reaches, and the subset a posting left. A group
+		// that lost one is short by its value and could be short by any amount; one
+		// the engine assembled, or agreed with and only retyped, holds every leg its
+		// source stated. That is the difference between the two residual rules, and
+		// it is why they are decided here rather than from the size of what is left.
 		touched := map[string]bool{}
+		lost := map[string]bool{}
 		for _, c := range changes {
 			for _, m := range c.Members {
-				if m.FromGroupID != "" {
-					touched[m.FromGroupID] = true
+				if m.FromGroupID == "" {
+					continue
+				}
+				touched[m.FromGroupID] = true
+				if m.Moving {
+					lost[m.FromGroupID] = true
 				}
 			}
 		}
@@ -136,7 +163,24 @@ func (p *Postgres) ApplyGrouping(ctx context.Context, userID string, changes []d
 		if _, err := exec.ExecContext(ctx, deleteTouchedMatchesSQL, pq.Array(ids)); err != nil {
 			return fmt.Errorf("delete touched matches: %w", err)
 		}
-		return routeSurvivors(ctx, exec, userUUID, pq.Array(ids))
+		// The engine pairs legs whose money figures differ by up to Opts.Money,
+		// which is residual.Tolerance's money value said again. So a pairing it
+		// accepts leaves exactly the difference that reads as the source
+		// disagreeing with itself, and calling that an imbalance would redden the
+		// dashboard on correct data and re-seed the next cycle from a group nothing
+		// is wrong with.
+		whole, err := groupUUIDs(ids, func(id string) bool { return !lost[id] })
+		if err != nil {
+			return err
+		}
+		shortened, err := groupUUIDs(ids, func(id string) bool { return lost[id] })
+		if err != nil {
+			return err
+		}
+		if err := settle(ctx, exec, userUUID, whole, wholeSource); err != nil {
+			return err
+		}
+		return settle(ctx, exec, userUUID, shortened, legsRemoved)
 	})
 	return moved, err
 }

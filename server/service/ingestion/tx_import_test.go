@@ -315,9 +315,11 @@ func TestImportTxPart_TotalCountsPostings(t *testing.T) {
 }
 
 // A period-scoped export can split a group at a window bound, so a window can
-// carry a group that does not sum to zero. That is legal, and the balancer routes
-// the residual on the way in exactly as it would for a converter's output.
-func TestImportTxPart_RoutesAResidualForASplitGroup(t *testing.T) {
+// carry a group that does not sum to zero. That is legal: the import weighs what it
+// was given and hands it over, and the store routes the counterparty from the
+// weights. What is checked here is the half the store cannot do for itself -- the
+// weight has to name what the group is short.
+func TestImportTxPart_WeighsASplitGroupsShortfall(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -334,15 +336,21 @@ func TestImportTxPart_RoutesAResidualForASplitGroup(t *testing.T) {
 		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-tx", from, before,
 			gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _, _, _ string, _, _ *timestamppb.Timestamp,
-			txs []*apiv1.Tx, _ []string, _ []db.Weight, _ []*time.Time) error {
-			if len(txs) != 2 {
-				t.Fatalf("stored %d postings, want the stated leg and its residual", len(txs))
+			txs []*apiv1.Tx, _ []string, weights []db.Weight, _ []*time.Time) error {
+			// The stated leg alone. Nothing is invented above the store.
+			if len(txs) != 1 {
+				t.Fatalf("stored %d postings, want the stated leg alone", len(txs))
 			}
-			if got := txs[1].GetAccountType(); got != typev1.AccountType_ACCOUNT_TYPE_IMBALANCE {
-				t.Errorf("residual account_type = %s, want IMBALANCE", got)
+			if len(weights) != 1 {
+				t.Fatalf("passed %d weights, want one per posting", len(weights))
 			}
-			if got := txs[1].GetQuantity(); got != "-10" {
-				t.Errorf("residual quantity = %s, want -10", got)
+			// No price, so nothing to convert at: the leg weighs its own quantity in
+			// the security, and 10 of it is what the group is short.
+			if got := weights[0].Amount.String(); got != "10" {
+				t.Errorf("weight = %s, want 10", got)
+			}
+			if got := weights[0].Commodity; got != "inst:inst-1" {
+				t.Errorf("weight commodity = %s, want the security itself", got)
 			}
 			return nil
 		})

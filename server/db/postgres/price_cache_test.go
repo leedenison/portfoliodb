@@ -54,7 +54,10 @@ func insertTxs(t *testing.T, p *Postgres, userID, instID string, txs []*apiv1.Tx
 	}
 	from := timestamppb.New(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
 	to := timestamppb.New(time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "TEST", "", from, to, txs, ids, nil, nil); err != nil {
+	// Weightless, so the store routes no counterparty beside these: the fixtures
+	// using this are about prices and corporate actions over the postings they
+	// name, not about what a group owes. See createTx.
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "TEST", "", from, to, txs, ids, weightlessFor(ids), nil); err != nil {
 		t.Fatalf("insert txs: %v", err)
 	}
 }

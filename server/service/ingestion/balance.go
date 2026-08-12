@@ -1,7 +1,6 @@
 package ingestion
 
 import (
-	"context"
 	"fmt"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
@@ -9,12 +8,10 @@ import (
 	"github.com/leedenison/portfoliodb/server/residual"
 	"github.com/leedenison/portfoliodb/server/txtype"
 	"github.com/shopspring/decimal"
-	"google.golang.org/protobuf/proto"
-	"sort"
 	"strings"
 )
 
-// Balancing a tx group.
+// Weighing a posting.
 //
 // A group's postings are in different commodities, so a plain sum of quantity is
 // meaningless: a buy is +10 AAPL and -1855 USD. Balance is checked on weight, as
@@ -23,9 +20,13 @@ import (
 // otherwise it weighs its own quantity in its own commodity. A price is per
 // underlying unit, so converting also multiplies by the instrument's contract
 // size -- 100 for an option, 1 for anything quoted in the units it trades in.
-// Weights accumulate per commodity, and whatever is left over is routed to an
-// explicit posting rather than rejected. See
-// docs/adr/0024-group-balance-is-checked-on-weight.md.
+// See docs/adr/0024-group-balance-is-checked-on-weight.md.
+//
+// What a group fails to balance to is not worked out here. Weights are stored
+// beside the postings, and the store settles a group from them once its postings
+// are in -- see settle in server/db/postgres/txs.go. That is the only place a
+// counterparty is written, so an upload, a period replace and a regroup cannot
+// disagree about what a group owes.
 
 // balanceInstrument is what balancing needs to know about a posting's commodity.
 // Currencies are instruments, so telling money from a security is a property of
@@ -80,21 +81,6 @@ func (c commodity) key() string {
 	default:
 		return residual.DescriptionPrefix + c.description
 	}
-}
-
-// routedPosting is a counterparty the server writes to make a group balance.
-// currency is set when the commodity is money and its instrument still has to be
-// looked up; instrumentID is set when it is carried over from the leg balanced.
-//
-// weight is carried rather than recomputed from the finished tx. Weighing it again
-// would give the same answer -- a routed posting has no price, so it weighs its own
-// quantity in its own commodity -- but the residual it negates is the value the group
-// has to be balanced against, and carrying it means the two cannot drift.
-type routedPosting struct {
-	tx           *apiv1.Tx
-	currency     string
-	instrumentID string
-	weight       db.Weight
 }
 
 // settleCurrency is the currency a converted weight is denominated in. Settlement
@@ -257,170 +243,6 @@ func weights(txs []*apiv1.Tx, instrumentIDs []string, instruments map[string]bal
 	return out
 }
 
-// groupPostings returns the indices of each group's postings in input order,
-// and the group refs in a stable order. Postings with no ref are each their own
-// group, and are given a synthetic ref so a routed counterparty can join them.
-// Refs are scoped to one upload and never stored, so synthesising them is local.
-func groupPostings(txs []*apiv1.Tx) ([]string, map[string][]int) {
-	prefix := "g"
-	for _, t := range txs {
-		for strings.HasPrefix(t.GetGroupRef(), prefix) {
-			prefix += "_"
-		}
-	}
-	var order []string
-	byRef := map[string][]int{}
-	for i, t := range txs {
-		ref := t.GetGroupRef()
-		if ref == "" {
-			ref = fmt.Sprintf("%s%d", prefix, i)
-			t.GroupRef = ref
-		}
-		if _, seen := byRef[ref]; !seen {
-			order = append(order, ref)
-		}
-		byRef[ref] = append(byRef[ref], i)
-	}
-	return order, byRef
-}
-
-// routeResiduals returns the counterparty postings that make every group balance.
-// Only a group that already sums to exactly zero produces none. A group can produce
-// more than one when its residual spans commodities, as beancount's residual
-// inventory and ledger's Imbalance:<CUR> both can. Which account type each takes is
-// residual.Type's. Replace-by-period shares the family half of that rule, so whether a
-// residual reads as a transfer or as a missing leg does not depend on which path
-// produced it; only this one applies the tolerance. See residual.SplitType.
-//
-// Boundary legs are posted first and then weighed with the rest, so what is left to
-// call a residual is what remains after every side the data names. A dividend's
-// income and a charge's expense are named by the posting's own type; only what no
-// type accounts for reaches residual.Type. The two must not be netted: a dividend
-// beside a charge in one group would otherwise produce a single leg for the
-// difference, and the account it landed in would be a coin toss.
-//
-// It assigns a synthetic group_ref to any posting that has none, so that a routed
-// counterparty is stored in the same group as the posting it balances.
-//
-// A posting whose quantity or price is not a decimal is left out of its group's
-// sums rather than failing the batch: routing exists so imperfect source data
-// still lands, and the group is then left unbalanced -- the same state it was in
-// before routing existed. The protovalidate patterns reject a malformed value at
-// the interceptor for every unary RPC, so this is reachable only from an internal
-// caller.
-func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[string]balanceInstrument) []routedPosting {
-	order, byRef := groupPostings(txs)
-	var out []routedPosting
-	for _, ref := range order {
-		idxs := byRef[ref]
-		sums := map[string]decimal.Decimal{}
-		commodities := map[string]commodity{}
-		// The description to give a residual in a security commodity, taken from
-		// the leg it balances rather than invented.
-		descs := map[string]string{}
-		var keys []string
-		var resolved []typev1.TxType
-		add := func(t *apiv1.Tx, amount decimal.Decimal, c commodity) {
-			k := c.key()
-			if _, seen := sums[k]; !seen {
-				keys = append(keys, k)
-				commodities[k] = c
-				descs[k] = t.GetInstrumentDescription()
-			}
-			// The zero value is 0, so a first contribution needs no init.
-			sums[k] = sums[k].Add(amount)
-		}
-		for _, i := range idxs {
-			t := txs[i]
-			resolved = append(resolved, t.GetResolvedTxType())
-			amount, c, ok := weighPosting(t, instrumentIDs[i], instruments[instrumentIDs[i]])
-			if !ok {
-				continue
-			}
-			add(t, amount, c)
-			acct, named := boundaryFor(t)
-			if !named {
-				continue
-			}
-			// The mirror of the posting's weight, not of its quantity: a priced
-			// leg weighs at its consideration, and mirroring the weight is what
-			// makes the group sum to zero whichever it is.
-			out = append(out, routedFor(t, ref, c, t.GetInstrumentDescription(),
-				amount.Neg(), acct, db.BoundaryPurpose))
-			add(t, amount.Neg(), c)
-		}
-		// Sorted so a group's routed postings come out in a fixed order whatever
-		// the map iteration gave.
-		sort.Strings(keys)
-		first := txs[idxs[0]]
-		for _, k := range keys {
-			c := commodities[k]
-			if sums[k].IsZero() {
-				continue
-			}
-			amount := sums[k].Neg()
-			out = append(out, routedFor(first, ref, c, descs[k], amount,
-				residual.Type(k, amount, resolved), db.RoutedPurpose))
-		}
-	}
-	return out
-}
-
-// boundaryFor returns the account a posting's other side sits in, for a posting the
-// server is entitled to name one for.
-//
-// Only a stated posting in the user's own account gets one. A leg the server routed
-// has no other side of its own -- it is already somebody's -- and a leg already in a
-// boundary account is the other side.
-func boundaryFor(t *apiv1.Tx) (typev1.AccountType, bool) {
-	if t.GetSyntheticPurpose() != "" {
-		return typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED, false
-	}
-	switch t.GetAccountType() {
-	case typev1.AccountType_ACCOUNT_TYPE_USER, typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED:
-	default:
-		return typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED, false
-	}
-	return residual.Boundary(t.GetResolvedTxType())
-}
-
-// routedFor builds the counterparty posting for one commodity's residual. It keeps
-// the broker account, date and tx type of the group it balances, so the residual
-// stays attributable to the account that produced it and to the kind of event that
-// left it -- which is what the imbalance report reads.
-//
-// It says in synthetic_purpose that the server made it. That is what a later replace
-// or regroup finds it by, so that it is thrown away and derived again against the
-// legs the group ends with rather than being preserved as though a source had stated
-// it.
-func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount decimal.Decimal, accountType typev1.AccountType, purpose string) routedPosting {
-	tx := &apiv1.Tx{
-		Timestamp:        proto.CloneOf(first.GetTimestamp()),
-		BrokerTxType:     append([]typev1.TxType(nil), first.GetBrokerTxType()...),
-		ResolvedTxType:   first.GetResolvedTxType(),
-		Quantity:         amount.String(),
-		Account:          first.GetAccount(),
-		GroupRef:         ref,
-		AccountType:      accountType,
-		SyntheticPurpose: purpose,
-	}
-	// The routed posting weighs the residual it negates, in the commodity that
-	// residual accumulated in. That is what makes the group sum to zero.
-	weight := db.Weight{Amount: amount, Commodity: c.key()}
-	if c.currency != "" {
-		// A currency posting's description is the code, matching how an ordinary
-		// cash row arrives, so nothing downstream has to treat it specially.
-		tx.InstrumentDescription = c.currency
-		tx.TradingCurrency = c.currency
-		tx.SettlementCurrency = c.currency
-		return routedPosting{tx: tx, currency: c.currency, weight: weight}
-	}
-	tx.InstrumentDescription = desc
-	tx.TradingCurrency = first.GetTradingCurrency()
-	tx.SettlementCurrency = first.GetSettlementCurrency()
-	return routedPosting{tx: tx, instrumentID: c.instrumentID, weight: weight}
-}
-
 // balanceInstruments reduces the resolved instruments to what balancing needs:
 // whether each is money, and if so which currency. Telling the two apart is a
 // property of the instrument, not of the tx type -- which matters, because a
@@ -448,54 +270,4 @@ func balanceInstruments(byID map[string]*db.InstrumentRow) map[string]balanceIns
 		out[id] = inst
 	}
 	return out
-}
-
-// resolveRouted turns the routed postings into txs with a resolved instrument,
-// ready to store alongside the postings they balance. A residual in a currency
-// resolves through the seeded currency instruments; one in a security carries the
-// instrument of the leg it balances. It returns the txs, their instruments and their
-// weights in step, and last the commodities whose residual could not be given an
-// instrument.
-//
-// A residual with nowhere to go is left out and named in the last return. The
-// caller fails the job on it: the group would otherwise be stored unbalanced, and
-// the balance constraint rejects that at COMMIT, taking the whole upload with it.
-// Naming the commodity is the only way the failure says anything useful. Currencies
-// are seeded, so this is a safety net rather than a live path.
-func resolveRouted(ctx context.Context, database db.InstrumentDB, routed []routedPosting) ([]*apiv1.Tx, []string, []db.Weight, []string) {
-	var txs []*apiv1.Tx
-	var ids []string
-	var ws []db.Weight
-	var unresolved []string
-	byCurrency := map[string]string{}
-	for _, r := range routed {
-		id := r.instrumentID
-		if r.currency != "" {
-			cached, ok := byCurrency[r.currency]
-			if !ok {
-				var err error
-				cached, err = database.FindInstrumentByIdentifier(ctx, "CURRENCY", "", r.currency)
-				if err != nil {
-					cached = ""
-				}
-				byCurrency[r.currency] = cached
-			}
-			id = cached
-		}
-		if id == "" {
-			// The commodity as best we can name it: the currency code when the
-			// residual is money, otherwise the description of the leg it balances,
-			// whose own instrument never resolved either.
-			name := r.currency
-			if name == "" {
-				name = r.tx.GetInstrumentDescription()
-			}
-			unresolved = append(unresolved, name)
-			continue
-		}
-		txs = append(txs, r.tx)
-		ids = append(ids, id)
-		ws = append(ws, r.weight)
-	}
-	return txs, ids, ws, unresolved
 }

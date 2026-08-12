@@ -375,6 +375,12 @@ const (
 )
 
 // TxDB provides transaction write, list and export.
+//
+// The write methods take the postings a source stated and nothing else. What a group
+// owes -- the other side of a one-sided cash row, and whatever is still left over --
+// is the store's, written from the stored weights once the postings are in and in
+// the same transaction, so no caller can leave a group unbalanced and none of them
+// can disagree about what balancing means.
 type TxDB interface {
 	// Txs sharing a group_ref are written as postings of one tx group; the rest get
 	// a group each. Every group is stamped with the ingestion job that created it.
@@ -387,11 +393,14 @@ type TxDB interface {
 	// weights is parallel to txs and carries what each posting contributes to its
 	// group's balance. A nil slice means the caller has none, and each posting then
 	// weighs its own quantity in its own instrument -- which is what the weight rule
-	// returns for a posting with no price.
+	// returns for a posting with no price. What the weights leave over is what the
+	// store routes a counterparty for, so a caller that supplies none is asking for
+	// one to be routed against that default.
 	ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis []*time.Time) error
-	// CreateTxGroup appends the postings of one economic event as a single group.
-	// It takes a slice rather than a tx so that the append path can carry a routed
-	// counterparty, without which its groups could never balance.
+	// CreateTxGroup appends the postings of one economic event as a single group,
+	// rather than one posting as a group of its own. It takes a slice because the
+	// legs of one event have to arrive together to be grouped together; what the
+	// group owes is settled from them.
 	CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis []*time.Time) error
 	ListTxs(ctx context.Context, userID string, broker *typev1.Broker, account string, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 	ListTxsByPortfolio(ctx context.Context, portfolioID string, broker *typev1.Broker, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)

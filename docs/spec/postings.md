@@ -221,10 +221,16 @@ could not reach.
 
 ## Balancing
 
-Every group is balanced at ingest. Whatever its postings leave over is routed to an
-explicit counterparty rather than rejected, so the invariant holds by construction
-from day one and a residual becomes measurable instead of being absorbed into a cash
-balance.
+Every group is balanced when it is stored. Whatever its postings leave over is routed
+to an explicit counterparty rather than rejected, so the invariant holds by
+construction from day one and a residual becomes measurable instead of being absorbed
+into a cash balance.
+
+**The store does the balancing, from the stored weights.** A converter emits the
+postings its source stated; the ingest pipeline weighs them; the store writes the
+postings and then settles each group it touched, in the same transaction. An upload,
+a period replace and a regroup all reach the same code, so none of them can disagree
+about what a group owes, and no caller can leave one unbalanced.
 
 Two kinds of leg are written for it, in that order.
 
@@ -269,8 +275,9 @@ group is a violation on its own; the counterparty that negates what is left is w
 in the same transaction, so the group is settled before COMMIT.
 
 The exactness is what makes the check arguable-free. There is no tolerance in it,
-because every non-zero residual is routed at ingest -- including the sub-tolerance ones,
-which go to `SOURCE_ROUNDING` -- so a group sums to zero by construction. It reads the
+because every non-zero residual is routed when the group is stored -- including the
+sub-tolerance ones, which go to `SOURCE_ROUNDING` -- so a group sums to zero by
+construction. It reads the
 raw `quantity` and `unit_price`, never the split-adjusted pair, which carries a rounding
 an exact check would reject.
 
@@ -367,6 +374,16 @@ Rounding balances appear in the imbalance report under their own tab -- one post
 is noise, but the per-broker total and posting count are the only place the cost of a
 source's rounding is visible -- and are deliberately absent from the dashboard
 counts, which ask whether something is wrong.
+
+**The tolerance applies only to a group holding every leg its source stated.** It is a
+claim about where a difference came from, not about how big it is: two figures the
+source rounded differently. A group something has been taken out of -- cut by a
+replace, or left by a posting the engine moved elsewhere -- is short by the value of
+what went, which can be small by coincidence, so the same size means something else
+entirely and the residual takes its family type whatever its size. Filing it as
+rounding would hide a fragment from both the dashboard and the grouping cycle, which
+seeds from `IMBALANCE` and `TRANSFER_CLEARING` and passes over rounding. Which of the
+two a group is in is known only to whatever just changed it.
 
 An INITIALIZE pad is balanced by an `EQUITY` counterparty instead; see
 [fixed-point.md](fixed-point.md#the-equity-counterparty).
@@ -536,10 +553,18 @@ A regroup deletes the legs the server routed for every group it touches -- the
 residuals and the boundary legs alike -- and writes fresh ones in the same transaction
 as the membership change. Neither carries evidence, so neither can be repartitioned: a
 residual is arithmetic on the legs of its group, and a boundary leg mirrors one leg's
-weight, so once those move both are arithmetic on nothing. Every intermediate state is unbalanced, which
-is what the deferred balance constraint in [Balancing](#balancing) makes expressible;
-leaving the routing to a later statement would expose a moment where the constraint
-fires on data that was valid before the regroup began.
+weight, so once those move both are arithmetic on nothing. Every intermediate state is
+unbalanced, which is what the deferred balance constraint in
+[Balancing](#balancing) makes expressible; leaving the routing to a later statement
+would expose a moment where the constraint fires on data that was valid before the
+regroup began.
+
+A group the engine assembled is re-routed as a whole group and one a posting left as a
+shortened one, which is the distinction [Source rounding](#source-rounding) turns on.
+The engine pairs money figures that differ by up to the same tolerance the balancer
+rounds at, so a pairing it accepts leaves exactly the difference that reads as the
+source disagreeing with itself; reading that as a missing leg would report every
+correctly paired trade as an imbalance and seed the next cycle from it.
 
 It runs on an admin RPC, which is how an external cron job gives it a cadence, and
 again when a transaction import commits, so legs that have just landed beside older

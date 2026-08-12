@@ -174,3 +174,35 @@ commits. Neither is redundant: a cadence alone would leave a just-imported trans
 reported as unmatched until it came round, and the ingestion nudge alone would never
 retry a cycle that failed. Running it more often than needed is cheap, since a cycle
 reads every side no match names and writes nothing when there is nothing new.
+
+## Amendments
+
+**A `MANUAL` match is derived too, and is not keyed on group ids.** "Derived and
+disposable" above says a `MANUAL` match "cannot be rebuilt from evidence, which is
+precisely what made it manual", and concludes that it keeps its group ids and relies
+on the engine writing only the groups it disagrees with. Both halves are wrong now.
+
+It can be rebuilt from evidence, because a person supplies some. A hand-made pairing
+is recorded as a `SCOPE_USER` correlation on the two sides' postings, exactly as a
+hand-made grouping is, and the matcher gains a pass above the pointer pass that reads
+it. `MANUAL` stops meaning "inserted by hand and preserved" and starts meaning
+"derived from a person's assertion" -- which puts every method in the table on the
+same footing, and makes the link disposable in the same way. See
+[0049](0049-a-human-assertion-is-a-correlation.md) and
+[0095](../issues/0095-match-imbalanced-groups-that-should-be-one.md).
+
+It also had to change, rather than merely being an improvement. The id-keyed link was
+never as durable as this ADR assumed: `applyChanges` drops every `transfer_matches`
+row naming a group a posting left or the engine created, and nothing rebuilt a
+`MANUAL` one. So a hand-made link was already destroyed by any genuine repartition of
+either side, silently.
+
+**"The matcher only ever inserts" no longer holds either.** It was true of the
+matcher and false of the system: the regroup and the period replace both delete
+matches naming a touched group. What makes that safe is the rebuild above, not the
+matcher's restraint.
+
+The rest of this ADR stands. A match is still a link rather than a merge for
+transfers, and still records which account holds the other side, for the reason "A
+link rather than a merge" gives; what changed is where the `MANUAL` link comes from,
+not what it is.

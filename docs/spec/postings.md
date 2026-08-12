@@ -494,10 +494,11 @@ stored group's produces no statement at all: it keeps its id, and so do the tran
 matches keyed on that id. That is what lets a cycle run over a region far wider than
 any upload without churning ids for postings nobody touched.
 
-A regroup deletes the routed residuals of every group it touches and routes fresh ones
-in the same transaction as the membership change. A residual carries no evidence, so
-it cannot be repartitioned -- it is arithmetic on the legs of its group, and once
-those move it is arithmetic on nothing. Every intermediate state is unbalanced, which
+A regroup deletes the legs the server routed for every group it touches -- the
+residuals and the boundary legs alike -- and writes fresh ones in the same transaction
+as the membership change. Neither carries evidence, so neither can be repartitioned: a
+residual is arithmetic on the legs of its group, and a boundary leg mirrors one leg's
+weight, so once those move both are arithmetic on nothing. Every intermediate state is unbalanced, which
 is what the deferred balance constraint in [Balancing](#balancing) makes expressible;
 leaving the routing to a later statement would expose a moment where the constraint
 fires on data that was valid before the regroup began.
@@ -518,3 +519,8 @@ posted as the cash or the fee the server cannot know it to be. A derived cash le
 would be an invention, and would double count against the cash row a broker already
 reports. A group that arrives with its cash row weighs to zero and has nothing routed
 to it.
+
+A boundary leg is not an invention either, and for a different reason: it is not
+guessed from the arithmetic but named by the posting's own declared type, under the
+must-be test that refuses to name one where the source left the question open. See
+[Balancing](#balancing).

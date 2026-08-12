@@ -13,7 +13,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/residual"
 	"github.com/lib/pq"
 	"github.com/shopspring/decimal"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"time"
 )
@@ -60,33 +59,11 @@ const insertCorrelationSQL = `
 	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
-// groupResolver hands out the tx group for a tx's group_ref. An empty group_ref
-// means the tx is its own single-posting group; a repeated one returns the group
-// created for the first leg that used it. Refs are scoped to a single upload, so
-// the resolver lives no longer than one call.
-type groupResolver struct {
-	byRef map[string]uuid.UUID
-}
-
-func newGroupResolver() *groupResolver {
-	return &groupResolver{byRef: map[string]uuid.UUID{}}
-}
-
-// group returns the group id an already-created group should be reused for, and
-// false when the caller must create one (an empty ref, or the first leg of a ref).
-func (r *groupResolver) group(ref string) (uuid.UUID, bool) {
-	if ref == "" {
-		return uuid.UUID{}, false
-	}
-	id, ok := r.byRef[ref]
-	return id, ok
-}
-
-// record remembers the group created for a non-empty ref so later legs join it.
-func (r *groupResolver) record(ref string, id uuid.UUID) {
-	if ref != "" {
-		r.byRef[ref] = id
-	}
+// written is what an insert put down: the postings, for the settler to start from,
+// and the groups they landed in, for the caller to settle.
+type written struct {
+	postings []uuid.UUID
+	groups   []uuid.UUID
 }
 
 // ReplaceTxsInPeriod implements db.TxDB.
@@ -111,62 +88,94 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 		if err != nil {
 			return fmt.Errorf("period_before: %w", err)
 		}
+		var touched settleSet
 		cut, err := clearPeriod(ctx, exec, userUUID, broker, fromT, beforeT)
 		if err != nil {
 			return err
 		}
-		fresh, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, shareCountBasis, "")
+		// A group the replace cut has lost legs, so what it fails to balance to is
+		// their value and can be any size.
+		touched.addAll(cut, true)
+		written, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, shareCountBasis, "")
 		if err != nil {
 			return err
 		}
-		// Two rules, because the two sets of groups are not in the same state. A
-		// group the replace cut has lost legs, so what it fails to balance to is
-		// their value and can be any size; a group the upload just built holds
-		// every leg its source stated, so a small enough difference is the source
-		// disagreeing with itself.
-		if err := settle(ctx, exec, userUUID, cut, legsRemoved); err != nil {
+		touched.addAll(written.groups, false)
+		if err := p.groupWritten(ctx, exec, userUUID, written.postings, &touched); err != nil {
 			return err
 		}
-		return settle(ctx, exec, userUUID, fresh, wholeSource)
+		return touched.settle(ctx, exec, userUUID)
 	})
 }
 
-// insertPostings writes each tx as a posting, creating one tx group per distinct
-// group_ref and reusing it for that ref's later legs. account overrides the
-// account on every posting when non-empty, for the append path where the whole
-// group belongs to one named account.
+// groupWritten hands the postings just written to the settler, and applies whatever
+// partition it decides.
 //
-// It returns the groups it created, for the caller to settle. Every group here is
-// new -- the resolver starts empty and never joins a stored one -- so what comes
-// back holds nothing but the postings just written.
+// The seed is what this write put down, and the engine grows the region from there,
+// so legs that landed beside ones already stored are joined here rather than waiting
+// for the cadence to notice. It reads the transaction in progress, which is what lets
+// it see both.
+//
+// A store with no settler leaves each posting where insertPostings put it. That is
+// what the fixtures that are not about grouping want, and it is the only behaviour
+// available to a caller that has not wired the engine in.
+func (p *Postgres) groupWritten(ctx context.Context, exec queryable, userUUID uuid.UUID, postingIDs []uuid.UUID, touched *settleSet) error {
+	if p.settler == nil || len(postingIDs) == 0 {
+		return nil
+	}
+	seed, err := groupingPostingsByID(ctx, exec, userUUID, postingIDs)
+	if err != nil {
+		return err
+	}
+	if len(seed) == 0 {
+		return nil
+	}
+	changes, err := p.settler.Settle(ctx, userUUID.String(), seed, NewWithQueryable(exec))
+	if err != nil {
+		return fmt.Errorf("derive groups: %w", err)
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+	_, err = applyChanges(ctx, exec, userUUID, changes, touched)
+	return err
+}
+
+// insertPostings writes each tx as a posting of a group of its own. account
+// overrides the account on every posting when non-empty, for the append path where
+// the whole group belongs to one named account.
+//
+// One group per posting, because nothing the wire carries says which postings are
+// legs of one event any more: the settler decides that, from the evidence the
+// postings carry, once they are stored. A posting alone in a group is the shape a
+// partition is derived over rather than a claim that it is a whole event.
 //
 // weights and shareCountBasis are parallel to txs, or nil when the caller has
 // none. See db.TxDB for what a missing entry in either means.
-func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time, account string) ([]uuid.UUID, error) {
-	resolver := newGroupResolver()
-	var created []uuid.UUID
+func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time, account string) (written, error) {
+	var out written
 	for i, t := range txs {
 		instUUID, err := uuid.Parse(instrumentIDs[i])
 		if err != nil {
-			return nil, fmt.Errorf("invalid instrument id: %w", err)
+			return out, fmt.Errorf("invalid instrument id: %w", err)
 		}
 		ts, err := tsToTime(t.Timestamp)
 		if err != nil {
-			return nil, err
+			return out, err
 		}
 		brokerTypes, err := db.TxTypesToStrs(t.GetBrokerTxType())
 		if err != nil {
-			return nil, err
+			return out, err
 		}
 		// Erroring on an unresolved value is what stops any path storing a
 		// posting the ingest pipeline did not resolve.
 		resolvedStr, err := txTypeToStr(t.GetResolvedTxType())
 		if err != nil {
-			return nil, err
+			return out, err
 		}
 		acctTypeStr, err := accountTypeToStr(t.GetAccountType())
 		if err != nil {
-			return nil, err
+			return out, err
 		}
 		acc := t.GetAccount()
 		if account != "" {
@@ -179,15 +188,15 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 		// built the posting badly.
 		qty, err := decimal.NewFromString(t.GetQuantity())
 		if err != nil {
-			return nil, fmt.Errorf("invalid quantity %q: %w", t.GetQuantity(), err)
+			return out, fmt.Errorf("invalid quantity %q: %w", t.GetQuantity(), err)
 		}
 		price, err := parseOptDecimal(t.UnitPrice)
 		if err != nil {
-			return nil, fmt.Errorf("invalid unit price %q: %w", t.GetUnitPrice(), err)
+			return out, fmt.Errorf("invalid unit price %q: %w", t.GetUnitPrice(), err)
 		}
 		settlement, err := parseOptDecimal(t.SettlementAmount)
 		if err != nil {
-			return nil, fmt.Errorf("invalid settlement amount %q: %w", t.GetSettlementAmount(), err)
+			return out, fmt.Errorf("invalid settlement amount %q: %w", t.GetSettlementAmount(), err)
 		}
 		w := db.Weight{Amount: qty, Commodity: "inst:" + instUUID.String()}
 		if i < len(weights) {
@@ -207,26 +216,17 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 			nullDecimal(settlement), instUUID, basis, acctTypeStr,
 			nullStr(t.GetSyntheticPurpose()), w.Amount, w.Commodity,
 		}
-		ref := t.GetGroupRef()
-		var txID uuid.UUID
-		if groupID, ok := resolver.group(ref); ok {
-			if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL, append(args, groupID)...).Scan(&txID); err != nil {
-				return nil, fmt.Errorf("insert tx: %w", err)
-			}
-		} else {
-			// The group takes the timestamp of the first leg that names it.
-			var groupID uuid.UUID
-			if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID)...).Scan(&txID, &groupID); err != nil {
-				return nil, fmt.Errorf("insert tx: %w", err)
-			}
-			resolver.record(ref, groupID)
-			created = append(created, groupID)
+		var txID, groupID uuid.UUID
+		if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID)...).Scan(&txID, &groupID); err != nil {
+			return out, fmt.Errorf("insert tx: %w", err)
 		}
+		out.postings = append(out.postings, txID)
+		out.groups = append(out.groups, groupID)
 		if err := insertCorrelations(ctx, exec, txID, jobUUID, t.GetCorrelations()); err != nil {
-			return nil, err
+			return out, err
 		}
 	}
-	return created, nil
+	return out, nil
 }
 
 // insertCorrelations records what a posting's source said about why it might
@@ -258,12 +258,18 @@ func insertCorrelations(ctx context.Context, exec queryable, txID uuid.UUID, job
 	return nil
 }
 
-// CreateTxGroup implements db.TxDB. It appends the postings of one economic event
-// as a single group, rather than one tx as a group of its own: a manually added
-// trade that does not balance gets a routed counterparty like any other, and a
-// group that could never be balanced would put the balance invariant permanently
-// out of reach. The postings share the named account. group_ref is ignored -- the
-// whole call is one group -- so the resolver never splits it.
+// CreateTxGroup implements db.TxDB. It appends postings without replacing a period,
+// which is the manual-entry path: CreateTx wraps its one posting in a window with no
+// period, and that is where this diverges from ReplaceTxsInPeriod. The postings share
+// the named account.
+//
+// It no longer forces them into one group. Nothing on the wire says which postings
+// are legs of one event, so each is stored alone and the settler decides -- for a
+// manually added posting exactly as for an uploaded one, which is the point: a
+// posting a person entered is evidence like any other and gets no privileged
+// partition. What it keeps from the old behaviour is the balance: whatever it does
+// not account for is routed to a counterparty, so a manual entry that balances
+// against nothing is still a group the invariant can reach.
 func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
@@ -273,18 +279,17 @@ func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, j
 	if err != nil {
 		return fmt.Errorf("invalid job id: %w", err)
 	}
-	grouped := make([]*apiv1.Tx, len(txs))
-	for i, t := range txs {
-		grouped[i] = proto.CloneOf(t)
-		grouped[i].GroupRef = "one-group"
-	}
 	return p.runInTx(ctx, func(exec queryable) error {
-		created, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, grouped, instrumentIDs, weights, shareCountBasis, account)
+		var touched settleSet
+		w, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, shareCountBasis, account)
 		if err != nil {
 			return fmt.Errorf("create tx group: %w", err)
 		}
-		// Whole-source, because nothing was taken out of a group this call built.
-		return settle(ctx, exec, userUUID, created, wholeSource)
+		touched.addAll(w.groups, false)
+		if err := p.groupWritten(ctx, exec, userUUID, w.postings, &touched); err != nil {
+			return err
+		}
+		return touched.settle(ctx, exec, userUUID)
 	})
 }
 
@@ -500,10 +505,14 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 		JOIN tx_groups g ON g.id = t.group_id
 		` + bestIdentifierJoinOn("LEFT JOIN", "t.instrument_id", "best_id") + `
 		WHERE t.user_id = $1
+		  -- Only what a source stated. A residual and a boundary leg are derived
+		  -- from the group they sit in, and the file no longer carries the
+		  -- partition that put them there, so a re-imported one would land in a
+		  -- group of its own and be balanced by a counterparty of its own. They
+		  -- are derived again on the way in, from the postings that are carried.
+		  AND t.synthetic_purpose IS NULL
 		  -- Excluded whole rather than per posting: a pad and its EQUITY
-		  -- counterparty share one group, and half a group is not a group. The pad
-		  -- is named rather than inferred from a purpose being present, since a
-		  -- routed residual carries one too and its group is exported.
+		  -- counterparty share one group, and half a group is not a group.
 		  AND NOT EXISTS (
 		    SELECT 1 FROM txs s
 		    WHERE s.group_id = t.group_id
@@ -935,6 +944,63 @@ func wholeSource(commodity string, amount decimal.Decimal, resolved []typev1.TxT
 // it can be any size and a small one is small by coincidence. See residual.SplitType.
 func legsRemoved(_ string, _ decimal.Decimal, resolved []typev1.TxType) typev1.AccountType {
 	return residual.SplitType(resolved)
+}
+
+// settleSet is the groups one write touched, and which of them a posting left.
+//
+// A write can reach a group in several ways at once -- a replace cuts it, an insert
+// adds to it, the engine moves a member out of it -- and what it is owed has to be
+// decided once, from all of them together. Losing a leg is what decides the rule, so
+// it wins over any other reason the group is here.
+type settleSet struct {
+	all  map[string]bool
+	lost map[string]bool
+}
+
+func (s *settleSet) add(id string, lostLegs bool) {
+	if s.all == nil {
+		s.all = map[string]bool{}
+		s.lost = map[string]bool{}
+	}
+	s.all[id] = true
+	if lostLegs {
+		s.lost[id] = true
+	}
+}
+
+func (s *settleSet) addAll(ids []uuid.UUID, lostLegs bool) {
+	for _, id := range ids {
+		s.add(id.String(), lostLegs)
+	}
+}
+
+// ids is every group the write touched, for the statements that treat them alike.
+func (s *settleSet) ids() []string {
+	out := make([]string, 0, len(s.all))
+	for id := range s.all {
+		out = append(out, id)
+	}
+	return out
+}
+
+// settle writes what each group is owed, under the rule its state calls for.
+func (s *settleSet) settle(ctx context.Context, exec queryable, userUUID uuid.UUID) error {
+	var whole, shortened []uuid.UUID
+	for id := range s.all {
+		u, err := uuid.Parse(id)
+		if err != nil {
+			return fmt.Errorf("invalid group id %q: %w", id, err)
+		}
+		if s.lost[id] {
+			shortened = append(shortened, u)
+		} else {
+			whole = append(whole, u)
+		}
+	}
+	if err := settle(ctx, exec, userUUID, whole, wholeSource); err != nil {
+		return err
+	}
+	return settle(ctx, exec, userUUID, shortened, legsRemoved)
 }
 
 // settle writes the legs the server owes a set of groups, and is the one place that

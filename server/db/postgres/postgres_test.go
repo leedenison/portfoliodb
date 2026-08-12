@@ -77,6 +77,28 @@ func createTx(ctx context.Context, p *Postgres, userID, broker, account, jobID s
 	return p.CreateTxGroup(ctx, userID, broker, account, jobID, []*apiv1.Tx{tx}, []string{instrumentID}, weightlessFor([]string{instrumentID}), []*time.Time{shareCountBasis})
 }
 
+// oneGroupSettler puts everything a write stored into one group, standing in for an
+// engine that decided those postings are one event.
+//
+// The store cannot be asked to group postings any other way: nothing on the wire says
+// which are legs of one event, so a fixture that needs a multi-leg group needs a
+// settler that says so. Which postings really belong together is server/grouping's
+// subject and is tested there; what these fixtures need is a partition to settle.
+type oneGroupSettler struct{}
+
+func (oneGroupSettler) Settle(_ context.Context, _ string, seed []db.GroupingPosting, _ db.GroupingReader) ([]db.GroupChange, error) {
+	if len(seed) < 2 {
+		return nil, nil
+	}
+	ms := make([]db.GroupMemberChange, 0, len(seed))
+	for _, p := range seed {
+		ms = append(ms, db.GroupMemberChange{
+			ID: p.ID, FromGroupID: p.GroupID, Resolved: p.Resolved, Moving: true,
+		})
+	}
+	return []db.GroupChange{{Members: ms}}, nil
+}
+
 // weightlessFor is a weight per posting that contributes nothing, for a fixture
 // whose subject is not what its group owes. See createTx.
 func weightlessFor(instrumentIDs []string) []db.Weight {

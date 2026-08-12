@@ -6,6 +6,7 @@ import (
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"slices"
 	"strconv"
@@ -51,23 +52,28 @@ func transferFixture(t *testing.T, p *Postgres, userID, instID string) (from, to
 	period := func() (*timestamppb.Timestamp, *timestamppb.Timestamp) {
 		return timestamppb.New(base), timestamppb.New(base.Add(24 * time.Hour))
 	}
-	side := func(account, qty, ref, counterparty string) []*apiv1.Tx {
-		return []*apiv1.Tx{
-			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
-				Quantity: qty, Account: account, GroupRef: ref,
-				Correlations: fidelityCorrelations(t, ref, counterparty)},
-			// The clearing counterparty, equal and opposite, as routing writes it:
-			// no reference of its own, because it was transcribed from no row.
-			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
-				Quantity: negate(t, qty), Account: account, GroupRef: ref,
-				AccountType: typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING},
+	// One transcribed leg per side. Its clearing counterparty is the store's: a lone
+	// transfer leg fails to balance to its whole value, and a transfer is what that
+	// routes to TRANSFER_CLEARING.
+	side := func(account, qty, ref, counterparty string) *apiv1.Tx {
+		return &apiv1.Tx{
+			Timestamp: timestamppb.New(base), InstrumentDescription: "GBP",
+			BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
+			Quantity: qty, Account: account,
+			Correlations: fidelityCorrelations(t, ref, counterparty),
 		}
 	}
 	f, b := period()
-	txs := append(side("AG10000001", "-20000", "971613411", ""),
-		side("AW10000001", "20000", "971613414", "AG10000001")...)
-	ids := []string{instID, instID, instID, instID}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", f, b, txs, ids, nil, nil); err != nil {
+	txs := []*apiv1.Tx{
+		side("AG10000001", "-20000", "971613411", ""),
+		side("AW10000001", "20000", "971613414", "AG10000001"),
+	}
+	ids := []string{instID, instID}
+	ws := []db.Weight{
+		{Amount: decimal.RequireFromString("-20000"), Commodity: "inst:" + instID},
+		{Amount: decimal.RequireFromString("20000"), Commodity: "inst:" + instID},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", f, b, txs, ids, ws, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 	// The departure's clearing leg is positive: the account's own leg is negative
@@ -85,14 +91,6 @@ func transferFixture(t *testing.T, p *Postgres, userID, instID string) (from, to
 		t.Fatalf("arrival group: %v", err)
 	}
 	return from, to
-}
-
-func negate(t *testing.T, qty string) string {
-	t.Helper()
-	if qty[0] == '-' {
-		return qty[1:]
-	}
-	return "-" + qty
 }
 
 func transferUser(t *testing.T, p *Postgres, sub string) (userID, instID string) {

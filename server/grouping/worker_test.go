@@ -8,14 +8,20 @@ import (
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/txtype"
 	"go.uber.org/mock/gomock"
 )
 
 // seeded puts a posting in a user and a stored group, which is the shape a seed read
 // returns.
+//
+// It carries a resolved value too, because a stored posting has one -- and because a
+// cycle that agreed about membership but found none would write the retype, which is
+// not what these tests are about.
 func seeded(p db.GroupingPosting, userID, groupID string) db.GroupingPosting {
 	p.UserID = userID
 	p.GroupID = groupID
+	p.Resolved = txtype.Resolve(p.Declared).String()
 	return p
 }
 
@@ -28,15 +34,16 @@ func TestRunCycle_SeedsFromResidualGroups(t *testing.T) {
 	mockDB.EXPECT().ListGroupingSeeds(gomock.Any(), db.GroupingSeedOpts{Residual: true}).
 		Return(nil, nil)
 
-	runCycle(context.Background(), mockDB, nil, nil, nil, false)
+	runCycle(context.Background(), mockDB, nil, nil, nil)
 }
 
-// TestRunCycle_WritesNothing is the property the shadow run rests on: until the engine
-// reproduces the converters' partition there is nothing to justify replacing it, so a
-// cycle reads and reports and leaves the data alone.
+// A cycle that repartitions nothing writes nothing. The two postings here already
+// share a group, so the engine draws what is stored and Diff produces no change --
+// which is what keeps a group's id, and the transfer matches keyed on it, through a
+// cycle over a region far wider than any upload.
 //
 // gomock fails an unexpected call, so naming only the reads is what asserts it.
-func TestRunCycle_WritesNothing(t *testing.T) {
+func TestRunCycle_WritesNothingWhenItAgrees(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDB := mock.NewMockDB(ctrl)
 
@@ -52,7 +59,7 @@ func TestRunCycle_WritesNothing(t *testing.T) {
 	mockDB.EXPECT().PostingsByOrdinals(gomock.Any(), "u1", gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 
-	runCycle(context.Background(), mockDB, nil, nil, nil, false)
+	runCycle(context.Background(), mockDB, nil, nil, nil)
 }
 
 // TestRunCycle_PartitionsEachUsersOwnData verifies a neighbourhood never crosses a
@@ -79,7 +86,7 @@ func TestRunCycle_PartitionsEachUsersOwnData(t *testing.T) {
 	mockDB.EXPECT().PostingsByOrdinals(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 
-	runCycle(context.Background(), mockDB, nil, nil, nil, false)
+	runCycle(context.Background(), mockDB, nil, nil, nil)
 
 	if !seen["u1"] || !seen["u2"] {
 		t.Fatalf("read for users %v, want both u1 and u2", seen)
@@ -95,7 +102,7 @@ func TestRunCycle_SurvivesAReadError(t *testing.T) {
 	mockDB.EXPECT().ListGroupingSeeds(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("read failed"))
 
-	runCycle(context.Background(), mockDB, nil, nil, nil, false)
+	runCycle(context.Background(), mockDB, nil, nil, nil)
 }
 
 // TestRunCycle_SurvivesOneUsersFailure verifies a neighbourhood that cannot be read
@@ -118,5 +125,5 @@ func TestRunCycle_SurvivesOneUsersFailure(t *testing.T) {
 	mockDB.EXPECT().PostingsByOrdinals(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 
-	runCycle(context.Background(), mockDB, nil, nil, nil, false)
+	runCycle(context.Background(), mockDB, nil, nil, nil)
 }

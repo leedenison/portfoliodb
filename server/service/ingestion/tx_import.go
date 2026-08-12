@@ -79,9 +79,9 @@ func importTxPart(ctx context.Context, deps ingestDeps, userID, jobID string, pa
 // windowTxs turns one window's postings into the form the ingestion pipeline
 // takes.
 //
-// The store rebuilds groups from a shared key, and the file states one: a
-// posting's group_ref travels through unchanged, and a posting carrying none is
-// its own group, which groupPostings gives a non-colliding ref of its own.
+// Nothing about grouping travels: the postings go over flat and the store
+// partitions them from the evidence they carry, which is the same answer a fresh
+// upload of the same records would get.
 func windowTxs(w *archivev1.TxWindow, offset int, rep *archiveimport.PartReporter) ([]*apiv1.Tx, []*time.Time, []int, error) {
 	var txs []*apiv1.Tx
 	var basis []*time.Time
@@ -140,7 +140,6 @@ func archiveTx(p *archivev1.Posting) *apiv1.Tx {
 		Quantity:       p.GetQuantity(),
 		Account:        p.GetAccount(),
 		AccountType:    p.GetAccountType(),
-		GroupRef:       p.GetGroupRef(),
 		// The archive message, so the evidence travels by reference rather than
 		// being copied field by field into a second declaration of itself.
 		Correlations:       p.GetCorrelations(),

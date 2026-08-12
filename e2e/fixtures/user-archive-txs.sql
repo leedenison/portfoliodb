@@ -70,3 +70,19 @@ FROM (VALUES ('2024-01-15', -1241.60, 'e2e00000-0000-0000-0000-000000000411'),
      (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i
 ON CONFLICT DO NOTHING;
+
+-- The evidence the two legs of each trade are put back together by.
+--
+-- The archive carries no grouping (docs/adr/0043-grouping-does-not-travel-in-the-archive.md),
+-- so what makes the round trip land on the same three groups is the reference each
+-- pair shares. Without it the importing instance would have nothing to join them by
+-- and would store six single-posting groups, which is the property this fixture is
+-- here to prove is not what happens.
+INSERT INTO tx_correlations (tx_id, ordinality, label, token, scope, matches)
+SELECT t.id, 0, '', 'REC-' || right(t.group_id::text, 3), 'FILE', ARRAY['EXACT']
+FROM txs t
+WHERE t.user_id = 'e2e00000-0000-0000-0000-000000000001'
+  AND t.group_id IN ('e2e00000-0000-0000-0000-000000000411',
+                     'e2e00000-0000-0000-0000-000000000412',
+                     'e2e00000-0000-0000-0000-000000000413')
+ON CONFLICT DO NOTHING;

@@ -247,6 +247,20 @@ func (p *Postgres) PostingsByOrdinals(ctx context.Context, userID string, qs []d
 	})
 }
 
+// groupingPostingsByID reads the postings a write just put down, in the shape a
+// partition is derived over, for the store to seed the settler with.
+//
+// It goes through transcribedPostings like every other grouping read, so a routed
+// leg or a group holding a declaration's pad is never offered as a seed. It takes an
+// exec rather than reading p.q because the postings it names are not committed yet:
+// the whole point is to partition them in the transaction that wrote them.
+func groupingPostingsByID(ctx context.Context, exec queryable, userUUID uuid.UUID, ids []uuid.UUID) ([]db.GroupingPosting, error) {
+	q := "SELECT" + groupingColumns + transcribedPostings + `
+		  AND t.id = ANY($2::uuid[])
+		ORDER BY t.id`
+	return NewWithQueryable(exec).groupingPostings(ctx, q, []interface{}{userUUID, pq.Array(ids)})
+}
+
 // groupingPostings runs one of the reads above and hangs each posting's correlations
 // on it.
 //

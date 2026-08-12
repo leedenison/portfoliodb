@@ -246,26 +246,23 @@ func TestCreateTx_CreatesGroup(t *testing.T) {
 	}
 }
 
-// TestCreateTxGroup_PutsEveryPostingInOneGroup verifies the append path stores a
-// posting and the counterparty routed to balance it as one economic event. If it
-// gave them a group each, an appended trade could never balance and the balance
-// invariant would be out of reach on that path.
-func TestCreateTxGroup_PutsEveryPostingInOneGroup(t *testing.T) {
+// The append path balances what it stores. A manually added posting that accounts
+// for nothing gets a counterparty like any other, so the balance invariant is not out
+// of reach on that path -- which is what the old one-group-per-call rule was for, and
+// what the store settling every group it writes replaces it with.
+func TestCreateTxGroup_BalancesWhatItAppends(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
-	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-append", "U", "u@append.com")
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "NFLX", Canonical: false}}, "", nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ensure instrument: %v", err)
-	}
+	userID, usd := balanceSeed(t, p, "sub|grp-append")
 	at := time.Date(2025, 6, 2, 14, 30, 0, 0, time.UTC)
-	// The two carry different refs on the way in; the append path is one group
-	// regardless, so neither can split it.
-	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(at), InstrumentDescription: "NFLX", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "4", Account: "A", GroupRef: "a"},
-		{Timestamp: timestamppb.New(at), InstrumentDescription: "NFLX", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-4", Account: "A", GroupRef: "b", AccountType: typev1.AccountType_ACCOUNT_TYPE_IMBALANCE},
-	}
-	if err := p.CreateTxGroup(ctx, userID, "IBKR", "A", "", txs, []string{instID, instID}, nil, nil); err != nil {
+	txs := []*apiv1.Tx{{
+		Timestamp: timestamppb.New(at), InstrumentDescription: "USD",
+		BrokerTxType:   []typev1.TxType{typev1.TxType_TRANSFER},
+		ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "4", Account: "A",
+		SettlementCurrency: "USD", TradingCurrency: "USD",
+	}}
+	w := []db.Weight{{Amount: decimal.RequireFromString("4"), Commodity: "cur:USD"}}
+	if err := p.CreateTxGroup(ctx, userID, "IBKR", "A", "", txs, []string{usd}, w, nil); err != nil {
 		t.Fatalf("create tx group: %v", err)
 	}
 	if got := countGroups(t, p, userID); got != 1 {
@@ -278,12 +275,9 @@ func TestCreateTxGroup_PutsEveryPostingInOneGroup(t *testing.T) {
 		t.Fatalf("read postings: %v", err)
 	}
 	if postings != 2 || sum != 0 {
-		t.Errorf("stored postings: want 2 summing to 0, got %v summing to %v", postings, sum)
+		t.Errorf("stored postings: want the posting and its counterparty summing to 0, got %v summing to %v", postings, sum)
 	}
-	// The caller's refs are not stored, so mutating them cannot leak out.
-	if txs[0].GetGroupRef() != "a" || txs[1].GetGroupRef() != "b" {
-		t.Errorf("caller's group refs were mutated: %q, %q", txs[0].GetGroupRef(), txs[1].GetGroupRef())
-	}
+	assertBalanced(t, p, userID)
 }
 
 // TestReplaceTxsInPeriod_DeletesRoutedPostingsWithTheirGroup verifies a routed
@@ -330,7 +324,7 @@ func TestReplaceTxsInPeriod_DeletesRoutedPostingsWithTheirGroup(t *testing.T) {
 // produces. That is the point: it is the one shape the old account-type rule and the
 // purpose disagree about, so it fails if the rule reverts.
 func TestReplaceTxsInPeriod_DestroysARoutedLegByItsPurpose(t *testing.T) {
-	p := testDBTx(t)
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	ctx := context.Background()
 	userID, usd, day1, day2 := straddlingRun(t, p, "sub|routed-purpose", typev1.TxType_TRANSFER, "5000")
 	// A weightless routed leg on the group, in an account type no residual takes, so
@@ -402,7 +396,8 @@ func TestReplaceTxsInPeriod_ReDerivesABoundaryLeg(t *testing.T) {
 // converter read out of a record survives, even though it sits in an account type a
 // derived leg also uses.
 func TestReplaceTxsInPeriod_KeepsAStatedLegInADerivedAccountType(t *testing.T) {
-	p := testDBTx(t)
+	// The two legs are one event, which nothing about them says on its own.
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	ctx := context.Background()
 	userID, usd := balanceSeed(t, p, "sub|stated-income")
 	base := time.Date(2025, 7, 1, 12, 0, 0, 0, time.UTC)
@@ -477,86 +472,62 @@ func TestReplaceTxsInPeriod_CreatesGroupPerTx(t *testing.T) {
 	}
 }
 
-func TestReplaceTxsInPeriod_GroupsByGroupRef(t *testing.T) {
-	p := testDBTx(t)
+// The store writes the partition the settler asks for, in the transaction that
+// inserted the postings. Without one it leaves each alone, which is what
+// TestReplaceTxsInPeriod_CreatesGroupPerTx pins.
+//
+// The group takes the timestamp of its earliest member rather than of whichever
+// posting happened to be written first.
+func TestReplaceTxsInPeriod_WritesTheSettlersPartition(t *testing.T) {
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	ctx := context.Background()
-	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-ref", "U", "u@ref.com")
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "VOD", Canonical: false}}, "", nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ensure instrument: %v", err)
-	}
+	userID, usd := balanceSeed(t, p, "sub|settler-partition")
 	base := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
-	// A trade and its cash leg share a ref; a separately-reported fee names none.
+	leg := func(at time.Time, qty string, typ typev1.TxType) *apiv1.Tx {
+		return &apiv1.Tx{
+			Timestamp: timestamppb.New(at), InstrumentDescription: "USD",
+			BrokerTxType: []typev1.TxType{typ}, ResolvedTxType: typ,
+			Quantity: qty, Account: "A", SettlementCurrency: "USD", TradingCurrency: "USD",
+		}
+	}
+	w := func(v string) db.Weight {
+		return db.Weight{Amount: decimal.RequireFromString(v), Commodity: "cur:USD"}
+	}
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "VOD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-100", Account: "", GroupRef: "ref-1"},
-		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "VOD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH}, ResolvedTxType: typev1.TxType_TRADE_CASH, Quantity: "125", Account: "", GroupRef: "ref-1"},
-		{Timestamp: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "VOD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSACTION_COST}, ResolvedTxType: typev1.TxType_TRANSACTION_COST, Quantity: "-7.5", Account: ""},
+		leg(base.Add(2*time.Hour), "-125", typev1.TxType_TRADE_ASSET),
+		leg(base.Add(time.Hour), "125", typev1.TxType_TRADE_CASH),
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
-	ids := []string{instID, instID, instID}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, ids, weightlessFor(ids), nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs,
+		[]string{usd, usd}, []db.Weight{w("-125"), w("125")}, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
-	if got := countGroups(t, p, userID); got != 2 {
-		t.Fatalf("tx_groups: want 2 (one shared, one ungrouped fee), got %d", got)
+	if got := countGroups(t, p, userID); got != 1 {
+		t.Fatalf("tx_groups: want the one the settler asked for, got %d", got)
 	}
-	// The group takes the timestamp of the first leg that named it, not the last.
-	var legs int
+	// Each leg keeps the type its own rule resolved: stamping the group with one
+	// value would make the cash leg a TRADE_ASSET or the other way round.
+	var asset, cash int
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*) FILTER (WHERE resolved_tx_type = 'TRADE_ASSET'),
+		       count(*) FILTER (WHERE resolved_tx_type = 'TRADE_CASH')
+		FROM txs WHERE user_id = $1 AND synthetic_purpose IS NULL
+	`, userID).Scan(&asset, &cash); err != nil {
+		t.Fatalf("read resolved types: %v", err)
+	}
+	if asset != 1 || cash != 1 {
+		t.Errorf("resolved types after the move: want one of each, got %d asset and %d cash", asset, cash)
+	}
 	var groupTs time.Time
-	err = p.q.QueryRowContext(ctx, `
-		SELECT count(*), max(g.timestamp) FROM txs t JOIN tx_groups g ON g.id = t.group_id
-		WHERE t.user_id = $1
-		  AND t.group_id = (SELECT group_id FROM txs WHERE user_id = $1 AND quantity = -100)
-		GROUP BY t.group_id
-	`, userID).Scan(&legs, &groupTs)
-	if err != nil {
-		t.Fatalf("read shared group: %v", err)
-	}
-	if legs != 2 {
-		t.Errorf("postings in the shared group: want 2, got %d", legs)
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT timestamp FROM tx_groups WHERE user_id = $1::uuid`, userID).Scan(&groupTs); err != nil {
+		t.Fatalf("read group timestamp: %v", err)
 	}
 	if want := base.Add(time.Hour); !groupTs.Equal(want) {
-		t.Errorf("group timestamp: want the first leg's %v, got %v", want, groupTs)
+		t.Errorf("group timestamp: want the earliest member's %v, got %v", want, groupTs)
 	}
-}
-
-func TestReplaceTxsInPeriod_GroupRefScopedToUpload(t *testing.T) {
-	p := testDBTx(t)
-	ctx := context.Background()
-	userID, _ := p.GetOrCreateUser(ctx, "sub|grp-scope", "U", "u@scope.com")
-	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "BP", Canonical: false}}, "", nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ensure instrument: %v", err)
-	}
-	base := time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC)
-	upload := func(period time.Time) {
-		t.Helper()
-		txs := []*apiv1.Tx{
-			{Timestamp: timestamppb.New(period.Add(time.Hour)), InstrumentDescription: "BP", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "", GroupRef: "same-ref"},
-			{Timestamp: timestamppb.New(period.Add(time.Hour)), InstrumentDescription: "BP", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH}, ResolvedTxType: typev1.TxType_TRADE_CASH, Quantity: "-50", Account: "", GroupRef: "same-ref"},
-		}
-		from, to := timestamppb.New(period), timestamppb.New(period.Add(24*time.Hour))
-		if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
-			t.Fatalf("replace: %v", err)
-		}
-	}
-	// The same ref in a second upload must not join the first upload's group: refs
-	// are scoped to one request and carry no meaning across them.
-	upload(base)
-	upload(base.Add(48 * time.Hour))
-
-	if got := countGroups(t, p, userID); got != 2 {
-		t.Errorf("tx_groups across two uploads: want 2, got %d", got)
-	}
-	var distinct int
-	if err := p.q.QueryRowContext(ctx,
-		`SELECT count(DISTINCT group_id) FROM txs WHERE user_id = $1`, userID).Scan(&distinct); err != nil {
-		t.Fatalf("count distinct groups: %v", err)
-	}
-	if distinct != 2 {
-		t.Errorf("distinct groups referenced by postings: want 2, got %d", distinct)
-	}
+	assertBalanced(t, p, userID)
 }
 
 func TestReplaceTxsInPeriod_DeletesWholeGroups(t *testing.T) {
@@ -1564,8 +1535,17 @@ func TestListTxsForExport_OrderedForGrouping(t *testing.T) {
 // proximity rather than the date bucket, because a run in the sample export
 // settles across two days. Any period boundary between the two legs therefore cuts
 // a group in half.
+// straddlingRun stores one group whose two legs settle on different days, which is
+// what makes a replace of one day cut it.
+//
+// The store has to be given a settler for that: nothing about the postings themselves
+// says they are one event, so without one they would be two groups and no replace
+// could straddle anything.
 func straddlingRun(t *testing.T, p *Postgres, sub string, txType typev1.TxType, qty string) (userID, usd string, day1, day2 time.Time) {
 	t.Helper()
+	if p.settler == nil {
+		t.Fatal("straddlingRun needs a store with a settler, or its legs land in a group each")
+	}
 	ctx := context.Background()
 	userID, usd = balanceSeed(t, p, sub)
 	day1 = time.Date(2025, 9, 10, 15, 0, 0, 0, time.UTC)
@@ -1697,7 +1677,7 @@ func assertBalanced(t *testing.T, p *Postgres, userID string) {
 // legs it does not carry: it holds only the rows its own period covers, so nothing
 // would re-insert them.
 func TestReplaceTxsInPeriod_KeepsLegsOutsideThePeriod(t *testing.T) {
-	p := testDBTx(t)
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	ctx := context.Background()
 	userID, usd, day1, day2 := straddlingRun(t, p, "sub|straddle-keep", typev1.TxType_TRANSFER, "5000")
 
@@ -1773,7 +1753,7 @@ func TestReplaceTxsInPeriod_RoutesTheSurvivorsResidual(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			p := testDBTx(t)
+			p := testDBTx(t).WithSettler(oneGroupSettler{})
 			userID, usd, _, day2 := straddlingRun(t, p, tc.sub, tc.txType, tc.qty)
 			replaceDay(t, p, userID, usd, day2, nil, nil)
 
@@ -1835,7 +1815,7 @@ func TestReplaceTxsInPeriod_ResidualIsReDerivedNotStacked(t *testing.T) {
 // for: re-running the same upload lands on the same rows rather than doubling
 // them, and a straddling group must not weaken it.
 func TestReplaceTxsInPeriod_IsIdempotent(t *testing.T) {
-	p := testDBTx(t)
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	userID, usd, _, day2 := straddlingRun(t, p, "sub|straddle-idem", typev1.TxType_TRANSFER, "5000")
 	replaceDay(t, p, userID, usd, day2, balancedUpload(day2, "4000"), balancedWeights("4000"))
 	first := postingSummary(t, p, userID)
@@ -1880,7 +1860,7 @@ func postingSummary(t *testing.T, p *Postgres, userID string) [][3]string {
 // timestamp of the first posting that named the group. It is derived rather than data,
 // so it has to follow the legs that are left when the one it was taken from is deleted.
 func TestReplaceTxsInPeriod_RedatesACutGroup(t *testing.T) {
-	p := testDBTx(t)
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	ctx := context.Background()
 	userID, usd, day1, day2 := straddlingRun(t, p, "sub|straddle-redate", typev1.TxType_TRANSFER, "5000")
 
@@ -1903,7 +1883,7 @@ func TestReplaceTxsInPeriod_RedatesACutGroup(t *testing.T) {
 // after ingest and rebuilds what still holds. See
 // docs/adr/0037-transfer-matches-are-links-not-postings.md.
 func TestReplaceTxsInPeriod_DropsMatchesOnCutGroups(t *testing.T) {
-	p := testDBTx(t)
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	ctx := context.Background()
 	userID, usd, _, day2 := straddlingRun(t, p, "sub|straddle-match", typev1.TxType_TRANSFER, "5000")
 
@@ -1966,7 +1946,7 @@ func soleGroup(t *testing.T, p *Postgres, userID string) string {
 // is not its to delete even where the dates overlap. The whole-group delete took one
 // with the cascade.
 func TestReplaceTxsInPeriod_KeepsAnotherBrokersLegInThePeriod(t *testing.T) {
-	p := testDBTx(t)
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	userID, usd, _, day2 := straddlingRun(t, p, "sub|straddle-broker", typev1.TxType_TRANSFER, "5000")
 	insertRawPostingAs(t, p, userID, usd, soleGroup(t, p, userID), "IBKR", day2, nil)
 
@@ -1988,7 +1968,7 @@ func TestReplaceTxsInPeriod_KeepsAnotherBrokersLegInThePeriod(t *testing.T) {
 // machinery's to manage rather than ingestion's (see docs/spec/fixed-point.md), so a
 // replace neither selects a group for one nor deletes one from a group it reached.
 func TestReplaceTxsInPeriod_KeepsASyntheticLegInATouchedGroup(t *testing.T) {
-	p := testDBTx(t)
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	userID, usd, _, day2 := straddlingRun(t, p, "sub|straddle-synthetic", typev1.TxType_TRANSFER, "5000")
 	insertRawPostingAs(t, p, userID, usd, soleGroup(t, p, userID), "FIDELITY", day2, "INITIALIZE")
 
@@ -2106,7 +2086,7 @@ func TestReplaceTxsInPeriod_KeepsRestatedShareCountBasis(t *testing.T) {
 // straddling a bound contributes only its in-period legs. The exported group then
 // does not balance, which the format accepts: the importer routes the residual.
 func TestListTxsForExport_ClipsAStraddlingGroup(t *testing.T) {
-	p := testDBTx(t)
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	ctx := context.Background()
 	userID, _, _, day2 := straddlingRun(t, p, "sub|export-straddle", typev1.TxType_TRANSFER, "5000")
 

@@ -534,9 +534,12 @@ ones are joined without waiting for the next tick. A job rather than part of ing
 for the reason transfer matching is one: the partition is a function of all stored
 state rather than of one upload's payload.
 
-While the converters still assert a partition of their own, a cycle derives it,
-reports how the two differ and writes nothing; the write is behind a flag on the
-service.
+An upload does not wait for a cycle. The store partitions the postings it writes in
+the transaction that writes them, seeded from those postings and grown over the
+region the rules reach -- so legs that land beside ones already stored are joined
+there and then, and no group is ever observed in whatever shape the postings happened
+to arrive in. What the cycle is for is what an upload cannot see: fragments left by a
+period replace, and legs whose counterparts arrive later.
 
 Routing a residual is not the server inventing a leg. A residual is arithmetic on the
 legs supplied -- what they leave over -- and it is typed as a residual rather than

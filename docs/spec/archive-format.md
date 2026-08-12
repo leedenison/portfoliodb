@@ -35,12 +35,12 @@ computed holdings and valuations. Exporting derived state would invite a round
 trip to change a number -- to carry a rounding, or to mix share counts -- which
 `docs/spec/bitemporality.md` forbids.
 
-Transaction grouping is joining that list. The server is becoming the thing that
-derives the partition, from the evidence a posting carries rather than from being
-told (`docs/adr/0043-grouping-does-not-travel-in-the-archive.md`); until it does,
-the file states the partition as a `group_ref` on the posting. The evidence itself
--- a posting's `correlations` -- is irreplaceable data and stays, since a rebuild
-that had only the answer could never derive it again.
+Transaction grouping has joined that list. The server derives the partition from
+the evidence a posting carries rather than being told it
+(`docs/adr/0043-grouping-does-not-travel-in-the-archive.md`), so the file carries
+postings and the importing instance groups them. The evidence itself -- a
+posting's `correlations` -- is irreplaceable data and stays, since a rebuild that
+had only the answer could never derive it again.
 
 Full reasoning: `docs/adr/0032-archive-preserves-inputs-not-derived-state.md`.
 
@@ -585,7 +585,6 @@ stored and where it travels.
 | posting | `unit_price`, `trading_currency`, `settlement_currency` | optional |
 | posting | `share_count_basis` | optional; absent means the posting's own timestamp date |
 | posting | `correlations[]` | zero or more; why this posting might belong with another |
-| posting | `group_ref` | optional; transitional, see below |
 
 `share_count_basis` is on the posting rather than on the window for the same
 reason it is on a price row rather than on its group: a window-wide value can
@@ -594,16 +593,11 @@ where every posting is as-traded and so carries a different basis from its
 neighbours. Absent is what an ordinary export writes, and the importing instance
 takes the posting's own date.
 
-**Grouping is transitional.** Postings are flat under the window, and postings
-sharing a non-empty `group_ref` are legs of one economic event; a posting with no
-`group_ref` is its own single-posting group. The key is scoped to the file and is
-never stored, so it means nothing in another one. An export numbers it within the
-window -- `g0`, `g1` -- rather than writing the stored group id, which the
-importing instance generates.
-
-The field is here because the server does not derive the partition yet, and it
-goes when it does: grouping is derived state rather than data, and the archive
-carries neither it nor the residuals routed to balance it. See
+**Grouping does not travel.** Postings are flat under the window and the file says
+nothing about which of them are legs of one event. The importing instance derives
+that from the evidence they carry, as it would for a fresh upload of the same
+records. `group_ref` is still on the message and is read by nothing; it goes with
+the next change to the format. See
 `docs/adr/0043-grouping-does-not-travel-in-the-archive.md` and
 `docs/adr/0041-server-owns-transaction-grouping.md`.
 
@@ -634,11 +628,15 @@ says whether a domain is a MIC or an OpenFIGI exchange code, so `exchange_type`
 was restating it, and the validation that the two were present or absent
 together goes too.
 
-A group whose postings do not sum to zero is accepted rather than rejected; the
-server routes the residual to an `ACCOUNT_TYPE_IMBALANCE`,
-`ACCOUNT_TYPE_TRANSFER_CLEARING` or `ACCOUNT_TYPE_SOURCE_ROUNDING` posting. A
-group exported with its routed residual already sums to zero, so nothing is
-routed a second time.
+A window's postings need not sum to zero, and are accepted rather than rejected:
+the importing instance partitions them and routes what each group it draws fails
+to balance to, as an `ACCOUNT_TYPE_IMBALANCE`, `ACCOUNT_TYPE_TRANSFER_CLEARING` or
+`ACCOUNT_TYPE_SOURCE_ROUNDING` posting.
+
+Those postings are not exported, and neither are the boundary legs beside them. A
+residual is arithmetic on the legs of a group the file no longer names, so a
+re-imported one would land in a group of its own and be balanced by a
+counterparty of its own; it is derived again from the postings that are carried.
 
 **Not carried:** the server UUIDs; `tx_groups.id`, `job_id` and `created_at`,
 which the importing instance generates; `tx_groups.timestamp`, which is the

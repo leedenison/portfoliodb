@@ -228,7 +228,7 @@ func TestTxGroupBalance_SplitRecomputeIsNotAffected(t *testing.T) {
 // transaction, and the constraint is deferred to COMMIT, so the group is never observed
 // unbalanced.
 func TestTxGroupBalance_PartialPeriodDeleteIsBalanced(t *testing.T) {
-	p := testDBTx(t)
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	userID, usd, _, day2 := straddlingRun(t, p, "sub|balance-straddle", typev1.TxType_TRANSFER, "5000")
 
 	replaceDay(t, p, userID, usd, day2, nil, nil)

@@ -100,10 +100,13 @@ func settled(t *testing.T, p *Postgres, sub string, legs []statedLeg, instByComm
 func derivedLegs(t *testing.T, p *Postgres, userID string) []settleLeg {
 	t.Helper()
 	rows, err := p.q.QueryContext(context.Background(), `
-		SELECT account_type, quantity::text, weight_commodity, synthetic_purpose
+		SELECT account_type, quantity::text AS qty, weight_commodity, synthetic_purpose
 		FROM txs
 		WHERE user_id = $1 AND synthetic_purpose IS NOT NULL
-		ORDER BY synthetic_purpose, weight_commodity, quantity
+		-- The table's numeric column, not the text the select casts: a bare
+		-- "quantity" would bind to the output alias and sort -23.40 after 2.80
+		-- under a collation that skips punctuation.
+		ORDER BY synthetic_purpose, weight_commodity, txs.quantity
 	`, userID)
 	if err != nil {
 		t.Fatalf("derived legs: %v", err)
@@ -130,7 +133,10 @@ func resolveSet(set []typev1.TxType) typev1.TxType {
 }
 
 func TestSettle(t *testing.T) {
-	p := testDBTx(t)
+	// One group per case, because what a group owes is the subject: the store would
+	// otherwise leave each posting alone in a group of its own, which is what it
+	// does when nothing tells it two postings are one event.
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
 	ctx := context.Background()
 	userID, usd := balanceSeed(t, p, "sub|settle")
 	aapl, err := p.EnsureInstrument(ctx, "STOCK", "", "AAPL", "USD", "", "",

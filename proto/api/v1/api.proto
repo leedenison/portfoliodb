@@ -138,13 +138,12 @@ message Tx {
   // Split-adjusted unit price (unit_price / cumulative split factor). Optional
   // for the same reason as unit_price, and absent exactly when it is.
   optional string split_adjusted_unit_price = 13 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  // Opaque grouping key, scoped to a single upload. Txs sharing a non-empty
-  // group_ref are postings of one economic event and are stored in one tx group.
-  // Empty means the tx is its own single-posting group. Set by the broker
-  // converter, which is the only thing that knows how a broker reports the legs
-  // of a trade. Not a durable identifier: it is not stored and carries no
-  // meaning across uploads.
-  string group_ref = 14;
+  // 14 was group_ref, an opaque key a converter stamped on the postings it had
+  // decided were legs of one economic event. The server derives that now, from the
+  // evidence a posting carries, so an upload that stated it was stating an answer
+  // rather than supplying data. See
+  // docs/adr/0041-server-owns-transaction-grouping.md.
+  reserved 14;
   // What kind of leg this posting is. Set by the broker converter, which is the only
   // thing that knows whether a row is the user's cash or the income it came from.
   // Unset means USER, so an upload that says nothing about kind reads as an ordinary

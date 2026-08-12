@@ -402,26 +402,27 @@ stays unmatched and visible.
 A residual `TRANSFER_CLEARING` balance therefore means a side whose pair has not
 arrived, and its age is the age of something missing.
 
-## Naming a group on upload
+## What an upload carries
 
-An uploaded tx carries an optional `group_ref`: an opaque key, scoped to that
-upload, naming the event the posting belongs to. Txs sharing a non-empty `group_ref`
-are stored in one group; an empty one means the tx is its own single-posting group.
-The group takes the timestamp of the first leg that names it.
+An upload carries postings and says nothing about which of them are legs of one
+event. Nothing on the wire can: the partition is
+[derived](#where-grouping-is-decided) from the evidence the postings carry, and a
+field stating one would be a second thing deciding it -- one the server could
+neither justify nor contradict.
 
-A `group_ref` is a converter asserting a partition, which is the arrangement
-[Where grouping is decided](#where-grouping-is-decided) replaces: it is honoured at
-ingest for as long as the converters still assert one, and the derived partition is
-what the group means.
+Each posting is stored alone and then partitioned, in the transaction that wrote it.
+A group is a thing the server concluded, never a thing it was told.
 
-`group_ref` is not stored and carries no meaning across uploads, so re-uploading a
-period produces new groups. This follows from transactions having no natural key
-(see adr/0002-transaction-ingestion-model.md): there is nothing stable to key a
-durable group identity on.
+Group ids are not durable. Re-uploading a period produces new ones, and so does a
+cycle that repartitions the region. This follows from transactions having no natural
+key (see adr/0002-transaction-ingestion-model.md): there is nothing stable to key a
+durable group identity on, which is why a hand-made assertion is a correlation on
+the postings it names rather than a reference to a group
+(adr/0049-a-human-assertion-is-a-correlation.md).
 
-Single-transaction uploads ignore `group_ref`: the upload is one group whatever it
-says. The uploaded tx and the counterparty routed to balance it are stored as that
-group, so an appended posting is balanced like any other.
+A manually added posting is treated the same way. It is stored, partitioned and
+balanced like any other, so an appended trade that accounts for nothing gets a routed
+counterparty rather than a group the balance invariant cannot reach.
 
 ## Deletion
 

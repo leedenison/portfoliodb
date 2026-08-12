@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 	"github.com/google/uuid"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
@@ -44,13 +43,12 @@ func seedBalancedGroups(t testing.TB, p *Postgres, groups int) (string, string) 
 	var ids []string
 	var ws []db.Weight
 	for i := range groups {
-		ref := fmt.Sprintf("g%d", i)
 		at := timestamppb.New(base.Add(time.Duration(i) * time.Minute))
 		txs = append(txs,
 			&apiv1.Tx{Timestamp: at, InstrumentDescription: "BENCH", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
-				Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD", GroupRef: ref},
+				Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD"},
 			&apiv1.Tx{Timestamp: at, InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
-				Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD", GroupRef: ref})
+				Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD"})
 		ids = append(ids, instID, usd)
 		ws = append(ws,
 			db.Weight{Amount: decf(1000), Commodity: "cur:USD"},
@@ -93,11 +91,10 @@ func seedPairedJournals(t testing.TB, p *Postgres, groups int) (string, string, 
 	var ids []string
 	var ws []db.Weight
 	for i := range groups {
-		ref := fmt.Sprintf("j%d", i)
 		at := timestamppb.New(base.Add(time.Duration(i) * time.Minute))
 		txs = append(txs,
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-10", GroupRef: ref},
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "10", GroupRef: ref})
+			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-10"},
+			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "10"})
 		ids = append(ids, mergedAway, mergedAway)
 		ws = append(ws,
 			db.Weight{Amount: decf(-10), Commodity: commodity},

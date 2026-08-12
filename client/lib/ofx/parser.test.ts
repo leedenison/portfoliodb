@@ -420,10 +420,12 @@ describe("groups and charges", () => {
 
   const parse = (transactions: string) => parseOfxStatement(buildOfx({ transactions }));
 
-  it("groups a trade with its cash leg on the broker's own reference", () => {
+  it("correlates a trade and its cash leg on the broker's own reference", () => {
     const result = parse(GBP_BUY);
-    const refs = new Set(result.postings.map((t) => t.groupRef));
-    expect(refs).toEqual(new Set(["20251015U10000018371888432"]));
+    const tokens = new Set(
+      result.postings.flatMap((t) => t.correlations.map((c) => c.token)),
+    );
+    expect(tokens).toEqual(new Set(["20251015U10000018371888432"]));
   });
 
   // The cash that actually settled, charges included, which is not the cash leg
@@ -502,11 +504,13 @@ describe("groups and charges", () => {
     expect(result.postings).toHaveLength(2);
   });
 
-  it("groups a trade whose source gave no reference", () => {
+  it("identifies a trade whose source gave no reference", () => {
     const result = parse(GBP_BUY.replace("<FITID>20251015U10000018371888432", "<FITID>"));
-    const refs = new Set(result.postings.map((t) => t.groupRef));
-    expect(refs.size).toBe(1);
-    expect([...refs][0]).toBeTruthy();
+    const tokens = new Set(
+      result.postings.flatMap((t) => t.correlations.map((c) => c.token)),
+    );
+    expect(tokens.size).toBe(1);
+    expect([...tokens][0]).toBeTruthy();
     expectGroupsBalance(result.postings);
   });
 
@@ -563,7 +567,6 @@ describe("groups and charges", () => {
 
     expect(result.postings).toHaveLength(1);
     expect(result.postings[0]!.quantity).toBe("137.08");
-    expect(result.postings[0]!.groupRef).toBe("div1");
     expect(mustBe(result.postings[0]!.brokerTxType, TxType.INCOME)).toBe(true);
     expectGroupsBalance(result.postings);
   });

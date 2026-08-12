@@ -25,18 +25,18 @@ directions is what [0034](0034-archive-format-is-its-own-proto-package.md) and
 [0078](../issues/0078-archive-format-proto-package.md) are for, and a nested export
 beside a flat upload would need a second reader for a shape that is about to be deleted.
 
-## group_ref survives the format change
+## group_ref outlived the format change, and is gone
 
-The server does not group yet, so between the format move and the engine the file still
-has to say what the converter decided. It says it as an optional `group_ref` on the
-posting: file-scoped, never stored, and exactly what the flat CSV always carried.
-[0098](../issues/0098-retire-converter-side-grouping.md) deletes the field, and nothing
-else about the format changes when it does.
+The server did not group when this was written, so between the format move and the
+engine the file still had to say what the converter decided, as an optional
+`group_ref` on the posting: file-scoped, never stored, and exactly what the flat CSV
+always carried. It also had to outlive the format move because
+[0097](../issues/0097-server-side-transaction-grouping.md) validated the engine by
+requiring it to reproduce that field exactly.
 
-Keeping it is not a concession. [0097](../issues/0097-server-side-transaction-grouping.md)
-validates the engine by running it in shadow and requiring it to reproduce `group_ref`
-exactly, so the field has to outlive the format move regardless of what the archive
-would prefer.
+[0098](../issues/0098-retire-converter-side-grouping.md) deleted it, and nothing else
+about the format changed when it did. What a file carries now is postings and their
+correlations, and the importing instance partitions them.
 
 ## Considered: the archive records a partition the importer honours
 

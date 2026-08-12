@@ -244,8 +244,6 @@ describe("convertFidelityToStandard", () => {
 
     it("groups with its cash in, and the pair weighs nothing", () => {
       const result = convert([SELL, CASH_IN]);
-      expect(result.postings[0]!.groupRef).toBe("608442561");
-      expect(result.postings[1]!.groupRef).toBe("608442561");
       expectGroupsBalance(result.postings);
     });
 
@@ -271,21 +269,6 @@ describe("convertFidelityToStandard", () => {
       expect(result.postings[0]!.quantity).toBe("-1242");
     });
 
-    it("does not let a sale of cash claim a security sale's cash in", () => {
-      // Both settle in the same account on the same day. Amount separates them,
-      // and a security sale picks first regardless of export order.
-      const result = convert([
-        "2024-04-10,10 Apr 2024,Sell,Cash,Investment Account,AG10000001,,-19999,19999,1,795832439,Completed,,GBP,CASH,Cash",
-        "2024-04-10,10 Apr 2024,Cash In From Sell,Cash,Investment Account,AG10000001,,19999,19999,1,795832440,Completed,,GBP,CASH,Cash",
-        '2024-04-10,10 Apr 2024,Sell,"VANGUARD FUNDS PLC, S&P 500 (VUSA)",Investment Account,AG10000001,,-19502.15,325,60.0066,791691783,Completed,LON,VUSA,ETF,Sell',
-        "2024-04-10,10 Apr 2024,Cash In From Sell,Cash,Investment Account,AG10000001,,19502.15,19502.15,1,791691785,Completed,,GBP,CASH,Cash",
-      ]);
-
-      expect(result.postings[0]!.groupRef).toBe("795832439");
-      expect(result.postings[1]!.groupRef).toBe("795832439");
-      expect(result.postings[2]!.groupRef).toBe("791691783");
-      expect(result.postings[3]!.groupRef).toBe("791691783");
-    });
 
     // The map-completeness test above feeds security rows through a header with
     // no Type column, so the fallback has to keep them out of this rule.
@@ -316,298 +299,6 @@ describe("convertFidelityToStandard", () => {
   });
 });
 
-describe("transaction grouping", () => {
-  const HEAD =
-    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
-  const row = (
-    type: string,
-    investments: string,
-    account: string,
-    amount: string,
-    quantity: string,
-    price: string,
-    ref: string,
-    completion = "10 Feb 2022"
-  ) =>
-    `8 Feb 2022,${completion},${type},"${investments}",Investment Account,${account},,${amount},${quantity},${price},${ref},Completed`;
-
-  const convert = (rows: string[]) =>
-    convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
-
-  it("pairs a sell with the cash in of the same amount", () => {
-    const result = convert([
-      row("Sell", "WISE PLC (WISE)", "AG1", "-7266.49", "1242", "5.85", "441416452"),
-      row("Cash In From Sell", "Cash", "AG1", "7266.49", "7266.49", "1", "441416454"),
-    ]);
-
-    expect(result.postings).toHaveLength(2);
-    expect(result.postings[0].groupRef).toBe("441416452");
-    expect(result.postings[1].groupRef).toBe("441416452");
-  });
-
-  it("pairs a buy with the cash out despite the fee gap", () => {
-    // The buy row's Amount includes a 10.00 dealing fee that Fidelity posts as its
-    // own row, so the cash out is 10.00 smaller.
-    const result = convert([
-      row("Cash Out For Buy", "Cash", "AG1", "-7380.19", "7380.19", "1", "441416514"),
-      row("Buy", "INVESCO EQQQ (EQQQ)", "AG1", "7390.19", "28", "263.58", "441416515"),
-    ]);
-
-    expect(result.postings[0].groupRef).toBe("441416515");
-    expect(result.postings[1].groupRef).toBe("441416515");
-  });
-
-  it("keeps a separately reported charge out of the trade's group", () => {
-    const result = convert([
-      row("Sell", "WISE PLC (WISE)", "AG1", "-7266.49", "1242", "5.85", "441416452"),
-      row("Cash In From Sell", "Cash", "AG1", "7266.49", "7266.49", "1", "441416454"),
-      row("Dealing Fee", "Cash", "AG1", "-10", "0", "0", "441416483", "8 Feb 2022"),
-    ]);
-
-    // Fidelity dates the charge on the order date while the trade settles later,
-    // so folding it into the trade would misdate it. It needs no group of its own
-    // on the wire: the server gives every posting one, and its expense leg lands
-    // there.
-    expect(result.postings[2].groupRef).not.toBe(result.postings[0].groupRef);
-  });
-
-  it("does not cross-pair two sells settling the same day in one account", () => {
-    const result = convert([
-      row("Sell", "WISE PLC (WISE)", "AG1", "-100.00", "10", "10", "1001"),
-      row("Sell", "BP PLC (BP)", "AG1", "-200.00", "20", "10", "1003"),
-      row("Cash In From Sell", "Cash", "AG1", "200.00", "200", "1", "1004"),
-      row("Cash In From Sell", "Cash", "AG1", "100.00", "100", "1", "1002"),
-    ]);
-
-    // Amount, not proximity, decides: the 100.00 cash belongs to the 100.00 sell
-    // even though a different cash row sits closer in the file.
-    expect(result.postings[0].groupRef).toBe("1001");
-    expect(result.postings[3].groupRef).toBe("1001");
-    expect(result.postings[1].groupRef).toBe("1003");
-    expect(result.postings[2].groupRef).toBe("1003");
-  });
-
-  it("does not let one buy strand another by claiming its cash row", () => {
-    // The 29939.31 buy sits one reference from the 36946.72 cash out, but a fee
-    // cannot be negative, so that cash row can only belong to the larger buy.
-    const result = convert([
-      row("Cash Out For Buy", "Cash", "AP1", "-29931.81", "29931.81", "1", "697042341"),
-      row("Buy", "VANGUARD S&P 500 (VUSA)", "AP1", "29939.31", "100", "299.39", "697042343"),
-      row("Cash Out For Buy", "Cash", "AP1", "-36946.72", "36946.72", "1", "697042344"),
-      row("Buy", "INVESCO EQQQ (EQQQ)", "AP1", "36954.22", "120", "307.95", "697042346"),
-    ]);
-
-    expect(result.postings[1].groupRef).toBe("697042343");
-    expect(result.postings[0].groupRef).toBe("697042343");
-    expect(result.postings[3].groupRef).toBe("697042346");
-    expect(result.postings[2].groupRef).toBe("697042346");
-  });
-
-  it("does not pair a sell across accounts or settlement dates", () => {
-    const result = convert([
-      row("Sell", "WISE PLC (WISE)", "AG1", "-100.00", "10", "10", "1001"),
-      row("Cash In From Sell", "Cash", "AS2", "100.00", "100", "1", "1002"),
-      row("Cash In From Sell", "Cash", "AG1", "100.00", "100", "1", "1003", "11 Feb 2022"),
-    ]);
-
-    for (const tx of result.postings) {
-      expect(tx.groupRef).toBeUndefined();
-    }
-  });
-
-  it("does not pair a buy across accounts or settlement dates", () => {
-    // Both cash rows would satisfy the fee constraint and sit one reference away,
-    // so only the account and settlement date keep them apart.
-    const result = convert([
-      row("Buy", "INVESCO EQQQ (EQQQ)", "AG1", "107.50", "10", "10", "1002"),
-      row("Cash Out For Buy", "Cash", "AS2", "-100.00", "100", "1", "1001"),
-      row("Cash Out For Buy", "Cash", "AG1", "-100.00", "100", "1", "1003", "11 Feb 2022"),
-    ]);
-
-    for (const tx of result.postings) {
-      expect(tx.groupRef).toBeUndefined();
-    }
-  });
-
-  it("rejects a cash row inconsistent with quantity times unit price", () => {
-    // Both cash rows satisfy the fee rule for both buys, and the wrong ones sit
-    // closer in reference order. Only quantity * unit price separates them: the
-    // 100-share buy at 300 cannot have cost 8,000.
-    const result = convert([
-      row("Cash Out For Buy", "Cash", "AP1", "-8000.00", "8000", "1", "2001"),
-      row("Buy", "VANGUARD S&P 500 (VUSA)", "AP1", "30007.50", "100", "300", "2002"),
-      row("Cash Out For Buy", "Cash", "AP1", "-30000.00", "30000", "1", "2003"),
-      row("Buy", "INVESCO EQQQ (EQQQ)", "AP1", "8007.50", "20", "400", "2004"),
-    ]);
-
-    expect(result.postings[1].groupRef).toBe("2002");
-    expect(result.postings[2].groupRef).toBe("2002");
-    expect(result.postings[3].groupRef).toBe("2004");
-    expect(result.postings[0].groupRef).toBe("2004");
-  });
-
-  it("tolerates the rounding in a quoted unit price", () => {
-    // 2676 * 7.67 is 20,524.92 while the broker settled 20,514.62 -- 0.05% out,
-    // because the export rounds the price. A tighter check would reject real trades.
-    const result = convert([
-      row("Sell", "ISHARES INRG (INRG)", "AG1", "-20514.62", "2676", "7.67", "3001"),
-      row("Cash In From Sell", "Cash", "AG1", "20514.62", "20514.62", "1", "3003"),
-    ]);
-
-    expect(result.postings[0].groupRef).toBe("3001");
-    expect(result.postings[1].groupRef).toBe("3001");
-  });
-
-  it("pairs on the totals alone when no unit price is quoted", () => {
-    const result = convert([
-      row("Sell", "WISE PLC (WISE)", "AG1", "-7266.49", "1242", "", "4001"),
-      row("Cash In From Sell", "Cash", "AG1", "7266.49", "7266.49", "1", "4002"),
-    ]);
-
-    expect(result.postings[0].groupRef).toBe("4001");
-    expect(result.postings[1].groupRef).toBe("4001");
-  });
-
-  it("leaves a cash row with no trade ungrouped rather than failing", () => {
-    const result = convert([
-      row("Cash Out For Buy", "Cash", "AG1", "-401", "401", "1", "608443430"),
-    ]);
-
-    expect(result.errors).toHaveLength(0);
-    expect(result.postings).toHaveLength(1);
-    expect(result.postings[0].groupRef).toBeUndefined();
-  });
-});
-
-// Money paid into a product account is reported as a run of three rows of the
-// same amount -- the subscription credited, spent, and credited again as the
-// money that lands -- with no security anywhere in it. Every row below is
-// verbatim from the master exports. Left ungrouped the run is three
-// single-posting groups, two of them transfers, so the account reports twice the
-// contribution it received and a residual the size of the deposit lands in
-// IMBALANCE.
-describe("deposits into a product account", () => {
-  const FULL =
-    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,Exchange,Symbol,Type,Action";
-  const convert = (rows: string[]) =>
-    convertFidelityToStandard([FULL, ...rows].join("\n"), { currency: "GBP" });
-
-  // The 2025-04-15 lump sum into an ISA, and the cash management account row
-  // that paid for it.
-  const LUMP_SUM =
-    "2025-04-15,2025-04-15,Cash In Lump Sum,Cash,Investment ISA,AS10000001,,20000,20000,1,971613428,Completed,,GBP,CASH,Cash";
-  const SPEND =
-    "2025-04-15,2025-04-15,Cash Out For Buy,Cash,Investment ISA,AS10000001,,-20000,20000,1,971613429,Completed,,GBP,CASH,Cash";
-  const DEPARTURE =
-    "2025-04-15,2025-04-15,Transfer Out From Cash Management Account,Cash,Cash Management Account,AW10000001,,-20000,20000,1,971613430,Completed,,GBP,CASH,Cash";
-  const ARRIVAL =
-    "2025-04-15,2025-04-15,Cash In,Cash,Investment ISA,AS10000001,,20000,20000,1,971613431,Completed,,GBP,CASH,Cash";
-
-  it("groups the run so one deposit leaves one residual, not three", () => {
-    const result = convert([LUMP_SUM, SPEND, DEPARTURE, ARRIVAL]);
-
-    expect(result.errors).toEqual([]);
-    expect(result.postings.map((tx) => tx.groupRef)).toEqual([
-      "971613428",
-      "971613428",
-      undefined,
-      "971613428",
-    ]);
-    // What each account is left with: the arrival and the departure it answers,
-    // equal and opposite, which is the pair 0068 has to match. Ungrouped the ISA
-    // offered two identical credits and an unexplained debit instead.
-    expect(residuals(result.postings)).toEqual({
-      "971613428": { GBP: "20000" },
-      "#2": { GBP: "-20000" },
-    });
-  });
-
-  it("keeps the run's declared transfers so its residual reads as one", () => {
-    // The lump sum's declared TRANSFER is what routes the group's residual to
-    // TRANSFER_CLEARING rather than IMBALANCE, and grouping does not rewrite
-    // what the broker declared: the ambiguous Cash In keeps both its readings.
-    const result = convert([LUMP_SUM, SPEND, ARRIVAL]);
-
-    expect(result.postings.map((tx) => tx.brokerTxType)).toEqual([
-      [TxType.TRANSFER],
-      [TxType.TRADE_CASH],
-      [TxType.TRADE_CASH, TxType.TRANSFER],
-    ]);
-  });
-
-  it("leaves a lump sum with no run to post on its own", () => {
-    // A deposit straight into the cash management account is money from outside
-    // with nothing beside it to cancel. All three in the sample are this shape.
-    const result = convert([
-      "2024-05-30,2024-05-30,Cash In Lump Sum,Cash,Cash Management Account,AW10000001,,19999,19999,1,822942572,Completed,,GBP,CASH,Cash",
-    ]);
-
-    expect(result.postings).toHaveLength(1);
-    expect(result.postings[0]!.groupRef).toBeUndefined();
-    expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRANSFER]);
-  });
-
-  it("groups a run whose rows settled on different days", () => {
-    // From a real export: the subscription and its spend completed on the 11th
-    // and the arrival on the 14th, so the settlement date the trade passes group
-    // on would split this run. The reference run does not.
-    const result = convert([
-      "2022-11-14,11 Nov 2022,Cash In Lump Sum,Cash,Investment Account,AG10000002,,19996,19996,1,559604931,Completed,,GBP,CASH,Cash",
-      "2022-11-14,11 Nov 2022,Cash Out For Buy,Cash,Investment Account,AG10000002,,-19996,19996,1,559604932,Completed,,GBP,CASH,Cash",
-      "2022-11-14,14 Nov 2022,Cash In,Cash,Investment Account,AG10000002,,19996,19996,1,559604933,Completed,,GBP,CASH,Cash",
-    ]);
-
-    expect(result.postings.map((tx) => tx.groupRef)).toEqual([
-      "559604931",
-      "559604931",
-      "559604931",
-    ]);
-  });
-
-  it("separates two runs of nearly equal amount in one account", () => {
-    // Both completed on the 14th, 19,996 and 19,995, references interleaved. Only
-    // the amount agreeing to the penny keeps one run's rows out of the other's.
-    const result = convert([
-      "2022-11-14,14 Nov 2022,Cash In Lump Sum,Cash,Investment Account,AG10000002,,19995,19995,1,559677710,Completed,,GBP,CASH,Cash",
-      "2022-11-14,14 Nov 2022,Cash In,Cash,Investment Account,AG10000002,,19996,19996,1,559604933,Completed,,GBP,CASH,Cash",
-      "2022-11-14,14 Nov 2022,Cash Out For Buy,Cash,Investment Account,AG10000002,,-19995,19995,1,559677711,Completed,,GBP,CASH,Cash",
-      "2022-11-14,14 Nov 2022,Cash In,Cash,Investment Account,AG10000002,,19995,19995,1,559677712,Completed,,GBP,CASH,Cash",
-    ]);
-
-    expect(result.postings.map((tx) => tx.groupRef)).toEqual([
-      "559677710",
-      undefined,
-      "559677710",
-      "559677710",
-    ]);
-  });
-
-  it("does not take a cash row the day's trade needs", () => {
-    // The same day's ISA buy, with its own cash row 40.8k references away. A run
-    // is built only from what the trade passes left, so neither claims the other's.
-    const result = convert([
-      LUMP_SUM,
-      SPEND,
-      ARRIVAL,
-      "2025-04-15,2025-04-17,Cash Out For Buy,Cash,Investment ISA,AS10000001,,-19969.2,19969.2,1,971613493,Completed,,GBP,CASH,Cash",
-      '2025-04-15,2025-04-17,Buy,"VANECK UCITS ETFS PLC, SEMICONDUCTOR UCITS ETF A GBP ACC (SMGB)",Investment ISA,AS10000001,,19976.7,769,25.97,971613494,Completed,LON,SMGB,ETF,Buy',
-    ]);
-
-    expect(result.postings.map((tx) => tx.groupRef)).toEqual([
-      "971613428",
-      "971613428",
-      "971613428",
-      "971613494",
-      "971613494",
-    ]);
-  });
-});
-
-// Fidelity names a trade for the reason it happened, and names its cash leg to
-// match. Every row below is taken from a real export, with the account numbers
-// and references replaced; before these types were mapped the client rejected
-// each one while the conversion script kept it, so the two disagreed about which
-// rows survived.
 describe("trades the broker names for their reason", () => {
   const FULL =
     "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,Exchange,Symbol,Type,Action";
@@ -627,8 +318,6 @@ describe("trades the broker names for their reason", () => {
     expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     expect(result.postings[0]!.quantity).toBe("17");
     expect(result.postings[1]!.brokerTxType).toEqual([TxType.TRADE_CASH]);
-    expect(result.postings[0]!.groupRef).toBe("442184379");
-    expect(result.postings[1]!.groupRef).toBe("442184379");
   });
 
   it("pairs a rebate reinvestment with its cash out", () => {
@@ -639,13 +328,11 @@ describe("trades the broker names for their reason", () => {
 
     expect(result.errors).toEqual([]);
     expect(result.postings[1]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
-    expect(result.postings[0]!.groupRef).toBe("452602204");
-    expect(result.postings[1]!.groupRef).toBe("452602204");
     // The group does not weigh zero, and cannot: 9.24 units at the printed price
     // of 0.85 is 7.854 against a cash out of 7.81. The price is rounded to the
     // penny and the units are not, so the 0.044 is the source disagreeing with
     // itself. The imbalance report is where that belongs.
-    expect(residuals(result.postings)).toEqual({ "452602204": { GBP: "0.044" } });
+    expect(residuals(result.postings)).toEqual({ GBP: "0.044" });
   });
 
   it("derives the income a reinvestment consumed, since no row reports it", () => {
@@ -665,7 +352,6 @@ describe("trades the broker names for their reason", () => {
     // would leave the group short by the rounding in the quoted price.
     expect(result.postings[1]!.quantity).toBe("-31.635");
     expect(result.postings[1]!.instrumentDescription).toBe("GBP");
-    expect(result.postings[1]!.groupRef).toBe(result.postings[0]!.groupRef);
     // Both legs were read out of one row, so both carry that row's reference and
     // the pair can be put back together from evidence rather than from the ref.
     expect(result.postings[1]!.correlations).toEqual(result.postings[0]!.correlations);
@@ -701,12 +387,8 @@ describe("trades the broker names for their reason", () => {
     // The buy side names cash as the asset, so it is a movement of money rather
     // than a purchase of a security called Cash, and it nets against its cash out.
     expect(result.postings[2]!.brokerTxType).toEqual([TxType.TRADE_CASH]);
-    expect(result.postings[0]!.groupRef).toBe("661638575");
-    expect(result.postings[2]!.groupRef).toBe("661638575");
     // The sale side is a real disposal, and its proceeds arrive as a Cash In.
     expect(result.postings[1]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
-    expect(result.postings[1]!.groupRef).toBe("661638570");
-    expect(result.postings[3]!.groupRef).toBe("661638570");
   });
 
   it("keeps a Cash In's declared set whether or not it paired with a sale", () => {
@@ -720,13 +402,11 @@ describe("trades the broker names for their reason", () => {
     ]);
     expect(paired.postings[1]!.brokerTxType).toEqual([TxType.TRADE_CASH, TxType.TRANSFER]);
     expect(paired.postings[1]!.tradingCurrency).toBe("GBP");
-    expect(paired.postings[1]!.groupRef).toBe("661638570");
 
     const alone = convert([
       "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638574,Completed,,GBP,CASH,Cash",
     ]);
     expect(alone.postings[0]!.brokerTxType).toEqual([TxType.TRADE_CASH, TxType.TRANSFER]);
-    expect(alone.postings[0]!.groupRef).toBeUndefined();
   });
 
   it("skips a cancelled transaction and its cancelled cash row", () => {

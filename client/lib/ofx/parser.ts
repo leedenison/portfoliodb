@@ -17,7 +17,6 @@ import type { StandardParseResult, ParseError } from "@/lib/csv/parse-result";
 import {
   feeLeg,
   recordCorrelation,
-  refPrefix,
   reinvestIncomeLeg,
 } from "@/lib/csv/postings";
 import { Big, parseDecimal } from "@/lib/decimal";
@@ -362,7 +361,6 @@ export function parseOfxStatement(text: string): OfxParseResult {
         account: acctId,
         tradingCurrency,
         settlementCurrency: tradingCurrency,
-        groupRef: fitId,
         // The same id in three places, saying three different things: which
         // postings are one event, which statement record this one was
         // transcribed from, and what it is comparable with.
@@ -374,10 +372,9 @@ export function parseOfxStatement(text: string): OfxParseResult {
         // leg moneyLeg builds is a leg of the record it was built beside. What
         // stays uncorrelated is a counter-leg, which mirrors a posting rather
         // than transcribing the record, and which counterLeg resets for that
-        // reason. The server derives grouping from this evidence rather than
-        // from group_ref (see
-        // docs/adr/0041-server-owns-transaction-grouping.md), so a leg left
-        // uncorrelated here is a leg it cannot put back.
+        // reason. The server derives the grouping from this evidence and from
+        // nothing else (see docs/adr/0041-server-owns-transaction-grouping.md),
+        // so a leg left uncorrelated here is a leg it cannot put back.
         //
         // Scoped to the account rather than to the file: the OFX spec makes a
         // FITID unique within the account, not within the institution. Equality
@@ -449,8 +446,7 @@ export function parseOfxStatement(text: string): OfxParseResult {
               account: acctId,
               tradingCurrency,
               settlementCurrency: tradingCurrency,
-              groupRef: fitId,
-              ...(fitId ? { correlations: [fitIdCorrelation(fitId)] } : {}),
+                    ...(fitId ? { correlations: [fitIdCorrelation(fitId)] } : {}),
               identifierHints: cashHints,
             }),
           );
@@ -471,16 +467,10 @@ export function parseOfxStatement(text: string): OfxParseResult {
   // A record the statement gave no FITID has nothing for its legs to share, so
   // one is synthesised for them. It identifies the record within this file and
   // says nothing else -- which records are one event stays the server's.
-  if (unreferenced.length > 0) {
-    const prefix = refPrefix(postings);
-    unreferenced.forEach((legs, i) => {
-      const correlation = recordCorrelation(`${prefix}${i}`);
-      for (const leg of legs) {
-        leg.groupRef = `${prefix}${i}`;
-        leg.correlations = [correlation];
-      }
-    });
-  }
+  unreferenced.forEach((legs, i) => {
+    const correlation = recordCorrelation(`r${i}`);
+    for (const leg of legs) leg.correlations = [correlation];
+  });
 
   postings.sort((a, b) =>
     Number(a.timestamp?.seconds ?? 0) - Number(b.timestamp?.seconds ?? 0),

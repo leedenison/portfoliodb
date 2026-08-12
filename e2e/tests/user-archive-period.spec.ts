@@ -87,7 +87,6 @@ test.describe("period-scoped user archive", () => {
     );
     expect(window.postings).toHaveLength(1);
     expect(window.postings[0].quantity).toBe("5000");
-    expect(window.postings[0].groupRef).toBe("g0");
 
     // Re-importing that file replaces the second day. The first day's leg is
     // outside it and the file does not carry it, so the whole-group delete this

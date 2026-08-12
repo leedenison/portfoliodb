@@ -258,7 +258,7 @@ describe("assembleUserArchive", () => {
             value: {
               broker: 1,
               source: "FIDELITY:archive:export",
-              postings: [{ quantity: "10", instrumentDescription: "AAPL", brokerTxType: [TxType.TRADE_ASSET], groupRef: "g0" }],
+              postings: [{ quantity: "10", instrumentDescription: "AAPL", brokerTxType: [TxType.TRADE_ASSET] }],
             },
           },
         },
@@ -268,7 +268,7 @@ describe("assembleUserArchive", () => {
             value: {
               broker: 2,
               source: "IBKR:archive:export",
-              postings: [{ quantity: "5", instrumentDescription: "MSFT", brokerTxType: [TxType.TRADE_ASSET], groupRef: "g0" }],
+              postings: [{ quantity: "5", instrumentDescription: "MSFT", brokerTxType: [TxType.TRADE_ASSET] }],
             },
           },
         },
@@ -320,9 +320,9 @@ describe("userPartCounts", () => {
             broker: 1,
             source: "FIDELITY:archive:export",
             postings: [
-              { quantity: "10", instrumentDescription: "AAPL", brokerTxType: [TxType.TRADE_ASSET], groupRef: "g0" },
-              { quantity: "-1000", instrumentDescription: "USD", brokerTxType: [TxType.TRADE_ASSET], groupRef: "g0" },
-              { quantity: "5", instrumentDescription: "MSFT", brokerTxType: [TxType.TRADE_ASSET], groupRef: "g1" },
+              { quantity: "10", instrumentDescription: "AAPL", brokerTxType: [TxType.TRADE_ASSET] },
+              { quantity: "-1000", instrumentDescription: "USD", brokerTxType: [TxType.TRADE_ASSET] },
+              { quantity: "5", instrumentDescription: "MSFT", brokerTxType: [TxType.TRADE_ASSET] },
             ],
           },
         },

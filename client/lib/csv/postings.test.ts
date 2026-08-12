@@ -9,7 +9,6 @@ import {
   feeLeg,
   identifyRecord,
   recordCorrelation,
-  refPrefix,
   reinvestIncomeLeg,
   FEE_EPSILON,
   RECORD_LABEL,
@@ -54,7 +53,7 @@ describe("identifyRecord", () => {
 });
 
 describe("feeLeg", () => {
-  const trade = tx({ brokerTxType: [TxType.TRADE_ASSET], quantity: "378", unitPrice: "61.06", groupRef: "t-1" });
+  const trade = tx({ brokerTxType: [TxType.TRADE_ASSET], quantity: "378", unitPrice: "61.06" });
 
   it("posts the commission as cash leaving the account", () => {
     const leg = feeLeg(trade, new Big("11.54034"))!;
@@ -63,7 +62,6 @@ describe("feeLeg", () => {
     expect(leg.quantity).toBe("-11.54034");
     expect(leg.unitPrice).toBe("1");
     expect(leg.accountType).toBe(AccountType.USER);
-    expect(leg.groupRef).toBe("t-1");
     expect(leg.account).toBe("ACC-1");
   });
 
@@ -110,8 +108,8 @@ describe("feeLeg", () => {
   it("balances a netted trade once the server posts its expense leg", () => {
     // The broker reported -23092.22034 of cash with 11.54034 of it commission.
     const legs = [
-      tx({ brokerTxType: [TxType.TRADE_ASSET], quantity: "378", unitPrice: "61.06", groupRef: "t-1", instrumentDescription: "VUSA" }),
-      tx({ brokerTxType: [TxType.TRADE_CASH], quantity: "-23080.68", unitPrice: "1", groupRef: "t-1" }),
+      tx({ brokerTxType: [TxType.TRADE_ASSET], quantity: "378", unitPrice: "61.06", instrumentDescription: "VUSA" }),
+      tx({ brokerTxType: [TxType.TRADE_CASH], quantity: "-23080.68", unitPrice: "1" }),
     ];
     legs.push(feeLeg(legs[0]!, new Big("11.54034"))!);
 
@@ -136,7 +134,6 @@ describe("reinvestIncomeLeg", () => {
     instrumentDescription: "Baillie Gifford Responsible Global Equity Income B Inc",
     quantity: "21.09",
     unitPrice: "1.5",
-    groupRef: "460143202",
   });
 
   it("names the income the units cost, in the income account", () => {
@@ -148,7 +145,6 @@ describe("reinvestIncomeLeg", () => {
     // the posting this balances, so the group comes out at exactly zero.
     expect(leg.quantity).toBe("-31.635");
     expect(leg.unitPrice).toBe("1");
-    expect(leg.groupRef).toBe("460143202");
     // Money, so it resolves to the currency rather than to the fund.
     expect(leg.instrumentDescription).toBe("GBP");
     expect(leg.identifierHints.map((h) => [h.type, h.value])).toEqual([
@@ -182,21 +178,5 @@ describe("reinvestIncomeLeg", () => {
     expect(leg.correlations).toEqual([stated]);
     // A copy: editing the leg's evidence must not edit the record's.
     expect(leg.correlations[0]).not.toBe(stated);
-  });
-});
-
-describe("refPrefix", () => {
-  it("avoids a ref the batch already uses", () => {
-    expect(refPrefix([tx({ brokerTxType: [TxType.INCOME], groupRef: "p0" })])).toBe("p_");
-    expect(
-      refPrefix([
-        tx({ brokerTxType: [TxType.INCOME], groupRef: "p0" }),
-        tx({ brokerTxType: [TxType.INCOME], groupRef: "p_1" }),
-      ])
-    ).toBe("p__");
-  });
-
-  it("leaves broker refs that share no prefix alone", () => {
-    expect(refPrefix([tx({ brokerTxType: [TxType.INCOME], groupRef: "441416452" })])).toBe("p");
   });
 });

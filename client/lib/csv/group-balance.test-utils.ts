@@ -81,33 +81,31 @@ function serverBalances(tx: Posting): boolean {
 }
 
 /**
- * What each group fails to account for, keyed by group_ref then commodity, with
- * balanced groups and commodities left out. Empty when everything balances.
+ * What the batch fails to account for, per commodity, with the commodities that
+ * balance left out. Empty when everything does.
  *
- * A posting with no group_ref is its own group, as the server treats it.
+ * Over the whole batch rather than per group, because a converter no longer says
+ * what the groups are: the server partitions the postings once they are stored. A
+ * converter's job is that the postings it emits account for each other, and that is
+ * a property of the batch.
  */
-export function residuals(txs: Posting[]): Record<string, Record<string, string>> {
-  const sums: Record<string, Record<string, Big>> = {};
-  txs.forEach((tx, i) => {
-    const ref = tx.groupRef || `#${i}`;
+export function residuals(txs: Posting[]): Record<string, string> {
+  const sums: Record<string, Big> = {};
+  for (const tx of txs) {
     const { amount, commodity } = weigh(tx);
-    sums[ref] ??= {};
     // A posting the server posts the other side of contributes nothing left over:
     // its weight and the boundary leg's cancel.
     const net = serverBalances(tx) ? new Big(0) : amount;
-    sums[ref][commodity] = (sums[ref][commodity] ?? new Big(0)).plus(net);
-  });
-  const out: Record<string, Record<string, string>> = {};
-  for (const [ref, byCommodity] of Object.entries(sums)) {
-    const left = Object.entries(byCommodity)
-      .filter(([, v]) => v.abs().gte(TOLERANCE))
-      .map(([c, v]) => [c, v.toString()] as const);
-    if (left.length > 0) out[ref] = Object.fromEntries(left);
+    sums[commodity] = (sums[commodity] ?? new Big(0)).plus(net);
+  }
+  const out: Record<string, string> = {};
+  for (const [commodity, v] of Object.entries(sums)) {
+    if (v.abs().gte(TOLERANCE)) out[commodity] = v.toString();
   }
   return out;
 }
 
-/** Asserts every group in the batch balances. */
+/** Asserts the batch accounts for itself in every commodity. */
 export function expectGroupsBalance(txs: Posting[]): void {
   expect(residuals(txs)).toEqual({});
 }

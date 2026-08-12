@@ -808,8 +808,8 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 	// A journal leg against A and its clearing counterparty against B: two names for
 	// what the merge is about to decide is one commodity.
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "StockA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-10", GroupRef: "j1"},
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "StockB", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "10", GroupRef: "j1"},
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "StockA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-10"},
+		{Timestamp: timestamppb.New(now), InstrumentDescription: "StockB", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "10"},
 	}
 	ws := []db.Weight{
 		{Amount: decf(-10), Commodity: "inst:" + idA},

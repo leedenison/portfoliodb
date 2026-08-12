@@ -175,27 +175,21 @@ message Posting {
   // such as a broker web view showing post-split quantities against pre-split
   // trades. See docs/spec/bitemporality.md.
   optional string share_count_basis = 13 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
-  // Opaque grouping key, scoped to this file. Postings sharing a non-empty
-  // group_ref are legs of one economic event and are stored in one tx group;
-  // absent means the posting is its own single-posting group. Not a durable
-  // identifier: it is not stored and carries no meaning across files.
-  //
-  // Transitional. The server is becoming the thing that decides which postings
-  // are legs of one event, from the evidence a posting carries
-  // (docs/adr/0041-server-owns-transaction-grouping.md), and this field goes when
-  // it does. It is here in the meantime because nothing else in the file says
-  // what a converter decided, and because the engine is validated by being
-  // required to reproduce it exactly.
-  optional string group_ref = 14;
+  // 14 was group_ref, an opaque file-scoped key naming the postings a converter
+  // had decided were legs of one economic event. The importing instance derives
+  // that from the correlations below, so carrying it would have put a second
+  // thing in the file that decides the partition -- and one the importer could
+  // neither justify nor contradict. See
+  // docs/adr/0043-grouping-does-not-travel-in-the-archive.md.
+  reserved 14;
   // Why this posting might belong with another one, as the source stated it.
-  // Present only on transcribed postings: a converter's derived counter-leg and
-  // a server-routed residual transcribe nothing and so correlate with nothing.
   //
-  // Durable, unlike group_ref, and stored. Nothing reads it to decide the
-  // partition yet -- that is
-  // docs/adr/0041-server-owns-transaction-grouping.md's arrival, not this
-  // field's -- but it has to be carried and stored from here on, or a rebuild
-  // from an archive would have nothing left to group on.
+  // This is what the partition is derived from, on the way in and on every cycle
+  // after. Present on every posting a converter read out of a source record,
+  // including the legs it read out of that record's other fields; absent on a leg
+  // the server derived, which transcribes nothing and so correlates with nothing.
+  // A rebuild from an archive has nothing else to group on, which is why it is
+  // carried and stored rather than consumed at ingest.
   repeated Correlation correlations = 15;
   // The asset class the source states for the instrument, as a routing hint for
   // resolution. Unset means the source makes no claim, which is weaker than

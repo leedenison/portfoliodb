@@ -596,8 +596,7 @@ takes the posting's own date.
 **Grouping does not travel.** Postings are flat under the window and the file says
 nothing about which of them are legs of one event. The importing instance derives
 that from the evidence they carry, as it would for a fresh upload of the same
-records. `group_ref` is still on the message and is read by nothing; it goes with
-the next change to the format. See
+records. See
 `docs/adr/0043-grouping-does-not-travel-in-the-archive.md` and
 `docs/adr/0041-server-owns-transaction-grouping.md`.
 

@@ -79,7 +79,6 @@ func settled(t *testing.T, p *Postgres, sub string, legs []statedLeg, instByComm
 			Account:               account,
 			SettlementCurrency:    "USD",
 			TradingCurrency:       "USD",
-			GroupRef:              "g1",
 		}
 		ids[i] = instByCommodity[commodity]
 		if ids[i] == "" {
@@ -305,7 +304,6 @@ func TestSettle_KeepsAttribution(t *testing.T) {
 		Quantity:              "10",
 		Account:               "ACC-9",
 		SettlementCurrency:    "USD",
-		GroupRef:              "t1",
 	}
 	weights := []db.Weight{{Amount: decimal.RequireFromString("1855"), Commodity: "cur:USD"}}
 	if err := p.ReplaceTxsInPeriod(context.Background(), userID, "FIDELITY", "",
@@ -348,7 +346,7 @@ func TestSettle_KeepsAttribution(t *testing.T) {
 	}
 }
 
-// A posting uploaded with no group_ref is its own group, and what it owes is
+// Each uploaded posting is its own group, and what it owes is
 // written into that group rather than into a group of its own or a neighbour's.
 func TestSettle_UngroupedPostingsAreSettledSeparately(t *testing.T) {
 	p := testDBTx(t)

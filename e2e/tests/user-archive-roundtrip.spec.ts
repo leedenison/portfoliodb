@@ -171,21 +171,20 @@ test.describe("user archive page", () => {
     expect(window.period_from).toBe("2024-01-15T00:00:00Z");
     expect(window.period_before).toBe("2024-01-18T00:00:00Z");
 
-    // Postings are flat and the grouping is a key on them, numbered within the
-    // window rather than being the stored id. Three trades, each with the leg
-    // that balances it. See
+    // Postings are flat and the file says nothing about which are legs of one
+    // event. Three trades, each with the leg that balances it, and the evidence
+    // that puts each pair back together on the way in. See
     // docs/adr/0043-grouping-does-not-travel-in-the-archive.md.
     const postings = window.postings as Record<string, unknown>[];
     expect(postings).toHaveLength(6);
-    const byRef = new Map<string, Record<string, unknown>[]>();
+    expect(postings.every((p) => !("group_ref" in p))).toBe(true);
+    const tokens = new Map<string, number>();
     for (const p of postings) {
-      const ref = p.group_ref as string;
-      byRef.set(ref, [...(byRef.get(ref) ?? []), p]);
+      const cs = (p.correlations ?? []) as { token: string }[];
+      expect(cs).toHaveLength(1);
+      tokens.set(cs[0].token, (tokens.get(cs[0].token) ?? 0) + 1);
     }
-    expect([...byRef.keys()].sort()).toEqual(["g0", "g1", "g2"]);
-    for (const legs of byRef.values()) {
-      expect(legs).toHaveLength(2);
-    }
+    expect([...tokens.values()]).toEqual([2, 2, 2]);
     // Order within a group carries no meaning -- the legs of a trade share a
     // timestamp, so nothing stored distinguishes them -- and neither the file
     // nor a reader depends on it.

@@ -17,10 +17,8 @@ import type { Correlation, Posting } from "@/gen/archive/v1/txs_pb";
 import { PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { IdentifierType } from "@/gen/type/v1/type_pb";
-import type { FidelityLeg } from "@/lib/csv/converters/fidelity-csv";
 import { AssetClass } from "@/gen/type/v1/type_pb";
 import {
-  assignFidelityGroups,
   fidelityCounterpartyCorrelation,
   fidelityRefCorrelation,
   FIDELITY_TYPE_TO_TYPES,
@@ -31,7 +29,6 @@ import type { ParseError, StandardParseResult } from "@/lib/csv/parse-result";
 import {
   currencyHint,
   identifyRecord,
-  refPrefix,
   reinvestIncomeLeg,
 } from "@/lib/csv/postings";
 import { Big, decimalFromNumber } from "@/lib/decimal";
@@ -126,7 +123,8 @@ export function convertFidelityJson(
 
   const errors: ParseError[] = [];
   const postings: Posting[] = [];
-  const legs: FidelityLeg[] = [];
+  // The rows whose units were bought with income, by posting index.
+  const reinvestments: number[] = [];
   let minTime = Infinity;
   let maxTime = -Infinity;
 
@@ -214,23 +212,7 @@ export function convertFidelityJson(
       correlations.push(fidelityCounterpartyCorrelation(row.sourceOrTargetAccount));
     }
 
-    // units, not the sign-corrected quantity: cash rows report their money as units,
-    // which would make the check compare a total against itself.
-    legs.push({
-      type: typeStr,
-      account: row.accountNumber ?? "",
-      dateKey: row.settlementDate || row.dealDate || "",
-      amount: row.valuation ?? 0,
-      // The product is exact. Fidelity's JSON already decoded these through a
-      // float64, so this is where they stop losing digits rather than where
-      // they start being exact.
-      consideration: (decimalFromNumber(row.units) ?? ZERO)
-        .times(decimalFromNumber(row.pricePerUnit) ?? ZERO)
-        .abs()
-        .toNumber(),
-      ref: parseInt(row.referenceId ?? "", 10),
-      cashAsset,
-    });
+    if (typeStr === "Reinvestment From Income") reinvestments.push(postings.length);
     postings.push(
       create(PostingSchema, {
         timestamp: timestampFromDate(date),
@@ -268,23 +250,13 @@ export function convertFidelityJson(
     );
   });
 
-  const refs = assignFidelityGroups(legs);
-  refs.forEach((ref, i) => {
-    if (ref) postings[i].groupRef = ref;
-  });
-  // After the refs are stamped, since legs is index-parallel with postings. A
-  // reinvestment's income leg is derived beside its trade, exactly as the CSV
-  // converter does.
-  const prefix = refPrefix(postings);
-  legs.forEach((leg, i) => {
-    if (leg.type !== "Reinvestment From Income") return;
-    const p = postings[i];
-    if (!p.groupRef) p.groupRef = `${prefix}${i}`;
-    // The income leg inherits the row's reference, so the pair is joinable from
-    // evidence rather than only from the ref stamped above.
-    const income = reinvestIncomeLeg(identifyRecord(p, String(i)));
+  // A reinvestment's income leg is derived beside its trade, exactly as the CSV
+  // converter does, and inherits the row's reference so the server can put the
+  // pair back together.
+  for (const i of reinvestments) {
+    const income = reinvestIncomeLeg(identifyRecord(postings[i], String(i)));
     if (income) postings.push(income);
-  });
+  }
 
   return {
     postings,

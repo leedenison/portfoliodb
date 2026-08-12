@@ -73,7 +73,6 @@ function moneyLeg(from: Posting, types: TxType[], accountType: AccountType, quan
     quantity: quantity.toString(),
     unitPrice: "1",
     account: from.account,
-    groupRef: from.groupRef,
     accountType,
     ...(currency
       ? {
@@ -169,17 +168,4 @@ export function recordCorrelation(token: string): Correlation {
 export function identifyRecord(p: Posting, token: string): Posting {
   if (p.correlations.length === 0) p.correlations = [recordCorrelation(token)];
   return p;
-}
-
-/**
- * A group_ref prefix no posting in the batch already starts with, so a
- * synthesised ref cannot collide with a broker's own. Mirrors groupPostings in
- * server/service/ingestion/balance.go.
- */
-export function refPrefix(postings: Posting[]): string {
-  let prefix = "p";
-  for (const p of postings) {
-    while (p.groupRef?.startsWith(prefix)) prefix += "_";
-  }
-  return prefix;
 }

@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Retire converter-side grouping
 milestone: M15
 dependencies: [0097]

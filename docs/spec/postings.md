@@ -120,10 +120,12 @@ at query time. A posting in account A is an external flow of A iff its group has
 outside A, and `account_type` says what kind of outside:
 
 - `EQUITY` is external, and never nets, since there is no counterparty side.
-- `INCOME`, `EXPENSE` and `IMBALANCE` are not flows. These are return and cost, and
-  treating them as external would strip dividends out of the return and report it gross
-  of fees. `IMBALANCE` is internal because a residual is usually a missing fee or a
-  missing cash leg, both of which are internal.
+- `INCOME`, `EXPENSE`, `IMBALANCE` and `SOURCE_ROUNDING` are not flows. These are return
+  and cost, and treating them as external would strip dividends out of the return and
+  report it gross of fees. `IMBALANCE` is internal because a residual is usually a
+  missing fee or a missing cash leg, both of which are internal. `SOURCE_ROUNDING` is
+  internal more plainly still: a source disagreeing with its own arithmetic is neither a
+  contribution nor a withdrawal.
 - Another `USER` account is external to A, and nets against the other side when both
   accounts belong to the portfolio being measured.
 - `TRANSFER_CLEARING` is external while unmatched, because one half is all we know. It
@@ -132,6 +134,28 @@ outside A, and `account_type` says what kind of outside:
 Membership decides internal versus external; there is no per-portfolio user override.
 Membership already expresses the intent, and a toggle would be a second place to say the
 same thing that can disagree with the first.
+
+Two things the list leaves implicit. A group contributes a flow only where it has a leg
+inside the portfolio: without that, a dividend in an account the portfolio does not hold
+has exactly one leg that is outside and external -- its own -- and reads as a
+withdrawal from a portfolio it never touched. And a flow is dated by the external leg
+rather than by the member leg whose value moved, because the external leg is the
+counterparty and its date is the one the source stated for the crossing; a group's
+postings need not share a timestamp, and choosing among several member legs would be
+arbitrary.
+
+Membership is per posting rather than per account, which an instrument filter makes
+visible: a buy's cash leg does not match a portfolio scoped to one security, so the
+cash reads as a flow into it. That is the right answer for such a portfolio -- the cash
+bought in -- and it is the same answer valuation gives, which does not value that cash
+either.
+
+The flows crossing the boundary are read per portfolio and per user, in the commodity
+they moved in. A flow in shares -- an in-specie transfer, or the `EQUITY` counterparty
+of a pad -- would need a price as well as an exchange rate to state as money, and the
+result would be an estimate where a contribution figure is exact
+(see [0026](../adr/0026-exact-decimals-bounded-by-closure.md)). Converting is the
+concern of whatever computes a return from them.
 
 ## Visibility
 

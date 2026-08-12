@@ -63,6 +63,7 @@ type DB interface {
 	TxDB
 	HoldingsDB
 	ValuationDB
+	ExternalFlowDB
 	JobDB
 	InstrumentDB
 	PluginConfigDB
@@ -401,6 +402,40 @@ type ValuationPoint struct {
 type ValuationDB interface {
 	GetPortfolioValuation(ctx context.Context, portfolioID string, dateFrom, dateBefore time.Time, displayCurrency string) ([]ValuationPoint, error)
 	GetUserValuation(ctx context.Context, userID string, dateFrom, dateBefore time.Time, displayCurrency string) ([]ValuationPoint, error)
+}
+
+// ExternalFlow is one day's net external flow into a portfolio in one commodity.
+//
+// Positive is value entering: an opening balance, a deposit, or a transfer whose
+// other side is not a member. The commodity is the flow's own -- a currency for
+// money, the security for an in-specie transfer or an INITIALIZE pad -- and is not
+// converted to a display currency. Converting would need a price as well as an FX
+// rate, which is the whole of the valuation query, and would leave the exact decimals
+// for a double (docs/adr/0026-exact-decimals-bounded-by-closure.md).
+//
+// InstrumentDescription is set only where the commodity never resolved to an
+// instrument, which is a flow nothing can value. It is reported rather than dropped,
+// so a consumer can say so instead of silently understating.
+type ExternalFlow struct {
+	Date                  time.Time
+	InstrumentID          string
+	InstrumentDescription string
+	Amount                decimal.Decimal
+}
+
+// ExternalFlowDB reads the flows crossing a portfolio's cash-flow boundary over a
+// half-open [dateFrom, dateBefore) window. What crosses it is defined in
+// docs/spec/postings.md and docs/adr/0022-typed-per-account-cash-flow-boundary.md: an
+// EQUITY leg always, a USER leg the portfolio does not match, and a TRANSFER_CLEARING
+// leg that is unmatched or whose counterpart is not a member. A matched pair whose two
+// accounts are both members nets to nothing, which is what this exists for.
+//
+// The window bounds the flows, not the groups they belong to: a group's legs need not
+// share a date, so a group whose member leg falls outside the window can still have an
+// external leg inside it.
+type ExternalFlowDB interface {
+	GetPortfolioExternalFlows(ctx context.Context, portfolioID string, dateFrom, dateBefore time.Time) ([]ExternalFlow, error)
+	GetUserExternalFlows(ctx context.Context, userID string, dateFrom, dateBefore time.Time) ([]ExternalFlow, error)
 }
 
 // JobRow is a job summary for list views.

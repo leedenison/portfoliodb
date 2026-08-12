@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Net matched transfer pairs and value matched in-flight balances
 milestone: M12
 dependencies: [0068]

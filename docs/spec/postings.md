@@ -70,12 +70,12 @@ fee was charged for in the same field it names a transfer's source in, which is
 attribution rather than a transfer counterparty -- so it is read as a pointer only for
 a group that produced a `TRANSFER_CLEARING` residual.
 
-Nothing reads correlations to decide the transaction partition yet. They are carried
-and stored from here on because the server is becoming the thing that decides it
-(adr/0041-server-owns-transaction-grouping.md), and a rebuild from an archive would
-otherwise have nothing left to group on. [Transfer matching](#transfers) already reads
-them, which is a different question -- which two groups are the two halves of one
-movement, not which postings are legs of one event.
+Correlations are what the grouping pass reads to decide the partition, described in
+[Where grouping is decided](#where-grouping-is-decided). They are stored rather than
+consumed at ingest because that pass runs over stored data, and because a rebuild from
+an archive would otherwise have nothing left to group on. [Transfer
+matching](#transfers) reads them too, which is a different question -- which two groups
+are the two halves of one movement, not which postings are legs of one event.
 
 Currencies are instruments, so a cash movement is an ordinary posting and needs no
 separate representation. Nothing in the read path distinguishes a cash posting from a
@@ -392,6 +392,11 @@ upload, naming the event the posting belongs to. Txs sharing a non-empty `group_
 are stored in one group; an empty one means the tx is its own single-posting group.
 The group takes the timestamp of the first leg that names it.
 
+A `group_ref` is a converter asserting a partition, which is the arrangement
+[Where grouping is decided](#where-grouping-is-decided) replaces: it is honoured at
+ingest for as long as the converters still assert one, and the derived partition is
+what the group means.
+
 `group_ref` is not stored and carries no meaning across uploads, so re-uploading a
 period produces new groups. This follows from transactions having no natural key
 (see adr/0002-transaction-ingestion-model.md): there is nothing stable to key a
@@ -442,17 +447,74 @@ adr/0041-server-owns-transaction-grouping.md).
 
 ## Where grouping is decided
 
-The broker-specific converter decides which postings are legs of one event; the
-server persists what it is given and never infers a missing leg, pairs rows, or folds
-a fee into a cash amount. Fees are expressed as `EXPENSE`-family postings, not
-as a column on the upload. See adr/0021-converters-own-transaction-grouping.md.
+The server decides which postings are legs of one event, from evidence stored on the
+postings themselves. A converter transcribes what its source wrote and states what
+that source correlated; it does not hand down a pairing for the server to obey. This
+is what lets legs that arrived in separate uploads be joined at all, and what lets a
+group a period replace cut be put back together. See
+adr/0041-server-owns-transaction-grouping.md, and
+adr/0021-converters-own-transaction-grouping.md for the arrangement it replaced.
 
-The decision to move grouping to the server, so that it can join legs a converter
-never sees together, is recorded in adr/0041-server-owns-transaction-grouping.md. This
-section describes what happens until it lands.
+The evidence is the postings' correlations, their declared type sets, and their
+amounts -- quantity, unit price, and the cash total the source stated for a row whose
+own quantity is not money. Nothing else, so the same stored data partitions the same
+way whenever it is asked.
 
-Routing a residual is not an exception to that. A residual is arithmetic on the legs
-supplied -- what they leave over -- and it is typed as a residual rather than posted
-as the cash or the fee the server cannot know it to be. A derived cash leg would be
-an invention, and would double count against the cash row a broker already reports.
-A group that arrives with its cash row weighs to zero and has nothing routed to it.
+**Rules claim in a fixed precedence order.** Each rule is one way of deciding that
+postings belong together, and precedence is a number the rule carries rather than the
+order of a call site, so an ordering that differs per broker is a table rather than a
+restructuring. A claim is irrevocable: a later rule may neither add to it nor take a
+posting out of it. Within a rule, candidates are ranked across the whole region before
+any is taken, so one claim cannot strand another. See
+adr/0047-grouping-runs-as-precedence-ordered-passes.md.
+
+**The rule that claims a posting is what resolves it.** A rule may claim a posting
+only where its declared set admits that rule's type, and claiming settles
+`resolved_tx_type` there and then. There is no narrowing phase afterwards, which is
+what dissolves the circularity of grouping consuming the type as evidence while the
+type depends on the group. See adr/0044-tx-type-is-declared-and-resolved.md and
+[tx-types.md](tx-types.md).
+
+Exact token equality claims first. A source that states its own grouping states it as
+a shared identifier -- OFX stamps one FITID on every leg of the record it describes --
+and a person asserting a grouping does the same with a token nobody transcribed
+(adr/0049-a-human-assertion-is-a-correlation.md). Re-deriving either by inference
+would replace a stated fact with a guess. How far a token reaches, and what may be
+compared about it, are the correlation's own declaration rather than the rule's
+assumption; see adr/0048-correlations-declare-their-own-semantics.md.
+
+**A neighbourhood is recomputed, not repaired.** A cycle starts from seed postings,
+grows the region the rules would read until it stops growing, and partitions all of it
+from scratch. Widening is free, because it reads stored data and fetches nothing, and
+it is bounded because a rule may state no reach that is not an indexed query. See
+adr/0050-grouping-recomputes-a-neighbourhood.md.
+
+Only the disagreements are written. A derived group whose membership is exactly a
+stored group's produces no statement at all: it keeps its id, and so do the transfer
+matches keyed on that id. That is what lets a cycle run over a region far wider than
+any upload without churning ids for postings nobody touched.
+
+A regroup deletes the routed residuals of every group it touches and routes fresh ones
+in the same transaction as the membership change. A residual carries no evidence, so
+it cannot be repartitioned -- it is arithmetic on the legs of its group, and once
+those move it is arithmetic on nothing. Every intermediate state is unbalanced, which
+is what the deferred balance constraint in [Balancing](#balancing) makes expressible;
+leaving the routing to a later statement would expose a moment where the constraint
+fires on data that was valid before the regroup began.
+
+It runs on an admin RPC, which is how an external cron job gives it a cadence, and
+again when a transaction import commits, so legs that have just landed beside older
+ones are joined without waiting for the next tick. A job rather than part of ingestion
+for the reason transfer matching is one: the partition is a function of all stored
+state rather than of one upload's payload.
+
+While the converters still assert a partition of their own, a cycle derives it,
+reports how the two differ and writes nothing; the write is behind a flag on the
+service.
+
+Routing a residual is not the server inventing a leg. A residual is arithmetic on the
+legs supplied -- what they leave over -- and it is typed as a residual rather than
+posted as the cash or the fee the server cannot know it to be. A derived cash leg
+would be an invention, and would double count against the cash row a broker already
+reports. A group that arrives with its cash row weighs to zero and has nothing routed
+to it.

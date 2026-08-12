@@ -42,6 +42,12 @@ type valuationLoad struct {
 	// the bound is present but never load-bearing, since every span runs to the
 	// end of the window anyway.
 	delistedEvery int
+
+	// Matched transfers spread across the window, each in transit for five days.
+	// With none, the clearing branch of the posting filter matches nothing and
+	// portfolio_in_flight_txs is never probed for a row it can return, so the
+	// figure reports only the cost of asking.
+	matchedTransfers int
 }
 
 // foreignCurrencies are cycled across the instruments valuationLoad marks as
@@ -62,7 +68,7 @@ const preWindow = 30 * db.Day
 // weekday bars, which is the shape the valuation query is slowest on: a wide
 // date grid over a hypertable with a gap at every weekend. It returns the user
 // and the half-open valuation window.
-func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (string, time.Time, time.Time) {
+func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, portfolioID string, from, before time.Time) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -71,8 +77,8 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (string, t
 		t.Fatalf("create user: %v", err)
 	}
 
-	from := d(2020, 1, 1)
-	before := from.AddDate(load.years, 0, 0)
+	from = d(2020, 1, 1)
+	before = from.AddDate(load.years, 0, 0)
 	histFrom := from.Add(-preWindow)
 	// The opening position predates the bar history, so every day of the window
 	// has a holding to value rather than opening on a closed position.
@@ -153,6 +159,22 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (string, t
 		seedWeekdayBars(t, p, inst.id, histFrom, barsBefore, decf(100))
 	}
 
+	seedMatchedTransfers(t, p, userID, load.matchedTransfers, from, before)
+
+	// One broker filter, so the portfolio is the whole load: the portfolio-mode
+	// query differs from the user-mode one in the filter view it joins and in
+	// probing portfolio_in_flight_txs, and holding the data constant is what
+	// leaves those two as the only difference between the timings.
+	port, err := p.CreatePortfolio(ctx, userID, "Bench")
+	if err != nil {
+		t.Fatalf("create portfolio: %v", err)
+	}
+	if err := p.SetPortfolioFilters(ctx, port.Id, []db.PortfolioFilter{
+		{FilterType: "broker", FilterValue: "BENCH"},
+	}); err != nil {
+		t.Fatalf("set portfolio filters: %v", err)
+	}
+
 	// Everything above was written inside the test's transaction, which rolls
 	// back, so autovacuum never sees any of it and the planner would otherwise
 	// cost the query against a database it believes to be empty. That is not a
@@ -166,10 +188,63 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (string, t
 	// statistics are real but describe the table as it was before the import.
 	// See 0103.
 	if _, err := p.q.ExecContext(ctx,
-		`ANALYZE txs, tx_groups, eod_prices, price_coverage, instruments, instrument_identifiers`); err != nil {
+		`ANALYZE txs, tx_groups, transfer_matches, eod_prices, price_coverage, instruments, instrument_identifiers`); err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
-	return userID, from, before
+	return userID, port.Id, from, before
+}
+
+// seedMatchedTransfers writes n matched cash transfers, each moving money out of
+// one account and into another five days later, spread evenly across the window.
+//
+// Written as raw postings rather than through ingestion because the replacement
+// period above already owns the whole window, and because the group ids are needed
+// to write the links and a RETURNING is the cheapest way to have them. Each pair is
+// balanced in its own right, so the group invariant holds as it would in production.
+func seedMatchedTransfers(t testing.TB, p *Postgres, userID string, n int, from, before time.Time) {
+	t.Helper()
+	if n == 0 {
+		return
+	}
+	ctx := context.Background()
+	cashID, err := p.FindInstrumentByIdentifier(ctx, "CURRENCY", "", "USD")
+	if err != nil || cashID == "" {
+		t.Fatalf("USD cash instrument not found: %v", err)
+	}
+	// A group and its two legs: the account's own and the clearing counterparty
+	// that holds the value in transit, equal and opposite.
+	side := func(account string, at time.Time, qty string) string {
+		var groupID string
+		if err := p.q.QueryRowContext(ctx, `
+			INSERT INTO tx_groups (user_id, timestamp) VALUES ($1::uuid, $2::timestamptz)
+			RETURNING id`, userID, at).Scan(&groupID); err != nil {
+			t.Fatalf("create transfer group: %v", err)
+		}
+		if _, err := p.q.ExecContext(ctx, `
+			INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+				instrument_id, broker_tx_type, resolved_tx_type, quantity, account_type,
+				group_id, weight, weight_commodity, share_count_basis, split_adjusted_quantity)
+			SELECT $1::uuid, 'BENCH', $2, $3::timestamptz, 'USD CASH', $4::uuid,
+				ARRAY['TRANSFER'], 'TRANSFER', q, at, $5::uuid, q, 'cur:USD',
+				$3::timestamptz::date, q
+			FROM (VALUES ($6::numeric, 'USER'), (-$6::numeric, 'TRANSFER_CLEARING')) v(q, at)
+		`, userID, account, at, cashID, groupID, qty); err != nil {
+			t.Fatalf("insert transfer legs: %v", err)
+		}
+		return groupID
+	}
+	span := before.Sub(from)
+	for i := range n {
+		depart := from.Add(span * time.Duration(i) / time.Duration(n))
+		fromGroup := side(fmt.Sprintf("xfer-out-%03d", i), depart, "-1000")
+		toGroup := side(fmt.Sprintf("xfer-in-%03d", i), depart.Add(5*db.Day), "1000")
+		if _, err := p.q.ExecContext(ctx, `
+			INSERT INTO transfer_matches (user_id, from_group_id, to_group_id, instrument_id, method)
+			VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'REFERENCE')
+		`, userID, fromGroup, toGroup, cashID); err != nil {
+			t.Fatalf("insert transfer match: %v", err)
+		}
+	}
 }
 
 // seedWeekdayBars writes one bar per weekday over [from, before) and declares
@@ -246,51 +321,80 @@ func TestValuationQueryPerformance(t *testing.T) {
 		txsPerInstrument: 20,
 		foreignEvery:     5,
 		delistedEvery:    10,
+		matchedTransfers: 20,
 	}
 	seedStart := time.Now()
-	userID, from, before := seedValuationLoad(t, p, load)
+	userID, portfolioID, from, before := seedValuationLoad(t, p, load)
 	days := int(before.Sub(from) / db.Day)
 	t.Logf("seeded %d instruments x %d years (%d txs each, 1 in %d foreign, 1 in %d delisted) in %s",
 		load.instruments, load.years, load.txsPerInstrument, load.foreignEvery, load.delistedEvery,
 		time.Since(seedStart).Round(time.Millisecond))
 
-	for _, display := range []string{"USD", "GBP"} {
-		// Warm caches, then time.
-		if _, err := p.GetUserValuation(ctx, userID, from, before, display); err != nil {
-			t.Fatalf("warmup %s: %v", display, err)
-		}
-		const runs = 5
-		var total time.Duration
-		for range runs {
-			start := time.Now()
-			points, err := p.GetUserValuation(ctx, userID, from, before, display)
-			if err != nil {
-				t.Fatalf("valuation %s: %v", display, err)
+	// Both scopes, because they are different queries: user mode asks only whether
+	// a match names the group, while portfolio mode joins the filter view and probes
+	// portfolio_in_flight_txs, which joins it twice more. The gap between the two
+	// lines is what that costs.
+	scopes := []struct {
+		name string
+		run  func(display string) ([]db.ValuationPoint, error)
+	}{
+		{"user", func(display string) ([]db.ValuationPoint, error) {
+			return p.GetUserValuation(ctx, userID, from, before, display)
+		}},
+		{"portfolio", func(display string) ([]db.ValuationPoint, error) {
+			return p.GetPortfolioValuation(ctx, portfolioID, from, before, display)
+		}},
+	}
+	for _, scope := range scopes {
+		for _, display := range []string{"USD", "GBP"} {
+			// Warm caches, then time.
+			if _, err := scope.run(display); err != nil {
+				t.Fatalf("warmup %s %s: %v", scope.name, display, err)
 			}
-			total += time.Since(start)
-			if len(points) == 0 {
-				t.Fatalf("no valuation points in %s", display)
+			const runs = 5
+			var total time.Duration
+			for range runs {
+				start := time.Now()
+				points, err := scope.run(display)
+				if err != nil {
+					t.Fatalf("valuation %s %s: %v", scope.name, display, err)
+				}
+				total += time.Since(start)
+				if len(points) == 0 {
+					t.Fatalf("no valuation points in %s %s", scope.name, display)
+				}
 			}
+			t.Logf("%s display %s: %s mean over %d runs (%d instruments x %d days)",
+				scope.name, display, (total / runs).Round(time.Millisecond), runs, load.instruments, days)
 		}
-		t.Logf("display %s: %s mean over %d runs (%d instruments x %d days)",
-			display, (total / runs).Round(time.Millisecond), runs, load.instruments, days)
 	}
 
-	// The plan for the fuller of the two: displaying in a currency that is not
-	// USD is the only shape in which every FX branch is reachable.
-	var plan string
-	rows, err := p.q.QueryContext(ctx,
-		`EXPLAIN (ANALYZE, BUFFERS) `+valuationQuery(false), userID, from, before, "GBP")
-	if err != nil {
-		t.Fatalf("explain: %v", err)
-	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var line string
-		if err := rows.Scan(&line); err != nil {
-			t.Fatalf("scan plan: %v", err)
+	// The plan for the fullest shape of each: displaying in a currency that is not
+	// USD is the only one in which every FX branch is reachable, and portfolio mode
+	// is the only one that reaches the filter view at all.
+	for _, mode := range []struct {
+		name  string
+		query string
+		scope string
+	}{
+		{"user", valuationQuery(false), userID},
+		{"portfolio", valuationQuery(true), portfolioID},
+	} {
+		var plan string
+		rows, err := p.q.QueryContext(ctx,
+			`EXPLAIN (ANALYZE, BUFFERS) `+mode.query, mode.scope, from, before, "GBP")
+		if err != nil {
+			t.Fatalf("explain %s: %v", mode.name, err)
 		}
-		plan += line + "\n"
+		for rows.Next() {
+			var line string
+			if err := rows.Scan(&line); err != nil {
+				_ = rows.Close()
+				t.Fatalf("scan %s plan: %v", mode.name, err)
+			}
+			plan += line + "\n"
+		}
+		_ = rows.Close()
+		t.Logf("%s plan:\n%s", mode.name, plan)
 	}
-	t.Logf("plan:\n%s", plan)
 }

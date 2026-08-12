@@ -154,6 +154,15 @@ What consumes a match is a separate change. Netting matched pairs in portfolio c
 flows, and including matched in-flight value in valuation when both accounts are
 members, both read this table and neither lands with it.
 
+Both have since landed ([0090](../issues/0090-net-and-value-matched-transfers.md)), and
+they read the link the same way: through the counterpart group's own `TRANSFER_CLEARING`
+leg rather than through the group. That leg carries the counterpart account and the
+commodity the match is keyed on, so testing it against a portfolio's filters asks the
+same question from either side of a pair, and the pair is admitted whole or not at all.
+The identity this ADR says the link records is consumed exactly as claimed, by two
+callers rather than one, and through a single view -- `portfolio_in_flight_txs` -- so
+that valuation and the flow query cannot disagree about which pairs net.
+
 Matching is a post-ingest job rather than part of ingestion, because the second side
 can arrive in a later import: it is a function of all stored state, not of one job's
 payload.

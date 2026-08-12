@@ -292,6 +292,13 @@ func groupPostings(txs []*apiv1.Tx) ([]string, map[string][]int) {
 // residual reads as a transfer or as a missing leg does not depend on which path
 // produced it; only this one applies the tolerance. See residual.SplitType.
 //
+// Boundary legs are posted first and then weighed with the rest, so what is left to
+// call a residual is what remains after every side the data names. A dividend's
+// income and a charge's expense are named by the posting's own type; only what no
+// type accounts for reaches residual.Type. The two must not be netted: a dividend
+// beside a charge in one group would otherwise produce a single leg for the
+// difference, and the account it landed in would be a coin toss.
+//
 // It assigns a synthetic group_ref to any posting that has none, so that a routed
 // counterparty is stored in the same group as the posting it balances.
 //
@@ -313,13 +320,7 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 		descs := map[string]string{}
 		var keys []string
 		var resolved []typev1.TxType
-		for _, i := range idxs {
-			t := txs[i]
-			resolved = append(resolved, t.GetResolvedTxType())
-			amount, c, ok := weighPosting(t, instrumentIDs[i], instruments[instrumentIDs[i]])
-			if !ok {
-				continue
-			}
+		add := func(t *apiv1.Tx, amount decimal.Decimal, c commodity) {
 			k := c.key()
 			if _, seen := sums[k]; !seen {
 				keys = append(keys, k)
@@ -328,6 +329,25 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 			}
 			// The zero value is 0, so a first contribution needs no init.
 			sums[k] = sums[k].Add(amount)
+		}
+		for _, i := range idxs {
+			t := txs[i]
+			resolved = append(resolved, t.GetResolvedTxType())
+			amount, c, ok := weighPosting(t, instrumentIDs[i], instruments[instrumentIDs[i]])
+			if !ok {
+				continue
+			}
+			add(t, amount, c)
+			acct, named := boundaryFor(t)
+			if !named {
+				continue
+			}
+			// The mirror of the posting's weight, not of its quantity: a priced
+			// leg weighs at its consideration, and mirroring the weight is what
+			// makes the group sum to zero whichever it is.
+			out = append(out, routedFor(t, ref, c, t.GetInstrumentDescription(),
+				amount.Neg(), acct, db.BoundaryPurpose))
+			add(t, amount.Neg(), c)
 		}
 		// Sorted so a group's routed postings come out in a fixed order whatever
 		// the map iteration gave.
@@ -339,10 +359,29 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 				continue
 			}
 			amount := sums[k].Neg()
-			out = append(out, routedFor(first, ref, c, descs[k], amount, residual.Type(k, amount, resolved)))
+			out = append(out, routedFor(first, ref, c, descs[k], amount,
+				residual.Type(k, amount, resolved), db.RoutedPurpose))
 		}
 	}
 	return out
+}
+
+// boundaryFor returns the account a posting's other side sits in, for a posting the
+// server is entitled to name one for.
+//
+// Only a stated posting in the user's own account gets one. A leg the server routed
+// has no other side of its own -- it is already somebody's -- and a leg already in a
+// boundary account is the other side.
+func boundaryFor(t *apiv1.Tx) (typev1.AccountType, bool) {
+	if t.GetSyntheticPurpose() != "" {
+		return typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED, false
+	}
+	switch t.GetAccountType() {
+	case typev1.AccountType_ACCOUNT_TYPE_USER, typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED:
+	default:
+		return typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED, false
+	}
+	return residual.Boundary(t.GetResolvedTxType())
 }
 
 // routedFor builds the counterparty posting for one commodity's residual. It keeps
@@ -354,7 +393,7 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 // or regroup finds it by, so that it is thrown away and derived again against the
 // legs the group ends with rather than being preserved as though a source had stated
 // it.
-func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount decimal.Decimal, accountType typev1.AccountType) routedPosting {
+func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount decimal.Decimal, accountType typev1.AccountType, purpose string) routedPosting {
 	tx := &apiv1.Tx{
 		Timestamp:        proto.CloneOf(first.GetTimestamp()),
 		BrokerTxType:     append([]typev1.TxType(nil), first.GetBrokerTxType()...),
@@ -363,7 +402,7 @@ func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount dec
 		Account:          first.GetAccount(),
 		GroupRef:         ref,
 		AccountType:      accountType,
-		SyntheticPurpose: db.RoutedPurpose,
+		SyntheticPurpose: purpose,
 	}
 	// The routed posting weighs the residual it negates, in the commodity that
 	// residual accumulated in. That is what makes the group sum to zero.

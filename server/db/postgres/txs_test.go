@@ -354,6 +354,60 @@ func TestReplaceTxsInPeriod_DestroysARoutedLegByItsPurpose(t *testing.T) {
 	assertBalanced(t, p, userID)
 }
 
+// A dividend's income leg is the server's, so a replace destroys it with the
+// residuals and derives it again against the legs the group ends with. Deriving it
+// once and preserving it would leave the income of a leg that has gone.
+func TestReplaceTxsInPeriod_ReDerivesABoundaryLeg(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, usd := balanceSeed(t, p, "sub|boundary-rederive")
+	day1 := time.Date(2025, 9, 10, 15, 0, 0, 0, time.UTC)
+	day2 := day1.Add(24 * time.Hour)
+	// One group, two dividends, one on each day: the shape a replace can cut in
+	// half. Each arrives with the income leg the ingest balancer derived for it,
+	// which is what the store is handed.
+	dividend := func(at time.Time, qty string) *apiv1.Tx {
+		return &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: qty, Account: "A", GroupRef: "d1"}
+	}
+	income := func(at time.Time, qty string) *apiv1.Tx {
+		tx := dividend(at, qty)
+		tx.AccountType = typev1.AccountType_ACCOUNT_TYPE_INCOME
+		tx.SyntheticPurpose = db.BoundaryPurpose
+		return tx
+	}
+	legs := []*apiv1.Tx{
+		dividend(day1, "90"), income(day1, "-90"),
+		dividend(day2, "10"), income(day2, "-10"),
+	}
+	weight := func(v string) db.Weight {
+		return db.Weight{Amount: decimal.RequireFromString(v), Commodity: "cur:USD"}
+	}
+	weights := []db.Weight{weight("90"), weight("-90"), weight("10"), weight("-10")}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
+		timestamppb.New(day1.Add(-time.Hour)), timestamppb.New(day2.Add(time.Hour)),
+		legs, []string{usd, usd, usd, usd}, weights, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if got := boundaryPostings(t, p, userID); len(got) != 2 {
+		t.Fatalf("income legs after the seed: want one per dividend, got %v", got)
+	}
+
+	// Day two goes, taking its dividend and the income leg derived for it.
+	replaceDay(t, p, userID, usd, day2, nil, nil)
+
+	got := boundaryPostings(t, p, userID)
+	if len(got) != 1 {
+		t.Fatalf("income legs after the cut: want one for the surviving dividend, got %v", got)
+	}
+	if want := ([2]string{"INCOME", "-90"}); got[0] != want {
+		t.Errorf("income leg: want %v, got %v", want, got[0])
+	}
+	if routed := routedPostings(t, p, userID); len(routed) != 0 {
+		t.Errorf("residuals: want none once the income leg is derived again, got %v", routed)
+	}
+	assertBalanced(t, p, userID)
+}
+
 // The other half of the same rule, and the half PR-order makes fragile: a leg a
 // converter read out of a record survives, even though it sits in an account type a
 // derived leg also uses.
@@ -1591,6 +1645,30 @@ func routedPostings(t *testing.T, p *Postgres, userID string) [][3]string {
 		var r [3]string
 		if err := rows.Scan(&r[0], &r[1], &r[2]); err != nil {
 			t.Fatalf("routed postings: %v", err)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// boundaryPostings returns the legs the server derived from a posting's own type,
+// as (account type, quantity).
+func boundaryPostings(t *testing.T, p *Postgres, userID string) [][2]string {
+	t.Helper()
+	rows, err := p.q.QueryContext(context.Background(), `
+		SELECT account_type, quantity::text FROM txs
+		WHERE user_id = $1 AND synthetic_purpose = '`+db.BoundaryPurpose+`'
+		ORDER BY timestamp, quantity
+	`, userID)
+	if err != nil {
+		t.Fatalf("boundary postings: %v", err)
+	}
+	defer rows.Close()
+	var out [][2]string
+	for rows.Next() {
+		var r [2]string
+		if err := rows.Scan(&r[0], &r[1]); err != nil {
+			t.Fatalf("boundary postings: %v", err)
 		}
 		out = append(out, r)
 	}

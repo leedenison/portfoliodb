@@ -82,8 +82,9 @@ describe("convertFidelityToStandard", () => {
     ].join("\n");
     const result = convertFidelityToStandard(csv, { currency: "USD" });
     expect(result.errors).toEqual([]);
-    // The cash row plus the income it came from.
-    expect(result.postings.length).toBe(2);
+    // The cash row alone. The income it came from is named by the declared type,
+    // so the server posts it.
+    expect(result.postings.length).toBe(1);
     expect(result.postings[0]!.brokerTxType).toEqual([TxType.INTEREST]);
     expect(result.postings[0]!.quantity).toBe("3.27");
     expect(result.postings[0]!.settlementCurrency).toBe("USD");
@@ -100,9 +101,9 @@ describe("convertFidelityToStandard", () => {
     ].join("\n");
     const result = convertFidelityToStandard(csv, { currency: "GBP" });
     expect(result.errors).toEqual([]);
-    // Counter-legs and derived income legs are appended for the one-sided rows,
-    // so count the postings that came from a source row: those are the ones a
-    // type maps to, in row order, each carrying its declared set.
+    // A reinvestment's income leg is appended after the rows, so count the postings
+    // that came from a source row: those are the ones a type maps to, in row order,
+    // each carrying its declared set.
     const source = result.postings.filter((tx) => tx.accountType === AccountType.UNSPECIFIED);
     expect(source.length).toBe(types.length);
     source.forEach((tx, i) => {
@@ -363,10 +364,10 @@ describe("transaction grouping", () => {
       row("Dealing Fee", "Cash", "AG1", "-10", "0", "0", "441416483", "8 Feb 2022"),
     ]);
 
-    // It has a group of its own -- it needs one to hold its expense leg -- but
-    // Fidelity dates it on the order date while the trade settles later, so
-    // folding it into the trade would misdate it.
-    expect(result.postings[2].groupRef).toBeTruthy();
+    // Fidelity dates the charge on the order date while the trade settles later,
+    // so folding it into the trade would misdate it. It needs no group of its own
+    // on the wire: the server gives every posting one, and its expense leg lands
+    // there.
     expect(result.postings[2].groupRef).not.toBe(result.postings[0].groupRef);
   });
 
@@ -736,8 +737,8 @@ describe("trades the broker names for their reason", () => {
     ]);
 
     expect(result.errors).toEqual([]);
-    // The fee and its expense leg; nothing from the trade that never happened.
-    expect(result.postings).toHaveLength(2);
+    // The fee alone; nothing from the trade that never happened.
+    expect(result.postings).toHaveLength(1);
     expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRANSACTION_COST]);
   });
 });
@@ -760,8 +761,6 @@ describe("what a posting resolves to", () => {
     expect(result.postings[0]!.identifierHints.map((h) => [h.type, h.value])).toEqual([
       [IdentifierType.CURRENCY, "GBP"],
     ]);
-    // Including the expense leg it balances against, which was already money.
-    expect(result.postings[1]!.instrumentDescription).toBe("GBP");
   });
 
   it("describes a dividend by the currency it paid, not the payer", () => {
@@ -813,7 +812,10 @@ describe("what a posting resolves to", () => {
   });
 });
 
-describe("counter-legs", () => {
+// The other side of a one-sided cash row is the server's now, so what these check is
+// that the converter emits the row and leaves the boundary leg to residual.Boundary --
+// and that what it emits is enough for the server to name one.
+describe("one-sided cash rows", () => {
   const HEAD =
     "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
   const row = (
@@ -831,23 +833,25 @@ describe("counter-legs", () => {
   const convert = (rows: string[]) =>
     convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
 
-  it("names the account a charge went to", () => {
+  it("emits a charge as one posting, declared so the server can place its expense", () => {
     const result = convert([row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "441416483")]);
 
-    expect(result.postings).toHaveLength(2);
-    expect(result.postings[1].brokerTxType).toEqual([TxType.TRANSACTION_COST]);
-    expect(result.postings[1].accountType).toBe(AccountType.EXPENSE);
-    expect(result.postings[1].quantity).toBe("10");
-    expect(result.postings[1].groupRef).toBe(result.postings[0].groupRef);
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].brokerTxType).toEqual([TxType.TRANSACTION_COST]);
+    expect(result.postings[0].accountType).toBe(AccountType.UNSPECIFIED);
+    expect(result.postings[0].quantity).toBe("-10");
+    // An expense under every reading, which is what entitles the server to name the
+    // account the money went to.
+    expect(mustBe(result.postings[0].brokerTxType, TxType.EXPENSE)).toBe(true);
     expectGroupsBalance(result.postings);
   });
 
-  it("names the account a dividend came from", () => {
+  it("emits a dividend as one posting, declared so the server can place its income", () => {
     const result = convert([row("Cash Dividend", "Cash", "AG1", "23.40", "23.40", "1", "441416484")]);
 
-    expect(result.postings).toHaveLength(2);
-    expect(result.postings[1].accountType).toBe(AccountType.INCOME);
-    expect(result.postings[1].quantity).toBe("-23.4");
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].quantity).toBe("23.4");
+    expect(mustBe(result.postings[0].brokerTxType, TxType.INCOME)).toBe(true);
     expectGroupsBalance(result.postings);
   });
 
@@ -868,7 +872,7 @@ describe("counter-legs", () => {
       row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "441416483", "8 Feb 2022"),
     ]);
 
-    expect(result.postings).toHaveLength(4);
+    expect(result.postings).toHaveLength(3);
     expectGroupsBalance(result.postings);
   });
 
@@ -962,15 +966,13 @@ describe("correlations", () => {
   // A derived leg transcribes nothing, so it correlates with nothing. Copying
   // the correlation of the posting it mirrors would state that the source
   // correlated a row it never wrote.
-  it("does not give a derived counter-leg a correlation", () => {
+  it("correlates the row the source wrote, and emits nothing else to correlate", () => {
     const result = convert([
       "8 Feb 2022,10 Feb 2022,Cash Dividend,Cash,Investment Account,AG1,,23.40,23.40,1,441416483,Completed",
     ]);
 
-    expect(result.postings).toHaveLength(2);
+    expect(result.postings).toHaveLength(1);
     expect(result.postings[0].correlations).toHaveLength(1);
-    expect(result.postings[1].accountType).toBe(AccountType.INCOME);
-    expect(result.postings[1].correlations).toEqual([]);
   });
 });
 
@@ -1013,13 +1015,13 @@ describe("the source's own cash total", () => {
     expect(result.postings[0].settlementAmount).toBeUndefined();
   });
 
-  it("states nothing on a derived counter-leg", () => {
+  it("states nothing on a money row, whose quantity is already the total", () => {
     const result = convert([
       "8 Feb 2022,10 Feb 2022,Cash Dividend,Cash,Investment Account,AG1,,23.40,23.40,1,441416483,Completed",
     ]);
 
-    expect(result.postings).toHaveLength(2);
-    expect(result.postings[1].accountType).toBe(AccountType.INCOME);
-    expect(result.postings[1].settlementAmount).toBeUndefined();
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0].quantity).toBe("23.4");
+    expect(result.postings[0].settlementAmount).toBeUndefined();
   });
 });

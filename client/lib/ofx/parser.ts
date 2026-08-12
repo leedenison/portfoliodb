@@ -15,7 +15,6 @@ import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/parse-result";
 import {
-  counterLegs,
   feeLeg,
   recordCorrelation,
   refPrefix,
@@ -471,10 +470,6 @@ export function parseOfxStatement(text: string): OfxParseResult {
       }
     });
   }
-
-  // The income a dividend came from and the expense a commission went to. After
-  // the loop so a derived fee gets its counter-leg too.
-  postings.push(...counterLegs(postings));
 
   postings.sort((a, b) =>
     Number(a.timestamp?.seconds ?? 0) - Number(b.timestamp?.seconds ?? 0),

@@ -7,6 +7,11 @@
 // journal, and SOURCE_ROUNDING for a difference small enough to be the source
 // disagreeing with itself. See docs/adr/0024-group-balance-is-checked-on-weight.md.
 //
+// Boundary is the same subject one step earlier. Where a posting's own type names
+// the account its other side sits in -- income for a dividend, expense for a charge
+// -- that leg is posted before anything is called a residual, so what reaches the
+// rules above is what is left after every side the data does name.
+//
 // It is a package of its own because two paths route residuals and the family rule
 // has to be the same on both. The ingest balancer weighs the postings of an upload;
 // replace-by-period sums the stored weights of the legs a cut group has left. Whether
@@ -74,6 +79,33 @@ func Type(commodity string, amount decimal.Decimal, resolved []typev1.TxType) ty
 		return typev1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING
 	}
 	return family(resolved)
+}
+
+// Boundary returns the account a one-sided posting's other side came from or went
+// to, and whether it has one.
+//
+// A broker reports a dividend and a charge as a single cash row: the money is real
+// and the other side is not in the ledger at all, so a leg has to be posted for it or
+// the group cannot balance. Where that leg goes is a function of the posting's own
+// resolved type and nothing else, which is what makes it the server's to derive
+// rather than a converter's to emit
+// (docs/adr/0022-typed-per-account-cash-flow-boundary.md).
+//
+// The test is must-be. A posting that is income under every reading gets an income
+// leg, and one whose declared set left the question open gets none, because inventing
+// a leg for one reading would assert it. Types with no answer here either already
+// balance against a leg the source supplied -- a trade against its cash row -- or
+// have their other side in a real account elsewhere, which is a transfer and 0068's
+// problem rather than a leg to invent.
+func Boundary(resolved typev1.TxType) (typev1.AccountType, bool) {
+	switch {
+	case txtype.ResolvedMustBe(resolved, typev1.TxType_INCOME):
+		return typev1.AccountType_ACCOUNT_TYPE_INCOME, true
+	case txtype.ResolvedMustBe(resolved, typev1.TxType_EXPENSE):
+		return typev1.AccountType_ACCOUNT_TYPE_EXPENSE, true
+	default:
+		return typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED, false
+	}
 }
 
 // SplitType returns the account type the residual of a group cut by a period replace

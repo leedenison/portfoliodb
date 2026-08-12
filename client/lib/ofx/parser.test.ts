@@ -233,8 +233,9 @@ describe("parseOfxStatement", () => {
     });
     const result = parseOfxStatement(ofx);
     expect(result.errors).toEqual([]);
-    // The cash row plus the income it came from.
-    expect(result.postings.length).toBe(2);
+    // The cash row alone. The income it came from is named by the declared type,
+    // so the server posts it.
+    expect(result.postings.length).toBe(1);
 
     const tx = result.postings[0]!;
     expect(tx.brokerTxType).toEqual([TxType.INCOME]);
@@ -462,10 +463,12 @@ describe("groups and charges", () => {
     // is the exact value narrowed once rather than an accumulation of error.
     expect(cash.quantity).toBe("-23080.68");
 
+    // One posting, in the user's own account. Its expense side is named by the
+    // declared type, so the server posts it.
     const fees = result.postings.filter((t) => mustBe(t.brokerTxType, TxType.EXPENSE));
-    expect(fees).toHaveLength(2);
-    expect(fees.find((t) => t.accountType === AccountType.USER)!.quantity).toBe("-11.54034");
-    expect(fees.find((t) => t.accountType === AccountType.EXPENSE)!.quantity).toBe("11.54034");
+    expect(fees).toHaveLength(1);
+    expect(fees[0]!.accountType).toBe(AccountType.USER);
+    expect(fees[0]!.quantity).toBe("-11.54034");
   });
 
   it("leaves the money that moved equal to the total the broker reported", () => {
@@ -473,7 +476,7 @@ describe("groups and charges", () => {
     // Summed in decimal so the assertion holds for any fixture rather than for
     // ones whose float64 sum happens to land. This one's does.
     const cash = result.postings
-      .filter((t) => t.accountType !== AccountType.EXPENSE && !mustBe(t.brokerTxType, TxType.TRADE_ASSET))
+      .filter((t) => !mustBe(t.brokerTxType, TxType.TRADE_ASSET))
       .reduce((sum, t) => sum.plus(t.quantity), new Big(0));
     expect(cash.toString()).toBe("-23092.22034");
   });
@@ -544,7 +547,7 @@ describe("groups and charges", () => {
     expect(c.match).toEqual([Match.EXACT]);
   });
 
-  it("names the account a dividend came from", () => {
+  it("emits a dividend as one posting, declared so the server can place its income", () => {
     const income = `<INCOME>
       <INVTRAN><FITID>div1</FITID><DTTRADE>20260312202000.000[-4:EDT]</DTTRADE>
         <MEMO>MSFT CASH DIVIDEND USD 0.91</MEMO></INVTRAN>
@@ -555,10 +558,10 @@ describe("groups and charges", () => {
     </INCOME>`;
     const result = parse(income);
 
-    expect(result.postings).toHaveLength(2);
-    expect(result.postings[1]!.accountType).toBe(AccountType.INCOME);
-    expect(result.postings[1]!.quantity).toBe("-137.08");
-    expect(result.postings[1]!.groupRef).toBe("div1");
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0]!.quantity).toBe("137.08");
+    expect(result.postings[0]!.groupRef).toBe("div1");
+    expect(mustBe(result.postings[0]!.brokerTxType, TxType.INCOME)).toBe(true);
     expectGroupsBalance(result.postings);
   });
 });

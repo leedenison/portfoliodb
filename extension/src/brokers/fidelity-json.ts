@@ -29,7 +29,6 @@ import {
 } from "@/lib/csv/converters/fidelity-csv";
 import type { ParseError, StandardParseResult } from "@/lib/csv/parse-result";
 import {
-  counterLegs,
   currencyHint,
   identifyRecord,
   refPrefix,
@@ -286,7 +285,6 @@ export function convertFidelityJson(
     const income = reinvestIncomeLeg(identifyRecord(p, String(i)));
     if (income) postings.push(income);
   });
-  postings.push(...counterLegs(postings));
 
   return {
     postings,

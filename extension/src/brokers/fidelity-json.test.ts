@@ -5,7 +5,7 @@
 
 import { Big } from "@/lib/decimal";
 import { describe, expect, it } from "vitest";
-import { AccountType, AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
+import { AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import { mustBe } from "@/lib/tx-type";
 import { convertFidelityJson, isValidIsin } from "./fidelity-json";
 import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
@@ -162,8 +162,8 @@ describe("convertFidelityJson", () => {
     const result = convertFidelityJson(
       json({ ...BUY, status: "Cancelled", units: 0, valuation: 0 }, SERVICE_FEE)
     );
-    // The service fee and its expense leg; nothing from the cancelled buy.
-    expect(result.postings).toHaveLength(2);
+    // The service fee alone; nothing from the cancelled buy.
+    expect(result.postings).toHaveLength(1);
     expect(result.postings[0]!.brokerTxType).toEqual([TxType.HOLDING_COST]);
     expect(result.errors).toEqual([]);
   });
@@ -403,11 +403,10 @@ describe("convertFidelityJson grouping", () => {
       )
     );
 
-    // A group of its own, holding the charge and the expense it went to.
-    expect(result.postings).toHaveLength(2);
-    expect(result.postings[0]!.groupRef).toBeTruthy();
-    expect(result.postings[1]!.groupRef).toBe(result.postings[0]!.groupRef);
-    expect(result.postings[1]!.accountType).toBe(AccountType.EXPENSE);
+    // One posting, in no trade's group. The expense it went to is named by the
+    // declared type, so the server posts it.
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRANSACTION_COST]);
   });
 
   it("groups the run a deposit into a product account is reported through", () => {
@@ -561,7 +560,7 @@ describe("correlations", () => {
   // A derived leg transcribes nothing, so it correlates with nothing -- and the
   // fee's attribution in particular must not be copied onto the expense leg,
   // where it would name a counterparty the source never gave that row.
-  it("does not give a derived counter-leg a correlation", () => {
+  it("correlates the row the source wrote, and emits nothing else to correlate", () => {
     const result = convertFidelityJson(
       json({
         ...base,
@@ -575,10 +574,9 @@ describe("correlations", () => {
       })
     );
 
+    expect(result.postings).toHaveLength(1);
     expect(result.postings[0]!.brokerTxType).toEqual([TxType.HOLDING_COST]);
     expect(result.postings[0]!.correlations).toHaveLength(2);
-    const expense = result.postings.find((tx) => tx.accountType === AccountType.EXPENSE)!;
-    expect(expense.correlations).toEqual([]);
   });
 });
 

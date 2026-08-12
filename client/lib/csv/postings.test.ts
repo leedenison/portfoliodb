@@ -6,8 +6,6 @@ import type { Posting } from "@/gen/archive/v1/txs_pb";
 import { PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { AccountType, AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import {
-  counterLeg,
-  counterLegs,
   feeLeg,
   identifyRecord,
   recordCorrelation,
@@ -30,84 +28,6 @@ const tx = (fields: MessageInitShape<typeof PostingSchema>): Posting =>
     settlementCurrency: "GBP",
     ...fields,
   });
-
-describe("counterLeg", () => {
-  it("sends a charge to expense and a dividend to income", () => {
-    const charge = counterLeg(tx({ brokerTxType: [TxType.EXPENSE], quantity: "-3.24" }));
-    expect(charge?.accountType).toBe(AccountType.EXPENSE);
-    expect(charge?.quantity).toBe("3.24");
-
-    const dividend = counterLeg(tx({ brokerTxType: [TxType.INCOME], quantity: "23.4" }));
-    expect(dividend?.accountType).toBe(AccountType.INCOME);
-    expect(dividend?.quantity).toBe("-23.4");
-  });
-
-  it("mirrors a leaf under the branch, not just the branch itself", () => {
-    const fee = counterLeg(tx({ brokerTxType: [TxType.TRANSACTION_COST], quantity: "-3.24" }));
-    expect(fee?.accountType).toBe(AccountType.EXPENSE);
-
-    const dividend = counterLeg(tx({ brokerTxType: [TxType.DIVIDEND], quantity: "23.4" }));
-    expect(dividend?.accountType).toBe(AccountType.INCOME);
-  });
-
-  it("carries the group, account and currencies of the posting it mirrors", () => {
-    const source = tx({
-      brokerTxType: [TxType.EXPENSE],
-      quantity: "-3.24",
-      groupRef: "fee-1",
-      account: "ACC-9",
-      tradingCurrency: "EUR",
-      settlementCurrency: "USD",
-    });
-    const leg = counterLeg(source)!;
-    expect(leg.groupRef).toBe("fee-1");
-    expect(leg.account).toBe("ACC-9");
-    expect(leg.tradingCurrency).toBe("EUR");
-    expect(leg.settlementCurrency).toBe("USD");
-    expect(leg.timestamp).toEqual(source.timestamp);
-  });
-
-  it("leaves the posting it mirrors alone", () => {
-    const source = tx({ brokerTxType: [TxType.INCOME], quantity: "23.4" });
-    counterLeg(source);
-    expect(source.quantity).toBe("23.4");
-    expect(source.accountType).toBe(AccountType.UNSPECIFIED);
-  });
-
-  it("returns nothing for a type whose other side the source already supplied", () => {
-    expect(counterLeg(tx({ brokerTxType: [TxType.TRADE_ASSET], quantity: "10" }))).toBeUndefined();
-    expect(counterLeg(tx({ brokerTxType: [TxType.TRADE_CASH], quantity: "-10" }))).toBeUndefined();
-  });
-
-  it("returns nothing for a type whose other side is another account", () => {
-    // A journal's pair arrives in a different statement, which is 0068's problem.
-    expect(counterLeg(tx({ brokerTxType: [TxType.TRANSFER], quantity: "500" }))).toBeUndefined();
-    expect(counterLeg(tx({ brokerTxType: [TxType.TRANSFER_INTERNAL], quantity: "500" }))).toBeUndefined();
-  });
-
-  it("returns nothing for an ambiguous set, whose income reading is only a candidate", () => {
-    expect(
-      counterLeg(tx({ brokerTxType: [TxType.INCOME, TxType.TRANSFER], quantity: "23.4" }))
-    ).toBeUndefined();
-  });
-
-  it("does not mirror a counter-leg", () => {
-    const leg = counterLeg(tx({ brokerTxType: [TxType.EXPENSE], quantity: "-3.24" }))!;
-    expect(counterLeg(leg)).toBeUndefined();
-  });
-
-  // A boundary leg is inferred from the declared type, not read out of the record,
-  // so it may not claim the record's identity: doing so would say the source
-  // correlated a row it never wrote.
-  it("correlates nothing, unlike the legs read out of a record", () => {
-    const source = tx({
-      brokerTxType: [TxType.EXPENSE],
-      quantity: "-3.24",
-      correlations: [recordCorrelation("r7")],
-    });
-    expect(counterLeg(source)!.correlations).toEqual([]);
-  });
-});
 
 describe("recordCorrelation", () => {
   it("is a file-scoped equality token under a label no broker issues", () => {
@@ -187,14 +107,13 @@ describe("feeLeg", () => {
     expect(feeLeg(trade, FEE_EPSILON)).toBeDefined();
   });
 
-  it("balances a netted trade once its counter-leg is added", () => {
+  it("balances a netted trade once the server posts its expense leg", () => {
     // The broker reported -23092.22034 of cash with 11.54034 of it commission.
     const legs = [
       tx({ brokerTxType: [TxType.TRADE_ASSET], quantity: "378", unitPrice: "61.06", groupRef: "t-1", instrumentDescription: "VUSA" }),
       tx({ brokerTxType: [TxType.TRADE_CASH], quantity: "-23080.68", unitPrice: "1", groupRef: "t-1" }),
     ];
     legs.push(feeLeg(legs[0]!, new Big("11.54034"))!);
-    legs.push(...counterLegs(legs));
 
     expectGroupsBalance(legs);
     // The two cash postings in the user's own account still sum to the total the
@@ -203,7 +122,7 @@ describe("feeLeg", () => {
     // Exact end to end: the postings carry decimal strings, so this sums them
     // as decimals and asserts the total rather than a neighbourhood of it.
     const cash = legs
-      .filter((l) => l.accountType !== AccountType.EXPENSE && !mustBe(l.brokerTxType, TxType.TRADE_ASSET))
+      .filter((l) => !mustBe(l.brokerTxType, TxType.TRADE_ASSET))
       .reduce((sum, l) => sum.plus(l.quantity), new Big(0));
     expect(cash.toString()).toBe("-23092.22034");
   });
@@ -279,33 +198,5 @@ describe("refPrefix", () => {
 
   it("leaves broker refs that share no prefix alone", () => {
     expect(refPrefix([tx({ brokerTxType: [TxType.INCOME], groupRef: "441416452" })])).toBe("p");
-  });
-});
-
-describe("counterLegs", () => {
-  it("groups a one-sided row with the leg that balances it", () => {
-    const txs = [tx({ brokerTxType: [TxType.INCOME], quantity: "23.4" })];
-    txs.push(...counterLegs(txs));
-
-    expect(txs).toHaveLength(2);
-    expect(txs[0]!.groupRef).not.toBe("");
-    expect(txs[1]!.groupRef).toBe(txs[0]!.groupRef);
-    expectGroupsBalance(txs);
-  });
-
-  it("keeps a group the converter already assigned", () => {
-    const txs = [tx({ brokerTxType: [TxType.EXPENSE], quantity: "-3.24", groupRef: "441416483" })];
-    txs.push(...counterLegs(txs));
-    expect(txs[1]!.groupRef).toBe("441416483");
-  });
-
-  it("gives each one-sided row a group of its own", () => {
-    const txs = [
-      tx({ brokerTxType: [TxType.INCOME], quantity: "23.4" }),
-      tx({ brokerTxType: [TxType.EXPENSE], quantity: "-3.24" }),
-    ];
-    txs.push(...counterLegs(txs));
-    expect(txs[0]!.groupRef).not.toBe(txs[1]!.groupRef);
-    expectGroupsBalance(txs);
   });
 });

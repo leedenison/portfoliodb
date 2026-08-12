@@ -575,7 +575,11 @@ func (p *Postgres) correlationsByTx(ctx context.Context, txIDs []string) (map[st
 // balance a group. It is what tells a routed leg from a stated one, and the account
 // type is not: a residual and a leg a converter read out of a record can land in the
 // same account type.
-const routedPurpose = `'RESIDUAL'`
+//
+// Both values here are re-derived together whenever a group's membership changes. A
+// boundary leg is a function of one posting rather than of the group, but it has to
+// move with the leg it mirrors, and re-deriving is how it does.
+const routedPurpose = `'RESIDUAL', 'BOUNDARY'`
 
 // survivorPredicate selects the postings of a touched group that a replace leaves
 // standing, and is the one definition of that. $1 is the broker, $2 and $3 the period
@@ -708,6 +712,29 @@ const survivingResidualsSQL = `
 	ORDER BY r.group_id, r.weight_commodity
 `
 
+// boundaryCandidatesSQL returns the stated postings of the touched groups that name
+// where their own money came from or went to, with everything the leg mirroring them
+// is built from.
+//
+// Only postings a source stated are candidates. A routed leg is already somebody's
+// other side, and mirroring one would post the same money twice.
+//
+// The mirror is of the stored weight rather than the quantity, so it is read here and
+// negated in Go: a priced leg weighs at its consideration, and mirroring the quantity
+// would leave the group short by the difference.
+const boundaryCandidatesSQL = `
+	SELECT t.group_id, t.weight, t.weight_commodity, t.timestamp,
+	       t.broker_tx_type, t.resolved_tx_type, t.broker, t.account,
+	       t.trading_currency, t.settlement_currency, t.instrument_description,
+	       t.instrument_id
+	FROM txs t
+	WHERE t.group_id = ANY($1)
+	  AND t.synthetic_purpose IS NULL
+	  AND t.account_type = 'USER'
+	  AND t.weight <> 0
+	ORDER BY t.timestamp, t.id
+`
+
 // currencyInstrumentSQL resolves the seeded instrument a money residual is denominated
 // in. It runs on the replace's own transaction rather than through
 // FindInstrumentByIdentifier so that the whole operation is one statement stream.
@@ -735,6 +762,82 @@ type survivingResidual struct {
 	settlement     *string
 	description    string
 	instrumentID   *uuid.UUID
+}
+
+// boundaryCandidate is one stated posting that names the account its other side sits
+// in, and the attributes the leg mirroring it is built from.
+type boundaryCandidate struct {
+	groupID        uuid.UUID
+	weight         decimal.Decimal
+	commodity      string
+	timestamp      time.Time
+	brokerTxTypes  pq.StringArray
+	resolvedTxType string
+	broker         string
+	account        string
+	trading        *string
+	settlement     *string
+	description    string
+	instrumentID   *uuid.UUID
+}
+
+// routeBoundaries writes the other side of every posting in the touched groups whose
+// own type names one: the income a dividend came from, the expense a charge went to.
+//
+// Per posting rather than per group, which is what keeps a dividend and a charge in
+// one group from netting into a single leg whose account would then be a coin toss.
+// See residual.Boundary.
+func routeBoundaries(ctx context.Context, exec queryable, userUUID uuid.UUID, groupIDs interface{}) error {
+	rows, err := exec.QueryContext(ctx, boundaryCandidatesSQL, groupIDs)
+	if err != nil {
+		return fmt.Errorf("boundary candidates: %w", err)
+	}
+	defer rows.Close()
+	var cands []boundaryCandidate
+	for rows.Next() {
+		var c boundaryCandidate
+		if err := rows.Scan(&c.groupID, &c.weight, &c.commodity, &c.timestamp,
+			&c.brokerTxTypes, &c.resolvedTxType, &c.broker, &c.account,
+			&c.trading, &c.settlement, &c.description, &c.instrumentID); err != nil {
+			return fmt.Errorf("boundary candidates: %w", err)
+		}
+		cands = append(cands, c)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("boundary candidates: %w", err)
+	}
+
+	byCurrency := map[string]uuid.UUID{}
+	for _, c := range cands {
+		acct, named := residual.Boundary(db.StrToTxType(c.resolvedTxType))
+		if !named {
+			continue
+		}
+		acctType, err := accountTypeToStr(acct)
+		if err != nil {
+			return err
+		}
+		amount := c.weight.Neg()
+		desc, trading, settlement := c.description, c.trading, c.settlement
+		instID := c.instrumentID
+		if code, money := residual.CurrencyOf(c.commodity); money {
+			id, err := currencyInstrument(ctx, exec, byCurrency, code)
+			if err != nil {
+				return err
+			}
+			instID, desc, trading, settlement = &id, code, &code, &code
+		}
+		var txID uuid.UUID
+		if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL,
+			userUUID, c.broker, c.account, c.timestamp, desc,
+			c.brokerTxTypes, c.resolvedTxType, nil, amount,
+			trading, settlement, nil, nil, nullUUID(instID), nil, acctType,
+			db.BoundaryPurpose, amount, c.commodity, c.groupID,
+		).Scan(&txID); err != nil {
+			return fmt.Errorf("insert boundary posting: %w", err)
+		}
+	}
+	return nil
 }
 
 // clearPeriod deletes the postings a replace covers and re-balances the groups it left
@@ -795,10 +898,17 @@ func deleteReplacedPostings(ctx context.Context, exec queryable, userUUID uuid.U
 	return touched, nil
 }
 
-// routeSurvivors writes the counterparty that balances each group the delete left
-// unbalanced, by the family rule the ingest balancer applies to an upload. The
-// tolerance is not applied: see residual.SplitType.
+// routeSurvivors writes the counterparties that balance each group the delete left
+// unbalanced, by the rules the ingest balancer applies to an upload. The tolerance is
+// not applied: see residual.SplitType.
+//
+// Boundary legs go first and residuals second, because the residual is what is left
+// after every side the data names. Both were deleted with the postings that went, so
+// both are derived again here against the legs the group ends with.
 func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, groupIDs interface{}) error {
+	if err := routeBoundaries(ctx, exec, userUUID, groupIDs); err != nil {
+		return err
+	}
 	rows, err := exec.QueryContext(ctx, survivingResidualsSQL, groupIDs)
 	if err != nil {
 		return fmt.Errorf("surviving residuals: %w", err)

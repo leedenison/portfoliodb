@@ -68,12 +68,14 @@ func (p posting) tx(at time.Time) *apiv1.Tx {
 	}
 }
 
-// routed is a routed posting reduced to what the tests assert on.
+// routed is a routed posting reduced to what the tests assert on. An empty purpose
+// reads as db.RoutedPurpose, since most cases are about residuals.
 type routed struct {
 	commodity string // currency code, or the instrument id for a security
 	quantity  string // decimal, as the wire carries it
 
 	accountType typev1.AccountType
+	purpose     string
 }
 
 func TestRouteResiduals(t *testing.T) {
@@ -188,24 +190,38 @@ func TestRouteResiduals(t *testing.T) {
 		},
 		want: []routed{{commodity: "USD", quantity: "-0.001", accountType: typev1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING}},
 	}, {
-		name: "dividend with its income leg routes nothing",
-		postings: []posting{
-			{desc: "USD", typ: typev1.TxType_INCOME, qty: "23.40", settle: "USD", trading: "USD", instID: usdID, groupRef: "d1"},
-			{desc: "USD", typ: typev1.TxType_INCOME, qty: "-23.40", settle: "USD", trading: "USD", instID: usdID, groupRef: "d1"},
-		},
-		want: nil,
-	}, {
-		// Until converters emit the income leg, a bare dividend routes its whole
-		// value. Early imbalance figures are dominated by this rather than by the
-		// missing fees the mechanism is aimed at.
-		name: "bare dividend routes its full value",
-		postings: []posting{
-			{desc: "USD", typ: typev1.TxType_INCOME, qty: "23.40", settle: "USD", trading: "USD", instID: usdID},
-		},
+		// A dividend is income under every reading, so its other side is named by
+		// the posting itself and posted as a boundary leg. Nothing is left over
+		// afterwards, so no residual follows it.
+		//
 		// The routed quantity is canonical rather than a mirror of the input's
 		// spelling: 23.40 in, -23.4 out. Scale carries no meaning here, and the
 		// client compares these strings.
-		want: []routed{{commodity: "USD", quantity: "-23.4", accountType: typev1.AccountType_ACCOUNT_TYPE_IMBALANCE}},
+		name: "dividend posts the income it came from",
+		postings: []posting{
+			{desc: "USD", typ: typev1.TxType_INCOME, qty: "23.40", settle: "USD", trading: "USD", instID: usdID},
+		},
+		want: []routed{{
+			commodity: "USD", quantity: "-23.4",
+			accountType: typev1.AccountType_ACCOUNT_TYPE_INCOME, purpose: db.BoundaryPurpose,
+		}},
+	}, {
+		// A charge is an expense under every reading. Two one-sided rows in one
+		// group get a leg each rather than one leg for the difference: netting them
+		// would post 20.60 to whichever account won, and which account is the whole
+		// point of the exercise.
+		name: "a dividend and a charge in one group get a leg each",
+		postings: []posting{
+			{desc: "USD", typ: typev1.TxType_DIVIDEND, qty: "23.40", settle: "USD", trading: "USD", instID: usdID, groupRef: "d1"},
+			{desc: "USD", typ: typev1.TxType_TRANSACTION_COST, qty: "-2.80", settle: "USD", trading: "USD", instID: usdID, groupRef: "d1"},
+		},
+		want: []routed{{
+			commodity: "USD", quantity: "-23.4",
+			accountType: typev1.AccountType_ACCOUNT_TYPE_INCOME, purpose: db.BoundaryPurpose,
+		}, {
+			commodity: "USD", quantity: "2.8",
+			accountType: typev1.AccountType_ACCOUNT_TYPE_EXPENSE, purpose: db.BoundaryPurpose,
+		}},
 	}, {
 		// A journal moves a commodity without converting it, so the clearing leg
 		// holds the shares in transit rather than a frozen cash value.
@@ -245,14 +261,19 @@ func TestRouteResiduals(t *testing.T) {
 		postings: []posting{
 			{desc: "EUR", typ: typev1.TxType_INCOME, qty: "100", price: price("1.10"), settle: "USD", trading: "EUR", instID: eurID},
 		},
-		want: []routed{{commodity: "USD", quantity: "-110", accountType: typev1.AccountType_ACCOUNT_TYPE_IMBALANCE}},
+		// The boundary leg mirrors the weight, so it is in the currency the
+		// dividend settled in rather than the one it was declared in.
+		want: []routed{{
+			commodity: "USD", quantity: "-110",
+			accountType: typev1.AccountType_ACCOUNT_TYPE_INCOME, purpose: db.BoundaryPurpose,
+		}},
 	}, {
 		// A residual can span commodities, as beancount's residual inventory and
 		// ledger's Imbalance:<CUR> both can.
 		name: "residual spanning two commodities routes one posting each",
 		postings: []posting{
 			{desc: "AAPL", typ: typev1.TxType_TRADE_ASSET, qty: "10", settle: "USD", instID: aaplID, groupRef: "m1"},
-			{desc: "USD", typ: typev1.TxType_INCOME, qty: "25", settle: "USD", trading: "USD", instID: usdID, groupRef: "m1"},
+			{desc: "USD", typ: typev1.TxType_TRADE_CASH, qty: "25", settle: "USD", trading: "USD", instID: usdID, groupRef: "m1"},
 		},
 		// Ordered by commodity so a group's routed postings do not depend on map
 		// iteration: currencies first, then instruments.
@@ -312,6 +333,13 @@ func TestRouteResiduals(t *testing.T) {
 				}
 				if g.tx.GetAccountType() != w.accountType {
 					t.Errorf("routed[%d] account type = %v, want %v", i, g.tx.GetAccountType(), w.accountType)
+				}
+				purpose := w.purpose
+				if purpose == "" {
+					purpose = db.RoutedPurpose
+				}
+				if g.tx.GetSyntheticPurpose() != purpose {
+					t.Errorf("routed[%d] purpose = %q, want %q", i, g.tx.GetSyntheticPurpose(), purpose)
 				}
 			}
 		})

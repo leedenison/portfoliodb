@@ -49,10 +49,16 @@ everything that archive carried rather than within the uploads it was assembled 
 A converter may only **transcribe**, never infer. A token may be synthesised from the
 source's own structure -- nesting, containment, an explicit order column -- and never
 from amounts, dates or proximity. Nothing distinguishes a transcribed token from an
-inferred one once stored, so this is the discipline the format rests on. Only a
-posting transcribed from a source row carries any: a derived counter-leg and a routed
-residual transcribe nothing and correlate with nothing, so a token that is present
-always names something the source itself issued.
+inferred one once stored, so this is the discipline the format rests on. A token that
+is present always names something the source itself issued.
+
+Every posting a converter reads out of one record carries that record's correlations,
+including the legs it derives from a record's other fields -- the commission netted
+into a trade's total, the income a reinvestment consumed. Saying that these postings
+came out of one record is a fact about the transcription, and it is what the server
+puts the record back together from. What a converter may not say is that two separate
+records are one event. A leg the server derives -- a boundary leg or a routed residual
+-- correlates with nothing, because it transcribes nothing.
 
 A token is not a natural key and carries no uniqueness constraint. Ingestion is
 idempotent by replacement (adr/0002-transaction-ingestion-model.md) and one source
@@ -181,6 +187,27 @@ Every group is balanced at ingest. Whatever its postings leave over is routed to
 explicit counterparty rather than rejected, so the invariant holds by construction
 from day one and a residual becomes measurable instead of being absorbed into a cash
 balance.
+
+Two kinds of leg are written for it, in that order.
+
+A **boundary** leg is the other side of a posting whose own type names where its money
+came from or went to: `INCOME` for a dividend, `EXPENSE` for a charge. The test is
+must-be over the resolved type, so a row that is income under every reading gets an
+income leg and one whose declared set left the question open gets none -- inventing a
+leg for one reading would assert it. It is written per posting rather than per group,
+because a dividend and a charge in one group must produce a leg each: netting them
+would post the difference to whichever account won.
+
+A **residual** is what is left after that: `IMBALANCE` for a leg the source omitted,
+`TRANSFER_CLEARING` for the unmatched side of a journal, `SOURCE_ROUNDING` for a
+difference small enough to be the source disagreeing with itself.
+
+Both are derived from the postings around them and neither is an input. They are
+recorded as such in `synthetic_purpose` -- `BOUNDARY` and `RESIDUAL` against the NULL a
+posting a source stated carries -- and they are deleted and written again whenever a
+group's membership changes, whether by a replace or by a regroup. The account type
+cannot record this, because a leg a converter read out of a record lands in the same
+account types.
 
 Each posting **stores** what it contributes to that balance, in two columns:
 

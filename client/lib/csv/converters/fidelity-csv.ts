@@ -16,7 +16,6 @@ import { AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/
 import type { StandardParseResult, ParseError } from "@/lib/csv/parse-result";
 import { parseCSVLine } from "@/lib/csv/line";
 import {
-  counterLegs,
   currencyHint,
   identifyRecord,
   refPrefix,
@@ -738,9 +737,6 @@ export function convertFidelityToStandard(
     const income = reinvestIncomeLeg(identifyRecord(p, String(i)));
     if (income) postings.push(income);
   });
-  // Fidelity nets nothing into a trade total, so no fee is derived here: its
-  // charges arrive as their own rows and only need the account they went to.
-  postings.push(...counterLegs(postings));
 
   const periodFrom = minTime === Infinity ? new Date(0) : new Date(minTime);
   const periodBefore =

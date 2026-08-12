@@ -134,8 +134,9 @@ describe("sync", () => {
     expect(entry.status).toBe("warning");
     expect(entry.droppedCount).toBe(1);
     expect(entry.droppedTypes).toEqual(["Corporate Action Reinvestment"]);
-    // The surviving Cash Interest row, plus the income leg that balances it.
-    expect(entry.txCount).toBe(2);
+    // The surviving Cash Interest row. The income leg that balances it is the
+    // server's, so it is not in what was uploaded.
+    expect(entry.txCount).toBe(1);
     expect(entry.rowCount).toBe(2);
     // The row itself, not just a count: a replace deleted whatever it stored, so
     // the run has to be able to say which row and why.

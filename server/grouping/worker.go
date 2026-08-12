@@ -25,7 +25,7 @@ const name = "grouping"
 // clock in this process. The ingestion worker fires it after a tx import commits, so
 // legs that have just landed beside older ones are joined without waiting for the
 // next tick.
-func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry, apply bool) {
+func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
 	if workers != nil {
 		workers.SetIdle(name)
 	}
@@ -37,19 +37,18 @@ func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterInc
 			if !ok {
 				return
 			}
-			runCycle(ctx, database, counter, log, workers, apply)
+			runCycle(ctx, database, counter, log, workers)
 		}
 	}
 }
 
-// runCycle derives the partition of every neighbourhood a seed reaches, reports how
-// it differs from what is stored, and writes the difference where asked to.
+// runCycle derives the partition of every neighbourhood a seed reaches and writes
+// where it differs from what is stored.
 //
-// apply is off by default and 0098 is what turns it on, once a shadow run over a
-// corpus has been looked at. Off, the cycle is a measurement and can leave nothing
-// behind; on, it writes only what it disagrees with, so a cycle that repartitions
-// nothing writes nothing either way.
-func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry, apply bool) {
+// It writes only its disagreements, so a cycle that repartitions nothing writes
+// nothing -- which is what lets it run over a region far wider than any upload
+// without churning ids for postings nobody touched.
+func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) {
 	if counter != nil {
 		counter.Incr(ctx, "grouping.cycles")
 	}
@@ -60,9 +59,9 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 	}()
 
 	// Every user, seeded from the groups holding something a missing leg would
-	// explain. An import nudge could seed from its own job instead, which is
-	// narrower; it is not wired that way yet because a shadow cycle wants the
-	// widest view it can get of where the engine and the converters differ.
+	// explain. An import does its own grouping in the transaction that stores it,
+	// so what this cycle is for is the fragments left behind by a period replace
+	// and by legs that arrived before their counterparts.
 	seeds, err := database.ListGroupingSeeds(ctx, db.GroupingSeedOpts{Residual: true})
 	if err != nil {
 		if log != nil {
@@ -82,7 +81,7 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 
 	total := Divergence{}
 	for _, userID := range usersOf(seeds) {
-		d, err := cycleUser(ctx, database, userID, byUser(seeds, userID), apply)
+		d, err := cycleUser(ctx, database, userID, byUser(seeds, userID))
 		if err != nil {
 			if log != nil {
 				log.ErrorContext(ctx, "grouping: derive", "user", userID, "err", err)
@@ -106,10 +105,9 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 		counter.IncrBy(ctx, "grouping.split", int64(total.Split))
 	}
 	if log != nil {
-		// Logged whether or not anything differs. A cycle that agrees everywhere is
-		// the result 0098 is waiting for, so it is worth being able to see it
-		// happen rather than inferring it from silence.
-		log.InfoContext(ctx, "grouping shadow",
+		// Logged whether or not anything differs, so a cycle that changed nothing is
+		// visible as such rather than inferred from silence.
+		log.InfoContext(ctx, "grouping cycle",
 			"derived", total.Groups, "stored", total.Stored, "agreed", total.Agreed,
 			"joined", total.Joined, "split", total.Split, "examples", total.Examples)
 	}
@@ -121,7 +119,7 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 // Neighbourhoods are grown one seed at a time and the ones that overlap are answered
 // from the same reads, since a posting already held is never asked for again. A seed
 // swallowed by an earlier neighbourhood costs one round that finds nothing.
-func cycleUser(ctx context.Context, database db.DB, userID string, seeds []db.GroupingPosting, apply bool) (Divergence, error) {
+func cycleUser(ctx context.Context, database db.DB, userID string, seeds []db.GroupingPosting) (Divergence, error) {
 	rules := DefaultRules()
 	opts := DefaultOpts()
 	done := map[string]bool{}
@@ -138,12 +136,13 @@ func cycleUser(ctx context.Context, database db.DB, userID string, seeds []db.Gr
 			done[p.ID] = true
 		}
 		gs := Partition(ps, rules, opts)
-		if apply {
-			// Written per neighbourhood rather than per cycle: each is its own
-			// transaction, so a failure costs one region rather than the run, and
-			// the balance constraint is evaluated over a set of groups that were
-			// all decided together.
-			if _, err := database.ApplyGrouping(ctx, userID, Diff(ps, gs)); err != nil {
+		// Written per neighbourhood rather than per cycle: each is its own
+		// transaction, so a failure costs one region rather than the run, and the
+		// balance constraint is evaluated over a set of groups that were all decided
+		// together. A neighbourhood the engine agrees with costs no transaction at
+		// all, which is most of them.
+		if changes := Diff(ps, gs); len(changes) > 0 {
+			if _, err := database.ApplyGrouping(ctx, userID, changes); err != nil {
 				return Divergence{}, err
 			}
 		}

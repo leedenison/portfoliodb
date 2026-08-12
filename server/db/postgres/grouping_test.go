@@ -54,12 +54,16 @@ func (f *groupingFixture) write(t *testing.T, account string, ts time.Time, qty 
 	}
 }
 
-// writeWithResidual stores a posting together with the routed counterparty that
-// balances it, which is the shape an unmatched transfer actually has in the database:
-// the transcribed leg plus a TRANSFER_CLEARING one holding the value in transit.
+// writeWithResidual stores a posting the store has to route a counterparty for,
+// which is the shape an unmatched transfer actually has in the database: the
+// transcribed leg plus a TRANSFER_CLEARING one holding the value in transit.
+//
+// The counterparty is not written here. The store routes one for whatever a group
+// fails to balance to, and a lone leg fails to balance to all of it, so writing the
+// leg is the whole of the fixture. residual names the type that produces.
 func (f *groupingFixture) writeWithResidual(t *testing.T, account string, ts time.Time, qty string, declared []typev1.TxType, residual typev1.AccountType) {
 	t.Helper()
-	leg := &apiv1.Tx{
+	tx := &apiv1.Tx{
 		Timestamp:             timestamppb.New(ts),
 		InstrumentDescription: "GRP",
 		BrokerTxType:          declared,
@@ -67,22 +71,34 @@ func (f *groupingFixture) writeWithResidual(t *testing.T, account string, ts tim
 		Quantity:              qty,
 		Account:               account,
 	}
-	counter := &apiv1.Tx{
-		Timestamp:             timestamppb.New(ts),
-		InstrumentDescription: "GRP",
-		BrokerTxType:          declared,
-		ResolvedTxType:        declared[0],
-		Quantity:              decimal.RequireFromString(qty).Neg().String(),
-		Account:               account,
-		AccountType:           residual,
-		// What the balancer stamps, and what a regroup finds the leg by.
-		SyntheticPurpose: db.RoutedPurpose,
-	}
+	// Weighed at its quantity rather than at nothing, which is what leaves the
+	// group short and gives the store something to route.
+	w := []db.Weight{{Amount: decimal.RequireFromString(qty), Commodity: "inst:" + f.instID}}
 	err := f.p.CreateTxGroup(f.ctx, f.userID, "FIDELITY", account, "",
-		[]*apiv1.Tx{leg, counter}, []string{f.instID, f.instID}, nil, []*time.Time{nil, nil})
+		[]*apiv1.Tx{tx}, []string{f.instID}, w, []*time.Time{nil})
 	if err != nil {
 		t.Fatalf("write posting with residual: %v", err)
 	}
+	if got := f.residualTypeOf(t, account, ts); got != residual {
+		t.Fatalf("routed a %s counterparty, want %s: the fixture's declared set decides it", got, residual)
+	}
+}
+
+// residualTypeOf reads the account type the store routed for a posting's group, so
+// writeWithResidual can say what shape it built rather than assuming one.
+func (f *groupingFixture) residualTypeOf(t *testing.T, account string, ts time.Time) typev1.AccountType {
+	t.Helper()
+	var s string
+	err := f.p.q.QueryRowContext(f.ctx, `
+		SELECT r.account_type FROM txs r
+		JOIN txs l ON l.group_id = r.group_id AND l.synthetic_purpose IS NULL
+		WHERE r.user_id = $1::uuid AND r.synthetic_purpose = $2
+		  AND l.account = $3 AND l.timestamp = $4
+		LIMIT 1`, f.userID, db.RoutedPurpose, account, ts).Scan(&s)
+	if err != nil {
+		t.Fatalf("read routed counterparty: %v", err)
+	}
+	return db.StrToAccountType(s)
 }
 
 func refCorrelation(token string, ordinal, span int64) *archivev1.Correlation {
@@ -266,8 +282,9 @@ func TestListGroupingSeeds_ResidualOnly(t *testing.T) {
 	f.writeWithResidual(t, "A1", ts, "500", []typev1.TxType{typev1.TxType_TRANSFER},
 		typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING)
 	// A trade whose only residual is the source disagreeing with itself, which is
-	// not a reason to go looking.
-	f.writeWithResidual(t, "A2", ts, "300", []typev1.TxType{typev1.TxType_TRADE_ASSET},
+	// not a reason to go looking. Below the commodity tolerance, since the weight
+	// this fixture writes is in the instrument rather than in money.
+	f.writeWithResidual(t, "A2", ts, "0.0000001", []typev1.TxType{typev1.TxType_TRADE_ASSET},
 		typev1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING)
 
 	all, err := f.p.ListGroupingSeeds(f.ctx, db.GroupingSeedOpts{UserID: f.userID})

@@ -48,23 +48,6 @@ const dropResidualsSQL = `
 	  AND synthetic_purpose IN (` + routedPurpose + `)
 `
 
-// groupUUIDs parses the ids keep selects, for handing a subset of the touched
-// groups to settle.
-func groupUUIDs(ids []string, keep func(string) bool) ([]uuid.UUID, error) {
-	out := make([]uuid.UUID, 0, len(ids))
-	for _, id := range ids {
-		if !keep(id) {
-			continue
-		}
-		u, err := uuid.Parse(id)
-		if err != nil {
-			return nil, fmt.Errorf("invalid group id %q: %w", id, err)
-		}
-		out = append(out, u)
-	}
-	return out, nil
-}
-
 // ApplyGrouping implements db.GroupingDB.
 //
 // One transaction, because check_tx_group_balance() is DEFERRABLE INITIALLY DEFERRED
@@ -73,12 +56,6 @@ func groupUUIDs(ids []string, keep func(string) bool) ([]uuid.UUID, error) {
 // routed again -- and the deferral is what makes that expressible at all. Leaving the
 // re-routing to a later statement would expose a moment where the constraint fires on
 // data that was valid before the regroup began.
-//
-// It writes only what it disagrees with. A group whose membership the engine drew
-// exactly as stored produces no statement, keeps its id, and keeps the transfer
-// matches keyed on that id. That is what stops a cycle over a neighbourhood far wider
-// than an upload from churning ids for postings nobody touched. See
-// docs/adr/0047-grouping-runs-as-precedence-ordered-passes.md.
 func (p *Postgres) ApplyGrouping(ctx context.Context, userID string, changes []db.GroupChange) (int, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
@@ -89,98 +66,98 @@ func (p *Postgres) ApplyGrouping(ctx context.Context, userID string, changes []d
 	}
 	moved := 0
 	err = p.runInTx(ctx, func(exec queryable) error {
-		// Every group the regroup reaches, and the subset a posting left. A group
-		// that lost one is short by its value and could be short by any amount; one
-		// the engine assembled, or agreed with and only retyped, holds every leg its
-		// source stated. That is the difference between the two residual rules, and
-		// it is why they are decided here rather than from the size of what is left.
-		touched := map[string]bool{}
-		lost := map[string]bool{}
-		for _, c := range changes {
-			for _, m := range c.Members {
-				if m.FromGroupID == "" {
-					continue
-				}
-				touched[m.FromGroupID] = true
-				if m.Moving {
-					lost[m.FromGroupID] = true
-				}
-			}
-		}
-
-		for _, c := range changes {
-			var move []string
-			var moveType string
-			byType := map[string][]string{}
-			for _, m := range c.Members {
-				if m.Moving {
-					move = append(move, m.ID)
-					moveType = m.Resolved
-					continue
-				}
-				byType[m.Resolved] = append(byType[m.Resolved], m.ID)
-			}
-			// A posting the engine agreed about but retyped is settled where it
-			// stands. The type is derived from the partition, so it can change
-			// while the membership does not.
-			for resolved, ids := range byType {
-				if _, err := exec.ExecContext(ctx, resolveOnlySQL, resolved, pq.Array(ids)); err != nil {
-					return fmt.Errorf("resolve postings: %w", err)
-				}
-			}
-			if len(move) == 0 {
-				continue
-			}
-			var groupID uuid.UUID
-			if err := exec.QueryRowContext(ctx, newGroupSQL, userUUID, pq.Array(move)).Scan(&groupID); err != nil {
-				return fmt.Errorf("create group: %w", err)
-			}
-			if _, err := exec.ExecContext(ctx, moveGroupSQL, groupID, moveType, pq.Array(move)); err != nil {
-				return fmt.Errorf("move postings: %w", err)
-			}
-			touched[groupID.String()] = true
-			moved += len(move)
-		}
-
-		ids := make([]string, 0, len(touched))
-		for id := range touched {
-			ids = append(ids, id)
-		}
-		if _, err := exec.ExecContext(ctx, dropResidualsSQL, pq.Array(ids)); err != nil {
-			return fmt.Errorf("drop residuals: %w", err)
-		}
-		// A group the regroup emptied goes with its residuals, and one that kept
-		// something is re-dated to what it has left, exactly as a period replace
-		// leaves them.
-		if _, err := exec.ExecContext(ctx, deleteEmptiedGroupsSQL, pq.Array(ids)); err != nil {
-			return fmt.Errorf("delete emptied groups: %w", err)
-		}
-		if _, err := exec.ExecContext(ctx, repointGroupTimestampsSQL, pq.Array(ids)); err != nil {
-			return fmt.Errorf("repoint group timestamps: %w", err)
-		}
-		// The matches naming a group whose membership moved are cache, and the
-		// matcher rebuilds them from the same evidence on its next cycle.
-		if _, err := exec.ExecContext(ctx, deleteTouchedMatchesSQL, pq.Array(ids)); err != nil {
-			return fmt.Errorf("delete touched matches: %w", err)
-		}
-		// The engine pairs legs whose money figures differ by up to Opts.Money,
-		// which is residual.Tolerance's money value said again. So a pairing it
-		// accepts leaves exactly the difference that reads as the source
-		// disagreeing with itself, and calling that an imbalance would redden the
-		// dashboard on correct data and re-seed the next cycle from a group nothing
-		// is wrong with.
-		whole, err := groupUUIDs(ids, func(id string) bool { return !lost[id] })
+		var touched settleSet
+		moved, err = applyChanges(ctx, exec, userUUID, changes, &touched)
 		if err != nil {
 			return err
 		}
-		shortened, err := groupUUIDs(ids, func(id string) bool { return lost[id] })
-		if err != nil {
-			return err
-		}
-		if err := settle(ctx, exec, userUUID, whole, wholeSource); err != nil {
-			return err
-		}
-		return settle(ctx, exec, userUUID, shortened, legsRemoved)
+		return touched.settle(ctx, exec, userUUID)
 	})
 	return moved, err
+}
+
+// applyChanges moves the postings the engine repartitioned and clears what the groups
+// it touched owed, recording them in touched for the caller to settle.
+//
+// It writes only what the engine disagrees with. A group whose membership the engine
+// drew exactly as stored produces no statement, keeps its id, and keeps the transfer
+// matches keyed on that id. That is what stops a cycle over a neighbourhood far wider
+// than an upload from churning ids for postings nobody touched. See
+// docs/adr/0047-grouping-runs-as-precedence-ordered-passes.md.
+//
+// The caller settles rather than this, because a caller that also inserted or deleted
+// postings has groups of its own to settle and they have to be balanced together.
+func applyChanges(ctx context.Context, exec queryable, userUUID uuid.UUID, changes []db.GroupChange, touched *settleSet) (int, error) {
+	moved := 0
+	// A group a posting left is short by its value and could be short by any
+	// amount; one the engine assembled, or agreed with and only retyped, holds every
+	// leg its source stated. That is the difference between the two residual rules.
+	for _, c := range changes {
+		for _, m := range c.Members {
+			if m.FromGroupID != "" {
+				touched.add(m.FromGroupID, m.Moving)
+			}
+		}
+	}
+
+	for _, c := range changes {
+		var move []string
+		movingByType := map[string][]string{}
+		stayingByType := map[string][]string{}
+		for _, m := range c.Members {
+			if m.Moving {
+				move = append(move, m.ID)
+				movingByType[m.Resolved] = append(movingByType[m.Resolved], m.ID)
+				continue
+			}
+			stayingByType[m.Resolved] = append(stayingByType[m.Resolved], m.ID)
+		}
+		// A posting the engine agreed about but retyped is settled where it
+		// stands. The type is derived from the partition, so it can change
+		// while the membership does not.
+		for resolved, ids := range stayingByType {
+			if _, err := exec.ExecContext(ctx, resolveOnlySQL, resolved, pq.Array(ids)); err != nil {
+				return moved, fmt.Errorf("resolve postings: %w", err)
+			}
+		}
+		if len(move) == 0 {
+			continue
+		}
+		var groupID uuid.UUID
+		if err := exec.QueryRowContext(ctx, newGroupSQL, userUUID, pq.Array(move)).Scan(&groupID); err != nil {
+			return moved, fmt.Errorf("create group: %w", err)
+		}
+		// One statement per resolved type rather than one for the group. The rule
+		// that claims a posting resolves that posting, and the legs of one event do
+		// not resolve alike -- a trade's asset leg is TRADE_ASSET and the cash it
+		// settles through is TRADE_CASH. Stamping the group with a single value
+		// would retype one of them to the other's.
+		for resolved, ids := range movingByType {
+			if _, err := exec.ExecContext(ctx, moveGroupSQL, groupID, resolved, pq.Array(ids)); err != nil {
+				return moved, fmt.Errorf("move postings: %w", err)
+			}
+		}
+		touched.add(groupID.String(), false)
+		moved += len(move)
+	}
+
+	ids := pq.Array(touched.ids())
+	if _, err := exec.ExecContext(ctx, dropResidualsSQL, ids); err != nil {
+		return moved, fmt.Errorf("drop residuals: %w", err)
+	}
+	// A group the regroup emptied goes with its residuals, and one that kept
+	// something is re-dated to what it has left, exactly as a period replace
+	// leaves them.
+	if _, err := exec.ExecContext(ctx, deleteEmptiedGroupsSQL, ids); err != nil {
+		return moved, fmt.Errorf("delete emptied groups: %w", err)
+	}
+	if _, err := exec.ExecContext(ctx, repointGroupTimestampsSQL, ids); err != nil {
+		return moved, fmt.Errorf("repoint group timestamps: %w", err)
+	}
+	// The matches naming a group whose membership moved are cache, and the
+	// matcher rebuilds them from the same evidence on its next cycle.
+	if _, err := exec.ExecContext(ctx, deleteTouchedMatchesSQL, ids); err != nil {
+		return moved, fmt.Errorf("delete touched matches: %w", err)
+	}
+	return moved, nil
 }

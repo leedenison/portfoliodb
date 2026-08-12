@@ -32,6 +32,10 @@ type queryable interface {
 // Postgres implements db.DB using PostgreSQL.
 type Postgres struct {
 	q queryable
+	// settler decides which of the postings a write stores are legs of one event.
+	// Nil stores them as they arrive, one group each, which is what a fixture that
+	// is not about grouping wants. See groupWritten.
+	settler db.Settler
 }
 
 // New returns a new Postgres DB implementation.
@@ -42,6 +46,14 @@ func New(conn *sqlx.DB) *Postgres {
 // NewWithQueryable returns a Postgres that uses the given queryable (e.g. *sqlx.Tx for tests).
 func NewWithQueryable(q queryable) *Postgres {
 	return &Postgres{q: q}
+}
+
+// WithSettler returns the store with a partition engine wired in, for the process
+// that has one. Kept off the db.DB interface: what decides a partition is a choice
+// made once where the process is assembled, not something a caller passes in.
+func (p *Postgres) WithSettler(s db.Settler) *Postgres {
+	p.settler = s
+	return p
 }
 
 // Ensure Postgres implements db.DB.

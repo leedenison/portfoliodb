@@ -382,8 +382,10 @@ const (
 // the same transaction, so no caller can leave a group unbalanced and none of them
 // can disagree about what balancing means.
 type TxDB interface {
-	// Txs sharing a group_ref are written as postings of one tx group; the rest get
-	// a group each. Every group is stamped with the ingestion job that created it.
+	// Every posting is written into a group of its own and then partitioned by the
+	// Settler, so what comes back is the engine's answer rather than the shape the
+	// postings arrived in. Every group is stamped with the ingestion job that
+	// created it.
 	//
 	// shareCountBasis is parallel to txs and is the date each row's quantity and
 	// unit price are denominated in. A nil entry, and a nil slice, mean as-traded:
@@ -1801,6 +1803,24 @@ type GroupingReader interface {
 	PostingsByToken(ctx context.Context, userID string, qs []TokenQuery, held []string) ([]GroupingPosting, error)
 	PostingsByDates(ctx context.Context, userID string, qs []DateQuery, held []string) ([]GroupingPosting, error)
 	PostingsByOrdinals(ctx context.Context, userID string, qs []OrdinalQuery, held []string) ([]GroupingPosting, error)
+}
+
+// Settler decides which postings are legs of one event, given somewhere to start and
+// a reader to grow the region from, and returns only where it disagrees with what is
+// stored.
+//
+// The store calls it while writing, so that an upload's postings are partitioned in
+// the transaction that inserts them and no group is ever observed in whatever shape
+// the postings happened to arrive in. The reader it is handed reads that same
+// transaction, which is how the engine sees both the postings just written and the
+// ones already stored beside them.
+//
+// It is an interface here and implemented in server/grouping because the rules that
+// decide a partition are not the store's business, and because the store cannot
+// import the package that reads it. A store with no settler stores what it is given
+// and groups nothing, which is what the tests that are not about grouping want.
+type Settler interface {
+	Settle(ctx context.Context, userID string, seed []GroupingPosting, r GroupingReader) ([]GroupChange, error)
 }
 
 // GroupChange is one group the engine drew that the stored partition does not have,

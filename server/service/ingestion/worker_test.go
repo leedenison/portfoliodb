@@ -187,11 +187,17 @@ func TestProcessBulk_DropsIgnoredTxs(t *testing.T) {
 	ctx := context.Background()
 	from := timestamppb.Now()
 	before := timestamppb.Now()
+	// Both legs carry the record's own reference, which is what the store puts them
+	// back together by once they are stored.
+	ref := []*archivev1.Correlation{{
+		Token: "ref-1", Scope: typev1.Scope_SCOPE_FILE,
+		Match: []typev1.Match{typev1.Match_MATCH_EXACT},
+	}}
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10", Account: "", GroupRef: proto.String("ref-1")},
+		{Timestamp: from, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10", Account: "", Correlations: ref},
 		// The ignore rules match the stated asset class, so the cash journal
 		// carries the CASH claim the broker's file made.
-		{Timestamp: from, InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "1", Account: "", GroupRef: proto.String("ref-1")},
+		{Timestamp: from, InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "1", Account: "", Correlations: ref},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -240,9 +246,10 @@ func TestProcessBulk_DropsIgnoredTxs(t *testing.T) {
 			if len(supplied) != 1 || supplied[0].InstrumentDescription != "AAPL" || supplied[0].GetResolvedTxType() != typev1.TxType_TRADE_ASSET {
 				t.Errorf("ReplaceTxsInPeriod called with %d supplied txs, expected 1 (AAPL TRADE_ASSET)", len(supplied))
 			}
-			// Dropping a leg must not lose the surviving legs' grouping.
-			if got := supplied[0].GetGroupRef(); got != "ref-1" {
-				t.Errorf("group_ref after dropping a leg: want ref-1, got %q", got)
+			// Dropping a leg must not lose the surviving leg's evidence, which is
+			// what the store partitions on once the postings are down.
+			if got := supplied[0].GetCorrelations(); len(got) != 1 || got[0].GetToken() != "ref-1" {
+				t.Errorf("correlations after dropping a leg: want the row's own token, got %v", got)
 			}
 			if len(ids) != len(storedTxs) {
 				t.Errorf("instrument ids (%d) and txs (%d) must stay parallel", len(ids), len(storedTxs))

@@ -203,8 +203,11 @@ func TestApplyGrouping_AssembledGroupRoundsRatherThanImbalances(t *testing.T) {
 func TestApplyGrouping_RetypesWithoutMoving(t *testing.T) {
 	f := newGroupingFixture(t, "apply-retype")
 	ts := time.Date(2024, 3, 1, 10, 0, 0, 0, time.UTC)
+	// A set spanning branches resolves to AMBIGUOUS, which is not a transfer under
+	// every reading, so what it leaves over is a missing leg until grouping settles
+	// which it is.
 	f.writeWithResidual(t, "A1", ts, "500", []typev1.TxType{typev1.TxType_TRADE_CASH, typev1.TxType_TRANSFER},
-		typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING)
+		typev1.AccountType_ACCOUNT_TYPE_IMBALANCE)
 
 	before := groupsOf(t, f)
 	var id string

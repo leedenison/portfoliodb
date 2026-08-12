@@ -32,3 +32,15 @@ FROM (VALUES ('2024-03-10', -5000.00, 'ACC-1'),
      (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i
 ON CONFLICT DO NOTHING;
+
+-- The reference both legs of the journal were read from. File-scoped, as a
+-- converter emits one: it is comparable within the upload that supplied it and
+-- says nothing across two, which is why a leg re-imported on its own does not
+-- rejoin the leg that stayed. What repairs that is the grouping cycle, over
+-- evidence that reaches further than one file.
+INSERT INTO tx_correlations (tx_id, ordinality, label, token, scope, matches)
+SELECT t.id, 0, '', 'REC-421', 'FILE', ARRAY['EXACT']
+FROM txs t
+WHERE t.user_id = 'e2e00000-0000-0000-0000-000000000001'
+  AND t.group_id = 'e2e00000-0000-0000-0000-000000000421'
+ON CONFLICT DO NOTHING;

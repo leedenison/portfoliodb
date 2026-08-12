@@ -4,6 +4,7 @@ import { parseOfxStatement, parseOfxDate } from "./parser";
 import { AccountType, AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import { mustBe } from "@/lib/tx-type";
 import { expectGroupsBalance } from "@/lib/csv/group-balance.test-utils";
+import { RECORD_LABEL } from "@/lib/csv/postings";
 
 describe("parseOfxDate", () => {
   it("parses full datetime with negative offset", () => {
@@ -517,24 +518,33 @@ describe("groups and charges", () => {
   // none, since it mirrors a posting rather than transcribing the record.
   it("states what the FITID is comparable by, on every leg of the record", () => {
     const result = parse(GBP_BUY);
-    const correlated = result.postings.filter((t) => t.correlations.length > 0);
+    const correlated = result.postings.filter((t) => t.correlations.length !== 0);
     const userLegs = result.postings.filter(
       (t) => t.accountType === AccountType.UNSPECIFIED || t.accountType === AccountType.USER,
     );
     expect(correlated).toHaveLength(userLegs.length);
-    const c = correlated[0]!.correlations[0]!;
-    expect(c.token).toBe("20251015U10000018371888432");
-    expect(c.scope).toBe(Scope.ACCOUNT);
-    expect(c.match).toEqual([Match.EXACT]);
-    expect(c.ordinal).toBeUndefined();
+    for (const p of correlated) {
+      const c = p.correlations[0]!;
+      expect(c.token).toBe("20251015U10000018371888432");
+      expect(c.scope).toBe(Scope.ACCOUNT);
+      expect(c.match).toEqual([Match.EXACT]);
+      expect(c.ordinal).toBeUndefined();
+    }
   });
 
-  // The parser synthesises a group for legs the source gave no FITID for, so the
-  // group is inferred rather than transcribed. Emitting a correlation for it
-  // would state that the source said something it did not.
-  it("correlates nothing for a trade whose group it synthesised", () => {
+  // A record the source gave no FITID for still has to be reassemblable, so the
+  // parser synthesises an identifier for it. It is file-scoped and says only that
+  // these legs came out of one record -- which records are one event is not the
+  // converter's to state.
+  it("synthesises a record identifier for a trade the source did not reference", () => {
     const result = parse(GBP_BUY.replace("<FITID>20251015U10000018371888432", "<FITID>"));
-    expect(result.postings.every((t) => t.correlations.length === 0)).toBe(true);
+    const correlated = result.postings.filter((t) => t.correlations.length !== 0);
+    expect(correlated).toHaveLength(3);
+    expect(new Set(correlated.map((p) => p.correlations[0]!.token)).size).toBe(1);
+    const c = correlated[0]!.correlations[0]!;
+    expect(c.label).toBe(RECORD_LABEL);
+    expect(c.scope).toBe(Scope.FILE);
+    expect(c.match).toEqual([Match.EXACT]);
   });
 
   it("names the account a dividend came from", () => {

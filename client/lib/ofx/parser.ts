@@ -14,7 +14,13 @@ import { CorrelationSchema, PostingSchema } from "@/gen/archive/v1/txs_pb";
 import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/parse-result";
-import { counterLegs, feeLeg, refPrefix, reinvestIncomeLeg } from "@/lib/csv/postings";
+import {
+  counterLegs,
+  feeLeg,
+  recordCorrelation,
+  refPrefix,
+  reinvestIncomeLeg,
+} from "@/lib/csv/postings";
 import { Big, parseDecimal } from "@/lib/decimal";
 import { parseOfxSgml } from "./sgml";
 
@@ -365,10 +371,12 @@ export function parseOfxStatement(text: string): OfxParseResult {
         // The cash and fee legs below carry it too. A FITID names the record,
         // not a row, and those legs are that record's own TOTAL and COMMISSION
         // split into postings -- so correlating them by it states what the
-        // source stated. What stays uncorrelated is a counter-leg: the income
-        // or expense side mirrors a posting rather than transcribing the
-        // record, and moneyLeg resets its evidence for that reason. The server
-        // derives grouping from this evidence rather than from group_ref (see
+        // source stated. They inherit it rather than being given it here: every
+        // leg moneyLeg builds is a leg of the record it was built beside. What
+        // stays uncorrelated is a counter-leg, which mirrors a posting rather
+        // than transcribing the record, and which counterLeg resets for that
+        // reason. The server derives grouping from this evidence rather than
+        // from group_ref (see
         // docs/adr/0041-server-owns-transaction-grouping.md), so a leg left
         // uncorrelated here is a leg it cannot put back.
         //
@@ -449,13 +457,11 @@ export function parseOfxStatement(text: string): OfxParseResult {
           );
         }
 
+        // The charge is a figure of this record, so the leg built for it carries
+        // the record's evidence. moneyLeg copies it from the leg it was built
+        // beside, which is what gives a reinvestment's income leg the same.
         const fee = feeLeg(security, charge);
-        if (fee) {
-          // Built from scratch by moneyLeg, so its evidence is set here rather
-          // than inherited: the charge is a figure of this record.
-          if (fitId) fee.correlations = [fitIdCorrelation(fitId)];
-          legs.push(fee);
-        }
+        if (fee) legs.push(fee);
       }
 
       postings.push(...legs);
@@ -463,10 +469,17 @@ export function parseOfxStatement(text: string): OfxParseResult {
     }
   }
 
+  // A record the statement gave no FITID has nothing for its legs to share, so
+  // one is synthesised for them. It identifies the record within this file and
+  // says nothing else -- which records are one event stays the server's.
   if (unreferenced.length > 0) {
     const prefix = refPrefix(postings);
     unreferenced.forEach((legs, i) => {
-      for (const leg of legs) leg.groupRef = `${prefix}${i}`;
+      const correlation = recordCorrelation(`${prefix}${i}`);
+      for (const leg of legs) {
+        leg.groupRef = `${prefix}${i}`;
+        leg.correlations = [correlation];
+      }
     });
   }
 

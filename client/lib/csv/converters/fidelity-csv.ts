@@ -15,7 +15,13 @@ import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
 import type { StandardParseResult, ParseError } from "@/lib/csv/parse-result";
 import { parseCSVLine } from "@/lib/csv/line";
-import { counterLegs, currencyHint, refPrefix, reinvestIncomeLeg } from "@/lib/csv/postings";
+import {
+  counterLegs,
+  currencyHint,
+  identifyRecord,
+  refPrefix,
+  reinvestIncomeLeg,
+} from "@/lib/csv/postings";
 import { mayBe, mustBe } from "@/lib/tx-type";
 import { Big, parseDecimal } from "@/lib/decimal";
 
@@ -726,7 +732,10 @@ export function convertFidelityToStandard(
     if (leg.type !== "Reinvestment From Income") return;
     const p = postings[i];
     if (!p.groupRef) p.groupRef = `${prefix}${i}`;
-    const income = reinvestIncomeLeg(p);
+    // The income leg inherits the row's reference, so the pair is joinable from
+    // evidence rather than only from the ref stamped above. A row the export gave
+    // no reference has nothing to inherit, and gets a synthesised one.
+    const income = reinvestIncomeLeg(identifyRecord(p, String(i)));
     if (income) postings.push(income);
   });
   // Fidelity nets nothing into a trade total, so no fee is derived here: its

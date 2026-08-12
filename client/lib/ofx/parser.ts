@@ -366,11 +366,19 @@ export function parseOfxStatement(text: string): OfxParseResult {
         groupRef: fitId,
         // The same id in three places, saying three different things: which
         // postings are one event, which statement record this one was
-        // transcribed from, and what it is comparable with. The cash and fee
-        // legs below carry the correlation too: they are read out of this same
-        // record's TOTAL and COMMISSION, so the id is as much theirs as it is
-        // this leg's, and it is what puts the record back together once nothing
-        // states the grouping.
+        // transcribed from, and what it is comparable with.
+        //
+        // The cash and fee legs below carry it too. A FITID names the record,
+        // not a row, and those legs are that record's own TOTAL and COMMISSION
+        // split into postings -- so correlating them by it states what the
+        // source stated. They inherit it rather than being given it here: every
+        // leg moneyLeg builds is a leg of the record it was built beside. What
+        // stays uncorrelated is a counter-leg, which mirrors a posting rather
+        // than transcribing the record, and which counterLeg resets for that
+        // reason. The server derives grouping from this evidence rather than
+        // from group_ref (see
+        // docs/adr/0041-server-owns-transaction-grouping.md), so a leg left
+        // uncorrelated here is a leg it cannot put back.
         //
         // Scoped to the account rather than to the file: the OFX spec makes a
         // FITID unique within the account, not within the institution. Equality
@@ -449,6 +457,9 @@ export function parseOfxStatement(text: string): OfxParseResult {
           );
         }
 
+        // The charge is a figure of this record, so the leg built for it carries
+        // the record's evidence. moneyLeg copies it from the leg it was built
+        // beside, which is what gives a reinvestment's income leg the same.
         const fee = feeLeg(security, charge);
         if (fee) legs.push(fee);
       }

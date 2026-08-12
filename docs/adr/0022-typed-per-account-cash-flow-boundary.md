@@ -81,11 +81,14 @@ holding vanish for the days between the two sides of a matched transfer, so
 in-flight value is included in valuation for matched pairs whose accounts are
 both portfolio members, and excluded otherwise.
 
-Valuation has since landed that rule ([0090](../issues/0090-net-and-value-matched-transfers.md)).
+Both consumers have since landed ([0090](../issues/0090-net-and-value-matched-transfers.md)).
 The pairs a portfolio values are `portfolio_in_flight_txs`, a view beside
 `portfolio_matched_txs` because it asks the same question about membership -- of the
 counterpart's own clearing leg, which is the test that reads identically from either
-side of a pair. One consequence is worth stating plainly rather than discovering. This
+side of a pair. The flow query nets a matched pair by reading the same view, so the two
+cannot disagree about what nets -- a disagreement would be a value series and a return
+series computed over different perimeters. One consequence is worth stating plainly
+rather than discovering. This
 ADR rejected portfolio-relative *classification* partly because adding an account to a
 portfolio would move every past return figure; netting was always going to be read at
 query time, and now valuation is too, so a historical value series moves when membership

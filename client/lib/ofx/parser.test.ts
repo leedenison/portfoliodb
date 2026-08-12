@@ -510,10 +510,18 @@ describe("groups and charges", () => {
   // which is the uniqueness the OFX spec gives it, and it is opaque: the string
   // plainly carries a number but nothing here knows where it starts, so equality
   // is all it honestly offers.
-  it("states what the FITID is comparable by, on the transcribed leg alone", () => {
+  //
+  // On every leg the record itself describes, because a FITID names the record:
+  // the security, the cash TOTAL settled at and the charge folded into it are one
+  // event and the server has nothing else to join them by. A counter-leg carries
+  // none, since it mirrors a posting rather than transcribing the record.
+  it("states what the FITID is comparable by, on every leg of the record", () => {
     const result = parse(GBP_BUY);
     const correlated = result.postings.filter((t) => t.correlations.length > 0);
-    expect(correlated).toHaveLength(1);
+    const userLegs = result.postings.filter(
+      (t) => t.accountType === AccountType.UNSPECIFIED || t.accountType === AccountType.USER,
+    );
+    expect(correlated).toHaveLength(userLegs.length);
     const c = correlated[0]!.correlations[0]!;
     expect(c.token).toBe("20251015U10000018371888432");
     expect(c.scope).toBe(Scope.ACCOUNT);

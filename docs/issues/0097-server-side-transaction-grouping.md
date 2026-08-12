@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Derive transaction groups on the server
 milestone: M15
 dependencies: [0096, 0100, 0102]

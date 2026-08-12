@@ -29,6 +29,17 @@ func ValidateTx(tx *apiv1.Tx, rowIndex int32) []*apiv1.ValidationError {
 	}
 	errs = append(errs, validateBrokerTxType(tx.GetBrokerTxType(), rowIndex)...)
 	errs = append(errs, validateSettlementAmount(tx, rowIndex)...)
+	// synthetic_purpose says the server made the posting, so nothing that came from
+	// outside may claim it: a source that could stamp RESIDUAL on a row would get it
+	// thrown away and derived again by the next replace. The balancer sets it on the
+	// counterparties it routes, after this runs.
+	if tx.GetSyntheticPurpose() != "" {
+		errs = append(errs, &apiv1.ValidationError{
+			RowIndex: rowIndex,
+			Field:    "synthetic_purpose",
+			Message:  "server-derived; not accepted on a posting a source supplied",
+		})
+	}
 	return errs
 }
 

@@ -75,6 +75,8 @@ func (f *groupingFixture) writeWithResidual(t *testing.T, account string, ts tim
 		Quantity:              decimal.RequireFromString(qty).Neg().String(),
 		Account:               account,
 		AccountType:           residual,
+		// What the balancer stamps, and what a regroup finds the leg by.
+		SyntheticPurpose: db.RoutedPurpose,
 	}
 	err := f.p.CreateTxGroup(f.ctx, f.userID, "FIDELITY", account, "",
 		[]*apiv1.Tx{leg, counter}, []string{f.instID, f.instID}, nil, []*time.Time{nil, nil})

@@ -42,14 +42,20 @@ const groupingColumns = `
 // the partition is settled. A group holding a synthetic pad is left alone whole --
 // the pad and its EQUITY counterparty are the declaration machinery's, and half a
 // group is not a group.
+//
+// The pad is named rather than inferred from a purpose being present. A residual now
+// carries one too, so "the group holds something the server made" no longer picks out
+// the pad: a group is excluded because it holds a declaration's pad, and a residual is
+// excluded because it is not a posting anything could partition.
 const transcribedPostings = `
 	FROM txs t
 	JOIN tx_groups g ON g.id = t.group_id
 	WHERE t.user_id = $1::uuid
 	  AND t.account_type = 'USER'
+	  AND t.synthetic_purpose IS NULL
 	  AND NOT EXISTS (
 	    SELECT 1 FROM txs s
-	    WHERE s.group_id = t.group_id AND s.synthetic_purpose IS NOT NULL
+	    WHERE s.group_id = t.group_id AND s.synthetic_purpose = '` + db.InitializePurpose + `'
 	  )
 `
 

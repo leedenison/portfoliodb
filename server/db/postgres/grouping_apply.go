@@ -45,7 +45,7 @@ const resolveOnlySQL = `
 const dropResidualsSQL = `
 	DELETE FROM txs
 	WHERE group_id = ANY($1::uuid[])
-	  AND account_type IN (` + residualAccountTypes + `)
+	  AND synthetic_purpose IN (` + routedPurpose + `)
 `
 
 // ApplyGrouping implements db.GroupingDB.

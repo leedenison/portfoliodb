@@ -349,15 +349,21 @@ func routeResiduals(txs []*apiv1.Tx, instrumentIDs []string, instruments map[str
 // the broker account, date and tx type of the group it balances, so the residual
 // stays attributable to the account that produced it and to the kind of event that
 // left it -- which is what the imbalance report reads.
+//
+// It says in synthetic_purpose that the server made it. That is what a later replace
+// or regroup finds it by, so that it is thrown away and derived again against the
+// legs the group ends with rather than being preserved as though a source had stated
+// it.
 func routedFor(first *apiv1.Tx, ref string, c commodity, desc string, amount decimal.Decimal, accountType typev1.AccountType) routedPosting {
 	tx := &apiv1.Tx{
-		Timestamp:      proto.CloneOf(first.GetTimestamp()),
-		BrokerTxType:   append([]typev1.TxType(nil), first.GetBrokerTxType()...),
-		ResolvedTxType: first.GetResolvedTxType(),
-		Quantity:       amount.String(),
-		Account:        first.GetAccount(),
-		GroupRef:       ref,
-		AccountType:    accountType,
+		Timestamp:        proto.CloneOf(first.GetTimestamp()),
+		BrokerTxType:     append([]typev1.TxType(nil), first.GetBrokerTxType()...),
+		ResolvedTxType:   first.GetResolvedTxType(),
+		Quantity:         amount.String(),
+		Account:          first.GetAccount(),
+		GroupRef:         ref,
+		AccountType:      accountType,
+		SyntheticPurpose: db.RoutedPurpose,
 	}
 	// The routed posting weighs the residual it negates, in the commodity that
 	// residual accumulated in. That is what makes the group sum to zero.

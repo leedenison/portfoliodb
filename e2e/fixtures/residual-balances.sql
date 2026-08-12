@@ -32,9 +32,9 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
                  broker_tx_type, resolved_tx_type,
                  quantity, trading_currency, settlement_currency, instrument_id, account_type,
-                 weight, weight_commodity, group_id)
+                 synthetic_purpose, weight, weight_commodity, group_id)
 SELECT 'e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1',
-       now() - INTERVAL '5 days', 'USD', ARRAY['INCOME'], 'INCOME', -137.08, 'USD', 'USD', i.instrument_id, 'IMBALANCE',
+       now() - INTERVAL '5 days', 'USD', ARRAY['INCOME'], 'INCOME', -137.08, 'USD', 'USD', i.instrument_id, 'IMBALANCE', 'RESIDUAL',
        -137.08, 'cur:USD', 'e2e00000-0000-0000-0000-000000000301'
 FROM (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;
@@ -44,9 +44,9 @@ FROM (SELECT instrument_id FROM instrument_identifiers
 INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
                  broker_tx_type, resolved_tx_type,
                  quantity, trading_currency, settlement_currency, instrument_id, account_type,
-                 weight, weight_commodity, group_id)
+                 synthetic_purpose, weight, weight_commodity, group_id)
 SELECT 'e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1',
-       now() - INTERVAL '6 days', 'USD', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 4.95, 'USD', 'USD', i.instrument_id, 'IMBALANCE',
+       now() - INTERVAL '6 days', 'USD', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 4.95, 'USD', 'USD', i.instrument_id, 'IMBALANCE', 'RESIDUAL',
        4.95, 'cur:USD', 'e2e00000-0000-0000-0000-000000000302'
 FROM (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;
@@ -58,10 +58,10 @@ FROM (SELECT instrument_id FROM instrument_identifiers
 INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
                  broker_tx_type, resolved_tx_type,
                  quantity, trading_currency, settlement_currency, instrument_id, account_type,
-                 weight, weight_commodity, group_id)
+                 synthetic_purpose, weight, weight_commodity, group_id)
 SELECT 'e2e00000-0000-0000-0000-000000000001', 'SCHB', v.account,
        now() - (v.days || ' days')::INTERVAL, 'USD', ARRAY['TRANSFER'], 'TRANSFER', v.qty, 'USD', 'USD',
-       i.instrument_id, 'TRANSFER_CLEARING', v.qty, 'cur:USD', v.group_id::uuid
+       i.instrument_id, 'TRANSFER_CLEARING', 'RESIDUAL', v.qty, 'cur:USD', v.group_id::uuid
 FROM (VALUES ('SCH-1', 1000.00, '60', 'e2e00000-0000-0000-0000-000000000303'),
              ('SCH-2', -1000.00, '59', 'e2e00000-0000-0000-0000-000000000304')) AS v(account, qty, days, group_id),
      (SELECT instrument_id FROM instrument_identifiers
@@ -72,9 +72,9 @@ FROM (VALUES ('SCH-1', 1000.00, '60', 'e2e00000-0000-0000-0000-000000000303'),
 INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
                  broker_tx_type, resolved_tx_type,
                  quantity, trading_currency, settlement_currency, instrument_id, account_type,
-                 weight, weight_commodity, group_id)
+                 synthetic_purpose, weight, weight_commodity, group_id)
 SELECT 'e2e00000-0000-0000-0000-000000000001', 'IBKR', 'U-OLD',
-       now() - INTERVAL '40 days', 'USD', ARRAY['TRANSFER'], 'TRANSFER', 500.00, 'USD', 'USD', i.instrument_id, 'TRANSFER_CLEARING',
+       now() - INTERVAL '40 days', 'USD', ARRAY['TRANSFER'], 'TRANSFER', 500.00, 'USD', 'USD', i.instrument_id, 'TRANSFER_CLEARING', 'RESIDUAL',
        500.00, 'cur:USD', 'e2e00000-0000-0000-0000-000000000305'
 FROM (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;
@@ -84,9 +84,9 @@ FROM (SELECT instrument_id FROM instrument_identifiers
 INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
                  broker_tx_type, resolved_tx_type,
                  quantity, trading_currency, settlement_currency, instrument_id, account_type,
-                 weight, weight_commodity, group_id)
+                 synthetic_purpose, weight, weight_commodity, group_id)
 SELECT 'e2e00000-0000-0000-0000-000000000001', 'IBKR', 'U-NEW',
-       now() - INTERVAL '2 days', 'USD', ARRAY['TRANSFER'], 'TRANSFER', 250.00, 'USD', 'USD', i.instrument_id, 'TRANSFER_CLEARING',
+       now() - INTERVAL '2 days', 'USD', ARRAY['TRANSFER'], 'TRANSFER', 250.00, 'USD', 'USD', i.instrument_id, 'TRANSFER_CLEARING', 'RESIDUAL',
        250.00, 'cur:USD', 'e2e00000-0000-0000-0000-000000000306'
 FROM (SELECT instrument_id FROM instrument_identifiers
       WHERE identifier_type = 'CURRENCY' AND value = 'USD' LIMIT 1) i;

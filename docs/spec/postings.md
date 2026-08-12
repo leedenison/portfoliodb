@@ -126,10 +126,12 @@ at query time. A posting in account A is an external flow of A iff its group has
 outside A, and `account_type` says what kind of outside:
 
 - `EQUITY` is external, and never nets, since there is no counterparty side.
-- `INCOME`, `EXPENSE` and `IMBALANCE` are not flows. These are return and cost, and
-  treating them as external would strip dividends out of the return and report it gross
-  of fees. `IMBALANCE` is internal because a residual is usually a missing fee or a
-  missing cash leg, both of which are internal.
+- `INCOME`, `EXPENSE`, `IMBALANCE` and `SOURCE_ROUNDING` are not flows. These are return
+  and cost, and treating them as external would strip dividends out of the return and
+  report it gross of fees. `IMBALANCE` is internal because a residual is usually a
+  missing fee or a missing cash leg, both of which are internal. `SOURCE_ROUNDING` is
+  internal more plainly still: a source disagreeing with its own arithmetic is neither a
+  contribution nor a withdrawal.
 - Another `USER` account is external to A, and nets against the other side when both
   accounts belong to the portfolio being measured.
 - `TRANSFER_CLEARING` is external while unmatched, because one half is all we know. It
@@ -138,6 +140,28 @@ outside A, and `account_type` says what kind of outside:
 Membership decides internal versus external; there is no per-portfolio user override.
 Membership already expresses the intent, and a toggle would be a second place to say the
 same thing that can disagree with the first.
+
+Two things the list leaves implicit. A group contributes a flow only where it has a leg
+inside the portfolio: without that, a dividend in an account the portfolio does not hold
+has exactly one leg that is outside and external -- its own -- and reads as a
+withdrawal from a portfolio it never touched. And a flow is dated by the external leg
+rather than by the member leg whose value moved, because the external leg is the
+counterparty and its date is the one the source stated for the crossing; a group's
+postings need not share a timestamp, and choosing among several member legs would be
+arbitrary.
+
+Membership is per posting rather than per account, which an instrument filter makes
+visible: a buy's cash leg does not match a portfolio scoped to one security, so the
+cash reads as a flow into it. That is the right answer for such a portfolio -- the cash
+bought in -- and it is the same answer valuation gives, which does not value that cash
+either.
+
+The flows crossing the boundary are read per portfolio and per user, in the commodity
+they moved in. A flow in shares -- an in-specie transfer, or the `EQUITY` counterparty
+of a pad -- would need a price as well as an exchange rate to state as money, and the
+result would be an estimate where a contribution figure is exact
+(see [0026](../adr/0026-exact-decimals-bounded-by-closure.md)). Converting is the
+concern of whatever computes a return from them.
 
 ## Visibility
 
@@ -154,9 +178,23 @@ in portfolio value and a fake return blip. Holding value in transit is what a cl
 account is for. So: exclude from holdings display always; include in valuation only for
 matched pairs where both accounts are members. Including an unmatched in-flight balance
 would assert the money is coming back to a member account, which is the thing we do not
-know. Matching now supplies the pairing this rule needs, but nothing reads it yet:
-valuation still reads `USER` only, and netting a matched pair in portfolio cash flows
-is a separate change (0090).
+know.
+
+Valuation reads the pairing through `portfolio_in_flight_txs`, which names the clearing
+legs a portfolio values. Membership is tested against the counterpart's own clearing
+leg rather than against its group, because that leg carries the counterpart account and
+the commodity the match is keyed on, so the test reads the same from either side and a
+pair is admitted whole or not at all. The counterpart is not required to fall inside the
+valuation window: value still in transit when the window closes is value held, and
+asking for its arrival would reinstate the dip the rule exists to remove. Valuing a
+user rather than a portfolio needs no membership test at all, both groups being the
+same user's by construction.
+
+Two things follow. Valuation and holdings disagree while a transfer is in transit, by
+design: the value is in the total and the position is in neither account's holdings.
+And a valuation of a past window moves when the matcher runs, because what nets is read
+at query time rather than stored -- the price of not recording a decision that depends
+on data which has not arrived.
 
 The transaction list is not filtered. It is a ledger view, and hiding the counterparty
 legs would make groups look unbalanced and hide the residuals that make a converter's

@@ -81,6 +81,18 @@ holding vanish for the days between the two sides of a matched transfer, so
 in-flight value is included in valuation for matched pairs whose accounts are
 both portfolio members, and excluded otherwise.
 
+Valuation has since landed that rule ([0090](../issues/0090-net-and-value-matched-transfers.md)).
+The pairs a portfolio values are `portfolio_in_flight_txs`, a view beside
+`portfolio_matched_txs` because it asks the same question about membership -- of the
+counterpart's own clearing leg, which is the test that reads identically from either
+side of a pair. One consequence is worth stating plainly rather than discovering. This
+ADR rejected portfolio-relative *classification* partly because adding an account to a
+portfolio would move every past return figure; netting was always going to be read at
+query time, and now valuation is too, so a historical value series moves when membership
+changes or when the matcher runs. That is the price of not storing a decision that
+depends on data which has not arrived, and it is the price this ADR already accepted for
+netting.
+
 0020's remaining consequences stand. An INITIALIZE row (see
 [0011](0011-synthetic-initialize-transactions.md)) is a pad with no counterparty
 and needs an `EQUITY` posting to satisfy the invariant, and the invariant is

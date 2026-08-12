@@ -13,13 +13,6 @@ import (
 	"time"
 )
 
-// transferFixture stands up the two sides of one transfer hop as ingestion would
-// leave them: a journal posting in each account, each balanced by a
-// TRANSFER_CLEARING counterparty holding the value in transit. It returns the group
-// ids of the departure and the arrival.
-//
-// The rows are the 2025-04-15 lump sum from the Fidelity master, whose references
-// differ by 3.
 // fidelityCorrelations is the evidence a Fidelity export supplies for one row: a
 // reference number, comparable by equality and by distance, and the account the
 // source names as the other side where it names one.
@@ -44,29 +37,68 @@ func fidelityCorrelations(t *testing.T, ref, counterparty string) []*archivev1.C
 	return out
 }
 
+// transferSpec is what varies between the transfers a fixture builds: the commodity
+// the value moves in, the amount leaving the departure account, the two accounts,
+// and the date each side's own statement gave it.
+//
+// The two dates are separate because that is the case the pairing exists for. A
+// broker reports each side on its own statement, and it is the days between them
+// that a matched pair has to hold value over.
+type transferSpec struct {
+	instID   string
+	desc     string
+	qty      string // signed as the departure account sees it, so negative
+	depart   time.Time
+	arrive   time.Time
+	fromAcct string
+	toAcct   string
+}
+
+// fidelityLumpSum is the 2025-04-15 lump sum from the Fidelity master, whose two
+// sides carry references differing by 3. Both sides are dated the same day, which is
+// how the export has them.
+func fidelityLumpSum(instID string) transferSpec {
+	base := time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC)
+	return transferSpec{
+		instID: instID, desc: "GBP", qty: "-20000",
+		depart: base, arrive: base,
+		fromAcct: "AG10000001", toAcct: "AW10000001",
+	}
+}
+
+// transferFixture stands up the two sides of the Fidelity lump sum.
 func transferFixture(t *testing.T, p *Postgres, userID, instID string) (from, to string) {
 	t.Helper()
+	return transferFixtureAt(t, p, userID, fidelityLumpSum(instID))
+}
+
+// transferFixtureAt stands up the two sides of one transfer hop as ingestion would
+// leave them: a journal posting in each account, each balanced by a
+// TRANSFER_CLEARING counterparty holding the value in transit. It returns the group
+// ids of the departure and the arrival.
+//
+// One replacement period covers both sides, so a caller seeding a position for the
+// transfer to move must date it outside [depart, arrive].
+func transferFixtureAt(t *testing.T, p *Postgres, userID string, s transferSpec) (from, to string) {
+	t.Helper()
 	ctx := context.Background()
-	base := time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC)
-	period := func() (*timestamppb.Timestamp, *timestamppb.Timestamp) {
-		return timestamppb.New(base), timestamppb.New(base.Add(24 * time.Hour))
-	}
-	side := func(account, qty, ref, counterparty string) []*apiv1.Tx {
+	side := func(account, qty, ref, counterparty string, at time.Time) []*apiv1.Tx {
 		return []*apiv1.Tx{
-			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
+			{Timestamp: timestamppb.New(at), InstrumentDescription: s.desc, BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
 				Quantity: qty, Account: account, GroupRef: ref,
 				Correlations: fidelityCorrelations(t, ref, counterparty)},
 			// The clearing counterparty, equal and opposite, as routing writes it:
 			// no reference of its own, because it was transcribed from no row.
-			{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
+			{Timestamp: timestamppb.New(at), InstrumentDescription: s.desc, BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
 				Quantity: negate(t, qty), Account: account, GroupRef: ref,
 				AccountType: typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING},
 		}
 	}
-	f, b := period()
-	txs := append(side("AG10000001", "-20000", "971613411", ""),
-		side("AW10000001", "20000", "971613414", "AG10000001")...)
-	ids := []string{instID, instID, instID, instID}
+	f := timestamppb.New(s.depart)
+	b := timestamppb.New(s.arrive.Add(24 * time.Hour))
+	txs := append(side(s.fromAcct, s.qty, "971613411", "", s.depart),
+		side(s.toAcct, negate(t, s.qty), "971613414", s.fromAcct, s.arrive)...)
+	ids := []string{s.instID, s.instID, s.instID, s.instID}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", f, b, txs, ids, nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}

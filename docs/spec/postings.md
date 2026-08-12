@@ -148,9 +148,23 @@ in portfolio value and a fake return blip. Holding value in transit is what a cl
 account is for. So: exclude from holdings display always; include in valuation only for
 matched pairs where both accounts are members. Including an unmatched in-flight balance
 would assert the money is coming back to a member account, which is the thing we do not
-know. Matching now supplies the pairing this rule needs, but nothing reads it yet:
-valuation still reads `USER` only, and netting a matched pair in portfolio cash flows
-is a separate change (0090).
+know.
+
+Valuation reads the pairing through `portfolio_in_flight_txs`, which names the clearing
+legs a portfolio values. Membership is tested against the counterpart's own clearing
+leg rather than against its group, because that leg carries the counterpart account and
+the commodity the match is keyed on, so the test reads the same from either side and a
+pair is admitted whole or not at all. The counterpart is not required to fall inside the
+valuation window: value still in transit when the window closes is value held, and
+asking for its arrival would reinstate the dip the rule exists to remove. Valuing a
+user rather than a portfolio needs no membership test at all, both groups being the
+same user's by construction.
+
+Two things follow. Valuation and holdings disagree while a transfer is in transit, by
+design: the value is in the total and the position is in neither account's holdings.
+And a valuation of a past window moves when the matcher runs, because what nets is read
+at query time rather than stored -- the price of not recording a decision that depends
+on data which has not arrived.
 
 The transaction list is not filtered. It is a ledger view, and hiding the counterparty
 legs would make groups look unbalanced and hide the residuals that make a converter's

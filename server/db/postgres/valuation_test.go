@@ -1344,3 +1344,444 @@ func TestGetUserValuation_ExcludesDatesAfterCloseAcrossInexactSplit(t *testing.T
 		}
 	}
 }
+
+// The tests below cover in-flight value: the TRANSFER_CLEARING legs of a matched
+// pair, which valuation admits and holdings do not. See portfolio_in_flight_txs in
+// server/migrations/001_initial.sql.
+
+// dailyValues indexes a valuation series by date. A day on which a portfolio holds
+// nothing produces no point at all rather than a zero, and the dip these tests are
+// about is exactly such a day, so asserting on it means asking for a date the series
+// may not carry.
+func dailyValues(points []db.ValuationPoint) map[string]float64 {
+	out := make(map[string]float64, len(points))
+	for _, pt := range points {
+		out[pt.Date.Format("2006-01-02")] = pt.TotalValue
+	}
+	return out
+}
+
+// inFlightSpec is the transfer these tests move: 20,000 US dollars leaving one
+// Fidelity account on 15 April and arriving in another on the 20th. The commodity is
+// the seeded USD cash instrument and the display currency is USD throughout, so a
+// value equals a quantity and no price or FX fixture is needed.
+func inFlightSpec(t *testing.T, p *Postgres, depart, arrive time.Time) transferSpec {
+	t.Helper()
+	usdInstID, err := p.FindInstrumentByIdentifier(context.Background(), "CURRENCY", "", "USD")
+	if err != nil || usdInstID == "" {
+		t.Fatalf("USD cash instrument not found: %v", err)
+	}
+	return transferSpec{
+		instID: usdInstID, desc: "USD CASH", qty: "-20000",
+		depart: depart, arrive: arrive,
+		fromAcct: "AG10000001", toAcct: "AW10000001",
+	}
+}
+
+// openingCash seeds the balance a transfer moves, dated before the transfer so that
+// the fixture's own replacement period does not take it back out again.
+func openingCash(t *testing.T, p *Postgres, userID, instID, account string, at time.Time, qty string) {
+	t.Helper()
+	ctx := context.Background()
+	txs := []*apiv1.Tx{{
+		Timestamp: timestamppb.New(at), InstrumentDescription: "USD CASH",
+		BrokerTxType: []typev1.TxType{typev1.TxType_INCOME}, ResolvedTxType: typev1.TxType_INCOME,
+		Quantity: qty, Account: account,
+	}}
+	from := timestamppb.New(at.Add(-1 * time.Hour))
+	to := timestamppb.New(at.Add(1 * time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", from, to, txs, []string{instID}, nil, nil); err != nil {
+		t.Fatalf("opening cash: %v", err)
+	}
+}
+
+// accountPortfolio builds a portfolio that is exactly the named accounts.
+func accountPortfolio(t *testing.T, p *Postgres, userID, name string, accounts ...string) string {
+	t.Helper()
+	ctx := context.Background()
+	port, err := p.CreatePortfolio(ctx, userID, name)
+	if err != nil {
+		t.Fatalf("create portfolio: %v", err)
+	}
+	filters := make([]db.PortfolioFilter, len(accounts))
+	for i, a := range accounts {
+		filters[i] = db.PortfolioFilter{FilterType: "account", FilterValue: a}
+	}
+	if err := p.SetPortfolioFilters(ctx, port.Id, filters); err != nil {
+		t.Fatalf("set filters: %v", err)
+	}
+	return port.Id
+}
+
+// matchTransfer records the link the transfermatch worker would write.
+func matchTransfer(t *testing.T, p *Postgres, userID, from, to, instID string) {
+	t.Helper()
+	n, err := p.CreateTransferMatches(context.Background(), []db.TransferMatch{{
+		UserID: userID, FromGroupID: from, ToGroupID: to,
+		InstrumentID: instID, Method: db.TransferMatchPointer,
+	}})
+	if err != nil || n != 1 {
+		t.Fatalf("create transfer match: wrote %d, err %v", n, err)
+	}
+}
+
+// april is the window these tests value over: 10 April up to but not including
+// 25 April, which brackets both sides of the transfer with days either side.
+func april(day int) time.Time { return time.Date(2025, 4, day, 0, 0, 0, 0, time.UTC) }
+
+// TestGetPortfolioValuation_MatchedPairHoldsValueFlat verifies that a transfer
+// between two accounts of one portfolio does not move the portfolio's value on any
+// day, including the five days it spends in transit. Admitting both clearing legs
+// makes each group net to zero on its own date, so the running position never moves.
+func TestGetPortfolioValuation_MatchedPairHoldsValueFlat(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-flight-flat", "U", "u@flight-flat.com")
+	spec := inFlightSpec(t, p, april(15), april(20))
+	openingCash(t, p, userID, spec.instID, spec.fromAcct, april(1), "20000")
+	from, to := transferFixtureAt(t, p, userID, spec)
+	matchTransfer(t, p, userID, from, to, spec.instID)
+	port := accountPortfolio(t, p, userID, "Both", spec.fromAcct, spec.toAcct)
+
+	points, err := p.GetPortfolioValuation(ctx, port, april(10), april(25), "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	values := dailyValues(points)
+	for day := 10; day < 25; day++ {
+		got := values[april(day).Format("2006-01-02")]
+		if got != 20000 {
+			t.Errorf("value on April %d: want 20000, got %v", day, got)
+		}
+	}
+}
+
+// TestGetPortfolioValuation_MatchedPairIsInvisibleToHoldings verifies the other half
+// of the same rule on the same fixture: a clearing leg valuation admits is still not
+// a position, so mid-transit the departure account holds nothing and the arrival
+// account does not hold it yet.
+func TestGetPortfolioValuation_MatchedPairIsInvisibleToHoldings(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-flight-hold", "U", "u@flight-hold.com")
+	spec := inFlightSpec(t, p, april(15), april(20))
+	openingCash(t, p, userID, spec.instID, spec.fromAcct, april(1), "20000")
+	from, to := transferFixtureAt(t, p, userID, spec)
+	matchTransfer(t, p, userID, from, to, spec.instID)
+	port := accountPortfolio(t, p, userID, "Both", spec.fromAcct, spec.toAcct)
+
+	holdings, _, err := p.ComputeHoldingsForPortfolio(ctx, port, timestamppb.New(april(17)))
+	if err != nil {
+		t.Fatalf("compute holdings: %v", err)
+	}
+	for _, h := range holdings {
+		t.Errorf("expected no holdings in transit, got %s %s", h.GetSplitAdjustedQuantity(), h.GetInstrumentDescription())
+	}
+}
+
+// TestGetPortfolioValuation_UnmatchedTransferDips verifies the behaviour the pairing
+// exists to remove, so that the fixed case above is pinned against something. With no
+// match the two clearing legs are excluded and the money is nowhere for five days.
+func TestGetPortfolioValuation_UnmatchedTransferDips(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-flight-dip", "U", "u@flight-dip.com")
+	spec := inFlightSpec(t, p, april(15), april(20))
+	openingCash(t, p, userID, spec.instID, spec.fromAcct, april(1), "20000")
+	transferFixtureAt(t, p, userID, spec)
+	port := accountPortfolio(t, p, userID, "Both", spec.fromAcct, spec.toAcct)
+
+	points, err := p.GetPortfolioValuation(ctx, port, april(10), april(25), "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	values := dailyValues(points)
+	for day := 10; day < 25; day++ {
+		want := 20000.0
+		if day >= 15 && day < 20 {
+			want = 0
+		}
+		got := values[april(day).Format("2006-01-02")]
+		if got != want {
+			t.Errorf("value on April %d: want %v, got %v", day, want, got)
+		}
+	}
+}
+
+// TestGetPortfolioValuation_MatchedPairOnlyDepartureIsMember verifies that a matched
+// pair does not net for a portfolio holding only the account the value left. From
+// that portfolio's point of view the money really did leave, and it does not come
+// back.
+func TestGetPortfolioValuation_MatchedPairOnlyDepartureIsMember(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-flight-depart", "U", "u@flight-depart.com")
+	spec := inFlightSpec(t, p, april(15), april(20))
+	openingCash(t, p, userID, spec.instID, spec.fromAcct, april(1), "20000")
+	from, to := transferFixtureAt(t, p, userID, spec)
+	matchTransfer(t, p, userID, from, to, spec.instID)
+	port := accountPortfolio(t, p, userID, "Departure", spec.fromAcct)
+
+	points, err := p.GetPortfolioValuation(ctx, port, april(10), april(25), "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	values := dailyValues(points)
+	for day := 10; day < 25; day++ {
+		want := 20000.0
+		if day >= 15 {
+			want = 0
+		}
+		got := values[april(day).Format("2006-01-02")]
+		if got != want {
+			t.Errorf("value on April %d: want %v, got %v", day, want, got)
+		}
+	}
+}
+
+// TestGetPortfolioValuation_MatchedPairOnlyArrivalIsMember is the mirror: a portfolio
+// holding only the receiving account sees nothing until the money arrives.
+func TestGetPortfolioValuation_MatchedPairOnlyArrivalIsMember(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-flight-arrive", "U", "u@flight-arrive.com")
+	spec := inFlightSpec(t, p, april(15), april(20))
+	openingCash(t, p, userID, spec.instID, spec.fromAcct, april(1), "20000")
+	from, to := transferFixtureAt(t, p, userID, spec)
+	matchTransfer(t, p, userID, from, to, spec.instID)
+	port := accountPortfolio(t, p, userID, "Arrival", spec.toAcct)
+
+	points, err := p.GetPortfolioValuation(ctx, port, april(10), april(25), "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	values := dailyValues(points)
+	for day := 10; day < 25; day++ {
+		want := 0.0
+		if day >= 20 {
+			want = 20000
+		}
+		got := values[april(day).Format("2006-01-02")]
+		if got != want {
+			t.Errorf("value on April %d: want %v, got %v", day, want, got)
+		}
+	}
+}
+
+// TestGetPortfolioValuation_CounterpartArrivesAfterWindowEnd verifies that value
+// still in transit when the window closes is still value held. This is the test that
+// fails if anyone date-bounds portfolio_in_flight_txs: the arrival falls outside the
+// window entirely, and requiring it inside would reinstate the dip for exactly the
+// days the pairing exists to cover.
+func TestGetPortfolioValuation_CounterpartArrivesAfterWindowEnd(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-flight-late", "U", "u@flight-late.com")
+	spec := inFlightSpec(t, p, april(15), time.Date(2025, 5, 20, 0, 0, 0, 0, time.UTC))
+	openingCash(t, p, userID, spec.instID, spec.fromAcct, april(1), "20000")
+	from, to := transferFixtureAt(t, p, userID, spec)
+	matchTransfer(t, p, userID, from, to, spec.instID)
+	port := accountPortfolio(t, p, userID, "Both", spec.fromAcct, spec.toAcct)
+
+	points, err := p.GetPortfolioValuation(ctx, port, april(10), april(25), "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	values := dailyValues(points)
+	for day := 10; day < 25; day++ {
+		got := values[april(day).Format("2006-01-02")]
+		if got != 20000 {
+			t.Errorf("value on April %d: want 20000, got %v", day, got)
+		}
+	}
+}
+
+// TestGetPortfolioValuation_SecurityTransferValuedInTransit verifies that a journal
+// moving shares rather than money is valued in transit at the share price, and does
+// not report as unpriced.
+func TestGetPortfolioValuation_SecurityTransferValuedInTransit(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-flight-sec", "U", "u@flight-sec.com")
+	instID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "FIDELITY", Value: "AAPL Corp", Canonical: false},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	prices := make([]db.EODPrice, 0, 15)
+	for day := 10; day < 25; day++ {
+		prices = append(prices, db.EODPrice{
+			InstrumentID: instID, PriceDate: april(day), Close: decf(150.0), DataProvider: "test",
+		})
+	}
+	if err := p.UpsertPrices(ctx, prices); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	spec := transferSpec{
+		instID: instID, desc: "AAPL Corp", qty: "-10",
+		depart: april(15), arrive: april(20),
+		fromAcct: "AG10000001", toAcct: "AW10000001",
+	}
+	openTxs := []*apiv1.Tx{{
+		Timestamp: timestamppb.New(april(1)), InstrumentDescription: "AAPL Corp",
+		BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
+		Quantity: "10", Account: spec.fromAcct,
+	}}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
+		timestamppb.New(april(1).Add(-time.Hour)), timestamppb.New(april(1).Add(time.Hour)),
+		openTxs, []string{instID}, nil, nil); err != nil {
+		t.Fatalf("opening shares: %v", err)
+	}
+	from, to := transferFixtureAt(t, p, userID, spec)
+	matchTransfer(t, p, userID, from, to, instID)
+	port := accountPortfolio(t, p, userID, "Both", spec.fromAcct, spec.toAcct)
+
+	points, err := p.GetPortfolioValuation(ctx, port, april(10), april(25), "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	values := dailyValues(points)
+	for day := 10; day < 25; day++ {
+		got := values[april(day).Format("2006-01-02")]
+		if got != 1500 {
+			t.Errorf("value on April %d: want 1500, got %v", day, got)
+		}
+	}
+	for _, pt := range points {
+		if len(pt.UnpricedInstruments) != 0 {
+			t.Errorf("unpriced on %v: %v", pt.Date, pt.UnpricedInstruments)
+		}
+	}
+}
+
+// TestGetPortfolioValuation_MatchedPairIsScopedToItsOwnPortfolio verifies that the
+// membership test names one portfolio on both sides. A pair matched between two
+// accounts of one portfolio must not be admitted into another portfolio that holds
+// neither.
+func TestGetPortfolioValuation_MatchedPairIsScopedToItsOwnPortfolio(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-flight-scope", "U", "u@flight-scope.com")
+	spec := inFlightSpec(t, p, april(15), april(20))
+	openingCash(t, p, userID, spec.instID, spec.fromAcct, april(1), "20000")
+	openingCash(t, p, userID, spec.instID, "AX10000001", april(2), "500")
+	from, to := transferFixtureAt(t, p, userID, spec)
+	matchTransfer(t, p, userID, from, to, spec.instID)
+	other := accountPortfolio(t, p, userID, "Other", "AX10000001")
+
+	points, err := p.GetPortfolioValuation(ctx, other, april(10), april(25), "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	values := dailyValues(points)
+	for day := 10; day < 25; day++ {
+		got := values[april(day).Format("2006-01-02")]
+		if got != 500 {
+			t.Errorf("value on April %d: want 500, got %v", day, got)
+		}
+	}
+}
+
+// TestGetUserValuation_MatchedPairHoldsValueFlat verifies the user-mode branch, which
+// asks only whether a match names the group: every account of the user is in scope,
+// so there is no membership left to test.
+func TestGetUserValuation_MatchedPairHoldsValueFlat(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-flight-user", "U", "u@flight-user.com")
+	spec := inFlightSpec(t, p, april(15), april(20))
+	openingCash(t, p, userID, spec.instID, spec.fromAcct, april(1), "20000")
+	from, to := transferFixtureAt(t, p, userID, spec)
+	matchTransfer(t, p, userID, from, to, spec.instID)
+
+	points, err := p.GetUserValuation(ctx, userID, april(10), april(25), "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	values := dailyValues(points)
+	for day := 10; day < 25; day++ {
+		got := values[april(day).Format("2006-01-02")]
+		if got != 20000 {
+			t.Errorf("value on April %d: want 20000, got %v", day, got)
+		}
+	}
+}
+
+// TestGetUserValuation_MatchInAnotherCommodityIsNotAdmitted verifies that a match is
+// keyed on the commodity as well as the group. A journal moving shares and money
+// together leaves a residual in each, and matching the cash side says nothing about
+// where the shares are: valuing them would assert they are coming back when only the
+// money is accounted for.
+func TestGetUserValuation_MatchInAnotherCommodityIsNotAdmitted(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	userID, _ := p.GetOrCreateUser(ctx, "sub|val-flight-commodity", "U", "u@flight-commodity.com")
+	spec := inFlightSpec(t, p, april(15), april(20))
+	openingCash(t, p, userID, spec.instID, spec.fromAcct, april(1), "20000")
+
+	secID, err := p.EnsureInstrument(ctx, "STOCK", "", "USD", "AAPL", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "FIDELITY", Value: "AAPL Corp", Canonical: false},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: secID, PriceDate: april(15), Close: decf(150.0), DataProvider: "test"},
+	}); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+	openTxs := []*apiv1.Tx{{
+		Timestamp: timestamppb.New(april(2)), InstrumentDescription: "AAPL Corp",
+		BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
+		Quantity: "10", Account: spec.fromAcct,
+	}}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
+		timestamppb.New(april(2).Add(-time.Hour)), timestamppb.New(april(2).Add(time.Hour)),
+		openTxs, []string{secID}, nil, nil); err != nil {
+		t.Fatalf("opening shares: %v", err)
+	}
+
+	from, to := transferFixtureAt(t, p, userID, spec)
+
+	// The departure group also moves the shares out, leaving a second residual in a
+	// commodity the match will not name. Written directly because the fixture builds
+	// one commodity, and as a balanced pair so the group invariant still holds.
+	for _, leg := range []struct {
+		qty         string
+		accountType string
+	}{{"-10", "USER"}, {"10", "TRANSFER_CLEARING"}} {
+		if _, err := p.q.ExecContext(ctx, `
+			INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+				instrument_id, broker_tx_type, resolved_tx_type, quantity, account_type,
+				group_id, weight, weight_commodity, share_count_basis, split_adjusted_quantity)
+			VALUES ($1::uuid, 'FIDELITY', $2, $3::timestamptz, 'AAPL Corp', $4::uuid,
+				ARRAY['TRANSFER'], 'TRANSFER', $5::numeric, $6,
+				$7::uuid, $5::numeric, 'inst:'||$4, $3::timestamptz::date, $5::numeric)
+		`, userID, spec.fromAcct, april(15), secID, leg.qty, leg.accountType, from); err != nil {
+			t.Fatalf("insert %s security leg: %v", leg.accountType, err)
+		}
+	}
+	matchTransfer(t, p, userID, from, to, spec.instID)
+
+	points, err := p.GetUserValuation(ctx, userID, april(15), april(16), "USD")
+	if err != nil {
+		t.Fatalf("get valuation: %v", err)
+	}
+	// The cash is matched and holds flat at 20,000. The shares have left and their
+	// clearing leg is unmatched, so their 10 x 150 must not be added back.
+	if got := dailyValues(points)[april(15).Format("2006-01-02")]; got != 20000 {
+		t.Errorf("value on April 15: want 20000, got %v", got)
+	}
+}

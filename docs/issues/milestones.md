@@ -15,6 +15,7 @@
 - **M13** - Automated broker transaction import via a browser extension.
 - **M14** - Complete the archive: system and user archives carry everything a rebuild needs, and the transaction CSV is retired.
 - **M15** - The server owns transaction grouping: converters emit evidence and the server derives groups across the whole dataset rather than within one upload.
+- **M16** - A person can repair a grouping or a transfer pairing the engine cannot derive.
 
 ## Unscheduled
 

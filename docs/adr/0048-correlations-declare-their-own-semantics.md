@@ -175,6 +175,28 @@ the declared type alone -- a row that must be income has its other side in incom
 so the server derives it rather than the converter, and it is recreated on every
 regroup like a routed residual.
 
+**`SCOPE_USER` reaches the whole of a user's data, and needs no operator of its own.**
+Two details the amendment above left implicit, settled in
+[0095](../issues/0095-match-imbalanced-groups-that-should-be-one.md).
+
+Its comparability set is everything this user has. The other scopes narrow to a job,
+an account or a broker because that is as far as the issuer's numbering is unique; a
+person's token is unique because they minted it, and narrowing it would defeat the
+assertion in exactly the cases -- legs in different accounts, legs from different
+brokers -- that make someone reach for it.
+
+And a hand-made *pairing* of two transfer sides declares `MATCH_EXACT` like a
+hand-made grouping, rather than a fourth operator meaning "these are opposite sides of
+one transfer". What the two assertions mean differs, but the difference is already
+carried by the postings: where every member must be a transfer the claim pairs their
+groups, where none is it merges them, and a mixed set is refused when it is asserted.
+An operator would restate what the type already says.
+
+`MATCH_ACCOUNT` was the other candidate and does not fit. It names another posting's
+account rather than an occurrence, so it cannot say which of that account's sides is
+meant -- which is the ambiguity a person is being asked to resolve, and the reason the
+matcher leaves such a pair alone in the first place.
+
 ## Considered: a field per broker
 
 Carrying each source's grouping fields verbatim was rejected in 0042 and stays

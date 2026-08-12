@@ -1,47 +1,23 @@
 ---
-status: open
+status: closed
 title: Match or unmatch a transfer by hand
 milestone: M12
 dependencies: [0068]
 ---
 
-Let an admin pair two sides of a transfer the matcher left alone, and break a pair it
-got wrong.
+Subsumed by 0095.
 
-## Motivation
+Pairing two sides of a transfer by hand is the transfer case of the one writer 0095
+builds: a synthesised token with `MATCH_EXACT` and `SCOPE_USER` on each side, which
+the matcher reads and turns into a link. The same writer serves the non-transfer
+repair, so there is nothing separate left here to build.
 
-0068 matches only on evidence that identifies the occurrence, and deliberately leaves
-everything else alone: a cross-broker transfer, which no sample calibrates, and any
-pair whose candidates it cannot tell apart. Those are exactly the cases a person
-looking at the transfers report can resolve at a glance, and there is no way to record
-the answer.
+Breaking a pair the matcher got wrong is not attempted, and the design settled here
+is why rather than merely when. A hand-made assertion is a must-link, so it can only
+ever add; the engine recomputes a neighbourhood from scratch on every cycle, so
+deleting a link it derived is undone by the next run. Recording a negative would need
+a mechanism this design does not have. 0095 records it as a stated non-goal.
 
-The other half is the wrong pair. A heuristic match is disposable by design, but
-nothing can currently remove one, so an error stands until the groups are replaced by a
-re-upload.
-
-## Design
-
-The storage already allows both. `transfer_matches.method` carries `MANUAL`, and the
-matcher only ever inserts -- never updates, never deletes -- so a hand-made match
-survives every rebuild. What is missing is the API and the UI.
-
-- Create and delete a match from the transfers view of `/admin/imbalance`, where the
-  unmatched sides are already listed.
-- Deleting a heuristic match makes both sides unmatched again, and the next cycle will
-  re-propose it. Something has to stop that: either a deletion is recorded so the pair
-  is not re-proposed, or a deletion is only offered together with a replacement match.
-  Settle which when this is picked up.
-
-## Staleness
-
-A hand-made match can stop making sense without anyone touching it: a later upload can
-change the residual of a group it names, or remove the clearing leg it was made
-against. 0095 carries the question of what happens then -- survive, drop, or flag for
-review -- and it needs an answer here too, because this is where the match is created.
-
-The related worry about a regroup churning group ids is settled and does not land here:
-adr/0049-a-human-assertion-is-a-correlation.md keeps a match keyed on its group ids and
-requires the grouping engine to write only the groups it disagrees with, so a manual
-match survives every cycle that does not genuinely repartition it. A re-upload still
-takes it, along with the postings.
+This issue's own design is also out of date and should not be read as current: it
+rested on the matcher only ever inserting, which stopped being true when 0097 landed
+a regroup that drops the matches naming any group it repartitions.

@@ -4,8 +4,18 @@ import type { MessageInitShape } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import type { Posting } from "@/gen/archive/v1/txs_pb";
 import { PostingSchema } from "@/gen/archive/v1/txs_pb";
-import { AccountType, AssetClass, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
-import { counterLeg, counterLegs, feeLeg, refPrefix, reinvestIncomeLeg, FEE_EPSILON } from "./postings";
+import { AccountType, AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
+import {
+  counterLeg,
+  counterLegs,
+  feeLeg,
+  identifyRecord,
+  recordCorrelation,
+  refPrefix,
+  reinvestIncomeLeg,
+  FEE_EPSILON,
+  RECORD_LABEL,
+} from "./postings";
 import { mustBe } from "@/lib/tx-type";
 import { Big } from "@/lib/decimal";
 import { expectGroupsBalance } from "./group-balance.test-utils";
@@ -85,6 +95,42 @@ describe("counterLeg", () => {
     const leg = counterLeg(tx({ brokerTxType: [TxType.EXPENSE], quantity: "-3.24" }))!;
     expect(counterLeg(leg)).toBeUndefined();
   });
+
+  // A boundary leg is inferred from the declared type, not read out of the record,
+  // so it may not claim the record's identity: doing so would say the source
+  // correlated a row it never wrote.
+  it("correlates nothing, unlike the legs read out of a record", () => {
+    const source = tx({
+      brokerTxType: [TxType.EXPENSE],
+      quantity: "-3.24",
+      correlations: [recordCorrelation("r7")],
+    });
+    expect(counterLeg(source)!.correlations).toEqual([]);
+  });
+});
+
+describe("recordCorrelation", () => {
+  it("is a file-scoped equality token under a label no broker issues", () => {
+    const c = recordCorrelation("r7");
+    expect(c.label).toBe(RECORD_LABEL);
+    expect(c.token).toBe("r7");
+    expect(c.scope).toBe(Scope.FILE);
+    expect(c.match).toEqual([Match.EXACT]);
+    expect(c.ordinal).toBeUndefined();
+  });
+});
+
+describe("identifyRecord", () => {
+  it("leaves a record its source identified alone", () => {
+    const stated = recordCorrelation("ref-1");
+    const p = tx({ brokerTxType: [TxType.TRADE_ASSET], quantity: "10", correlations: [stated] });
+    expect(identifyRecord(p, "r7").correlations).toEqual([stated]);
+  });
+
+  it("identifies a record its source did not", () => {
+    const p = tx({ brokerTxType: [TxType.TRADE_ASSET], quantity: "10" });
+    expect(identifyRecord(p, "r7").correlations[0]!.token).toBe("r7");
+  });
 });
 
 describe("feeLeg", () => {
@@ -119,6 +165,18 @@ describe("feeLeg", () => {
 
   it("takes the magnitude, so a broker's sign convention does not flip it", () => {
     expect(feeLeg(trade, new Big("-11.54"))?.quantity).toBe("-11.54");
+  });
+
+  // The commission is a field of the record the trade was read from, so the leg
+  // built for it is another leg of that record and is found by the same token.
+  it("carries the correlations of the record it was read out of", () => {
+    const source = tx({
+      brokerTxType: [TxType.TRADE_ASSET],
+      quantity: "378",
+      unitPrice: "61.06",
+      correlations: [recordCorrelation("r7")],
+    });
+    expect(feeLeg(source, new Big("11.54034"))!.correlations[0]!.token).toBe("r7");
   });
 
   it("produces nothing below the tolerance the server routes at", () => {
@@ -188,6 +246,23 @@ describe("reinvestIncomeLeg", () => {
     expect(
       reinvestIncomeLeg(tx({ brokerTxType: [TxType.TRADE_ASSET], quantity: "21.09" }))
     ).toBeUndefined();
+  });
+
+  // The income is read out of the reinvestment record, which is the only thing
+  // that says the units were bought with a dividend, so the two are found together
+  // by the record's own token.
+  it("carries the correlations of the record it was read out of", () => {
+    const stated = recordCorrelation("460143202");
+    const source = tx({
+      brokerTxType: [TxType.TRADE_ASSET],
+      quantity: "21.09",
+      unitPrice: "1.5",
+      correlations: [stated],
+    });
+    const leg = reinvestIncomeLeg(source)!;
+    expect(leg.correlations).toEqual([stated]);
+    // A copy: editing the leg's evidence must not edit the record's.
+    expect(leg.correlations[0]).not.toBe(stated);
   });
 });
 

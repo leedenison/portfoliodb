@@ -28,7 +28,13 @@ import {
   typeForAsset,
 } from "@/lib/csv/converters/fidelity-csv";
 import type { ParseError, StandardParseResult } from "@/lib/csv/parse-result";
-import { counterLegs, currencyHint, refPrefix, reinvestIncomeLeg } from "@/lib/csv/postings";
+import {
+  counterLegs,
+  currencyHint,
+  identifyRecord,
+  refPrefix,
+  reinvestIncomeLeg,
+} from "@/lib/csv/postings";
 import { Big, decimalFromNumber } from "@/lib/decimal";
 import { parseSlashDate } from "../lib/dates";
 
@@ -275,7 +281,9 @@ export function convertFidelityJson(
     if (leg.type !== "Reinvestment From Income") return;
     const p = postings[i];
     if (!p.groupRef) p.groupRef = `${prefix}${i}`;
-    const income = reinvestIncomeLeg(p);
+    // The income leg inherits the row's reference, so the pair is joinable from
+    // evidence rather than only from the ref stamped above.
+    const income = reinvestIncomeLeg(identifyRecord(p, String(i)));
     if (income) postings.push(income);
   });
   postings.push(...counterLegs(postings));

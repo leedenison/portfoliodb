@@ -152,6 +152,29 @@ inference from transcription on the wire, and a user assertion is neither -- it
 says so in its scope. See
 [0049](0049-a-human-assertion-is-a-correlation.md).
 
+**A record's derived legs carry the record's correlation.** A converter reads more
+than one posting out of one source record: the commission netted into a trade's
+total becomes a leg of its own, and a reinvestment's units are bought with income no
+row reports. Those legs transcribe no row, and until now carried no evidence, which
+was right while `group_ref` said where they belonged and wrong the moment it stops
+([0098](../issues/0098-retire-converter-side-grouping.md)). Neither can be recovered
+by the server: the commission column and the fact that a purchase was funded by
+income are both read by the converter and then discarded. So a leg read out of a
+record is another leg of that record and carries its identifier.
+
+This is the transcription contract above rather than an exception to it. The record
+boundary is the source's own structure -- the same containment an OFX `INVTRAN`
+supplies -- and the claim is only that these postings came out of one record. What
+0041 moves to the server is the claim that two separate *records* are one event, and
+nothing here states that. Where the source identifies the record by nothing, the
+converter synthesises a file-scoped equality token under a label of its own, which
+says the same thing and no more.
+
+A **boundary** leg is not covered by this and carries nothing. It is inferred from
+the declared type alone -- a row that must be income has its other side in income --
+so the server derives it rather than the converter, and it is recreated on every
+regroup like a routed residual.
+
 ## Considered: a field per broker
 
 Carrying each source's grouping fields verbatim was rejected in 0042 and stays

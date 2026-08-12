@@ -4,6 +4,7 @@ import { AccountType, AssetClass, IdentifierType, Match, Scope, TxType } from "@
 import { mustBe } from "@/lib/tx-type";
 import { convertFidelityToStandard, FIDELITY_TYPE_TO_TYPES } from "./fidelity-csv";
 import { expectGroupsBalance, residuals } from "@/lib/csv/group-balance.test-utils";
+import { RECORD_LABEL } from "@/lib/csv/postings";
 
 const HEADER =
   "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit";
@@ -664,6 +665,26 @@ describe("trades the broker names for their reason", () => {
     expect(result.postings[1]!.quantity).toBe("-31.635");
     expect(result.postings[1]!.instrumentDescription).toBe("GBP");
     expect(result.postings[1]!.groupRef).toBe(result.postings[0]!.groupRef);
+    // Both legs were read out of one row, so both carry that row's reference and
+    // the pair can be put back together from evidence rather than from the ref.
+    expect(result.postings[1]!.correlations).toEqual(result.postings[0]!.correlations);
+    expect(result.postings[1]!.correlations[0]!.token).toBe("460143202");
+    expectGroupsBalance(result.postings);
+  });
+
+  // Nothing in either export reaches this, but a row the source referenced by
+  // nothing still has to hold its own legs together once the ref is gone.
+  it("identifies a reinvestment the export gave no reference", () => {
+    const result = convert([
+      "2022-03-24,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10000002,Baillie Gifford Responsible Global Equity Income B Inc,31.65,21.09,1.5,,Completed,LON,Baillie Gifford Responsible Global Equity Income B Inc,FUND,Buy",
+    ]);
+
+    expect(result.errors).toEqual([]);
+    expect(result.postings).toHaveLength(2);
+    const c = result.postings[0]!.correlations[0]!;
+    expect(c.label).toBe(RECORD_LABEL);
+    expect(c.scope).toBe(Scope.FILE);
+    expect(result.postings[1]!.correlations[0]!.token).toBe(c.token);
     expectGroupsBalance(result.postings);
   });
 

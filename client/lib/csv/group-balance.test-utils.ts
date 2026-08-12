@@ -1,6 +1,6 @@
 /**
  * Checks converter output the way the server will: every group's postings
- * weigh to zero.
+ * weigh to zero once the server has posted the sides it derives.
  *
  * A group's postings are in different commodities, so a plain sum says nothing
  * -- a buy is +10 AAPL and -1855 USD. This mirrors weightOf in
@@ -9,13 +9,18 @@
  * size, and everything else weighs its own quantity in the settlement currency.
  * It does not model a securities journal, whose commodity is neither.
  *
+ * It also mirrors residual.Boundary: a posting whose declared type must be income
+ * or expense has its other side posted by the server, so its weight is cancelled
+ * here rather than being left as something the converter failed to balance. What
+ * remains is what the converter is answerable for.
+ *
  * Not a test file itself -- the name keeps it out of vitest's include glob.
  */
 
 import { expect } from "vitest";
 import type { Posting } from "@/gen/archive/v1/txs_pb";
 import { Big } from "@/lib/decimal";
-import { IdentifierType, TxType } from "@/gen/type/v1/type_pb";
+import { AccountType, IdentifierType, TxType } from "@/gen/type/v1/type_pb";
 import { mustBe } from "@/lib/tx-type";
 
 /**
@@ -65,6 +70,17 @@ export function weigh(tx: Posting): { amount: Big; commodity: string } {
 }
 
 /**
+ * Whether the server will post the other side of this posting itself, mirroring
+ * residual.Boundary and the account-type guard beside it in balance.go.
+ */
+function serverBalances(tx: Posting): boolean {
+  if (tx.accountType !== AccountType.USER && tx.accountType !== AccountType.UNSPECIFIED) {
+    return false;
+  }
+  return mustBe(tx.brokerTxType, TxType.INCOME) || mustBe(tx.brokerTxType, TxType.EXPENSE);
+}
+
+/**
  * What each group fails to account for, keyed by group_ref then commodity, with
  * balanced groups and commodities left out. Empty when everything balances.
  *
@@ -76,7 +92,10 @@ export function residuals(txs: Posting[]): Record<string, Record<string, string>
     const ref = tx.groupRef || `#${i}`;
     const { amount, commodity } = weigh(tx);
     sums[ref] ??= {};
-    sums[ref][commodity] = (sums[ref][commodity] ?? new Big(0)).plus(amount);
+    // A posting the server posts the other side of contributes nothing left over:
+    // its weight and the boundary leg's cancel.
+    const net = serverBalances(tx) ? new Big(0) : amount;
+    sums[ref][commodity] = (sums[ref][commodity] ?? new Big(0)).plus(net);
   });
   const out: Record<string, Record<string, string>> = {};
   for (const [ref, byCommodity] of Object.entries(sums)) {

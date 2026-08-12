@@ -363,6 +363,12 @@ const (
 	// RoutedPurpose is what a group's legs did not balance to, posted to an
 	// explicit counterparty so the group sums to zero.
 	RoutedPurpose = "RESIDUAL"
+	// BoundaryPurpose is the other side of a posting whose own type names where
+	// its money came from or went to: income for a dividend, expense for a
+	// charge. Derived from the posting alone rather than from the group, but
+	// recreated with the residuals because it has to move with the leg it
+	// mirrors. See docs/adr/0022-typed-per-account-cash-flow-boundary.md.
+	BoundaryPurpose = "BOUNDARY"
 	// InitializePurpose is a synthetic opening balance, derived from a holding
 	// declaration rather than from the group it sits in.
 	InitializePurpose = "INITIALIZE"

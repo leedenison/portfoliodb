@@ -49,10 +49,16 @@ everything that archive carried rather than within the uploads it was assembled 
 A converter may only **transcribe**, never infer. A token may be synthesised from the
 source's own structure -- nesting, containment, an explicit order column -- and never
 from amounts, dates or proximity. Nothing distinguishes a transcribed token from an
-inferred one once stored, so this is the discipline the format rests on. Only a
-posting transcribed from a source row carries any: a derived counter-leg and a routed
-residual transcribe nothing and correlate with nothing, so a token that is present
-always names something the source itself issued.
+inferred one once stored, so this is the discipline the format rests on. A token that
+is present always names something the source itself issued.
+
+Every posting a converter reads out of one record carries that record's correlations,
+including the legs it derives from a record's other fields -- the commission netted
+into a trade's total, the income a reinvestment consumed. Saying that these postings
+came out of one record is a fact about the transcription, and it is what the server
+puts the record back together from. What a converter may not say is that two separate
+records are one event. A leg the server derives -- a boundary leg or a routed residual
+-- correlates with nothing, because it transcribes nothing.
 
 A token is not a natural key and carries no uniqueness constraint. Ingestion is
 idempotent by replacement (adr/0002-transaction-ingestion-model.md) and one source
@@ -219,6 +225,27 @@ Every group is balanced at ingest. Whatever its postings leave over is routed to
 explicit counterparty rather than rejected, so the invariant holds by construction
 from day one and a residual becomes measurable instead of being absorbed into a cash
 balance.
+
+Two kinds of leg are written for it, in that order.
+
+A **boundary** leg is the other side of a posting whose own type names where its money
+came from or went to: `INCOME` for a dividend, `EXPENSE` for a charge. The test is
+must-be over the resolved type, so a row that is income under every reading gets an
+income leg and one whose declared set left the question open gets none -- inventing a
+leg for one reading would assert it. It is written per posting rather than per group,
+because a dividend and a charge in one group must produce a leg each: netting them
+would post the difference to whichever account won.
+
+A **residual** is what is left after that: `IMBALANCE` for a leg the source omitted,
+`TRANSFER_CLEARING` for the unmatched side of a journal, `SOURCE_ROUNDING` for a
+difference small enough to be the source disagreeing with itself.
+
+Both are derived from the postings around them and neither is an input. They are
+recorded as such in `synthetic_purpose` -- `BOUNDARY` and `RESIDUAL` against the NULL a
+posting a source stated carries -- and they are deleted and written again whenever a
+group's membership changes, whether by a replace or by a regroup. The account type
+cannot record this, because a leg a converter read out of a record lands in the same
+account types.
 
 Each posting **stores** what it contributes to that balance, in two columns:
 
@@ -505,10 +532,11 @@ stored group's produces no statement at all: it keeps its id, and so do the tran
 matches keyed on that id. That is what lets a cycle run over a region far wider than
 any upload without churning ids for postings nobody touched.
 
-A regroup deletes the routed residuals of every group it touches and routes fresh ones
-in the same transaction as the membership change. A residual carries no evidence, so
-it cannot be repartitioned -- it is arithmetic on the legs of its group, and once
-those move it is arithmetic on nothing. Every intermediate state is unbalanced, which
+A regroup deletes the legs the server routed for every group it touches -- the
+residuals and the boundary legs alike -- and writes fresh ones in the same transaction
+as the membership change. Neither carries evidence, so neither can be repartitioned: a
+residual is arithmetic on the legs of its group, and a boundary leg mirrors one leg's
+weight, so once those move both are arithmetic on nothing. Every intermediate state is unbalanced, which
 is what the deferred balance constraint in [Balancing](#balancing) makes expressible;
 leaving the routing to a later statement would expose a moment where the constraint
 fires on data that was valid before the regroup began.
@@ -529,3 +557,8 @@ posted as the cash or the fee the server cannot know it to be. A derived cash le
 would be an invention, and would double count against the cash row a broker already
 reports. A group that arrives with its cash row weighs to zero and has nothing routed
 to it.
+
+A boundary leg is not an invention either, and for a different reason: it is not
+guessed from the arithmetic but named by the posting's own declared type, under the
+must-be test that refuses to name one where the source left the question open. See
+[Balancing](#balancing).

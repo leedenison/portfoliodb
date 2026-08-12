@@ -47,11 +47,16 @@ const groupingColumns = `
 // carries one too, so "the group holds something the server made" no longer picks out
 // the pad: a group is excluded because it holds a declaration's pad, and a residual is
 // excluded because it is not a posting anything could partition.
+//
+// The account type is not read. A leg a converter read out of a record lands outside
+// the user's own account -- the income a reinvestment consumed is the case -- and it
+// has to be partitioned like any other stated posting, or the record it came from
+// could never be reassembled. What that leg carries and a derived one does not is
+// evidence, and synthetic_purpose is what says which is which.
 const transcribedPostings = `
 	FROM txs t
 	JOIN tx_groups g ON g.id = t.group_id
 	WHERE t.user_id = $1::uuid
-	  AND t.account_type = 'USER'
 	  AND t.synthetic_purpose IS NULL
 	  AND NOT EXISTS (
 	    SELECT 1 FROM txs s

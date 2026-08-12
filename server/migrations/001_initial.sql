@@ -113,8 +113,10 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 -- a source stated, which carries evidence and survives every regroup; anything else
 -- is derived from the postings around it and is recreated whenever those move.
 -- 'RESIDUAL' is what a group's legs did not balance to, routed to an explicit
--- counterparty. 'INITIALIZE' is a synthetic opening balance, which differs from the
--- other two in being derived from a declaration rather than from its group.
+-- counterparty. 'BOUNDARY' is the other side of a posting whose own type names where
+-- its money came from or went to, income for a dividend and expense for a charge.
+-- 'INITIALIZE' is a synthetic opening balance, which differs from the other two in
+-- being derived from a declaration rather than from the group it sits in.
 --
 -- It is what tells derived from stated, and account_type is not: a routed residual
 -- and a leg a converter read out of a record can land in the same account type, so
@@ -202,7 +204,8 @@ CREATE TABLE txs (
                                                       'IMBALANCE', 'TRANSFER_CLEARING',
                                                       'SOURCE_ROUNDING')),
   synthetic_purpose         TEXT CHECK (synthetic_purpose IS NULL
-                                        OR synthetic_purpose IN ('INITIALIZE', 'RESIDUAL')),
+                                        OR synthetic_purpose IN ('INITIALIZE', 'RESIDUAL',
+                                                                 'BOUNDARY')),
 
   group_id                  UUID NOT NULL REFERENCES tx_groups (id) ON DELETE CASCADE,
   weight                    NUMERIC NOT NULL,

@@ -80,10 +80,12 @@ describe("convertIbkrOfx", () => {
     const cash = result.postings.find((t) => mustBe(t.brokerTxType, TxType.TRADE_CASH))!;
     expect(cash.quantity).toBe("-16088.4468");
 
+    // One posting, in the user's own account. Its expense side is named by the
+    // declared type, so the server posts it.
     const fees = result.postings.filter((t) => mustBe(t.brokerTxType, TxType.EXPENSE));
-    expect(fees).toHaveLength(2);
-    expect(fees.find((t) => t.accountType === AccountType.USER)!.quantity).toBe("-7.420248");
-    expect(fees.find((t) => t.accountType === AccountType.EXPENSE)!.quantity).toBe("7.420248");
+    expect(fees).toHaveLength(1);
+    expect(fees[0]!.accountType).toBe(AccountType.USER);
+    expect(fees[0]!.quantity).toBe("-7.420248");
   });
 
   it("leaves an option with no SECLIST entry unhinted rather than guessing", () => {

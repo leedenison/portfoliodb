@@ -360,10 +360,17 @@ export function parseOfxStatement(text: string): OfxParseResult {
         groupRef: fitId,
         // The same id in three places, saying three different things: which
         // postings are one event, which statement record this one was
-        // transcribed from, and what it is comparable with. Only this leg
-        // carries the reference and the correlation -- the cash and fee legs
-        // below are derived from TOTAL and COMMISSION rather than from rows of
-        // their own, so they transcribe nothing.
+        // transcribed from, and what it is comparable with.
+        //
+        // The cash and fee legs below carry it too. A FITID names the record,
+        // not a row, and those legs are that record's own TOTAL and COMMISSION
+        // split into postings -- so correlating them by it states what the
+        // source stated. What stays uncorrelated is a counter-leg: the income
+        // or expense side mirrors a posting rather than transcribing the
+        // record, and moneyLeg resets its evidence for that reason. The server
+        // derives grouping from this evidence rather than from group_ref (see
+        // docs/adr/0041-server-owns-transaction-grouping.md), so a leg left
+        // uncorrelated here is a leg it cannot put back.
         //
         // Scoped to the account rather than to the file: the OFX spec makes a
         // FITID unique within the account, not within the institution. Equality
@@ -436,13 +443,19 @@ export function parseOfxStatement(text: string): OfxParseResult {
               tradingCurrency,
               settlementCurrency: tradingCurrency,
               groupRef: fitId,
+              ...(fitId ? { correlations: [fitIdCorrelation(fitId)] } : {}),
               identifierHints: cashHints,
             }),
           );
         }
 
         const fee = feeLeg(security, charge);
-        if (fee) legs.push(fee);
+        if (fee) {
+          // Built from scratch by moneyLeg, so its evidence is set here rather
+          // than inherited: the charge is a figure of this record.
+          if (fitId) fee.correlations = [fitIdCorrelation(fitId)];
+          legs.push(fee);
+        }
       }
 
       postings.push(...legs);

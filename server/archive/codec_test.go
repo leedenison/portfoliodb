@@ -149,7 +149,6 @@ func userFixture() *archivev1.UserArchive {
 					InstrumentDescription: "APPLE INC",
 					Quantity:              "10",
 					UnitPrice:             proto.String("185.9"),
-					GroupRef:              proto.String("g0"),
 					// An OFX FITID, which is unique within the account rather
 					// than within the institution, and opaque: no ordinal, so
 					// equality is all it offers.

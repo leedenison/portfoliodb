@@ -164,8 +164,8 @@ func TestComputeHoldings_excludesNonUserAccountTypes(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	txs := []*apiv1.Tx{
-		{Timestamp: ts, InstrumentDescription: "TSCO", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "40", Account: "A", GroupRef: "pad"},
-		{Timestamp: ts, InstrumentDescription: "TSCO", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-40", Account: "A", GroupRef: "pad", AccountType: typev1.AccountType_ACCOUNT_TYPE_EQUITY},
+		{Timestamp: ts, InstrumentDescription: "TSCO", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "40", Account: "A"},
+		{Timestamp: ts, InstrumentDescription: "TSCO", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-40", Account: "A", AccountType: typev1.AccountType_ACCOUNT_TYPE_EQUITY},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)

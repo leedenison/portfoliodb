@@ -294,8 +294,8 @@ func TestReplaceTxsInPeriod_DeletesRoutedPostingsWithTheirGroup(t *testing.T) {
 	base := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A", GroupRef: "t1"},
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A", GroupRef: "t1", AccountType: typev1.AccountType_ACCOUNT_TYPE_IMBALANCE},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A", AccountType: typev1.AccountType_ACCOUNT_TYPE_IMBALANCE},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -360,7 +360,7 @@ func TestReplaceTxsInPeriod_ReDerivesABoundaryLeg(t *testing.T) {
 	// One group, two dividends, one on each day: the shape a replace can cut in
 	// half. Each is one-sided, so the store owes each an income leg.
 	dividend := func(at time.Time, qty string) *apiv1.Tx {
-		return &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: qty, Account: "A", GroupRef: "d1"}
+		return &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: qty, Account: "A"}
 	}
 	legs := []*apiv1.Tx{dividend(day1, "90"), dividend(day2, "10")}
 	weight := func(v string) db.Weight {
@@ -408,8 +408,8 @@ func TestReplaceTxsInPeriod_KeepsAStatedLegInADerivedAccountType(t *testing.T) {
 	// which names no boundary, so the store adds nothing and both legs are the
 	// source's. Both survive a replace of a later day.
 	legs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(outside), InstrumentDescription: "FUND", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "21.09", Account: "A", GroupRef: "r1"},
-		{Timestamp: timestamppb.New(outside), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: "-31.635", Account: "A", GroupRef: "r1", AccountType: typev1.AccountType_ACCOUNT_TYPE_INCOME},
+		{Timestamp: timestamppb.New(outside), InstrumentDescription: "FUND", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "21.09", Account: "A"},
+		{Timestamp: timestamppb.New(outside), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: "-31.635", Account: "A", AccountType: typev1.AccountType_ACCOUNT_TYPE_INCOME},
 	}
 	weights := []db.Weight{
 		{Amount: decimal.RequireFromString("31.635"), Commodity: "cur:USD"},
@@ -541,8 +541,8 @@ func TestReplaceTxsInPeriod_DeletesWholeGroups(t *testing.T) {
 	base := time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC)
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	seed := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "", GroupRef: "r"},
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH}, ResolvedTxType: typev1.TxType_TRADE_CASH, Quantity: "-50", Account: "", GroupRef: "r"},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH}, ResolvedTxType: typev1.TxType_TRADE_CASH, Quantity: "-50", Account: ""},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, seed, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -943,7 +943,7 @@ func TestReplaceTxsInPeriod_RoundTripsAccountType(t *testing.T) {
 	// because the declared type names where the money came from. Both legs keep
 	// the same broker and account.
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_INCOME}, ResolvedTxType: typev1.TxType_INCOME, Quantity: "23.4", Account: "A", GroupRef: "div-1"},
+		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_INCOME}, ResolvedTxType: typev1.TxType_INCOME, Quantity: "23.4", Account: "A"},
 	}
 	weights := []db.Weight{{Amount: decimal.RequireFromString("23.4"), Commodity: "cur:USD"}}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
@@ -1258,9 +1258,9 @@ func TestReplaceTxsInPeriod_StoresWeight(t *testing.T) {
 	from, to := timestamppb.New(now.Add(-time.Hour)), timestamppb.New(now.Add(time.Hour))
 	txs := []*apiv1.Tx{
 		{Timestamp: timestamppb.New(now), InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
-			Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD", GroupRef: "g1"},
+			Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD"},
 		{Timestamp: timestamppb.New(now), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
-			Quantity: "-1855", SettlementCurrency: "USD", TradingCurrency: "USD", GroupRef: "g1"},
+			Quantity: "-1855", SettlementCurrency: "USD", TradingCurrency: "USD"},
 	}
 	ws := []db.Weight{
 		{Amount: decf(1855), Commodity: "cur:USD"},
@@ -1554,10 +1554,10 @@ func straddlingRun(t *testing.T, p *Postgres, sub string, txType typev1.TxType, 
 	txs := []*apiv1.Tx{
 		{Timestamp: timestamppb.New(day1), InstrumentDescription: "USD",
 			BrokerTxType: []typev1.TxType{txType}, ResolvedTxType: txType,
-			Quantity: amount.Neg().String(), Account: "A", GroupRef: "run"},
+			Quantity: amount.Neg().String(), Account: "A"},
 		{Timestamp: timestamppb.New(day2), InstrumentDescription: "USD",
 			BrokerTxType: []typev1.TxType{txType}, ResolvedTxType: txType,
-			Quantity: amount.String(), Account: "A", GroupRef: "run"},
+			Quantity: amount.String(), Account: "A"},
 	}
 	weights := []db.Weight{
 		{Amount: amount.Neg(), Commodity: "cur:USD"},
@@ -1590,9 +1590,9 @@ func replaceDay(t *testing.T, p *Postgres, userID, usd string, from time.Time, t
 func balancedUpload(at time.Time, qty string) []*apiv1.Tx {
 	return []*apiv1.Tx{
 		{Timestamp: timestamppb.New(at), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
-			Quantity: qty, Account: "A", GroupRef: "new"},
+			Quantity: qty, Account: "A"},
 		{Timestamp: timestamppb.New(at), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
-			Quantity: decimal.RequireFromString(qty).Neg().String(), Account: "B", GroupRef: "new"},
+			Quantity: decimal.RequireFromString(qty).Neg().String(), Account: "B"},
 	}
 }
 
@@ -1780,9 +1780,9 @@ func TestReplaceTxsInPeriod_ResidualIsReDerivedNotStacked(t *testing.T) {
 	day1 := time.Date(2025, 9, 10, 15, 0, 0, 0, time.UTC)
 	day2, day3 := day1.Add(24*time.Hour), day1.Add(48*time.Hour)
 	legs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(day1), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-5000", Account: "A", GroupRef: "run"},
-		{Timestamp: timestamppb.New(day2), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "2000", Account: "A", GroupRef: "run"},
-		{Timestamp: timestamppb.New(day3), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "3000", Account: "A", GroupRef: "run"},
+		{Timestamp: timestamppb.New(day1), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-5000", Account: "A"},
+		{Timestamp: timestamppb.New(day2), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "2000", Account: "A"},
+		{Timestamp: timestamppb.New(day3), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "3000", Account: "A"},
 	}
 	weights := []db.Weight{
 		{Amount: decimal.RequireFromString("-5000"), Commodity: "cur:USD"},
@@ -2009,9 +2009,9 @@ func TestReplaceTxsInPeriod_KeepsSplitAdjustmentOnASurvivor(t *testing.T) {
 	price := "100"
 	txs := []*apiv1.Tx{
 		{Timestamp: timestamppb.New(day1), InstrumentDescription: "SPLT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
-			Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD", Account: "A", GroupRef: "g"},
+			Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD", Account: "A"},
 		{Timestamp: timestamppb.New(day2), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
-			Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD", Account: "A", GroupRef: "g"},
+			Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD", Account: "A"},
 	}
 	ws := []db.Weight{{Amount: decf(1000), Commodity: "cur:USD"}, {Amount: decf(-1000), Commodity: "cur:USD"}}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
@@ -2056,9 +2056,9 @@ func TestReplaceTxsInPeriod_KeepsRestatedShareCountBasis(t *testing.T) {
 	restated := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
 		{Timestamp: timestamppb.New(day1), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
-			Quantity: "-5000", Account: "A", GroupRef: "run"},
+			Quantity: "-5000", Account: "A"},
 		{Timestamp: timestamppb.New(day2), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
-			Quantity: "5000", Account: "A", GroupRef: "run"},
+			Quantity: "5000", Account: "A"},
 	}
 	ws := []db.Weight{{Amount: decf(-5000), Commodity: "cur:USD"}, {Amount: decf(5000), Commodity: "cur:USD"}}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",

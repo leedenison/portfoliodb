@@ -155,9 +155,9 @@ says so in its scope. See
 **A record's derived legs carry the record's correlation.** A converter reads more
 than one posting out of one source record: the commission netted into a trade's
 total becomes a leg of its own, and a reinvestment's units are bought with income no
-row reports. Those legs transcribe no row, and until now carried no evidence, which
-was right while `group_ref` said where they belonged and wrong the moment it stops
-([0098](../issues/0098-retire-converter-side-grouping.md)). Neither can be recovered
+row reports. Those legs transcribe no row, and carried no evidence while `group_ref` said where
+they belonged -- which stopped being true in
+[0098](../issues/0098-retire-converter-side-grouping.md). Neither can be recovered
 by the server: the commission column and the fact that a purchase was funded by
 income are both read by the converter and then discarded. So a leg read out of a
 record is another leg of that record and carries its identifier.

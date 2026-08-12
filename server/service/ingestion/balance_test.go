@@ -35,14 +35,13 @@ type posting struct {
 	desc string
 	// typ is the single declared candidate; types overrides it for a fixture
 	// declaring an ambiguous set.
-	typ      typev1.TxType
-	types    []typev1.TxType
-	qty      string
-	price    *string
-	settle   string
-	trading  string
-	instID   string
-	groupRef string
+	typ     typev1.TxType
+	types   []typev1.TxType
+	qty     string
+	price   *string
+	settle  string
+	trading string
+	instID  string
 }
 
 func (p posting) tx(at time.Time) *apiv1.Tx {
@@ -63,7 +62,6 @@ func (p posting) tx(at time.Time) *apiv1.Tx {
 		SettlementCurrency: p.settle,
 		TradingCurrency:    p.trading,
 		Account:            "ACC-1",
-		GroupRef:           p.groupRef,
 	}
 }
 
@@ -128,8 +126,8 @@ func TestWeights_NonStandardDeliverable(t *testing.T) {
 
 	// 2 contracts of 150 shares at 3.00 is 900, not the 600 a standard one costs.
 	txs := []*apiv1.Tx{
-		posting{desc: "OPT", typ: typev1.TxType_TRADE_ASSET, qty: "2", price: price("3"), settle: "USD", instID: optID, groupRef: "t1"}.tx(at),
-		posting{desc: "USD", typ: typev1.TxType_TRADE_CASH, qty: "-900", price: price("1"), settle: "USD", trading: "USD", instID: usdID, groupRef: "t1"}.tx(at),
+		posting{desc: "OPT", typ: typev1.TxType_TRADE_ASSET, qty: "2", price: price("3"), settle: "USD", instID: optID}.tx(at),
+		posting{desc: "USD", typ: typev1.TxType_TRADE_CASH, qty: "-900", price: price("1"), settle: "USD", trading: "USD", instID: usdID}.tx(at),
 	}
 
 	// The two weigh to nothing between them, so the store has nothing to route
@@ -316,8 +314,8 @@ func TestWeights_NameWhatTheGroupIsShort(t *testing.T) {
 	instruments := balanceFixtures()
 
 	txs := []*apiv1.Tx{
-		posting{desc: "AAPL", typ: typev1.TxType_TRADE_ASSET, qty: "10", price: price("185.50"), settle: "USD", instID: aaplID, groupRef: "t1"}.tx(at),
-		posting{desc: "USD", typ: typev1.TxType_TRADE_ASSET, qty: "-1866.95", settle: "USD", trading: "USD", instID: usdID, groupRef: "t1"}.tx(at),
+		posting{desc: "AAPL", typ: typev1.TxType_TRADE_ASSET, qty: "10", price: price("185.50"), settle: "USD", instID: aaplID}.tx(at),
+		posting{desc: "USD", typ: typev1.TxType_TRADE_ASSET, qty: "-1866.95", settle: "USD", trading: "USD", instID: usdID}.tx(at),
 	}
 
 	sums := map[string]decimal.Decimal{}

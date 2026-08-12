@@ -133,7 +133,6 @@ function userFixture() {
               instrumentDescription: "APPLE INC",
               quantity: "10",
               unitPrice: "185.9",
-              groupRef: "g0",
               // An OFX FITID, which is unique within the account rather than
               // within the institution, and opaque: no ordinal, so equality is
               // all it offers.

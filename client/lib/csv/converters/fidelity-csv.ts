@@ -18,7 +18,6 @@ import { parseCSVLine } from "@/lib/csv/line";
 import {
   currencyHint,
   identifyRecord,
-  refPrefix,
   reinvestIncomeLeg,
 } from "@/lib/csv/postings";
 import { mayBe, mustBe } from "@/lib/tx-type";
@@ -182,70 +181,14 @@ export function typeForAsset(types: TxType[], cashAsset: boolean): TxType[] {
 }
 
 /**
- * One row of a Fidelity export, reduced to what pairing needs. Shared by the CSV
- * and JSON converters so the two cannot disagree about how a trade is grouped.
- */
-export interface FidelityLeg {
-  /** Broker transaction type, verbatim (e.g. "Buy", "Cash In From Sell"). */
-  type: string;
-  account: string;
-  /** The date both legs of a trade settle on, as the source spells it. */
-  dateKey: string;
-  /** Cash total for the row. Sign is ignored; only the magnitude pairs. */
-  amount: number;
-  /**
-   * quantity * unit price for a trade row, or 0 when the source quoted neither.
-   * Independent of `amount`, which is the broker's own total, so the two
-   * disagreeing is evidence the legs do not belong together.
-   */
-  consideration: number;
-  /** Broker reference number. NaN when the source did not supply one. */
-  ref: number;
-  /**
-   * Whether the row transacted cash rather than a security. A cash `Buy` or
-   * `Sell` pairs against a different cash row than a security one does, so
-   * pairing needs this as well as typeForAsset.
-   */
-  cashAsset: boolean;
-}
-
-const AMOUNT_EPSILON = 0.005;
-
-/**
- * Widest relative gap tolerated between a cash leg and its trade's
- * quantity * unit price.
+ * The trade rows the export reports as an unsigned share count that left the
+ * account.
  *
- * The two never agree exactly: the export rounds the unit price, and the error that
- * leaves is the half-digit it dropped as a fraction of the price. That is worst on
- * a cheap unit, since the same half-digit is a larger share of a smaller number --
- * the widest correctly paired trade in the sample exports is a fund rebate of 9.24
- * units at a price printed as 0.85, 0.56% out. 0.75% clears every real pairing
- * while rejecting a swapped cash row, which is off by whole percentage points.
- *
- * This cannot replace the fee rule below. A fee gap is around 0.02% of a trade, far
- * inside this band, so two similar trades settling the same day would both pass it.
+ * Direction is transcription rather than inference: the broker says "Sell" and the
+ * quantity it prints is positive, so the sign has to be taken from the wording. What
+ * these rows no longer decide is which cash row settles them.
  */
-const CONSIDERATION_BAND = 0.0075;
-
-/** Trade rows whose cash leg is money coming in. */
 const SELL_ROWS = ["Sell", "Sell For Switch"];
-
-/** Trade rows whose cash leg is money going out. */
-const BUY_ROWS = ["Buy", "Buy From Dividend", "Buy From Rebate", "Buy For Switch"];
-
-/**
- * The rows a deposit into a product account is reported through, after the
- * `Cash In Lump Sum` that opens it.
- *
- * Money paid into a wrapper arrives as a run of three rows of the same amount:
- * the subscription is credited, spent, and credited again as the money that
- * lands. No security is involved -- the `Cash Out For Buy` here has no `Buy`
- * anywhere beside it -- and the three are one event, so they belong in one group.
- * Left ungrouped they are three single-posting groups, two of them transfers, so
- * the account reports twice the contribution it received and a residual the size
- * of the deposit lands in IMBALANCE.
- */
-const DEPOSIT_ROWS = ["Cash Out For Buy", "Cash In"];
 
 /**
  * Widest reference-number gap tolerated between the row that opens a deposit and
@@ -322,173 +265,6 @@ export function fidelityCounterpartyCorrelation(account: string): Correlation {
     scope: Scope.BROKER,
     match: [Match.ACCOUNT],
   });
-}
-
-/**
- * The broker type of the cash row a trade settles through, or "" for a row that
- * is not a trade.
- *
- * Fidelity names the cash leg after the reason the trade happened rather than
- * after the trade, so each variant settles through a row type of its own. A
- * purchase of the account's own cash is the one that also turns on the asset: it
- * arrives through a transfer, and the broker says so in the name.
- */
-function cashLegType(leg: FidelityLeg): string {
-  switch (leg.type) {
-    case "Sell":
-      return "Cash In From Sell";
-    case "Sell For Switch":
-      return "Cash In";
-    case "Buy":
-      return leg.cashAsset ? "Cash Out For Buy From Transfer" : "Cash Out For Buy";
-    case "Buy From Dividend":
-      return "Cash Out For Dividend Reinvestment";
-    case "Buy From Rebate":
-    case "Buy For Switch":
-      return "Cash Out";
-    default:
-      return "";
-  }
-}
-
-/**
- * Assigns a group_ref to each leg, returned parallel to the input; an empty
- * string means the leg is its own single-posting group.
- *
- * Fidelity reports the cash side of a trade as a separate row, so the two legs are
- * paired here rather than a cash leg being derived, which would post the money
- * twice. Both rules are measured against the sample exports in local/masters: sells
- * pair 88/88 -- 66 of a security and 22 of cash -- and buys 92/92 -- 91 of a
- * security and 1 of cash.
- *
- * Which cash row a trade pairs with is cashLegType's to say.
- *
- * Charges (dealing fee, PTM levy, stamp duty, FX charge) are never grouped with a
- * trade. Fidelity dates them on the order date while the trade settles later, so
- * folding them in would misdate them, and their money is already accounted for by
- * their own rows.
- */
-export function assignFidelityGroups(legs: FidelityLeg[]): string[] {
-  const refs = legs.map(() => "");
-  // NUL separator, written as an escape so this file stays plain text. A Fidelity
-  // date is "10 Feb 2022", so a separator a date could contain risks two different
-  // (account, date) pairs collapsing onto one key.
-  const bucket = (l: FidelityLeg) => `${l.account}\u0000${l.dateKey}`;
-  const byType = new Map<string, number[]>();
-  legs.forEach((l, i) => {
-    if (!Number.isFinite(l.ref)) return;
-    const seen = byType.get(l.type);
-    if (seen) seen.push(i);
-    else byType.set(l.type, [i]);
-  });
-  const indices = (type: string) => byType.get(type) ?? [];
-  // Security trades pick their cash row first. Nothing in the sample exports needs
-  // it -- no bucket holds a cash and a security trade of equal amount -- but five
-  // hold both kinds, so this keeps which one wins from depending on the order the
-  // broker happened to export them in.
-  const tradeRows = (types: string[]) => {
-    const idx = types.flatMap(indices);
-    return [...idx.filter((i) => !legs[i].cashAsset), ...idx.filter((i) => legs[i].cashAsset)];
-  };
-
-  const pair = (securityIdx: number, cashIdx: number) => {
-    const ref = String(legs[securityIdx].ref);
-    refs[securityIdx] = ref;
-    refs[cashIdx] = ref;
-  };
-
-  // Both rules below match one broker-supplied total against another, so neither
-  // notices a cash row that is internally consistent but belongs to a different
-  // trade. quantity * unit price is derived from different fields, which makes it an
-  // independent check: a swapped cash row misses it by percentage points.
-  // A ratio test, so it divides: past the exactness boundary by construction,
-  // and a band this wide would not notice the difference anyway. See
-  // adr/0026-exact-decimals-bounded-by-closure.md.
-  const consistent = (security: FidelityLeg, cash: FidelityLeg) => {
-    const expected = Math.abs(security.consideration);
-    // Nothing quoted to check against. Absence is not evidence of a bad pairing.
-    if (expected === 0) return true;
-    return Math.abs(Math.abs(cash.amount) - expected) / expected <= CONSIDERATION_BAND;
-  };
-
-  // Sells: the cash in equals the proceeds exactly, so the amount identifies it.
-  const usedCash = new Set<number>();
-  for (const s of tradeRows(SELL_ROWS)) {
-    const match = indices(cashLegType(legs[s])).find(
-      (c) =>
-        !usedCash.has(c) &&
-        bucket(legs[c]) === bucket(legs[s]) &&
-        Math.abs(Math.abs(legs[c].amount) - Math.abs(legs[s].amount)) < AMOUNT_EPSILON &&
-        consistent(legs[s], legs[c])
-    );
-    if (match !== undefined) {
-      usedCash.add(match);
-      pair(s, match);
-    }
-  }
-
-  // Buys: the cash out is the consideration while the buy row's amount adds the
-  // charges, so the amounts differ by a fee. A fee cannot be negative, which rules
-  // out the cash row of a larger trade in the same bucket; among what survives, the
-  // nearest reference number wins. Candidates are ranked globally rather than taken
-  // in row order so that one buy cannot strand another by claiming its cash row.
-  const candidates: Array<{ distance: number; buy: number; cash: number }> = [];
-  for (const b of tradeRows(BUY_ROWS)) {
-    for (const c of indices(cashLegType(legs[b]))) {
-      if (bucket(legs[c]) !== bucket(legs[b])) continue;
-      if (Math.abs(legs[b].amount) - Math.abs(legs[c].amount) < -AMOUNT_EPSILON) continue;
-      if (!consistent(legs[b], legs[c])) continue;
-      candidates.push({ distance: Math.abs(legs[b].ref - legs[c].ref), buy: b, cash: c });
-    }
-  }
-  candidates.sort((x, y) => x.distance - y.distance || x.buy - y.buy || x.cash - y.cash);
-  const usedBuy = new Set<number>();
-  for (const { buy, cash } of candidates) {
-    if (usedBuy.has(buy) || usedCash.has(cash)) continue;
-    usedBuy.add(buy);
-    usedCash.add(cash);
-    pair(buy, cash);
-  }
-
-  // Deposits, last: a run is only ever built from cash rows the trade passes did
-  // not want, which is what stops a deposit taking the cash row of a trade of the
-  // same amount on the same day.
-  //
-  // Identified by account, amount and reference proximity rather than by
-  // bucket(). One run in the sample exports settles across two days -- the lump
-  // sum and its spend complete on the 11th, the arrival on the 14th -- so the
-  // date the trade passes group on would split it, while the reference run holds
-  // in all 21.
-  for (const s of indices("Cash In Lump Sum")) {
-    const members: number[] = [];
-    for (const type of DEPOSIT_ROWS) {
-      let best: number | undefined;
-      for (const c of indices(type)) {
-        if (usedCash.has(c)) continue;
-        if (legs[c].account !== legs[s].account) continue;
-        const gap = legs[c].ref - legs[s].ref;
-        if (gap <= 0 || gap > DEPOSIT_REF_SPAN) continue;
-        if (Math.abs(Math.abs(legs[c].amount) - Math.abs(legs[s].amount)) >= AMOUNT_EPSILON) {
-          continue;
-        }
-        if (best === undefined || legs[c].ref < legs[best].ref) best = c;
-      }
-      if (best !== undefined) {
-        members.push(best);
-        usedCash.add(best);
-      }
-    }
-    // A lump sum with no run is money paid in from outside -- the sample has
-    // three, all into a cash management account -- and stands on its own.
-    if (members.length === 0) continue;
-    // The lump sum's declared TRANSFER is what routes the group's residual to
-    // TRANSFER_CLEARING, where the departure it answers is also waiting.
-    const ref = String(legs[s].ref);
-    refs[s] = ref;
-    for (const m of members) refs[m] = ref;
-  }
-
-  return refs;
 }
 
 export function convertFidelityToStandard(
@@ -569,7 +345,9 @@ export function convertFidelityToStandard(
   }
 
   const postings: Posting[] = [];
-  const legs: FidelityLeg[] = [];
+  // The rows whose units were bought with income, by posting index. A
+  // reinvestment is the one row that produces a second posting here.
+  const reinvestments: number[] = [];
   let minTime = Infinity;
   let maxTime = -Infinity;
 
@@ -658,24 +436,7 @@ export function convertFidelityToStandard(
     if (ts < minTime) minTime = ts;
     if (ts > maxTime) maxTime = ts;
 
-    // dateStr, not the parsed date: both legs of a trade carry the same string,
-    // and pairing only needs them to agree.
-    // The raw quantity, not the sign-corrected one: cash rows overwrite it with
-    // their amount, which would make the check compare a total against itself.
-    legs.push({
-      type: txTypeStr,
-      account,
-      dateKey: dateStr,
-      amount: amountDec?.toNumber() ?? 0,
-      // The product is exact; the band it is compared against is not, which is
-      // why the leg carries it as a number.
-      consideration:
-        rawQtyDec !== undefined && unitPriceDec !== undefined
-          ? rawQtyDec.times(unitPriceDec).abs().toNumber()
-          : 0,
-      ref: refCol >= 0 ? parseInt(get(refCol), 10) : NaN,
-      cashAsset,
-    });
+    if (txTypeStr === "Reinvestment From Income") reinvestments.push(postings.length);
     // The cell verbatim becomes the token and the number it carries becomes the
     // ordinal, in a field of its own: knowing how to take a number out of this
     // broker's references is exactly what a converter uniquely knows, and a
@@ -717,26 +478,15 @@ export function convertFidelityToStandard(
     );
   }
 
-  const refs = assignFidelityGroups(legs);
-  refs.forEach((ref, i) => {
-    if (ref) postings[i].groupRef = ref;
-  });
-  // After the refs are stamped, since legs is index-parallel with postings. A
-  // reinvestment is a compressed two-event group: the asset leg the source
-  // reported plus the dividend it consumed, which is derived here because no
-  // row exists for it. The pair needs a shared group for the money to balance
-  // the units.
-  const prefix = refPrefix(postings);
-  legs.forEach((leg, i) => {
-    if (leg.type !== "Reinvestment From Income") return;
-    const p = postings[i];
-    if (!p.groupRef) p.groupRef = `${prefix}${i}`;
-    // The income leg inherits the row's reference, so the pair is joinable from
-    // evidence rather than only from the ref stamped above. A row the export gave
-    // no reference has nothing to inherit, and gets a synthesised one.
-    const income = reinvestIncomeLeg(identifyRecord(p, String(i)));
+  // A reinvestment is a compressed two-event group: the asset leg the source
+  // reported plus the dividend it consumed, which is derived here because no row
+  // exists for it. The income leg inherits the row's reference, which is what the
+  // server puts the pair back together by; a row the export gave no reference has
+  // nothing to inherit and gets a synthesised one.
+  for (const i of reinvestments) {
+    const income = reinvestIncomeLeg(identifyRecord(postings[i], String(i)));
     if (income) postings.push(income);
-  });
+  }
 
   const periodFrom = minTime === Infinity ? new Date(0) : new Date(minTime);
   const periodBefore =

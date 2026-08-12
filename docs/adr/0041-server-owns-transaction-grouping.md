@@ -59,6 +59,17 @@ broker-specific passes on the server, not their disappearance.
 
 ## Amendments
 
+**Done, in 0098.** `group_ref` is gone from the upload and from the archive, the
+Fidelity pairing passes are gone from the converters, and the store partitions the
+postings it writes in the transaction that writes them -- so an upload's legs are
+joined to the ones already stored beside them rather than waiting for a cycle. What
+a converter emits is postings and the evidence its source stated.
+
+The prediction below about broker-specific passes has not been tested yet: one
+ordering serves both sources so far, and it is a table on the rules rather than the
+shape of the code, so the day it stops serving them is a table and not a
+restructuring.
+
 **Not all converter grouping is inference.**
 [0048](0048-correlations-declare-their-own-semantics.md) corrects the reading of
 "broker idiosyncrasy is an argument about *translation*, not about *decision*"

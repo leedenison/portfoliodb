@@ -197,9 +197,9 @@ func TestTxGroupBalance_SplitRecomputeIsNotAffected(t *testing.T) {
 	from, to := timestamppb.New(now.Add(-time.Hour)), timestamppb.New(now.Add(time.Hour))
 	txs := []*apiv1.Tx{
 		{Timestamp: timestamppb.New(now), InstrumentDescription: "SPLT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
-			Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD", GroupRef: "g1"},
+			Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD"},
 		{Timestamp: timestamppb.New(now), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
-			Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD", GroupRef: "g1"},
+			Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD"},
 	}
 	ws := []db.Weight{{Amount: decf(1000), Commodity: "cur:USD"}, {Amount: decf(-1000), Commodity: "cur:USD"}}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, usd}, ws, nil); err != nil {

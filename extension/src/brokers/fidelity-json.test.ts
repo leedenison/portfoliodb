@@ -242,8 +242,6 @@ describe("convertFidelityJson cash-asset rows", () => {
 
   it("groups a purchase of cash with the cash out beside it", () => {
     const result = convertFidelityJson(json(CASH_OUT, BUY_CASH));
-    expect(result.postings[0]!.groupRef).toBe("1166853279");
-    expect(result.postings[1]!.groupRef).toBe("1166853279");
     expectGroupsBalance(result.postings);
   });
 
@@ -283,8 +281,6 @@ describe("convertFidelityJson cash-asset rows", () => {
     const result = convertFidelityJson(json(sell, cashIn));
     expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_CASH]);
     expect(result.postings[0]!.quantity).toBe("-20000");
-    expect(result.postings[0]!.groupRef).toBe("971613412");
-    expect(result.postings[1]!.groupRef).toBe("971613412");
     expectGroupsBalance(result.postings);
   });
 
@@ -320,11 +316,13 @@ describe("convertFidelityJson cash-asset rows", () => {
     expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     expect(result.postings[1]!.brokerTxType).toEqual([TxType.TRADE_CASH, TxType.TRANSFER]);
     expect(result.postings[1]!.tradingCurrency).toBe("GBP");
-    expect(result.postings[1]!.groupRef).toBe("661638570");
   });
 });
 
-describe("convertFidelityJson grouping", () => {
+// What the converter still owes a Fidelity JSON payload, now that which rows are
+// legs of one event is the server's: one posting per row, and the evidence to put
+// them back together.
+describe("convertFidelityJson rows", () => {
   const trade = (fields: Record<string, unknown>) => ({
     accountNumber: "ACC-1",
     currency: "GBP",
@@ -334,62 +332,7 @@ describe("convertFidelityJson grouping", () => {
     ...fields,
   });
 
-  it("pairs a sell with the cash in of the same amount", () => {
-    const result = convertFidelityJson(
-      json(
-        trade({
-          transactionType: "Sell",
-          assetName: "WISE PLC (WISE)",
-          units: 1242,
-          valuation: 7266.49,
-          pricePerUnit: 5.85,
-          debitCreditIndicator: "DEBIT",
-          referenceId: "441416452",
-        }),
-        trade({
-          transactionType: "Cash In From Sell",
-          assetName: null,
-          units: 7266.49,
-          valuation: 7266.49,
-          debitCreditIndicator: "CREDIT",
-          referenceId: "441416454",
-        })
-      )
-    );
-
-    expect(result.postings).toHaveLength(2);
-    expect(result.postings[0]!.groupRef).toBe("441416452");
-    expect(result.postings[1]!.groupRef).toBe("441416452");
-  });
-
-  it("pairs a buy with the cash out despite the fee gap", () => {
-    const result = convertFidelityJson(
-      json(
-        trade({
-          transactionType: "Cash Out For Buy",
-          assetName: null,
-          units: 7380.19,
-          valuation: 7380.19,
-          debitCreditIndicator: "DEBIT",
-          referenceId: "441416514",
-        }),
-        trade({
-          transactionType: "Buy",
-          assetName: "INVESCO EQQQ (EQQQ)",
-          units: 28,
-          valuation: 7390.19,
-          pricePerUnit: 263.58,
-          debitCreditIndicator: "CREDIT",
-          referenceId: "441416515",
-        })
-      )
-    );
-
-    expect(result.postings[0]!.groupRef).toBe("441416515");
-    expect(result.postings[1]!.groupRef).toBe("441416515");
-  });
-
-  it("keeps a separately reported charge out of any trade's group", () => {
+  it("emits a separately reported charge as one posting", () => {
     const result = convertFidelityJson(
       json(
         trade({
@@ -410,7 +353,7 @@ describe("convertFidelityJson grouping", () => {
   });
 
   it("groups the run a deposit into a product account is reported through", () => {
-    // The same shape the CSV route sees, since both call assignFidelityGroups:
+    // The same shape the CSV route sees, since both read the same rows:
     // the subscription credited, spent, and credited again as the money that
     // lands. Grouped, the account is left with one residual for one deposit.
     const deposit = (fields: Record<string, unknown>) =>
@@ -446,12 +389,16 @@ describe("convertFidelityJson grouping", () => {
     );
 
     expect(result.errors).toEqual([]);
-    expect(result.postings.map((tx) => tx.groupRef)).toEqual([
+    // Each row carries its own reference, ascending across the run. What makes the
+    // three one event is the server's to decide from those; the converter's job is
+    // to state them.
+    expect(result.postings.map((tx) => tx.correlations[0]!.token)).toEqual([
       "971613428",
-      "971613428",
-      "971613428",
+      "971613429",
+      "971613431",
     ]);
-    // The declared sets survive grouping: the lump sum's TRANSFER is what routes
+    // The declared sets are what a rule may claim against: the lump sum's TRANSFER
+    // is what routes
     // the group's residual to TRANSFER_CLEARING rather than IMBALANCE, and the
     // ambiguous Cash In keeps both its readings.
     expect(result.postings.map((tx) => tx.brokerTxType)).toEqual([
@@ -461,35 +408,8 @@ describe("convertFidelityJson grouping", () => {
     ]);
   });
 
-  it("leaves rows ungrouped when the payload carries no reference", () => {
-    const result = convertFidelityJson(
-      json(
-        trade({
-          transactionType: "Sell",
-          assetName: "WISE PLC (WISE)",
-          units: 1242,
-          valuation: 7266.49,
-          debitCreditIndicator: "DEBIT",
-        }),
-        trade({
-          transactionType: "Cash In From Sell",
-          assetName: null,
-          units: 7266.49,
-          valuation: 7266.49,
-          debitCreditIndicator: "CREDIT",
-        })
-      )
-    );
-
-    for (const tx of result.postings) {
-      expect(tx.groupRef).toBeUndefined();
-    }
-  });
 });
 
-// The JSON carries both series the format can express, and they are kept apart:
-// a reference number is compared against another reference number, while the
-// counterparty names an account and is compared against one.
 describe("correlations", () => {
   const base = {
     accountNumber: "AW10000001",

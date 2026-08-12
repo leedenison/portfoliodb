@@ -111,10 +111,23 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 		if err != nil {
 			return fmt.Errorf("period_before: %w", err)
 		}
-		if err := clearPeriod(ctx, exec, userUUID, broker, fromT, beforeT); err != nil {
+		cut, err := clearPeriod(ctx, exec, userUUID, broker, fromT, beforeT)
+		if err != nil {
 			return err
 		}
-		return insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, shareCountBasis, "")
+		fresh, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, shareCountBasis, "")
+		if err != nil {
+			return err
+		}
+		// Two rules, because the two sets of groups are not in the same state. A
+		// group the replace cut has lost legs, so what it fails to balance to is
+		// their value and can be any size; a group the upload just built holds
+		// every leg its source stated, so a small enough difference is the source
+		// disagreeing with itself.
+		if err := settle(ctx, exec, userUUID, cut, legsRemoved); err != nil {
+			return err
+		}
+		return settle(ctx, exec, userUUID, fresh, wholeSource)
 	})
 }
 
@@ -123,32 +136,37 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 // account on every posting when non-empty, for the append path where the whole
 // group belongs to one named account.
 //
+// It returns the groups it created, for the caller to settle. Every group here is
+// new -- the resolver starts empty and never joins a stored one -- so what comes
+// back holds nothing but the postings just written.
+//
 // weights and shareCountBasis are parallel to txs, or nil when the caller has
 // none. See db.TxDB for what a missing entry in either means.
-func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time, account string) error {
+func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time, account string) ([]uuid.UUID, error) {
 	resolver := newGroupResolver()
+	var created []uuid.UUID
 	for i, t := range txs {
 		instUUID, err := uuid.Parse(instrumentIDs[i])
 		if err != nil {
-			return fmt.Errorf("invalid instrument id: %w", err)
+			return nil, fmt.Errorf("invalid instrument id: %w", err)
 		}
 		ts, err := tsToTime(t.Timestamp)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		brokerTypes, err := db.TxTypesToStrs(t.GetBrokerTxType())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		// Erroring on an unresolved value is what stops any path storing a
 		// posting the ingest pipeline did not resolve.
 		resolvedStr, err := txTypeToStr(t.GetResolvedTxType())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		acctTypeStr, err := accountTypeToStr(t.GetAccountType())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		acc := t.GetAccount()
 		if account != "" {
@@ -161,15 +179,15 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 		// built the posting badly.
 		qty, err := decimal.NewFromString(t.GetQuantity())
 		if err != nil {
-			return fmt.Errorf("invalid quantity %q: %w", t.GetQuantity(), err)
+			return nil, fmt.Errorf("invalid quantity %q: %w", t.GetQuantity(), err)
 		}
 		price, err := parseOptDecimal(t.UnitPrice)
 		if err != nil {
-			return fmt.Errorf("invalid unit price %q: %w", t.GetUnitPrice(), err)
+			return nil, fmt.Errorf("invalid unit price %q: %w", t.GetUnitPrice(), err)
 		}
 		settlement, err := parseOptDecimal(t.SettlementAmount)
 		if err != nil {
-			return fmt.Errorf("invalid settlement amount %q: %w", t.GetSettlementAmount(), err)
+			return nil, fmt.Errorf("invalid settlement amount %q: %w", t.GetSettlementAmount(), err)
 		}
 		w := db.Weight{Amount: qty, Commodity: "inst:" + instUUID.String()}
 		if i < len(weights) {
@@ -193,21 +211,22 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 		var txID uuid.UUID
 		if groupID, ok := resolver.group(ref); ok {
 			if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL, append(args, groupID)...).Scan(&txID); err != nil {
-				return fmt.Errorf("insert tx: %w", err)
+				return nil, fmt.Errorf("insert tx: %w", err)
 			}
 		} else {
 			// The group takes the timestamp of the first leg that names it.
 			var groupID uuid.UUID
 			if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID)...).Scan(&txID, &groupID); err != nil {
-				return fmt.Errorf("insert tx: %w", err)
+				return nil, fmt.Errorf("insert tx: %w", err)
 			}
 			resolver.record(ref, groupID)
+			created = append(created, groupID)
 		}
 		if err := insertCorrelations(ctx, exec, txID, jobUUID, t.GetCorrelations()); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return created, nil
 }
 
 // insertCorrelations records what a posting's source said about why it might
@@ -260,10 +279,12 @@ func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, j
 		grouped[i].GroupRef = "one-group"
 	}
 	return p.runInTx(ctx, func(exec queryable) error {
-		if err := insertPostings(ctx, exec, userUUID, broker, jobUUID, grouped, instrumentIDs, weights, shareCountBasis, account); err != nil {
+		created, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, grouped, instrumentIDs, weights, shareCountBasis, account)
+		if err != nil {
 			return fmt.Errorf("create tx group: %w", err)
 		}
-		return nil
+		// Whole-source, because nothing was taken out of a group this call built.
+		return settle(ctx, exec, userUUID, created, wholeSource)
 	})
 }
 
@@ -667,7 +688,7 @@ const repointGroupTimestampsSQL = `
 	WHERE g.id = s.group_id AND g.timestamp <> s.first_timestamp
 `
 
-// survivingResidualsSQL returns what each group the delete touched has left over, with
+// groupResidualsSQL returns what each group the delete touched has left over, with
 // everything the counterparty that balances it is built from.
 //
 // The sum is over the stored weight per weight_commodity, which is exactly what
@@ -680,7 +701,7 @@ const repointGroupTimestampsSQL = `
 // group it balances, so it stays attributable. commodity is the earliest surviving leg
 // weighing in that commodity, which is where a residual in a security takes its
 // instrument and description from.
-const survivingResidualsSQL = `
+const groupResidualsSQL = `
 	SELECT r.group_id, r.weight_commodity, r.residual,
 	       types.resolved_tx_types,
 	       first.timestamp, first.broker_tx_type, first.resolved_tx_type, first.broker, first.account,
@@ -743,9 +764,9 @@ const currencyInstrumentSQL = `
 	WHERE identifier_type = 'CURRENCY' AND domain IS NULL AND value = $1
 `
 
-// survivingResidual is one commodity a group the replace cut no longer balances in, and
+// groupResidual is one commodity a group the replace cut no longer balances in, and
 // the group attributes the counterparty for it is built from.
-type survivingResidual struct {
+type groupResidual struct {
 	groupID   uuid.UUID
 	commodity string
 	amount    decimal.Decimal
@@ -840,8 +861,8 @@ func routeBoundaries(ctx context.Context, exec queryable, userUUID uuid.UUID, gr
 	return nil
 }
 
-// clearPeriod deletes the postings a replace covers and re-balances the groups it left
-// standing.
+// clearPeriod deletes the postings a replace covers and returns the groups it left
+// standing, for the caller to settle.
 //
 // A group that straddles the period keeps its postings outside it and gains a routed
 // counterparty for what those legs no longer balance to. The result is stable under
@@ -851,25 +872,25 @@ func routeBoundaries(ctx context.Context, exec queryable, userUUID uuid.UUID, gr
 //
 // The delete and the routed insert commit together, and check_tx_group_balance() is
 // DEFERRABLE INITIALLY DEFERRED, so the group is never observed unbalanced.
-func clearPeriod(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, fromT, beforeT time.Time) error {
+func clearPeriod(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, fromT, beforeT time.Time) ([]uuid.UUID, error) {
 	touched, err := deleteReplacedPostings(ctx, exec, userUUID, broker, fromT, beforeT)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(touched) == 0 {
-		return nil
+		return nil, nil
 	}
 	ids := pq.Array(touched)
 	if _, err := exec.ExecContext(ctx, deleteEmptiedGroupsSQL, ids); err != nil {
-		return fmt.Errorf("delete emptied tx groups: %w", err)
+		return nil, fmt.Errorf("delete emptied tx groups: %w", err)
 	}
 	if _, err := exec.ExecContext(ctx, deleteTouchedMatchesSQL, ids); err != nil {
-		return fmt.Errorf("delete transfer matches: %w", err)
+		return nil, fmt.Errorf("delete transfer matches: %w", err)
 	}
 	if _, err := exec.ExecContext(ctx, repointGroupTimestampsSQL, ids); err != nil {
-		return fmt.Errorf("repoint tx group timestamps: %w", err)
+		return nil, fmt.Errorf("repoint tx group timestamps: %w", err)
 	}
-	return routeSurvivors(ctx, exec, userUUID, ids)
+	return touched, nil
 }
 
 // deleteReplacedPostings removes what the replace is replacing and returns the distinct
@@ -898,25 +919,57 @@ func deleteReplacedPostings(ctx context.Context, exec queryable, userUUID uuid.U
 	return touched, nil
 }
 
-// routeSurvivors writes the counterparties that balance each group the delete left
-// unbalanced, by the rules the ingest balancer applies to an upload. The tolerance is
-// not applied: see residual.SplitType.
+// residualRule classifies what a group has left over. The two differ only in whether
+// a difference small enough to be a rounding is read as one.
+type residualRule func(commodity string, amount decimal.Decimal, resolved []typev1.TxType) typev1.AccountType
+
+// wholeSource is the rule for a group holding every leg its source stated. What is
+// left over is the source's own figures failing to reconcile, so a small enough
+// difference is the source disagreeing with itself. See residual.Type.
+func wholeSource(commodity string, amount decimal.Decimal, resolved []typev1.TxType) typev1.AccountType {
+	return residual.Type(commodity, amount, resolved)
+}
+
+// legsRemoved is the rule for a group something was taken out of. What is left over
+// is the value of the legs that went rather than two figures rounded differently, so
+// it can be any size and a small one is small by coincidence. See residual.SplitType.
+func legsRemoved(_ string, _ decimal.Decimal, resolved []typev1.TxType) typev1.AccountType {
+	return residual.SplitType(resolved)
+}
+
+// settle writes the legs the server owes a set of groups, and is the one place that
+// happens: after an upload is stored, after a replace cuts a group, and after a
+// regroup moves a member.
 //
-// Boundary legs go first and residuals second, because the residual is what is left
-// after every side the data names. Both were deleted with the postings that went, so
-// both are derived again here against the legs the group ends with.
-func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, groupIDs interface{}) error {
-	if err := routeBoundaries(ctx, exec, userUUID, groupIDs); err != nil {
+// Boundary legs go first and residuals second, because a residual is what is left
+// after every side the data names. Both are derived from the legs the group ends
+// with, so a caller that changed a group's membership deletes them first and lets
+// this write them again rather than trying to adjust them.
+//
+// The rule is the caller's because only the caller knows whether anything was taken
+// out of these groups.
+func settle(ctx context.Context, exec queryable, userUUID uuid.UUID, groupIDs []uuid.UUID, rule residualRule) error {
+	if len(groupIDs) == 0 {
+		return nil
+	}
+	ids := pq.Array(groupIDs)
+	if err := routeBoundaries(ctx, exec, userUUID, ids); err != nil {
 		return err
 	}
-	rows, err := exec.QueryContext(ctx, survivingResidualsSQL, groupIDs)
+	return routeResiduals(ctx, exec, userUUID, ids, rule)
+}
+
+// routeResiduals writes the counterparty that balances each group left unbalanced
+// once its boundary legs are in.
+func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, groupIDs interface{}, rule residualRule) error {
+	rows, err := exec.QueryContext(ctx, groupResidualsSQL, groupIDs)
 	if err != nil {
 		return fmt.Errorf("surviving residuals: %w", err)
 	}
 	defer rows.Close()
-	var residuals []survivingResidual
+	var residuals []groupResidual
 	for rows.Next() {
-		var r survivingResidual
+		var r groupResidual
 		if err := rows.Scan(&r.groupID, &r.commodity, &r.amount, &r.resolvedTypes,
 			&r.timestamp, &r.brokerTxTypes, &r.resolvedTxType, &r.broker, &r.account,
 			&r.trading, &r.settlement, &r.description, &r.instrumentID); err != nil {
@@ -931,7 +984,7 @@ func routeSurvivors(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 	byCurrency := map[string]uuid.UUID{}
 	for _, r := range residuals {
 		amount := r.amount.Neg()
-		acctType, err := accountTypeToStr(residual.SplitType(db.StrsToTxTypes(r.resolvedTypes)))
+		acctType, err := accountTypeToStr(rule(r.commodity, amount, db.StrsToTxTypes(r.resolvedTypes)))
 		if err != nil {
 			return err
 		}

@@ -136,7 +136,21 @@ func (p *Postgres) ApplyGrouping(ctx context.Context, userID string, changes []d
 		if _, err := exec.ExecContext(ctx, deleteTouchedMatchesSQL, pq.Array(ids)); err != nil {
 			return fmt.Errorf("delete touched matches: %w", err)
 		}
-		return routeSurvivors(ctx, exec, userUUID, pq.Array(ids))
+		settleIDs := make([]uuid.UUID, 0, len(ids))
+		for _, id := range ids {
+			u, err := uuid.Parse(id)
+			if err != nil {
+				return fmt.Errorf("invalid group id %q: %w", id, err)
+			}
+			settleIDs = append(settleIDs, u)
+		}
+		// legsRemoved for every touched group, which is what a regroup has always
+		// used. It is exactly right for a group a member left and arguably wrong for
+		// one the engine assembled whole, whose legs are all still stated and whose
+		// half-penny difference is the source's own rounding. Telling the two apart
+		// is a question about the regroup write path rather than about where routing
+		// happens, so it is left as it stands.
+		return settle(ctx, exec, userUUID, settleIDs, legsRemoved)
 	})
 	return moved, err
 }

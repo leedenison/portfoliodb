@@ -183,10 +183,16 @@ could not reach.
 
 ## Balancing
 
-Every group is balanced at ingest. Whatever its postings leave over is routed to an
-explicit counterparty rather than rejected, so the invariant holds by construction
-from day one and a residual becomes measurable instead of being absorbed into a cash
-balance.
+Every group is balanced when it is stored. Whatever its postings leave over is routed
+to an explicit counterparty rather than rejected, so the invariant holds by
+construction from day one and a residual becomes measurable instead of being absorbed
+into a cash balance.
+
+**The store does the balancing, from the stored weights.** A converter emits the
+postings its source stated; the ingest pipeline weighs them; the store writes the
+postings and then settles each group it touched, in the same transaction. An upload,
+a period replace and a regroup all reach the same code, so none of them can disagree
+about what a group owes, and no caller can leave one unbalanced.
 
 Two kinds of leg are written for it, in that order.
 
@@ -231,8 +237,9 @@ group is a violation on its own; the counterparty that negates what is left is w
 in the same transaction, so the group is settled before COMMIT.
 
 The exactness is what makes the check arguable-free. There is no tolerance in it,
-because every non-zero residual is routed at ingest -- including the sub-tolerance ones,
-which go to `SOURCE_ROUNDING` -- so a group sums to zero by construction. It reads the
+because every non-zero residual is routed when the group is stored -- including the
+sub-tolerance ones, which go to `SOURCE_ROUNDING` -- so a group sums to zero by
+construction. It reads the
 raw `quantity` and `unit_price`, never the split-adjusted pair, which carries a rounding
 an exact check would reject.
 

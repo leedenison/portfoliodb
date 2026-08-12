@@ -10,6 +10,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
+	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/migrate"
 	"github.com/leedenison/portfoliodb/server/migrations"
 	_ "github.com/lib/pq"
@@ -63,10 +64,27 @@ func testDBTx(t *testing.T) *Postgres {
 }
 
 // createTx appends a single posting as its own group. Most tests only need one
-// seed row, and CreateTxGroup takes a slice so that the append path can carry a
-// routed counterparty alongside the posting it balances.
+// seed row, and CreateTxGroup takes a slice so that a caller can hand over the
+// several legs of one event together.
+//
+// The posting is given a weight of zero, so its group balances on its own and the
+// store writes no counterparty for it. That keeps a fixture to the one row it asked
+// for: these tests are about what is stored and read back, not about what a group
+// owes, and the store settling every group it is handed would otherwise put a
+// routed leg beside every seed row. The tests that are about balancing state their
+// weights, which is what makes them about it.
 func createTx(ctx context.Context, p *Postgres, userID, broker, account, jobID string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error {
-	return p.CreateTxGroup(ctx, userID, broker, account, jobID, []*apiv1.Tx{tx}, []string{instrumentID}, nil, []*time.Time{shareCountBasis})
+	return p.CreateTxGroup(ctx, userID, broker, account, jobID, []*apiv1.Tx{tx}, []string{instrumentID}, weightlessFor([]string{instrumentID}), []*time.Time{shareCountBasis})
+}
+
+// weightlessFor is a weight per posting that contributes nothing, for a fixture
+// whose subject is not what its group owes. See createTx.
+func weightlessFor(instrumentIDs []string) []db.Weight {
+	out := make([]db.Weight, len(instrumentIDs))
+	for i, id := range instrumentIDs {
+		out[i] = db.Weight{Amount: decimal.Zero, Commodity: "inst:" + id}
+	}
+	return out
 }
 
 // newTxGroup creates an empty tx group and returns its id, for the fixtures that

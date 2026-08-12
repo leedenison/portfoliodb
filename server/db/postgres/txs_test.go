@@ -364,28 +364,18 @@ func TestReplaceTxsInPeriod_ReDerivesABoundaryLeg(t *testing.T) {
 	day1 := time.Date(2025, 9, 10, 15, 0, 0, 0, time.UTC)
 	day2 := day1.Add(24 * time.Hour)
 	// One group, two dividends, one on each day: the shape a replace can cut in
-	// half. Each arrives with the income leg the ingest balancer derived for it,
-	// which is what the store is handed.
+	// half. Each is one-sided, so the store owes each an income leg.
 	dividend := func(at time.Time, qty string) *apiv1.Tx {
 		return &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: qty, Account: "A", GroupRef: "d1"}
 	}
-	income := func(at time.Time, qty string) *apiv1.Tx {
-		tx := dividend(at, qty)
-		tx.AccountType = typev1.AccountType_ACCOUNT_TYPE_INCOME
-		tx.SyntheticPurpose = db.BoundaryPurpose
-		return tx
-	}
-	legs := []*apiv1.Tx{
-		dividend(day1, "90"), income(day1, "-90"),
-		dividend(day2, "10"), income(day2, "-10"),
-	}
+	legs := []*apiv1.Tx{dividend(day1, "90"), dividend(day2, "10")}
 	weight := func(v string) db.Weight {
 		return db.Weight{Amount: decimal.RequireFromString(v), Commodity: "cur:USD"}
 	}
-	weights := []db.Weight{weight("90"), weight("-90"), weight("10"), weight("-10")}
+	weights := []db.Weight{weight("90"), weight("10")}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
 		timestamppb.New(day1.Add(-time.Hour)), timestamppb.New(day2.Add(time.Hour)),
-		legs, []string{usd, usd, usd, usd}, weights, nil); err != nil {
+		legs, []string{usd, usd}, weights, nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	if got := boundaryPostings(t, p, userID); len(got) != 2 {
@@ -417,15 +407,18 @@ func TestReplaceTxsInPeriod_KeepsAStatedLegInADerivedAccountType(t *testing.T) {
 	userID, usd := balanceSeed(t, p, "sub|stated-income")
 	base := time.Date(2025, 7, 1, 12, 0, 0, 0, time.UTC)
 	outside := base.Add(-48 * time.Hour)
-	// One group, two legs: a dividend the source stated outside the period, and the
-	// income leg read out of the same record. Both survive a replace of a later day.
+	// A reinvestment, which is the case that still has a stated leg outside the
+	// user's own account: the units, and the income the converter read out of the
+	// same record because no row reports it. The units are declared TRADE_ASSET,
+	// which names no boundary, so the store adds nothing and both legs are the
+	// source's. Both survive a replace of a later day.
 	legs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(outside), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: "90", Account: "A", GroupRef: "d1"},
-		{Timestamp: timestamppb.New(outside), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: "-90", Account: "A", GroupRef: "d1", AccountType: typev1.AccountType_ACCOUNT_TYPE_INCOME},
+		{Timestamp: timestamppb.New(outside), InstrumentDescription: "FUND", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "21.09", Account: "A", GroupRef: "r1"},
+		{Timestamp: timestamppb.New(outside), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: "-31.635", Account: "A", GroupRef: "r1", AccountType: typev1.AccountType_ACCOUNT_TYPE_INCOME},
 	}
 	weights := []db.Weight{
-		{Amount: decimal.RequireFromString("90"), Commodity: "cur:USD"},
-		{Amount: decimal.RequireFromString("-90"), Commodity: "cur:USD"},
+		{Amount: decimal.RequireFromString("31.635"), Commodity: "cur:USD"},
+		{Amount: decimal.RequireFromString("-31.635"), Commodity: "cur:USD"},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
 		timestamppb.New(outside.Add(-time.Hour)), timestamppb.New(outside.Add(time.Hour)),
@@ -465,7 +458,8 @@ func TestReplaceTxsInPeriod_CreatesGroupPerTx(t *testing.T) {
 		{Timestamp: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "TSLA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-1", Account: ""},
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID, instID}, nil, nil); err != nil {
+	ids := []string{instID, instID, instID}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, ids, weightlessFor(ids), nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -500,7 +494,7 @@ func TestReplaceTxsInPeriod_GroupsByGroupRef(t *testing.T) {
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	ids := []string{instID, instID, instID}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, ids, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, ids, weightlessFor(ids), nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -874,7 +868,8 @@ func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txList, []string{instID, instID}, nil, nil); err != nil {
+	ids := []string{instID, instID}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txList, ids, weightlessFor(ids), nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 	txs, tok, err = p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, nil, false, 50, "")
@@ -973,14 +968,15 @@ func TestReplaceTxsInPeriod_RoundTripsAccountType(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	base := time.Date(2025, 5, 1, 0, 0, 0, 0, time.UTC)
-	// A dividend as a balanced group: cash into the account, and the income it
-	// came from. Both legs keep the same broker and account.
+	// A dividend: cash into the account, and the income the store posts for it
+	// because the declared type names where the money came from. Both legs keep
+	// the same broker and account.
 	txs := []*apiv1.Tx{
 		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_INCOME}, ResolvedTxType: typev1.TxType_INCOME, Quantity: "23.4", Account: "A", GroupRef: "div-1"},
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_INCOME}, ResolvedTxType: typev1.TxType_INCOME, Quantity: "-23.4", Account: "A", GroupRef: "div-1", AccountType: typev1.AccountType_ACCOUNT_TYPE_INCOME},
 	}
+	weights := []db.Weight{{Amount: decimal.RequireFromString("23.4"), Commodity: "cur:USD"}}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, weights, nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -1059,7 +1055,8 @@ func TestReplaceTxsInPeriod_RoundTripsCorrelations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "Fidelity", jobID, from, to, txs, []string{instID, instID}, nil, nil); err != nil {
+	ids := []string{instID, instID}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "Fidelity", jobID, from, to, txs, ids, weightlessFor(ids), nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 
@@ -1232,7 +1229,8 @@ func TestReplaceTxsInPeriod_RoundTripsZeroUnitPrice(t *testing.T) {
 		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "OPT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1", Account: "A"},
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
+	ids := []string{instID, instID}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, ids, weightlessFor(ids), nil); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 

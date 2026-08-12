@@ -41,7 +41,7 @@ resolved, and the imbalance report would churn on every regroup.
 
 **Claims are irrevocable, so the precedence list is correctness, not tuning.** With
 no backtracking, the ordering decides the partition. The converter's ordering is
-justified against measured data -- 21 deposit runs, sells 91/91, buys 78/78 -- and
+justified against measured data -- 21 deposit runs, sells 88/88, buys 92/92 -- and
 a single server-side ordering has no one broker's data to justify it against, so an
 order that is right for one source may be wrong for the next. Expect pressure
 toward a per-broker precedence list. That is

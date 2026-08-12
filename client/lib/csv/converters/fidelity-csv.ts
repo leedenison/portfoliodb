@@ -353,7 +353,8 @@ function cashLegType(leg: FidelityLeg): string {
  * Fidelity reports the cash side of a trade as a separate row, so the two legs are
  * paired here rather than a cash leg being derived, which would post the money
  * twice. Both rules are measured against the sample exports in local/masters: sells
- * pair 91/91 -- 69 of a security and 22 of cash -- and buys 78/78.
+ * pair 88/88 -- 66 of a security and 22 of cash -- and buys 92/92 -- 91 of a
+ * security and 1 of cash.
  *
  * Which cash row a trade pairs with is cashLegType's to say.
  *

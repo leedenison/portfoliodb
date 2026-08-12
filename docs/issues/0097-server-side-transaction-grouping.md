@@ -56,7 +56,7 @@ upload window this can be widened freely, because it reads stored data and fetch
 nothing.
 
 **Validation.** The converters are the oracle. Their rules are pinned against the
-sample exports with exact counts -- sells 91/91, buys 78/78, deposit runs 21/21 -- so
+sample exports with exact counts -- sells 88/88, buys 92/92, 21 deposit runs -- so
 the engine can run in shadow over stored postings and be required to reproduce
 `group_ref` exactly before anything depends on it. Do this before 0098 flips the
 switch.

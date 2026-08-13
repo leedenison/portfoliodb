@@ -353,8 +353,14 @@ test.describe("user archive page", () => {
     );
     await page.locator("[data-testid='start-archive-import']").click();
 
+    // The page shows the most recent import job, so the part is named as well
+    // as counted: without that this would pass against the transaction job the
+    // previous test left behind.
     const parts = page.locator("[data-testid='job-parts']");
     await expect(parts).toBeVisible({ timeout: TIMEOUT_SLOW });
+    await expect(parts).toContainText("Holding declarations", {
+      timeout: TIMEOUT_SLOW,
+    });
     await expect(parts.getByText("Done")).toHaveCount(1, {
       timeout: TIMEOUT_SLOW,
     });

@@ -12,6 +12,31 @@ const STATUS_LABELS: Record<number, string> = {
 };
 
 /**
+ * The last import a page knows about, and how far it has got.
+ *
+ * Whether the run is still going is as much a part of the result as the counts
+ * are: an import is applied on the server, so a page showing one it did not
+ * start is the normal case rather than the odd one.
+ */
+export function ArchiveJobSection({
+  job,
+  running,
+}: {
+  job: GetJobResult;
+  running: boolean;
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-surface p-4" data-testid="archive-job">
+      <h2 className="font-display text-base font-semibold text-text-primary">Last import</h2>
+      <p className="mt-1 text-sm text-text-muted">
+        {running ? "Running. This continues whether or not this page is open." : "Finished."}
+      </p>
+      <JobPartsTable job={job} />
+    </section>
+  );
+}
+
+/**
  * The per-part results of one import.
  *
  * A part with validation errors has still succeeded: what failed is a row. So

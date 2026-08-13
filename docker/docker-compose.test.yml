@@ -38,10 +38,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       GOCACHE: /app/.cache/go-build
       GOMODCACHE: /app/.gomodcache
       TEST_DATABASE_URL: postgres://portfoliodb:portfoliodb@postgres:5432/portfoliodb_test?sslmode=disable
+      # The session store keeps its sessions here. Unset outside this harness, which
+      # is what leaves its tests skipped in a run that has no Redis to talk to.
+      TEST_REDIS_URL: redis://redis:6379/0
       # Opt-in performance tests. Passed through from the host with no default so
       # that `BENCH_BALANCE=1 make db-test` reaches the container, and an unset one
       # leaves the test skipped.

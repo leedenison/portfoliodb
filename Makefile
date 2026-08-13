@@ -138,8 +138,11 @@ server-test: $(STAMP_DIR)/generate
 client-test: $(STAMP_DIR)/generate
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) run --rm client npm run test:run
 
+# Tests that need real infrastructure: the database abstraction layer against
+# postgres, and the session store against redis. Both are skipped by a plain
+# server-test, which has neither.
 db-test: $(STAMP_DIR)/generate
-	@rc=0; $(COMPOSE_TEST_TESTER) go test -v ./server/db/postgres/... || rc=$$?; $(COMPOSE_TEST) down; exit $$rc
+	@rc=0; $(COMPOSE_TEST_TESTER) go test -v ./server/db/postgres/... ./server/auth/session/... || rc=$$?; $(COMPOSE_TEST) down; exit $$rc
 
 integration-test: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS) go test -tags integration -v ./server/plugins/...

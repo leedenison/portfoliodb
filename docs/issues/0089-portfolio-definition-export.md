@@ -1,7 +1,6 @@
 ---
 status: open
 title: Export and import portfolio definitions
-milestone: M14
 dependencies: [0078, 0080]
 ---
 
@@ -34,5 +33,19 @@ unscheduled list, widen the same seam: a portfolio would then reference data the
 exporting user does not own, and the archive boundary in
 adr/0033-system-and-user-archives-are-separate.md would need an answer for it.
 
-Settle once both archives exist and the identifier translation has been exercised
-by transactions and declarations.
+## Why it is deferred rather than scheduled
+
+The general idea is agreed -- a portfolio definition is user-owned data and a
+rebuild should not lose it. What is not agreed is the definition itself. The
+filter model it would serialise is the current one rather than a settled one, and
+committing it to an archive format fixes it before it is ready: shared portfolios
+and tag-based definitions both sit in the unscheduled list and both change what a
+definition is.
+
+So the archive is completed without it, and a user rebuilding an instance writes
+their portfolios again by hand. That is a handful of filter rows entered once,
+against a format that would otherwise have to be migrated when the definition
+settles.
+
+Take it up once the portfolio definition is pinned down, and once the identifier
+translation above has been exercised by transactions and declarations.

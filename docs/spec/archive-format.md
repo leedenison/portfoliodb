@@ -19,10 +19,10 @@ difference decides what it carries.
 
 It carries two kinds of thing:
 
-- **Irreplaceable data.** Transactions, holding declarations,
-  portfolios, preferences, plugin configuration, fetch-block reasons, the
-  corporate events an admin was asked to judge and the calls made on them, and
-  hand-recovered prices no provider still serves. Nothing can reconstruct these.
+- **Irreplaceable data.** Transactions, holding declarations, preferences,
+  plugin configuration, fetch-block reasons, the corporate events an admin was
+  asked to judge and the calls made on them, and hand-recovered prices no
+  provider still serves. Nothing can reconstruct these.
 - **Data that is expensive to reacquire.** Instruments and their identifiers,
   provider identifiers, prices with their coverage, corporate events with their
   coverage, and inflation indices. These are refetchable in principle, at the
@@ -41,6 +41,15 @@ the evidence a posting carries rather than being told it
 postings and the importing instance groups them. The evidence itself -- a
 posting's `correlations` -- is irreplaceable data and stays, since a rebuild that
 had only the answer could never derive it again.
+
+Portfolio definitions are the one piece of irreplaceable data the archive does
+not carry, and their absence is a deliberate omission rather than a claim that
+they are recomputable. A definition is a set of filters whose shape is not
+settled -- tag-based definitions and portfolios shared between users would both
+change what one is -- and writing the current shape into the format would fix it
+before the question is answered. A user rebuilding an instance enters their
+portfolios again, which is a handful of filter rows against a format that would
+otherwise have to be migrated.
 
 Full reasoning: `docs/adr/0032-archive-preserves-inputs-not-derived-state.md`.
 

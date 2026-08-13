@@ -1,6 +1,7 @@
 ---
 status: open
 title: Lot identity and disposal matching
+milestone: M19
 ---
 
 Give acquisitions a lot identity and make disposals reference the lots they

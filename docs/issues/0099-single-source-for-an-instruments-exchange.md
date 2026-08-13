@@ -1,6 +1,7 @@
 ---
 status: open
 title: Single source for an instrument's exchange
+milestone: M17
 ---
 
 An instrument's exchange is stored in two places that can disagree. Make one of

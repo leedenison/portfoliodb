@@ -1,6 +1,7 @@
 ---
 status: open
 title: Bulk entry of holding declarations at inception
+milestone: M19
 ---
 
 Let a user enter a whole account's opening balances in one pass rather than one

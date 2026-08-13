@@ -13,7 +13,7 @@
 - **M11** - Allow users to set a display currency.
 - **M12** - Move transactions to grouped double-entry postings with exact decimal amounts and an enforced balance constraint.
 - **M13** - Automated broker transaction import via a browser extension.
-- **M14** - Complete the archive: system and user archives carry everything a rebuild needs, and the transaction CSV is retired.
+- **M14** - Complete the archive: system and user archives carry everything a rebuild needs apart from portfolio definitions, and the transaction CSV is retired.
 - **M15** - The server owns transaction grouping: converters emit evidence and the server derives groups across the whole dataset rather than within one upload.
 - **M16** - A person can repair a grouping or a transfer pairing the engine cannot derive.
 - **M17** - Operational correctness: scheduled corporate-event recompute, single-sourced instrument data, current planner statistics, and configurable deployment.
@@ -26,6 +26,7 @@
 - Corporate events fetched for known instruments and adjustments applied to user transactions idempotently.
 - Portfolio performance comparison to indices.
 - Portfolio definition based on tagged instruments.
+- Carrying portfolio definitions in the user archive, once the definition is settled.
 - Portfolio sharing between users and aggregates that combine portfolios (including shared portfolios).
 - Transaction importer for IBKR.
 - Transaction importer for SCHB.

@@ -18,6 +18,11 @@ import (
 type userImportResult struct {
 	displayCurrencySet bool
 	txsStored          bool
+	// declarationsStored says whether any declaration landed. A restored
+	// declaration is only half of what it means until its holding's pad is
+	// settled from it, and which declaration pads a holding depends on the
+	// others, so the recalc runs once for the whole import rather than per row.
+	declarationsStored bool
 	// userID is whose archive this was, for the recalc a stored posting earns.
 	userID string
 }
@@ -80,6 +85,10 @@ func processUserImport(ctx context.Context, deps ingestDeps, j *JobRequest) user
 			var stored bool
 			stored, partErr = importTxPart(ctx, deps, detail.UserID, j.JobID, a.GetTxs(), rep)
 			out.txsStored = out.txsStored || stored
+		case archivev1.ArchivePart_DECLARATIONS:
+			var written int32
+			written, partErr = archiveimport.DeclarationPart(ctx, database, detail.UserID, a.GetDeclarations(), rep)
+			out.declarationsStored = out.declarationsStored || written > 0
 		default:
 			partErr = errUnknownPart
 		}

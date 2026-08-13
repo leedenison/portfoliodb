@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -12,6 +13,7 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
+	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	"github.com/leedenison/portfoliodb/server/archive"
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
@@ -78,6 +80,9 @@ func presentUserParts(a *archivev1.UserArchive) []archivev1.ArchivePart {
 	if a.GetTxs() != nil {
 		parts = append(parts, archivev1.ArchivePart_TXS)
 	}
+	if a.GetDeclarations() != nil {
+		parts = append(parts, archivev1.ArchivePart_DECLARATIONS)
+	}
 	return parts
 }
 
@@ -128,6 +133,8 @@ func (s *Server) ExportUserArchive(req *apiv1.ExportUserArchiveRequest, stream a
 			partErr = s.sendPreferencePart(ctx, u.ID, stream)
 		case archivev1.ArchivePart_TXS:
 			partErr = s.sendTxPart(ctx, u.ID, from, before, stream)
+		case archivev1.ArchivePart_DECLARATIONS:
+			partErr = s.sendDeclarationPart(ctx, u.ID, stream)
 		}
 		if partErr != nil {
 			return partErr
@@ -219,4 +226,97 @@ func (s *Server) sendTxPart(ctx context.Context, userID string, from, before *ti
 		}
 	}
 	return nil
+}
+
+// sendDeclarationPart streams one statement per account and date, each nesting
+// the holdings declared at it.
+//
+// A declaration is the user's own statement about a holding: unlike a
+// transaction nothing can refetch it from a broker, and unlike a price nothing
+// can refetch it from anywhere, so it travels or it is lost.
+//
+// The requested period is not applied. It scopes the transaction part alone, as
+// ExportUserArchiveRequest says: a declaration is dated, but by the date it
+// speaks about rather than by a period of activity, and a rebuild that dropped
+// the checkpoints outside the exported window would silently drop the pads its
+// oldest holdings open from.
+//
+// What is not written: the pad/assert discriminator, which follows from the
+// declaration dates and could only ever disagree with them, and the check
+// against the computed holding, which is recomputed from the postings on read.
+func (s *Server) sendDeclarationPart(ctx context.Context, userID string, stream apiv1.ApiService_ExportUserArchiveServer) error {
+	rows, err := s.db.ListHoldingDeclarationsForExport(ctx, userID)
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	for _, st := range declarationStatements(rows) {
+		if err := stream.Send(&apiv1.ExportUserArchiveResponse{
+			Item: &apiv1.ExportUserArchiveResponse_DeclarationStatement{DeclarationStatement: st},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// declarationStatements cuts export rows into statements. The rows arrive
+// ordered by broker, account and date, so a statement is a run and one pass
+// makes them.
+//
+// A row this build cannot name in a file is dropped with a log line rather than
+// written as something an importer would refuse: an UNSPECIFIED broker and an
+// empty identifier both fail validation on the way back in, and either would
+// take the whole statement down with it. A statement left with no declarations
+// is not sent at all, for the same reason.
+func declarationStatements(rows []db.ExportDeclaration) []*archivev1.Statement {
+	var out []*archivev1.Statement
+	var cur *archivev1.Statement
+	var curBroker, curAccount string
+	var curDate time.Time
+	// A statement is emitted once it is complete, so that one left empty by the
+	// skips below never reaches the stream.
+	closeStatement := func() {
+		if cur != nil && len(cur.GetDeclarations()) > 0 {
+			out = append(out, cur)
+		}
+		cur = nil
+	}
+	for _, r := range rows {
+		broker := db.StrToBroker(r.Broker)
+		if broker == 0 {
+			log.Printf("user archive export: skipping declaration (broker %q, account %q): not a known broker", r.Broker, r.Account)
+			continue
+		}
+		idType := identifierTypeFromString(r.IdentifierType)
+		if r.IdentifierValue == "" || idType == typev1.IdentifierType_IDENTIFIER_TYPE_UNSPECIFIED {
+			log.Printf("user archive export: skipping declaration (broker %q, account %q, as of %s): its instrument has no identifier this build can name it by",
+				r.Broker, r.Account, r.AsOfDate.Format("2006-01-02"))
+			continue
+		}
+		if cur == nil || r.Broker != curBroker || r.Account != curAccount || !r.AsOfDate.Equal(curDate) {
+			closeStatement()
+			cur = &archivev1.Statement{
+				Broker:   broker,
+				Account:  r.Account,
+				AsOfDate: r.AsOfDate.Format("2006-01-02"),
+			}
+			curBroker, curAccount, curDate = r.Broker, r.Account, r.AsOfDate
+		}
+		d := &archivev1.Declaration{
+			Instrument: &archivev1.InstrumentRef{
+				Type:   idType,
+				Value:  r.IdentifierValue,
+				Domain: r.IdentifierDomain,
+			},
+			DeclaredQty: r.DeclaredQty.String(),
+		}
+		// Written only where it differs from the statement's own date, which is
+		// what an absent one already means.
+		if r.ShareCountBasis != nil {
+			d.ShareCountBasis = proto.String(r.ShareCountBasis.Format("2006-01-02"))
+		}
+		cur.Declarations = append(cur.Declarations, d)
+	}
+	closeStatement()
+	return out
 }

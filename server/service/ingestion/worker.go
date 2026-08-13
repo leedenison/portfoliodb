@@ -144,14 +144,22 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 		// chance at a side whose counterpart was already stored. A restored
 		// display currency opens FX gaps of its own, so either alone is reason
 		// enough to nudge the price fetcher.
+		//
+		// Restored declarations earn the recalc for their own sake rather than
+		// the postings': a declaration carries no pad, and the pad is what makes
+		// the declared quantity true. They earn the price fetch too, because the
+		// holding a pad opens may have no postings of its own and therefore no
+		// prices ever fetched for it.
 		if res.txsStored {
-			if err := recalcAfterIngestion(ctx, opts.DB, res.userID); err != nil {
-				log.Printf("user archive job %s: recalc INITIALIZE txs: %v", j.JobID, err)
-			}
 			pluginutil.Trigger(opts.TransferMatchTrigger)
 			pluginutil.Trigger(opts.GroupingTrigger)
 		}
-		if res.displayCurrencySet || res.txsStored {
+		if res.txsStored || res.declarationsStored {
+			if err := recalcAfterIngestion(ctx, opts.DB, res.userID); err != nil {
+				log.Printf("user archive job %s: recalc INITIALIZE txs: %v", j.JobID, err)
+			}
+		}
+		if res.displayCurrencySet || res.txsStored || res.declarationsStored {
 			pluginutil.Trigger(opts.PriceTrigger)
 		}
 	default:

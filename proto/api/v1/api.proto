@@ -5,6 +5,7 @@ package portfoliodb.api.v1;
 import "archive/v1/archive.proto";
 import "archive/v1/common.proto";
 import "archive/v1/corporate_events.proto";
+import "archive/v1/declarations.proto";
 import "archive/v1/fetch_blocks.proto";
 import "archive/v1/inflation.proto";
 import "archive/v1/instruments.proto";
@@ -705,7 +706,8 @@ message ExportUserArchiveResponse {
     portfoliodb.archive.v1.PreferencePart preferences = 3;
     // One window per broker, each carrying its own groups.
     portfoliodb.archive.v1.TxWindow tx_window = 4;
-    // 5 is the declaration statement.
+    // One statement per account and date, each carrying its declarations.
+    portfoliodb.archive.v1.Statement declaration_statement = 5;
   }
 }
 

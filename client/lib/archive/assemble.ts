@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { ArchivePart } from "@/gen/archive/v1/common_pb";
 import { CorporateEventPartSchema } from "@/gen/archive/v1/corporate_events_pb";
+import { DeclarationPartSchema } from "@/gen/archive/v1/declarations_pb";
 import { FetchBlockPartSchema } from "@/gen/archive/v1/fetch_blocks_pb";
 import { InflationPartSchema } from "@/gen/archive/v1/inflation_pb";
 import { InstrumentPartSchema } from "@/gen/archive/v1/instruments_pb";
@@ -105,6 +106,9 @@ export function assembleUserArchive(items: ExportUserArchiveResponse[]): UserArc
           case ArchivePart.TXS:
             doc.txs ??= create(TxPartSchema, {});
             break;
+          case ArchivePart.DECLARATIONS:
+            doc.declarations ??= create(DeclarationPartSchema, {});
+            break;
         }
         break;
       case "preferences":
@@ -113,6 +117,10 @@ export function assembleUserArchive(items: ExportUserArchiveResponse[]): UserArc
       case "txWindow":
         doc.txs ??= create(TxPartSchema, {});
         doc.txs.windows.push(item.item.value);
+        break;
+      case "declarationStatement":
+        doc.declarations ??= create(DeclarationPartSchema, {});
+        doc.declarations.statements.push(item.item.value);
         break;
     }
   }
@@ -173,6 +181,14 @@ export function userPartCounts(archive: UserArchive): { label: string; count: nu
     // import job counts.
     const postings = archive.txs.windows.reduce((n, w) => n + w.postings.length, 0);
     out.push({ label: "postings", count: postings });
+  }
+  if (archive.declarations) {
+    // Declarations rather than statements, for the same reason.
+    const declarations = archive.declarations.statements.reduce(
+      (n, s) => n + s.declarations.length,
+      0,
+    );
+    out.push({ label: "holding declarations", count: declarations });
   }
   return out;
 }

@@ -169,6 +169,7 @@ var (
 	userPartOrder = []archivev1.ArchivePart{
 		archivev1.ArchivePart_PREFERENCES,
 		archivev1.ArchivePart_TXS,
+		archivev1.ArchivePart_DECLARATIONS,
 	}
 )
 

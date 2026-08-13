@@ -23,7 +23,8 @@ const IMPORT_NOTE = (
   <>
     The parts are applied in order on the server, so an import finishes whether or not this page
     stays open. Importing ignored asset classes replaces the rules you have now and removes the
-    transactions they cover.
+    transactions they cover. Importing holding declarations restates the ones the file names and
+    leaves the rest alone -- a declaration missing from a file is not a declaration you deleted.
   </>
 );
 
@@ -117,12 +118,14 @@ export default function UserArchivePage() {
   // What an import changes is spread across the user's own pages, so once it is
   // done everything it could have touched is dropped rather than guessing which
   // part landed. Ignored asset classes delete transactions, which move holdings,
-  // so those go too.
+  // so those go too, and a restored declaration writes the pad posting that
+  // opens its holding.
   const terminalJobId = job.data && !running ? jobId : null;
   useEffect(() => {
     if (terminalJobId === null) return;
     queryClient.invalidateQueries({ queryKey: qk.displayCurrency() });
     queryClient.invalidateQueries({ queryKey: qk.ignoredAssetClasses() });
+    queryClient.invalidateQueries({ queryKey: qk.holdingDeclarations() });
     queryClient.invalidateQueries({ queryKey: qk.holdings() });
     queryClient.invalidateQueries({ queryKey: qk.txs() });
   }, [terminalJobId, queryClient]);

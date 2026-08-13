@@ -71,10 +71,11 @@ test.describe("user archive page", () => {
 
     const preferences = page.getByLabel(/Preferences/);
     await expect(preferences).toBeChecked();
-    // Both parts are on by default, which is what a rebuild wants. This test is
+    // Every part is on by default, which is what a rebuild wants. This test is
     // about the settings, so it asks for them alone and the assertions below
     // can be exact about what the document holds.
     await page.getByLabel(/Transactions/).uncheck();
+    await page.getByLabel(/Holding declarations/).uncheck();
 
     const downloadPromise = page.waitForEvent("download");
     await page.locator("[data-testid='export-archive']").click();
@@ -100,6 +101,7 @@ test.describe("user archive page", () => {
     expect(doc.instruments).toBeUndefined();
     expect(doc.prices).toBeUndefined();
     expect(doc.txs).toBeUndefined();
+    expect(doc.declarations).toBeUndefined();
 
     // Put both settings back to what they were, so what lands afterwards came
     // from the file rather than from what was already there.
@@ -152,6 +154,7 @@ test.describe("user archive page", () => {
     await page.goto("/archive");
 
     await page.getByLabel(/Preferences/).uncheck();
+    await page.getByLabel(/Holding declarations/).uncheck();
     await expect(page.getByLabel(/Transactions/)).toBeChecked();
 
     const downloadPromise = page.waitForEvent("download");
@@ -280,6 +283,136 @@ test.describe("user archive page", () => {
       [TEST_USER_ID],
     )) as unknown[];
     expect(unbalanced).toHaveLength(0);
+  });
+
+  test("exports the user's declarations and imports them back", async ({
+    context,
+    page,
+  }) => {
+    await seedFixture("user-archive-declarations.sql");
+    await injectSession(context, sessionId);
+    await page.goto("/archive");
+
+    await page.getByLabel(/Preferences/).uncheck();
+    await page.getByLabel(/Transactions/).uncheck();
+    await expect(page.getByLabel(/Holding declarations/)).toBeChecked();
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.locator("[data-testid='export-archive']").click();
+    const exported = path.join(tmpdir(), "user-archive-declarations-e2e.json");
+    await (await downloadPromise).saveAs(exported);
+    const doc = JSON.parse(await readFile(exported, "utf8"));
+
+    // The group is the statement -- one account read at one date -- so two
+    // holdings declared on the same day travel as one statement and the later
+    // restatement of one of them cuts a second.
+    expect(doc.declarations.statements).toHaveLength(2);
+    const [january, february] = doc.declarations.statements;
+    expect(january.broker).toBe("FIDELITY");
+    expect(january.account).toBe("ACC-1");
+    expect(january.as_of_date).toBe("2024-01-31");
+    expect(january.declarations).toHaveLength(2);
+
+    // Named by identifier and never by id, and by the one bestIdentifierJoin
+    // picks: MIC_TICKER outranks the ISIN the same instrument also carries.
+    expect(january.declarations[0].instrument).toEqual({
+      type: "MIC_TICKER",
+      value: "AMZN",
+    });
+    // Decimals are strings, never JSON numbers.
+    expect(january.declarations[0].declared_qty).toBe("8");
+    // A basis equal to the statement's own date is what an absent one already
+    // means, so it is not written.
+    expect(january.declarations[0].share_count_basis).toBeUndefined();
+    // And one that differs is.
+    expect(february.declarations[0].share_count_basis).toBe("2024-03-31");
+
+    // Neither the pad/assert discriminator nor the check against the computed
+    // holding travels: both are derived from the declarations and the postings,
+    // and are recomputed by whatever instance reads the file.
+    expect(january.declarations[0].kind).toBeUndefined();
+    expect(january.declarations[0].computed_qty).toBeUndefined();
+
+    // Restated so that what lands afterwards came from the file rather than
+    // from what was already there. The rows are left in place rather than
+    // deleted, which is what makes this an upsert rather than an insert: a
+    // re-import collides on the unique key at every unchanged row.
+    await rawQuery(
+      `UPDATE holding_declarations SET declared_qty = 999 WHERE user_id = $1`,
+      [TEST_USER_ID],
+    );
+
+    await page.locator("[data-testid='choose-archive-file']").click();
+    await page
+      .locator("input[aria-label='Choose archive file']")
+      .setInputFiles(exported);
+    // Declarations rather than statements, so the preview and the job's own
+    // total agree.
+    await expect(page.locator("[data-testid='archive-import']")).toContainText(
+      "Carries 3 holding declarations",
+    );
+    await page.locator("[data-testid='start-archive-import']").click();
+
+    // The page shows the most recent import job, so the part is named as well
+    // as counted: without that this would pass against the transaction job the
+    // previous test left behind.
+    const parts = page.locator("[data-testid='job-parts']");
+    await expect(parts).toBeVisible({ timeout: TIMEOUT_SLOW });
+    await expect(parts).toContainText("Holding declarations", {
+      timeout: TIMEOUT_SLOW,
+    });
+    await expect(parts.getByText("Done")).toHaveCount(1, {
+      timeout: TIMEOUT_SLOW,
+    });
+    await expect(parts).toContainText("3 / 3");
+
+    // Three rows, not six: the import restated the ones already there rather
+    // than colliding on the unique key or writing duplicates.
+    const restored = (await rawQuery(
+      `SELECT broker, account, declared_qty, as_of_date::text, share_count_basis::text
+       FROM holding_declarations WHERE user_id = $1 ORDER BY as_of_date, declared_qty`,
+      [TEST_USER_ID],
+    )) as {
+      broker: string;
+      account: string;
+      declared_qty: string;
+      as_of_date: string;
+      share_count_basis: string;
+    }[];
+    expect(restored).toHaveLength(3);
+    expect(restored.map((r) => Number(r.declared_qty)).sort((a, b) => a - b)).toEqual([
+      8, 8, 15,
+    ]);
+    // The basis the file did not state is the statement's own date, applied by
+    // the table's trigger, and the one it did state is used as stated.
+    const stated = restored.find((r) => r.as_of_date === "2024-02-29");
+    expect(stated?.share_count_basis).toBe("2024-03-31");
+    const defaulted = restored.filter((r) => r.as_of_date === "2024-01-31");
+    expect(defaulted.every((r) => r.share_count_basis === "2024-01-31")).toBe(
+      true,
+    );
+
+    // The earliest declaration for each holding is its pad, and the recalc the
+    // import earns is what writes it. A declaration carries no pad, so without
+    // that pass the restored rows would say what the user holds and nothing
+    // would make it true.
+    //
+    // The USER leg alone: a pad is written with the equal and opposite EQUITY
+    // counterparty that makes its group balance, so counting both would count
+    // each pad twice.
+    const pads = (await rawQuery(
+      `SELECT instrument_id::text, quantity FROM txs
+       WHERE user_id = $1 AND synthetic_purpose = 'INITIALIZE' AND account_type = 'USER'
+       ORDER BY instrument_id`,
+      [TEST_USER_ID],
+    )) as { instrument_id: string; quantity: string }[];
+    // One per holding, not one per declaration: AMZN has two declarations and
+    // the earliest of them is the one that pads.
+    expect(pads).toHaveLength(2);
+    // The seeded trades already account for both declared balances exactly, so
+    // each pad is zero. That is the declaration agreeing with the data rather
+    // than being superseded by it, and the record stays.
+    expect(pads.every((p) => Number(p.quantity) === 0)).toBe(true);
   });
 
   test("refuses a file that is not a user archive", async ({

@@ -74,6 +74,12 @@ export const USER_ARCHIVE_PART_OPTIONS: ArchivePartOption[] = [
     note: "Every posting, grouped as the broker converter grouped it. Nothing can rebuild the grouping, so it travels with them.",
     defaultSelected: true,
   },
+  {
+    part: ArchivePart.DECLARATIONS,
+    label: "Holding declarations",
+    note: "What you stated you held, and when. Nothing can refetch a declaration, and a rebuild without them loses every opening balance and every checkpoint.",
+    defaultSelected: true,
+  },
 ];
 
 /** Display names for the parts a job reports against. */
@@ -87,4 +93,5 @@ export const ARCHIVE_PART_LABELS: Record<number, string> = {
   [ArchivePart.PLUGIN_CONFIG]: "Plugin config",
   [ArchivePart.PREFERENCES]: "Preferences",
   [ArchivePart.TXS]: "Transactions",
+  [ArchivePart.DECLARATIONS]: "Holding declarations",
 };

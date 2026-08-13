@@ -53,6 +53,9 @@ func (e *exportUserStreamMock) shape() []string {
 			out = append(out, "preferences")
 		case m.GetTxWindow() != nil:
 			out = append(out, "tx_window:"+m.GetTxWindow().GetBroker().String())
+		case m.GetDeclarationStatement() != nil:
+			st := m.GetDeclarationStatement()
+			out = append(out, "statement:"+st.GetAccount()+"@"+st.GetAsOfDate())
 		}
 	}
 	return out

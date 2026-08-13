@@ -232,6 +232,104 @@ func (p *Postgres) ListHoldingDeclarations(ctx context.Context, userID string) (
 	return out, nil
 }
 
+// exportDeclaration is the scan target for ListHoldingDeclarationsForExport.
+type exportDeclaration struct {
+	Broker           string          `db:"broker"`
+	Account          string          `db:"account"`
+	IdentifierType   string          `db:"identifier_type"`
+	IdentifierValue  string          `db:"value"`
+	IdentifierDomain string          `db:"domain"`
+	DeclaredQty      decimal.Decimal `db:"declared_qty"`
+	AsOfDate         time.Time       `db:"as_of_date"`
+	ShareCountBasis  *time.Time      `db:"share_count_basis"`
+}
+
+// ListHoldingDeclarationsForExport implements db.HoldingDeclarationDB.
+//
+// The identifier join is a LEFT JOIN so an instrument carrying no identifier
+// still comes back, and the writer can say so rather than the row simply not
+// appearing: a declaration silently missing from an export is the one failure
+// mode a file the user diffs by hand cannot show them.
+// bestIdentifierJoinOn rather than a hand-written lateral so this export agrees
+// with every other one about which identifier is best.
+//
+// Neither declarationVerify nor declarationKind is here. The check and the
+// pad/assert discriminator are derived from the declaration set and the
+// postings, and are recomputed by whatever instance reads the file.
+func (p *Postgres) ListHoldingDeclarationsForExport(ctx context.Context, userID string) ([]db.ExportDeclaration, error) {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	var rows []exportDeclaration
+	err = p.q.SelectContext(ctx, &rows, `
+		SELECT d.broker, d.account,
+			COALESCE(best_id.identifier_type, '') AS identifier_type,
+			COALESCE(best_id.value, '') AS value,
+			COALESCE(best_id.domain, '') AS domain,
+			d.declared_qty, d.as_of_date,
+			-- A basis equal to the declaration's own date is the as-traded
+			-- convention and says nothing a reader cannot infer. The column is
+			-- NOT NULL and the insert trigger defaults it to that date, so
+			-- selecting it raw would stamp a redundant date onto every row.
+			CASE WHEN d.share_count_basis = d.as_of_date THEN NULL
+				ELSE d.share_count_basis END AS share_count_basis
+		FROM holding_declarations d
+		`+bestIdentifierJoinOn("LEFT JOIN", "d.instrument_id", "best_id")+`
+		WHERE d.user_id = $1
+		ORDER BY d.broker, d.account, d.as_of_date, d.instrument_id
+	`, userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("list holding declarations for export: %w", err)
+	}
+	out := make([]db.ExportDeclaration, len(rows))
+	for i, r := range rows {
+		out[i] = db.ExportDeclaration{
+			Broker:           r.Broker,
+			Account:          r.Account,
+			IdentifierType:   r.IdentifierType,
+			IdentifierValue:  r.IdentifierValue,
+			IdentifierDomain: r.IdentifierDomain,
+			DeclaredQty:      r.DeclaredQty,
+			AsOfDate:         r.AsOfDate,
+			ShareCountBasis:  r.ShareCountBasis,
+		}
+	}
+	return out, nil
+}
+
+// UpsertHoldingDeclaration implements db.HoldingDeclarationDB.
+//
+// The BEFORE INSERT trigger fills a NULL share_count_basis from as_of_date, and
+// it runs before the conflict is detected, so EXCLUDED carries the defaulted
+// value on the update branch too and the two branches agree on the denomination.
+func (p *Postgres) UpsertHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time) error {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	instUUID, err := uuid.Parse(instrumentID)
+	if err != nil {
+		return fmt.Errorf("invalid instrument id: %w", err)
+	}
+	var basis *time.Time
+	if !shareCountBasis.IsZero() {
+		basis = &shareCountBasis
+	}
+	_, err = p.q.ExecContext(ctx, `
+		INSERT INTO holding_declarations (user_id, broker, account, instrument_id, declared_qty, as_of_date, share_count_basis)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (user_id, broker, account, instrument_id, as_of_date)
+		DO UPDATE SET declared_qty = EXCLUDED.declared_qty,
+		              share_count_basis = EXCLUDED.share_count_basis,
+		              updated_at = now()
+	`, userUUID, broker, account, instUUID, declaredQty, asOfDate, basis)
+	if err != nil {
+		return fmt.Errorf("upsert holding declaration: %w", err)
+	}
+	return nil
+}
+
 // GetPortfolioStartDate implements db.HoldingDeclarationDB.
 func (p *Postgres) GetPortfolioStartDate(ctx context.Context, userID string) (*time.Time, error) {
 	userUUID, err := uuid.Parse(userID)

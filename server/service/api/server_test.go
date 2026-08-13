@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
@@ -9,7 +10,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/testutil"
 	"go.uber.org/mock/gomock"
-	"google.golang.org/genproto/googleapis/type/date"
 	"google.golang.org/grpc/codes"
 )
 
@@ -35,82 +35,75 @@ func newAPIServerWithMock(t *testing.T) (*Server, *mock.MockDB) {
 	return NewServer(ServerConfig{DB: db}), db
 }
 
+// streamCalls supplies the one thing reflection cannot: a server stream to write
+// into, which is a different type per method and has no zero value worth calling.
+//
+// The loop below fails naming any streaming method missing from here, so this stays
+// as short as the service is and cannot silently fall behind it.
+var streamCalls = map[string]func(*Server, context.Context) error{
+	"ExportSystemArchive": func(s *Server, ctx context.Context) error {
+		return s.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{}, &exportArchiveStreamMock{ctx: ctx})
+	},
+	"ExportUserArchive": func(s *Server, ctx context.Context) error {
+		return s.ExportUserArchive(&apiv1.ExportUserArchiveRequest{}, &exportUserStreamMock{ctx: ctx})
+	},
+}
+
+// Every method the service declares refuses a caller who is not signed in.
+//
+// Driven off the generated service descriptor rather than a list kept here by hand.
+// A list is only as good as whoever remembered to add to it, and what that missed was
+// not random: the untested RPCs were the structural copies -- the identifier,
+// description, inflation and corporate-event plugin methods beside the price ones
+// that were listed -- so the guarantee held for the half somebody had thought about.
+// Reading the descriptor means a method added to the proto is covered the moment it
+// is generated, and one whose guard is dropped fails here rather than in review.
+//
+// The request is the zero value of whatever the method takes. That is enough because
+// the guard is the first thing every method does: none of them validates a field,
+// reads the store or reaches a registry before it. A method that stopped doing that
+// would fail here with InvalidArgument rather than pass quietly, which is the point
+// -- the order is the property, and this is what holds it.
+//
+// The mock store carries no expectations, so a guard that let a call through would
+// fail the test on the unexpected call as well as on the code.
 func TestAPI_Unauthenticated(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t)
-	ctx := context.Background()
-	tests := []struct {
-		name string
-		call func() error
-	}{
-		{"ListPortfolios", func() error { _, err := srv.ListPortfolios(ctx, &apiv1.ListPortfoliosRequest{}); return err }},
-		{"GetPortfolio", func() error {
-			_, err := srv.GetPortfolio(ctx, &apiv1.GetPortfolioRequest{PortfolioId: "any"})
-			return err
-		}},
-		{"CreatePortfolio", func() error { _, err := srv.CreatePortfolio(ctx, &apiv1.CreatePortfolioRequest{Name: "x"}); return err }},
-		{"UpdatePortfolio", func() error {
-			_, err := srv.UpdatePortfolio(ctx, &apiv1.UpdatePortfolioRequest{PortfolioId: "p", Name: "x"})
-			return err
-		}},
-		{"DeletePortfolio", func() error {
-			_, err := srv.DeletePortfolio(ctx, &apiv1.DeletePortfolioRequest{PortfolioId: "p"})
-			return err
-		}},
-		{"ListTxs", func() error { _, err := srv.ListTxs(ctx, &apiv1.ListTxsRequest{}); return err }},
-		{"GetHoldings", func() error { _, err := srv.GetHoldings(ctx, &apiv1.GetHoldingsRequest{}); return err }},
-		{"GetPortfolioFilters", func() error {
-			_, err := srv.GetPortfolioFilters(ctx, &apiv1.GetPortfolioFiltersRequest{PortfolioId: "p"})
-			return err
-		}},
-		{"SetPortfolioFilters", func() error {
-			_, err := srv.SetPortfolioFilters(ctx, &apiv1.SetPortfolioFiltersRequest{PortfolioId: "p"})
-			return err
-		}},
-		{"GetJob", func() error { _, err := srv.GetJob(ctx, &apiv1.GetJobRequest{JobId: "job-1"}); return err }},
-		{"ExportSystemArchive", func() error {
-			stream := &exportArchiveStreamMock{ctx: context.Background()}
-			return srv.ExportSystemArchive(&apiv1.ExportSystemArchiveRequest{}, stream)
-		}},
-		{"ImportSystemArchive", func() error {
-			_, err := srv.ImportSystemArchive(ctx, &apiv1.ImportSystemArchiveRequest{})
-			return err
-		}},
-		{"ListInstruments", func() error { _, err := srv.ListInstruments(ctx, &apiv1.ListInstrumentsRequest{}); return err }},
-		{"ListJobs", func() error { _, err := srv.ListJobs(ctx, &apiv1.ListJobsRequest{}); return err }},
-		{"ListPrices", func() error { _, err := srv.ListPrices(ctx, &apiv1.ListPricesRequest{}); return err }},
-		{"GetPortfolioValuation", func() error {
-			_, err := srv.GetPortfolioValuation(ctx, &apiv1.GetPortfolioValuationRequest{PortfolioId: "p", DateFrom: &date.Date{Year: 2025, Month: 1, Day: 1}, DateBefore: &date.Date{Year: 2025, Month: 1, Day: 3}})
-			return err
-		}},
-		{"ListPriceGaps", func() error { _, err := srv.ListPriceGaps(ctx, &apiv1.ListPriceGapsRequest{}); return err }},
-		{"ListHoldingDeclarations", func() error {
-			_, err := srv.ListHoldingDeclarations(ctx, &apiv1.ListHoldingDeclarationsRequest{})
-			return err
-		}},
-		{"CreateHoldingDeclaration", func() error {
-			_, err := srv.CreateHoldingDeclaration(ctx, &apiv1.CreateHoldingDeclarationRequest{Broker: "IBKR", InstrumentId: "i", DeclaredQty: "1", AsOfDate: &date.Date{Year: 2025, Month: 1, Day: 1}})
-			return err
-		}},
-		{"UpdateHoldingDeclaration", func() error {
-			_, err := srv.UpdateHoldingDeclaration(ctx, &apiv1.UpdateHoldingDeclarationRequest{Id: "d", DeclaredQty: "1", AsOfDate: &date.Date{Year: 2025, Month: 1, Day: 1}})
-			return err
-		}},
-		{"DeleteHoldingDeclaration", func() error {
-			_, err := srv.DeleteHoldingDeclaration(ctx, &apiv1.DeleteHoldingDeclarationRequest{Id: "d"})
-			return err
-		}},
-		{"GetDisplayCurrency", func() error { _, err := srv.GetDisplayCurrency(ctx, &apiv1.GetDisplayCurrencyRequest{}); return err }},
-		{"SetDisplayCurrency", func() error {
-			_, err := srv.SetDisplayCurrency(ctx, &apiv1.SetDisplayCurrencyRequest{DisplayCurrency: "EUR"})
-			return err
-		}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			err := tc.call()
-			testutil.RequireGRPCCode(t, err, codes.Unauthenticated)
+	for _, m := range apiv1.ApiService_ServiceDesc.Methods {
+		t.Run(m.MethodName, func(t *testing.T) {
+			testutil.RequireGRPCCode(t, callUnary(t, srv, m.MethodName), codes.Unauthenticated)
 		})
 	}
+	for _, s := range apiv1.ApiService_ServiceDesc.Streams {
+		call, ok := streamCalls[s.StreamName]
+		if !ok {
+			t.Errorf("%s: streaming method with no entry in streamCalls, so nothing checks its guard", s.StreamName)
+			continue
+		}
+		t.Run(s.StreamName, func(t *testing.T) {
+			testutil.RequireGRPCCode(t, call(srv, context.Background()), codes.Unauthenticated)
+		})
+	}
+}
+
+// callUnary invokes one unary method with an empty request and no user in the
+// context, and returns the error it gave.
+func callUnary(t *testing.T, srv *Server, name string) error {
+	t.Helper()
+	m := reflect.ValueOf(srv).MethodByName(name)
+	if !m.IsValid() {
+		t.Fatalf("%s: the descriptor declares it but *Server has no such method", name)
+	}
+	typ := m.Type()
+	if typ.NumIn() != 2 || typ.NumOut() != 2 {
+		t.Fatalf("%s: not the shape of a unary handler: %s", name, typ)
+	}
+	out := m.Call([]reflect.Value{
+		reflect.ValueOf(context.Background()),
+		reflect.New(typ.In(1).Elem()),
+	})
+	err, _ := out[1].Interface().(error)
+	return err
 }
 
 func TestAPI_InvalidArgument(t *testing.T) {

@@ -697,7 +697,8 @@ settles every affected holding's opening balance from the set as it now stands.
 
 ## Producing and consuming a document
 
-One endpoint each way, and one page: `/admin/archive`. Neither the export nor the
+One endpoint each way per archive, and one page for each: the system archive at
+`/admin/archive`, the user archive at `/archive`. Neither the export nor the
 import is an affordance on whatever page happens to own an entity, so a rebuild
 is one action rather than a sequence of pages visited in the right order.
 

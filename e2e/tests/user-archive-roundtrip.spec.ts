@@ -11,6 +11,11 @@
 // the export reads is the shape the API stores. The transactions come from a
 // fixture because seeding them through an upload would mean identifying them,
 // which is a paid lookup and a cassette this suite has no other need of.
+//
+// A part at a time first, so that each is provable on its own, and then all
+// three in one file. The last of those is what the page is for: a part left to
+// itself says nothing about whether the parts compose, and composing them is
+// where the pads, the restore order and the synthetic postings meet.
 
 import { test, expect } from "@playwright/test";
 import path from "path";
@@ -413,6 +418,148 @@ test.describe("user archive page", () => {
     // each pad is zero. That is the declaration agreeing with the data rather
     // than being superseded by it, and the record stays.
     expect(pads.every((p) => Number(p.quantity) === 0)).toBe(true);
+  });
+
+  test("exports every part in one file and restores the lot", async ({
+    context,
+    page,
+  }) => {
+    await injectSession(context, sessionId);
+    await page.goto("/archive");
+
+    // Nothing is unticked. The tests above each prove one part in isolation;
+    // what a consolidated page claims is that the whole archive travels as one
+    // file, and the default selection is what a rebuild uses.
+    await expect(page.getByLabel(/Preferences/)).toBeChecked();
+    await expect(page.getByLabel(/Transactions/)).toBeChecked();
+    await expect(page.getByLabel(/Holding declarations/)).toBeChecked();
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.locator("[data-testid='export-archive']").click();
+    const exported = path.join(tmpdir(), "user-archive-whole-e2e.json");
+    await (await downloadPromise).saveAs(exported);
+    const doc = JSON.parse(await readFile(exported, "utf8"));
+
+    // One document carrying all three parts, and none of the system data that
+    // belongs to the other archive.
+    expect(doc.envelope.kind).toBe("USER");
+    expect(doc.preferences.display_currency).toBe(CURRENCY);
+    expect(doc.declarations.statements).toHaveLength(2);
+    expect(doc.instruments).toBeUndefined();
+    expect(doc.prices).toBeUndefined();
+
+    // Six postings, not ten. The declarations restored by the previous test
+    // earned a recalculation that wrote a pad per holding with the EQUITY
+    // counterparty balancing it, and those are synthetic postings the
+    // transaction part does not carry. A part leaking into another would show
+    // up here as a pad about to be re-imported as a real transaction.
+    expect(doc.txs.windows).toHaveLength(1);
+    expect(doc.txs.windows[0].postings).toHaveLength(6);
+
+    // Clear everything the file carries, so what lands afterwards came from the
+    // file rather than from what was already there. Deleting the groups takes
+    // the pads with them, since a pad is a posting in a group of its own.
+    await rawQuery(`UPDATE users SET display_currency = 'USD' WHERE id = $1`, [
+      TEST_USER_ID,
+    ]);
+    await rawQuery(`DELETE FROM ignored_asset_classes WHERE user_id = $1`, [
+      TEST_USER_ID,
+    ]);
+    await rawQuery(`DELETE FROM holding_declarations WHERE user_id = $1`, [
+      TEST_USER_ID,
+    ]);
+    await rawQuery(`DELETE FROM tx_groups WHERE user_id = $1`, [TEST_USER_ID]);
+
+    await page.locator("[data-testid='choose-archive-file']").click();
+    await page
+      .locator("input[aria-label='Choose archive file']")
+      .setInputFiles(exported);
+    // Each part counts the unit it reports progress against: settings,
+    // postings, declarations.
+    await expect(page.locator("[data-testid='archive-import']")).toContainText(
+      "Carries 2 preference settings, 6 postings, 3 holding declarations.",
+    );
+    await page.locator("[data-testid='start-archive-import']").click();
+
+    const parts = page.locator("[data-testid='job-parts']");
+    await expect(parts).toBeVisible({ timeout: TIMEOUT_SLOW });
+    await expect(parts.getByText("Done")).toHaveCount(3, {
+      timeout: TIMEOUT_SLOW,
+    });
+    // Applied in restore order, and reported in it.
+    expect(
+      await parts.locator("tbody tr td:first-child").allTextContents(),
+    ).toEqual(["Preferences", "Transactions", "Holding declarations"]);
+    await expect(parts).toContainText("2 / 2");
+    await expect(parts).toContainText("6 / 6");
+    await expect(parts).toContainText("3 / 3");
+
+    // The declarations part reaching 3 / 3 is the ordering guarantee, and the
+    // only one this round trip can show. A declaration dated before the
+    // portfolio start date is rejected, and a user whose transactions have been
+    // deleted has no start date at all, so the part would have failed whole had
+    // it been applied before them.
+    //
+    // The preferences-first guarantee is not observable here, and is not
+    // manufactured: an instance cannot hold postings its own ignored asset
+    // class rules cover, so no self-consistent export carries both. That
+    // ordering stays covered in server/service/ingestion/user_import_test.go.
+    const users = (await rawQuery(
+      `SELECT display_currency FROM users WHERE id = $1`,
+      [TEST_USER_ID],
+    )) as { display_currency: string }[];
+    expect(users[0].display_currency).toBe(CURRENCY);
+
+    const rules = (await rawQuery(
+      `SELECT broker, account, asset_class FROM ignored_asset_classes WHERE user_id = $1`,
+      [TEST_USER_ID],
+    )) as { broker: string; account: string; asset_class: string }[];
+    expect(rules).toEqual([
+      { broker: "IBKR", account: "U123", asset_class: "OPTION" },
+    ]);
+
+    // The postings the file carried, in the three groups the correlations put
+    // back together, with nothing routed on top.
+    const restored = (await rawQuery(
+      `SELECT instrument_description, quantity, account_type, group_id FROM txs
+       WHERE user_id = $1 AND synthetic_purpose IS NULL
+       ORDER BY timestamp, account_type`,
+      [TEST_USER_ID],
+    )) as {
+      instrument_description: string;
+      quantity: string;
+      account_type: string;
+      group_id: string;
+    }[];
+    expect(restored).toHaveLength(6);
+    expect(new Set(restored.map((r) => r.group_id)).size).toBe(3);
+    expect(restored.filter((r) => r.account_type === "IMBALANCE")).toHaveLength(
+      0,
+    );
+
+    // Every group sums to zero per commodity, pads included: the restored
+    // declarations wrote groups of their own and those balance too.
+    const unbalanced = (await rawQuery(
+      `SELECT group_id FROM txs WHERE user_id = $1
+       GROUP BY group_id, weight_commodity HAVING SUM(weight) <> 0`,
+      [TEST_USER_ID],
+    )) as unknown[];
+    expect(unbalanced).toHaveLength(0);
+
+    const declarations = (await rawQuery(
+      `SELECT declared_qty FROM holding_declarations WHERE user_id = $1`,
+      [TEST_USER_ID],
+    )) as { declared_qty: string }[];
+    expect(declarations).toHaveLength(3);
+
+    // And the pads are back, written by the recalculation the import earns once
+    // after the declarations part rather than per row.
+    const pads = (await rawQuery(
+      `SELECT quantity FROM txs
+       WHERE user_id = $1 AND synthetic_purpose = 'INITIALIZE' AND account_type = 'USER'`,
+      [TEST_USER_ID],
+    )) as { quantity: string }[];
+    expect(pads).toHaveLength(2);
   });
 
   test("refuses a file that is not a user archive", async ({

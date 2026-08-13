@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
@@ -165,18 +166,19 @@ func TestProcessUserImport_ResetsPartialProgressOnRerun(t *testing.T) {
 	processUserImport(context.Background(), ingestDeps{DB: database}, j)
 }
 
-// A part row this build cannot apply means a job written by a later build. It
-// fails that part rather than the whole import.
+// A part row this build has no arm for -- a part from a later build, or one
+// belonging to the other archive -- fails that part rather than the whole
+// import.
 func TestProcessUserImport_UnknownPartFailsOnlyItself(t *testing.T) {
 	database := userImportMock(t)
 	j := &JobRequest{JobID: "job-ua-6", JobType: db.JobTypeUserArchive}
 	database.EXPECT().LoadJobPayload(gomock.Any(), j.JobID).Return(userArchivePayload(t), nil)
 	database.EXPECT().GetJob(gomock.Any(), j.JobID).Return(&db.JobDetail{
-		UserID: "user-7", Parts: partRows(archivev1.ArchivePart_DECLARATIONS),
+		UserID: "user-7", Parts: partRows(archivev1.ArchivePart_INSTRUMENTS),
 	}, nil).AnyTimes()
 	database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().
-		SetJobPartFailed(gomock.Any(), j.JobID, archivev1.ArchivePart_DECLARATIONS, errUnknownPart.Error()).
+		SetJobPartFailed(gomock.Any(), j.JobID, archivev1.ArchivePart_INSTRUMENTS, errUnknownPart.Error()).
 		Return(nil)
 
 	processUserImport(context.Background(), ingestDeps{DB: database}, j)
@@ -271,5 +273,65 @@ func TestProcessJob_UserArchive_NudgesThePriceFetcherOnlyForACurrency(t *testing
 				}
 			}
 		})
+	}
+}
+
+// declarationArchivePayload is a document stating one declaration, which is
+// enough to watch the part run.
+func declarationArchivePayload(t *testing.T) []byte {
+	t.Helper()
+	b, err := proto.Marshal(&archivev1.UserArchive{
+		Envelope: &archivev1.Envelope{
+			FormatVersion: 1,
+			ExportedAt:    timestamppb.Now(),
+			Kind:          archivev1.ArchiveKind_USER,
+		},
+		Declarations: &archivev1.DeclarationPart{
+			Statements: []*archivev1.Statement{{
+				Broker:   typev1.Broker_FIDELITY,
+				Account:  "Z1",
+				AsOfDate: "2024-01-31",
+				Declarations: []*archivev1.Declaration{{
+					Instrument: &archivev1.InstrumentRef{
+						Type:   typev1.IdentifierType_MIC_TICKER,
+						Value:  "AAPL",
+						Domain: "XNAS",
+					},
+					DeclaredQty: "100",
+				}},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return b
+}
+
+// The declarations part dispatches, and a declaration that landed is what earns
+// the recalculation: a declaration carries no pad, and the pad is what makes the
+// declared quantity true.
+func TestProcessUserImport_DeclarationsPartStoresAndEarnsTheRecalc(t *testing.T) {
+	database := userImportMock(t)
+	j := &JobRequest{JobID: "job-ua-8", JobType: db.JobTypeUserArchive}
+	database.EXPECT().LoadJobPayload(gomock.Any(), j.JobID).Return(declarationArchivePayload(t), nil)
+	database.EXPECT().GetJob(gomock.Any(), j.JobID).Return(&db.JobDetail{
+		UserID: "user-7", Parts: partRows(archivev1.ArchivePart_DECLARATIONS),
+	}, nil).AnyTimes()
+	database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	start := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	database.EXPECT().GetPortfolioStartDate(gomock.Any(), "user-7").Return(&start, nil)
+	database.EXPECT().
+		FindInstrumentByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "AAPL").
+		Return("inst-a", nil)
+	database.EXPECT().
+		UpsertHoldingDeclaration(gomock.Any(), "user-7", "FIDELITY", "Z1", "inst-a", "100",
+			gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	res := processUserImport(context.Background(), ingestDeps{DB: database}, j)
+	if !res.declarationsStored {
+		t.Fatal("declarationsStored = false, want the stored declaration to earn the recalc")
 	}
 }

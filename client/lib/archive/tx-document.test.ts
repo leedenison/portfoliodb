@@ -59,6 +59,30 @@ describe("readTxDocument", () => {
     expect(errors[0]!.message).toContain("more than transactions");
   });
 
+  // Declarations are the other user part, and a broker upload has nowhere to
+  // put them: they restate holdings rather than replacing a period.
+  it("refuses a document that carries declarations", () => {
+    const { window, errors } = readTxDocument(
+      doc({
+        declarations: {
+          statements: [
+            {
+              broker: Broker.FIDELITY,
+              account: "Z1",
+              asOfDate: "2024-01-31",
+              declarations: [
+                { instrument: { type: 11, value: "AAPL", domain: "XNAS" }, declaredQty: "100" },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(window).toBeUndefined();
+    expect(errors[0]!.message).toContain("more than transactions");
+  });
+
   it("reports a file that is not an archive as a parse error rather than throwing", () => {
     const { window, errors } = readTxDocument("date,type\n2024-01-01,BUYSTOCK");
 

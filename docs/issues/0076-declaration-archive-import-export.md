@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Carry holding declarations in the user archive
 milestone: M14
 dependencies: [0078]

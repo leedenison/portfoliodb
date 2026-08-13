@@ -794,3 +794,144 @@ func TestUpsertInitializeTx_DenominatesThePad(t *testing.T) {
 	}
 	assertPadBasis(basis)
 }
+
+// A re-imported file collides on the unique key at every unchanged row, so the
+// archive path upserts where the create path answers AlreadyExists. Applying the
+// same file twice writes what it says and no more.
+func TestUpsertHoldingDeclaration_RestatesRatherThanColliding(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-upsert", "U", "u@u.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
+
+	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, asOf); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	// The same row again changes nothing and must not be an error.
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, asOf); err != nil {
+		t.Fatalf("re-import: %v", err)
+	}
+	// A changed quantity restates the declaration in place.
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "120", asOf, asOf); err != nil {
+		t.Fatalf("restate: %v", err)
+	}
+
+	rows, err := p.ListHoldingDeclarations(ctx, userID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("stored %d declarations, want 1", len(rows))
+	}
+	if rows[0].DeclaredQty != "120" {
+		t.Fatalf("declared_qty = %s, want 120", rows[0].DeclaredQty)
+	}
+}
+
+// A zero basis leaves the column NULL so the table's trigger applies the
+// as_of_date default, on the conflict branch as well as the insert: the trigger
+// runs before the conflict is detected, so EXCLUDED carries the defaulted value.
+func TestUpsertHoldingDeclaration_LetsTheTriggerDefaultTheBasis(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-basis", "U", "u@u.com")
+	instID, _ := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
+
+	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	other := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	// Stated first, so the update branch has something to overwrite.
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, other); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, time.Time{}); err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+
+	rows, _ := p.ListHoldingDeclarations(ctx, userID)
+	if len(rows) != 1 {
+		t.Fatalf("stored %d declarations, want 1", len(rows))
+	}
+	if !rows[0].ShareCountBasis.Equal(asOf) {
+		t.Fatalf("share_count_basis = %s, want the as_of_date default %s",
+			rows[0].ShareCountBasis.Format("2006-01-02"), asOf.Format("2006-01-02"))
+	}
+}
+
+// The export names an instrument by the identifier bestIdentifierJoin ranks
+// highest, so this export agrees with every other one about which one it is.
+// It also drops a basis equal to the declaration's own date, which is what an
+// absent one already means.
+func TestListHoldingDeclarationsForExport_UsesTheBestIdentifier(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-export", "U", "u@u.com")
+	instID, _ := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Apple", "", "", []db.IdentifierInput{
+		{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "APPLE INC", Canonical: false},
+		{Type: "ISIN", Value: "US0378331005", Canonical: true},
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "AAPL", Canonical: true},
+	}, "", nil, nil, nil)
+
+	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	basis := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, asOf); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	later := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "120", later, basis); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	rows, err := p.ListHoldingDeclarationsForExport(ctx, userID)
+	if err != nil {
+		t.Fatalf("list for export: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("read %d rows, want 2", len(rows))
+	}
+	// MIC_TICKER outranks ISIN, which outranks BROKER_DESCRIPTION.
+	if rows[0].IdentifierType != "MIC_TICKER" || rows[0].IdentifierValue != "AAPL" || rows[0].IdentifierDomain != "XNAS" {
+		t.Fatalf("identifier = %s %s %s, want MIC_TICKER AAPL XNAS",
+			rows[0].IdentifierType, rows[0].IdentifierValue, rows[0].IdentifierDomain)
+	}
+	if rows[0].ShareCountBasis != nil {
+		t.Fatalf("share_count_basis = %v, want nil where it equals as_of_date", rows[0].ShareCountBasis)
+	}
+	if rows[1].ShareCountBasis == nil || !rows[1].ShareCountBasis.Equal(basis) {
+		t.Fatalf("share_count_basis = %v, want %s", rows[1].ShareCountBasis, basis.Format("2006-01-02"))
+	}
+	if rows[0].DeclaredQty.String() != "100" {
+		t.Fatalf("declared_qty = %s, want 100", rows[0].DeclaredQty)
+	}
+}
+
+// An instrument carrying no identifier still comes back, so the writer can say
+// so rather than the row simply not appearing: a declaration silently missing
+// from an export is the one failure a file the user diffs by hand cannot show.
+func TestListHoldingDeclarationsForExport_KeepsAnUnidentifiedInstrument(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := p.GetOrCreateUser(ctx, "sub|decl-noid", "U", "u@u.com")
+	var instID string
+	if err := p.q.QueryRowxContext(ctx, `
+		INSERT INTO instruments (asset_class) VALUES ('STOCK') RETURNING id::text
+	`).Scan(&instID); err != nil {
+		t.Fatalf("insert instrument: %v", err)
+	}
+
+	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	if err := p.UpsertHoldingDeclaration(ctx, userID, "IBKR", "acct1", instID, "100", asOf, asOf); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	rows, err := p.ListHoldingDeclarationsForExport(ctx, userID)
+	if err != nil {
+		t.Fatalf("list for export: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("read %d rows, want the unidentified one to survive", len(rows))
+	}
+	if rows[0].IdentifierValue != "" {
+		t.Fatalf("identifier value = %q, want empty", rows[0].IdentifierValue)
+	}
+}

@@ -1155,13 +1155,51 @@ type InitializeTx struct {
 	ShareCountBasis time.Time
 }
 
+// ExportDeclaration is one stored declaration with the best identifier of the
+// instrument it names, ready to be cut into statements.
+//
+// Neither the pad/assert discriminator nor the check against the computed
+// holding is here. Both are derived from the declarations and the postings, and
+// an archive carries inputs rather than what is derived from them. See
+// docs/adr/0032-archive-preserves-inputs-not-derived-state.md.
+type ExportDeclaration struct {
+	Broker  string
+	Account string
+	// The instrument's best identifier, or all three empty for an instrument
+	// carrying none. Chosen by bestIdentifierJoin so that every export naming
+	// one identifier per instrument agrees which one.
+	IdentifierType   string
+	IdentifierValue  string
+	IdentifierDomain string
+	DeclaredQty      decimal.Decimal
+	AsOfDate         time.Time
+	// The share count the declared quantity is denominated in, or nil when it is
+	// the declaration's own as_of_date. The column is NOT NULL and the insert
+	// trigger defaults it to that date, so only a value that differs from it
+	// says anything worth writing to a file.
+	ShareCountBasis *time.Time
+}
+
 // HoldingDeclarationDB provides holding declaration CRUD and INITIALIZE tx helpers.
 type HoldingDeclarationDB interface {
 	CreateHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time) (*HoldingDeclarationRow, error)
 	UpdateHoldingDeclaration(ctx context.Context, id, declaredQty string, asOfDate, shareCountBasis time.Time) (*HoldingDeclarationRow, error)
+	// UpsertHoldingDeclaration restates the declaration for a holding at a date,
+	// or creates it where there is none. It is what an archive import writes
+	// through: re-importing an exported file collides on the unique key at every
+	// unchanged row, and the AlreadyExists the create path answers with -- right
+	// for a user filling in a form -- would fail the restore.
+	//
+	// A zero shareCountBasis leaves the column NULL on insert so the table's
+	// trigger applies the as_of_date default, keeping that rule in one place.
+	UpsertHoldingDeclaration(ctx context.Context, userID, broker, account, instrumentID, declaredQty string, asOfDate, shareCountBasis time.Time) error
 	DeleteHoldingDeclaration(ctx context.Context, id string) error
 	GetHoldingDeclaration(ctx context.Context, id string) (*HoldingDeclarationRow, error)
 	ListHoldingDeclarations(ctx context.Context, userID string) ([]*HoldingDeclarationRow, error)
+	// ListHoldingDeclarationsForExport reads one user's declarations in archive
+	// order -- by broker, then account, then date -- so a writer can cut them
+	// into statements in one pass.
+	ListHoldingDeclarationsForExport(ctx context.Context, userID string) ([]ExportDeclaration, error)
 	// GetPortfolioStartDate returns the earliest real tx timestamp for the user, or nil if none exist.
 	GetPortfolioStartDate(ctx context.Context, userID string) (*time.Time, error)
 	// ComputeRunningBalance sums the real (non-synthetic) txs for the given holding

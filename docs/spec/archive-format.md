@@ -668,6 +668,33 @@ follows from the declaration dates for its holding -- the earliest pads, the res
 are checked -- so a stored copy could only ever disagree with them. See
 `docs/adr/0030-declarations-are-padded-then-asserted.md`.
 
+**A declaration that fails to identify is rejected as a row.** This is the one
+part whose instrument resolution is a database lookup and never a creation.
+Prices and corporate events resolve an unknown instrument through the identifier
+plugins because their rows are worth having either way, and a transaction that
+identifies nothing still lands, on a placeholder built from its description --
+the event happened. A declaration is a statement about a holding, so an
+instrument the system cannot name leaves nothing for it to pad and nothing to
+check it against. The row is rejected and the rest of the file lands, which is
+what a rejected row does everywhere in this format. A row failing here is a
+defect rather than a user error: the user picked the instrument in the UI, and
+the export writes an identifier this instance holds.
+
+**A declaration dated before the portfolio start date is rejected too.** Nothing
+before the first transaction can be padded to or checked against, so the
+recalculation deletes such declarations; writing one and removing it moments
+later would report a success the user cannot see the result of. A user with no
+transactions at all has no start date, and the whole part fails rather than every
+row in it -- the file is fine and the instance is not ready for it. Restoring
+transactions before declarations is what avoids both, and is why they are in that
+order.
+
+**The pads are settled once, after the part.** A declaration carries no pad --
+the pad is derived -- and which declaration pads a holding depends on the others
+in it, so the unit of recalculation is the holding rather than the row. The
+import writes the declarations and the recalculation that follows every ingestion
+settles every affected holding's opening balance from the set as it now stands.
+
 ## Producing and consuming a document
 
 One endpoint each way, and one page: `/admin/archive`. Neither the export nor the

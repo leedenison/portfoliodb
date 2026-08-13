@@ -292,6 +292,62 @@ describe("assembleUserArchive", () => {
     expect(doc.txs?.windows).toHaveLength(0);
     expect(marshalUser(doc)).toContain('"txs":{}');
   });
+
+  // Declarations arrive a statement at a time -- one account read at one date --
+  // so the assembler accumulates them as it does transaction windows.
+  it("accumulates declaration statements across the stream", () => {
+    const doc = assembleUserArchive(
+      userStream(
+        { item: { case: "envelope", value: USER_ENVELOPE } },
+        { item: { case: "partBegin", value: { part: ArchivePart.DECLARATIONS } } },
+        {
+          item: {
+            case: "declarationStatement",
+            value: {
+              broker: 1,
+              account: "Z1",
+              asOfDate: "2024-01-31",
+              declarations: [
+                { instrument: { type: 11, value: "AAPL", domain: "XNAS" }, declaredQty: "100" },
+                { instrument: { type: 11, value: "MSFT", domain: "XNAS" }, declaredQty: "50" },
+              ],
+            },
+          },
+        },
+        {
+          item: {
+            case: "declarationStatement",
+            value: {
+              broker: 1,
+              account: "Z1",
+              asOfDate: "2024-02-29",
+              declarations: [
+                { instrument: { type: 11, value: "AAPL", domain: "XNAS" }, declaredQty: "120" },
+              ],
+            },
+          },
+        },
+      ),
+    );
+    expect(doc.declarations?.statements).toHaveLength(2);
+    expect(doc.declarations?.statements[0].asOfDate).toBe("2024-01-31");
+    expect(doc.declarations?.statements[0].declarations).toHaveLength(2);
+    expect(doc.declarations?.statements[1].asOfDate).toBe("2024-02-29");
+  });
+
+  // A declarations part asked for over no declarations is present and empty,
+  // the same statement the marker makes for every other part.
+  it("keeps an empty declarations part present", () => {
+    const doc = assembleUserArchive(
+      userStream(
+        { item: { case: "envelope", value: USER_ENVELOPE } },
+        { item: { case: "partBegin", value: { part: ArchivePart.DECLARATIONS } } },
+      ),
+    );
+    expect(doc.declarations).toBeDefined();
+    expect(doc.declarations?.statements).toHaveLength(0);
+    expect(marshalUser(doc)).toContain('"declarations":{}');
+  });
 });
 
 describe("userPartCounts", () => {
@@ -329,6 +385,42 @@ describe("userPartCounts", () => {
       }),
     ]);
     expect(userPartCounts(doc)).toEqual([{ label: "postings", count: 3 }]);
+  });
+
+  // Declarations rather than statements, for the same reason.
+  it("counts declarations for the declarations part", () => {
+    const doc = assembleUserArchive([
+      create(ExportUserArchiveResponseSchema, { item: { case: "envelope", value: { ...ENVELOPE, kind: 2 } } }),
+      create(ExportUserArchiveResponseSchema, {
+        item: { case: "partBegin", value: { part: ArchivePart.DECLARATIONS } },
+      }),
+      create(ExportUserArchiveResponseSchema, {
+        item: {
+          case: "declarationStatement",
+          value: {
+            broker: 1,
+            account: "Z1",
+            asOfDate: "2024-01-31",
+            declarations: [
+              { instrument: { type: 11, value: "AAPL", domain: "XNAS" }, declaredQty: "100" },
+              { instrument: { type: 11, value: "MSFT", domain: "XNAS" }, declaredQty: "50" },
+            ],
+          },
+        },
+      }),
+      create(ExportUserArchiveResponseSchema, {
+        item: {
+          case: "declarationStatement",
+          value: {
+            broker: 1,
+            account: "Z2",
+            asOfDate: "2024-01-31",
+            declarations: [{ instrument: { type: 11, value: "AAPL", domain: "XNAS" }, declaredQty: "7" }],
+          },
+        },
+      }),
+    ]);
+    expect(userPartCounts(doc)).toEqual([{ label: "holding declarations", count: 3 }]);
   });
 
   // A part present and empty is present with nothing in it, which is a

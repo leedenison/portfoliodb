@@ -260,13 +260,20 @@ func getSessionIDFromContext(ctx context.Context, cookieName string) string {
 	if !ok {
 		return ""
 	}
-	vals := md.Get("cookie")
-	for _, v := range vals {
-		cookies := readCookies(v, cookieName)
-		for _, c := range cookies {
-			if c.Name == cookieName {
-				return c.Value
-			}
+	// net/http's own parser, reached through a request because that is the only
+	// shape it is exposed in. Nothing here is served over HTTP; the Cookie headers
+	// arrive as gRPC metadata and this borrows the parsing rather than repeating
+	// it. http.ParseCookie is the direct call but rejects the whole header when any
+	// one cookie in it is malformed, which would let an unrelated cookie take the
+	// session down with it.
+	//
+	// It is stricter than a parser written for this: a value carrying a control
+	// character, a backslash or a quote is not one a browser will have sent, and it
+	// is dropped rather than looked up. See the tests for what that excludes.
+	if vals := md.Get("cookie"); len(vals) > 0 {
+		req := &http.Request{Header: http.Header{"Cookie": vals}}
+		if c, err := req.Cookie(cookieName); err == nil {
+			return c.Value
 		}
 	}
 	for _, v := range md.Get("authorization") {
@@ -275,56 +282,4 @@ func getSessionIDFromContext(ctx context.Context, cookieName string) string {
 		}
 	}
 	return ""
-}
-
-// Minimal cookie parsing for "name=value" in Cookie header.
-func readCookies(header, filter string) []*http.Cookie {
-	var out []*http.Cookie
-	for _, part := range splitCookie(header) {
-		eq := indexByte(part, '=')
-		if eq < 0 {
-			continue
-		}
-		name := trimSpace(part[:eq])
-		value := trimSpace(part[eq+1:])
-		if filter != "" && name != filter {
-			continue
-		}
-		out = append(out, &http.Cookie{Name: name, Value: value})
-	}
-	return out
-}
-
-func splitCookie(s string) []string {
-	var parts []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == ';' {
-			parts = append(parts, trimSpace(s[start:i]))
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		parts = append(parts, trimSpace(s[start:]))
-	}
-	return parts
-}
-
-func indexByte(s string, b byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == b {
-			return i
-		}
-	}
-	return -1
-}
-
-func trimSpace(s string) string {
-	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t') {
-		s = s[1:]
-	}
-	for len(s) > 0 && (s[len(s)-1] == ' ' || s[len(s)-1] == '\t') {
-		s = s[:len(s)-1]
-	}
-	return s
 }

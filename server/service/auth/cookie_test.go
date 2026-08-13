@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"net/http"
 	"testing"
 
 	"google.golang.org/grpc/metadata"
@@ -11,16 +10,11 @@ import (
 // What the session id is read out of, which is the one piece of an authenticated
 // request that an attacker writes in full.
 //
-// The parsing behind SessionIDFromContext is hand-rolled -- readCookies, and with it
-// splitCookie, indexByte and trimSpace, which are strings.Split, strings.IndexByte
-// and a partial strings.TrimSpace. Nothing exercised any of it. These tests go
-// through the exported entry point rather than at the four helpers, because that is
-// what the interceptor calls and the helpers are an implementation of it.
-//
-// Where the hand-rolled parser and net/http disagree is recorded below, in
-// TestSessionIDFromContext_DivergesFromNetHTTP. Those cases are written as
-// what the code does today rather than what it ought to do, so that replacing the
-// parser shows up as a diff in the expectations rather than as silence.
+// The parsing is net/http's. It was hand-rolled -- readCookies, and with it
+// splitCookie, indexByte and trimSpace, which were strings.Split, strings.IndexByte
+// and a partial strings.TrimSpace -- and none of it was exercised. The tests below
+// go through the exported entry point rather than at whatever is under it, because
+// that is what the interceptor calls.
 
 // ctxWithMetadata returns a context carrying the given incoming metadata pairs.
 func ctxWithMetadata(kv ...string) context.Context {
@@ -57,14 +51,25 @@ func TestSessionIDFromContext(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "surrounding whitespace is not part of it",
-			ctx:  ctxWithMetadata("cookie", "  "+name+"  =  abc123  "),
-			want: "abc123",
+			// Space around the name is not part of the name, which is what lets the
+			// usual "a=1; b=2" spacing work at all. Space after the equals is part
+			// of the value, because nothing says it is not and trimming it would
+			// make two different headers name one session.
+			name: "space around the name is not part of it, space in the value is",
+			ctx:  ctxWithMetadata("cookie", "  "+name+"  =  abc123"),
+			want: "  abc123",
 		},
 		{
 			name: "a value holding an equals sign keeps it",
 			ctx:  ctxWithMetadata("cookie", name+"=a=b=c"),
 			want: "a=b=c",
+		},
+		{
+			// A semicolon is the separator, so it ends the value rather than being
+			// part of it. A session id cannot contain one, so nothing is lost.
+			name: "a semicolon ends the value",
+			ctx:  ctxWithMetadata("cookie", name+"=abc;123"),
+			want: "abc",
 		},
 		{
 			// The first wins. Nothing in the format says which of two cookies of
@@ -73,6 +78,13 @@ func TestSessionIDFromContext(t *testing.T) {
 			name: "the first of two of the same name wins",
 			ctx:  ctxWithMetadata("cookie", name+"=first; "+name+"=second"),
 			want: "first",
+		},
+		{
+			// Quotes delimit the value rather than being part of it, so this names
+			// the same session as the unquoted form.
+			name: "a quoted value is unwrapped",
+			ctx:  ctxWithMetadata("cookie", name+`="abc123"`),
+			want: "abc123",
 		},
 		{
 			name: "an empty value is empty rather than absent",
@@ -145,66 +157,62 @@ func TestSessionIDFromContext(t *testing.T) {
 	}
 }
 
-// Where the hand-rolled parser and net/http disagree about the same header.
+// A value no browser will ever have sent names no session.
 //
-// A value reaching here goes on to be a Redis key and to be echoed back in a
-// GetSession response. Neither can be injected into by a value of any shape -- the
-// Redis protocol is length-prefixed and the response is protobuf -- so none of these
-// is a hole today. What they are is a wider set of accepted values than any browser
-// will ever send, on the one input an attacker writes in full.
+// Each of these was accepted verbatim by the parser this replaced, and each is now
+// dropped. None of them was a hole -- the value goes on to be a Redis key, whose
+// protocol is length-prefixed, and to be echoed into a protobuf response, so there
+// was nothing to inject into. What they are is the difference between accepting
+// what the format permits and accepting whatever arrived, on the one input an
+// attacker writes in full.
 //
-// net/http is already imported by this file's subject, and its own parser is what
-// readCookies, splitCookie, indexByte and trimSpace are a partial reimplementation
-// of. The stdlib column is what (&http.Request{Header: ...}).Cookies() gives for the
-// same header, so it is both the record of the difference and the check that the
-// difference is still there. Every case in the test above agrees between the two;
-// these are the whole of the disagreement.
-func TestSessionIDFromContext_DivergesFromNetHTTP(t *testing.T) {
+// A dropped cookie falls through to the bearer token and then to nothing, so the
+// request is unauthenticated rather than authenticated as somebody. That is the
+// property here: none of these returns a session id.
+func TestSessionIDFromContext_RejectsWhatNoBrowserSends(t *testing.T) {
 	const name = "portfoliodb_session"
 	tests := []struct {
-		name   string
-		value  string
-		want   string // what readCookies yields
-		stdlib string // what net/http yields for the same header
+		name  string
+		value string
 	}{
-		{name: "a carriage return", value: "a\rb", want: "a\rb", stdlib: ""},
-		{name: "a newline", value: "a\nb", want: "a\nb", stdlib: ""},
-		{name: "a NUL", value: "a\x00b", want: "a\x00b", stdlib: ""},
-		{name: "a backslash", value: `a\b`, want: `a\b`, stdlib: ""},
-		{name: "a DEL", value: "\x7f", want: "\x7f", stdlib: ""},
-		{
-			// A tab inside the value survives; one at either end is trimmed off,
-			// which is trimSpace rather than anything the format asks for.
-			name: "an interior tab", value: "a\tb", want: "a\tb", stdlib: "",
-		},
-		{
-			// The one difference that is not about accepting more: net/http reads
-			// the quotes as delimiters and this reads them as part of the value, so
-			// a quoted session id here matches no stored session.
-			name: "surrounding quotes", value: `"abc"`, want: `"abc"`, stdlib: "abc",
-		},
-		{
-			// trimSpace takes the space off; net/http keeps it, so the two look up
-			// different sessions for one header.
-			name: "a leading space", value: " abc", want: "abc", stdlib: " abc",
-		},
+		{name: "a carriage return", value: "a\rb"},
+		{name: "a newline", value: "a\nb"},
+		{name: "a NUL", value: "a\x00b"},
+		{name: "a backslash", value: `a\b`},
+		{name: "a DEL", value: "\x7f"},
+		{name: "an interior tab", value: "a\tb"},
+		{name: "an interior quote", value: `a"b`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			header := name + "=" + tt.value
-			if got := SessionIDFromContext(ctxWithMetadata("cookie", header), name); got != tt.want {
-				t.Errorf("session id: got %q, want %q", got, tt.want)
+			ctx := ctxWithMetadata("cookie", name+"="+tt.value)
+			if got := SessionIDFromContext(ctx, name); got != "" {
+				t.Errorf("session id: got %q, want nothing for a value the format does not permit", got)
 			}
-			std := ""
-			req := &http.Request{Header: http.Header{"Cookie": []string{header}}}
-			for _, c := range req.Cookies() {
-				if c.Name == name {
-					std = c.Value
-					break
-				}
-			}
-			if std != tt.stdlib {
-				t.Errorf("net/http now yields %q for %q, not %q; this test is out of date", std, header, tt.stdlib)
+		})
+	}
+}
+
+// One bad cookie does not take the session down with it.
+//
+// This is why the parsing goes through a request rather than through
+// http.ParseCookie, which rejects the whole header when any part of it is
+// malformed: a cookie set by something else entirely would then log the user out.
+func TestSessionIDFromContext_SurvivesAMalformedNeighbour(t *testing.T) {
+	const name = "portfoliodb_session"
+	tests := []struct {
+		name   string
+		header string
+	}{
+		{"a neighbour with a control character", "junk=a\x00b; " + name + "=abc123"},
+		{"a neighbour with no value", "junk; " + name + "=abc123"},
+		{"a neighbour with no name", "=junk; " + name + "=abc123"},
+		{"a trailing semicolon", name + "=abc123; "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SessionIDFromContext(ctxWithMetadata("cookie", tt.header), name); got != "abc123" {
+				t.Errorf("session id: got %q, want abc123", got)
 			}
 		})
 	}

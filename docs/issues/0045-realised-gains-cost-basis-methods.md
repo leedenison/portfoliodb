@@ -1,6 +1,7 @@
 ---
 status: open
 title: Realised gains and cost basis methods
+milestone: M19
 dependencies: [0044]
 ---
 

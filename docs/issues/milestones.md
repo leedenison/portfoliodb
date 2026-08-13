@@ -16,6 +16,9 @@
 - **M14** - Complete the archive: system and user archives carry everything a rebuild needs, and the transaction CSV is retired.
 - **M15** - The server owns transaction grouping: converters emit evidence and the server derives groups across the whole dataset rather than within one upload.
 - **M16** - A person can repair a grouping or a transfer pairing the engine cannot derive.
+- **M17** - Operational correctness: scheduled corporate-event recompute, single-sourced instrument data, current planner statistics, and configurable deployment.
+- **M18** - One place that says what needs a person's attention, replacing the per-problem admin cards.
+- **M19** - Lots, cost basis and realised gains.
 
 ## Unscheduled
 

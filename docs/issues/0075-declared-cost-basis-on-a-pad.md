@@ -1,6 +1,7 @@
 ---
 status: open
 title: Declare a cost basis alongside a pad
+milestone: M19
 dependencies: [0044]
 ---
 

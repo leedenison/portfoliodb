@@ -71,7 +71,7 @@ export const USER_ARCHIVE_PART_OPTIONS: ArchivePartOption[] = [
   {
     part: ArchivePart.TXS,
     label: "Transactions",
-    note: "Every posting, grouped as the broker converter grouped it. Nothing can rebuild the grouping, so it travels with them.",
+    note: "Every posting the brokers reported, with the evidence that says which of them are legs of one event. The grouping itself is derived again on import.",
     defaultSelected: true,
   },
   {

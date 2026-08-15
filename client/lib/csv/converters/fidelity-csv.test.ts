@@ -6,12 +6,19 @@ import { convertFidelityToStandard, FIDELITY_TYPE_TO_TYPES } from "./fidelity-cs
 import { expectGroupsBalance, residuals } from "@/lib/csv/group-balance.test-utils";
 import { RECORD_LABEL } from "@/lib/csv/postings";
 
+// The header the Fidelity.co.uk download writes, verbatim, trailing comma and
+// all: the export writes an empty thirteenth cell after Status. Every test uses
+// it, because this converter reads that file and no other. A file with extra
+// columns of someone's own is a different file and is not what gets uploaded.
 const HEADER =
-  "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit";
+  "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,";
+
+const convertRows = (rows: string[]) =>
+  convertFidelityToStandard([HEADER, ...rows].join("\n"), { currency: "GBP" });
 
 describe("convertFidelityToStandard", () => {
   it("returns error when currency is missing", () => {
-    const result = convertFidelityToStandard("Order date,Transaction type,Investments\n", {});
+    const result = convertFidelityToStandard(HEADER + "\n", {});
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.message.includes("Currency"))).toBe(true);
     expect(result.postings.length).toBe(0);
@@ -30,12 +37,45 @@ describe("convertFidelityToStandard", () => {
     expect(result.postings.length).toBe(0);
   });
 
-  it("parses a single Sell row and uses Completion date", () => {
+  // The download opens with five lines of account metadata and a blank line
+  // before the header, so finding the header is part of reading the file.
+  it("skips the export's metadata preamble", () => {
     const csv = [
-      "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status",
-      '21 Jan 2026,23 Jan 2026,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10000001,,-31826.24,70,454.66,1107095237,Completed,',
+      "Account ,All Accounts",
+      "Timeframe,04/08/2024-04/08/2025",
+      "Transaction type,All Transactions",
+      "Investment name,All Investments",
+      'Valuations,"£923,821.32"',
+      "",
+      HEADER,
+      '16 Jul 2025,21 Jul 2025,Cash Interest,"Cash",Investment Account,AG10000001,"Cash",0.60,0.6,1,1140097065,Completed,',
     ].join("\n");
     const result = convertFidelityToStandard(csv, { currency: "GBP" });
+    expect(result.errors).toEqual([]);
+    expect(result.postings).toHaveLength(1);
+    expect(result.postings[0]!.quantity).toBe("0.6");
+  });
+
+  // Converting on whatever columns turned up is how an upload silently comes out
+  // thinner than the file it came from, so a short header is refused by name.
+  it("names the columns a file is missing rather than converting without them", () => {
+    const csv = [
+      "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit",
+      "21 Jan 2026,23 Jan 2026,Buy,ISHARES II PLC INRG,SIPP,100,7.16",
+    ].join("\n");
+    const result = convertFidelityToStandard(csv, { currency: "GBP" });
+    expect(result.postings).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.field).toBe("header");
+    expect(result.errors[0]!.message).toContain("Product Wrapper");
+    expect(result.errors[0]!.message).toContain("Amount");
+    expect(result.errors[0]!.message).toContain("Status");
+  });
+
+  it("parses a single Sell row and uses Completion date", () => {
+    const result = convertRows([
+      '21 Jan 2026,23 Jan 2026,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10000001,,-31826.24,70,454.66,1107095237,Completed,',
+    ]);
     expect(result.errors).toEqual([]);
     expect(result.postings.length).toBe(1);
     expect(result.postings[0]!.instrumentDescription).toContain("INVESCO");
@@ -50,11 +90,9 @@ describe("convertFidelityToStandard", () => {
   });
 
   it("falls back to Order date when Completion date is Pending", () => {
-    const csv = [
-      "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit",
-      "21 Jan 2026,Pending,Buy,ISHARES II PLC INRG,SIPP,100,7.16",
-    ].join("\n");
-    const result = convertFidelityToStandard(csv, { currency: "GBP" });
+    const result = convertRows([
+      "21 Jan 2026,Pending,Buy,ISHARES II PLC INRG,SIPP - Pension Savings Account,AP10000001,,-716.00,100,7.16,1000000001,Completed,",
+    ]);
     expect(result.errors).toEqual([]);
     expect(result.postings.length).toBe(1);
     expect(result.periodFrom.getFullYear()).toBe(2026);
@@ -62,25 +100,25 @@ describe("convertFidelityToStandard", () => {
     expect(result.periodFrom.getDate()).toBe(21);
   });
 
-  it("reads an ISO completion date, which some exports carry throughout", () => {
-    // The order date is ISO in every export and the completion date usually is
-    // not, but one of the two sample exports is ISO in both. Reading only the
-    // broker's own format rejected every row of that file.
-    const csv = [
-      "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit",
-      "2026-01-21,2026-01-23,Buy,ISHARES II PLC INRG,SIPP,100,7.16",
-    ].join("\n");
-    const result = convertFidelityToStandard(csv, { currency: "GBP" });
-    expect(result.errors).toEqual([]);
-    expect(result.periodFrom).toEqual(new Date(2026, 0, 23));
+  // The download writes "21 Jan 2026" in both date columns. A file that is ISO in
+  // either of them is a pre-processed file rather than a download.
+  it("rejects a row whose dates are not in the broker's format", () => {
+    const result = convertRows([
+      "2026-01-21,2026-01-23,Buy,ISHARES II PLC INRG,SIPP - Pension Savings Account,AP10000001,,-716.00,100,7.16,1000000001,Completed,",
+    ]);
+    expect(result.postings).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.field).toBe("date");
   });
 
   it("parses Cash Interest as INTEREST", () => {
-    const csv = [
-      "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit",
-      "16 Feb 2026,23 Feb 2026,Cash Interest,Cash,AP10000001,3.27,1",
-    ].join("\n");
-    const result = convertFidelityToStandard(csv, { currency: "USD" });
+    const result = convertFidelityToStandard(
+      [
+        HEADER,
+        '16 Feb 2026,23 Feb 2026,Cash Interest,"Cash",SIPP - Pension Savings Account,AP10000001,"Pension Cash",3.27,3.27,1,1000000002,Completed,',
+      ].join("\n"),
+      { currency: "USD" }
+    );
     expect(result.errors).toEqual([]);
     // The cash row alone. The income it came from is named by the declared type,
     // so the server posts it.
@@ -95,11 +133,12 @@ describe("convertFidelityToStandard", () => {
   // present in the map must not be rejected by the converter.
   it("accepts every transaction type in FIDELITY_TYPE_TO_TYPES", () => {
     const types = Object.keys(FIDELITY_TYPE_TO_TYPES);
-    const csv = [
-      HEADER,
-      ...types.map((t) => `20 Oct 2025,22 Oct 2025,${t},ISHARES II PLC INRG,SIPP,1,7.16`),
-    ].join("\n");
-    const result = convertFidelityToStandard(csv, { currency: "GBP" });
+    const result = convertRows(
+      types.map(
+        (t, i) =>
+          `20 Oct 2025,22 Oct 2025,${t},ISHARES II PLC INRG,SIPP - Pension Savings Account,AP10000001,,7.16,1,7.16,${2000000000 + i},Completed,`
+      )
+    );
     expect(result.errors).toEqual([]);
     // A reinvestment's income leg is appended after the rows, so count the postings
     // that came from a source row: those are the ones a type maps to, in row order,
@@ -112,23 +151,18 @@ describe("convertFidelityToStandard", () => {
   });
 
   it("names the offending type when a row's type is unrecognised", () => {
-    const csv = [
-      HEADER,
-      "20 Oct 2025,22 Oct 2025,Corporate Action Reinvestment,ISHARES II PLC INRG,SIPP,1,7.16",
-    ].join("\n");
-    const result = convertFidelityToStandard(csv, { currency: "GBP" });
+    const result = convertRows([
+      "20 Oct 2025,22 Oct 2025,Corporate Action Reinvestment,ISHARES II PLC INRG,SIPP - Pension Savings Account,AP10000001,,7.16,1,7.16,2000000001,Completed,",
+    ]);
     expect(result.postings).toEqual([]);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]!.field).toBe("type");
     expect(result.errors[0]!.message).toContain("Corporate Action Reinvestment");
   });
 
-  // Rows below are taken verbatim from a real export. The full header is needed
-  // because the Amount column carries the direction of a cash movement.
-  const FULL_HEADER =
-    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,";
-
   describe("cash movement direction", () => {
+    // Taken verbatim from a real export. The Amount column carries the direction
+    // of a cash movement; Quantity is an unsigned magnitude.
     const cases: { name: string; row: string; want: string }[] = [
       {
         name: "a fee is an outflow",
@@ -159,7 +193,7 @@ describe("convertFidelityToStandard", () => {
 
     for (const tc of cases) {
       it(tc.name, () => {
-        const result = convertFidelityToStandard([FULL_HEADER, tc.row].join("\n"), { currency: "GBP" });
+        const result = convertRows([tc.row]);
         expect(result.errors).toEqual([]);
         expect(result.postings[0]!.quantity).toBe(tc.want);
       });
@@ -168,12 +202,20 @@ describe("convertFidelityToStandard", () => {
     it("nets a matched transfer pair to zero", () => {
       // These two rows are the same money leaving one wrapper and arriving in
       // another. Reading the unsigned Quantity made them sum to twice the value.
-      const csv = [FULL_HEADER, cases[2]!.row, cases[3]!.row].join("\n");
-      const result = convertFidelityToStandard(csv, { currency: "GBP" });
+      const result = convertRows([cases[2]!.row, cases[3]!.row]);
       // Summed in decimal so the assertion holds for any pair rather than for
       // ones whose float64 sum happens to land on zero.
       const total = result.postings.reduce((sum, tx) => sum.plus(tx.quantity), new Big(0));
       expect(total.eq(0)).toBe(true);
+    });
+
+    // A row whose Amount the export left blank still has its unsigned Quantity,
+    // which is better than posting nothing for it.
+    it("falls back to Quantity when a row states no Amount", () => {
+      const result = convertRows([
+        '15 Jul 2026,21 Jul 2026,Cash Interest,"Cash",Investment ISA,AS10000001,"Cash",,1.26,1,1197099383,Completed,',
+      ]);
+      expect(result.postings[0]!.quantity).toBe("1.26");
     });
   });
 
@@ -183,11 +225,9 @@ describe("convertFidelityToStandard", () => {
   it.each(["Cash In For Transfer", "Cash Out For Buy From Transfer"])(
     "recognises %s",
     (type) => {
-      const csv = [
-        FULL_HEADER,
+      const result = convertRows([
         `10 Apr 2025,14 Apr 2025,${type},"Cash",Investment ISA,AS10000001,,-100.00,100,1,123,Completed,`,
-      ].join("\n");
-      const result = convertFidelityToStandard(csv, { currency: "GBP" });
+      ]);
       expect(result.errors).toEqual([]);
       expect(result.postings).toHaveLength(1);
       expect(result.postings[0]!.quantity).toBe("-100");
@@ -195,44 +235,27 @@ describe("convertFidelityToStandard", () => {
   );
 
   it("keeps share counts for security rows, negating sells", () => {
-    const csv = [
-      FULL_HEADER,
+    const result = convertRows([
       '21 Jan 2026,23 Jan 2026,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10000001,,-31826.24,70,454.66,1107095237,Completed,',
-    ].join("\n");
-    const result = convertFidelityToStandard(csv, { currency: "GBP" });
+    ]);
     // Quantity is a share count here, not money, so Amount must not replace it.
     expect(result.postings[0]!.quantity).toBe("-70");
-  });
-
-  it("falls back to Quantity when the export has no Amount column", () => {
-    const csv = [
-      HEADER,
-      "15 Jul 2026,21 Jul 2026,Cash Interest,Cash,AS10000001,1.26,1",
-    ].join("\n");
-    const result = convertFidelityToStandard(csv, { currency: "GBP" });
-    expect(result.postings[0]!.quantity).toBe("1.26");
   });
 
   // Fidelity reports money leaving an account as a sale of the account's cash.
   // Mapping on the transaction type alone made each one a security position sold
   // in units of money, and left the account's balance short by the amount that
-  // moved. Rows taken from a real Fidelity export, 2023-03-01, with the
-  // completion date in the format the broker's own download carries.
+  // moved. Rows taken from a real Fidelity export, 2023-03-01.
   describe("a Buy or Sell of cash", () => {
-    const CASH_ASSET_HEADER =
-      "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,Exchange,Symbol,Type,Action";
     const TRANSFER =
-      "2023-03-01,01 Mar 2023,Transfer To Cash Management Account,Cash,Investment Account,AG10000001,,-401,401,1,608442557,Completed,,GBP,CASH,Cash";
+      "01 Mar 2023,01 Mar 2023,Transfer To Cash Management Account,Cash,Investment Account,AG10000001,,-401,401,1,608442557,Completed,";
     const SELL =
-      "2023-03-01,01 Mar 2023,Sell,Cash,Investment Account,AG10000001,,-401,401,1,608442561,Completed,,GBP,CASH,Cash";
+      "01 Mar 2023,01 Mar 2023,Sell,Cash,Investment Account,AG10000001,,-401,401,1,608442561,Completed,";
     const CASH_IN =
-      "2023-03-01,01 Mar 2023,Cash In From Sell,Cash,Investment Account,AG10000001,,401,401,1,608442563,Completed,,GBP,CASH,Cash";
-
-    const convert = (rows: string[]) =>
-      convertFidelityToStandard([CASH_ASSET_HEADER, ...rows].join("\n"), { currency: "GBP" });
+      "01 Mar 2023,01 Mar 2023,Cash In From Sell,Cash,Investment Account,AG10000001,,401,401,1,608442563,Completed,";
 
     it("is a cash movement, not a security trade", () => {
-      const result = convert([SELL]);
+      const result = convertRows([SELL]);
       expect(result.errors).toEqual([]);
       expect(result.postings).toHaveLength(1);
       expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_CASH]);
@@ -243,8 +266,7 @@ describe("convertFidelityToStandard", () => {
     });
 
     it("groups with its cash in, and the pair weighs nothing", () => {
-      const result = convert([SELL, CASH_IN]);
-      expectGroupsBalance(result.postings);
+      expectGroupsBalance(convertRows([SELL, CASH_IN]).postings);
     });
 
     it("leaves the transfer beside it as the money that moved", () => {
@@ -252,7 +274,7 @@ describe("convertFidelityToStandard", () => {
       // other two are the broker converting its own cash position, and net to
       // zero. The account must end 401 down, matching the credit the cash
       // management account records against it.
-      const result = convert([TRANSFER, SELL, CASH_IN]);
+      const result = convertRows([TRANSFER, SELL, CASH_IN]);
       expect(result.errors).toEqual([]);
       const total = result.postings.reduce((sum, tx) => sum.plus(tx.quantity), new Big(0));
       expect(total.eq(-401)).toBe(true);
@@ -260,36 +282,18 @@ describe("convertFidelityToStandard", () => {
     });
 
     it("still reads a security sale as one", () => {
-      const result = convert([
-        '2022-02-08,10 Feb 2022,Sell,"WISE PLC, CLS A ORD GBP0.01 (WISE)",SIPP - Pension Savings Account,AP10000001,,-7266.49,1242,5.85,441416452,Completed,LON,WISE,STOCK,Sell',
+      const result = convertRows([
+        '08 Feb 2022,10 Feb 2022,Sell,"WISE PLC, CLS A ORD GBP0.01 (WISE)",SIPP - Pension Savings Account,AP10000001,,-7266.49,1242,5.85,441416452,Completed,',
       ]);
       expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
-      // The export's own asset column, stated as a hint.
-      expect(result.postings[0]!.assetClassHint).toBe(AssetClass.STOCK);
       expect(result.postings[0]!.quantity).toBe("-1242");
-    });
-
-
-    // The map-completeness test above feeds security rows through a header with
-    // no Type column, so the fallback has to keep them out of this rule.
-    it("falls back to the instrument description when the export omits Type", () => {
-      const csv = [
-        HEADER,
-        "8 Feb 2022,10 Feb 2022,Sell,Cash,AG10000001,401,1",
-        "8 Feb 2022,10 Feb 2022,Sell,ISHARES II PLC INRG,AG10000001,100,7.16",
-      ].join("\n");
-      const result = convertFidelityToStandard(csv, { currency: "GBP" });
-      expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_CASH]);
-      expect(result.postings[1]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
     });
   });
 
   it("parses Buy with positive quantity", () => {
-    const csv = [
-      "Order date,Completion date,Transaction type,Investments,Account Number,Quantity,Price per unit",
-      "20 Oct 2025,22 Oct 2025,Buy,ISHARES II PLC INRG,SIPP,12783,7.16",
-    ].join("\n");
-    const result = convertFidelityToStandard(csv, { currency: "GBP" });
+    const result = convertRows([
+      "20 Oct 2025,22 Oct 2025,Buy,ISHARES II PLC INRG,SIPP - Pension Savings Account,AP10000001,,-91526.28,12783,7.16,1000000003,Completed,",
+    ]);
     expect(result.errors).toEqual([]);
     expect(result.postings.length).toBe(1);
     expect(result.postings[0]!.brokerTxType).toEqual([TxType.TRADE_ASSET]);
@@ -300,15 +304,12 @@ describe("convertFidelityToStandard", () => {
 });
 
 describe("trades the broker names for their reason", () => {
-  const FULL =
-    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,Exchange,Symbol,Type,Action";
-  const convert = (rows: string[]) =>
-    convertFidelityToStandard([FULL, ...rows].join("\n"), { currency: "GBP" });
+  const convert = convertRows;
 
   it("pairs a dividend reinvestment with the cash out that funded it", () => {
     const result = convert([
-      '2022-02-11,15 Feb 2022,Buy From Dividend,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",Investment ISA,AS10000002,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",21.75,17,1.19,442184379,Completed,LON,BGEU,ETF,Buy',
-      '2022-02-11,15 Feb 2022,Cash Out For Dividend Reinvestment,Cash,Investment ISA,AS10000002,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",-20.15,20.15,1,442184374,Completed,,GBP,CASH,Cash',
+      '11 Feb 2022,15 Feb 2022,Buy From Dividend,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",Investment ISA,AS10000002,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",21.75,17,1.19,442184379,Completed,',
+      '11 Feb 2022,15 Feb 2022,Cash Out For Dividend Reinvestment,Cash,Investment ISA,AS10000002,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",-20.15,20.15,1,442184374,Completed,',
     ]);
 
     expect(result.errors).toEqual([]);
@@ -322,8 +323,8 @@ describe("trades the broker names for their reason", () => {
 
   it("pairs a rebate reinvestment with its cash out", () => {
     const result = convert([
-      "2022-03-04,10 Mar 2022,Cash Out,Cash,SIPP - Pension Savings Account,AP10000002,M&G European Index Tracker,-7.81,7.81,1,452602191,Completed,,GBP,CASH,Cash",
-      "2022-03-04,10 Mar 2022,Buy From Rebate,M&G European Index Tracker,SIPP - Pension Savings Account,AP10000002,M&G European Index Tracker,7.81,9.24,0.85,452602204,Completed,LON,M&G European Index Tracker,FUND,Buy",
+      "04 Mar 2022,10 Mar 2022,Cash Out,Cash,SIPP - Pension Savings Account,AP10000002,M&G European Index Tracker,-7.81,7.81,1,452602191,Completed,",
+      "04 Mar 2022,10 Mar 2022,Buy From Rebate,M&G European Index Tracker,SIPP - Pension Savings Account,AP10000002,M&G European Index Tracker,7.81,9.24,0.85,452602204,Completed,",
     ]);
 
     expect(result.errors).toEqual([]);
@@ -339,7 +340,7 @@ describe("trades the broker names for their reason", () => {
     // The one trade in either export with no cash row anywhere beside it: the
     // income buys the units without arriving as money first.
     const result = convert([
-      "2022-03-24,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10000002,Baillie Gifford Responsible Global Equity Income B Inc,31.65,21.09,1.5,460143202,Completed,LON,Baillie Gifford Responsible Global Equity Income B Inc,FUND,Buy",
+      "24 Mar 2022,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10000002,Baillie Gifford Responsible Global Equity Income B Inc,31.65,21.09,1.5,460143202,Completed,",
     ]);
 
     expect(result.errors).toEqual([]);
@@ -363,7 +364,7 @@ describe("trades the broker names for their reason", () => {
   // nothing still has to hold its own legs together once the ref is gone.
   it("identifies a reinvestment the export gave no reference", () => {
     const result = convert([
-      "2022-03-24,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10000002,Baillie Gifford Responsible Global Equity Income B Inc,31.65,21.09,1.5,,Completed,LON,Baillie Gifford Responsible Global Equity Income B Inc,FUND,Buy",
+      "24 Mar 2022,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10000002,Baillie Gifford Responsible Global Equity Income B Inc,31.65,21.09,1.5,,Completed,",
     ]);
 
     expect(result.errors).toEqual([]);
@@ -377,10 +378,10 @@ describe("trades the broker names for their reason", () => {
 
   it("settles a switch through the rows the broker used for it", () => {
     const result = convert([
-      "2023-06-28,29 Jun 2023,Cash Out,Cash,SIPP - Pension Savings Account,AP10000002,,-12091.15,12091.15,1,661638572,Completed,,GBP,CASH,Cash",
-      "2023-06-28,04 Jul 2023,Sell For Switch,M&G European Index Tracker,SIPP - Pension Savings Account,AP10000002,,-12091.15,12147.03,1,661638570,Completed,LON,M&G European Index Tracker,FUND,Sell",
-      "2023-06-28,29 Jun 2023,Buy For Switch,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638575,Completed,,GBP,CASH,Cash",
-      "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638574,Completed,,GBP,CASH,Cash",
+      "28 Jun 2023,29 Jun 2023,Cash Out,Cash,SIPP - Pension Savings Account,AP10000002,,-12091.15,12091.15,1,661638572,Completed,",
+      "28 Jun 2023,04 Jul 2023,Sell For Switch,M&G European Index Tracker,SIPP - Pension Savings Account,AP10000002,,-12091.15,12147.03,1,661638570,Completed,",
+      "28 Jun 2023,29 Jun 2023,Buy For Switch,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638575,Completed,",
+      "28 Jun 2023,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638574,Completed,",
     ]);
 
     expect(result.errors).toEqual([]);
@@ -397,23 +398,23 @@ describe("trades the broker names for their reason", () => {
     // exactly that, and pairing records itself in the group alone rather than
     // rewriting what the broker declared.
     const paired = convert([
-      "2023-06-28,04 Jul 2023,Sell For Switch,M&G European Index Tracker,SIPP - Pension Savings Account,AP10000002,,-12091.15,12147.03,1,661638570,Completed,LON,M&G European Index Tracker,FUND,Sell",
-      "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638574,Completed,,GBP,CASH,Cash",
+      "28 Jun 2023,04 Jul 2023,Sell For Switch,M&G European Index Tracker,SIPP - Pension Savings Account,AP10000002,,-12091.15,12147.03,1,661638570,Completed,",
+      "28 Jun 2023,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638574,Completed,",
     ]);
     expect(paired.postings[1]!.brokerTxType).toEqual([TxType.TRADE_CASH, TxType.TRANSFER]);
     expect(paired.postings[1]!.tradingCurrency).toBe("GBP");
 
     const alone = convert([
-      "2023-06-28,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638574,Completed,,GBP,CASH,Cash",
+      "28 Jun 2023,04 Jul 2023,Cash In,Cash,SIPP - Pension Savings Account,AP10000002,,12091.15,12091.15,1,661638574,Completed,",
     ]);
     expect(alone.postings[0]!.brokerTxType).toEqual([TxType.TRADE_CASH, TxType.TRANSFER]);
   });
 
   it("skips a cancelled transaction and its cancelled cash row", () => {
     const result = convert([
-      '2024-07-22,22 Jul 2024,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ (EQQQ)",Investment Account,AG10000001,,0,0,373.51,847633602,Cancelled,LON,EQQQ,ETF,Sell',
-      "2024-07-22,22 Jul 2024,Cash In From Sell,Cash,Investment Account,AG10000001,,0,0,1,847633604,Cancelled,,GBP,CASH,Cash",
-      "2024-07-22,22 Jul 2024,Dealing Fee,Cash,Investment Account,AG10000001,,-7.5,0,0,100000000,Completed,,GBP,CASH,Cash",
+      '22 Jul 2024,22 Jul 2024,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ (EQQQ)",Investment Account,AG10000001,,0,0,373.51,847633602,Cancelled,',
+      "22 Jul 2024,22 Jul 2024,Cash In From Sell,Cash,Investment Account,AG10000001,,0,0,1,847633604,Cancelled,",
+      "22 Jul 2024,22 Jul 2024,Dealing Fee,Cash,Investment Account,AG10000001,,-7.5,0,0,100000000,Completed,",
     ]);
 
     expect(result.errors).toEqual([]);
@@ -427,14 +428,11 @@ describe("trades the broker names for their reason", () => {
 // through described money as an instrument. A posting is described by, and carries
 // the identifier of, whatever resolves it. See docs/spec/archive-format.md.
 describe("what a posting resolves to", () => {
-  const FULL =
-    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status,Exchange,Symbol,Type,Action";
-  const convert = (rows: string[]) =>
-    convertFidelityToStandard([FULL, ...rows].join("\n"), { currency: "GBP" });
+  const convert = convertRows;
 
   it("describes a cash posting by its currency and hints at it", () => {
     const result = convert([
-      "2022-01-11,11 Jan 2022,Service Fee,Cash,Cash Management Account,AW10000001,,-3.24,3.24,1,428845305,Completed,,GBP,CASH,Cash",
+      "11 Jan 2022,11 Jan 2022,Service Fee,Cash,Cash Management Account,AW10000001,,-3.24,3.24,1,428845305,Completed,",
     ]);
 
     expect(result.postings[0]!.instrumentDescription).toBe("GBP");
@@ -448,47 +446,66 @@ describe("what a posting resolves to", () => {
     // by the payer would resolve the money into that holding; carrying the payer
     // elsewhere is 0049's to decide.
     const result = convert([
-      '2022-02-11,11 Feb 2022,Cash Dividend,Cash,Investment ISA,AS10000002,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",22.67,22.67,1,442183607,Completed,,GBP,CASH,Cash',
+      '11 Feb 2022,11 Feb 2022,Cash Dividend,Cash,Investment ISA,AS10000002,"BAILLIE GIFFORD EUROPEAN GROWTH TST, ORD GBP0.025 (BGEU)",22.67,22.67,1,442183607,Completed,',
     ]);
 
     expect(result.postings[0]!.instrumentDescription).toBe("GBP");
     expect(result.postings[0]!.brokerTxType).toEqual([TxType.DIVIDEND]);
   });
 
-  it("keeps a security's own description and offers its ticker", () => {
+  // The export gives a security no ISIN, no SEDOL and no exchange; the ticker in
+  // the trailing parentheses of its description is the whole of what it offers.
+  it("keeps a security's own description and offers the ticker it ends with", () => {
     const result = convert([
-      '2022-02-08,10 Feb 2022,Sell,"WISE PLC, CLS A ORD GBP0.01 (WISE)",SIPP - Pension Savings Account,AP10000001,,-7266.49,1242,5.85,441416452,Completed,LON,WISE,STOCK,Sell',
+      '08 Feb 2022,10 Feb 2022,Sell,"WISE PLC, CLS A ORD GBP0.01 (WISE)",SIPP - Pension Savings Account,AP10000001,,-7266.49,1242,5.85,441416452,Completed,',
     ]);
 
     expect(result.postings[0]!.instrumentDescription).toContain("WISE PLC");
+    // No domain: the export names no venue, and a ticker under a guessed one is a
+    // claim the source never made.
     expect(result.postings[0]!.identifierHints.map((h) => [h.type, h.value, h.domain])).toEqual([
-      [IdentifierType.MIC_TICKER, "WISE", "XLON"],
+      [IdentifierType.MIC_TICKER, "WISE", ""],
     ]);
   });
 
-  it("offers no ticker for a fund, which has none to offer", () => {
-    // The export repeats the fund's name in the symbol column, against a real
-    // exchange. Passing that on as a ticker would resolve to nothing and leave the
-    // name in the security master twice, so the row goes on its description alone.
+  it("takes the last parenthetical, not one from inside the description", () => {
+    // Fidelity writes the share class and the quote currency in parentheses of
+    // their own. Reading the first would offer GBP as a ticker.
     const result = convert([
-      "2022-03-24,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10000002,,31.65,21.09,1.5,460143202,Completed,LON,Baillie Gifford Responsible Global Equity Income B Inc,FUND,Buy",
+      '10 Apr 2025,14 Apr 2025,Buy,"ISHARES PHYSICAL METALS PLC, ISHARES PHYSICAL GOLD ETC USD (GBP) ACC (SGLN)",Investment ISA,AS10000001,,-5000.00,100,50,1000000004,Completed,',
+    ]);
+
+    expect(result.postings[0]!.identifierHints.map((h) => h.value)).toEqual(["SGLN"]);
+  });
+
+  it("keeps the trailing dot an LSE ticker can carry", () => {
+    const result = convert([
+      '09 Apr 2025,14 Apr 2025,Sell,"BAE SYSTEMS, ORD GBP0.025 (BA.)",Investment ISA,AS10000001,,-32991.25,2000,16.5,1000000005,Completed,',
+    ]);
+
+    expect(result.postings[0]!.identifierHints.map((h) => h.value)).toEqual(["BA."]);
+  });
+
+  it("offers no ticker for a fund, which ends in none", () => {
+    // An unlisted fund is written bare -- no parentheses anywhere. Offering its
+    // name as a symbol would resolve to nothing and leave the name in the
+    // security master twice, so the row goes on its description alone.
+    const result = convert([
+      "24 Mar 2022,06 Apr 2022,Reinvestment From Income,Baillie Gifford Responsible Global Equity Income B Inc,Investment ISA,AS10000002,,31.65,21.09,1.5,460143202,Completed,",
     ]);
 
     expect(result.postings[0]!.identifierHints).toEqual([]);
     expect(result.postings[0]!.instrumentDescription).toContain("Baillie Gifford");
   });
 
-  it("names the exchange a ticker belongs to, where it knows the MIC", () => {
-    // A ticker identifies an instrument only within an exchange. An exchange with
-    // no MIC here is passed on bare rather than under a guess.
+  // The export states no asset class. A ticker says the security is listed, which
+  // is not the same claim, so nothing is asserted and the plugins decide.
+  it("states no asset class for a security row", () => {
     const result = convert([
-      '2024-06-03,05 Jun 2024,Buy,"RHEINMETALL AG, ORD NPV (RHM)",Investment Account,AG10000001,,5000,10,500,1000000001,Completed,ETR,RHM,STOCK,Buy',
-      '2024-06-03,05 Jun 2024,Buy,"SAFRAN SA, ORD EUR0.20 (SAF)",Investment Account,AG10000001,,5000,25,200,1000000002,Completed,XXX,SAF,STOCK,Buy',
+      '08 Feb 2022,10 Feb 2022,Sell,"WISE PLC, CLS A ORD GBP0.01 (WISE)",SIPP - Pension Savings Account,AP10000001,,-7266.49,1242,5.85,441416452,Completed,',
     ]);
 
-    expect(result.postings[0]!.identifierHints[0]!.domain).toBe("XETR");
-    expect(result.postings[1]!.identifierHints[0]!.value).toBe("SAF");
-    expect(result.postings[1]!.identifierHints[0]!.domain).toBe("");
+    expect(result.postings[0]!.assetClassHint).toBe(AssetClass.ASSET_CLASS_UNSPECIFIED);
   });
 });
 
@@ -496,8 +513,6 @@ describe("what a posting resolves to", () => {
 // that the converter emits the row and leaves the boundary leg to residual.Boundary --
 // and that what it emits is enough for the server to name one.
 describe("one-sided cash rows", () => {
-  const HEAD =
-    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
   const row = (
     type: string,
     investments: string,
@@ -508,13 +523,10 @@ describe("one-sided cash rows", () => {
     ref: string,
     completion = "10 Feb 2022"
   ) =>
-    `8 Feb 2022,${completion},${type},"${investments}",Investment Account,${account},,${amount},${quantity},${price},${ref},Completed`;
-
-  const convert = (rows: string[]) =>
-    convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
+    `08 Feb 2022,${completion},${type},"${investments}",Investment Account,${account},,${amount},${quantity},${price},${ref},Completed,`;
 
   it("emits a charge as one posting, declared so the server can place its expense", () => {
-    const result = convert([row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "441416483")]);
+    const result = convertRows([row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "441416483")]);
 
     expect(result.postings).toHaveLength(1);
     expect(result.postings[0].brokerTxType).toEqual([TxType.TRANSACTION_COST]);
@@ -527,7 +539,7 @@ describe("one-sided cash rows", () => {
   });
 
   it("emits a dividend as one posting, declared so the server can place its income", () => {
-    const result = convert([row("Cash Dividend", "Cash", "AG1", "23.40", "23.40", "1", "441416484")]);
+    const result = convertRows([row("Cash Dividend", "Cash", "AG1", "23.40", "23.40", "1", "441416484")]);
 
     expect(result.postings).toHaveLength(1);
     expect(result.postings[0].quantity).toBe("23.4");
@@ -536,7 +548,7 @@ describe("one-sided cash rows", () => {
   });
 
   it("leaves a trade and its cash leg alone -- the source supplied both", () => {
-    const result = convert([
+    const result = convertRows([
       row("Sell", "WISE PLC (WISE)", "AG1", "-7265.70", "1242", "5.85", "441416452"),
       row("Cash In From Sell", "Cash", "AG1", "7265.70", "7265.70", "1", "441416454"),
     ]);
@@ -546,10 +558,10 @@ describe("one-sided cash rows", () => {
   });
 
   it("balances a trade, its cash leg and the charge reported beside it", () => {
-    const result = convert([
+    const result = convertRows([
       row("Sell", "WISE PLC (WISE)", "AG1", "-7265.70", "1242", "5.85", "441416452"),
       row("Cash In From Sell", "Cash", "AG1", "7265.70", "7265.70", "1", "441416454"),
-      row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "441416483", "8 Feb 2022"),
+      row("Dealing Fee", "Cash", "AG1", "-10", "10", "1", "441416483", "08 Feb 2022"),
     ]);
 
     expect(result.postings).toHaveLength(3);
@@ -557,7 +569,7 @@ describe("one-sided cash rows", () => {
   });
 
   it("does not invent a leg for a transfer, whose other side is another account", () => {
-    const result = convert([row("Cash In", "Cash", "AG1", "5000", "5000", "1", "441416485")]);
+    const result = convertRows([row("Cash In", "Cash", "AG1", "5000", "5000", "1", "441416485")]);
 
     expect(result.postings).toHaveLength(1);
     expect(result.postings[0].brokerTxType).toEqual([TxType.TRADE_CASH, TxType.TRANSFER]);
@@ -565,17 +577,12 @@ describe("one-sided cash rows", () => {
 });
 
 describe("trade cash legs", () => {
-  const HEAD =
-    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
-  const convert = (rows: string[]) =>
-    convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
-
   // Typing these transfers made every trade group read as one, so its residual
   // was routed to TRANSFER_CLEARING instead of IMBALANCE.
   it("are TRADE_CASH, keeping their direction and currency", () => {
-    const result = convert([
-      "8 Feb 2022,10 Feb 2022,Cash Out For Buy,Cash,Investment Account,AG1,,-401,401,1,608443430,Completed",
-      "8 Feb 2022,10 Feb 2022,Cash In From Sell,Cash,Investment Account,AG1,,7265.70,7265.70,1,441416454,Completed",
+    const result = convertRows([
+      "08 Feb 2022,10 Feb 2022,Cash Out For Buy,Cash,Investment Account,AG1,,-401,401,1,608443430,Completed,",
+      "08 Feb 2022,10 Feb 2022,Cash In From Sell,Cash,Investment Account,AG1,,7265.70,7265.70,1,441416454,Completed,",
     ]);
 
     expect(result.postings[0].brokerTxType).toEqual([TxType.TRADE_CASH]);
@@ -591,18 +598,13 @@ describe("trade cash legs", () => {
 // numbered near each other, and one row is named by exactly one reference -- so
 // the correlation declares both and carries the number in a field of its own.
 describe("correlations", () => {
-  const HEAD =
-    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
-  const convert = (rows: string[]) =>
-    convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
-
   // The two sides of one transfer hop, verbatim from the master export. Their
   // references differ by 3, which is what tells this month's fee transfer from
   // last month's when the amounts are identical -- and what the ordinal is for.
   it("states what a reference number is comparable by, on every transcribed row", () => {
-    const result = convert([
-      "2022-05-06,2022-05-06,Transfer To Cash Management Account For Fees,Cash,SIPP,AP1,,-2.19,2.19,1,481052149,Completed",
-      "2022-05-06,2022-05-06,Cash In Ring-fenced For Fees,Cash,Cash Management Account,AW1,,2.19,2.19,1,481052152,Completed",
+    const result = convertRows([
+      "06 May 2022,06 May 2022,Transfer To Cash Management Account For Fees,Cash,SIPP,AP1,,-2.19,2.19,1,481052149,Completed,",
+      "06 May 2022,06 May 2022,Cash In Ring-fenced For Fees,Cash,Cash Management Account,AW1,,2.19,2.19,1,481052152,Completed,",
     ]);
 
     expect(result.postings).toHaveLength(2);
@@ -624,8 +626,8 @@ describe("correlations", () => {
   // reference in some other shape has to keep its equality half rather than
   // become NaN.
   it("keeps equality alone for a reference that carries no number", () => {
-    const result = convert([
-      "8 Feb 2022,10 Feb 2022,Cash Interest,Cash,Investment Account,AG1,,1.18,1.18,1,REF/2022/A,Completed",
+    const result = convertRows([
+      "08 Feb 2022,10 Feb 2022,Cash Interest,Cash,Investment Account,AG1,,1.18,1.18,1,REF/2022/A,Completed,",
     ]);
 
     const c = result.postings[0].correlations[0]!;
@@ -636,8 +638,8 @@ describe("correlations", () => {
   });
 
   it("correlates nothing for a row the source gave no reference for", () => {
-    const result = convert([
-      "8 Feb 2022,10 Feb 2022,Cash Interest,Cash,Investment Account,AG1,,1.18,1.18,1,,Completed",
+    const result = convertRows([
+      "08 Feb 2022,10 Feb 2022,Cash Interest,Cash,Investment Account,AG1,,1.18,1.18,1,,Completed,",
     ]);
 
     expect(result.postings[0].correlations).toEqual([]);
@@ -647,8 +649,8 @@ describe("correlations", () => {
   // the correlation of the posting it mirrors would state that the source
   // correlated a row it never wrote.
   it("correlates the row the source wrote, and emits nothing else to correlate", () => {
-    const result = convert([
-      "8 Feb 2022,10 Feb 2022,Cash Dividend,Cash,Investment Account,AG1,,23.40,23.40,1,441416483,Completed",
+    const result = convertRows([
+      "08 Feb 2022,10 Feb 2022,Cash Dividend,Cash,Investment Account,AG1,,23.40,23.40,1,441416483,Completed,",
     ]);
 
     expect(result.postings).toHaveLength(1);
@@ -656,19 +658,13 @@ describe("correlations", () => {
   });
 });
 
-
 describe("the source's own cash total", () => {
-  const HEAD =
-    "Order date,Completion date,Transaction type,Investments,Product Wrapper,Account Number,Source investment,Amount,Quantity,Price per unit,Reference Number,Status";
-  const convert = (rows: string[]) =>
-    convertFidelityToStandard([HEAD, ...rows].join("\n"), { currency: "GBP" });
-
   // The number the pairing rules actually match on. It is independent of
   // quantity * unit price, which the export rounds, so the two disagreeing is
   // evidence that two legs do not belong together.
   it("transcribes Amount on a security row, unsigned", () => {
-    const result = convert([
-      "8 Feb 2022,10 Feb 2022,Sell,Legal & General Global Health,ISA,AG1,,20514.62,2676,7.67,795832439,Completed",
+    const result = convertRows([
+      "08 Feb 2022,10 Feb 2022,Sell,Legal & General Global Health,ISA,AG1,,20514.62,2676,7.67,795832439,Completed,",
     ]);
 
     expect(result.postings[0].settlementAmount).toBe("20514.62");
@@ -678,8 +674,8 @@ describe("the source's own cash total", () => {
   });
 
   it("keeps the magnitude of a purchase, which the export writes negative", () => {
-    const result = convert([
-      "8 Feb 2022,10 Feb 2022,Buy,Legal & General Global Health,ISA,AG1,,-4487.98,585,7.67,795832440,Completed",
+    const result = convertRows([
+      "08 Feb 2022,10 Feb 2022,Buy,Legal & General Global Health,ISA,AG1,,-4487.98,585,7.67,795832440,Completed,",
     ]);
 
     expect(result.postings[0].settlementAmount).toBe("4487.98");
@@ -688,16 +684,16 @@ describe("the source's own cash total", () => {
   // A cash row's quantity is already the amount, so stating it again would put
   // the same figure on the posting twice and leave two values to disagree.
   it("states nothing on a cash row", () => {
-    const result = convert([
-      "8 Feb 2022,10 Feb 2022,Cash In From Sell,Cash,ISA,AG1,,20514.62,20514.62,1,795832441,Completed",
+    const result = convertRows([
+      "08 Feb 2022,10 Feb 2022,Cash In From Sell,Cash,ISA,AG1,,20514.62,20514.62,1,795832441,Completed,",
     ]);
 
     expect(result.postings[0].settlementAmount).toBeUndefined();
   });
 
   it("states nothing on a money row, whose quantity is already the total", () => {
-    const result = convert([
-      "8 Feb 2022,10 Feb 2022,Cash Dividend,Cash,Investment Account,AG1,,23.40,23.40,1,441416483,Completed",
+    const result = convertRows([
+      "08 Feb 2022,10 Feb 2022,Cash Dividend,Cash,Investment Account,AG1,,23.40,23.40,1,441416483,Completed,",
     ]);
 
     expect(result.postings).toHaveLength(1);

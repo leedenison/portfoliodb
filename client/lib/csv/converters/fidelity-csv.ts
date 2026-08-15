@@ -26,54 +26,66 @@ import { Big, parseDecimal } from "@/lib/decimal";
 const ZERO = new Big(0);
 
 /**
- * Fidelity exchange name to ISO 10383 MIC. These three are what the sample exports
- * use; a symbol whose exchange is not named here is passed on without a domain
- * rather than under a guess.
+ * The columns a Fidelity.co.uk transaction export carries, in the order the
+ * download writes them, all of which this converter requires.
+ *
+ * The download writes a thirteenth, empty cell after Status, which is why the
+ * header line ends in a comma. It names nothing and is not read.
+ *
+ * A pre-processed file may append columns of its own -- an exchange, a ticker, an
+ * asset class -- and this converter deliberately reads none of them. It exists to
+ * read what Fidelity hands a user, and a column the download does not write is a
+ * column no uploader has.
  */
-const MIC_BY_EXCHANGE: Record<string, string> = {
-  LON: "XLON",
-  ETR: "XETR",
-  EPA: "XPAR",
-};
+const COLUMNS = [
+  "Order date",
+  "Completion date",
+  "Transaction type",
+  "Investments",
+  "Product Wrapper",
+  "Account Number",
+  "Source investment",
+  "Amount",
+  "Quantity",
+  "Price per unit",
+  "Reference Number",
+  "Status",
+] as const;
 
 /**
- * The export's own asset column ("Type": CASH, ETF, STOCK, FUND) as a stated
- * asset class hint. FUND is an unlisted mutual fund. The hint routes
- * resolution; the canonical class still comes from the identifier plugins.
+ * The ticker a security's description ends with.
+ *
+ * The export names a security as "ISSUER, SECURITY DESCRIPTION (TICKER)" and
+ * gives no other identifier -- no ISIN, no SEDOL, no exchange. The trailing
+ * parenthetical is the whole of what it says about the listing, so this is the
+ * only identification a CSV upload can offer.
+ *
+ * Anchored to the end because a description carries parentheses of its own
+ * inside it: "ISHARES PHYSICAL GOLD ETC USD (GBP) ACC (SGLN)" names SGLN, not
+ * GBP. Shape-guarded because an unlisted fund has no ticker at all -- Fidelity
+ * writes "M&G European Index Tracker" bare -- and a name is not a symbol.
  */
-const ASSET_CLASS_HINT: Record<string, AssetClass> = {
-  STOCK: AssetClass.STOCK,
-  ETF: AssetClass.ETF,
-  FUND: AssetClass.MUTUAL_FUND,
-};
+const TICKER_SUFFIX = /\(([A-Z0-9]{1,7}\.?)\)$/;
+
+function tickerOf(description: string): string {
+  return description.trim().match(TICKER_SUFFIX)?.[1] ?? "";
+}
 
 const FIDELITY_DATE_FORMAT = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/;
-const ISO_DATE_FORMAT = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MONTHS: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
   Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
 };
 
 /**
- * Both date formats a Fidelity export uses.
+ * The date format a Fidelity export uses, which is "15 Apr 2025" in both date
+ * columns.
  *
- * The download writes "10 Feb 2022" in the completion date and an ISO date in the
- * order date, and some exports are ISO throughout. Reading only the first rejected
- * every row of such a file, which is a whole export lost to a date format the
- * source itself uses in the column beside it.
- *
- * Local midnight either way, matching how a date with no time is read everywhere
- * else here.
+ * Local midnight, matching how a date with no time is read everywhere else here.
  */
 function parseFidelityDate(value: string): Date | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const iso = trimmed.match(ISO_DATE_FORMAT);
-  if (iso) {
-    const [, year, month, day] = iso;
-    const d = new Date(parseInt(year!, 10), parseInt(month!, 10) - 1, parseInt(day!, 10));
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
   const m = trimmed.match(FIDELITY_DATE_FORMAT);
   if (!m) return null;
   const [, day, monthStr, year] = m;
@@ -292,12 +304,13 @@ export function convertFidelityToStandard(
     };
   }
 
+  // The download opens with five lines of metadata and a blank line, so the
+  // header is not the first line and has to be found.
   let headerRowIndex = -1;
   let headerRow: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const row = parseCSVLine(lines[i]);
-    const first = row[0]?.trim() ?? "";
-    if (first === "Order date" || first === "Completion date") {
+    if ((row[0]?.trim() ?? "") === "Order date") {
       headerRowIndex = i;
       headerRow = row;
       break;
@@ -313,36 +326,38 @@ export function convertFidelityToStandard(
   }
 
   const headerLower = headerRow.map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"));
-  const col = (name: string): number => {
-    const n = name.toLowerCase().replace(/\s+/g, "_");
-    return headerLower.indexOf(n);
-  };
-  const orderDateCol = col("order_date");
-  const completionDateCol = col("completion_date");
-  const txTypeCol = col("transaction_type");
-  const investmentsCol = col("investments");
-  const accountCol = col("account_number");
-  const qtyCol = col("quantity");
-  const amountCol = col("amount");
-  const priceCol = col("price_per_unit");
-  const refCol = col("reference_number");
-  const statusCol = col("status");
-  const symbolCol = col("symbol");
-  const exchangeCol = col("exchange");
-  // The asset class of the row's instrument (CASH, ETF, STOCK, FUND), which is
-  // what says whether a Buy or Sell transacted a security or the account's cash.
-  // Distinct from "Transaction type"; an export without it falls back to the
-  // instrument description, which is a required column.
-  const assetClassCol = col("type");
+  const col = (name: string): number =>
+    headerLower.indexOf(name.toLowerCase().replace(/\s+/g, "_"));
 
-  if (orderDateCol < 0 || txTypeCol < 0 || investmentsCol < 0) {
+  // Every column is required. A file missing one is not the export this reads,
+  // and converting it on whatever columns did turn up is how a whole upload comes
+  // out silently thinner than the file it came from.
+  const missing = COLUMNS.filter((name) => col(name) < 0);
+  if (missing.length > 0) {
     return {
       postings: [],
       periodFrom: new Date(0),
       periodBefore: new Date(0),
-      errors: [{ rowIndex: headerRowIndex + 1, field: "header", message: "Missing required Fidelity columns" }],
+      errors: [
+        {
+          rowIndex: headerRowIndex + 1,
+          field: "header",
+          message: `Missing Fidelity columns: ${missing.join(", ")}`,
+        },
+      ],
     };
   }
+
+  const orderDateCol = col("Order date");
+  const completionDateCol = col("Completion date");
+  const txTypeCol = col("Transaction type");
+  const investmentsCol = col("Investments");
+  const accountCol = col("Account Number");
+  const qtyCol = col("Quantity");
+  const amountCol = col("Amount");
+  const priceCol = col("Price per unit");
+  const refCol = col("Reference Number");
+  const statusCol = col("Status");
 
   const postings: Posting[] = [];
   // The rows whose units were bought with income, by posting index. A
@@ -354,14 +369,16 @@ export function convertFidelityToStandard(
   for (let i = headerRowIndex + 1; i < lines.length; i++) {
     const rowIndex = i + 1;
     const values = parseCSVLine(lines[i]);
-    const get = (idx: number) => (idx >= 0 && idx < values.length ? values[idx].trim() : "");
+    // Bounds-guarded because a row can be written short of its trailing empty
+    // cells, not because a column might be absent: every column is present.
+    const get = (idx: number) => (idx < values.length ? values[idx].trim() : "");
 
     // A cancelled transaction reports zero units against zero value, so it adds
     // nothing, and its cash row is cancelled beside it. Skipping it also keeps a
     // trade that never happened from claiming a live trade's cash row.
-    if (statusCol >= 0 && get(statusCol) === "Cancelled") continue;
+    if (get(statusCol) === "Cancelled") continue;
 
-    const completionDateStr = completionDateCol >= 0 ? get(completionDateCol) : "";
+    const completionDateStr = get(completionDateCol);
     const orderDateStr = get(orderDateCol);
     const dateStr = completionDateStr && completionDateStr !== "Pending" ? completionDateStr : orderDateStr;
     const date = parseFidelityDate(dateStr);
@@ -378,8 +395,9 @@ export function convertFidelityToStandard(
     }
 
     const investments = get(investmentsCol);
-    const assetClass = assetClassCol >= 0 ? get(assetClassCol) : "";
-    const cashAsset = assetClass ? assetClass === "CASH" : investments === "Cash";
+    // The export names an account's own cash "Cash" in the column it names a
+    // security in, and says nothing else anywhere about what a row transacted.
+    const cashAsset = investments === "Cash";
     const rowTypes = typeForAsset(mappedTypes, cashAsset);
     const cashRow = isCashRow(rowTypes);
 
@@ -389,10 +407,9 @@ export function convertFidelityToStandard(
     // so reading it through produced a security called Cash. See
     // docs/spec/archive-format.md.
     const instrumentDescription = cashRow ? currency : investments || txTypeStr;
-    const account = accountCol >= 0 ? get(accountCol) : "";
+    const account = get(accountCol);
     const qtyStr = get(qtyCol);
-    const amountStr = amountCol >= 0 ? get(amountCol) : "";
-    const amountDec = parseDecimal(amountStr);
+    const amountDec = parseDecimal(get(amountCol));
 
     const rawQtyDec = parseDecimal(qtyStr);
     let quantity = rawQtyDec ?? ZERO;
@@ -408,28 +425,18 @@ export function convertFidelityToStandard(
       // unsigned share count, so a sale is negated by the broker's own wording.
       quantity = quantity.abs().times(-1);
     }
-    const priceStr = priceCol >= 0 ? get(priceCol) : "";
-    const unitPriceDec = parseDecimal(priceStr);
+    const unitPriceDec = parseDecimal(get(priceCol));
 
-    // A cash posting resolves to its currency; a security one to its ticker, which
-    // the export gives against an exchange name. A fund has no ticker and the export
-    // repeats its name in the symbol column instead, which would resolve to nothing
-    // and pollute the security master, so only a listed asset class offers one.
-    const symbol = symbolCol >= 0 ? get(symbolCol) : "";
-    const exchange = exchangeCol >= 0 ? get(exchangeCol) : "";
-    const listed = assetClass !== "FUND";
+    // A cash posting resolves to its currency; a security one to the ticker its
+    // description ends with, and to nothing else. The export names no exchange, so
+    // the hint carries no domain -- a ticker under a guessed venue is a claim the
+    // source never made. An unlisted fund ends in no ticker and offers no hint at
+    // all, leaving it to resolve by description.
+    const ticker = cashRow ? "" : tickerOf(investments);
     const identifierHints = cashRow
-      ? currency
-        ? [currencyHint(currency)]
-        : []
-      : symbol && exchange && listed
-        ? [
-            create(InstrumentRefSchema, {
-              type: IdentifierType.MIC_TICKER,
-              value: symbol,
-              ...(MIC_BY_EXCHANGE[exchange] ? { domain: MIC_BY_EXCHANGE[exchange] } : {}),
-            }),
-          ]
+      ? [currencyHint(currency)]
+      : ticker
+        ? [create(InstrumentRefSchema, { type: IdentifierType.MIC_TICKER, value: ticker })]
         : [];
 
     const ts = date.getTime();
@@ -445,19 +452,16 @@ export function convertFidelityToStandard(
     // No counterparty correlation. The export's "Source investment" column holds
     // an asset name, not an account, so this file names no counterparty anywhere.
     // Only the JSON the extension reads does.
-    const correlation = fidelityRefCorrelation(refCol >= 0 ? get(refCol) : "");
+    const correlation = fidelityRefCorrelation(get(refCol));
     postings.push(
       create(PostingSchema, {
         timestamp: timestampFromDate(date),
         instrumentDescription,
         brokerTxType: rowTypes,
-        // A money row states CASH; a security row states what the export's own
-        // asset column says, and nothing when the column is absent.
-        ...(cashRow
-          ? { assetClassHint: AssetClass.CASH }
-          : ASSET_CLASS_HINT[assetClass]
-            ? { assetClassHint: ASSET_CLASS_HINT[assetClass] }
-            : {}),
+        // A money row states CASH. A security row states nothing: the export
+        // gives no asset class, and neither the description nor the presence of a
+        // ticker is one -- a ticker says listed, which is not the same claim.
+        ...(cashRow ? { assetClassHint: AssetClass.CASH } : {}),
         quantity: quantity.toString(),
         account,
         settlementCurrency: currency,

@@ -190,11 +190,12 @@ function TxList({ portfolioId }: { portfolioId: string | undefined }) {
 /**
  * One event: the leg it is shown as, and the rest of its legs when the row is
  * expanded. The principal's details are the group's, so it is not repeated among
- * the legs below it.
+ * the legs below it, and an event with nothing left to show does not expand --
+ * groupTxs has already dropped the legs that only restate the principal.
  */
 function TxGroupRows({ group }: { group: TxGroup }) {
   const [open, setOpen] = useState(false);
-  const legs = group.rest.filter((p) => p.tx);
+  const legs = group.rest;
   const toggle = legs.length > 0 ? () => setOpen((o) => !o) : undefined;
 
   if (!group.principal.tx) return null;

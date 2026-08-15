@@ -15,8 +15,33 @@ export interface TxGroup {
   id: string;
   /** The leg the event is shown as. */
   principal: PortfolioTx;
-  /** The remaining legs, in the order the server returned them. */
+  /**
+   * The remaining legs worth showing, in the order the server returned them.
+   * Empty when the event has nothing to add, in which case it does not expand.
+   */
   rest: PortfolioTx[];
+}
+
+/**
+ * A leg the server derived from the principal alone, which restates it rather
+ * than adding to it: the income leg of a dividend, the expense leg of a charge,
+ * the equity half of an opening balance. Each is equal and opposite to the leg
+ * the row already shows, so at group level it says nothing.
+ *
+ * The synthetic purpose is what separates these from the legs worth showing, and
+ * account type cannot: a routed residual lands in a non-USER account type too.
+ * A leg with the RESIDUAL purpose is what the group failed to balance to, which
+ * the source did not supply and the row cannot imply -- an imbalance is missing
+ * data, a clearing leg is value in flight awaiting its other side, and a rounding
+ * residual is the source's own figures disagreeing. Those stay.
+ *
+ * The expansion therefore does not visibly sum to zero. Verifying that is a
+ * question about the ledger rather than about one row, and nothing is dropped
+ * from anywhere but this view.
+ */
+function derivedFromPrincipal(p: PortfolioTx): boolean {
+  const purpose = p.tx?.syntheticPurpose;
+  return !!purpose && purpose !== "RESIDUAL";
 }
 
 /**
@@ -96,6 +121,9 @@ function principalOf(postings: PortfolioTx[]): PortfolioTx {
  * them. Postings of one group arrive contiguously, but they are keyed rather
  * than run-length grouped so that the order the rows are shown in and the order
  * they are grouped by stay independent.
+ *
+ * A group's principal is chosen from all of its legs and its rest is filtered
+ * afterwards, so what is hidden cannot change which leg speaks for the event.
  */
 export function groupTxs(txs: readonly PortfolioTx[]): TxGroup[] {
   const byGroup = new Map<string, PortfolioTx[]>();
@@ -110,6 +138,9 @@ export function groupTxs(txs: readonly PortfolioTx[]): TxGroup[] {
   }
   return Array.from(byGroup, ([id, postings]) => {
     const principal = principalOf(postings);
-    return { id, principal, rest: postings.filter((p) => p !== principal) };
+    const rest = postings.filter(
+      (p) => p !== principal && p.tx && !derivedFromPrincipal(p)
+    );
+    return { id, principal, rest };
   });
 }

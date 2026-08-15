@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/app/components/app-shell";
 import { ErrorAlert } from "@/app/components/error-alert";
@@ -13,6 +14,7 @@ import { qk } from "@/lib/query-keys";
 import { listTxs } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
 import { ACCOUNT_TYPE_LABEL, TX_TYPE_LABEL } from "@/lib/tx-type";
+import { groupTxs, type TxGroup } from "@/lib/tx-groups";
 import { IdentifierType } from "@/gen/type/v1/type_pb";
 import type { PortfolioTx } from "@/gen/api/v1/api_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
@@ -115,6 +117,10 @@ function TxList({ portfolioId }: { portfolioId: string | undefined }) {
                 <table data-testid="transactions-table" className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/3">
+                      {/* The disclosure control's column. Its header is empty
+                          rather than absent so the legs line up under the
+                          columns their group row uses. */}
+                      <th className="w-10 px-2 py-3" />
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                         Date
                       </th>
@@ -147,22 +153,24 @@ function TxList({ portfolioId }: { portfolioId: string | undefined }) {
                       </th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {txs.length === 0 ? (
+                  {txs.length === 0 ? (
+                    <tbody>
                       <tr>
                         <td
-                          colSpan={10}
+                          colSpan={11}
                           className="px-4 py-8 text-center text-text-muted"
                         >
                           No transactions found.
                         </td>
                       </tr>
-                    ) : (
-                      txs.map((ptx, i) => (
-                        <TxRow key={i} ptx={ptx} />
-                      ))
-                    )}
-                  </tbody>
+                    </tbody>
+                  ) : (
+                    /* One tbody per event, so a group and the legs it expands
+                       to stay one block. */
+                    groupTxs(txs).map((group, i) => (
+                      <TxGroupRows key={group.id || i} group={group} />
+                    ))
+                  )}
                 </table>
               </div>
 
@@ -179,7 +187,79 @@ function TxList({ portfolioId }: { portfolioId: string | undefined }) {
   );
 }
 
-function TxRow({ ptx }: { ptx: PortfolioTx }) {
+/**
+ * One event: the leg it is shown as, and the rest of its legs when the row is
+ * expanded. The principal's details are the group's, so it is not repeated among
+ * the legs below it.
+ */
+function TxGroupRows({ group }: { group: TxGroup }) {
+  const [open, setOpen] = useState(false);
+  const legs = group.rest.filter((p) => p.tx);
+  const toggle = legs.length > 0 ? () => setOpen((o) => !o) : undefined;
+
+  if (!group.principal.tx) return null;
+
+  return (
+    <tbody data-testid="tx-group">
+      <TxRow
+        ptx={group.principal}
+        testId="tx-row"
+        onToggle={toggle}
+        lead={
+          toggle && (
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-label={open ? "Hide the other postings" : "Show the other postings"}
+              data-testid="tx-group-toggle"
+              // The row itself toggles too, so this stops the click being
+              // counted twice. It exists for the keyboard, and to say how many
+              // legs are hidden.
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen((o) => !o);
+              }}
+              className="flex items-center gap-1 rounded-sm px-1 py-0.5 text-xs font-medium text-text-muted transition-colors hover:bg-primary-dark/10 hover:text-text-primary"
+            >
+              <svg
+                className={
+                  "h-3 w-3 transition-transform" + (open ? " rotate-90" : "")
+                }
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+              {legs.length}
+            </button>
+          )
+        }
+      />
+      {open &&
+        legs.map((ptx, i) => <TxRow key={i} ptx={ptx} testId="tx-leg-row" leg />)}
+    </tbody>
+  );
+}
+
+/**
+ * A posting as a table row: the group row when it carries the disclosure
+ * control, one of that group's other legs when `leg` is set.
+ */
+function TxRow({
+  ptx,
+  testId,
+  lead,
+  leg,
+  onToggle,
+}: {
+  ptx: PortfolioTx;
+  testId: string;
+  lead?: React.ReactNode;
+  leg?: boolean;
+  onToggle?: () => void;
+}) {
   const tx = ptx.tx;
   if (!tx) return null;
 
@@ -192,10 +272,18 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
   const currency = tx.tradingCurrency || tx.settlementCurrency || "";
 
   return (
-    <tr data-testid="tx-row" data-tx-instrument={label} className={
-      "border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10" +
-      (isSynthetic ? " opacity-60" : "")
-    }>
+    <tr
+      data-testid={testId}
+      data-tx-instrument={label}
+      onClick={onToggle}
+      className={
+        "border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10" +
+        (isSynthetic ? " opacity-60" : "") +
+        (leg ? " bg-primary-dark/3 text-xs" : "") +
+        (onToggle ? " cursor-pointer" : "")
+      }
+    >
+      <td className="w-10 px-2 py-3 align-top">{lead}</td>
       <td className="px-4 py-3 text-text-muted">
         {tx.timestamp ? timestampDate(tx.timestamp).toLocaleDateString() : "\u2014"}
       </td>

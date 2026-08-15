@@ -65,6 +65,13 @@ test.describe("stock split: tx uploaded before split", () => {
       preSplitRows.nth(1).locator("[data-testid='tx-adj-qty']"),
     ).toHaveText("\u2014");
 
+    // A row is one event rather than one posting: the trade's own leg is what it
+    // shows, and the leg the server routed to balance it is behind the disclosure.
+    const legs = page.locator("[data-testid='tx-leg-row']");
+    await expect(legs).toHaveCount(0);
+    await preSplitRows.nth(0).locator("[data-testid='tx-group-toggle']").click();
+    await expect(legs.first()).toBeVisible();
+
     // Trigger the corporate event fetcher — EODHD returns a 4:1 split.
     const cyclesBefore = await getCounter("corporate_event_fetcher.cycles");
     await triggerCorporateEventFetch(adminSession);

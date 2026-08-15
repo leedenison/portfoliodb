@@ -88,6 +88,8 @@ The left sidebar contains the primary working views.  All views are scoped to th
 
  * **Holdings** is the default destination after sign-in.  It shows the holdings for the selected portfolio.
  * **Transactions** shows the transaction history filtered to the selected portfolio -- only transactions for instruments, accounts and brokers that match the portfolio's criteria are displayed.  When the selected portfolio is "All Holdings", all transactions are shown.  Disabled until implemented.
+     - A row is one economic event rather than one posting.  The row carries the details of the leg the event is best described by -- the asset a trade moved, the income a dividend paid, the charge a fee made -- and expands to the event's other legs, which is where the cash, the commission and the counterparties the server routed are shown.  The leg shown on the row is not repeated in the expansion, and an event with a single leg does not expand.
+     - A portfolio's filters select postings rather than whole events, so a filtered view shows the legs that matched and expands to no others.  See [0108](../issues/0108-portfolio-selects-postings-not-events.md).
  * **Performance** shows TWR, MWR and other performance metrics for the selected portfolio.  Disabled until implemented.
  * **Analysis** shows breakdowns (by sector, asset class, geography, etc) for the selected portfolio.  Disabled until implemented.
 

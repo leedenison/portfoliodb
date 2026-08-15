@@ -345,6 +345,7 @@ type txRow struct {
 	InstID            *string          `db:"instrument_id"`
 	SyntheticPurpose  *string          `db:"synthetic_purpose"`
 	AccountType       string           `db:"account_type"`
+	GroupID           string           `db:"group_id"`
 }
 
 func (r *txRow) toProto() *apiv1.PortfolioTx {
@@ -361,6 +362,7 @@ func (r *txRow) toProto() *apiv1.PortfolioTx {
 		SplitAdjustedQuantity: decStrPtr(&r.SplitAdjQty),
 		Account:               r.Account,
 		AccountType:           strToAccountType(r.AccountType),
+		GroupId:               r.GroupID,
 	}
 	if r.TradingCcy != nil {
 		tx.TradingCurrency = *r.TradingCcy

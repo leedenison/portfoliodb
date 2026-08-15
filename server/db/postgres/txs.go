@@ -306,58 +306,103 @@ func txOrderBy(prefix string, descending bool) []string {
 	return []string{prefix + "timestamp" + dir, prefix + "id" + dir}
 }
 
-// ListTxs implements db.TxDB.
-func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *typev1.Broker, account string, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
-	userUUID, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, "", fmt.Errorf("invalid user id: %w", err)
-	}
-	limit := pageSize
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
-	qb := psql.Select("broker", "account", "timestamp", "instrument_description", "broker_tx_type", "resolved_tx_type", "asset_class_hint", "quantity", "split_adjusted_quantity", "trading_currency", "settlement_currency", "unit_price", "split_adjusted_unit_price", "instrument_id", "synthetic_purpose", "account_type").
-		From("txs").
-		Where(sq.Eq{"user_id": userUUID}).
-		OrderBy(txOrderBy("", descending)...)
+// txListCols are the posting columns a listing returns, which is what txRow scans.
+var txListCols = []string{
+	"t.broker", "t.account", "t.timestamp", "t.instrument_description",
+	"t.broker_tx_type", "t.resolved_tx_type", "t.asset_class_hint", "t.quantity",
+	"t.split_adjusted_quantity", "t.trading_currency", "t.settlement_currency",
+	"t.unit_price", "t.split_adjusted_unit_price", "t.instrument_id",
+	"t.synthetic_purpose", "t.account_type", "t.group_id::text AS group_id",
+}
+
+// txListBase is the shape both listings share: postings, aliased t, joined to the
+// group each is a leg of and filtered by broker and period. The columns are left to
+// the caller, because a page is read in two passes -- which groups it covers, then
+// their postings -- and the two ask different columns of the same filtered set.
+func txListBase(broker *typev1.Broker, periodFrom, periodBefore *timestamppb.Timestamp) (sq.SelectBuilder, error) {
+	qb := psql.Select().From("txs t").Join("tx_groups g ON g.id = t.group_id")
 	if broker != nil {
 		brokerStr, err := brokerToStr(*broker)
 		if err != nil {
-			return nil, "", err
+			return qb, err
 		}
-		qb = qb.Where(sq.Eq{"broker": brokerStr})
-	}
-	if account != "" {
-		qb = qb.Where(sq.Eq{"account": account})
+		qb = qb.Where(sq.Eq{"t.broker": brokerStr})
 	}
 	if periodFrom != nil {
 		fromT, err := tsToTime(periodFrom)
 		if err != nil {
-			return nil, "", fmt.Errorf("period_from: %w", err)
+			return qb, fmt.Errorf("period_from: %w", err)
 		}
-		qb = qb.Where(sq.GtOrEq{"timestamp": fromT})
+		qb = qb.Where(sq.GtOrEq{"t.timestamp": fromT})
 	}
 	if periodBefore != nil {
 		beforeT, err := tsToTime(periodBefore)
 		if err != nil {
-			return nil, "", fmt.Errorf("period_before: %w", err)
+			return qb, fmt.Errorf("period_before: %w", err)
 		}
-		qb = qb.Where(sq.Lt{"timestamp": beforeT})
+		qb = qb.Where(sq.Lt{"t.timestamp": beforeT})
 	}
+	return qb, nil
+}
+
+// groupPageRow is the sqlx-scannable shape of the group-page query. The timestamp
+// is selected only so that DISTINCT and ORDER BY agree about it.
+type groupPageRow struct {
+	ID        uuid.UUID `db:"id"`
+	Timestamp time.Time `db:"timestamp"`
+}
+
+// listTxPage reads one page of a tx listing: every posting of the groups the page
+// covers, ordered by event and then within the event.
+//
+// A page is a whole number of groups rather than of postings, because a group that
+// straddled a page boundary would reach the client as two partial events, neither
+// carrying the legs it takes to tell which one is the principal. pageSize therefore
+// counts groups, and how many rows a page holds is however many legs those groups
+// have.
+//
+// The filters still select postings, not groups: a group is on the page when at
+// least one of its postings passes them, and only the postings that passed are
+// returned. So a group straddling a period bound contributes its in-period legs,
+// which is what ListTxsForExport does with the same bounds, and a portfolio view
+// shows the legs its filters matched rather than the whole event.
+func listTxPage(ctx context.Context, q queryable, base sq.SelectBuilder, descending bool, limit int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
 	offset := decodePageToken(pageToken)
-	qb = qb.Limit(uint64(limit + 1)).Offset(uint64(offset))
-	q, args, err := qb.ToSql()
+	groupOrder := txOrderBy("g.", descending)
+	gsql, gargs, err := base.Columns("g.id", "g.timestamp").Distinct().
+		OrderBy(groupOrder...).
+		Limit(uint64(limit + 1)).Offset(uint64(offset)).ToSql()
 	if err != nil {
-		return nil, "", fmt.Errorf("build list txs query: %w", err)
+		return nil, "", fmt.Errorf("build group page query: %w", err)
 	}
-	var trows []txRow
-	if err := p.q.SelectContext(ctx, &trows, q, args...); err != nil {
-		return nil, "", fmt.Errorf("list txs: %w", err)
+	var grows []groupPageRow
+	if err := q.SelectContext(ctx, &grows, gsql, gargs...); err != nil {
+		return nil, "", fmt.Errorf("list tx groups: %w", err)
 	}
 	nextToken := ""
-	if int32(len(trows)) > limit {
-		trows = trows[:limit]
+	if int32(len(grows)) > limit {
+		grows = grows[:limit]
 		nextToken = encodePageToken(offset + int64(limit))
+	}
+	if len(grows) == 0 {
+		return nil, "", nil
+	}
+	ids := make([]uuid.UUID, len(grows))
+	for i := range grows {
+		ids[i] = grows[i].ID
+	}
+	// Within a group the postings follow the same direction as the groups, so the
+	// first row of a descending listing is still the most recent posting -- which is
+	// what asking for one page of one group descending means (adr/0015).
+	tsql, pargs, err := base.Columns(txListCols...).
+		Where(sq.Eq{"t.group_id": ids}).
+		OrderBy(append(groupOrder, txOrderBy("t.", descending)...)...).ToSql()
+	if err != nil {
+		return nil, "", fmt.Errorf("build tx page query: %w", err)
+	}
+	var trows []txRow
+	if err := q.SelectContext(ctx, &trows, tsql, pargs...); err != nil {
+		return nil, "", fmt.Errorf("list txs: %w", err)
 	}
 	out := make([]*apiv1.PortfolioTx, len(trows))
 	for i := range trows {
@@ -366,61 +411,44 @@ func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *typev1.Br
 	return out, nextToken, nil
 }
 
+// ListTxs implements db.TxDB.
+func (p *Postgres) ListTxs(ctx context.Context, userID string, broker *typev1.Broker, account string, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid user id: %w", err)
+	}
+	qb, err := txListBase(broker, periodFrom, periodBefore)
+	if err != nil {
+		return nil, "", err
+	}
+	qb = qb.Where(sq.Eq{"t.user_id": userUUID})
+	if account != "" {
+		qb = qb.Where(sq.Eq{"t.account": account})
+	}
+	return listTxPage(ctx, p.q, qb, descending, txPageLimit(pageSize), pageToken)
+}
+
 // ListTxsByPortfolio implements db.TxDB. Returns txs that match any of the portfolio's filters (OR), deduped.
 func (p *Postgres) ListTxsByPortfolio(ctx context.Context, portfolioID string, broker *typev1.Broker, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
 	portUUID, err := uuid.Parse(portfolioID)
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid portfolio id: %w", err)
 	}
-	limit := pageSize
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
-	qb := psql.Select("t.broker", "t.account", "t.timestamp", "t.instrument_description", "t.broker_tx_type", "t.resolved_tx_type", "t.asset_class_hint", "t.quantity", "t.split_adjusted_quantity", "t.trading_currency", "t.settlement_currency", "t.unit_price", "t.split_adjusted_unit_price", "t.instrument_id", "t.synthetic_purpose", "t.account_type").
-		From("txs t").
-		Join("portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = ?", portUUID).
-		OrderBy(txOrderBy("t.", descending)...)
-	if broker != nil {
-		brokerStr, err := brokerToStr(*broker)
-		if err != nil {
-			return nil, "", err
-		}
-		qb = qb.Where(sq.Eq{"t.broker": brokerStr})
-	}
-	if periodFrom != nil {
-		fromT, err := tsToTime(periodFrom)
-		if err != nil {
-			return nil, "", fmt.Errorf("period_from: %w", err)
-		}
-		qb = qb.Where(sq.GtOrEq{"t.timestamp": fromT})
-	}
-	if periodBefore != nil {
-		beforeT, err := tsToTime(periodBefore)
-		if err != nil {
-			return nil, "", fmt.Errorf("period_before: %w", err)
-		}
-		qb = qb.Where(sq.Lt{"t.timestamp": beforeT})
-	}
-	offset := decodePageToken(pageToken)
-	qb = qb.Limit(uint64(limit + 1)).Offset(uint64(offset))
-	q, args, err := qb.ToSql()
+	qb, err := txListBase(broker, periodFrom, periodBefore)
 	if err != nil {
-		return nil, "", fmt.Errorf("build list txs by portfolio query: %w", err)
+		return nil, "", err
 	}
-	var trows []txRow
-	if err := p.q.SelectContext(ctx, &trows, q, args...); err != nil {
-		return nil, "", fmt.Errorf("list txs by portfolio: %w", err)
+	qb = qb.Join("portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = ?", portUUID)
+	return listTxPage(ctx, p.q, qb, descending, txPageLimit(pageSize), pageToken)
+}
+
+// txPageLimit clamps a requested page size to the range a listing serves. It counts
+// groups; see listTxPage.
+func txPageLimit(pageSize int32) int32 {
+	if pageSize <= 0 || pageSize > 100 {
+		return 50
 	}
-	nextToken := ""
-	if int32(len(trows)) > limit {
-		trows = trows[:limit]
-		nextToken = encodePageToken(offset + int64(limit))
-	}
-	out := make([]*apiv1.PortfolioTx, len(trows))
-	for i := range trows {
-		out[i] = trows[i].toProto()
-	}
-	return out, nextToken, nil
+	return pageSize
 }
 
 // exportPosting is a sqlx-scannable version of db.ExportPosting, less the

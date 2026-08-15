@@ -40,6 +40,16 @@ func ValidateTx(tx *apiv1.Tx, rowIndex int32) []*apiv1.ValidationError {
 			Message:  "server-derived; not accepted on a posting a source supplied",
 		})
 	}
+	// group_id says which event the posting is a leg of, which is the answer grouping
+	// exists to derive. A source that stated one would have it thrown away by the next
+	// regroup, so it is refused rather than silently dropped.
+	if tx.GetGroupId() != "" {
+		errs = append(errs, &apiv1.ValidationError{
+			RowIndex: rowIndex,
+			Field:    "group_id",
+			Message:  "server-derived; not accepted on a posting a source supplied",
+		})
+	}
 	return errs
 }
 

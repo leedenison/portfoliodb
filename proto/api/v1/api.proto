@@ -139,12 +139,25 @@ message Tx {
   // Split-adjusted unit price (unit_price / cumulative split factor). Optional
   // for the same reason as unit_price, and absent exactly when it is.
   optional string split_adjusted_unit_price = 13 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  // 14 was group_ref, an opaque key a converter stamped on the postings it had
-  // decided were legs of one economic event. The server derives that now, from the
-  // evidence a posting carries, so an upload that stated it was stating an answer
-  // rather than supplying data. See
-  // docs/adr/0041-server-owns-transaction-grouping.md.
-  reserved 14;
+  // The economic event this posting is a leg of. Every posting belongs to exactly
+  // one group -- a lone posting is a group of one -- so this is always set on the
+  // way out, and it is what a client assembles a listed page back into events by.
+  //
+  // Server-derived, and rejected on upload for the reason synthetic_purpose is:
+  // grouping owns the partition and rederives it whenever a group changes, so a
+  // source stating one would be stating an answer rather than supplying data. The
+  // field held group_ref before, an opaque key a converter stamped on the postings
+  // it had decided belonged together, which said the same thing from the side that
+  // cannot know it. See docs/adr/0041-server-owns-transaction-grouping.md.
+  string group_id = 14;
+  // The date of the event, which is the earliest of its legs. Server-derived and
+  // output-only like group_id, and the same for every posting of a group.
+  //
+  // It is what a listing orders its groups by, and so what a client shows on the row
+  // standing for the event: a group's legs can be dated apart -- a deposit run
+  // settles over several days -- and showing the leg's own date there would order
+  // the list by one date and display another.
+  google.protobuf.Timestamp group_timestamp = 22;
   // What kind of leg this posting is. Set by the broker converter, which is the only
   // thing that knows whether a row is the user's cash or the income it came from.
   // Unset means USER, so an upload that says nothing about kind reads as an ordinary
@@ -178,15 +191,6 @@ message Tx {
   // quantity is not money. Grouping evidence; it has no part in weight or
   // balance.
   optional string settlement_amount = 21 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
-  // The economic event this posting is a leg of. Every posting belongs to exactly
-  // one group -- a lone posting is a group of one -- so this is always set on the
-  // way out, and it is what a client assembles a listed page back into events by.
-  //
-  // Server-derived, and rejected on upload for the reason synthetic_purpose is:
-  // grouping owns the partition and rederives it whenever a group changes, so a
-  // source stating one would be stating an answer rather than supplying data. See
-  // docs/adr/0041-server-owns-transaction-grouping.md.
-  string group_id = 22;
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,

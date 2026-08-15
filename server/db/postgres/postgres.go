@@ -346,6 +346,7 @@ type txRow struct {
 	SyntheticPurpose  *string          `db:"synthetic_purpose"`
 	AccountType       string           `db:"account_type"`
 	GroupID           string           `db:"group_id"`
+	GroupTimestamp    time.Time        `db:"group_timestamp"`
 }
 
 func (r *txRow) toProto() *apiv1.PortfolioTx {
@@ -363,6 +364,7 @@ func (r *txRow) toProto() *apiv1.PortfolioTx {
 		Account:               r.Account,
 		AccountType:           strToAccountType(r.AccountType),
 		GroupId:               r.GroupID,
+		GroupTimestamp:        timeToTs(r.GroupTimestamp),
 	}
 	if r.TradingCcy != nil {
 		tx.TradingCurrency = *r.TradingCcy

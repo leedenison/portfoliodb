@@ -772,6 +772,7 @@ func TestListTxs_PagesWholeGroups(t *testing.T) {
 
 	seen := map[string]bool{}
 	token := ""
+	var last time.Time
 	for pages := 0; ; pages++ {
 		if pages >= events {
 			t.Fatal("paging did not terminate")
@@ -792,6 +793,20 @@ func TestListTxs_PagesWholeGroups(t *testing.T) {
 		if got := rows[1].GetTx().GetGroupId(); got != id {
 			t.Errorf("page %d: postings from %s and %s, want one group", pages, id, got)
 		}
+		// Every leg carries its group's date, and the pages advance by it: that is
+		// what the row standing for the event shows, so the list is ordered by the
+		// date it displays.
+		at := rows[0].GetTx().GetGroupTimestamp()
+		if at == nil {
+			t.Fatal("listed posting carries no group timestamp")
+		}
+		if got := rows[1].GetTx().GetGroupTimestamp(); got.AsTime() != at.AsTime() {
+			t.Errorf("page %d: legs dated %s and %s, want one event date", pages, at.AsTime(), got.AsTime())
+		}
+		if at.AsTime().Before(last) {
+			t.Errorf("page %d: dated %s, before the page above it at %s", pages, at.AsTime(), last)
+		}
+		last = at.AsTime()
 		if seen[id] {
 			t.Errorf("group %s returned on more than one page", id)
 		}

@@ -263,6 +263,7 @@ function TxRow({
   const tx = ptx.tx;
   if (!tx) return null;
 
+  const date = leg ? tx.timestamp : (tx.groupTimestamp ?? tx.timestamp);
   const isSynthetic = !!tx.syntheticPurpose;
   const accountTypeLabel = ACCOUNT_TYPE_LABEL[tx.accountType];
   const ticker = ptx.instrument?.identifiers?.find(
@@ -284,8 +285,12 @@ function TxRow({
       }
     >
       <td className="w-10 px-2 py-3 align-top">{lead}</td>
+      {/* The event's date on the row standing for it, and each leg's own date
+          below: a group's legs can be dated apart, and the list is ordered by the
+          event's date, so showing the principal's there would order the list by
+          one date and display another. */}
       <td className="px-4 py-3 text-text-muted">
-        {tx.timestamp ? timestampDate(tx.timestamp).toLocaleDateString() : "\u2014"}
+        {date ? timestampDate(date).toLocaleDateString() : "\u2014"}
       </td>
       <td className="px-4 py-3 text-text-muted">
         {getBrokerLabel(ptx.broker)}

@@ -313,6 +313,7 @@ var txListCols = []string{
 	"t.split_adjusted_quantity", "t.trading_currency", "t.settlement_currency",
 	"t.unit_price", "t.split_adjusted_unit_price", "t.instrument_id",
 	"t.synthetic_purpose", "t.account_type", "t.group_id::text AS group_id",
+	"g.timestamp AS group_timestamp",
 }
 
 // txListBase is the shape both listings share: postings, aliased t, joined to the

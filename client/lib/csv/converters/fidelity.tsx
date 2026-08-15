@@ -43,6 +43,7 @@ register({
     {
       id: "fidelity-csv",
       label: "Fidelity CSV",
+      accept: ".csv,text/csv",
       convert: convertFidelityToStandard,
       OptionsComponent: FidelityOptions,
     },

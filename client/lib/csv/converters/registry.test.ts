@@ -34,7 +34,7 @@ beforeAll(() => {
     label: "Convertible",
     sourcePrefix: "Conv",
     formats: [
-      { id: "csv", label: "CSV", convert },
+      { id: "csv", label: "CSV", accept: ".csv", convert },
       { id: "ofx", label: "OFX", accept: ".ofx,.qfx", convert },
     ],
   });
@@ -45,7 +45,7 @@ beforeAll(() => {
     broker: Broker.SCHB,
     label: "Unconvertible",
     sourcePrefix: "Unconv",
-    formats: [{ id: "someday", label: "Someday" }],
+    formats: [{ id: "someday", label: "Someday", accept: ".csv" }],
   });
 });
 

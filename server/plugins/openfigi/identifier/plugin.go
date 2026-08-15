@@ -95,7 +95,7 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	if err != nil {
 		return nil, nil, err
 	}
-	if inst, ids, ok := p.resolveResults(results, hints, true); ok {
+	if inst, ids, ok := p.resolveResults(results, hints, identifierHints, true); ok {
 		if hints.Currency != "" {
 			inst.Currency = hints.Currency
 		}
@@ -103,7 +103,13 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		// identifiers. A successful Mapping API response for that ticker proves
 		// the association. Other hint types (ISIN, CUSIP, etc.) are not appended
 		// because OpenFIGI may return corrected values for those.
-		if matchedHint != nil && matchedHint.Type == "MIC_TICKER" {
+		//
+		// The mapping proves the ticker, not the venue: a bare ticker query
+		// returns every listing of that symbol worldwide, so the hint's exchange
+		// is only asserted once the chosen result is known to be on it. Asserting
+		// it regardless is how a ticker hint for one company came to be stored
+		// against a same-ticker listing of a different one.
+		if matchedHint != nil && matchedHint.Type == "MIC_TICKER" && p.assertsExchange(inst, matchedHint.Domain) {
 			hasMICTicker := false
 			for _, id := range ids {
 				if id.Type == "MIC_TICKER" && id.Value == matchedHint.Value {
@@ -120,28 +126,87 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	return nil, nil, identifier.ErrNotIdentified
 }
 
+// exchangeHintMIC returns the ISO 10383 MIC named by the first MIC_TICKER hint
+// that carries one, or "" when no hint names an exchange.
+func exchangeHintMIC(identifierHints []identifier.Identifier) string {
+	for _, h := range identifierHints {
+		if h.Type == "MIC_TICKER" {
+			if d := strings.TrimSpace(h.Domain); d != "" {
+				return d
+			}
+		}
+	}
+	return ""
+}
+
+// onExchange reports whether a result is listed on the given MIC.
+//
+// The result's OpenFIGI exchange code is expanded to the MICs it covers, rather
+// than the MIC being collapsed to a code: several codes can reach one MIC (XSTO
+// is SF, SS and XO), so a MIC has no single code to collapse to. Returns false
+// when the answer is unknown -- no exchange map, or a code the map does not
+// carry -- which is what keeps an unrankable result from outranking a real
+// match.
+func (p *Plugin) onExchange(r *OpenFIGIResult, mic string) bool {
+	if p.exchMap == nil || mic == "" || r.ExchCode == "" {
+		return false
+	}
+	for _, m := range p.exchMap.ExchCodeToMICs(r.ExchCode) {
+		if strings.EqualFold(m, mic) {
+			return true
+		}
+	}
+	return false
+}
+
+// assertsExchange reports whether a hint MIC may be stored against the chosen
+// instrument. A hint that names no exchange asserts nothing to check, and an
+// instrument whose own exchange is unknown leaves nothing to check it against;
+// both pass. Only a known exchange that disagrees is refused.
+func (p *Plugin) assertsExchange(inst *identifier.Instrument, mic string) bool {
+	if mic == "" || inst == nil || inst.Exchange == "" {
+		return true
+	}
+	return strings.EqualFold(inst.Exchange, mic)
+}
+
 // resolveResults picks a result from the slice and converts it to an instrument.
 // For derivatives, UnderlyingIdentifiers are populated so the resolution layer can
 // resolve the underlying through the full plugin pipeline.
-// When multiple results exist, the SecurityTypeHint is used to prefer results
-// whose classified asset class matches the hint. The stored asset class is always
-// derived from the selected result's OpenFIGI fields via classify, never from the hint.
+//
+// When multiple results exist they are ranked by how much of what the caller
+// already said they account for: the exchange a MIC_TICKER hint names, then the
+// SecurityTypeHint, with the exchange worth more because a ticker is unique
+// within a venue and a security type is not. A bare ticker maps to every listing
+// of that symbol worldwide, so without the venue the choice among same-class
+// results is arbitrary -- which is how a query for a UK stock settled on a
+// same-ticker listing in another market. Ties keep the earliest result, so a
+// caller that names no exchange gets the previous type-only behaviour.
+//
+// The stored asset class is always derived from the selected result's OpenFIGI
+// fields via classify, never from the hint.
 // If fallbackFirst is true and no hint match is found, the first result is used.
 // It returns (inst, ids, true) when a result was chosen, (nil, nil, false) otherwise.
-func (p *Plugin) resolveResults(results []OpenFIGIResult, hints identifier.Hints, fallbackFirst bool) (*identifier.Instrument, []identifier.Identifier, bool) {
+func (p *Plugin) resolveResults(results []OpenFIGIResult, hints identifier.Hints, identifierHints []identifier.Identifier, fallbackFirst bool) (*identifier.Instrument, []identifier.Identifier, bool) {
 	if len(results) == 0 {
 		return nil, nil, false
 	}
 	idx := 0
 	if len(results) > 1 {
+		mic := exchangeHintMIC(identifierHints)
 		idx = -1
-		if hints.SecurityTypeHint != "" {
-			for i := range results {
-				ac := classify(results[i].SecurityType, results[i].SecurityType2, results[i].MarketSector)
-				if ac == hints.SecurityTypeHint {
-					idx = i
-					break
-				}
+		best := 0
+		for i := range results {
+			score := 0
+			if p.onExchange(&results[i], mic) {
+				score += 2
+			}
+			if hints.SecurityTypeHint != "" &&
+				classify(results[i].SecurityType, results[i].SecurityType2, results[i].MarketSector) == hints.SecurityTypeHint {
+				score++
+			}
+			if score > best {
+				idx, best = i, score
 			}
 		}
 		if idx < 0 && fallbackFirst {

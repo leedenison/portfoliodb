@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/leedenison/portfoliodb/server/identifier"
+	"github.com/leedenison/portfoliodb/server/plugins/openfigi/exchangemap"
 )
 
 func TestPlugin_Identify_OpenFIGIMapping_OneResult(t *testing.T) {
@@ -624,7 +625,7 @@ func TestResolveResults_HintMatchesOneResult(t *testing.T) {
 		{FIGI: "BBG_BOND", Ticker: "X", SecurityType: "Bond", SecurityType2: "Corp", MarketSector: "Corp"},
 	}
 	p := NewPlugin(nil, nil, nil, nil)
-	inst, ids, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, true)
+	inst, ids, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
@@ -649,7 +650,7 @@ func TestResolveResults_HintMatchesNone_FallsBackToFirst(t *testing.T) {
 		{FIGI: "BBG_BOND", Ticker: "X", SecurityType: "Bond", SecurityType2: "Corp", MarketSector: "Corp"},
 	}
 	p := NewPlugin(nil, nil, nil, nil)
-	inst, ids, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, true)
+	inst, ids, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result (fallback to first)")
 	}
@@ -674,7 +675,7 @@ func TestResolveResults_NoHint_FallsBackToFirst(t *testing.T) {
 		{FIGI: "BBG_STOCK", Ticker: "X", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
 	}
 	p := NewPlugin(nil, nil, nil, nil)
-	inst, _, ok := p.resolveResults(results, identifier.Hints{}, true)
+	inst, _, ok := p.resolveResults(results, identifier.Hints{}, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
@@ -692,7 +693,7 @@ func TestResolveResults_AssetClassFromSelectedResult(t *testing.T) {
 		{FIGI: "BBG_ADR", Ticker: "X", SecurityType: "ADR", SecurityType2: "Depositary Receipt", MarketSector: "Equity"},
 	}
 	p := NewPlugin(nil, nil, nil, nil)
-	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, true)
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, nil, true)
 	if !ok || inst == nil {
 		t.Fatal("expected result")
 	}
@@ -856,4 +857,155 @@ func mustJSON(v interface{}) []byte {
 		panic(err)
 	}
 	return b
+}
+
+func TestResolveResults_ExchangeHintOutranksSecurityType(t *testing.T) {
+	// A bare ticker maps to every listing of that symbol. Two of them classify
+	// as STOCK, so the security type alone cannot separate them; the exchange
+	// the caller named can. Modelled on a UK ticker whose symbol is also used by
+	// an unrelated Stockholm listing, where taking the first STOCK gave the
+	// wrong company.
+	results := []OpenFIGIResult{
+		{FIGI: "BBG_SE", Ticker: "WISE", ExchCode: "SS", Name: "OTHER GROUP AB", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
+		{FIGI: "BBG_GB", Ticker: "WISE", ExchCode: "LN", Name: "WISE PLC", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
+	}
+	p := NewPlugin(nil, nil, nil, exchangemap.New())
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "WISE"}}
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "STOCK"}, hints, true)
+	if !ok || inst == nil {
+		t.Fatal("expected result")
+	}
+	if inst.Name != "WISE PLC" {
+		t.Errorf("Name = %q, want %q", inst.Name, "WISE PLC")
+	}
+	if inst.Exchange != "XLON" {
+		t.Errorf("Exchange = %q, want XLON", inst.Exchange)
+	}
+}
+
+func TestResolveResults_ExchangeHintPreferredOverTypeMatch(t *testing.T) {
+	// The exchange is worth more than the security type: the hinted venue wins
+	// even when a result on another venue is the one matching the type hint.
+	results := []OpenFIGIResult{
+		{FIGI: "BBG_US_ETF", Ticker: "X", ExchCode: "UW", SecurityType: "ETP", SecurityType2: "ETP", MarketSector: "Equity"},
+		{FIGI: "BBG_GB_STOCK", Ticker: "X", ExchCode: "LN", SecurityType: "Common Stock", SecurityType2: "Common Stock", MarketSector: "Equity"},
+	}
+	p := NewPlugin(nil, nil, nil, exchangemap.New())
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "X"}}
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, hints, true)
+	if !ok || inst == nil {
+		t.Fatal("expected result")
+	}
+	if inst.Exchange != "XLON" {
+		t.Errorf("Exchange = %q, want XLON", inst.Exchange)
+	}
+	// The asset class still comes from the selected result, not the hint.
+	if inst.AssetClass != "STOCK" {
+		t.Errorf("AssetClass = %q, want STOCK", inst.AssetClass)
+	}
+}
+
+func TestResolveResults_ExchangeHintUnmatched_FallsBackToType(t *testing.T) {
+	// No result is on the hinted venue, so the security type decides as before.
+	results := []OpenFIGIResult{
+		{FIGI: "BBG_BOND", Ticker: "X", ExchCode: "UW", SecurityType: "Bond", SecurityType2: "Corp", MarketSector: "Corp"},
+		{FIGI: "BBG_ETF", Ticker: "X", ExchCode: "UW", SecurityType: "ETP", SecurityType2: "ETP", MarketSector: "Equity"},
+	}
+	p := NewPlugin(nil, nil, nil, exchangemap.New())
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "X"}}
+	inst, _, ok := p.resolveResults(results, identifier.Hints{SecurityTypeHint: "ETF"}, hints, true)
+	if !ok || inst == nil {
+		t.Fatal("expected result")
+	}
+	if inst.AssetClass != "ETF" {
+		t.Errorf("AssetClass = %q, want ETF", inst.AssetClass)
+	}
+}
+
+func TestPlugin_Identify_MICTickerDomainDroppedOnExchangeMismatch(t *testing.T) {
+	// The mapping proves the ticker, not the venue. When the only result is on a
+	// different exchange from the one the hint named, the hint is not stored
+	// against it -- doing so would claim the London listing's ticker for a
+	// Stockholm company, and every later lookup of that ticker would resolve to
+	// the wrong instrument.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]MappingResponseItem{
+			{Data: []OpenFIGIResult{{
+				FIGI:          "BBG_SE",
+				Ticker:        "WISE",
+				Name:          "OTHER GROUP AB",
+				ExchCode:      "SS",
+				SecurityType:  "Common Stock",
+				SecurityType2: "Common Stock",
+				MarketSector:  "Equity",
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{
+		"openfigi_api_key":  "test-key",
+		"openfigi_base_url": server.URL,
+	})
+	ctx := context.Background()
+	p := NewPlugin(nil, nil, http.DefaultClient, exchangemap.New())
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "WISE"}}
+	inst, ids, err := p.Identify(ctx, config, "FIDELITY", "Fidelity:web:fidelity-csv", "WISE PLC (WISE)", identifier.Hints{}, hints)
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if inst.Exchange != "XSTO" {
+		t.Fatalf("Exchange = %q, want XSTO", inst.Exchange)
+	}
+	for _, id := range ids {
+		if id.Type == "MIC_TICKER" {
+			t.Errorf("MIC_TICKER %+v asserted against an instrument on %s", id, inst.Exchange)
+		}
+	}
+}
+
+func TestPlugin_Identify_MICTickerDomainKeptOnExchangeMatch(t *testing.T) {
+	// The mirror of the mismatch case: the result is on the hinted venue, so the
+	// hint is asserted with its domain intact.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]MappingResponseItem{
+			{Data: []OpenFIGIResult{{
+				FIGI:          "BBG_GB",
+				Ticker:        "WISE",
+				Name:          "WISE PLC",
+				ExchCode:      "LN",
+				SecurityType:  "Common Stock",
+				SecurityType2: "Common Stock",
+				MarketSector:  "Equity",
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	config := mustJSON(map[string]string{
+		"openfigi_api_key":  "test-key",
+		"openfigi_base_url": server.URL,
+	})
+	ctx := context.Background()
+	p := NewPlugin(nil, nil, http.DefaultClient, exchangemap.New())
+	hints := []identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "WISE"}}
+	_, ids, err := p.Identify(ctx, config, "FIDELITY", "Fidelity:web:fidelity-csv", "WISE PLC (WISE)", identifier.Hints{}, hints)
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	var found *identifier.Identifier
+	for i, id := range ids {
+		if id.Type == "MIC_TICKER" && id.Value == "WISE" {
+			found = &ids[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected MIC_TICKER:WISE in identifiers, got %+v", ids)
+	}
+	if found.Domain != "XLON" {
+		t.Errorf("MIC_TICKER domain = %q, want XLON", found.Domain)
+	}
 }

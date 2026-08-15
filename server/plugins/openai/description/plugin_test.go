@@ -158,3 +158,15 @@ func TestExtractBatch_TypeHintPassedToClient(t *testing.T) {
 		t.Errorf("user content should include type OPTION, got: %s", receivedContent)
 	}
 }
+
+func TestPlugin_AcceptableSecurityTypes_IncludesETF(t *testing.T) {
+	p := NewPlugin(nil, nil, nil)
+	types := p.AcceptableSecurityTypes()
+	if !types[identifier.SecurityTypeHintETF] {
+		t.Error("ETF is not acceptable; an ETF arriving with no identifiers gets no description plugin at all")
+	}
+	// The set stays exclusive: CASH belongs to the cash plugin.
+	if types[identifier.SecurityTypeHintCash] {
+		t.Error("CASH should not be acceptable to the OpenAI plugin")
+	}
+}

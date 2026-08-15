@@ -15,8 +15,11 @@ export interface ConverterOptionsProps {
 export interface FormatEntry {
   id: string;
   label: string;
-  /** File input accept attribute (e.g. ".ofx,.qfx"). Defaults to ".json". */
-  accept?: string;
+  /**
+   * File input accept attribute (e.g. ".ofx,.qfx"). Required: a format that
+   * omits it leaves the file dialog filtering for someone else's extension.
+   */
+  accept: string;
   convert?: (text: string, options?: Record<string, unknown>) => StandardParseResult;
   OptionsComponent?: ComponentType<ConverterOptionsProps>;
 }

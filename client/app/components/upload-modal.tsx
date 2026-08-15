@@ -308,7 +308,7 @@ function UploadModalBody({
                 ref={fileInputRef}
                 id="upload-file"
                 type="file"
-                accept={selectedFormat?.accept ?? ".json"}
+                accept={selectedFormat?.accept}
                 onChange={handleFileChange}
                 className="sr-only"
                 aria-label="Choose transaction file"

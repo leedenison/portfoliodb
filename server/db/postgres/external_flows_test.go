@@ -77,10 +77,10 @@ func postGroup(t *testing.T, p *Postgres, userID, desc, instID string, at time.T
 	}
 	for _, leg := range legs {
 		if _, err := p.q.ExecContext(ctx, `
-			INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+			INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 				instrument_id, broker_tx_type, resolved_tx_type, quantity, account_type,
 				group_id, weight, weight_commodity, share_count_basis, split_adjusted_quantity)
-			VALUES ($1::uuid, 'FIDELITY', $2, $3::timestamptz, $4, $5::uuid,
+			VALUES ($1::uuid, 'FIDELITY', $2, $3::timestamptz, $3::timestamptz, $4, $5::uuid,
 				ARRAY['TRANSFER'], 'TRANSFER', $6::numeric, $7, $8::uuid, $6::numeric,
 				'inst:'||$5, $3::timestamptz::date, $6::numeric)
 		`, userID, leg[0], at, desc, instID, leg[2], leg[1], groupID); err != nil {
@@ -396,10 +396,10 @@ func TestGetPortfolioExternalFlows_GroupStraddlingTheWindowStillReports(t *testi
 	// The EQUITY counterparty settles five days later, inside the window the member
 	// leg is outside.
 	if _, err := p.q.ExecContext(ctx, `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 			instrument_id, broker_tx_type, resolved_tx_type, quantity, account_type,
 			group_id, weight, weight_commodity, share_count_basis, split_adjusted_quantity)
-		VALUES ($1::uuid, 'FIDELITY', $2, $3::timestamptz, 'USD CASH', $4::uuid,
+		VALUES ($1::uuid, 'FIDELITY', $2, $3::timestamptz, $3::timestamptz, 'USD CASH', $4::uuid,
 			ARRAY['TRANSFER'], 'TRANSFER', -500, 'EQUITY', $5::uuid, -500,
 			'inst:'||$4, $3::timestamptz::date, -500)
 	`, userID, acct, april(12), cashID, groupID); err != nil {
@@ -439,10 +439,10 @@ func TestGetPortfolioExternalFlows_InstrumentFilterSeesTheCashLeg(t *testing.T) 
 	groupID := postGroup(t, p, userID, "AAPL Corp", instID, april(5),
 		[3]string{acct, "USER", "10"})
 	if _, err := p.q.ExecContext(ctx, `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 			instrument_id, broker_tx_type, resolved_tx_type, quantity, account_type,
 			group_id, weight, weight_commodity, share_count_basis, split_adjusted_quantity)
-		VALUES ($1::uuid, 'FIDELITY', $2, $3::timestamptz, 'USD CASH', $4::uuid,
+		VALUES ($1::uuid, 'FIDELITY', $2, $3::timestamptz, $3::timestamptz, 'USD CASH', $4::uuid,
 			ARRAY['TRADE_CASH'], 'TRADE_CASH', -1855, 'USER', $5::uuid, -10,
 			'inst:'||$6, $3::timestamptz::date, -1855)
 	`, userID, acct, april(5), cashID, groupID, instID); err != nil {

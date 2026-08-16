@@ -103,7 +103,17 @@ message Correlation {
 // Posting is a signed amount of one commodity in one account at one point in
 // time. See docs/spec/postings.md.
 message Posting {
-  google.protobuf.Timestamp timestamp = 1 [(buf.validate.field).required = true];
+  // When the transaction this posting came from was ordered, and the date the
+  // posting is filed under: windows, listings and the grouping rules that bucket
+  // on a day all use this one.
+  //
+  // It is the date a trade and the charges levied on it agree about. A broker
+  // dates a charge by when it cleared and a trade by when it settled, which are
+  // days apart -- in the Fidelity sample a trade settles T+2 to T+4 while its
+  // dealing fee clears T+0 or T+1 -- so bucketing on either of those puts a
+  // charge in a different bucket from the trade it belongs to. See
+  // docs/adr/0051-a-posting-carries-an-order-date-and-a-trade-date.md.
+  google.protobuf.Timestamp order_date = 1 [(buf.validate.field).required = true];
   string account = 2; // opaque; the broker's own account label
   // What kind of leg this is. ACCOUNT_TYPE_UNSPECIFIED reads as
   // ACCOUNT_TYPE_USER, so a converter that says nothing produces ordinary broker
@@ -185,7 +195,7 @@ message Posting {
   // residual rather than being absorbed here.
   optional string settlement_amount = 12 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
   // The share count this posting's quantity and unit price are denominated in,
-  // as "YYYY-MM-DD". Absent means this posting's own timestamp date -- the
+  // as "YYYY-MM-DD". Absent means this posting's own trade_date -- the
   // as-traded convention a broker log follows, since a log line accounts only
   // for events prior to the trade, and what an ordinary export writes. Set it
   // only for a source that restates a historical row in current share terms,
@@ -201,4 +211,16 @@ message Posting {
   // A rebuild from an archive has nothing else to group on, which is why it is
   // carried and stored rather than consumed at ingest.
   repeated Correlation correlations = 14;
+  // When the transaction this posting came from took effect: the date a trade
+  // executed, or a charge was levied, or money moved.
+  //
+  // Required, and duplicated from order_date by a source that reports one date
+  // and no other. Duplicating rather than leaving it unset is deliberate: a
+  // reader can then take either field without asking whether this particular
+  // broker distinguishes them, and a source that states only one date is saying
+  // that for it the two coincide rather than that one is unknown.
+  //
+  // What each source puts here: a Fidelity export its Completion date, an OFX
+  // statement its DTTRADE, a Schwab CSV its single date column.
+  google.protobuf.Timestamp trade_date = 15 [(buf.validate.field).required = true];
 }

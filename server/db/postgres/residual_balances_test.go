@@ -28,7 +28,8 @@ func seedResiduals(t *testing.T, p *Postgres, userID string, seeds ...residualSe
 	now := time.Now().UTC()
 	for _, s := range seeds {
 		tx := &apiv1.Tx{
-			Timestamp:             timestamppb.New(now.AddDate(0, 0, -s.daysAgo)),
+			OrderDate:             timestamppb.New(now.AddDate(0, 0, -s.daysAgo)),
+			TradeDate:             timestamppb.New(now.AddDate(0, 0, -s.daysAgo)),
 			InstrumentDescription: "residual",
 			BrokerTxType:          []typev1.TxType{s.txType},
 			ResolvedTxType:        s.txType,

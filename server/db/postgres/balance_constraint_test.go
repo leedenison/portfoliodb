@@ -49,10 +49,10 @@ func balanceSeed(t *testing.T, p *Postgres, sub string) (string, string) {
 func insertRawPosting(t *testing.T, p *Postgres, userID, instID, groupID, qty, weight, commodity string) {
 	t.Helper()
 	_, err := p.q.ExecContext(context.Background(), `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 		                 broker_tx_type, resolved_tx_type, quantity, instrument_id, weight,
 		                 weight_commodity, group_id)
-		VALUES ($1::uuid, 'IBKR', 'A', now(), 'USD', ARRAY['TRANSFER'], 'TRANSFER', $2::numeric,
+		VALUES ($1::uuid, 'IBKR', 'A', now(), now(), 'USD', ARRAY['TRANSFER'], 'TRANSFER', $2::numeric,
 		        $3::uuid, $4::numeric, $5, $6::uuid)
 	`, userID, qty, instID, weight, commodity, groupID)
 	if err != nil {
@@ -196,9 +196,11 @@ func TestTxGroupBalance_SplitRecomputeIsNotAffected(t *testing.T) {
 	now := time.Now()
 	from, to := timestamppb.New(now.Add(-time.Hour)), timestamppb.New(now.Add(time.Hour))
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "SPLT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
+		{OrderDate: timestamppb.New(now),
+			TradeDate: timestamppb.New(now), InstrumentDescription: "SPLT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
 			Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD"},
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
+		{OrderDate: timestamppb.New(now),
+			TradeDate: timestamppb.New(now), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
 			Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD"},
 	}
 	ws := []db.Weight{{Amount: decf(1000), Commodity: "cur:USD"}, {Amount: decf(-1000), Commodity: "cur:USD"}}

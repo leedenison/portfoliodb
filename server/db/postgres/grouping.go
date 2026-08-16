@@ -24,7 +24,7 @@ const groupingColumns = `
 	t.user_id::text AS user_id,
 	t.broker,
 	t.account,
-	t.timestamp,
+	t.order_date,
 	COALESCE(t.instrument_id::text, '') AS instrument_id,
 	t.quantity,
 	t.unit_price,
@@ -77,7 +77,7 @@ type groupingRow struct {
 	UserID           string           `db:"user_id"`
 	Broker           string           `db:"broker"`
 	Account          string           `db:"account"`
-	Timestamp        time.Time        `db:"timestamp"`
+	OrderDate        time.Time        `db:"order_date"`
 	InstrumentID     string           `db:"instrument_id"`
 	Quantity         decimal.Decimal  `db:"quantity"`
 	UnitPrice        *decimal.Decimal `db:"unit_price"`
@@ -94,7 +94,7 @@ func (r groupingRow) toDomain() db.GroupingPosting {
 		UserID:           r.UserID,
 		Broker:           db.StrToBroker(r.Broker),
 		Account:          r.Account,
-		Timestamp:        r.Timestamp,
+		OrderDate:        r.OrderDate,
 		InstrumentID:     r.InstrumentID,
 		Quantity:         r.Quantity,
 		UnitPrice:        r.UnitPrice,
@@ -207,7 +207,7 @@ func (p *Postgres) PostingsByDates(ctx context.Context, userID string, qs []db.D
 		    FROM unnest($2::text[], $3::text[], $4::timestamptz[], $5::timestamptz[])
 		      AS r(broker, account, from_ts, before_ts)
 		    WHERE t.broker = r.broker AND t.account = r.account
-		      AND t.timestamp >= r.from_ts AND t.timestamp < r.before_ts
+		      AND t.order_date >= r.from_ts AND t.order_date < r.before_ts
 		  )` + notHeld(6)
 	return p.groupingPostings(ctx, sql, []interface{}{
 		userUUID, pq.Array(brokers), pq.Array(accounts), pq.Array(from), pq.Array(before), pq.Array(held),

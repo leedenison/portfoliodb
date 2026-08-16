@@ -377,7 +377,7 @@ VERSION:102
       transactions: buyStockTx(),
     });
     const result = parseOfxStatement(ofx);
-    const lastTx = result.postings[result.postings.length - 1]!.timestamp!;
+    const lastTx = result.postings[result.postings.length - 1]!.orderDate!;
     expect(result.periodBefore.getTime()).toBeGreaterThan(
       Number(lastTx.seconds) * 1000
     );

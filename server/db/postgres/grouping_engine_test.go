@@ -50,7 +50,8 @@ func engineFixture(t *testing.T, sub string) (*Postgres, string, string) {
 // about is which postings end up together, not what their group owes.
 func leg(ts time.Time, account, qty string, declared typev1.TxType, cs ...*archivev1.Correlation) *apiv1.Tx {
 	return &apiv1.Tx{
-		Timestamp:             timestamppb.New(ts),
+		OrderDate:             timestamppb.New(ts),
+		TradeDate:             timestamppb.New(ts),
 		InstrumentDescription: "ENG",
 		BrokerTxType:          []typev1.TxType{declared},
 		ResolvedTxType:        declared,

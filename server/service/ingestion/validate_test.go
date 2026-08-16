@@ -17,25 +17,40 @@ func TestValidateTx(t *testing.T) {
 		want   int
 	}{
 		{"nil tx", nil, 0, 1},
-		{"missing timestamp", &apiv1.Tx{InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1"}, 0, 1},
-		{"missing instrument_description", &apiv1.Tx{Timestamp: validTs, BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1"}, 0, 1},
-		{"missing broker_tx_type", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", Quantity: "1"}, 0, 1},
-		{"unspecified member", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TX_TYPE_UNSPECIFIED}, Quantity: "1"}, 0, 1},
+		// Both dates missing is two faults, because a source with one date writes
+		// it to both: an absent trade date is a converter that forgot rather than
+		// a source that does not distinguish them.
+		{"missing both dates", &apiv1.Tx{InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1"}, 0, 2},
+		{"missing order date", &apiv1.Tx{TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1"}, 0, 1},
+		{"missing trade date", &apiv1.Tx{OrderDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1"}, 0, 1},
+		{"missing instrument_description", &apiv1.Tx{OrderDate: validTs,
+			TradeDate: validTs, BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1"}, 0, 1},
+		{"missing broker_tx_type", &apiv1.Tx{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "AAPL", Quantity: "1"}, 0, 1},
+		{"unspecified member", &apiv1.Tx{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TX_TYPE_UNSPECIFIED}, Quantity: "1"}, 0, 1},
 		// AMBIGUOUS is the resolved spelling of an unresolved set; declaring it
 		// says less than the set itself.
-		{"AMBIGUOUS member", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_AMBIGUOUS}, Quantity: "1"}, 0, 1},
-		{"duplicate member", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET, typev1.TxType_TRADE_ASSET}, Quantity: "1"}, 0, 1},
+		{"AMBIGUOUS member", &apiv1.Tx{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_AMBIGUOUS}, Quantity: "1"}, 0, 1},
+		{"duplicate member", &apiv1.Tx{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET, typev1.TxType_TRADE_ASSET}, Quantity: "1"}, 0, 1},
 		// An ancestor beside its descendant says nothing the ancestor alone
 		// does not.
-		{"ancestor beside descendant", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER, typev1.TxType_TRANSFER_INTERNAL}, Quantity: "1"}, 0, 1},
+		{"ancestor beside descendant", &apiv1.Tx{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER, typev1.TxType_TRANSFER_INTERNAL}, Quantity: "1"}, 0, 1},
 		// synthetic_purpose says the server made the posting, so a row claiming one
 		// would be thrown away and derived again by the next replace.
-		{"claims a synthetic purpose", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", SyntheticPurpose: db.RoutedPurpose}, 0, 1},
+		{"claims a synthetic purpose", &apiv1.Tx{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", SyntheticPurpose: db.RoutedPurpose}, 0, 1},
 		// group_id is the answer grouping exists to derive, so a row stating one
 		// would have it rederived out from under it by the next regroup.
-		{"claims a group", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", GroupId: "18e0b2a8-0000-4000-8000-000000000000"}, 0, 1},
-		{"valid", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10"}, 0, 0},
-		{"valid antichain set", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH, typev1.TxType_TRANSFER}, Quantity: "10"}, 0, 0},
+		{"claims a group", &apiv1.Tx{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", GroupId: "18e0b2a8-0000-4000-8000-000000000000"}, 0, 1},
+		{"valid", &apiv1.Tx{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10"}, 0, 0},
+		{"valid antichain set", &apiv1.Tx{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH, typev1.TxType_TRANSFER}, Quantity: "10"}, 0, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -106,8 +121,10 @@ func TestValidateTxs_sameTimestampAndDescriptionAllowed(t *testing.T) {
 	// No natural key: same (timestamp, instrument_description) in one batch is allowed.
 	ts := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: ts, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10"},
-		{Timestamp: ts, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "-5"},
+		{OrderDate: ts,
+			TradeDate: ts, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10"},
+		{OrderDate: ts,
+			TradeDate: ts, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "-5"},
 	}
 	errs := ValidateTxs(txs)
 	if len(errs) != 0 {
@@ -129,8 +146,10 @@ func TestValidateTxs_empty(t *testing.T) {
 func TestValidateTxs_perTxErrors(t *testing.T) {
 	validTs := timestamppb.Now()
 	txs := []*apiv1.Tx{
-		{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10"},
-		{Timestamp: validTs, InstrumentDescription: "GOOG", Quantity: "5"}, // missing broker_tx_type
+		{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10"},
+		{OrderDate: validTs,
+			TradeDate: validTs, InstrumentDescription: "GOOG", Quantity: "5"}, // missing broker_tx_type
 	}
 	errs := ValidateTxs(txs)
 	if len(errs) == 0 {
@@ -149,7 +168,8 @@ func TestValidateSettlementAmount(t *testing.T) {
 	amount := "20514.62"
 	tx := func(set []typev1.TxType, settlement *string) *apiv1.Tx {
 		return &apiv1.Tx{
-			Timestamp:             validTs,
+			OrderDate:             validTs,
+			TradeDate:             validTs,
 			InstrumentDescription: "AAPL",
 			BrokerTxType:          set,
 			Quantity:              "10",

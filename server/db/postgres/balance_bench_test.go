@@ -45,9 +45,11 @@ func seedBalancedGroups(t testing.TB, p *Postgres, groups int) (string, string) 
 	for i := range groups {
 		at := timestamppb.New(base.Add(time.Duration(i) * time.Minute))
 		txs = append(txs,
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "BENCH", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
+			&apiv1.Tx{OrderDate: at,
+				TradeDate: at, InstrumentDescription: "BENCH", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
 				Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD"},
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
+			&apiv1.Tx{OrderDate: at,
+				TradeDate: at, InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
 				Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD"})
 		ids = append(ids, instID, usd)
 		ws = append(ws,
@@ -93,8 +95,10 @@ func seedPairedJournals(t testing.TB, p *Postgres, groups int) (string, string, 
 	for i := range groups {
 		at := timestamppb.New(base.Add(time.Duration(i) * time.Minute))
 		txs = append(txs,
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-10"},
-			&apiv1.Tx{Timestamp: at, InstrumentDescription: "MRGA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "10"})
+			&apiv1.Tx{OrderDate: at,
+				TradeDate: at, InstrumentDescription: "MRGA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-10"},
+			&apiv1.Tx{OrderDate: at,
+				TradeDate: at, InstrumentDescription: "MRGA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "10"})
 		ids = append(ids, mergedAway, mergedAway)
 		ws = append(ws,
 			db.Weight{Amount: decf(-10), Commodity: commodity},

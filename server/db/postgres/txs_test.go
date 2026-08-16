@@ -26,8 +26,10 @@ func TestReplaceTxsInPeriod_and_ComputeHoldings(t *testing.T) {
 	ts1 := timestamppb.New(now.Add(-90 * time.Minute))
 	ts2 := timestamppb.New(now.Add(-30 * time.Minute))
 	txs := []*apiv1.Tx{
-		{Timestamp: ts1, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""},
-		{Timestamp: ts2, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-3", Account: ""},
+		{OrderDate: ts1,
+			TradeDate: ts1, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""},
+		{OrderDate: ts2,
+			TradeDate: ts2, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-3", Account: ""},
 	}
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
 	if err != nil {
@@ -75,7 +77,8 @@ func TestReplaceTxsInPeriod_PeriodBeforeIsExclusive(t *testing.T) {
 		{boundary.Add(-time.Hour), "1"},
 		{boundary, "2"},
 	} {
-		tx := &apiv1.Tx{Timestamp: timestamppb.New(seed.at), InstrumentDescription: "BND", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: seed.qty, Account: ""}
+		tx := &apiv1.Tx{OrderDate: timestamppb.New(seed.at),
+			TradeDate: timestamppb.New(seed.at), InstrumentDescription: "BND", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: seed.qty, Account: ""}
 		if err := createTx(ctx, p, userID, "IBKR", "", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx: %v", err)
 		}
@@ -122,7 +125,8 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 		t.Fatalf("upsert initialize: %v", err)
 	}
 	oldTx := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now.Add(-80 * time.Minute)), InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: ""},
+		{OrderDate: timestamppb.New(now.Add(-80 * time.Minute)),
+			TradeDate: timestamppb.New(now.Add(-80 * time.Minute)), InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: ""},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, oldTx, []string{instID}, nil, nil); err != nil {
 		t.Fatalf("seed real tx: %v", err)
@@ -130,8 +134,10 @@ func TestReplaceTxsInPeriod_PreservesSyntheticInitializeTx(t *testing.T) {
 
 	// Replace real txs in the same period with a fresh set; synthetic must survive.
 	newTxs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now.Add(-60 * time.Minute)), InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "7", Account: ""},
-		{Timestamp: timestamppb.New(now.Add(-20 * time.Minute)), InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-2", Account: ""},
+		{OrderDate: timestamppb.New(now.Add(-60 * time.Minute)),
+			TradeDate: timestamppb.New(now.Add(-60 * time.Minute)), InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "7", Account: ""},
+		{OrderDate: timestamppb.New(now.Add(-20 * time.Minute)),
+			TradeDate: timestamppb.New(now.Add(-20 * time.Minute)), InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-2", Account: ""},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, newTxs, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
@@ -224,7 +230,8 @@ func TestCreateTx_CreatesGroup(t *testing.T) {
 		t.Fatalf("create job: %v", err)
 	}
 	at := time.Date(2025, 6, 2, 14, 30, 0, 0, time.UTC)
-	tx := &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "NVDA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "4", Account: "A"}
+	tx := &apiv1.Tx{OrderDate: timestamppb.New(at),
+		TradeDate: timestamppb.New(at), InstrumentDescription: "NVDA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "4", Account: "A"}
 	if err := createTx(ctx, p, userID, "IBKR", "A", jobID, tx, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -256,7 +263,8 @@ func TestCreateTxGroup_BalancesWhatItAppends(t *testing.T) {
 	userID, usd := balanceSeed(t, p, "sub|grp-append")
 	at := time.Date(2025, 6, 2, 14, 30, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{{
-		Timestamp: timestamppb.New(at), InstrumentDescription: "USD",
+		OrderDate: timestamppb.New(at),
+		TradeDate: timestamppb.New(at), InstrumentDescription: "USD",
 		BrokerTxType:   []typev1.TxType{typev1.TxType_TRANSFER},
 		ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "4", Account: "A",
 		SettlementCurrency: "USD", TradingCurrency: "USD",
@@ -294,8 +302,10 @@ func TestReplaceTxsInPeriod_DeletesRoutedPostingsWithTheirGroup(t *testing.T) {
 	base := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A", AccountType: typev1.AccountType_ACCOUNT_TYPE_IMBALANCE},
+		{OrderDate: timestamppb.New(base.Add(time.Hour)),
+			TradeDate: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A"},
+		{OrderDate: timestamppb.New(base.Add(time.Hour)),
+			TradeDate: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "IMB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-10", Account: "A", AccountType: typev1.AccountType_ACCOUNT_TYPE_IMBALANCE},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -360,7 +370,8 @@ func TestReplaceTxsInPeriod_ReDerivesABoundaryLeg(t *testing.T) {
 	// One group, two dividends, one on each day: the shape a replace can cut in
 	// half. Each is one-sided, so the store owes each an income leg.
 	dividend := func(at time.Time, qty string) *apiv1.Tx {
-		return &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: qty, Account: "A"}
+		return &apiv1.Tx{OrderDate: timestamppb.New(at),
+			TradeDate: timestamppb.New(at), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: qty, Account: "A"}
 	}
 	legs := []*apiv1.Tx{dividend(day1, "90"), dividend(day2, "10")}
 	weight := func(v string) db.Weight {
@@ -408,8 +419,10 @@ func TestReplaceTxsInPeriod_KeepsAStatedLegInADerivedAccountType(t *testing.T) {
 	// which names no boundary, so the store adds nothing and both legs are the
 	// source's. Both survive a replace of a later day.
 	legs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(outside), InstrumentDescription: "FUND", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "21.09", Account: "A"},
-		{Timestamp: timestamppb.New(outside), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: "-31.635", Account: "A", AccountType: typev1.AccountType_ACCOUNT_TYPE_INCOME},
+		{OrderDate: timestamppb.New(outside),
+			TradeDate: timestamppb.New(outside), InstrumentDescription: "FUND", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "21.09", Account: "A"},
+		{OrderDate: timestamppb.New(outside),
+			TradeDate: timestamppb.New(outside), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_DIVIDEND}, ResolvedTxType: typev1.TxType_DIVIDEND, Quantity: "-31.635", Account: "A", AccountType: typev1.AccountType_ACCOUNT_TYPE_INCOME},
 	}
 	weights := []db.Weight{
 		{Amount: decimal.RequireFromString("31.635"), Commodity: "cur:USD"},
@@ -448,9 +461,12 @@ func TestReplaceTxsInPeriod_CreatesGroupPerTx(t *testing.T) {
 	}
 	base := time.Date(2025, 5, 1, 0, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "TSLA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1", Account: ""},
-		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "TSLA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "2", Account: ""},
-		{Timestamp: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "TSLA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-1", Account: ""},
+		{OrderDate: timestamppb.New(base.Add(time.Hour)),
+			TradeDate: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "TSLA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1", Account: ""},
+		{OrderDate: timestamppb.New(base.Add(2 * time.Hour)),
+			TradeDate: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "TSLA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "2", Account: ""},
+		{OrderDate: timestamppb.New(base.Add(3 * time.Hour)),
+			TradeDate: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "TSLA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-1", Account: ""},
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	ids := []string{instID, instID, instID}
@@ -485,7 +501,8 @@ func TestReplaceTxsInPeriod_WritesTheSettlersPartition(t *testing.T) {
 	base := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
 	leg := func(at time.Time, qty string, typ typev1.TxType) *apiv1.Tx {
 		return &apiv1.Tx{
-			Timestamp: timestamppb.New(at), InstrumentDescription: "USD",
+			OrderDate: timestamppb.New(at),
+			TradeDate: timestamppb.New(at), InstrumentDescription: "USD",
 			BrokerTxType: []typev1.TxType{typ}, ResolvedTxType: typ,
 			Quantity: qty, Account: "A", SettlementCurrency: "USD", TradingCurrency: "USD",
 		}
@@ -541,8 +558,10 @@ func TestReplaceTxsInPeriod_DeletesWholeGroups(t *testing.T) {
 	base := time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC)
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	seed := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""},
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH}, ResolvedTxType: typev1.TxType_TRADE_CASH, Quantity: "-50", Account: ""},
+		{OrderDate: timestamppb.New(base.Add(time.Hour)),
+			TradeDate: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""},
+		{OrderDate: timestamppb.New(base.Add(time.Hour)),
+			TradeDate: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "GSK", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH}, ResolvedTxType: typev1.TxType_TRADE_CASH, Quantity: "-50", Account: ""},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, seed, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -576,14 +595,17 @@ func TestReplaceTxsInPeriod_DeletesGroupsInPeriod(t *testing.T) {
 	base := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	seed := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "AMD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1", Account: ""},
-		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "AMD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "2", Account: ""},
+		{OrderDate: timestamppb.New(base.Add(time.Hour)),
+			TradeDate: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "AMD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1", Account: ""},
+		{OrderDate: timestamppb.New(base.Add(2 * time.Hour)),
+			TradeDate: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "AMD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "2", Account: ""},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, seed, []string{instID, instID}, nil, nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	replacement := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "AMD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "9", Account: ""},
+		{OrderDate: timestamppb.New(base.Add(3 * time.Hour)),
+			TradeDate: timestamppb.New(base.Add(3 * time.Hour)), InstrumentDescription: "AMD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "9", Account: ""},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, replacement, []string{instID}, nil, nil); err != nil {
 		t.Fatalf("replace: %v", err)
@@ -604,8 +626,10 @@ func TestCreateTx_AppendOnly(t *testing.T) {
 	userID, _ := p.GetOrCreateUser(ctx, "sub|up", "U", "u@u.com")
 	_, _ = p.CreatePortfolio(ctx, userID, "P")
 	ts := timestamppb.Now()
-	tx1 := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "GOOG", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: ""}
-	tx2 := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "GOOG", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""}
+	tx1 := &apiv1.Tx{OrderDate: ts,
+		TradeDate: ts, InstrumentDescription: "GOOG", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: ""}
+	tx2 := &apiv1.Tx{OrderDate: ts,
+		TradeDate: ts, InstrumentDescription: "GOOG", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""}
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "GOOG", Canonical: false}}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure instrument: %v", err)
@@ -650,7 +674,8 @@ func TestListTxs_BrokerFilterAndOrder(t *testing.T) {
 		if err != nil {
 			t.Fatalf("broker to str: %v", err)
 		}
-		tx := &apiv1.Tx{Timestamp: timestamppb.New(now.Add(s.offset)), InstrumentDescription: "ORD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: s.qty}
+		tx := &apiv1.Tx{OrderDate: timestamppb.New(now.Add(s.offset)),
+			TradeDate: timestamppb.New(now.Add(s.offset)), InstrumentDescription: "ORD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: s.qty}
 		if err := createTx(ctx, p, userID, brokerStr, "", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx: %v", err)
 		}
@@ -725,7 +750,8 @@ func TestListTxs_PeriodBeforeIsExclusive(t *testing.T) {
 		{boundary.Add(-time.Second), "1"},
 		{boundary, "2"},
 	} {
-		tx := &apiv1.Tx{Timestamp: timestamppb.New(seed.at), InstrumentDescription: "PER", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: seed.qty}
+		tx := &apiv1.Tx{OrderDate: timestamppb.New(seed.at),
+			TradeDate: timestamppb.New(seed.at), InstrumentDescription: "PER", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: seed.qty}
 		if err := createTx(ctx, p, userID, brokerStr, "", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx: %v", err)
 		}
@@ -758,7 +784,8 @@ func TestListTxs_PagesWholeGroups(t *testing.T) {
 	for i := 0; i < events; i++ {
 		qty := strconv.Itoa(i + 1)
 		txs := []*apiv1.Tx{{
-			Timestamp:             timestamppb.New(base.Add(time.Duration(i) * time.Hour)),
+			OrderDate:             timestamppb.New(base.Add(time.Duration(i) * time.Hour)),
+			TradeDate:             timestamppb.New(base.Add(time.Duration(i) * time.Hour)),
 			InstrumentDescription: "USD",
 			BrokerTxType:          []typev1.TxType{typev1.TxType_TRANSFER},
 			ResolvedTxType:        typev1.TxType_TRANSFER, Quantity: qty, Account: "A",
@@ -849,7 +876,8 @@ func TestListTxsByPortfolio_ShowsOnlyTheMatchedLegs(t *testing.T) {
 	// for to a counterparty in the settlement currency, so the group holds a stock
 	// leg and a cash one.
 	txs := []*apiv1.Tx{{
-		Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "AAPL",
+		OrderDate: timestamppb.New(base.Add(time.Hour)),
+		TradeDate: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "AAPL",
 		BrokerTxType:   []typev1.TxType{typev1.TxType_TRADE_ASSET},
 		ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A",
 		SettlementCurrency: "USD", TradingCurrency: "USD", UnitPrice: proto.String("190"),
@@ -907,7 +935,8 @@ func TestListTxs_TiedTimestampsPageBoundary(t *testing.T) {
 	ts := timestamppb.New(time.Now().Truncate(24 * time.Hour))
 	const total = 6
 	for i := 0; i < total; i++ {
-		tx := &apiv1.Tx{Timestamp: ts, InstrumentDescription: "TIE", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: strconv.Itoa(i + 1)}
+		tx := &apiv1.Tx{OrderDate: ts,
+			TradeDate: ts, InstrumentDescription: "TIE", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: strconv.Itoa(i + 1)}
 		if err := createTx(ctx, p, userID, "IBKR", "", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx %d: %v", i, err)
 		}
@@ -982,8 +1011,10 @@ func TestListTxsByPortfolio_ComputeHoldingsForPortfolio(t *testing.T) {
 	ts1 := timestamppb.New(now.Add(-90 * time.Minute))
 	ts2 := timestamppb.New(now.Add(-30 * time.Minute))
 	txList := []*apiv1.Tx{
-		{Timestamp: ts1, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""},
-		{Timestamp: ts2, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-3", Account: ""},
+		{OrderDate: ts1,
+			TradeDate: ts1, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""},
+		{OrderDate: ts2,
+			TradeDate: ts2, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-3", Account: ""},
 	}
 	instID, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
 	if err != nil {
@@ -1042,15 +1073,18 @@ func TestListTxsByPortfolio_ANDBetweenCategories(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	// Tx1: IBKR, account "B" -> matches broker but NOT account -> excluded
-	if err := createTx(ctx, p, userID, "IBKR", "B", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1", Account: "B"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "B", "", &apiv1.Tx{OrderDate: ts,
+		TradeDate: ts, InstrumentDescription: "X", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1", Account: "B"}, instID, nil); err != nil {
 		t.Fatalf("create tx1: %v", err)
 	}
 	// Tx2: SCHB, account "A" -> matches account but NOT broker -> excluded
-	if err := createTx(ctx, p, userID, "SCHB", "A", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "2", Account: "A"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "SCHB", "A", "", &apiv1.Tx{OrderDate: ts,
+		TradeDate: ts, InstrumentDescription: "X", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "2", Account: "A"}, instID, nil); err != nil {
 		t.Fatalf("create tx2: %v", err)
 	}
 	// Tx3: IBKR, account "A" -> matches both -> included
-	if err := createTx(ctx, p, userID, "IBKR", "A", "", &apiv1.Tx{Timestamp: ts, InstrumentDescription: "X", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "3", Account: "A"}, instID, nil); err != nil {
+	if err := createTx(ctx, p, userID, "IBKR", "A", "", &apiv1.Tx{OrderDate: ts,
+		TradeDate: ts, InstrumentDescription: "X", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "3", Account: "A"}, instID, nil); err != nil {
 		t.Fatalf("create tx3: %v", err)
 	}
 	txs, _, err := p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, nil, false, 50, "")
@@ -1093,7 +1127,8 @@ func TestReplaceTxsInPeriod_RoundTripsAccountType(t *testing.T) {
 	// because the declared type names where the money came from. Both legs keep
 	// the same broker and account.
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_INCOME}, ResolvedTxType: typev1.TxType_INCOME, Quantity: "23.4", Account: "A"},
+		{OrderDate: timestamppb.New(base.Add(time.Hour)),
+			TradeDate: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_INCOME}, ResolvedTxType: typev1.TxType_INCOME, Quantity: "23.4", Account: "A"},
 	}
 	weights := []db.Weight{{Amount: decimal.RequireFromString("23.4"), Commodity: "cur:USD"}}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
@@ -1151,7 +1186,8 @@ func TestReplaceTxsInPeriod_RoundTripsCorrelations(t *testing.T) {
 	// the other side, which is compared against a posting's account rather than
 	// against another token.
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
+		{OrderDate: timestamppb.New(base),
+			TradeDate: timestamppb.New(base), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
 			Quantity: "20000", Account: "AW10000001", Correlations: []*archivev1.Correlation{
 				{
 					Token: "971613414", Ordinal: &ordinal, OrdinalSpan: &span,
@@ -1165,7 +1201,8 @@ func TestReplaceTxsInPeriod_RoundTripsCorrelations(t *testing.T) {
 				},
 			}},
 		// A derived leg transcribes nothing, so it correlates with nothing.
-		{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
+		{OrderDate: timestamppb.New(base),
+			TradeDate: timestamppb.New(base), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
 			Quantity: "-20000", Account: "AG10000001"},
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
@@ -1249,7 +1286,8 @@ func TestReplaceTxsInPeriod_DeletesCorrelationsWithTheirPosting(t *testing.T) {
 	}
 	base := time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC)
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
-	tx := &apiv1.Tx{Timestamp: timestamppb.New(base), InstrumentDescription: "GBP",
+	tx := &apiv1.Tx{OrderDate: timestamppb.New(base),
+		TradeDate: timestamppb.New(base), InstrumentDescription: "GBP",
 		BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "100", Account: "A", Correlations: []*archivev1.Correlation{
 			{Token: "971613411", Scope: typev1.Scope_SCOPE_FILE, Match: []typev1.Match{typev1.Match_MATCH_EXACT}},
 		}}
@@ -1282,7 +1320,8 @@ func TestTxCorrelations_VocabularyCheckConstraints(t *testing.T) {
 	}
 	base := time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC)
 	if err := createTx(ctx, p, userID, "IBKR", "A", "",
-		&apiv1.Tx{Timestamp: timestamppb.New(base), InstrumentDescription: "CHK", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1"},
+		&apiv1.Tx{OrderDate: timestamppb.New(base),
+			TradeDate: timestamppb.New(base), InstrumentDescription: "CHK", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1"},
 		instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -1320,10 +1359,10 @@ func TestTxs_AccountTypeCheckConstraint(t *testing.T) {
 	ctx := context.Background()
 	userID, _ := p.GetOrCreateUser(ctx, "sub|acct-check", "U", "u@check.com")
 	_, err := p.q.ExecContext(ctx, `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 		                 broker_tx_type, resolved_tx_type, quantity, split_adjusted_quantity,
 		                 share_count_basis, account_type, weight, weight_commodity, group_id)
-		VALUES ($1, 'IBKR', 'A', now(), 'X', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 1, 1, current_date, 'Imbalance.USD', 1, 'desc:X', $2::uuid)
+		VALUES ($1, 'IBKR', 'A', now(), now(), 'X', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 1, 1, current_date, 'Imbalance.USD', 1, 'desc:X', $2::uuid)
 	`, userID, newTxGroup(t, p, userID))
 	if err == nil {
 		t.Fatal("insert with an account_type outside the vocabulary: want error, got none")
@@ -1346,8 +1385,10 @@ func TestReplaceTxsInPeriod_RoundTripsZeroUnitPrice(t *testing.T) {
 	}
 	base := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "OPT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-1", Account: "A", UnitPrice: proto.String("0")},
-		{Timestamp: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "OPT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1", Account: "A"},
+		{OrderDate: timestamppb.New(base.Add(time.Hour)),
+			TradeDate: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "OPT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-1", Account: "A", UnitPrice: proto.String("0")},
+		{OrderDate: timestamppb.New(base.Add(2 * time.Hour)),
+			TradeDate: timestamppb.New(base.Add(2 * time.Hour)), InstrumentDescription: "OPT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1", Account: "A"},
 	}
 	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
 	ids := []string{instID, instID}
@@ -1407,9 +1448,11 @@ func TestReplaceTxsInPeriod_StoresWeight(t *testing.T) {
 	now := time.Now()
 	from, to := timestamppb.New(now.Add(-time.Hour)), timestamppb.New(now.Add(time.Hour))
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
+		{OrderDate: timestamppb.New(now),
+			TradeDate: timestamppb.New(now), InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
 			Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD"},
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
+		{OrderDate: timestamppb.New(now),
+			TradeDate: timestamppb.New(now), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
 			Quantity: "-1855", SettlementCurrency: "USD", TradingCurrency: "USD"},
 	}
 	ws := []db.Weight{
@@ -1448,7 +1491,8 @@ func TestReplaceTxsInPeriod_DefaultsWeightWhenAbsent(t *testing.T) {
 	now := time.Now()
 	from, to := timestamppb.New(now.Add(-time.Hour)), timestamppb.New(now.Add(time.Hour))
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "7"},
+		{OrderDate: timestamppb.New(now),
+			TradeDate: timestamppb.New(now), InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "7"},
 	}
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID}, nil, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
@@ -1486,7 +1530,8 @@ func TestListTxsForExport_UsesTheBestIdentifier(t *testing.T) {
 		t.Fatalf("ensure instrument: %v", err)
 	}
 	now := time.Now().Truncate(time.Second)
-	tx := &apiv1.Tx{Timestamp: timestamppb.New(now), InstrumentDescription: "APPLE INC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10"}
+	tx := &apiv1.Tx{OrderDate: timestamppb.New(now),
+		TradeDate: timestamppb.New(now), InstrumentDescription: "APPLE INC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10"}
 	if err := createTx(ctx, p, userID, "FIDELITY", "acct", "", tx, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -1528,7 +1573,8 @@ func TestListTxsForExport_ExcludesSyntheticGroups(t *testing.T) {
 	if err := p.UpsertInitializeTx(ctx, userID, "IBKR", "acct1", instID, initTx(now, 50)); err != nil {
 		t.Fatalf("upsert initialize tx: %v", err)
 	}
-	tx := &apiv1.Tx{Timestamp: timestamppb.New(now), InstrumentDescription: "SYN", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10"}
+	tx := &apiv1.Tx{OrderDate: timestamppb.New(now),
+		TradeDate: timestamppb.New(now), InstrumentDescription: "SYN", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10"}
 	if err := createTx(ctx, p, userID, "IBKR", "acct1", "", tx, instID, nil); err != nil {
 		t.Fatalf("create tx: %v", err)
 	}
@@ -1562,12 +1608,14 @@ func TestListTxsForExport_ShareCountBasisOnlyWhenRestated(t *testing.T) {
 	restatedAt := time.Date(2024, 2, 20, 10, 0, 0, 0, time.UTC)
 	basis := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
 	if err := createTx(ctx, p, userID, "IBKR", "a", "",
-		&apiv1.Tx{Timestamp: timestamppb.New(asTraded), InstrumentDescription: "SCB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1"},
+		&apiv1.Tx{OrderDate: timestamppb.New(asTraded),
+			TradeDate: timestamppb.New(asTraded), InstrumentDescription: "SCB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1"},
 		instID, nil); err != nil {
 		t.Fatalf("create as-traded tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "IBKR", "a", "",
-		&apiv1.Tx{Timestamp: timestamppb.New(restatedAt), InstrumentDescription: "SCB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "2"},
+		&apiv1.Tx{OrderDate: timestamppb.New(restatedAt),
+			TradeDate: timestamppb.New(restatedAt), InstrumentDescription: "SCB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "2"},
 		instID, &basis); err != nil {
 		t.Fatalf("create restated tx: %v", err)
 	}
@@ -1604,12 +1652,14 @@ func TestListTxsForExport_CarriesTheSourcesCashTotal(t *testing.T) {
 	stated := "20514.62"
 	price := "7.67"
 	if err := createTx(ctx, p, userID, "IBKR", "a", "",
-		&apiv1.Tx{Timestamp: timestamppb.New(ts), InstrumentDescription: "AMT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-2676", UnitPrice: &price, SettlementAmount: &stated},
+		&apiv1.Tx{OrderDate: timestamppb.New(ts),
+			TradeDate: timestamppb.New(ts), InstrumentDescription: "AMT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "-2676", UnitPrice: &price, SettlementAmount: &stated},
 		instID, nil); err != nil {
 		t.Fatalf("create priced tx: %v", err)
 	}
 	if err := createTx(ctx, p, userID, "IBKR", "a", "",
-		&apiv1.Tx{Timestamp: timestamppb.New(ts.Add(time.Hour)), InstrumentDescription: "AMT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH}, ResolvedTxType: typev1.TxType_TRADE_CASH, Quantity: "20514.62"},
+		&apiv1.Tx{OrderDate: timestamppb.New(ts.Add(time.Hour)),
+			TradeDate: timestamppb.New(ts.Add(time.Hour)), InstrumentDescription: "AMT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH}, ResolvedTxType: typev1.TxType_TRADE_CASH, Quantity: "20514.62"},
 		instID, nil); err != nil {
 		t.Fatalf("create cash tx: %v", err)
 	}
@@ -1656,7 +1706,8 @@ func TestListTxsForExport_OrderedForGrouping(t *testing.T) {
 		{"FIDELITY", 0, "1"},
 	}
 	for _, s := range seed {
-		tx := &apiv1.Tx{Timestamp: timestamppb.New(base.Add(s.offset)), InstrumentDescription: "ORDX", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: s.qty}
+		tx := &apiv1.Tx{OrderDate: timestamppb.New(base.Add(s.offset)),
+			TradeDate: timestamppb.New(base.Add(s.offset)), InstrumentDescription: "ORDX", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: s.qty}
 		if err := createTx(ctx, p, userID, s.broker, "a", "", tx, instID, nil); err != nil {
 			t.Fatalf("create tx: %v", err)
 		}
@@ -1702,10 +1753,12 @@ func straddlingRun(t *testing.T, p *Postgres, sub string, txType typev1.TxType, 
 	day2 = day1.Add(24 * time.Hour)
 	amount := decimal.RequireFromString(qty)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(day1), InstrumentDescription: "USD",
+		{OrderDate: timestamppb.New(day1),
+			TradeDate: timestamppb.New(day1), InstrumentDescription: "USD",
 			BrokerTxType: []typev1.TxType{txType}, ResolvedTxType: txType,
 			Quantity: amount.Neg().String(), Account: "A"},
-		{Timestamp: timestamppb.New(day2), InstrumentDescription: "USD",
+		{OrderDate: timestamppb.New(day2),
+			TradeDate: timestamppb.New(day2), InstrumentDescription: "USD",
 			BrokerTxType: []typev1.TxType{txType}, ResolvedTxType: txType,
 			Quantity: amount.String(), Account: "A"},
 	}
@@ -1739,9 +1792,11 @@ func replaceDay(t *testing.T, p *Postgres, userID, usd string, from time.Time, t
 // routed above the db layer.
 func balancedUpload(at time.Time, qty string) []*apiv1.Tx {
 	return []*apiv1.Tx{
-		{Timestamp: timestamppb.New(at), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
+		{OrderDate: timestamppb.New(at),
+			TradeDate: timestamppb.New(at), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
 			Quantity: qty, Account: "A"},
-		{Timestamp: timestamppb.New(at), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
+		{OrderDate: timestamppb.New(at),
+			TradeDate: timestamppb.New(at), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
 			Quantity: decimal.RequireFromString(qty).Neg().String(), Account: "B"},
 	}
 }
@@ -1762,7 +1817,7 @@ func routedPostings(t *testing.T, p *Postgres, userID string) [][3]string {
 	rows, err := p.q.QueryContext(context.Background(), `
 		SELECT account_type, quantity::text, weight_commodity FROM txs
 		WHERE user_id = $1 AND synthetic_purpose = '`+db.RoutedPurpose+`'
-		ORDER BY timestamp, quantity
+		ORDER BY order_date, quantity
 	`, userID)
 	if err != nil {
 		t.Fatalf("routed postings: %v", err)
@@ -1786,7 +1841,7 @@ func boundaryPostings(t *testing.T, p *Postgres, userID string) [][2]string {
 	rows, err := p.q.QueryContext(context.Background(), `
 		SELECT account_type, quantity::text FROM txs
 		WHERE user_id = $1 AND synthetic_purpose = '`+db.BoundaryPurpose+`'
-		ORDER BY timestamp, quantity
+		ORDER BY order_date, quantity
 	`, userID)
 	if err != nil {
 		t.Fatalf("boundary postings: %v", err)
@@ -1847,7 +1902,7 @@ func TestReplaceTxsInPeriod_KeepsLegsOutsideThePeriod(t *testing.T) {
 	}
 	var kept bool
 	for _, r := range rows {
-		if r.GetTx().GetTimestamp().AsTime().Equal(day1) && r.GetTx().GetQuantity() == "-5000" {
+		if r.GetTx().GetOrderDate().AsTime().Equal(day1) && r.GetTx().GetQuantity() == "-5000" {
 			kept = true
 		}
 	}
@@ -1930,9 +1985,12 @@ func TestReplaceTxsInPeriod_ResidualIsReDerivedNotStacked(t *testing.T) {
 	day1 := time.Date(2025, 9, 10, 15, 0, 0, 0, time.UTC)
 	day2, day3 := day1.Add(24*time.Hour), day1.Add(48*time.Hour)
 	legs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(day1), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-5000", Account: "A"},
-		{Timestamp: timestamppb.New(day2), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "2000", Account: "A"},
-		{Timestamp: timestamppb.New(day3), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "3000", Account: "A"},
+		{OrderDate: timestamppb.New(day1),
+			TradeDate: timestamppb.New(day1), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-5000", Account: "A"},
+		{OrderDate: timestamppb.New(day2),
+			TradeDate: timestamppb.New(day2), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "2000", Account: "A"},
+		{OrderDate: timestamppb.New(day3),
+			TradeDate: timestamppb.New(day3), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "3000", Account: "A"},
 	}
 	weights := []db.Weight{
 		{Amount: decimal.RequireFromString("-5000"), Commodity: "cur:USD"},
@@ -1988,8 +2046,8 @@ func TestReplaceTxsInPeriod_IsIdempotent(t *testing.T) {
 func postingSummary(t *testing.T, p *Postgres, userID string) [][3]string {
 	t.Helper()
 	rows, err := p.q.QueryContext(context.Background(), `
-		SELECT timestamp::text, quantity::text, account_type FROM txs
-		WHERE user_id = $1 ORDER BY timestamp, quantity, account_type
+		SELECT order_date::text, quantity::text, account_type FROM txs
+		WHERE user_id = $1 ORDER BY order_date, quantity, account_type
 	`, userID)
 	if err != nil {
 		t.Fatalf("posting summary: %v", err)
@@ -2069,10 +2127,10 @@ func TestReplaceTxsInPeriod_DropsMatchesOnCutGroups(t *testing.T) {
 func insertRawPostingAs(t *testing.T, p *Postgres, userID, instID, groupID, broker string, at time.Time, syntheticPurpose interface{}) {
 	t.Helper()
 	_, err := p.q.ExecContext(context.Background(), `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 		                 broker_tx_type, resolved_tx_type, quantity, instrument_id, weight,
 		                 weight_commodity, group_id, synthetic_purpose)
-		VALUES ($1::uuid, $2, 'A', $3, 'USD', ARRAY['TRANSFER'], 'TRANSFER', 0, $4::uuid, 0,
+		VALUES ($1::uuid, $2, 'A', $3, $3, 'USD', ARRAY['TRANSFER'], 'TRANSFER', 0, $4::uuid, 0,
 		        'cur:USD', $5::uuid, $6)
 	`, userID, broker, at, instID, groupID, syntheticPurpose)
 	if err != nil {
@@ -2158,9 +2216,11 @@ func TestReplaceTxsInPeriod_KeepsSplitAdjustmentOnASurvivor(t *testing.T) {
 	day2 := day1.Add(24 * time.Hour)
 	price := "100"
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(day1), InstrumentDescription: "SPLT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
+		{OrderDate: timestamppb.New(day1),
+			TradeDate: timestamppb.New(day1), InstrumentDescription: "SPLT", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
 			Quantity: "10", UnitPrice: &price, SettlementCurrency: "USD", Account: "A"},
-		{Timestamp: timestamppb.New(day2), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
+		{OrderDate: timestamppb.New(day2),
+			TradeDate: timestamppb.New(day2), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET,
 			Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD", Account: "A"},
 	}
 	ws := []db.Weight{{Amount: decf(1000), Commodity: "cur:USD"}, {Amount: decf(-1000), Commodity: "cur:USD"}}
@@ -2205,9 +2265,11 @@ func TestReplaceTxsInPeriod_KeepsRestatedShareCountBasis(t *testing.T) {
 	day2 := day1.Add(24 * time.Hour)
 	restated := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(day1), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
+		{OrderDate: timestamppb.New(day1),
+			TradeDate: timestamppb.New(day1), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
 			Quantity: "-5000", Account: "A"},
-		{Timestamp: timestamppb.New(day2), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
+		{OrderDate: timestamppb.New(day2),
+			TradeDate: timestamppb.New(day2), InstrumentDescription: "USD", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
 			Quantity: "5000", Account: "A"},
 	}
 	ws := []db.Weight{{Amount: decf(-5000), Commodity: "cur:USD"}, {Amount: decf(5000), Commodity: "cur:USD"}}
@@ -2256,7 +2318,7 @@ func TestListTxsForExport_ClipsAStraddlingGroup(t *testing.T) {
 	if len(clipped) != 1 {
 		t.Fatalf("postings in the second day alone: want 1, got %d", len(clipped))
 	}
-	if !clipped[0].Timestamp.Equal(day2) {
-		t.Errorf("exported posting at %v, want the day-two leg at %v", clipped[0].Timestamp, day2)
+	if !clipped[0].OrderDate.Equal(day2) {
+		t.Errorf("exported posting at %v, want the day-two leg at %v", clipped[0].OrderDate, day2)
 	}
 }

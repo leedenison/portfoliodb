@@ -126,7 +126,8 @@ function userFixture() {
           source: "IBKR:web:ibkr-ofx",
           postings: [
             {
-              timestamp: timestampFromDate(new Date("2024-01-15T00:00:00Z")),
+              orderDate: timestampFromDate(new Date("2024-01-15T00:00:00Z")),
+              tradeDate: timestampFromDate(new Date("2024-01-15T00:00:00Z")),
               account: "U123",
               accountType: AccountType.USER,
               brokerTxType: [TxType.TRADE_ASSET],

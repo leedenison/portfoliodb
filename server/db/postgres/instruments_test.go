@@ -38,8 +38,10 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 	ts1 := timestamppb.New(now.Add(-90 * time.Minute))
 	ts2 := timestamppb.New(now.Add(-30 * time.Minute))
 	txs := []*apiv1.Tx{
-		{Timestamp: ts1, InstrumentDescription: "StockA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""},
-		{Timestamp: ts2, InstrumentDescription: "StockB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: ""},
+		{OrderDate: ts1,
+			TradeDate: ts1, InstrumentDescription: "StockA", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: ""},
+		{OrderDate: ts2,
+			TradeDate: ts2, InstrumentDescription: "StockB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: ""},
 	}
 	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, nil, nil)
 	if err != nil {
@@ -808,8 +810,10 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 	// A journal leg against A and its clearing counterparty against B: two names for
 	// what the merge is about to decide is one commodity.
 	txs := []*apiv1.Tx{
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "StockA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-10"},
-		{Timestamp: timestamppb.New(now), InstrumentDescription: "StockB", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "10"},
+		{OrderDate: timestamppb.New(now),
+			TradeDate: timestamppb.New(now), InstrumentDescription: "StockA", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "-10"},
+		{OrderDate: timestamppb.New(now),
+			TradeDate: timestamppb.New(now), InstrumentDescription: "StockB", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER, Quantity: "10"},
 	}
 	ws := []db.Weight{
 		{Amount: decf(-10), Commodity: "inst:" + idA},

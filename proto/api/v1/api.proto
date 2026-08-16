@@ -79,8 +79,10 @@ message Exchange {
 
 // Tx represents one broker-reported transaction.
 message Tx {
-  // Time of the transaction (date or time as provided by broker). Required.
-  google.protobuf.Timestamp timestamp = 1 [(buf.validate.field).required = true];
+  // When the transaction was ordered, and the date this posting is filed under:
+  // windows, listings and the day-bucketing grouping rules all use this one. See
+  // archive.v1.Posting.order_date. Required.
+  google.protobuf.Timestamp order_date = 1 [(buf.validate.field).required = true];
   // Account (opaque string). Required.
   string account = 2;
   // What kind of leg this posting is. Set by the broker converter, which is the only
@@ -167,8 +169,9 @@ message Tx {
   // source stating one would be stating an answer rather than supplying data.
   // See docs/adr/0041-server-owns-transaction-grouping.md.
   string group_id = 18;
-  // The date of the event, which is the earliest of its legs. Server-derived and
-  // output-only like group_id, and the same for every posting of a group.
+  // The date of the event, which is the earliest order_date of its legs.
+  // Server-derived and output-only like group_id, and the same for every posting of
+  // a group.
   //
   // It is what a listing orders its groups by, and so what a client shows on the row
   // standing for the event: a group's legs can be dated apart -- a deposit run
@@ -185,6 +188,10 @@ message Tx {
   // account_type cannot -- a routed residual and a leg a converter read out of a
   // record land in the same account types.
   string synthetic_purpose = 20;
+  // When the transaction took effect: the date a trade executed, or a charge was
+  // levied, or money moved. Duplicated from order_date by a source that reports one
+  // date and no other. See archive.v1.Posting.trade_date. Required.
+  google.protobuf.Timestamp trade_date = 21 [(buf.validate.field).required = true];
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,
@@ -431,7 +438,7 @@ message ListTxsRequest {
   // Restrict to one broker. BROKER_UNSPECIFIED = all brokers. Applies to both
   // the portfolio view and the all-transactions listing.
   portfoliodb.type.v1.Broker broker = 6 [(buf.validate.field).enum = {defined_only: true}];
-  // Order by timestamp descending (newest first). Default is ascending.
+  // Order by order_date descending (newest first). Default is ascending.
   bool descending = 7;
 }
 
@@ -1264,8 +1271,8 @@ message ResidualBalance {
   // and is measured against that bound before it is reported at all.
   string balance = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   int32 posting_count = 9;
-  // The oldest and newest postings contributing to the balance. For a transfer
-  // these are not the age of a missing side: see the note above.
+  // The oldest and newest postings contributing to the balance, by order_date.
+  // For a transfer these are not the age of a missing side: see the note above.
   google.protobuf.Timestamp oldest_timestamp = 10;
   google.protobuf.Timestamp newest_timestamp = 11;
 }
@@ -1274,7 +1281,7 @@ message ResidualBalance {
 // broker, account, commodity and tx type. Admin only: it measures converter
 // quality rather than any one portfolio, and carries no user identity.
 message ListResidualBalancesRequest {
-  // Half-open [period_from, period_before) over the posting timestamp; an unset
+  // Half-open [period_from, period_before) over the posting order_date; an unset
   // bound is open-ended.
   google.protobuf.Timestamp period_from = 1;    // inclusive
   google.protobuf.Timestamp period_before = 2;  // exclusive

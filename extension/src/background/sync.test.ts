@@ -57,7 +57,7 @@ function row(overrides: Record<string, unknown> = {}) {
 function withLatest(date: Date | null) {
   listTxs.mockResolvedValue(
     create(ListTxsResponseSchema, {
-      txs: date ? [{ broker: Broker.FIDELITY, tx: { timestamp: timestampFromDate(date) } }] : [],
+      txs: date ? [{ broker: Broker.FIDELITY, tx: { orderDate: timestampFromDate(date) } }] : [],
     })
   );
 }
@@ -159,7 +159,7 @@ describe("sync", () => {
     expect(entry.droppedCount).toBe(1);
     expect(entry.droppedTypes).toBeUndefined();
     expect(entry.droppedRows).toEqual([
-      { rowIndex: 2, field: "date", message: "Invalid or missing date" },
+      { rowIndex: 2, field: "dealDate", message: "Invalid or missing date" },
     ]);
   });
 

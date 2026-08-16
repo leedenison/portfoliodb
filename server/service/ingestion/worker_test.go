@@ -48,7 +48,8 @@ func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *tes
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "UNKNOWN", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", Account: ""},
+		{OrderDate: from,
+			TradeDate: from, InstrumentDescription: "UNKNOWN", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -124,8 +125,10 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: timestamppb.New(from.AsTime().Add(-1)), InstrumentDescription: "CACHED", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", Account: ""},
-		{Timestamp: timestamppb.New(from.AsTime().Add(1)), InstrumentDescription: "CACHED", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "2", Account: ""},
+		{OrderDate: timestamppb.New(from.AsTime().Add(-1)),
+			TradeDate: timestamppb.New(from.AsTime().Add(-1)), InstrumentDescription: "CACHED", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", Account: ""},
+		{OrderDate: timestamppb.New(from.AsTime().Add(1)),
+			TradeDate: timestamppb.New(from.AsTime().Add(1)), InstrumentDescription: "CACHED", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "2", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -194,10 +197,12 @@ func TestProcessBulk_DropsIgnoredTxs(t *testing.T) {
 		Match: []typev1.Match{typev1.Match_MATCH_EXACT},
 	}}
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10", Account: "", Correlations: ref},
+		{OrderDate: from,
+			TradeDate: from, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10", Account: "", Correlations: ref},
 		// The ignore rules match the stated asset class, so the cash journal
 		// carries the CASH claim the broker's file made.
-		{Timestamp: from, InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "1", Account: "", Correlations: ref},
+		{OrderDate: from,
+			TradeDate: from, InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "1", Account: "", Correlations: ref},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -308,8 +313,10 @@ func TestProcessBulk_StatedCashOnStockInstrumentFails(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "MICROSOFT INC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, AssetClassHint: typev1.AssetClass_STOCK, Quantity: "10", Account: ""},
-		{Timestamp: from, InstrumentDescription: "MICROSOFT INC", BrokerTxType: []typev1.TxType{typev1.TxType_INCOME}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "0", Account: ""},
+		{OrderDate: from,
+			TradeDate: from, InstrumentDescription: "MICROSOFT INC", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, AssetClassHint: typev1.AssetClass_STOCK, Quantity: "10", Account: ""},
+		{OrderDate: from,
+			TradeDate: from, InstrumentDescription: "MICROSOFT INC", BrokerTxType: []typev1.TxType{typev1.TxType_INCOME}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "0", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -379,7 +386,8 @@ func TestProcessBulk_StockEtfEquivalence(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "SPY", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, AssetClassHint: typev1.AssetClass_STOCK, Quantity: "10", Account: ""},
+		{OrderDate: from,
+			TradeDate: from, InstrumentDescription: "SPY", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, AssetClassHint: typev1.AssetClass_STOCK, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -442,7 +450,8 @@ func TestProcessBulk_StockMutualFundNotEquivalent(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "VFIAX", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, AssetClassHint: typev1.AssetClass_STOCK, Quantity: "10", Account: ""},
+		{OrderDate: from,
+			TradeDate: from, InstrumentDescription: "VFIAX", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, AssetClassHint: typev1.AssetClass_STOCK, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -504,7 +513,8 @@ func TestProcessBulk_TransferToCashRejected(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "USD CASH", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_UNKNOWN, Quantity: "10", Account: ""},
+		{OrderDate: from,
+			TradeDate: from, InstrumentDescription: "USD CASH", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_UNKNOWN, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -560,7 +570,8 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 	from := timestamppb.Now()
 	before := timestamppb.Now()
 	postings := []*archivev1.Posting{
-		{Timestamp: from, InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_UNKNOWN, Quantity: "10", Account: ""},
+		{OrderDate: from,
+			TradeDate: from, InstrumentDescription: "MSFT", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_UNKNOWN, Quantity: "10", Account: ""},
 	}
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
@@ -619,9 +630,10 @@ func TestProcessSingle_DropsIgnoredTx(t *testing.T) {
 	ctx := context.Background()
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
-			Broker:   typev1.Broker_IBKR,
-			Source:   "IBKR:test:statement",
-			Postings: []*archivev1.Posting{{Timestamp: timestamppb.Now(), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "1", Account: ""}},
+			Broker: typev1.Broker_IBKR,
+			Source: "IBKR:test:statement",
+			Postings: []*archivev1.Posting{{OrderDate: timestamppb.Now(),
+				TradeDate: timestamppb.Now(), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "1", Account: ""}},
 		},
 	})
 	j := &JobRequest{JobID: "job-single-ignored", JobType: "tx"}

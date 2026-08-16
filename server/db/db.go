@@ -319,7 +319,8 @@ type ExportPosting struct {
 	ID             string
 	GroupID        string
 	GroupTimestamp time.Time
-	Timestamp      time.Time
+	OrderDate      time.Time
+	TradeDate      time.Time
 	Account        string
 	AccountType    string
 	// The declared candidate set. The resolved value is deliberately not
@@ -342,7 +343,7 @@ type ExportPosting struct {
 	// own quantity is already money.
 	SettlementAmount *decimal.Decimal
 	// The share count this posting is denominated in, or nil when it is the
-	// posting's own timestamp date. The column is NOT NULL and the insert
+	// posting's own trade date. The column is NOT NULL and the insert
 	// trigger defaults it to that date, so only a value that differs from it
 	// says anything, and only that value is worth writing to a file.
 	ShareCountBasis *time.Time
@@ -1682,7 +1683,7 @@ type ResidualBalance struct {
 }
 
 // ResidualBalanceOpts filters the residual balance report. From and Before are a
-// half-open [From, Before) window over the posting timestamp; nil bounds are
+// half-open [From, Before) window over the posting order_date; nil bounds are
 // open-ended. An AccountType of ACCOUNT_TYPE_UNSPECIFIED returns both residual
 // types.
 type ResidualBalanceOpts struct {
@@ -1730,7 +1731,7 @@ type TransferSide struct {
 	// leg holds what is owed out -- and negative means it arrived. A pair is two
 	// sides summing to exactly zero.
 	Amount    decimal.Decimal
-	Timestamp time.Time
+	OrderDate time.Time
 	// Correlations is what the group's sources said about why its postings might
 	// belong with others: their own identifiers, and what may be compared about
 	// each. A set over the whole group rather than one value, because a group is
@@ -1927,10 +1928,14 @@ type GroupingPosting struct {
 	UserID  string
 	Broker  typev1.Broker
 	Account string
-	// Timestamp is what the trade rules bucket on. A group's postings need not
-	// share it -- a deposit run in the sample settles across two days -- so only
-	// the rules that say so use it.
-	Timestamp time.Time
+	// OrderDate is what the rules that bucket on a day bucket on. A group's
+	// postings need not share it -- a deposit run in the sample settles across two
+	// days -- so only the rules that say so use it.
+	//
+	// The order date rather than the trade date, because that is the one a trade
+	// and the charges levied on it agree about: a broker dates a charge by when it
+	// cleared and a trade by when it settled, and those are days apart.
+	OrderDate time.Time
 	// InstrumentID is the commodity, empty for a posting whose instrument never
 	// resolved.
 	InstrumentID string

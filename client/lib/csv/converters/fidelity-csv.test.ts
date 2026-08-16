@@ -1,3 +1,4 @@
+import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { Big } from "@/lib/decimal";
 import { describe, it, expect } from "vitest";
 import { AccountType, AssetClass, IdentifierType, Match, Scope, TxType } from "@/gen/type/v1/type_pb";
@@ -72,7 +73,7 @@ describe("convertFidelityToStandard", () => {
     expect(result.errors[0]!.message).toContain("Status");
   });
 
-  it("parses a single Sell row and uses Completion date", () => {
+  it("parses a single Sell row and carries both of its dates", () => {
     const result = convertRows([
       '21 Jan 2026,23 Jan 2026,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10000001,,-31826.24,70,454.66,1107095237,Completed,',
     ]);
@@ -84,9 +85,15 @@ describe("convertFidelityToStandard", () => {
     expect(result.postings[0]!.settlementCurrency).toBe("GBP");
     expect(result.postings[0]!.tradingCurrency).toBeUndefined(); // Sell is not Cash type
     expect(result.postings[0]!.account).toBe("AG10000001");
+    // The two columns are two different facts and both survive: Order date is
+    // when it was ordered, Completion date when it settled two days later.
+    expect(timestampDate(result.postings[0]!.orderDate!).getDate()).toBe(21);
+    expect(timestampDate(result.postings[0]!.tradeDate!).getDate()).toBe(23);
+    // The window is over the order date, which is what the replace period is
+    // matched against.
     expect(result.periodFrom.getFullYear()).toBe(2026);
     expect(result.periodFrom.getMonth()).toBe(0); // Jan
-    expect(result.periodFrom.getDate()).toBe(23);
+    expect(result.periodFrom.getDate()).toBe(21);
   });
 
   it("falls back to Order date when Completion date is Pending", () => {
@@ -108,7 +115,7 @@ describe("convertFidelityToStandard", () => {
     ]);
     expect(result.postings).toEqual([]);
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0]!.field).toBe("date");
+    expect(result.errors[0]!.field).toBe("Order date");
   });
 
   it("parses Cash Interest as INTEREST", () => {

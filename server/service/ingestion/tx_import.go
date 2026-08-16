@@ -110,7 +110,7 @@ func windowTxs(w *archivev1.TxWindow, offset int, rep *archiveimport.PartReporte
 }
 
 // postingBasis parses a restated share count basis. Absent is nil, which the
-// store reads as the posting's own timestamp date.
+// store reads as the posting's own trade date.
 func postingBasis(p *archivev1.Posting) (*time.Time, error) {
 	b := p.GetShareCountBasis()
 	if b == "" {
@@ -131,7 +131,8 @@ func postingBasis(p *archivev1.Posting) (*time.Time, error) {
 // than doubling.
 func archiveTx(p *archivev1.Posting) *apiv1.Tx {
 	tx := &apiv1.Tx{
-		Timestamp:             p.GetTimestamp(),
+		OrderDate:             p.GetOrderDate(),
+		TradeDate:             p.GetTradeDate(),
 		InstrumentDescription: p.GetInstrumentDescription(),
 		// The declaration travels; the resolved value does not, and is
 		// re-derived by the ingest pipeline like any upload's.

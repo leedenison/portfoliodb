@@ -40,7 +40,7 @@ const unmatchedTransferSidesSQL = `
 		-- agree for it, but the two sides of a securities journal recorded either
 		-- side of a split are in different denominations and would not cancel.
 		t.split_adjusted_quantity AS amount,
-		t.timestamp,
+		t.order_date,
 		COALESCE(e.correlations, '[]'::jsonb) AS correlations
 	FROM txs t
 	-- The evidence of the whole group, not of the clearing leg, which is routed
@@ -69,7 +69,7 @@ const unmatchedTransferSidesSQL = `
 			WHERE m.instrument_id = t.instrument_id
 				AND (m.from_group_id = t.group_id OR m.to_group_id = t.group_id)
 		)
-	ORDER BY t.user_id, t.instrument_id, t.timestamp, t.group_id`
+	ORDER BY t.user_id, t.instrument_id, t.order_date, t.group_id`
 
 // transferSideRow is the sqlx-scannable shape for one unmatched side.
 //
@@ -85,7 +85,7 @@ type transferSideRow struct {
 	Account      string          `db:"account"`
 	InstrumentID string          `db:"instrument_id"`
 	Amount       decimal.Decimal `db:"amount"`
-	Timestamp    time.Time       `db:"timestamp"`
+	OrderDate    time.Time       `db:"order_date"`
 	Correlations []byte          `db:"correlations"`
 }
 
@@ -105,7 +105,7 @@ func (r *transferSideRow) toDomain() (db.TransferSide, error) {
 		Account:      r.Account,
 		InstrumentID: r.InstrumentID,
 		Amount:       r.Amount,
-		Timestamp:    r.Timestamp,
+		OrderDate:    r.OrderDate,
 	}
 	for _, c := range cs {
 		side.Correlations = append(side.Correlations, db.Correlation{

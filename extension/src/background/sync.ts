@@ -36,7 +36,7 @@ async function finish(entry: RunLogEntry): Promise<SyncResult> {
 /** Most recent transaction already held for a broker, or null if there are none. */
 async function latestTx(origin: string, sessionId: string, broker: Broker): Promise<Date | null> {
   const res = await listTxs(origin, sessionId, { broker, descending: true, pageSize: 1 });
-  const ts = res.txs[0]?.tx?.timestamp;
+  const ts = res.txs[0]?.tx?.orderDate;
   return ts ? timestampDate(ts) : null;
 }
 

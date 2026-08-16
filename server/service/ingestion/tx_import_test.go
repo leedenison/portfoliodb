@@ -19,7 +19,8 @@ import (
 
 func archivePosting(desc, qty string, txType typev1.TxType) *archivev1.Posting {
 	return &archivev1.Posting{
-		Timestamp:             timestamppb.New(mustParseDay("2024-01-15")),
+		OrderDate:             timestamppb.New(mustParseDay("2024-01-15")),
+		TradeDate:             timestamppb.New(mustParseDay("2024-01-15")),
 		Account:               "acct",
 		BrokerTxType:          []typev1.TxType{txType},
 		InstrumentDescription: desc,

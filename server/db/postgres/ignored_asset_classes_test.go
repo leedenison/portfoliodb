@@ -20,7 +20,8 @@ func seedIgnoreFixture(t *testing.T, p *Postgres, userID string) (bondID, stockI
 	stockID = setupInstrumentWithCurrency(t, p, "STK-1", db.AssetClassStock, "USD")
 	at := time.Date(2024, 3, 1, 10, 0, 0, 0, time.UTC)
 	for desc, id := range map[string]string{"BOND-1": bondID, "STK-1": stockID} {
-		tx := &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: desc,
+		tx := &apiv1.Tx{OrderDate: timestamppb.New(at),
+			TradeDate: timestamppb.New(at), InstrumentDescription: desc,
 			BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1", Account: "A"}
 		if err := createTx(ctx, p, userID, "IBKR", "A", "", tx, id, nil); err != nil {
 			t.Fatalf("create tx %s: %v", desc, err)
@@ -62,10 +63,10 @@ func TestSetIgnoredAssetClasses_DeletesByInstrumentAssetClass(t *testing.T) {
 	at := time.Date(2024, 3, 2, 10, 0, 0, 0, time.UTC)
 	insertRawPostingAs(t, p, userID, bondID, newTxGroup(t, p, userID), "IBKR", at, "INITIALIZE")
 	if _, err := p.q.ExecContext(ctx, `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 		                 broker_tx_type, resolved_tx_type, quantity, instrument_id, weight,
 		                 weight_commodity, group_id)
-		VALUES ($1::uuid, 'IBKR', 'A', $2, 'UNRESOLVED', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 1, NULL, 0, 'desc:UNRESOLVED', $3::uuid)
+		VALUES ($1::uuid, 'IBKR', 'A', $2, $2, 'UNRESOLVED', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 1, NULL, 0, 'desc:UNRESOLVED', $3::uuid)
 	`, userID, at, newTxGroup(t, p, userID)); err != nil {
 		t.Fatalf("insert unresolved posting: %v", err)
 	}
@@ -100,7 +101,8 @@ func TestSetIgnoredAssetClasses_AccountScopedRule(t *testing.T) {
 	bondID := setupInstrumentWithCurrency(t, p, "BOND-2", db.AssetClassFixedIncome, "USD")
 	at := time.Date(2024, 3, 1, 10, 0, 0, 0, time.UTC)
 	for _, account := range []string{"A", "B"} {
-		tx := &apiv1.Tx{Timestamp: timestamppb.New(at), InstrumentDescription: "BOND-2",
+		tx := &apiv1.Tx{OrderDate: timestamppb.New(at),
+			TradeDate: timestamppb.New(at), InstrumentDescription: "BOND-2",
 			BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "1", Account: account}
 		if err := createTx(ctx, p, userID, "IBKR", account, "", tx, bondID, nil); err != nil {
 			t.Fatalf("create tx in %s: %v", account, err)

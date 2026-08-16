@@ -343,6 +343,10 @@ export function parseOfxStatement(text: string): OfxParseResult {
         ? [{ type: IdentifierType.CURRENCY, value: tradingCurrency }]
         : buildIdentifierHints(uniqueId, uniqueIdType);
 
+      // OFX states DTTRADE and no settlement date -- the tag does not appear in
+      // the statements this reads at all -- so the two dates coincide as far as
+      // the source says, and both carry it. Writing one and leaving the other
+      // would claim the file distinguishes them.
       const ts = timestampFromDate(date);
       const hintProtos = identifierHints.map((h) =>
         create(InstrumentRefSchema, {
@@ -353,7 +357,8 @@ export function parseOfxStatement(text: string): OfxParseResult {
 
       const legs: Posting[] = [];
       const security = create(PostingSchema, {
-        timestamp: ts,
+        orderDate: ts,
+        tradeDate: ts,
         instrumentDescription: description,
         brokerTxType: def.types,
         assetClassHint: def.hint,
@@ -434,7 +439,8 @@ export function parseOfxStatement(text: string): OfxParseResult {
           ];
           legs.push(
             create(PostingSchema, {
-              timestamp: ts,
+              orderDate: ts,
+              tradeDate: ts,
               instrumentDescription: description,
               brokerTxType: [TxType.TRADE_CASH],
               assetClassHint: AssetClass.CASH,
@@ -473,10 +479,10 @@ export function parseOfxStatement(text: string): OfxParseResult {
   });
 
   postings.sort((a, b) =>
-    Number(a.timestamp?.seconds ?? 0) - Number(b.timestamp?.seconds ?? 0),
+    Number(a.orderDate?.seconds ?? 0) - Number(b.orderDate?.seconds ?? 0),
   );
 
-  const last = postings[postings.length - 1]?.timestamp;
+  const last = postings[postings.length - 1]?.orderDate;
   const afterLast = last ? startOfNextDay(timestampDate(last)) : new Date(0);
   const periodBefore = afterLast > dtEnd ? afterLast : dtEnd;
 

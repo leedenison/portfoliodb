@@ -72,10 +72,10 @@ func txWindows(rows []db.ExportPosting, periodFrom, periodBefore *timestamppb.Ti
 				Source: r.Broker + ":archive:export",
 			}
 			curBroker = r.Broker
-			from = r.Timestamp
+			from = r.OrderDate
 			out = append(out, cur)
 		}
-		last = r.Timestamp
+		last = r.OrderDate
 		cur.Postings = append(cur.Postings, posting(r))
 	}
 	closeWindow()
@@ -86,10 +86,11 @@ func txWindows(rows []db.ExportPosting, periodFrom, periodBefore *timestamppb.Ti
 //
 // Every optional field is written only where the column held something: an
 // absent unit price is not a price of zero, and an absent share count basis is
-// the posting's own timestamp date rather than an unstated one.
+// the posting's own trade date rather than an unstated one.
 func posting(r db.ExportPosting) *archivev1.Posting {
 	p := &archivev1.Posting{
-		Timestamp:             timestamppb.New(r.Timestamp),
+		OrderDate:             timestamppb.New(r.OrderDate),
+		TradeDate:             timestamppb.New(r.TradeDate),
 		Account:               r.Account,
 		AccountType:           db.StrToAccountType(r.AccountType),
 		BrokerTxType:          db.StrsToTxTypes(r.BrokerTxTypes),

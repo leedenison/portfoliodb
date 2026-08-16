@@ -21,8 +21,14 @@ func ValidateTx(tx *apiv1.Tx, rowIndex int32) []*apiv1.ValidationError {
 	if tx == nil {
 		return []*apiv1.ValidationError{{RowIndex: rowIndex, Field: "tx", Message: "transaction is required"}}
 	}
-	if tx.Timestamp == nil || !tx.Timestamp.IsValid() {
-		errs = append(errs, &apiv1.ValidationError{RowIndex: rowIndex, Field: "timestamp", Message: "required"})
+	if tx.OrderDate == nil || !tx.OrderDate.IsValid() {
+		errs = append(errs, &apiv1.ValidationError{RowIndex: rowIndex, Field: "order_date", Message: "required"})
+	}
+	// Both dates are required, and a source with one date writes it to both. So an
+	// absent trade date is a converter that forgot rather than a source that did
+	// not distinguish them, and defaulting it here would hide that.
+	if tx.TradeDate == nil || !tx.TradeDate.IsValid() {
+		errs = append(errs, &apiv1.ValidationError{RowIndex: rowIndex, Field: "trade_date", Message: "required"})
 	}
 	if tx.InstrumentDescription == "" {
 		errs = append(errs, &apiv1.ValidationError{RowIndex: rowIndex, Field: "instrument_description", Message: "required"})

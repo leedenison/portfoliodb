@@ -85,7 +85,7 @@ const portfolioExternalFlowsSQL = `
 		WHERE t.account_type = 'USER'
 	),
 	external_legs AS (
-		SELECT t.timestamp::date AS flow_date, t.instrument_id, t.instrument_description,
+		SELECT t.order_date::date AS flow_date, t.instrument_id, t.instrument_description,
 			-- The split-adjusted column, not the raw one: money never splits and the
 			-- two agree for it, but the two sides of a securities journal recorded
 			-- either side of a split are in different denominations.
@@ -93,7 +93,7 @@ const portfolioExternalFlowsSQL = `
 			(t.split_adjusted_quantity <> t.quantity) AS inexact
 		FROM txs t
 		INNER JOIN touched_groups g ON g.group_id = t.group_id
-		WHERE t.timestamp::date >= $2 AND t.timestamp::date < $3
+		WHERE t.order_date::date >= $2 AND t.order_date::date < $3
 			AND (t.account_type = 'EQUITY'
 				OR (t.account_type = 'USER'
 					AND NOT EXISTS (SELECT 1 FROM member_txs mt WHERE mt.tx_id = t.id))
@@ -114,12 +114,12 @@ const portfolioExternalFlowsSQL = `
 // somewhere unknown.
 const userExternalFlowsSQL = `
 	WITH external_legs AS (
-		SELECT t.timestamp::date AS flow_date, t.instrument_id, t.instrument_description,
+		SELECT t.order_date::date AS flow_date, t.instrument_id, t.instrument_description,
 			-t.split_adjusted_quantity AS amount,
 			(t.split_adjusted_quantity <> t.quantity) AS inexact
 		FROM txs t
 		WHERE t.user_id = $1
-			AND t.timestamp::date >= $2 AND t.timestamp::date < $3
+			AND t.order_date::date >= $2 AND t.order_date::date < $3
 			AND (t.account_type = 'EQUITY'
 				OR (t.account_type = 'TRANSFER_CLEARING'
 					AND NOT EXISTS (SELECT 1 FROM transfer_matches tm

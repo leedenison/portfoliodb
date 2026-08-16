@@ -88,7 +88,8 @@ func transferFixtureAt(t *testing.T, p *Postgres, userID string, s transferSpec)
 	// routes to TRANSFER_CLEARING.
 	side := func(account, qty, ref, counterparty string, at time.Time) *apiv1.Tx {
 		return &apiv1.Tx{
-			Timestamp: timestamppb.New(at), InstrumentDescription: s.desc,
+			OrderDate: timestamppb.New(at),
+			TradeDate: timestamppb.New(at), InstrumentDescription: s.desc,
 			BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, ResolvedTxType: typev1.TxType_TRANSFER,
 			Quantity: qty, Account: account,
 			Correlations: fidelityCorrelations(t, ref, counterparty),

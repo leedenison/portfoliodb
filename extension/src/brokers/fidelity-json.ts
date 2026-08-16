@@ -137,11 +137,17 @@ export function convertFidelityJson(
     // plugin call -- for a trade that never happened.
     if (row.status === "Cancelled") return;
 
-    const date = parseSlashDate(row.settlementDate || row.dealDate || "");
-    if (!date) {
-      errors.push({ rowIndex, field: "date", message: "Invalid or missing date" });
+    // Both dates. The payload states them separately and they are two different
+    // facts: the order date is what a trade and the charges levied on it agree
+    // about, while the settlement date is when the trade actually completed.
+    const orderDate = parseSlashDate(row.dealDate || "");
+    if (!orderDate) {
+      errors.push({ rowIndex, field: "dealDate", message: "Invalid or missing date" });
       return;
     }
+    // An unsettled row states no settlement date, so the order date stands in
+    // for it -- the only date the row carries.
+    const tradeDate = parseSlashDate(row.settlementDate || "") ?? orderDate;
 
     const typeStr = row.transactionType ?? "";
     const mappedTypes = typeStr ? FIDELITY_TYPE_TO_TYPES[typeStr] : undefined;
@@ -196,7 +202,9 @@ export function convertFidelityJson(
           ]
         : [];
 
-    const ts = date.getTime();
+    // The window is over the order date, which is what the replace period is
+    // matched against and what a listing orders by.
+    const ts = orderDate.getTime();
     if (ts < minTime) minTime = ts;
     if (ts > maxTime) maxTime = ts;
 
@@ -215,7 +223,8 @@ export function convertFidelityJson(
     if (typeStr === "Reinvestment From Income") reinvestments.push(postings.length);
     postings.push(
       create(PostingSchema, {
-        timestamp: timestampFromDate(date),
+        orderDate: timestampFromDate(orderDate),
+        tradeDate: timestampFromDate(tradeDate),
         // A cash posting is described by its currency, which is what resolves it
         // to the currency instrument rather than to a holding named after the
         // broker's wording -- the payload says "Cash" in the same field it names

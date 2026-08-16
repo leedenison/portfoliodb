@@ -73,7 +73,7 @@ func (t trade) Expand(ctx context.Context, userID string, ps []db.GroupingPostin
 func expandByDay(ctx context.Context, userID string, ps []db.GroupingPosting, r db.GroupingReader, held []string) ([]db.GroupingPosting, error) {
 	qs := make([]db.DateQuery, 0, len(ps))
 	for _, p := range ps {
-		y, m, d := p.Timestamp.UTC().Date()
+		y, m, d := p.OrderDate.UTC().Date()
 		day := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 		qs = append(qs, db.DateQuery{
 			Broker:  p.Broker,
@@ -344,5 +344,5 @@ func isMoney(p db.GroupingPosting) bool {
 // string the source wrote, which is the same statement made before parsing: both
 // legs of a trade carry it identically, and pairing only needs them to agree.
 func bucket(p db.GroupingPosting) string {
-	return p.Account + "\x00" + p.Timestamp.UTC().Format("2006-01-02")
+	return p.Account + "\x00" + p.OrderDate.UTC().Format("2006-01-02")
 }

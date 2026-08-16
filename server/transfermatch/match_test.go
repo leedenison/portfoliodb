@@ -26,7 +26,7 @@ func side(group, account, amount string, day int, refs ...string) db.TransferSid
 		Account:      account,
 		InstrumentID: "gbp",
 		Amount:       decimal.RequireFromString(amount),
-		Timestamp:    day0.AddDate(0, 0, day),
+		OrderDate:    day0.AddDate(0, 0, day),
 	}
 	for _, r := range refs {
 		c := db.Correlation{Token: r, Scope: "FILE", Match: []string{db.MatchExact}}

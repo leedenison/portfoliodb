@@ -13,8 +13,31 @@ A posting is a signed amount of one commodity in one account at one point in tim
 | Kind      | `account_type`                |
 | Commodity | `instrument_id`               |
 | Amount    | `quantity` (signed)           |
-| Date      | `timestamp`                   |
+| Date      | `order_date` + `trade_date`   |
 | Evidence  | `tx_correlations`             |
+
+### Dates
+
+A posting carries two dates, both required.
+
+`order_date` is when the transaction was ordered, and is the date the posting is
+filed under: windows, listings, valuation and the grouping rules that bucket on a day
+all use this one. `trade_date` is when it took effect -- a trade executed, a charge
+was levied, money moved -- and is what `share_count_basis` defaults from, since the
+as-traded convention is about when the trade happened.
+
+Two dates rather than one because a broker dates a charge by when it cleared and a
+trade by when it settled, and those are days apart: in the Fidelity sample a trade
+settles T+2 to T+4 while its dealing fee clears T+0 or T+1. Bucketing on either of
+those puts a charge in a different bucket from the trade it belongs to, and the order
+date is the one the two agree about. See
+adr/0051-a-posting-carries-an-order-date-and-a-trade-date.md.
+
+A source that reports one date writes it to both rather than leaving either unset.
+That is a statement that the two coincide for that source, which is true and is
+different from saying one is unknown -- an OFX statement has no `DTSETTLE` tag at all,
+and a Schwab CSV one date column. So a reader can take either field without first
+asking whether this particular broker distinguishes them.
 
 ### Correlations
 
@@ -147,7 +170,7 @@ has exactly one leg that is outside and external -- its own -- and reads as a
 withdrawal from a portfolio it never touched. And a flow is dated by the external leg
 rather than by the member leg whose value moved, because the external leg is the
 counterparty and its date is the one the source stated for the crossing; a group's
-postings need not share a timestamp, and choosing among several member legs would be
+postings need not share a date, and choosing among several member legs would be
 arbitrary.
 
 Membership is per posting rather than per account, which an instrument filter makes
@@ -206,7 +229,7 @@ lossiness measurable.
 | ----------- | ------------------------------------------------------------------ |
 | `id`        | uuid, PK                                                            |
 | `user_id`   | uuid, FK -> users                                                   |
-| `timestamp` | The date of the event. The postings carry their own timestamps.     |
+| `timestamp` | The date of the event: the earliest `order_date` of its postings.    |
 | `job_id`    | The ingestion job that created the group. NULL when system-derived. |
 | `created_at`| timestamptz                                                         |
 
@@ -469,7 +492,7 @@ path can leave half an economic event behind by deleting the group it belonged t
 
 Bulk upload replaces a period (see adr/0002-transaction-ingestion-model.md) by
 deleting **the postings** inside it, not the groups that hold them. A group's postings
-need not share a timestamp -- the Fidelity deposit-run pass groups on reference
+need not share an order date -- the Fidelity deposit-run pass groups on reference
 proximity rather than the date bucket, because a run in the sample export settles
 across two days -- so a group can straddle any boundary, and deleting it whole would
 take legs the upload that triggered the delete does not carry and nothing would

@@ -142,7 +142,8 @@ func userFixture() *archivev1.UserArchive {
 				PeriodBefore: timestamppb.New(time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)),
 				Source:       "IBKR:web:ibkr-ofx",
 				Postings: []*archivev1.Posting{{
-					Timestamp:             timestamppb.New(time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)),
+					OrderDate:             timestamppb.New(time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)),
+					TradeDate:             timestamppb.New(time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)),
 					Account:               "U123",
 					AccountType:           typev1.AccountType_ACCOUNT_TYPE_USER,
 					BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},

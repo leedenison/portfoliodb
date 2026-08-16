@@ -338,7 +338,7 @@ func (p *Postgres) GetPortfolioStartDate(ctx context.Context, userID string) (*t
 	}
 	var t sql.NullTime
 	err = p.q.QueryRowContext(ctx, `
-		SELECT MIN(timestamp) FROM txs
+		SELECT MIN(order_date) FROM txs
 		WHERE user_id = $1 AND synthetic_purpose IS NULL AND account_type = 'USER'
 	`, userUUID).Scan(&t)
 	if err != nil {
@@ -434,8 +434,12 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 			// otherwise a recalculation moves the quantity and leaves the weight
 			// behind, and the group stops balancing.
 			//
+			// The pad is one date twice: it is a synthetic opening balance rather
+			// than a transaction anyone ordered, so it has no order-to-trade lag to
+			// state and writing the start date to both columns says exactly that.
+			//
 			// share_count_basis is written rather than left to the txs trigger, which
-			// would seed it from the timestamp. The pad is dated at the portfolio
+			// would seed it from the trade date. The pad is dated at the portfolio
 			// start date but denominated where its declaration is, and the two have no
 			// reason to agree; letting the trigger decide also left the basis behind
 			// whenever a recalculation moved the timestamp. It is in the DO UPDATE
@@ -445,11 +449,11 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 			// and its counter leg is already EQUITY. synthetic_purpose is what
 			// marks it as a pad.
 			if _, err := exec.ExecContext(ctx, `
-				INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+				INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 				                 broker_tx_type, resolved_tx_type, quantity, instrument_id,
 				                 synthetic_purpose, account_type, weight, weight_commodity,
 				                 share_count_basis, group_id)
-				SELECT $1, $2, $3, $4, 'INITIALIZE',
+				SELECT $1, $2, $3, $4, $4, 'INITIALIZE',
 				       ARRAY['TRANSFER_EXTERNAL'], 'TRANSFER_EXTERNAL', $5, $6,
 				       'INITIALIZE', $7, $5,
 				       CASE WHEN i.asset_class = 'CASH' AND i.currency IS NOT NULL
@@ -459,7 +463,8 @@ func (p *Postgres) UpsertInitializeTx(ctx context.Context, userID, broker, accou
 				FROM instruments i WHERE i.id = $6
 				ON CONFLICT (user_id, broker, account, instrument_id, account_type)
 				  WHERE synthetic_purpose = 'INITIALIZE'
-				DO UPDATE SET timestamp = EXCLUDED.timestamp,
+				DO UPDATE SET order_date = EXCLUDED.order_date,
+				              trade_date = EXCLUDED.trade_date,
 				              quantity = EXCLUDED.quantity,
 				              weight = EXCLUDED.weight,
 				              weight_commodity = EXCLUDED.weight_commodity,

@@ -227,7 +227,10 @@ function TxRow({
   const tx = ptx.tx;
   if (!tx) return null;
 
-  const date = leg ? tx.timestamp : (tx.groupTimestamp ?? tx.timestamp);
+  // The order date, which is what the listing is ordered by and what a group's
+  // own timestamp is derived from. Showing the trade date here would order the
+  // list by one date and display another.
+  const date = leg ? tx.orderDate : (tx.groupTimestamp ?? tx.orderDate);
   const isSynthetic = !!tx.syntheticPurpose;
   const accountTypeLabel = ACCOUNT_TYPE_LABEL[tx.accountType];
   const ticker = ptx.instrument?.identifiers?.find(

@@ -144,7 +144,7 @@ func loadExport(t *testing.T, file string, broker typev1.Broker) []exportPosting
 			JobID:     "job",
 			Broker:    broker,
 			Account:   p.GetAccount(),
-			Timestamp: p.GetTimestamp().AsTime(),
+			OrderDate: p.GetOrderDate().AsTime(),
 			Quantity:  decimal.RequireFromString(p.GetQuantity()),
 			Declared:  p.GetBrokerTxType(),
 		}

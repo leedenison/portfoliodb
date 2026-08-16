@@ -19,7 +19,8 @@ import { expectGroupsBalance } from "./group-balance.test-utils";
 
 const tx = (fields: MessageInitShape<typeof PostingSchema>): Posting =>
   create(PostingSchema, {
-    timestamp: timestampFromDate(new Date(2026, 1, 1)),
+    orderDate: timestampFromDate(new Date(2026, 1, 1)),
+    tradeDate: timestampFromDate(new Date(2026, 1, 1)),
     instrumentDescription: "GBP",
     quantity: "0",
     account: "ACC-1",

@@ -19,12 +19,15 @@ import { InstrumentRefSchema } from "@/gen/archive/v1/common_pb";
 import { IdentifierType } from "@/gen/type/v1/type_pb";
 import { AssetClass } from "@/gen/type/v1/type_pb";
 import {
+  fidelityChargeCorrelation,
+  fidelityChargeLinks,
   fidelityCounterpartyCorrelation,
   fidelityRefCorrelation,
   FIDELITY_TYPE_TO_TYPES,
   isCashRow,
   typeForAsset,
 } from "@/lib/csv/converters/fidelity-csv";
+import type { FidelityChargeRow } from "@/lib/csv/converters/fidelity-csv";
 import type { ParseError, StandardParseResult } from "@/lib/csv/parse-result";
 import {
   currencyHint,
@@ -125,6 +128,10 @@ export function convertFidelityJson(
   const postings: Posting[] = [];
   // The rows whose units were bought with income, by posting index.
   const reinvestments: number[] = [];
+  // What deciding a charge's trade depends on, resolved once every row is read:
+  // the count a charge set is compared against is a property of the whole
+  // account-day, which one row cannot see.
+  const chargeRows: FidelityChargeRow[] = [];
   let minTime = Infinity;
   let maxTime = -Infinity;
 
@@ -221,6 +228,21 @@ export function convertFidelityJson(
     }
 
     if (typeStr === "Reinvestment From Income") reinvestments.push(postings.length);
+    chargeRows.push({
+      index: postings.length,
+      account: row.accountNumber ?? "",
+      // The payload's own dealDate string. A bucket key, never parsed.
+      orderDate: row.dealDate ?? "",
+      type: typeStr,
+      ref: row.referenceId ?? "",
+      // The charge's magnitude, which for a cash row is what magnitude already
+      // holds -- the money that moved rather than a unit count.
+      amount: magnitude.abs().toString(),
+      // An ISIN is what says Fidelity charges to deal in this: the payload
+      // carries one for a listed instrument and a pseudo-identifier for cash.
+      // A zero-quantity row transacted nothing and carries no charge.
+      listedTrade: !cashRow && isValidIsin(isin) && !magnitude.eq(ZERO),
+    });
     postings.push(
       create(PostingSchema, {
         orderDate: timestampFromDate(orderDate),
@@ -258,6 +280,13 @@ export function convertFidelityJson(
       })
     );
   });
+
+  // Which trade each charge was levied on, where the broker's fee schedule says.
+  // The CSV converter's own rule, so the two readings of a Fidelity export cannot
+  // disagree about which charges belong to which trades.
+  for (const [i, tradeRef] of fidelityChargeLinks(chargeRows)) {
+    postings[i]!.correlations.push(fidelityChargeCorrelation(tradeRef));
+  }
 
   // A reinvestment's income leg is derived beside its trade, exactly as the CSV
   // converter does, and inherits the row's reference so the server can put the

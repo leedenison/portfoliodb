@@ -708,3 +708,128 @@ describe("the source's own cash total", () => {
     expect(result.postings[0].settlementAmount).toBeUndefined();
   });
 });
+
+// Fidelity levies a fixed dealing fee per listed trade, so a set of equal charges
+// of one type whose count equals the number of chargeable trades in an account's
+// order date is one charge each. The converter says so with a pointer at the
+// trade's own reference, which is the only thing in the file that names it.
+describe("charge attachment", () => {
+  // Modelled on 8 Feb 2022 in the master export, with its identifiers replaced:
+  // two purchases in one account on one order date, each carrying a 10.00 dealing
+  // fee that clears two days before the trades complete.
+  const TWO_BUYS_TWO_FEES = [
+    "08 Feb 2022,08 Feb 2022,Dealing Fee,\"Cash\",Investment Account,AG10000001,,-10,0,0,167000001,Completed,",
+    "08 Feb 2022,08 Feb 2022,Dealing Fee,\"Cash\",Investment Account,AG10000001,,-10,0,0,167000002,Completed,",
+    '08 Feb 2022,10 Feb 2022,Buy,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10000001,,7390.19,28,263.58,563000001,Completed,',
+    '08 Feb 2022,10 Feb 2022,Buy,"VANGUARD FUNDS PLC, S&P 500 UCITS ETF USD DIS (VUSA)",Investment Account,AG10000001,,4810.00,60,80.00,563000002,Completed,',
+  ];
+
+  const pointers = (result: ReturnType<typeof convertRows>) =>
+    result.postings
+      .flatMap((p) => p.correlations)
+      .filter((c) => c.match.includes(Match.ATTACHES))
+      .map((c) => c.token)
+      .sort();
+
+  it("gives one dealing fee to each listed trade of the day", () => {
+    const result = convertRows(TWO_BUYS_TWO_FEES);
+    expect(result.errors).toEqual([]);
+    expect(pointers(result)).toEqual(["563000001", "563000002"]);
+  });
+
+  // MATCH_ATTACHES alone, and in the reference series. The exact-token pass must
+  // pass over it: a charge and its trade are not two statements of one identity,
+  // and claiming them as a pair would take the trade before its cash leg could be
+  // paired with it.
+  it("declares only that it attaches, in the reference series", () => {
+    const result = convertRows(TWO_BUYS_TWO_FEES);
+    const fee = result.postings.find((p) =>
+      p.correlations.some((c) => c.match.includes(Match.ATTACHES))
+    )!;
+    const pointer = fee.correlations.find((c) => c.match.includes(Match.ATTACHES))!;
+    expect(pointer.match).toEqual([Match.ATTACHES]);
+    expect(pointer.label).toBe("");
+    expect(pointer.scope).toBe(Scope.FILE);
+    // The row's own reference survives beside it: the pointer says where this
+    // posting belongs and the reference says what it is.
+    expect(fee.correlations.some((c) => c.match.includes(Match.EXACT))).toBe(true);
+  });
+
+  // A count that happens to balance is a coincidence rather than evidence, so a
+  // bucket whose counts disagree gets no pointers at all.
+  it("says nothing when the charge count does not match the trade count", () => {
+    const result = convertRows([TWO_BUYS_TWO_FEES[0]!, ...TWO_BUYS_TWO_FEES.slice(2)]);
+    expect(pointers(result)).toEqual([]);
+  });
+
+  // A bucket mixing a fixed dealing fee with a proportional stamp duty is not one
+  // set of equal amounts. Tested per type, both sets fire.
+  it("counts each charge type separately", () => {
+    const result = convertRows([
+      ...TWO_BUYS_TWO_FEES,
+      "08 Feb 2022,08 Feb 2022,Stamp Duty Or Financial Transaction Tax,\"Cash\",Investment Account,AG10000001,,-36.95,0,0,167000003,Completed,",
+      "08 Feb 2022,08 Feb 2022,Stamp Duty Or Financial Transaction Tax,\"Cash\",Investment Account,AG10000001,,-36.95,0,0,167000004,Completed,",
+    ]);
+    expect(pointers(result)).toEqual([
+      "563000001",
+      "563000001",
+      "563000002",
+      "563000002",
+    ]);
+  });
+
+  // Charges of one type that are not all the same amount are not the fixed-fee
+  // set the count argument is about, whatever their number.
+  it("says nothing when the charges of a type differ in amount", () => {
+    const result = convertRows([
+      "08 Feb 2022,08 Feb 2022,Fx Charge,\"Cash\",Investment Account,AG10000001,,-161.48,0,0,167000001,Completed,",
+      "08 Feb 2022,08 Feb 2022,Fx Charge,\"Cash\",Investment Account,AG10000001,,-127.94,0,0,167000002,Completed,",
+      ...TWO_BUYS_TWO_FEES.slice(2),
+    ]);
+    expect(pointers(result)).toEqual([]);
+  });
+
+  // Fidelity charges nothing to deal in an unlisted fund, which the export marks
+  // by writing no ticker. One fee beside one listed trade and one fund trade is
+  // the listed one's.
+  it("counts only the trades Fidelity charges to deal in", () => {
+    const result = convertRows([
+      "08 Feb 2022,08 Feb 2022,Dealing Fee,\"Cash\",Investment Account,AG10000001,,-10,0,0,167000001,Completed,",
+      '08 Feb 2022,10 Feb 2022,Buy,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10000001,,7390.19,28,263.58,563000001,Completed,',
+      "08 Feb 2022,10 Feb 2022,Buy,M&G European Index Tracker,Investment Account,AG10000001,,500.00,100,5.00,563000002,Completed,",
+    ]);
+    expect(pointers(result)).toEqual(["563000001"]);
+  });
+
+  // A cancelled row transacted nothing, and the converter drops it before any of
+  // this. It must not be counted as a trade a fee could belong to -- five of the
+  // master's buckets look mismatched until it is out, and none of them are.
+  it("does not count a cancelled trade", () => {
+    const result = convertRows([
+      "08 Feb 2022,08 Feb 2022,Dealing Fee,\"Cash\",Investment Account,AG10000001,,-10,0,0,167000001,Completed,",
+      '08 Feb 2022,10 Feb 2022,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10000001,,0,0,297.55,563000001,Cancelled,',
+      '08 Feb 2022,10 Feb 2022,Sell,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10000001,,-100223.87,337,297.40,563000002,Completed,',
+    ]);
+    expect(pointers(result)).toEqual(["563000002"]);
+  });
+
+  // A platform charge for holding an account has no trade to belong to, whatever
+  // the day's counts happen to be.
+  it("never attaches a service fee", () => {
+    const result = convertRows([
+      "08 Feb 2022,08 Feb 2022,Service Fee,\"Cash\",Investment Account,AG10000001,,-3.24,3.24,1,167000001,Completed,",
+      '08 Feb 2022,10 Feb 2022,Buy,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment Account,AG10000001,,7390.19,28,263.58,563000001,Completed,',
+    ]);
+    expect(pointers(result)).toEqual([]);
+  });
+
+  // The bucket is the account as well as the day: two accounts trading on one
+  // date are two sets, and a fee never crosses between them.
+  it("does not attach across accounts", () => {
+    const result = convertRows([
+      "08 Feb 2022,08 Feb 2022,Dealing Fee,\"Cash\",Investment Account,AG10000001,,-10,0,0,167000001,Completed,",
+      '08 Feb 2022,10 Feb 2022,Buy,"INVESCO MARKETS III PLC, INVESCO EQQQ NASDAQ 100 UCITS ETF (EQQQ)",Investment ISA,AS10000002,,7390.19,28,263.58,563000001,Completed,',
+    ]);
+    expect(pointers(result)).toEqual([]);
+  });
+});

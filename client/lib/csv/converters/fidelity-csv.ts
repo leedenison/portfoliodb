@@ -279,6 +279,139 @@ export function fidelityCounterpartyCorrelation(account: string): Correlation {
   });
 }
 
+/**
+ * The pointer a charge carries at the trade it was levied on.
+ *
+ * The token names the trade's own reference rather than one this row carries, in
+ * the reference series -- the empty label, the same one fidelityRefCorrelation
+ * writes to -- because a label names a series and this points into that one. It
+ * declares MATCH_ATTACHES alone, so the exact-token pass passes over it: a charge
+ * and its trade are not two statements of one identity, and treating them as one
+ * would claim the trade before its cash leg could be paired with it.
+ */
+export function fidelityChargeCorrelation(tradeRef: string): Correlation {
+  return create(CorrelationSchema, {
+    token: tradeRef,
+    scope: Scope.FILE,
+    match: [Match.ATTACHES],
+  });
+}
+
+/**
+ * The transaction types Fidelity levies per trade, and so the ones that can be
+ * attached to one.
+ *
+ * `Service Fee` is deliberately absent. It is a platform charge for holding an
+ * account rather than for transacting -- which is why it maps to HOLDING_COST
+ * above -- so there is no trade for it to belong to.
+ */
+const PER_TRADE_CHARGES = new Set([
+  "Dealing Fee",
+  "PTM Levy",
+  "Fx Charge",
+  "Stamp Duty Or Financial Transaction Tax",
+]);
+
+/**
+ * One row, reduced to what deciding a charge's trade depends on.
+ *
+ * `index` is the caller's own handle on the posting the row produced, returned
+ * untouched so it can stamp the correlation back onto it.
+ */
+export interface FidelityChargeRow {
+  index: number;
+  account: string;
+  /** The order date as the source wrote it. A bucket key, never parsed. */
+  orderDate: string;
+  /** The broker's own wording, which is what names a charge type. */
+  type: string;
+  /** The row's own reference, which is the token a pointer at it names. */
+  ref: string;
+  /** The charge's magnitude, unsigned, as the source wrote it. */
+  amount: string;
+  /** Whether the row is a trade in an instrument Fidelity charges to deal in. */
+  listedTrade: boolean;
+}
+
+/**
+ * Which trade each charge belongs to, by row index, for the charges this can say.
+ *
+ * Fidelity levies a fixed dealing fee per listed trade -- 7.50 now, 10 before --
+ * and the same per-trade PTM levy. So within one account and order date, a set of
+ * equal charges of one type whose count equals the number of chargeable trades is
+ * one charge each, and that is a fact about the broker's fee schedule rather than
+ * anything the rows themselves say. It is decided here because this is where the
+ * broker knowledge is: the schedule changes over time and differs per broker, and
+ * a server-side rule would be wrong for every broker but this one. The same
+ * argument ADR 0048 makes for ordinal_span.
+ *
+ * Applied per charge type rather than across the bucket, because a bucket mixing a
+ * fixed dealing fee with a proportional stamp duty is not one set of equal amounts,
+ * and testing them together would decline every dealing fee that shared a day with
+ * a variable charge.
+ *
+ * Measured against the 689-row master export: the counts agree in 30 buckets of 30,
+ * once the cancelled rows the converters already drop are out. Where they disagree
+ * this says nothing, because a count that happens to balance is a coincidence
+ * rather than evidence and a wrong attachment is worse than none.
+ *
+ * What it deliberately does not attempt: a charge on a disposal that no count
+ * resolves. Fidelity reports gross proceeds, so a sale's own total offers nothing
+ * to check an attribution against, and the server's amount evidence has nothing to
+ * work with either.
+ */
+export function fidelityChargeLinks(rows: readonly FidelityChargeRow[]): Map<number, string> {
+  const buckets = new Map<string, FidelityChargeRow[]>();
+  for (const r of rows) {
+    const key = `${r.account} ${r.orderDate}`;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(r);
+    else buckets.set(key, [r]);
+  }
+
+  const links = new Map<number, string>();
+  for (const bucket of buckets.values()) {
+    // Ascending reference on both sides, so which charge is given to which trade
+    // is a property of the file rather than of the order it was read in. The
+    // charges of one set are equal, so the choice is arbitrary in amount and the
+    // ordering only has to be stable.
+    const trades = bucket.filter((r) => r.listedTrade).sort(byRef);
+    if (trades.length === 0) continue;
+    const byType = new Map<string, FidelityChargeRow[]>();
+    for (const r of bucket) {
+      if (!PER_TRADE_CHARGES.has(r.type)) continue;
+      // A zero charge is a row the broker wrote and did not levy, so it is not
+      // one of the set whose size is being counted.
+      if (!r.amount || Number(r.amount) === 0) continue;
+      const of = byType.get(r.type);
+      if (of) of.push(r);
+      else byType.set(r.type, [r]);
+    }
+    for (const charges of byType.values()) {
+      if (charges.length !== trades.length) continue;
+      if (new Set(charges.map((c) => c.amount)).size !== 1) continue;
+      charges.sort(byRef);
+      charges.forEach((c, i) => {
+        const ref = trades[i]!.ref;
+        if (ref) links.set(c.index, ref);
+      });
+    }
+  }
+  return links;
+}
+
+/**
+ * Ascending reference, numerically where the source numbers its references and
+ * lexically where it does not, so a source with opaque identifiers still orders
+ * totally.
+ */
+function byRef(a: FidelityChargeRow, b: FidelityChargeRow): number {
+  const na = parseInt(a.ref, 10);
+  const nb = parseInt(b.ref, 10);
+  if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
+  return a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0;
+}
+
 export function convertFidelityToStandard(
   csvText: string,
   options?: Record<string, unknown>
@@ -363,6 +496,10 @@ export function convertFidelityToStandard(
   // The rows whose units were bought with income, by posting index. A
   // reinvestment is the one row that produces a second posting here.
   const reinvestments: number[] = [];
+  // What deciding a charge's trade depends on, collected as the rows are read and
+  // resolved once they all are: the count a charge set is compared against is a
+  // property of the whole account-day, which one row cannot see.
+  const chargeRows: FidelityChargeRow[] = [];
   let minTime = Infinity;
   let maxTime = -Infinity;
 
@@ -461,6 +598,18 @@ export function convertFidelityToStandard(
     if (ts > maxTime) maxTime = ts;
 
     if (txTypeStr === "Reinvestment From Income") reinvestments.push(postings.length);
+    chargeRows.push({
+      index: postings.length,
+      account,
+      orderDate: get(orderDateCol),
+      type: txTypeStr,
+      ref: get(refCol),
+      amount: amountDec ? amountDec.abs().toString() : "",
+      // A ticker is what says Fidelity charges to deal in this: it writes one for
+      // a listed instrument and nothing for an unlisted fund, which is free to
+      // trade. A zero-quantity row transacted nothing and carries no charge.
+      listedTrade: !cashRow && ticker !== "" && !quantity.eq(ZERO),
+    });
     // The cell verbatim becomes the token and the number it carries becomes the
     // ordinal, in a field of its own: knowing how to take a number out of this
     // broker's references is exactly what a converter uniquely knows, and a
@@ -498,6 +647,13 @@ export function convertFidelityToStandard(
         ...(identifierHints.length > 0 ? { identifierHints } : {}),
       })
     );
+  }
+
+  // Which trade each charge was levied on, where the broker's fee schedule says.
+  // Stamped after the rows are read because the count a charge set is compared
+  // against is a property of the whole account-day; see fidelityChargeLinks.
+  for (const [i, tradeRef] of fidelityChargeLinks(chargeRows)) {
+    postings[i]!.correlations.push(fidelityChargeCorrelation(tradeRef));
   }
 
   // A reinvestment is a compressed two-event group: the asset leg the source

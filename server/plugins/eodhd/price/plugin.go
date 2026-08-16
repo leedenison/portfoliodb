@@ -13,7 +13,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/client"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/shopspring/decimal"
 )
 
@@ -31,7 +30,6 @@ type configJSON struct {
 
 // Plugin implements pricefetcher.Plugin using the EODHD EOD API.
 type Plugin struct {
-	counter    telemetry.CounterIncrementer
 	log        *slog.Logger
 	httpClient *http.Client
 	exchMap    *exchangemap.ExchangeMap
@@ -41,9 +39,9 @@ type Plugin struct {
 	lastConfig string
 }
 
-// NewPlugin returns a plugin. counter, log and exchMap are optional (nil for tests).
-func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client, exchMap *exchangemap.ExchangeMap) *Plugin {
-	return &Plugin{counter: counter, log: log, httpClient: httpClient, exchMap: exchMap}
+// NewPlugin returns a plugin. log and exchMap are optional (nil for tests).
+func NewPlugin(log *slog.Logger, httpClient *http.Client, exchMap *exchangemap.ExchangeMap) *Plugin {
+	return &Plugin{log: log, httpClient: httpClient, exchMap: exchMap}
 }
 
 func (p *Plugin) DisplayName() string { return "EODHD" }
@@ -98,7 +96,6 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 		toStr := chunkEnd.Format("2006-01-02")
 
 		bars, err := c.EODPrices(ctx, symbol, fromStr, toStr)
-		p.reportOutcome(ctx, err)
 		if err != nil {
 			var nf *client.ErrNotFound
 			if errors.As(err, &nf) {
@@ -206,27 +203,6 @@ func (p *Plugin) micToEODHDCode(mic string) string {
 		return ""
 	}
 	return code
-}
-
-const (
-	counterSucceeded = "prices.fetch.eodhd.request.succeeded"
-	counterFailed    = "prices.fetch.eodhd.request.failed"
-	counterRateLimit = "prices.fetch.eodhd.request.rate_limit"
-)
-
-func (p *Plugin) reportOutcome(ctx context.Context, err error) {
-	if p.counter == nil {
-		return
-	}
-	var rl *client.ErrRateLimit
-	switch {
-	case err == nil:
-		p.counter.Incr(ctx, counterSucceeded)
-	case errors.As(err, &rl):
-		p.counter.Incr(ctx, counterRateLimit)
-	default:
-		p.counter.Incr(ctx, counterFailed)
-	}
 }
 
 func (p *Plugin) getClient(config []byte) (*client.Client, error) {

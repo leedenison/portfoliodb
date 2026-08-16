@@ -36,7 +36,7 @@ func TestFetchPrices_Stock(t *testing.T) {
 	defer srv.Close()
 
 	exchMap := exchangemap.New()
-	p := NewPlugin(nil, nil, srv.Client(), exchMap)
+	p := NewPlugin(nil, srv.Client(), exchMap)
 	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "MCD"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 4, 0, 0, 0, 0, time.UTC)
@@ -73,7 +73,7 @@ func TestFetchPrices_FX(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client(), nil)
+	p := NewPlugin(nil, srv.Client(), nil)
 	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -106,7 +106,7 @@ func TestFetchPrices_FX_GBXUSD(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client(), nil)
+	p := NewPlugin(nil, srv.Client(), nil)
 	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBXUSD"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -130,7 +130,7 @@ func TestFetchPrices_FX_GBXUSD(t *testing.T) {
 }
 
 func TestFetchPrices_NoMatchingIdentifier(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	ids := []pricefetcher.Identifier{{Type: "ISIN", Value: "US0378331005"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -142,7 +142,7 @@ func TestFetchPrices_NoMatchingIdentifier(t *testing.T) {
 }
 
 func TestFetchPrices_NoExchangeMap(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -160,7 +160,7 @@ func TestFetchPrices_NotFound(t *testing.T) {
 	defer srv.Close()
 
 	exchMap := exchangemap.New()
-	p := NewPlugin(nil, nil, srv.Client(), exchMap)
+	p := NewPlugin(nil, srv.Client(), exchMap)
 	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "INVALID"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -183,7 +183,7 @@ func TestFetchPrices_SubscriptionLimit(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client(), nil)
+	p := NewPlugin(nil, srv.Client(), nil)
 	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}}
 	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2025, 4, 7, 0, 0, 0, 0, time.UTC)
@@ -205,7 +205,7 @@ func TestFetchPrices_RateLimit(t *testing.T) {
 	defer srv.Close()
 
 	exchMap := exchangemap.New()
-	p := NewPlugin(nil, nil, srv.Client(), exchMap)
+	p := NewPlugin(nil, srv.Client(), exchMap)
 	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -232,7 +232,7 @@ func TestFetchPrices_LargeRange(t *testing.T) {
 	defer srv.Close()
 
 	exchMap := exchangemap.New()
-	p := NewPlugin(nil, nil, srv.Client(), exchMap)
+	p := NewPlugin(nil, srv.Client(), exchMap)
 	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Domain: "XNYS", Value: "AAPL"}}
 	// Range spanning 400 days: should require 2 chunks.
 	from := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -253,7 +253,7 @@ func TestFetchPrices_LargeRange(t *testing.T) {
 
 func TestSymbolForAssetClass(t *testing.T) {
 	exchMap := exchangemap.New()
-	p := NewPlugin(nil, nil, nil, exchMap)
+	p := NewPlugin(nil, nil, exchMap)
 
 	tests := []struct {
 		name       string
@@ -312,7 +312,7 @@ func TestSymbolForAssetClass(t *testing.T) {
 }
 
 func TestPluginInterface(t *testing.T) {
-	p := NewPlugin(nil, nil, nil, nil)
+	p := NewPlugin(nil, nil, nil)
 	if p.DisplayName() != "EODHD" {
 		t.Errorf("DisplayName = %q", p.DisplayName())
 	}

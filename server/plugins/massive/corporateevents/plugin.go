@@ -23,7 +23,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/corporateevents"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
 // PluginID is the stable plugin_id for registration and plugin_config.
@@ -38,7 +37,6 @@ type configJSON struct {
 // Plugin implements corporateevents.Plugin using the Massive corporate
 // actions endpoints.
 type Plugin struct {
-	counter    telemetry.CounterIncrementer
 	log        *slog.Logger
 	httpClient *http.Client
 
@@ -47,9 +45,9 @@ type Plugin struct {
 	lastConfig string
 }
 
-// NewPlugin returns a plugin. counter and log are optional.
-func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client) *Plugin {
-	return &Plugin{counter: counter, log: log, httpClient: httpClient}
+// NewPlugin returns a plugin. log is optional.
+func NewPlugin(log *slog.Logger, httpClient *http.Client) *Plugin {
+	return &Plugin{log: log, httpClient: httpClient}
 }
 
 func (p *Plugin) DisplayName() string { return "Massive" }
@@ -98,12 +96,10 @@ func (p *Plugin) FetchEvents(ctx context.Context, config []byte, identifiers []c
 	toStr := beforeInclusive.Format("2006-01-02")
 
 	splits, err := c.Splits(ctx, ticker, fromStr, toStr)
-	p.reportOutcome(ctx, err)
 	if err != nil {
 		return nil, p.translateError(err, ticker)
 	}
 	dividends, err := c.Dividends(ctx, ticker, fromStr, toStr)
-	p.reportOutcome(ctx, err)
 	if err != nil {
 		return nil, p.translateError(err, ticker)
 	}
@@ -240,27 +236,6 @@ func frequencyFromInt(freq int) string {
 
 func formatFloat(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
-}
-
-const (
-	counterSucceeded = "corporate_events.fetch.massive.request.succeeded"
-	counterFailed    = "corporate_events.fetch.massive.request.failed"
-	counterRateLimit = "corporate_events.fetch.massive.request.rate_limit"
-)
-
-func (p *Plugin) reportOutcome(ctx context.Context, err error) {
-	if p.counter == nil {
-		return
-	}
-	var rl *client.ErrRateLimit
-	switch {
-	case err == nil:
-		p.counter.Incr(ctx, counterSucceeded)
-	case errors.As(err, &rl):
-		p.counter.Incr(ctx, counterRateLimit)
-	default:
-		p.counter.Incr(ctx, counterFailed)
-	}
 }
 
 func (p *Plugin) getClient(config []byte) (*client.Client, error) {

@@ -62,7 +62,7 @@ func TestFetchEvents_StockSplitsAndDividends(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	got, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
 		time.Date(2014, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -117,7 +117,7 @@ func TestFetchEvents_PaginationFollowsNextURL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	got, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
 		time.Date(2014, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -138,7 +138,7 @@ func TestFetchEvents_404IsPermanent(t *testing.T) {
 		http.NotFound(w, r)
 	}))
 	defer srv.Close()
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "BOGUS"}}
 	_, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
 		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -155,7 +155,7 @@ func TestFetchEvents_403IsPermanent(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"plan does not include corporate actions"}`))
 	}))
 	defer srv.Close()
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	_, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
 		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -171,7 +171,7 @@ func TestFetchEvents_429IsTransient(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer srv.Close()
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	_, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
 		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -183,7 +183,7 @@ func TestFetchEvents_429IsTransient(t *testing.T) {
 }
 
 func TestFetchEvents_NoSupportedIdentifier(t *testing.T) {
-	p := NewPlugin(nil, nil, nil)
+	p := NewPlugin(nil, nil)
 	ids := []corporateevents.Identifier{{Type: "ISIN", Value: "US0378331005"}}
 	_, err := p.FetchEvents(context.Background(), nil, ids, db.AssetClassStock,
 		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -234,7 +234,7 @@ func TestFetchEvents_SpecialDividendType(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []corporateevents.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	got, err := p.FetchEvents(context.Background(), configWithURL(srv.URL), ids, db.AssetClassStock,
 		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -270,7 +270,7 @@ func TestFrequencyFromInt(t *testing.T) {
 }
 
 func TestPluginAcceptsAssetClasses(t *testing.T) {
-	p := NewPlugin(nil, nil, nil)
+	p := NewPlugin(nil, nil)
 	ac := p.AcceptableAssetClasses()
 	if !ac[db.AssetClassStock] || !ac[db.AssetClassETF] {
 		t.Error("expected STOCK and ETF accepted")

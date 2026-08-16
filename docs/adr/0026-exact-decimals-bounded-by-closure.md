@@ -91,3 +91,33 @@ the floor against double rounding is no longer needed. Also in
 
 The wire encoding that follows from this is recorded separately in
 [0027](0027-decimal-values-cross-the-wire-as-strings.md).
+
+## Amendments
+
+**The inferred tolerance is in place.** "A tolerance survives at ingest" above says
+exactness lets the tolerance be inferred from the scale of the amounts rather than
+fixed as a constant. It is, and it took two terms rather than one, because a group
+holds two figures rounded differently:
+
+```
+tolerance = half a cent + SUM over converted legs of |units| x half the last digit of the price
+```
+
+The example above is the first term: a cash row written to 2dp is out by half a cent
+however large it is. The second is the one that was missing. A price written to 2dp is
+out by half a penny *per unit*, and a group balances on weight, so a holding of 2,676
+units at a printed 7.67 is 10.30 away from the cash row the same statement carries.
+Covering only the first reported every large trade as an imbalance -- 70 of 70 in the
+sample data, which was the whole of one broker's imbalance report.
+
+The scale is floored at 2 decimal places rather than read off the figure, because it
+is not recoverable: Fidelity strips trailing zeros in its own download, so `47.1` and
+`47.11` appear in one instrument's series and a stated scale understates what was
+quoted. That is an assumption about how brokers quote rather than about any row, and a
+source genuinely quoting to 1dp would keep reporting imbalances rather than silently
+absorbing them.
+
+The bound is never below the fixed term, so the inference can only reclassify an
+imbalance as rounding and never the reverse. What it costs is that a small missing leg
+can hide inside a high-quantity trade's bound, since summing per-leg bounds assumes
+every price erred the same way.

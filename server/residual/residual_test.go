@@ -12,8 +12,11 @@ func TestType(t *testing.T) {
 		name      string
 		commodity string
 		amount    string
-		resolved  []typev1.TxType
-		want      typev1.AccountType
+		// What the group's prices could be out by. Empty is none, which is what
+		// every case here meant before the tolerance could be scaled.
+		rounding string
+		resolved []typev1.TxType
+		want     typev1.AccountType
 	}{
 		{
 			name:      "missing cash leg",
@@ -116,13 +119,61 @@ func TestType(t *testing.T) {
 			resolved:  []typev1.TxType{typev1.TxType_TRADE_CASH},
 			want:      typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
 		},
+		// The case this exists for. 2676 units of a price printed to 2dp can be out
+		// by 2676 * 0.005 = 13.38, and the sample export is out by 10.30 -- the
+		// printed price failing to reproduce the cash row rather than a leg the
+		// converter missed.
+		{
+			name:      "a large position at a price rounded to 2dp",
+			commodity: "cur:GBP",
+			amount:    "10.30",
+			rounding:  "13.38",
+			resolved:  []typev1.TxType{typev1.TxType_TRADE_ASSET},
+			want:      typev1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING,
+		},
+		// The bound is a bound. A residual past what the prices could account for
+		// is still a leg the source did not supply, however large the position.
+		{
+			name:      "past what the prices could account for",
+			commodity: "cur:GBP",
+			amount:    "13.39",
+			rounding:  "13.38",
+			resolved:  []typev1.TxType{typev1.TxType_TRADE_ASSET},
+			want:      typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
+		},
+		// A deposit run holds only money, whose price of 1 is exact, so nothing
+		// scales its tolerance and it is still short of the leg that never came.
+		{
+			name:      "a journal, whose money carries no price rounding",
+			commodity: "cur:GBP",
+			amount:    "-5000",
+			rounding:  "0",
+			resolved:  []typev1.TxType{typev1.TxType_TRANSFER},
+			want:      typev1.AccountType_ACCOUNT_TYPE_TRANSFER_CLEARING,
+		},
+		// A residual in the security itself comes from a leg that was never
+		// converted, so no price rounding reaches it whatever the group's other
+		// legs were quoted to.
+		{
+			name:      "a security residual is not scaled by a price",
+			commodity: "inst:abc",
+			amount:    "0.5",
+			rounding:  "13.38",
+			resolved:  []typev1.TxType{typev1.TxType_TRADE_ASSET},
+			want:      typev1.AccountType_ACCOUNT_TYPE_IMBALANCE,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := Type(tc.commodity, decimal.RequireFromString(tc.amount), tc.resolved)
+			rounding := decimal.Zero
+			if tc.rounding != "" {
+				rounding = decimal.RequireFromString(tc.rounding)
+			}
+			got := Type(tc.commodity, decimal.RequireFromString(tc.amount), rounding, tc.resolved)
 			if got != tc.want {
-				t.Fatalf("Type(%q, %s) = %v, want %v", tc.commodity, tc.amount, got, tc.want)
+				t.Fatalf("Type(%q, %s, rounding %s) = %v, want %v",
+					tc.commodity, tc.amount, rounding, got, tc.want)
 			}
 		})
 	}
@@ -140,5 +191,21 @@ func TestCommodityAccessors(t *testing.T) {
 	}
 	if _, ok := InstrumentOf("desc:inst:abc"); ok {
 		t.Fatal("InstrumentOf(desc:inst:abc) reported a security")
+	}
+}
+
+// The bound is moneyTolerance plus a non-negative term, so nothing can move from
+// SOURCE_ROUNDING to IMBALANCE however the term is derived. That is what bounds the
+// blast radius of scaling it.
+func TestTolerance_NeverTightensMoney(t *testing.T) {
+	base := Tolerance("cur:GBP", decimal.Zero)
+	for _, r := range []string{"0", "0.0001", "13.38", "1000000"} {
+		if got := Tolerance("cur:GBP", decimal.RequireFromString(r)); got.LessThan(base) {
+			t.Fatalf("Tolerance with rounding %s = %s, below the money tolerance %s", r, got, base)
+		}
+	}
+	// A negative term is a caller mistake rather than a tighter bound.
+	if got := Tolerance("cur:GBP", decimal.RequireFromString("-5")); !got.Equal(base) {
+		t.Fatalf("Tolerance with a negative rounding = %s, want the money tolerance %s", got, base)
 	}
 }

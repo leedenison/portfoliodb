@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Telemetry schema and synchronous writer
 milestone: M20
 ---

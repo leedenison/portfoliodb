@@ -267,6 +267,12 @@ service ApiService {
   // Telemetry counters (admin-only). Returns counters discovered from Redis (portfoliodb:counters:*).
   rpc ListTelemetryCounters(ListTelemetryCountersRequest) returns (ListTelemetryCountersResponse);
 
+  // Delete telemetry runs past the retention window, cascading to the event rows
+  // beneath them (admin-only). Synchronous, and returns what it deleted: unlike
+  // the Trigger RPCs there is no worker behind this, and nothing in the service
+  // schedules it -- an external scheduler calls it.
+  rpc PurgeTelemetry(PurgeTelemetryRequest) returns (PurgeTelemetryResponse);
+
   // Worker status (admin-only). Returns current state of background workers.
   rpc ListWorkers(ListWorkersRequest) returns (ListWorkersResponse);
 
@@ -861,6 +867,13 @@ message TelemetryCounter {
 
 message ListTelemetryCountersResponse {
   repeated TelemetryCounter counters = 1;
+}
+
+message PurgeTelemetryRequest {}
+
+message PurgeTelemetryResponse {
+  // Runs deleted. Their event rows went with them.
+  int64 runs_deleted = 1;
 }
 
 // EODPriceProto is a single end-of-day price row for admin browsing.

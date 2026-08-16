@@ -23,6 +23,7 @@ type Server struct {
 	db                     db.DB
 	rdb                    *redis.Client
 	counterPrefix          string
+	telemetryDB            db.TelemetryDB
 	pluginRegistry         *identifier.Registry
 	descRegistry           *description.Registry
 	priceRegistry          *pricefetcher.Registry
@@ -42,6 +43,7 @@ type ServerConfig struct {
 	DB                     db.DB
 	Redis                  *redis.Client
 	CounterPrefix          string
+	TelemetryDB            db.TelemetryDB             // optional; when set, PurgeTelemetry deletes past the retention window
 	PluginRegistry         *identifier.Registry       // optional; enables display_name in identifier plugin list
 	DescRegistry           *description.Registry      // optional; enables display_name in description plugin list
 	PriceRegistry          *pricefetcher.Registry     // optional; enables display_name in price plugin list
@@ -62,6 +64,7 @@ func NewServer(cfg ServerConfig) *Server {
 		db:                     cfg.DB,
 		rdb:                    cfg.Redis,
 		counterPrefix:          cfg.CounterPrefix,
+		telemetryDB:            cfg.TelemetryDB,
 		pluginRegistry:         cfg.PluginRegistry,
 		descRegistry:           cfg.DescRegistry,
 		priceRegistry:          cfg.PriceRegistry,

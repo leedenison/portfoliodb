@@ -1968,3 +1968,224 @@ type GroupingPosting struct {
 	Resolved     string
 	Correlations []Correlation
 }
+
+// Telemetry.
+//
+// Run-scoped event rows in the telemetry schema, replacing the Redis counters.
+// See docs/spec/telemetry.md for the grains and their vocabularies, and
+// docs/adr/0053-telemetry-is-run-scoped-event-rows.md for why.
+
+// TelemetryRetention is how long a run and its event rows are kept. Traffic is
+// low and a problem may go unnoticed for a long time, so the window is set to
+// outlast the gap between a regression landing and someone looking for it.
+const TelemetryRetention = 360 * 24 * time.Hour
+
+// Run kinds. One activation of one subsystem, of which an ingestion job and a
+// worker cycle are two kinds.
+const (
+	TelemetryRunTxImport            = "tx_import"
+	TelemetryRunUserArchiveImport   = "user_archive_import"
+	TelemetryRunSystemArchiveImport = "system_archive_import"
+	TelemetryRunPriceJob            = "price_job"
+	TelemetryRunGroupingCycle       = "grouping_cycle"
+	TelemetryRunTransferMatchCycle  = "transfer_match_cycle"
+	TelemetryRunCorporateEventCycle = "corporate_event_cycle"
+	TelemetryRunPriceFetchCycle     = "price_fetch_cycle"
+	TelemetryRunInflationCycle      = "inflation_cycle"
+)
+
+// Run outcomes. TelemetryOutcomeIncomplete means the run died, and is stamped by
+// a sweep over runs left without a terminal outcome, which is what lets an
+// unstamped run mean genuinely in flight.
+const (
+	TelemetryOutcomeSuccess    = "success"
+	TelemetryOutcomeFailed     = "failed"
+	TelemetryOutcomeIncomplete = "incomplete"
+)
+
+// Extraction outcomes, stage 1 of a resolution key. The not_attempted members are
+// where the skips live: extraction is skipped for a description already resolved
+// by DB lookup, and for one whose every posting names an identifier, because
+// extraction exists to find an identifier and is a paid call.
+const (
+	TelemetryExtractionHintsFound                = "hints_found"
+	TelemetryExtractionNoHints                   = "no_hints"
+	TelemetryExtractionNotAttemptedDBHit         = "not_attempted_db_hit"
+	TelemetryExtractionNotAttemptedHintsSupplied = "not_attempted_hints_supplied"
+	TelemetryExtractionNotAttemptedTypeFilter    = "not_attempted_type_filter"
+	TelemetryExtractionNotAttemptedNoPlugins     = "not_attempted_no_plugins"
+)
+
+// Resolution outcomes, stage 2 of a resolution key. The two db_ members are
+// distinct lookups -- by stored (source, description) and by supplied identifier
+// hints -- and conflating them hides which path is carrying an import.
+const (
+	TelemetryResolutionDBSourceDescription   = "db_source_description"
+	TelemetryResolutionDBIdentifierHints     = "db_identifier_hints"
+	TelemetryResolutionIdentified            = "identified"
+	TelemetryResolutionBrokerDescriptionOnly = "broker_description_only"
+	TelemetryResolutionExtractionFailed      = "extraction_failed"
+	TelemetryResolutionPluginTimeout         = "plugin_timeout"
+	TelemetryResolutionPluginUnavailable     = "plugin_unavailable"
+	TelemetryResolutionConflictingHints      = "conflicting_hints"
+)
+
+// Identification attempt purposes. A single resolution key produces several
+// attempts: one primary, two more when the mismatch check runs, and one per level
+// of underlying recursion.
+const (
+	TelemetryPurposePrimary       = "primary"
+	TelemetryPurposeMismatchCheck = "mismatch_check"
+	TelemetryPurposeUnderlying    = "underlying"
+)
+
+// Identification attempt outcomes. A plugin filtered out by acceptable kind or
+// security type produces no plugin-call row, because no call was made; when that
+// filter removes every plugin the attempt records no_eligible_plugins.
+const (
+	TelemetryAttemptDBShortCircuit    = "db_short_circuit"
+	TelemetryAttemptNoEligiblePlugins = "no_eligible_plugins"
+	TelemetryAttemptIdentified        = "identified"
+	TelemetryAttemptNotIdentified     = "not_identified"
+	TelemetryAttemptPluginTimeout     = "plugin_timeout"
+	TelemetryAttemptPluginError       = "plugin_error"
+)
+
+// Identifier plugin call outcomes the orchestrator composes. The rest of the
+// vocabulary is the plugin's own transport outcome and lives on
+// identifier.Outcome, which a caller spells with string(). These three are all
+// successes and are decided after every plugin has returned: superseded lost to a
+// better hint match despite higher precedence, and discarded_inconsistent was
+// dropped as contradicting the winner. No plugin can know either.
+const (
+	TelemetryPluginCallWon                   = "won"
+	TelemetryPluginCallSuperseded            = "superseded"
+	TelemetryPluginCallDiscardedInconsistent = "discarded_inconsistent"
+)
+
+// TelemetryRun is one activation of one subsystem, as it stands when it starts.
+// JobID is empty for a cycle, as are UserID, Broker and Source, which cycles run
+// without.
+type TelemetryRun struct {
+	Kind   string
+	JobID  string
+	UserID string
+	Broker string
+	Source string
+}
+
+// TelemetryResolutionKey is one distinct (source, description, identifier hints)
+// triple within a run, as it stands before it resolves. Not one transaction: many
+// transactions share a key and resolve once, and TxCount records that fan-out so a
+// failure affecting 300 rows can be told from one affecting 1.
+type TelemetryResolutionKey struct {
+	RunID              string
+	Source             string
+	Description        string
+	TxCount            int
+	HadIdentifierHints bool
+	SecurityTypeHint   string
+	InstrumentKind     string
+}
+
+// TelemetryResolutionKeyOutcome is what became of a resolution key, stamped onto
+// the row when it resolves. InstrumentID is empty when it did not.
+type TelemetryResolutionKeyOutcome struct {
+	RunID             string
+	ExtractionOutcome string
+	Outcome           string
+	MismatchDetected  bool
+	InstrumentID      string
+}
+
+// TelemetryIdentificationAttempt is one ResolveWithPlugins call, written when it
+// finishes. RunID is not stored on the row -- an attempt reaches its run through
+// its resolution key -- and is carried only so a failed write can mark the run.
+type TelemetryIdentificationAttempt struct {
+	RunID              string
+	ResolutionKeyID    string
+	Purpose            string
+	Depth              int
+	Outcome            string
+	SecurityTypeHint   string
+	AssetClass         string
+	HadIdentifierHints bool
+}
+
+// TelemetryIdentifierPluginCall is one plugin invocation within an attempt.
+// Outcome is the orchestrator's composition of the plugin's transport outcome with
+// what it decided afterwards; Retries and Duration are the orchestrator's alone,
+// since the retry loop and the clock belong to it. RunID is carried for the same
+// reason as on the attempt.
+type TelemetryIdentifierPluginCall struct {
+	RunID     string
+	AttemptID string
+	PluginID  string
+	Outcome   string
+	Retries   int
+	Duration  time.Duration
+}
+
+// TelemetryTokens is the token cost of one description plugin call. Nil on a call
+// to a plugin that costs no tokens, which is what keeps the columns null rather
+// than zero for it.
+type TelemetryTokens struct {
+	Prompt     int64
+	Completion int64
+	Total      int64
+}
+
+// TelemetryDescriptionPluginCall is one plugin invocation over a batch. It hangs
+// off the run rather than off a resolution key: one ExtractBatch call covers many
+// descriptions at once, so it has no single parent key.
+//
+// BatchSize is a different population per plugin -- description plugins run in
+// precedence order and each sees only the items its predecessors failed on -- so
+// rates are not comparable between them.
+type TelemetryDescriptionPluginCall struct {
+	RunID          string
+	PluginID       string
+	BatchSize      int
+	ItemsWithHints int
+	Outcome        string
+	Tokens         *TelemetryTokens
+	Duration       time.Duration
+}
+
+// TelemetryDB writes the event rows in the telemetry schema.
+//
+// It is deliberately not part of DB. It holds its own connection pool and never
+// joins the work's transaction: a failed import rolls back, and telemetry riding
+// along would erase the diagnostics for the run most worth inspecting.
+//
+// No write method returns an error, because telemetry never fails the work. A
+// write that fails is logged, sets telemetry_incomplete on its run and yields an
+// empty id; a write whose parent id is empty is skipped, so one failure costs its
+// own subtree and nothing else. A caller therefore threads ids through without
+// testing them.
+type TelemetryDB interface {
+	// StartRun creates a run and returns its id. The run is stamped separately,
+	// when it ends, which is what leaves a run whose process died unstamped.
+	StartRun(ctx context.Context, r TelemetryRun) string
+	// EndRun stamps ended_at and a terminal outcome.
+	EndRun(ctx context.Context, runID, outcome string)
+
+	// StartResolutionKey creates a resolution key and returns its id. Like a run
+	// it is created and later stamped, because its identification attempts
+	// reference it and so it must exist before its own outcome is known.
+	StartResolutionKey(ctx context.Context, k TelemetryResolutionKey) string
+	// EndResolutionKey stamps what became of a resolution key.
+	EndResolutionKey(ctx context.Context, keyID string, o TelemetryResolutionKeyOutcome)
+
+	// WriteIdentificationAttempt records a finished attempt and returns its id,
+	// for the plugin calls written under it.
+	WriteIdentificationAttempt(ctx context.Context, a TelemetryIdentificationAttempt) string
+	WriteIdentifierPluginCall(ctx context.Context, c TelemetryIdentifierPluginCall)
+	WriteDescriptionPluginCall(ctx context.Context, c TelemetryDescriptionPluginCall)
+
+	// PurgeRunsBefore deletes runs started before cutoff, cascading to their event
+	// rows, and returns how many runs went. Unlike the writes it returns an error,
+	// because it is the work its caller was asked to do rather than telemetry
+	// alongside other work.
+	PurgeRunsBefore(ctx context.Context, cutoff time.Time) (int64, error)
+}

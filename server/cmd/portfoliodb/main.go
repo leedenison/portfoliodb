@@ -71,11 +71,20 @@ var buildRevision = "dev"
 // it is arrived at -- it is a memory budget as much as a handle count.
 const defaultDBMaxConns = 16
 
+// defaultTelemetryDBMaxConns bounds the telemetry pool, which is separate from the
+// application's because telemetry must never join the work's transaction. Its
+// writes are single-row inserts with no sort nodes, so unlike the application pool
+// it costs handles and not work_mem, and a handful is enough for the few runs in
+// flight at once. It is small because both pools draw on the same
+// max_connections -- 25 in the dev stack -- and Grafana will want some too.
+const defaultTelemetryDBMaxConns = 4
+
 func main() {
 	grpcAddr := flag.String("grpc-addr", envOrDefault("PORTFOLIODB_GRPC_ADDR", ":50051"), "gRPC listen address")
 	dbURL := flag.String("db-url", os.Getenv("PORTFOLIODB_DB_URL"), "PostgreSQL connection URL")
 	redisURL := flag.String("redis-url", envOrDefault("PORTFOLIODB_REDIS_URL", os.Getenv("REDIS_URL")), "Redis connection URL for sessions")
 	dbMaxConns := flag.Int("db-max-conns", parseInt(os.Getenv("PORTFOLIODB_DB_MAX_CONNS"), defaultDBMaxConns), "maximum open database connections")
+	telemetryDBMaxConns := flag.Int("telemetry-db-max-conns", parseInt(os.Getenv("PORTFOLIODB_TELEMETRY_DB_MAX_CONNS"), defaultTelemetryDBMaxConns), "maximum open telemetry database connections")
 	flag.Parse()
 	if *dbURL == "" {
 		log.Fatal("PORTFOLIODB_DB_URL or -db-url required")
@@ -97,6 +106,10 @@ func main() {
 	// 1GB ceiling, which fits the dev stack's 2g postgres alongside its 512MB of
 	// shared buffers, and stays under its max_connections of 25 with room for a
 	// psql session. Raise both together or neither.
+	//
+	// Telemetry adds a second pool of its own further down, so the handle budget is
+	// the sum of the two -- 20 of the dev stack's 25 at the defaults. The memory
+	// budget is unchanged: telemetry writes single rows and sorts nothing.
 	rawConn.SetMaxOpenConns(*dbMaxConns)
 	// Idle matched to open so a busy period does not reconnect on every request,
 	// with an idle timeout so a quiet one gives the backends back.
@@ -113,6 +126,20 @@ func main() {
 	// The engine is wired into the store, so an upload's postings are partitioned in
 	// the transaction that writes them rather than in whatever shape they arrived.
 	database := postgres.New(conn).WithSettler(grouping.NewEngine())
+
+	// A second pool, for telemetry alone. It is separate rather than shared because
+	// telemetry must not join the work's transaction: a failed import rolls back,
+	// and telemetry riding along would erase the diagnostics for the run most worth
+	// inspecting. The two pools add up against one max_connections, so raising
+	// either means checking the sum -- see the comment on the cap above.
+	telemetryConn, err := sql.Open("postgres", *dbURL)
+	if err != nil {
+		log.Fatalf("telemetry db open: %v", err)
+	}
+	defer telemetryConn.Close()
+	telemetryConn.SetMaxOpenConns(*telemetryDBMaxConns)
+	telemetryConn.SetMaxIdleConns(*telemetryDBMaxConns)
+	telemetryConn.SetConnMaxIdleTime(5 * time.Minute)
 
 	// Redis session store
 	ropt, err := redis.ParseURL(*redisURL)
@@ -139,6 +166,9 @@ func main() {
 	slog.SetDefault(slog.New(h))
 	serverLogger := slog.Default()
 	serverLogger.Info("LOG_LEVEL configured", "levels", logger.Summary(logLevelEnv))
+
+	telemetryDB := postgres.NewTelemetry(sqlx.NewDb(telemetryConn, "postgres"),
+		logger.WithCategory(serverLogger, "server/db/telemetry"))
 
 	// Google ID token verifier
 	googleClientID := os.Getenv("GOOGLE_OAUTH_CLIENT_ID")
@@ -334,6 +364,7 @@ func main() {
 		DB:                     database,
 		Redis:                  rdb,
 		CounterPrefix:          counterPrefix,
+		TelemetryDB:            telemetryDB,
 		PluginRegistry:         pluginRegistry,
 		DescRegistry:           descRegistry,
 		PriceRegistry:          priceRegistry,

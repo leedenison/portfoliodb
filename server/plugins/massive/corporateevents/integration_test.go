@@ -99,7 +99,7 @@ func TestIntegration_Massive_FetchEvents(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "massive/corporateevents")
 
-			p := NewPlugin(nil, nil, httpClient)
+			p := NewPlugin(nil, httpClient)
 			cfg, err := json.Marshal(configJSON{
 				MassiveAPIKey: apiKey,
 				CallsPerMin:   massiveCallsPerMin,

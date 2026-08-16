@@ -12,7 +12,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/shopspring/decimal"
 )
 
@@ -27,7 +26,6 @@ type configJSON struct {
 
 // Plugin implements pricefetcher.Plugin using the Massive aggregates API.
 type Plugin struct {
-	counter    telemetry.CounterIncrementer
 	log        *slog.Logger
 	httpClient *http.Client
 
@@ -36,9 +34,9 @@ type Plugin struct {
 	lastConfig string
 }
 
-// NewPlugin returns a plugin. counter and log are optional (nil for tests).
-func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client) *Plugin {
-	return &Plugin{counter: counter, log: log, httpClient: httpClient}
+// NewPlugin returns a plugin. log is optional (nil for tests).
+func NewPlugin(log *slog.Logger, httpClient *http.Client) *Plugin {
+	return &Plugin{log: log, httpClient: httpClient}
 }
 
 func (p *Plugin) DisplayName() string { return "Massive" }
@@ -104,7 +102,6 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 
 		bars, err := c.DailyBars(ctx, ticker, fromStr, toStr)
 		if err != nil {
-			p.reportOutcome(ctx, err)
 			var nf *client.ErrNotFound
 			var fb *client.ErrForbidden
 			if errors.As(err, &nf) {
@@ -118,7 +115,6 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 		allBars = append(allBars, bars...)
 		chunkStart = chunkEnd.AddDate(0, 0, 1)
 	}
-	p.reportOutcome(ctx, nil)
 
 	if len(allBars) == 0 {
 		// For stocks/ETFs, check whether the ticker exists at all. The aggs
@@ -134,7 +130,6 @@ func (p *Plugin) FetchPrices(ctx context.Context, config []byte, identifiers []p
 				}
 				// Transient errors (rate limit, network) — propagate so the
 				// price fetcher retries rather than silently returning ErrNoData.
-				p.reportOutcome(ctx, err)
 				return nil, err
 			}
 		}
@@ -203,27 +198,6 @@ func tickerForAssetClass(ids []pricefetcher.Identifier, assetClass string) (stri
 		}
 	}
 	return "", 0
-}
-
-const (
-	counterSucceeded = "prices.fetch.massive.request.succeeded"
-	counterFailed    = "prices.fetch.massive.request.failed"
-	counterRateLimit = "prices.fetch.massive.request.rate_limit"
-)
-
-func (p *Plugin) reportOutcome(ctx context.Context, err error) {
-	if p.counter == nil {
-		return
-	}
-	var rl *client.ErrRateLimit
-	switch {
-	case err == nil:
-		p.counter.Incr(ctx, counterSucceeded)
-	case errors.As(err, &rl):
-		p.counter.Incr(ctx, counterRateLimit)
-	default:
-		p.counter.Incr(ctx, counterFailed)
-	}
 }
 
 func (p *Plugin) getClient(config []byte) (*client.Client, error) {

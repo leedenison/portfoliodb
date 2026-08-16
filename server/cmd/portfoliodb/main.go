@@ -235,8 +235,8 @@ func main() {
 		log.Fatalf("ensure description plugin configs: %v", err)
 	}
 	priceRegistry := pricefetcher.NewRegistry()
-	priceRegistry.Register(massiveprice.PluginID, massiveprice.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive/price"), pluginHTTPClient))
-	priceRegistry.Register(eodhdprice.PluginID, eodhdprice.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/eodhd/price"), pluginHTTPClient, exchMap))
+	priceRegistry.Register(massiveprice.PluginID, massiveprice.NewPlugin(logger.WithCategory(serverLogger, "server/plugins/massive/price"), pluginHTTPClient))
+	priceRegistry.Register(eodhdprice.PluginID, eodhdprice.NewPlugin(logger.WithCategory(serverLogger, "server/plugins/eodhd/price"), pluginHTTPClient, exchMap))
 	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryPrice, priceRegistry.ListIDs(), func(id string) []byte {
 		if p := priceRegistry.Get(id); p != nil {
 			return p.DefaultConfig()
@@ -256,8 +256,8 @@ func main() {
 		log.Fatalf("ensure inflation plugin configs: %v", err)
 	}
 	corporateEventRegistry := corporateevents.NewRegistry()
-	corporateEventRegistry.Register(massivece.PluginID, massivece.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive/corporateevents"), pluginHTTPClient))
-	corporateEventRegistry.Register(eodhdce.PluginID, eodhdce.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/eodhd/corporateevents"), pluginHTTPClient, exchMap))
+	corporateEventRegistry.Register(massivece.PluginID, massivece.NewPlugin(logger.WithCategory(serverLogger, "server/plugins/massive/corporateevents"), pluginHTTPClient))
+	corporateEventRegistry.Register(eodhdce.PluginID, eodhdce.NewPlugin(logger.WithCategory(serverLogger, "server/plugins/eodhd/corporateevents"), pluginHTTPClient, exchMap))
 	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryCorporateEvent, corporateEventRegistry.ListIDs(), func(id string) []byte {
 		if p := corporateEventRegistry.Get(id); p != nil {
 			return p.DefaultConfig()

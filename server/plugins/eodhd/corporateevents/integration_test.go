@@ -88,7 +88,7 @@ func TestIntegration_EODHD_FetchEvents(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "eodhd/corporateevents")
 
-			p := NewPlugin(nil, nil, httpClient, exchangemap.New())
+			p := NewPlugin(nil, httpClient, exchangemap.New())
 			cfg, err := json.Marshal(configJSON{EODHDAPIKey: apiKey})
 			if err != nil {
 				t.Fatalf("marshal config: %v", err)

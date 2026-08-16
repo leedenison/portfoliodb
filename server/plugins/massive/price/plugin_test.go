@@ -38,7 +38,7 @@ func TestFetchPrices_Stock(t *testing.T) {
 	srv := barsServer(t, bars)
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC)
@@ -70,7 +70,7 @@ func TestFetchPrices_Option(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []pricefetcher.Identifier{{Type: "OCC", Value: "AAPL250321C00150000"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -94,7 +94,7 @@ func TestFetchPrices_Option(t *testing.T) {
 }
 
 func TestFetchPrices_NoMatchingIdentifier(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, http.DefaultClient)
 	ids := []pricefetcher.Identifier{{Type: "ISIN", Value: "US0378331005"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -111,7 +111,7 @@ func TestFetchPrices_NotFound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "INVALID"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -130,7 +130,7 @@ func TestFetchPrices_Forbidden(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -149,7 +149,7 @@ func TestFetchPrices_Unauthorized(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -167,7 +167,7 @@ func TestFetchPrices_RateLimit(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -193,7 +193,7 @@ func TestFetchPrices_FX(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "EURUSD"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -215,7 +215,7 @@ func TestFetchPrices_FX(t *testing.T) {
 }
 
 func TestPluginInterface(t *testing.T) {
-	p := NewPlugin(nil, nil, nil)
+	p := NewPlugin(nil, nil)
 	if p.DisplayName() != "Massive" {
 		t.Errorf("DisplayName = %q", p.DisplayName())
 	}
@@ -246,7 +246,7 @@ func TestFetchPrices_FX_GBXUSD(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBXUSD"}}
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -288,7 +288,7 @@ func TestFetchPrices_EmptyBars_TickerNotFound_ReturnsPermanent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "RHM"}}
 	from := time.Date(2025, 7, 6, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 1, 22, 0, 0, 0, 0, time.UTC)
@@ -319,7 +319,7 @@ func TestFetchPrices_EmptyBars_TickerExists_ReturnsNoData(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []pricefetcher.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 	from := time.Date(2025, 7, 6, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2025, 7, 8, 0, 0, 0, 0, time.UTC)
@@ -344,7 +344,7 @@ func TestFetchPrices_ChunksLargeRanges(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, srv.Client())
+	p := NewPlugin(nil, srv.Client())
 	ids := []pricefetcher.Identifier{{Type: "FX_PAIR", Value: "GBPUSD"}}
 	// 400-day range should require at least 2 chunks (maxChunkDays=200).
 	from := time.Date(2023, 8, 8, 0, 0, 0, 0, time.UTC)

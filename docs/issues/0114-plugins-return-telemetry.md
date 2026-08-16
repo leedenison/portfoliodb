@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Plugins return telemetry rather than incrementing counters
 milestone: M20
 ---

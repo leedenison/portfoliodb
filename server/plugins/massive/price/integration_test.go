@@ -69,7 +69,7 @@ func TestIntegration_Massive_FetchPrices_FX(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "massive/price")
 
-			p := NewPlugin(nil, nil, httpClient)
+			p := NewPlugin(nil, httpClient)
 			cfg, err := json.Marshal(configJSON{
 				MassiveAPIKey: apiKey,
 			})

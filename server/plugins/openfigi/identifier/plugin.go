@@ -3,6 +3,7 @@ package identifier
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -10,7 +11,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/openfigi/exchangemap"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
 // PluginID is the stable plugin_id for registration and identifier_plugin_config.
@@ -26,16 +26,15 @@ type configJSON struct {
 type Plugin struct {
 	openfigi   *OpenFIGIClient
 	config     configJSON
-	counter    telemetry.CounterIncrementer
 	log        *slog.Logger
 	httpClient *http.Client
 	exchMap    *exchangemap.ExchangeMap
 }
 
-// NewPlugin returns a plugin. Counter and log are optional (nil for tests); when set, OpenFIGI calls are counted and logged.
+// NewPlugin returns a plugin. log is optional (nil for tests); when set, OpenFIGI calls are logged.
 // exchMap may be nil (exchange resolution is best-effort).
-func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client, exchMap *exchangemap.ExchangeMap) *Plugin {
-	return &Plugin{counter: counter, log: log, httpClient: httpClient, exchMap: exchMap}
+func NewPlugin(log *slog.Logger, httpClient *http.Client, exchMap *exchangemap.ExchangeMap) *Plugin {
+	return &Plugin{log: log, httpClient: httpClient, exchMap: exchMap}
 }
 
 // DisplayName returns a human-readable name for the plugin.
@@ -73,11 +72,11 @@ func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 
 // Identify resolves using identifier hints (mapping) or returns ErrNotIdentified. Does not use Search API or OpenAI.
 // When identifierHints is empty, returns ErrNotIdentified. When non-empty, uses OpenFIGI Mapping only.
-func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (identifier.Result, error) {
 	var cfg configJSON
 	if len(config) > 0 {
 		if err := json.Unmarshal(config, &cfg); err != nil {
-			return nil, nil, err
+			return result(nil, nil, err)
 		}
 	}
 	p.config = cfg
@@ -85,15 +84,15 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	if cfg.OpenFIGIBaseURL != "" {
 		baseURL = cfg.OpenFIGIBaseURL
 	}
-	p.openfigi = NewOpenFIGIClient(cfg.OpenFIGIAPIKey, baseURL, p.counter, p.log, p.httpClient)
+	p.openfigi = NewOpenFIGIClient(cfg.OpenFIGIAPIKey, baseURL, p.log, p.httpClient)
 
 	if len(identifierHints) == 0 {
-		return nil, nil, identifier.ErrNotIdentified
+		return result(nil, nil, identifier.ErrNotIdentified)
 	}
 	// Use OpenFIGI Mapping only (no Search API); try first hint that we can map
 	results, matchedHint, err := p.tryOpenFIGIFromHints(ctx, identifierHints, hints)
 	if err != nil {
-		return nil, nil, err
+		return result(nil, nil, err)
 	}
 	if inst, ids, ok := p.resolveResults(results, hints, identifierHints, true); ok {
 		if hints.Currency != "" {
@@ -121,9 +120,38 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 				ids = append(ids, *matchedHint)
 			}
 		}
-		return inst, ids, nil
+		return result(inst, ids, nil)
 	}
-	return nil, nil, identifier.ErrNotIdentified
+	return result(nil, nil, identifier.ErrNotIdentified)
+}
+
+// result pairs the identification with the outcome the resolver records for
+// this call. Identify makes at most one mapping call that decides the answer,
+// so one call is one outcome.
+func result(inst *identifier.Instrument, ids []identifier.Identifier, err error) (identifier.Result, error) {
+	return identifier.Result{
+		Instrument:  inst,
+		Identifiers: ids,
+		Telemetry:   identifier.Telemetry{Outcome: outcome(err)},
+	}, err
+}
+
+// outcome classifies an Identify error into the vocabulary the resolver records.
+func outcome(err error) identifier.Outcome {
+	switch {
+	case err == nil:
+		return identifier.OutcomeIdentified
+	case errors.Is(err, identifier.ErrNotIdentified):
+		return identifier.OutcomeNotIdentified
+	case errors.Is(err, context.DeadlineExceeded):
+		return identifier.OutcomeTimeout
+	default:
+		var rl *ErrRateLimit
+		if errors.As(err, &rl) {
+			return identifier.OutcomeRateLimited
+		}
+		return identifier.OutcomeError
+	}
 }
 
 // exchangeHintMIC returns the ISO 10383 MIC named by the first MIC_TICKER hint

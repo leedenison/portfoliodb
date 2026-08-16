@@ -15,22 +15,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 )
-
-type recordingCounter struct {
-	counts map[string]int
-}
-
-var _ telemetry.CounterIncrementer = (*recordingCounter)(nil)
-
-func (r *recordingCounter) Incr(_ context.Context, name string) {
-	r.counts[name]++
-}
-
-func (r *recordingCounter) IncrBy(_ context.Context, name string, n int64) {
-	r.counts[name] += int(n)
-}
 
 func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -51,23 +36,26 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
-	inst, ids, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if inst.AssetClass != db.AssetClassStock {
-		t.Errorf("AssetClass = %q, want STOCK", inst.AssetClass)
+	if res.Telemetry.Outcome != identifier.OutcomeIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeIdentified)
 	}
-	if inst.Name != "Apple Inc." {
-		t.Errorf("Name = %q, want Apple Inc.", inst.Name)
+	if res.Instrument.AssetClass != db.AssetClassStock {
+		t.Errorf("AssetClass = %q, want STOCK", res.Instrument.AssetClass)
 	}
-	if len(ids) != 3 {
-		t.Fatalf("len(ids) = %d, want 3", len(ids))
+	if res.Instrument.Name != "Apple Inc." {
+		t.Errorf("Name = %q, want Apple Inc.", res.Instrument.Name)
+	}
+	if len(res.Identifiers) != 3 {
+		t.Fatalf("len(res.Identifiers) = %d, want 3", len(res.Identifiers))
 	}
 }
 
@@ -105,17 +93,17 @@ func TestPlugin_Identify_Stock_SplitTickerNormalized(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := NewPlugin(nil, nil, http.DefaultClient, nil)
+			p := NewPlugin(nil, http.DefaultClient, nil)
 			cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 			hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 			idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: tt.input}}
 
-			inst, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+			res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 			if err != nil {
 				t.Fatalf("Identify(%q): %v", tt.input, err)
 			}
-			if inst == nil || inst.Name != "Berkshire Hathaway Inc Class B" {
-				t.Errorf("Identify(%q): inst = %+v", tt.input, inst)
+			if res.Instrument == nil || res.Instrument.Name != "Berkshire Hathaway Inc Class B" {
+				t.Errorf("Identify(%q): res.Instrument = %+v", tt.input, res.Instrument)
 			}
 		})
 	}
@@ -136,34 +124,43 @@ func TestPlugin_Identify_Stock_IndexReturnsNotIdentified(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "SPX"}}
 
-	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified, got %v", err)
+	}
+	if res.Telemetry.Outcome != identifier.OutcomeNotIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeNotIdentified)
 	}
 }
 
 func TestPlugin_Identify_NoHints(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
-	_, _, err := p.Identify(context.Background(), nil, "", "", "", identifier.Hints{}, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
+	res, err := p.Identify(context.Background(), nil, "", "", "", identifier.Hints{}, nil)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified, got %v", err)
+	}
+	if res.Telemetry.Outcome != identifier.OutcomeNotIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeNotIdentified)
 	}
 }
 
 func TestPlugin_Identify_NoTickerHint(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: "http://unused"})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}}
 
-	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified, got %v", err)
+	}
+	if res.Telemetry.Outcome != identifier.OutcomeNotIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeNotIdentified)
 	}
 }
 
@@ -192,23 +189,23 @@ func TestPlugin_Identify_Option_OCC(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient, fixedTimer(refNow))
+	p := NewPlugin(nil, http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
 
-	inst, ids, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if inst.AssetClass != db.AssetClassOption {
-		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
+	if res.Instrument.AssetClass != db.AssetClassOption {
+		t.Errorf("AssetClass = %q, want OPTION", res.Instrument.AssetClass)
 	}
-	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", inst.UnderlyingIdentifiers)
+	if len(res.Instrument.UnderlyingIdentifiers) != 1 || res.Instrument.UnderlyingIdentifiers[0].Value != "AAPL" {
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", res.Instrument.UnderlyingIdentifiers)
 	}
-	if len(ids) != 2 {
-		t.Fatalf("len(ids) = %d, want 2", len(ids))
+	if len(res.Identifiers) != 2 {
+		t.Fatalf("len(res.Identifiers) = %d, want 2", len(res.Identifiers))
 	}
 }
 
@@ -237,21 +234,21 @@ func TestPlugin_Identify_Option_OCC_SpacePadded(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient, fixedTimer(refNow))
+	p := NewPlugin(nil, http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	// Pass OCC with space-padding (21-char format).
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL  251219C00230000"}}
 
-	inst, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if inst.AssetClass != db.AssetClassOption {
-		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
+	if res.Instrument.AssetClass != db.AssetClassOption {
+		t.Errorf("AssetClass = %q, want OPTION", res.Instrument.AssetClass)
 	}
-	if len(inst.UnderlyingIdentifiers) != 1 || inst.UnderlyingIdentifiers[0].Value != "AAPL" {
-		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", inst.UnderlyingIdentifiers)
+	if len(res.Instrument.UnderlyingIdentifiers) != 1 || res.Instrument.UnderlyingIdentifiers[0].Value != "AAPL" {
+		t.Errorf("UnderlyingIdentifiers = %+v, want [{MIC_TICKER AAPL}]", res.Instrument.UnderlyingIdentifiers)
 	}
 }
 
@@ -270,26 +267,32 @@ func TestPlugin_Identify_Option_NoUnderlyingTicker(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient, fixedTimer(refNow))
+	p := NewPlugin(nil, http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: "AAPL251219C00230000"}}
 
-	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified when no underlying_ticker, got %v", err)
+	}
+	if res.Telemetry.Outcome != identifier.OutcomeNotIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeNotIdentified)
 	}
 }
 
 func TestPlugin_Identify_Option_NoOCC(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: "http://unused"})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
-	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified for option without OCC hint, got %v", err)
+	}
+	if res.Telemetry.Outcome != identifier.OutcomeNotIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeNotIdentified)
 	}
 }
 
@@ -299,12 +302,12 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock}
 	idHints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
-	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if err == nil {
 		t.Fatal("expected error on 429")
 	}
@@ -312,10 +315,13 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 	if !errors.As(err, &rlErr) {
 		t.Fatalf("expected ErrRateLimit, got %T: %v", err, err)
 	}
+	if res.Telemetry.Outcome != identifier.OutcomeRateLimited {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeRateLimited)
+	}
 }
 
 func TestPlugin_DefaultConfig(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := p.DefaultConfig()
 	var parsed configJSON
 	if err := json.Unmarshal(cfg, &parsed); err != nil {
@@ -327,7 +333,7 @@ func TestPlugin_DefaultConfig(t *testing.T) {
 }
 
 func TestPlugin_AcceptableInstrumentKinds(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	kinds := p.AcceptableInstrumentKinds()
 	if len(kinds) != 1 || !kinds[identifier.InstrumentKindSecurity] {
 		t.Errorf("AcceptableInstrumentKinds = %v, want {SECURITY}", kinds)
@@ -335,7 +341,7 @@ func TestPlugin_AcceptableInstrumentKinds(t *testing.T) {
 }
 
 func TestPlugin_AcceptableSecurityTypes(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	types := p.AcceptableSecurityTypes()
 	if !types[identifier.SecurityTypeHintStock] {
 		t.Error("expected STOCK to be acceptable")
@@ -377,21 +383,22 @@ func TestPlugin_Identify_Option_ExpiredBeyondHorizon(t *testing.T) {
 	expiry := refNow.AddDate(0, 0, -200)
 	occ := makeOCC("AAPL", expiry, "C", 230)
 
-	ctr := &recordingCounter{counts: map[string]int{}}
-	p := NewPlugin(ctr, slog.Default(), http.DefaultClient, fixedTimer(refNow))
+	p := NewPlugin(slog.Default(), http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
 
-	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified, got %v", err)
 	}
 	if apiCalled {
 		t.Fatal("API should not have been called for expired option beyond horizon")
 	}
-	if got := ctr.counts[counterExpirySkipped]; got != 1 {
-		t.Errorf("expiry_skipped counter = %d, want 1", got)
+	// The skip is reported as its own outcome: the resolver sees an ordinary
+	// non-identification and could not otherwise tell one from the other.
+	if res.Telemetry.Outcome != identifier.OutcomeSkippedExpired {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeSkippedExpired)
 	}
 }
 
@@ -418,17 +425,17 @@ func TestPlugin_Identify_Option_ExpiredWithinHorizon(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient, fixedTimer(refNow))
+	p := NewPlugin(nil, http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
 
-	inst, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if inst.AssetClass != db.AssetClassOption {
-		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
+	if res.Instrument.AssetClass != db.AssetClassOption {
+		t.Errorf("AssetClass = %q, want OPTION", res.Instrument.AssetClass)
 	}
 }
 
@@ -445,8 +452,7 @@ func TestPlugin_Identify_Option_CustomHorizon(t *testing.T) {
 	occ := makeOCC("AAPL", expiry, "P", 150)
 	horizon := 30
 
-	ctr := &recordingCounter{counts: map[string]int{}}
-	p := NewPlugin(ctr, slog.Default(), http.DefaultClient, fixedTimer(refNow))
+	p := NewPlugin(slog.Default(), http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{
 		MassiveBaseURL:           srv.URL,
 		ExpiredDerivativeHorizon: &horizon,
@@ -454,15 +460,17 @@ func TestPlugin_Identify_Option_CustomHorizon(t *testing.T) {
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
 
-	_, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Fatalf("expected ErrNotIdentified, got %v", err)
 	}
 	if apiCalled {
 		t.Fatal("API should not have been called for expired option beyond custom horizon")
 	}
-	if got := ctr.counts[counterExpirySkipped]; got != 1 {
-		t.Errorf("expiry_skipped counter = %d, want 1", got)
+	// The skip is reported as its own outcome: the resolver sees an ordinary
+	// non-identification and could not otherwise tell one from the other.
+	if res.Telemetry.Outcome != identifier.OutcomeSkippedExpired {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeSkippedExpired)
 	}
 }
 
@@ -489,22 +497,22 @@ func TestPlugin_Identify_Option_FutureExpiry(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, http.DefaultClient, fixedTimer(refNow))
+	p := NewPlugin(nil, http.DefaultClient, fixedTimer(refNow))
 	cfg := mustMarshal(t, configJSON{MassiveBaseURL: srv.URL})
 	hints := identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}
 	idHints := []identifier.Identifier{{Type: "OCC", Value: occ}}
 
-	inst, _, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
+	res, err := p.Identify(context.Background(), cfg, "", "", "", hints, idHints)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if inst.AssetClass != db.AssetClassOption {
-		t.Errorf("AssetClass = %q, want OPTION", inst.AssetClass)
+	if res.Instrument.AssetClass != db.AssetClassOption {
+		t.Errorf("AssetClass = %q, want OPTION", res.Instrument.AssetClass)
 	}
 }
 
 func TestPlugin_DefaultConfig_IncludesHorizon(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := p.DefaultConfig()
 	var parsed configJSON
 	if err := json.Unmarshal(cfg, &parsed); err != nil {

@@ -48,7 +48,7 @@ func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 
 // Identify looks up an instrument by CURRENCY identifier. When identifierHints contain a CURRENCY type with non-empty value,
 // looks up the instrument in the DB (seeded at migration). Returns ErrNotIdentified when not found or no CURRENCY hint.
-func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (identifier.Result, error) {
 	var code string
 	for _, h := range identifierHints {
 		if strings.TrimSpace(h.Type) == "CURRENCY" && strings.TrimSpace(h.Value) != "" {
@@ -57,18 +57,18 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		}
 	}
 	if code == "" {
-		return nil, nil, identifier.ErrNotIdentified
+		return notIdentified(), identifier.ErrNotIdentified
 	}
 	instrumentID, err := p.database.FindInstrumentByIdentifier(ctx, "CURRENCY", "", code)
 	if err != nil {
-		return nil, nil, err
+		return identifier.Result{Telemetry: identifier.Telemetry{Outcome: identifier.OutcomeError}}, err
 	}
 	if instrumentID == "" {
-		return nil, nil, identifier.ErrNotIdentified
+		return notIdentified(), identifier.ErrNotIdentified
 	}
 	row, err := p.database.GetInstrument(ctx, instrumentID)
 	if err != nil || row == nil {
-		return nil, nil, identifier.ErrNotIdentified
+		return notIdentified(), identifier.ErrNotIdentified
 	}
 	inst := &identifier.Instrument{
 		ID: row.ID,
@@ -86,5 +86,14 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		inst.Name = *row.Name
 	}
 	ids := []identifier.Identifier{{Type: "CURRENCY", Domain: "", Value: code}}
-	return inst, ids, nil
+	return identifier.Result{
+		Instrument:  inst,
+		Identifiers: ids,
+		Telemetry:   identifier.Telemetry{Outcome: identifier.OutcomeIdentified},
+	}, nil
+}
+
+// notIdentified returns the empty result carrying the not-identified outcome.
+func notIdentified() identifier.Result {
+	return identifier.Result{Telemetry: identifier.Telemetry{Outcome: identifier.OutcomeNotIdentified}}
 }

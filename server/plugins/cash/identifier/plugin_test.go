@@ -29,18 +29,21 @@ func TestPlugin_Identify_CurrencyFound(t *testing.T) {
 		GetInstrument(gomock.Any(), "inst-uuid-usd").
 		Return(&db.InstrumentRow{ID: "inst-uuid-usd", AssetClass: strPtr("CASH"), Currency: strPtr("USD"), Name: strPtr("US Dollar")}, nil)
 
-	inst, ids, err := p.Identify(ctx, nil, "IBKR", "IBKR:test", "USD", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, nil, "IBKR", "IBKR:test", "USD", identifier.Hints{}, hints)
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
-	if inst == nil {
+	if res.Instrument == nil {
 		t.Fatal("expected instrument")
 	}
-	if inst.AssetClass != "CASH" || inst.Currency != "USD" || inst.Name != "US Dollar" {
-		t.Errorf("instrument = %+v", inst)
+	if res.Instrument.AssetClass != "CASH" || res.Instrument.Currency != "USD" || res.Instrument.Name != "US Dollar" {
+		t.Errorf("instrument = %+v", res.Instrument)
 	}
-	if len(ids) != 1 || ids[0].Type != "CURRENCY" || ids[0].Value != "USD" {
-		t.Errorf("identifiers = %+v", ids)
+	if len(res.Identifiers) != 1 || res.Identifiers[0].Type != "CURRENCY" || res.Identifiers[0].Value != "USD" {
+		t.Errorf("identifiers = %+v", res.Identifiers)
+	}
+	if res.Telemetry.Outcome != identifier.OutcomeIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeIdentified)
 	}
 }
 
@@ -57,12 +60,15 @@ func TestPlugin_Identify_CurrencyNotFound_ReturnsErrNotIdentified(t *testing.T) 
 		FindInstrumentByIdentifier(gomock.Any(), "CURRENCY", "", "XXX").
 		Return("", nil)
 
-	inst, ids, err := p.Identify(ctx, nil, "", "", "", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, nil, "", "", "", identifier.Hints{}, hints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
 	}
-	if inst != nil || ids != nil {
+	if res.Instrument != nil || res.Identifiers != nil {
 		t.Errorf("expected nil inst and ids on ErrNotIdentified")
+	}
+	if res.Telemetry.Outcome != identifier.OutcomeNotIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeNotIdentified)
 	}
 }
 
@@ -75,12 +81,15 @@ func TestPlugin_Identify_NoCurrency_ReturnsErrNotIdentified(t *testing.T) {
 	ctx := context.Background()
 	hints := []identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}}
 
-	inst, ids, err := p.Identify(ctx, nil, "", "", "AAPL", identifier.Hints{}, hints)
+	res, err := p.Identify(ctx, nil, "", "", "AAPL", identifier.Hints{}, hints)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
 	}
-	if inst != nil || ids != nil {
+	if res.Instrument != nil || res.Identifiers != nil {
 		t.Errorf("expected nil inst and ids")
+	}
+	if res.Telemetry.Outcome != identifier.OutcomeNotIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeNotIdentified)
 	}
 }
 

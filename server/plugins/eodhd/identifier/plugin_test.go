@@ -37,10 +37,10 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, httpClient, nil)
+	p := NewPlugin(nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
-	inst, ids, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 		identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 	)
@@ -48,14 +48,17 @@ func TestPlugin_Identify_Stock_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if inst.AssetClass != "STOCK" {
-		t.Errorf("AssetClass = %q, want STOCK", inst.AssetClass)
+	if res.Instrument.AssetClass != "STOCK" {
+		t.Errorf("AssetClass = %q, want STOCK", res.Instrument.AssetClass)
 	}
-	if inst.Name != "Apple Inc" {
-		t.Errorf("Name = %q, want Apple Inc", inst.Name)
+	if res.Instrument.Name != "Apple Inc" {
+		t.Errorf("Name = %q, want Apple Inc", res.Instrument.Name)
 	}
-	if len(ids) != 2 {
-		t.Errorf("got %d identifiers, want 2 (MIC_TICKER+ISIN)", len(ids))
+	if len(res.Identifiers) != 2 {
+		t.Errorf("got %d identifiers, want 2 (MIC_TICKER+ISIN)", len(res.Identifiers))
+	}
+	if res.Telemetry.Outcome != identifier.OutcomeIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeIdentified)
 	}
 }
 
@@ -67,10 +70,10 @@ func TestPlugin_Identify_ISIN_Fallback(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, httpClient, nil)
+	p := NewPlugin(nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
-	inst, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 		identifier.Hints{},
 		[]identifier.Identifier{{Type: "ISIN", Value: "US0378331005"}},
 	)
@@ -78,11 +81,11 @@ func TestPlugin_Identify_ISIN_Fallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if inst == nil {
+	if res.Instrument == nil {
 		t.Fatal("expected instrument")
 	}
-	if inst.AssetClass != "STOCK" {
-		t.Errorf("AssetClass = %q, want STOCK", inst.AssetClass)
+	if res.Instrument.AssetClass != "STOCK" {
+		t.Errorf("AssetClass = %q, want STOCK", res.Instrument.AssetClass)
 	}
 }
 
@@ -109,21 +112,21 @@ func TestPlugin_Identify_SplitTickerNormalized(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := NewPlugin(nil, nil, httpClient, nil)
+			p := NewPlugin(nil, httpClient, nil)
 			cfg := testConfig(t, srv.URL)
 
-			inst, ids, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
+			res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 				identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 				[]identifier.Identifier{{Type: "MIC_TICKER", Value: tt.input}},
 			)
 			if err != nil {
 				t.Fatalf("Identify(%q): %v", tt.input, err)
 			}
-			if inst == nil {
+			if res.Instrument == nil {
 				t.Fatalf("Identify(%q): nil instrument", tt.input)
 			}
 			// Returned MIC_TICKER identifier should use canonical dot.
-			for _, id := range ids {
+			for _, id := range res.Identifiers {
 				if id.Type == "MIC_TICKER" {
 					if id.Value != "BRK.B" {
 						t.Errorf("returned MIC_TICKER value = %q, want canonical %q", id.Value, "BRK.B")
@@ -136,10 +139,10 @@ func TestPlugin_Identify_SplitTickerNormalized(t *testing.T) {
 }
 
 func TestPlugin_Identify_NoHints(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := testConfig(t, "http://unused")
 
-	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 		identifier.Hints{},
 		nil,
 	)
@@ -147,19 +150,25 @@ func TestPlugin_Identify_NoHints(t *testing.T) {
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("got err=%v, want ErrNotIdentified", err)
 	}
+	if res.Telemetry.Outcome != identifier.OutcomeNotIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeNotIdentified)
+	}
 }
 
 func TestPlugin_Identify_NoTickerOrISIN(t *testing.T) {
-	p := NewPlugin(nil, nil, http.DefaultClient, nil)
+	p := NewPlugin(nil, http.DefaultClient, nil)
 	cfg := testConfig(t, "http://unused")
 
-	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 		identifier.Hints{},
 		[]identifier.Identifier{{Type: "OCC", Value: "AAPL260316C00252500"}},
 	)
 
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("got err=%v, want ErrNotIdentified", err)
+	}
+	if res.Telemetry.Outcome != identifier.OutcomeNotIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeNotIdentified)
 	}
 }
 
@@ -169,10 +178,10 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, httpClient, nil)
+	p := NewPlugin(nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
-	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 		identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 	)
@@ -184,6 +193,11 @@ func TestPlugin_Identify_429_PropagatesError(t *testing.T) {
 	if !errors.As(err, &rl) {
 		t.Errorf("got err type %T, want *client.ErrRateLimit", err)
 	}
+	// A rate limit is its own outcome, not a generic failure: the resolver
+	// cannot tell them apart from the error alone.
+	if res.Telemetry.Outcome != identifier.OutcomeRateLimited {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeRateLimited)
+	}
 }
 
 func TestPlugin_Identify_EmptyResults(t *testing.T) {
@@ -192,16 +206,19 @@ func TestPlugin_Identify_EmptyResults(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, httpClient, nil)
+	p := NewPlugin(nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
-	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 		identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
 	)
 
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("got err=%v, want ErrNotIdentified", err)
+	}
+	if res.Telemetry.Outcome != identifier.OutcomeNotIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeNotIdentified)
 	}
 }
 
@@ -213,10 +230,10 @@ func TestPlugin_Identify_NonStockFiltered(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := NewPlugin(nil, nil, httpClient, nil)
+	p := NewPlugin(nil, httpClient, nil)
 	cfg := testConfig(t, srv.URL)
 
-	_, _, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
+	res, err := p.Identify(context.Background(), cfg, "broker", "source", "desc",
 		identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "SPY"}},
 	)
@@ -224,10 +241,13 @@ func TestPlugin_Identify_NonStockFiltered(t *testing.T) {
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("got err=%v, want ErrNotIdentified", err)
 	}
+	if res.Telemetry.Outcome != identifier.OutcomeNotIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeNotIdentified)
+	}
 }
 
 func TestPlugin_DefaultConfig(t *testing.T) {
-	p := NewPlugin(nil, nil, nil, nil)
+	p := NewPlugin(nil, nil, nil)
 	cfg := p.DefaultConfig()
 
 	var parsed configJSON
@@ -240,7 +260,7 @@ func TestPlugin_DefaultConfig(t *testing.T) {
 }
 
 func TestPlugin_AcceptableInstrumentKinds(t *testing.T) {
-	p := NewPlugin(nil, nil, nil, nil)
+	p := NewPlugin(nil, nil, nil)
 	kinds := p.AcceptableInstrumentKinds()
 	if len(kinds) != 1 || !kinds[identifier.InstrumentKindSecurity] {
 		t.Errorf("AcceptableInstrumentKinds = %v, want {SECURITY}", kinds)
@@ -248,7 +268,7 @@ func TestPlugin_AcceptableInstrumentKinds(t *testing.T) {
 }
 
 func TestPlugin_AcceptableSecurityTypes(t *testing.T) {
-	p := NewPlugin(nil, nil, nil, nil)
+	p := NewPlugin(nil, nil, nil)
 	types := p.AcceptableSecurityTypes()
 
 	if !types[identifier.SecurityTypeHintStock] {

@@ -30,11 +30,21 @@
 // plugins or supplied by the client.
 //
 // Return values:
-//   - (*Instrument, []Identifier, nil) when resolved.
-//   - (nil, nil, [ErrNotIdentified]) when the plugin cannot resolve. The caller
+//   - ([Result] with Instrument and Identifiers, nil) when resolved.
+//   - ([Result], [ErrNotIdentified]) when the plugin cannot resolve. The caller
 //     falls back to a broker-description-only instrument.
-//   - (nil, nil, error) on transient failure (timeout, rate limit, API error).
+//   - ([Result], error) on transient failure (timeout, rate limit, API error).
 //     The caller retries once with a 2 s backoff before recording the failure.
+//
+// # Telemetry
+//
+// Set [Result.Telemetry] on every return path, errors included. [Outcome] says
+// how the call went on the wire; the caller composes it with what only it knows
+// -- whether an identifying plugin won, was superseded by a better hint match,
+// or was discarded as inconsistent with the winner -- into the row it writes.
+// Do not count retries or elapsed time: the retry loop and the clock are the
+// caller's. A plugin never writes telemetry itself and never depends on the
+// telemetry backend.
 //
 // When multiple plugins succeed, the caller merges identifiers: for each
 // identifier type the first occurrence (in precedence-descending order) wins.

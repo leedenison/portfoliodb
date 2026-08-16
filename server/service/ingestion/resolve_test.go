@@ -21,11 +21,11 @@ type fakePlugin struct {
 	err  error
 }
 
-func (p *fakePlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *fakePlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (identifier.Result, error) {
 	if ctx.Err() != nil {
-		return nil, nil, ctx.Err()
+		return identifier.Result{}, ctx.Err()
 	}
-	return p.inst, p.ids, p.err
+	return identifier.Result{Instrument: p.inst, Identifiers: p.ids}, p.err
 }
 
 func (p *fakePlugin) AcceptableInstrumentKinds() map[string]bool { return nil }
@@ -847,12 +847,12 @@ type retryPlugin struct {
 	ids       []identifier.Identifier
 }
 
-func (p *retryPlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *retryPlugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (identifier.Result, error) {
 	p.callCount++
 	if p.callCount == 1 {
-		return nil, nil, errors.New("temporary failure")
+		return identifier.Result{}, errors.New("temporary failure")
 	}
-	return p.inst, p.ids, nil
+	return identifier.Result{Instrument: p.inst, Identifiers: p.ids}, nil
 }
 
 func (p *retryPlugin) AcceptableInstrumentKinds() map[string]bool { return nil }

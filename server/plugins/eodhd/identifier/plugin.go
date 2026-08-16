@@ -11,7 +11,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/client"
 	"github.com/leedenison/portfoliodb/server/plugins/eodhd/exchangemap"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
 // PluginID is the stable plugin_id for registration and identifier_plugin_config.
@@ -25,7 +24,6 @@ type configJSON struct {
 
 // Plugin implements identifier.Plugin using the EODHD REST API.
 type Plugin struct {
-	counter    telemetry.CounterIncrementer
 	log        *slog.Logger
 	httpClient *http.Client
 	exchMap    *exchangemap.ExchangeMap
@@ -35,9 +33,9 @@ type Plugin struct {
 	lastConfig string
 }
 
-// NewPlugin returns a plugin. counter, log and exchMap are optional (nil for tests).
-func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client, exchMap *exchangemap.ExchangeMap) *Plugin {
-	return &Plugin{counter: counter, log: log, httpClient: httpClient, exchMap: exchMap}
+// NewPlugin returns a plugin. log and exchMap are optional (nil for tests).
+func NewPlugin(log *slog.Logger, httpClient *http.Client, exchMap *exchangemap.ExchangeMap) *Plugin {
+	return &Plugin{log: log, httpClient: httpClient, exchMap: exchMap}
 }
 
 func (p *Plugin) DisplayName() string { return "EODHD" }
@@ -58,19 +56,19 @@ func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 	}
 }
 
-func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (identifier.Result, error) {
 	if len(identifierHints) == 0 {
-		return nil, nil, identifier.ErrNotIdentified
+		return result(nil, nil, identifier.ErrNotIdentified)
 	}
 
 	c, err := p.getClient(config)
 	if err != nil {
-		return nil, nil, err
+		return result(nil, nil, err)
 	}
 
 	query, queryType := pickQuery(identifierHints)
 	if query == "" {
-		return nil, nil, identifier.ErrNotIdentified
+		return result(nil, nil, identifier.ErrNotIdentified)
 	}
 
 	exchHint := exchangeHintFromIdentifiers(identifierHints)
@@ -84,58 +82,57 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 	if err != nil {
 		var nf *client.ErrNotFound
 		if errors.As(err, &nf) {
-			p.reportOutcome(ctx, identifier.ErrNotIdentified)
-			return nil, nil, identifier.ErrNotIdentified
+			return result(nil, nil, identifier.ErrNotIdentified)
 		}
-		p.reportOutcome(ctx, err)
-		return nil, nil, err
+		return result(nil, nil, err)
 	}
 
 	match := bestMatch(results, exchHint)
 	if match == nil {
-		p.reportOutcome(ctx, identifier.ErrNotIdentified)
-		return nil, nil, identifier.ErrNotIdentified
+		return result(nil, nil, identifier.ErrNotIdentified)
 	}
 
 	// For ISIN lookups where the search matched, verify the ISIN is present
 	// on the result (the Search API is fuzzy and may match by name).
 	if queryType == "ISIN" && match.ISIN != query {
-		p.reportOutcome(ctx, identifier.ErrNotIdentified)
-		return nil, nil, identifier.ErrNotIdentified
+		return result(nil, nil, identifier.ErrNotIdentified)
 	}
 
 	inst, ids := stockFromSearch(match, p.exchMap)
 	if inst == nil {
-		p.reportOutcome(ctx, identifier.ErrNotIdentified)
-		return nil, nil, identifier.ErrNotIdentified
+		return result(nil, nil, identifier.ErrNotIdentified)
 	}
 
-	p.reportOutcome(ctx, nil)
-	return inst, ids, nil
+	return result(inst, ids, nil)
 }
 
-const (
-	counterSucceeded = "instruments.identification.eodhd.request.succeeded"
-	counterFailed    = "instruments.identification.eodhd.request.failed"
-	counterRateLimit = "instruments.identification.eodhd.request.rate_limit"
-)
+// result pairs the identification with the outcome the resolver records for
+// this call. An ErrNotIdentified from before the request was made is reported
+// the same as one from an empty response: neither identified the instrument,
+// and the plugin has nothing further to distinguish them by.
+func result(inst *identifier.Instrument, ids []identifier.Identifier, err error) (identifier.Result, error) {
+	return identifier.Result{
+		Instrument:  inst,
+		Identifiers: ids,
+		Telemetry:   identifier.Telemetry{Outcome: outcome(err)},
+	}, err
+}
 
-func (p *Plugin) reportOutcome(ctx context.Context, err error) {
-	if p.counter == nil {
-		return
-	}
+// outcome classifies an Identify error into the vocabulary the resolver records.
+func outcome(err error) identifier.Outcome {
 	switch {
 	case err == nil:
-		p.counter.Incr(ctx, counterSucceeded)
+		return identifier.OutcomeIdentified
 	case errors.Is(err, identifier.ErrNotIdentified):
-		// Not a request outcome; don't count.
+		return identifier.OutcomeNotIdentified
+	case errors.Is(err, context.DeadlineExceeded):
+		return identifier.OutcomeTimeout
 	default:
 		var rl *client.ErrRateLimit
 		if errors.As(err, &rl) {
-			p.counter.Incr(ctx, counterRateLimit)
-		} else {
-			p.counter.Incr(ctx, counterFailed)
+			return identifier.OutcomeRateLimited
 		}
+		return identifier.OutcomeError
 	}
 }
 

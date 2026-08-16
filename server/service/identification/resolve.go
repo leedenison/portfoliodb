@@ -153,10 +153,14 @@ func FilterIdentifierHints(ctx context.Context, hints []identifier.Identifier, l
 	return out
 }
 
-// pluginResult holds a single plugin's identification output.
+// pluginResult holds a single plugin's identification output. tel is the half
+// of the plugin-call record only the plugin can supply; the other half -- won,
+// superseded or discarded as inconsistent -- is decided by winner selection
+// below, once every plugin has returned.
 type pluginResult struct {
 	inst *identifier.Instrument
 	ids  []identifier.Identifier
+	tel  identifier.Telemetry
 	err  error
 }
 
@@ -406,8 +410,8 @@ func ResolveWithPlugins(
 			defer wg.Done()
 			in := inputs[idx]
 			timeout := timeoutFromConfig(in.config.Config)
-			inst, ids, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, hints, identifierHints, timeout, PluginRetryBackoff)
-			results[idx] = pluginResult{inst: inst, ids: ids, err: err}
+			res, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, hints, identifierHints, timeout, PluginRetryBackoff)
+			results[idx] = pluginResult{inst: res.Instrument, ids: res.Identifiers, tel: res.Telemetry, err: err}
 		}(i)
 	}
 	wg.Wait()
@@ -629,9 +633,8 @@ func timeoutFromConfig(config []byte) time.Duration {
 // callPluginWithRetry calls Identify with exponential backoff retry.
 // ErrNotIdentified is treated as a permanent error (no retry). Each attempt gets its own
 // context timeout derived from the parent so cancellation still propagates.
-func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, timeout, initialBackoff time.Duration) (*identifier.Instrument, []identifier.Identifier, error) {
-	var inst *identifier.Instrument
-	var ids []identifier.Identifier
+func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, timeout, initialBackoff time.Duration) (identifier.Result, error) {
+	var res identifier.Result
 
 	bo := backoff.NewExponentialBackOff()
 	bo.InitialInterval = initialBackoff
@@ -642,7 +645,7 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte
 		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		var attemptErr error
-		inst, ids, attemptErr = p.Identify(attemptCtx, config, broker, source, instrumentDescription, hints, identifierHints)
+		res, attemptErr = p.Identify(attemptCtx, config, broker, source, instrumentDescription, hints, identifierHints)
 		if attemptErr == nil {
 			return nil
 		}
@@ -652,7 +655,7 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte
 		return attemptErr
 	}, bCtx)
 
-	return inst, ids, err
+	return res, err
 }
 
 // optionFieldsFromIdentifiers extracts strike, expiry, and put/call from the

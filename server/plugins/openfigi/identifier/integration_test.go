@@ -65,7 +65,7 @@ func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "openfigi/identifier")
 
-			p := NewPlugin(nil, nil, httpClient, nil)
+			p := NewPlugin(nil, httpClient, nil)
 			cfg, err := json.Marshal(configJSON{
 				OpenFIGIAPIKey: apiKey,
 			})
@@ -73,7 +73,7 @@ func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 				t.Fatalf("marshal config: %v", err)
 			}
 
-			inst, ids, err := p.Identify(
+			res, err := p.Identify(
 				context.Background(),
 				cfg,
 				"test-broker",
@@ -92,16 +92,16 @@ func TestIntegration_OpenFIGI_Identify(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if inst == nil {
+			if res.Instrument == nil {
 				t.Fatal("expected instrument, got nil")
 			}
-			if inst.AssetClass != tc.wantClass {
-				t.Errorf("AssetClass = %q, want %q", inst.AssetClass, tc.wantClass)
+			if res.Instrument.AssetClass != tc.wantClass {
+				t.Errorf("AssetClass = %q, want %q", res.Instrument.AssetClass, tc.wantClass)
 			}
-			if len(ids) == 0 {
+			if len(res.Identifiers) == 0 {
 				t.Error("expected at least one identifier")
 			}
-			if tc.wantClass == "OPTION" && len(inst.UnderlyingIdentifiers) == 0 {
+			if tc.wantClass == "OPTION" && len(res.Instrument.UnderlyingIdentifiers) == 0 {
 				t.Error("expected UnderlyingIdentifiers for option")
 			}
 		})

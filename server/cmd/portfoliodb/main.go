@@ -209,10 +209,10 @@ func main() {
 	pluginHTTPClient := newPluginHTTPClient()
 	pluginRegistry := identifier.NewRegistry()
 	openfigiExchMap := openfigiexchmap.New()
-	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openfigi"), pluginHTTPClient, openfigiExchMap))
-	pluginRegistry.Register(massiveplugin.PluginID, massiveplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/massive"), pluginHTTPClient, nil))
+	pluginRegistry.Register(openfigiplugin.PluginID, openfigiplugin.NewPlugin(logger.WithCategory(serverLogger, "server/plugins/openfigi"), pluginHTTPClient, openfigiExchMap))
+	pluginRegistry.Register(massiveplugin.PluginID, massiveplugin.NewPlugin(logger.WithCategory(serverLogger, "server/plugins/massive"), pluginHTTPClient, nil))
 	exchMap := exchangemap.New()
-	eodhdPlugin := eodhdplugin.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/eodhd"), pluginHTTPClient, exchMap)
+	eodhdPlugin := eodhdplugin.NewPlugin(logger.WithCategory(serverLogger, "server/plugins/eodhd"), pluginHTTPClient, exchMap)
 	pluginRegistry.Register(eodhdplugin.PluginID, eodhdPlugin)
 	pluginRegistry.Register(cashid.PluginID, cashid.NewPlugin(database))
 	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryIdentifier, pluginRegistry.ListIDs(), func(id string) []byte {

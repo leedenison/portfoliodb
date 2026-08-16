@@ -19,8 +19,8 @@ type fakePlugin struct {
 	err  error
 }
 
-func (p *fakePlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
-	return p.inst, p.ids, p.err
+func (p *fakePlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (identifier.Result, error) {
+	return identifier.Result{Instrument: p.inst, Identifiers: p.ids}, p.err
 }
 func (p *fakePlugin) AcceptableInstrumentKinds() map[string]bool { return nil }
 func (p *fakePlugin) AcceptableSecurityTypes() map[string]bool   { return nil }
@@ -545,21 +545,21 @@ func TestCallPluginWithRetry_SuccessNoRetry(t *testing.T) {
 		inst: &identifier.Instrument{Name: "OK"},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "X"}},
 	}
-	inst, ids, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
+	res, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if inst.Name != "OK" {
-		t.Errorf("inst.Name = %q, want OK", inst.Name)
+	if res.Instrument.Name != "OK" {
+		t.Errorf("Instrument.Name = %q, want OK", res.Instrument.Name)
 	}
-	if len(ids) != 1 {
-		t.Errorf("len(ids) = %d, want 1", len(ids))
+	if len(res.Identifiers) != 1 {
+		t.Errorf("len(Identifiers) = %d, want 1", len(res.Identifiers))
 	}
 }
 
 func TestCallPluginWithRetry_ErrNotIdentified_NoRetry(t *testing.T) {
 	p := &fakePlugin{err: identifier.ErrNotIdentified}
-	_, _, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
+	_, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
 	if !errors.Is(err, identifier.ErrNotIdentified) {
 		t.Errorf("err = %v, want ErrNotIdentified", err)
 	}
@@ -572,12 +572,16 @@ type retryPlugin struct {
 	ids       []identifier.Identifier
 }
 
-func (p *retryPlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *retryPlugin) Identify(_ context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (identifier.Result, error) {
 	p.callCount++
 	if p.callCount == 1 {
-		return nil, nil, errors.New("temporary failure")
+		return identifier.Result{Telemetry: identifier.Telemetry{Outcome: identifier.OutcomeError}}, errors.New("temporary failure")
 	}
-	return p.inst, p.ids, nil
+	return identifier.Result{
+		Instrument:  p.inst,
+		Identifiers: p.ids,
+		Telemetry:   identifier.Telemetry{Outcome: identifier.OutcomeIdentified},
+	}, nil
 }
 
 func (p *retryPlugin) AcceptableInstrumentKinds() map[string]bool { return nil }
@@ -590,15 +594,20 @@ func TestCallPluginWithRetry_RetrySucceeds(t *testing.T) {
 		inst: &identifier.Instrument{Name: "Retried"},
 		ids:  []identifier.Identifier{{Type: "MIC_TICKER", Value: "X"}},
 	}
-	inst, _, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
+	res, err := callPluginWithRetry(context.Background(), p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if inst.Name != "Retried" {
-		t.Errorf("inst.Name = %q, want Retried", inst.Name)
+	if res.Instrument.Name != "Retried" {
+		t.Errorf("Instrument.Name = %q, want Retried", res.Instrument.Name)
 	}
 	if p.callCount != 2 {
 		t.Errorf("callCount = %d, want 2", p.callCount)
+	}
+	// The retry that succeeded is the outcome the resolver records, not the
+	// failure that preceded it.
+	if res.Telemetry.Outcome != identifier.OutcomeIdentified {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, identifier.OutcomeIdentified)
 	}
 }
 
@@ -607,9 +616,9 @@ func TestCallPluginWithRetry_ParentCancelStopsRetry(t *testing.T) {
 	// (i.e. we no longer use context.Background() for retry).
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &cancelOnRetryPlugin{cancel: cancel, inst: &identifier.Instrument{Name: "Never"}}
-	inst, _, err := callPluginWithRetry(ctx, p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
+	res, err := callPluginWithRetry(ctx, p, nil, "", "", "X", identifier.Hints{}, nil, time.Second, time.Millisecond)
 	if err == nil {
-		t.Fatalf("expected error from cancelled context, got inst=%v", inst)
+		t.Fatalf("expected error from cancelled context, got inst=%v", res.Instrument)
 	}
 }
 
@@ -621,16 +630,16 @@ type cancelOnRetryPlugin struct {
 	inst      *identifier.Instrument
 }
 
-func (p *cancelOnRetryPlugin) Identify(ctx context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *cancelOnRetryPlugin) Identify(ctx context.Context, _ []byte, _, _, _ string, _ identifier.Hints, _ []identifier.Identifier) (identifier.Result, error) {
 	p.callCount++
 	if p.callCount == 1 {
 		p.cancel()
-		return nil, nil, errors.New("transient")
+		return identifier.Result{}, errors.New("transient")
 	}
 	if ctx.Err() != nil {
-		return nil, nil, ctx.Err()
+		return identifier.Result{}, ctx.Err()
 	}
-	return p.inst, nil, nil
+	return identifier.Result{Instrument: p.inst}, nil
 }
 
 func (p *cancelOnRetryPlugin) AcceptableInstrumentKinds() map[string]bool { return nil }

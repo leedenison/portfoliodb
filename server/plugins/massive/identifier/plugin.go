@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -13,7 +14,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/plugins/massive/client"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
 // PluginID is the stable plugin_id for registration and identifier_plugin_config.
@@ -34,7 +34,6 @@ type configJSON struct {
 // The client and rate limiter are shared across concurrent Identify calls
 // and rebuilt only when the config JSON changes.
 type Plugin struct {
-	counter    telemetry.CounterIncrementer
 	log        *slog.Logger
 	httpClient *http.Client
 	timer      *clock.Timer
@@ -45,10 +44,10 @@ type Plugin struct {
 	expiryHorizon time.Duration
 }
 
-// NewPlugin returns a plugin. counter, log, and timer are optional (nil for
-// tests). A nil timer delegates to time.Now().
-func NewPlugin(counter telemetry.CounterIncrementer, log *slog.Logger, httpClient *http.Client, timer *clock.Timer) *Plugin {
-	return &Plugin{counter: counter, log: log, httpClient: httpClient, timer: timer}
+// NewPlugin returns a plugin. log and timer are optional (nil for tests). A nil
+// timer delegates to time.Now().
+func NewPlugin(log *slog.Logger, httpClient *http.Client, timer *clock.Timer) *Plugin {
+	return &Plugin{log: log, httpClient: httpClient, timer: timer}
 }
 
 func (p *Plugin) DisplayName() string { return "Massive" }
@@ -71,14 +70,14 @@ func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 	}
 }
 
-func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (*identifier.Instrument, []identifier.Identifier, error) {
+func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier) (identifier.Result, error) {
 	if len(identifierHints) == 0 {
-		return nil, nil, identifier.ErrNotIdentified
+		return result(nil, nil, identifier.ErrNotIdentified)
 	}
 
 	c, err := p.getClient(config)
 	if err != nil {
-		return nil, nil, err
+		return result(nil, nil, err)
 	}
 
 	var inst *identifier.Instrument
@@ -90,33 +89,41 @@ func (p *Plugin) Identify(ctx context.Context, config []byte, broker, source, in
 		inst, ids, err = p.identifyStock(ctx, c, identifierHints)
 	}
 
-	p.reportOutcome(ctx, err)
-	return inst, ids, err
+	return result(inst, ids, err)
 }
 
-const (
-	counterSucceeded     = "instruments.identification.massive.request.succeeded"
-	counterFailed        = "instruments.identification.massive.request.failed"
-	counterRateLimit     = "instruments.identification.massive.request.rate_limit"
-	counterExpirySkipped = "instruments.identification.massive.option.expiry_skipped"
-)
+// errExpiredSkipped is returned when an expired option is skipped without an
+// API call. It wraps ErrNotIdentified so the resolver treats it as any other
+// non-identification, while the outcome the plugin reports says why.
+var errExpiredSkipped = fmt.Errorf("expired derivative beyond horizon: %w", identifier.ErrNotIdentified)
 
-func (p *Plugin) reportOutcome(ctx context.Context, err error) {
-	if p.counter == nil {
-		return
-	}
+// result pairs the identification with the outcome the resolver records for
+// this call.
+func result(inst *identifier.Instrument, ids []identifier.Identifier, err error) (identifier.Result, error) {
+	return identifier.Result{
+		Instrument:  inst,
+		Identifiers: ids,
+		Telemetry:   identifier.Telemetry{Outcome: outcome(err)},
+	}, err
+}
+
+// outcome classifies an Identify error into the vocabulary the resolver records.
+func outcome(err error) identifier.Outcome {
 	switch {
 	case err == nil:
-		p.counter.Incr(ctx, counterSucceeded)
+		return identifier.OutcomeIdentified
+	case errors.Is(err, errExpiredSkipped):
+		return identifier.OutcomeSkippedExpired
 	case errors.Is(err, identifier.ErrNotIdentified):
-		// Not a request outcome; don't count.
+		return identifier.OutcomeNotIdentified
+	case errors.Is(err, context.DeadlineExceeded):
+		return identifier.OutcomeTimeout
 	default:
 		var rl *client.ErrRateLimit
 		if errors.As(err, &rl) {
-			p.counter.Incr(ctx, counterRateLimit)
-		} else {
-			p.counter.Incr(ctx, counterFailed)
+			return identifier.OutcomeRateLimited
 		}
+		return identifier.OutcomeError
 	}
 }
 
@@ -194,10 +201,7 @@ func (p *Plugin) identifyOption(ctx context.Context, c *client.Client, hints []i
 						"occ", compact, "expiry", expiry.Format("2006-01-02"),
 						"horizon_days", int(p.expiryHorizon.Hours()/24))
 				}
-				if p.counter != nil {
-					p.counter.Incr(ctx, counterExpirySkipped)
-				}
-				return nil, nil, identifier.ErrNotIdentified
+				return nil, nil, errExpiredSkipped
 			}
 		}
 	}

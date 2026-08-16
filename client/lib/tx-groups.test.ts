@@ -129,27 +129,75 @@ describe("groupTxs", () => {
     ]);
   });
 
-  it("keeps the page's order within the stated legs and within the routed ones", () => {
+  // Page order is the last resort rather than the rule: it decides only between
+  // legs the composite cannot separate, which is two of one kind and one amount.
+  it("keeps the page's order between legs it cannot otherwise separate", () => {
     const [group] = groupTxs([
       posting("g1", TxType.TRADE_ASSET, "10"),
-      posting("g1", TxType.AMBIGUOUS, "-1", {
-        accountType: AccountType.IMBALANCE,
-        syntheticPurpose: "RESIDUAL",
-        description: "routed first",
-      }),
-      posting("g1", TxType.TRADE_CASH, "-100", { description: "stated first" }),
-      posting("g1", TxType.AMBIGUOUS, "-2", {
-        accountType: AccountType.IMBALANCE,
-        syntheticPurpose: "RESIDUAL",
-        description: "routed second",
-      }),
-      posting("g1", TxType.TRANSACTION_COST, "-5", { description: "stated second" }),
+      posting("g1", TxType.TRANSACTION_COST, "-7.50", { description: "fee first" }),
+      posting("g1", TxType.TRADE_CASH, "-100", { description: "cash" }),
+      posting("g1", TxType.TRANSACTION_COST, "-7.50", { description: "fee second" }),
     ]);
     expect(group.rest.map((p) => p.tx?.instrumentDescription)).toEqual([
-      "stated first",
-      "stated second",
-      "routed first",
-      "routed second",
+      "cash",
+      "fee first",
+      "fee second",
+    ]);
+  });
+
+  // The reason for a second rank table. PRINCIPAL_RANK puts cash below charges,
+  // because a trade is its asset leg and the money says least about the event.
+  // Reading the legs asks the opposite question, and reusing that table would
+  // print a trade's fees above the cash that paid for it.
+  it("reads a trade's cash before the charges levied on it", () => {
+    const [group] = groupTxs([
+      posting("g1", TxType.TRADE_ASSET, "28", { description: "EQQQ" }),
+      posting("g1", TxType.TRANSACTION_COST, "-1.50", { description: "PTM levy" }),
+      posting("g1", TxType.TRANSACTION_COST, "-7.50", { description: "dealing fee" }),
+      posting("g1", TxType.TRADE_CASH, "-7380.19", { description: "GBP" }),
+    ]);
+    expect(group.principal.tx?.instrumentDescription).toBe("EQQQ");
+    expect(group.rest.map((p) => p.tx?.instrumentDescription)).toEqual([
+      "GBP",
+      "dealing fee",
+      "PTM levy",
+    ]);
+  });
+
+  // The order is a property of the group, not of the page. Any arrival order of
+  // one group's legs reads out the same way.
+  it("orders the same legs identically however the page supplied them", () => {
+    const legs = [
+      posting("g1", TxType.TRADE_ASSET, "28", { description: "EQQQ" }),
+      posting("g1", TxType.TRADE_CASH, "-7380.19", { description: "GBP" }),
+      posting("g1", TxType.TRANSACTION_COST, "-7.50", { description: "dealing fee" }),
+      posting("g1", TxType.TRANSACTION_COST, "-1.50", { description: "PTM levy" }),
+      posting("g1", TxType.AMBIGUOUS, "-0.05", {
+        accountType: AccountType.SOURCE_ROUNDING,
+        syntheticPurpose: "RESIDUAL",
+        description: "rounding",
+      }),
+    ];
+    const want = ["GBP", "dealing fee", "PTM levy", "rounding"];
+    // Every rotation, which is enough to move each leg through every position.
+    for (let i = 0; i < legs.length; i++) {
+      const rotated = [...legs.slice(i), ...legs.slice(0, i)];
+      const [group] = groupTxs(rotated);
+      expect(group.rest.map((p) => p.tx?.instrumentDescription)).toEqual(want);
+    }
+  });
+
+  // A charge is still read after a transfer, so a deposit run that cost a fee
+  // reads as the movement then what it cost.
+  it("reads what an event was levied after what constituted it", () => {
+    const [group] = groupTxs([
+      posting("g1", TxType.TRANSFER, "5000", { description: "in" }),
+      posting("g1", TxType.HOLDING_COST, "-3.24", { description: "platform fee" }),
+      posting("g1", TxType.TRANSFER, "-5000", { description: "out" }),
+    ]);
+    expect(group.rest.map((p) => p.tx?.instrumentDescription)).toEqual([
+      "out",
+      "platform fee",
     ]);
   });
 

@@ -273,7 +273,7 @@ CREATE TABLE tx_correlations (
   scope        TEXT NOT NULL CHECK (scope IN ('FILE', 'ACCOUNT', 'BROKER')),
   matches      TEXT[] NOT NULL
                  CHECK (cardinality(matches) > 0
-                        AND matches <@ ARRAY['EXACT', 'ORDINAL', 'ACCOUNT']),
+                        AND matches <@ ARRAY['EXACT', 'ORDINAL', 'ACCOUNT', 'ATTACHES']),
   ordinal_span BIGINT,
 
   job_id       UUID,

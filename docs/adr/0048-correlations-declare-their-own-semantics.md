@@ -204,3 +204,15 @@ rejected. The format becomes the union of every broker's evidence, growing a
 nullable field per source until no consumer can rely on any of it. Abstracting the
 shape of the evidence keeps the format small and puts the translation where the
 broker knowledge already is.
+
+**"A later pass may add to the group" is implemented, and needed a fourth match
+value.** The must-link paragraph above says a later pass may add to a group but may
+not split it. `State.Claim` could not express the first half -- it treats every
+member alike and refuses any claim naming a posting that has gone -- so a rule
+wanting to contribute a leg to somebody else's group had no way to say so.
+
+`MATCH_ATTACHES` and `State.Attach` are that way, in
+[0052](0052-an-attaching-correlation-is-additive.md). The value is a directed
+reference to another posting's identifier rather than a token shared with it, which
+is what keeps `Exact` from claiming a bearer and its target as a group of two and
+stranding the legs that belong with the target.

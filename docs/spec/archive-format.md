@@ -614,7 +614,8 @@ why it might belong with another posting -- an identifier, what may be compared
 about it, and over what set of postings -- and they are irreplaceable data rather
 than a partition. Each states a `label`, a `token`, an optional `ordinal`, one
 `scope` (`SCOPE_FILE`, `SCOPE_ACCOUNT` or `SCOPE_BROKER`), at least one `match`
-(`MATCH_EXACT`, `MATCH_ORDINAL`, `MATCH_ACCOUNT`) and an optional `ordinal_span`.
+(`MATCH_EXACT`, `MATCH_ORDINAL`, `MATCH_ACCOUNT`, `MATCH_ATTACHES`) and an optional
+`ordinal_span`.
 `docs/spec/postings.md` says what each means; the shape is settled in
 `docs/adr/0048-correlations-declare-their-own-semantics.md`.
 

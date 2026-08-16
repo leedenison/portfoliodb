@@ -137,6 +137,24 @@ enum Match {
   // token. This is what a source-supplied counterparty pointer says, and it is
   // asymmetric: only one side of a transfer usually names the other.
   MATCH_ACCOUNT = 3;
+  // The token names another posting's identifier, and this posting attaches to
+  // whatever group that posting is placed in.
+  //
+  // Distinct from MATCH_EXACT, which is a peer relation: two postings holding one
+  // token are saying the same thing about themselves, and together they make a
+  // group. This one says the token is somebody else's identity -- a reference to
+  // another posting rather than a shared key -- so it is asymmetric like
+  // MATCH_ACCOUNT, and only the bearer carries it.
+  //
+  // It is additive rather than partitioning. It says nothing about the posting it
+  // names, so it cannot decide where that posting goes, and the rule consuming it
+  // therefore runs below the rules that do. A charge a converter could tie to its
+  // trade, a withheld tax naming its dividend, cash in lieu naming its corporate
+  // action: each is a leg the source reported as a record of its own while saying
+  // which record it belongs under.
+  //
+  // See docs/adr/0052-an-attaching-correlation-is-additive.md.
+  MATCH_ATTACHES = 4;
 }
 
 // IdentifierType is the controlled vocabulary for instrument identifier types.

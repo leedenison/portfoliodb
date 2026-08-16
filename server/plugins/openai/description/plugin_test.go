@@ -11,7 +11,6 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/identifier"
 	descpkg "github.com/leedenison/portfoliodb/server/identifier/description"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
 func TestIsOpenAIModelNotFound(t *testing.T) {
@@ -52,56 +51,42 @@ func TestIsOpenAIQuotaExceeded(t *testing.T) {
 	}
 }
 
-// recordingCounter records the last counter name passed to Incr.
-type recordingCounter struct {
-	last string
+func TestHandleOpenAIError_Classifies(t *testing.T) {
+	ctx := context.Background()
+	p := NewPlugin(slog.Default(), http.DefaultClient)
+
+	tests := []struct {
+		name string
+		err  string
+		want descpkg.Outcome
+	}{
+		{name: "model not found", err: "openai 404: model not found", want: descpkg.OutcomeModelNotFound},
+		{name: "quota exceeded", err: "openai 429: insufficient_quota", want: descpkg.OutcomeQuotaExceeded},
+		// Both arrive as 429; only the body marker tells them apart.
+		{name: "rate limited", err: "openai 429: rate_limit_exceeded", want: descpkg.OutcomeRateLimited},
+		{name: "other", err: "openai 500: internal server error", want: descpkg.OutcomeError},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := p.handleOpenAIError(ctx, "INRG", &errWithMessage{tc.err})
+			if got != tc.want {
+				t.Errorf("handleOpenAIError(%q) = %q, want %q", tc.err, got, tc.want)
+			}
+		})
+	}
 }
 
-func (r *recordingCounter) Incr(_ context.Context, name string) { r.last = name }
-
-func (r *recordingCounter) IncrBy(_ context.Context, name string, _ int64) { r.last = name }
-
-func TestHandleOpenAIError_IncrementsCounters(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("model not found", func(t *testing.T) {
-		c := &recordingCounter{}
-		p := NewPlugin(c, slog.Default(), http.DefaultClient)
-		p.handleOpenAIError(ctx, "INRG", &errWithMessage{"openai 404: model not found"})
-		if c.last != CounterModelNotFound {
-			t.Errorf("counter = %q, want %q", c.last, CounterModelNotFound)
-		}
-	})
-
-	t.Run("quota exceeded", func(t *testing.T) {
-		c := &recordingCounter{}
-		p := NewPlugin(c, slog.Default(), http.DefaultClient)
-		p.handleOpenAIError(ctx, "VUSA", &errWithMessage{"openai 429: insufficient_quota"})
-		if c.last != CounterQuotaExceeded {
-			t.Errorf("counter = %q, want %q", c.last, CounterQuotaExceeded)
-		}
-	})
-
-	t.Run("nil counter no panic", func(t *testing.T) {
-		p := NewPlugin(nil, slog.Default(), http.DefaultClient)
-		p.handleOpenAIError(ctx, "X", &errWithMessage{"openai 404: not found"})
-	})
-
-	t.Run("other error no increment", func(t *testing.T) {
-		c := &recordingCounter{}
-		p := NewPlugin(c, slog.Default(), http.DefaultClient)
-		p.handleOpenAIError(ctx, "X", &errWithMessage{"openai 500: internal server error"})
-		if c.last != "" {
-			t.Errorf("unexpected counter increment: %q", c.last)
-		}
-	})
+func TestHandleOpenAIError_NilLogger(t *testing.T) {
+	p := NewPlugin(nil, http.DefaultClient)
+	if got := p.handleOpenAIError(context.Background(), "X", &errWithMessage{"openai 404: not found"}); got != descpkg.OutcomeModelNotFound {
+		t.Errorf("outcome = %q, want %q", got, descpkg.OutcomeModelNotFound)
+	}
 }
 
 type errWithMessage struct{ msg string }
 
 func (e *errWithMessage) Error() string { return e.msg }
-
-var _ telemetry.CounterIncrementer = (*recordingCounter)(nil)
 
 func TestExtractBatch_TypeHintPassedToClient(t *testing.T) {
 	// BatchItemForClient must include TypeHint from Hints.SecurityTypeHint; when server returns OCC, plugin emits OCC identifier.
@@ -136,20 +121,27 @@ func TestExtractBatch_TypeHintPassedToClient(t *testing.T) {
 
 	config := []byte(`{"openai_api_key":"test","openai_base_url":"` + server.URL + `"}`)
 	ctx := context.Background()
-	p := NewPlugin(nil, nil, http.DefaultClient)
+	p := NewPlugin(nil, http.DefaultClient)
 	items := []descpkg.BatchItem{
 		{ID: "ab12", InstrumentDescription: "BRKB 241115P00390000 BRK B 15NOV24 390 P", Hints: identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintOption}},
 	}
-	out, err := p.ExtractBatch(ctx, config, "IBKR", "IBKR:test:statement", items)
+	res, err := p.ExtractBatch(ctx, config, "IBKR", "IBKR:test:statement", items)
 	if err != nil {
 		t.Fatalf("ExtractBatch: %v", err)
 	}
-	if out == nil {
-		t.Fatal("expected non-nil out")
+	if res.Telemetry.Outcome != descpkg.OutcomeHintsReturned {
+		t.Errorf("Telemetry.Outcome = %q, want %q", res.Telemetry.Outcome, descpkg.OutcomeHintsReturned)
 	}
-	ids, ok := out["ab12"]
+	// The token cost of the call is what makes the cost of one import answerable.
+	if res.Telemetry.Tokens == nil {
+		t.Fatal("Telemetry.Tokens = nil, want the usage the API reported")
+	}
+	if res.Telemetry.Tokens.PromptTokens != 1 || res.Telemetry.Tokens.CompletionTokens != 1 || res.Telemetry.Tokens.TotalTokens != 2 {
+		t.Errorf("Telemetry.Tokens = %+v, want {1 1 2}", *res.Telemetry.Tokens)
+	}
+	ids, ok := res.Hints["ab12"]
 	if !ok || len(ids) != 1 {
-		t.Fatalf("out[ab12] = %v, want one OCC identifier", out)
+		t.Fatalf("Hints[ab12] = %v, want one OCC identifier", res.Hints)
 	}
 	if ids[0].Type != "OCC" || ids[0].Value != "BRKB241115P00390000" {
 		t.Errorf("out[ab12] = %+v, want Type=OCC Value=BRKB241115P00390000", ids[0])
@@ -160,7 +152,7 @@ func TestExtractBatch_TypeHintPassedToClient(t *testing.T) {
 }
 
 func TestPlugin_AcceptableSecurityTypes_IncludesETF(t *testing.T) {
-	p := NewPlugin(nil, nil, nil)
+	p := NewPlugin(nil, nil)
 	types := p.AcceptableSecurityTypes()
 	if !types[identifier.SecurityTypeHintETF] {
 		t.Error("ETF is not acceptable; an ETF arriving with no identifiers gets no description plugin at all")

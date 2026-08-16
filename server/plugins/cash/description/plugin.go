@@ -41,7 +41,7 @@ func (p *Plugin) AcceptableSecurityTypes() map[string]bool {
 }
 
 // ExtractBatch returns one CURRENCY identifier per item when Hints.Currency is set (from tx.trading_currency).
-func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source string, items []descpkg.BatchItem) (map[string][]identifier.Identifier, error) {
+func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source string, items []descpkg.BatchItem) (descpkg.Result, error) {
 	out := make(map[string][]identifier.Identifier)
 	for _, item := range items {
 		code := strings.ToUpper(strings.TrimSpace(item.Hints.Currency))
@@ -50,8 +50,9 @@ func (p *Plugin) ExtractBatch(ctx context.Context, config []byte, broker, source
 		}
 		out[item.ID] = []identifier.Identifier{{Type: "CURRENCY", Domain: "", Value: code}}
 	}
+	// Tokens stay nil: the currency comes off the transaction, at no cost.
 	if len(out) == 0 {
-		return nil, nil
+		return descpkg.Result{Telemetry: descpkg.Telemetry{Outcome: descpkg.OutcomeNoHints}}, nil
 	}
-	return out, nil
+	return descpkg.Result{Hints: out, Telemetry: descpkg.Telemetry{Outcome: descpkg.OutcomeHintsReturned}}, nil
 }

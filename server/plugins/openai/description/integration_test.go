@@ -63,7 +63,7 @@ func TestIntegration_OpenAI_ExtractBatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, httpClient := vcr.New(t, tc.cassette, vcr.SanitizeAll, "openai/description")
 
-			p := NewPlugin(nil, nil, httpClient)
+			p := NewPlugin(nil, httpClient)
 			cfg, err := json.Marshal(configJSON{
 				OpenAIAPIKey: apiKey,
 				OpenAIModel:  "gpt-4o-mini",
@@ -72,7 +72,7 @@ func TestIntegration_OpenAI_ExtractBatch(t *testing.T) {
 				t.Fatalf("marshal config: %v", err)
 			}
 
-			out, err := p.ExtractBatch(
+			res, err := p.ExtractBatch(
 				context.Background(),
 				cfg,
 				"test-broker",
@@ -84,7 +84,7 @@ func TestIntegration_OpenAI_ExtractBatch(t *testing.T) {
 			}
 
 			for id, wantType := range tc.wantType {
-				ids, ok := out[id]
+				ids, ok := res.Hints[id]
 				if !ok {
 					t.Errorf("missing result for id %q", id)
 					continue

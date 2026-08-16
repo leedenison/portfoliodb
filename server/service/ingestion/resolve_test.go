@@ -592,9 +592,9 @@ func (p *fakeDescPlugin) DisplayName() string                        { return "F
 func (p *fakeDescPlugin) DefaultConfig() []byte                      { return nil }
 func (p *fakeDescPlugin) AcceptableInstrumentKinds() map[string]bool { return p.acceptableKinds }
 func (p *fakeDescPlugin) AcceptableSecurityTypes() map[string]bool   { return p.acceptable }
-func (p *fakeDescPlugin) ExtractBatch(_ context.Context, _ []byte, _, _ string, items []descpkg.BatchItem) (map[string][]identifier.Identifier, error) {
+func (p *fakeDescPlugin) ExtractBatch(_ context.Context, _ []byte, _, _ string, items []descpkg.BatchItem) (descpkg.Result, error) {
 	if p.err != nil {
-		return nil, p.err
+		return descpkg.Result{Telemetry: descpkg.Telemetry{Outcome: descpkg.OutcomeError}}, p.err
 	}
 	out := make(map[string][]identifier.Identifier)
 	for _, item := range items {
@@ -602,7 +602,11 @@ func (p *fakeDescPlugin) ExtractBatch(_ context.Context, _ []byte, _, _ string, 
 			out[item.ID] = hints
 		}
 	}
-	return out, nil
+	outcome := descpkg.OutcomeNoHints
+	if len(out) > 0 {
+		outcome = descpkg.OutcomeHintsReturned
+	}
+	return descpkg.Result{Hints: out, Telemetry: descpkg.Telemetry{Outcome: outcome}}, nil
 }
 
 // TestRunDescriptionPluginsBatch_MultiplePlugins_DifferentSecurityTypes verifies

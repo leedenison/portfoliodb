@@ -163,7 +163,17 @@ Writes are synchronous, through a connection pool separate from the application'
 confined to `server/db` as all SQL is. They never join the work's transaction: a failed
 import rolls back, and telemetry riding along would erase the diagnostics for the run
 most worth inspecting. A write that fails sets `telemetry_incomplete` on the run and is
-otherwise ignored -- telemetry never fails the work.
+otherwise ignored -- telemetry never fails the work. No write returns an error, so a
+caller threads ids through without testing them; a write whose parent id is missing is
+skipped, which costs one failure its own subtree and nothing else.
+
+`run` and `resolution_key` are each written twice -- created with what is known when the
+work starts, stamped with its outcome when the work ends. For a run that is what leaves
+one whose process died unstamped. For a resolution key it is forced by the foreign key:
+its identification attempts reference it, so it has to exist before its own outcome is
+known. The other three grains are written once, when their unit of work completes, which
+for an identifier plugin call is the moment the orchestrator decides `won` against
+`superseded` against `discarded_inconsistent`.
 
 Plugins do not write. `Identify` and `ExtractBatch` return a telemetry value alongside
 their result and the orchestrator composes the row, so no plugin depends on the
@@ -177,11 +187,21 @@ retention is a delete over `run.started_at`, at **360 days**. Traffic is low and
 problem may go unnoticed for a long time, so the window is set to outlast the gap
 between a regression landing and someone looking for it.
 
+The delete is exposed as an admin RPC and nothing in the service schedules it. The
+service runs no cron of its own, and a retention window measured in a year is not worth
+one: an operator's scheduler calls the RPC, and the count it answers with is what that
+scheduler logs. This is why the RPC is synchronous and returns what it deleted, unlike
+the `Trigger` RPCs, which poke a worker and answer immediately.
+
 The schema, its tables, its views and the SELECT-only grants live in
 `server/migrations/005_telemetry.sql`, separate from the application schema because it is
-a separate scope rather than a later change to the same one. The reading role's password
-is not in the migration: the role is created at container init from compose
-environment.
+a separate scope rather than a later change to the same one.
+
+The reading role's password is not in the migration, which rules out the migration
+creating the login the dashboard uses. So the migration creates `telemetry_reader`, a
+NOLOGIN group role holding SELECT and nothing else, and the login role is created at
+container init from compose environment and granted membership of it. The privileges are
+then reviewed in the repository and the password never is.
 
 ## 2. Logger
 

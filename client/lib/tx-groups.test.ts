@@ -111,6 +111,48 @@ describe("groupTxs", () => {
     expect(group.rest[0].tx?.accountType).toBe(AccountType.IMBALANCE);
   });
 
+  // A routed leg is what the event failed to account for, so it reads after the
+  // legs the source stated however the page happened to order them.
+  it("puts routed legs after stated ones", () => {
+    const [group] = groupTxs([
+      posting("g1", TxType.TRADE_ASSET, "10"),
+      posting("g1", TxType.AMBIGUOUS, "-1900", {
+        accountType: AccountType.IMBALANCE,
+        syntheticPurpose: "RESIDUAL",
+        description: "routed",
+      }),
+      posting("g1", TxType.TRADE_CASH, "-100", { description: "stated" }),
+    ]);
+    expect(group.rest.map((p) => p.tx?.instrumentDescription)).toEqual([
+      "stated",
+      "routed",
+    ]);
+  });
+
+  it("keeps the page's order within the stated legs and within the routed ones", () => {
+    const [group] = groupTxs([
+      posting("g1", TxType.TRADE_ASSET, "10"),
+      posting("g1", TxType.AMBIGUOUS, "-1", {
+        accountType: AccountType.IMBALANCE,
+        syntheticPurpose: "RESIDUAL",
+        description: "routed first",
+      }),
+      posting("g1", TxType.TRADE_CASH, "-100", { description: "stated first" }),
+      posting("g1", TxType.AMBIGUOUS, "-2", {
+        accountType: AccountType.IMBALANCE,
+        syntheticPurpose: "RESIDUAL",
+        description: "routed second",
+      }),
+      posting("g1", TxType.TRANSACTION_COST, "-5", { description: "stated second" }),
+    ]);
+    expect(group.rest.map((p) => p.tx?.instrumentDescription)).toEqual([
+      "stated first",
+      "stated second",
+      "routed first",
+      "routed second",
+    ]);
+  });
+
   it("keeps a leg the source stated", () => {
     const [group] = groupTxs([
       posting("g1", TxType.TRADE_ASSET, "10"),

@@ -16,10 +16,20 @@ export interface TxGroup {
   /** The leg the event is shown as. */
   principal: PortfolioTx;
   /**
-   * The remaining legs worth showing, in the order the server returned them.
-   * Empty when the event has nothing to add, in which case it does not expand.
+   * The remaining legs worth showing: what the source stated first, then what the
+   * server routed to balance the group, each in the order the server returned
+   * them. Empty when the event has nothing to add, in which case it does not
+   * expand.
    */
   rest: PortfolioTx[];
+}
+
+/** The purpose a leg the server routed to balance a group carries; db.RoutedPurpose. */
+const ROUTED_PURPOSE = "RESIDUAL";
+
+/** Whether the server routed this leg to make its group sum to zero. */
+function routed(p: PortfolioTx): boolean {
+  return p.tx?.syntheticPurpose === ROUTED_PURPOSE;
 }
 
 /**
@@ -41,7 +51,7 @@ export interface TxGroup {
  */
 function derivedFromPrincipal(p: PortfolioTx): boolean {
   const purpose = p.tx?.syntheticPurpose;
-  return !!purpose && purpose !== "RESIDUAL";
+  return !!purpose && purpose !== ROUTED_PURPOSE;
 }
 
 /**
@@ -138,9 +148,13 @@ export function groupTxs(txs: readonly PortfolioTx[]): TxGroup[] {
   }
   return Array.from(byGroup, ([id, postings]) => {
     const principal = principalOf(postings);
-    const rest = postings.filter(
-      (p) => p !== principal && p.tx && !derivedFromPrincipal(p)
-    );
+    // Routed legs last. What a source stated is the event; what the server routed
+    // is what the event failed to account for, and reading the stated legs first
+    // is reading the source before the correction. The sort is stable, so the
+    // page's order survives within each.
+    const rest = postings
+      .filter((p) => p !== principal && p.tx && !derivedFromPrincipal(p))
+      .sort((a, b) => Number(routed(a)) - Number(routed(b)));
     return { id, principal, rest };
   });
 }

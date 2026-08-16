@@ -19,6 +19,7 @@
 - **M17** - Operational correctness: scheduled corporate-event recompute, single-sourced instrument data, current planner statistics, and configurable deployment.
 - **M18** - One place that says what needs a person's attention, replacing the per-problem admin cards.
 - **M19** - Lots, cost basis and realised gains.
+- **M20** - Telemetry is run-scoped event rows in Postgres read by Grafana, replacing the Redis counters.
 
 ## Unscheduled
 

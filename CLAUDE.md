@@ -8,6 +8,13 @@ PortfolioDBs purpose is to track the holdings (the quantity held) of equities, o
 
 This project is pre-release.  Datamodels, APIs, protobuf definitions, plugin APIs, etc are not considered stable.  Changes to these artifacts should not create migrations or account for backwards compatibility.
 
+Retiring a proto field therefore does not reserve its number. Delete the field
+outright, renumber the message so its field numbers run from 1 without gaps, and
+put the fields in whatever order reads best rather than the order they were
+added. Nothing persists encoded protobuf across a deployment, so no reader can
+be holding the old numbering. Why a field went belongs in an ADR or the spec,
+not in a `reserved` comment.
+
 ## Tech Stack
 
 ### Front End

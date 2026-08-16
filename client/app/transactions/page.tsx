@@ -117,10 +117,6 @@ function TxList({ portfolioId }: { portfolioId: string | undefined }) {
                 <table data-testid="transactions-table" className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b-2 border-primary-dark/10 bg-primary-dark/3">
-                      {/* The disclosure control's column. Its header is empty
-                          rather than absent so the legs line up under the
-                          columns their group row uses. */}
-                      <th className="w-10 px-2 py-3" />
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted">
                         Date
                       </th>
@@ -157,7 +153,7 @@ function TxList({ portfolioId }: { portfolioId: string | undefined }) {
                     <tbody>
                       <tr>
                         <td
-                          colSpan={11}
+                          colSpan={10}
                           className="px-4 py-8 text-center text-text-muted"
                         >
                           No transactions found.
@@ -202,42 +198,7 @@ function TxGroupRows({ group }: { group: TxGroup }) {
 
   return (
     <tbody data-testid="tx-group">
-      <TxRow
-        ptx={group.principal}
-        testId="tx-row"
-        onToggle={toggle}
-        lead={
-          toggle && (
-            <button
-              type="button"
-              aria-expanded={open}
-              aria-label={open ? "Hide the other postings" : "Show the other postings"}
-              data-testid="tx-group-toggle"
-              // The row itself toggles too, so this stops the click being
-              // counted twice. It exists for the keyboard, and to say how many
-              // legs are hidden.
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpen((o) => !o);
-              }}
-              className="flex items-center gap-1 rounded-sm px-1 py-0.5 text-xs font-medium text-text-muted transition-colors hover:bg-primary-dark/10 hover:text-text-primary"
-            >
-              <svg
-                className={
-                  "h-3 w-3 transition-transform" + (open ? " rotate-90" : "")
-                }
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-              {legs.length}
-            </button>
-          )
-        }
-      />
+      <TxRow ptx={group.principal} testId="tx-row" onToggle={toggle} />
       {open &&
         legs.map((ptx, i) => <TxRow key={i} ptx={ptx} testId="tx-leg-row" leg />)}
     </tbody>
@@ -245,19 +206,21 @@ function TxGroupRows({ group }: { group: TxGroup }) {
 }
 
 /**
- * A posting as a table row: the group row when it carries the disclosure
- * control, one of that group's other legs when `leg` is set.
+ * A posting as a table row: the group row when `onToggle` is given, one of that
+ * group's other legs when `leg` is set.
+ *
+ * The row is the control. There is no disclosure marker, so a group carries
+ * nothing to say it expands beyond the cursor and the legs appearing; what makes
+ * that reachable without a mouse is the row taking focus and Enter or Space.
  */
 function TxRow({
   ptx,
   testId,
-  lead,
   leg,
   onToggle,
 }: {
   ptx: PortfolioTx;
   testId: string;
-  lead?: React.ReactNode;
   leg?: boolean;
   onToggle?: () => void;
 }) {
@@ -278,6 +241,13 @@ function TxRow({
       data-testid={testId}
       data-tx-instrument={label}
       onClick={onToggle}
+      tabIndex={onToggle ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (!onToggle || (e.key !== "Enter" && e.key !== " ")) return;
+        // Space scrolls the page otherwise, and the row is what it acts on here.
+        e.preventDefault();
+        onToggle();
+      }}
       className={
         "border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10" +
         (isSynthetic ? " opacity-60" : "") +
@@ -285,12 +255,12 @@ function TxRow({
         (onToggle ? " cursor-pointer" : "")
       }
     >
-      <td className="w-10 px-2 py-3 align-top">{lead}</td>
       {/* The event's date on the row standing for it, and each leg's own date
           below: a group's legs can be dated apart, and the list is ordered by the
           event's date, so showing the principal's there would order the list by
-          one date and display another. */}
-      <td className="px-4 py-3 text-text-muted">
+          one date and display another. The indent is what marks a leg as sitting
+          under the event above it. */}
+      <td className={(leg ? "pl-10 pr-4" : "px-4") + " py-3 text-text-muted"}>
         {date ? timestampDate(date).toLocaleDateString() : "\u2014"}
       </td>
       <td className="px-4 py-3 text-text-muted">

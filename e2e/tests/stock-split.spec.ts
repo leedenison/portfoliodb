@@ -66,10 +66,11 @@ test.describe("stock split: tx uploaded before split", () => {
     ).toHaveText("\u2014");
 
     // A row is one event rather than one posting: the trade's own leg is what it
-    // shows, and the leg the server routed to balance it is behind the disclosure.
+    // shows, and the leg the server routed to balance it appears when the row is
+    // clicked, the row being the control.
     const legs = page.locator("[data-testid='tx-leg-row']");
     await expect(legs).toHaveCount(0);
-    await preSplitRows.nth(0).locator("[data-testid='tx-group-toggle']").click();
+    await preSplitRows.nth(0).click();
     await expect(legs.first()).toBeVisible();
 
     // Trigger the corporate event fetcher — EODHD returns a 4:1 split.

@@ -31,6 +31,9 @@ func TestValidateTx(t *testing.T) {
 		// synthetic_purpose says the server made the posting, so a row claiming one
 		// would be thrown away and derived again by the next replace.
 		{"claims a synthetic purpose", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", SyntheticPurpose: db.RoutedPurpose}, 0, 1},
+		// group_id is the answer grouping exists to derive, so a row stating one
+		// would have it rederived out from under it by the next regroup.
+		{"claims a group", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "1", GroupId: "18e0b2a8-0000-4000-8000-000000000000"}, 0, 1},
 		{"valid", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10"}, 0, 0},
 		{"valid antichain set", &apiv1.Tx{Timestamp: validTs, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_CASH, typev1.TxType_TRANSFER}, Quantity: "10"}, 0, 0},
 	}

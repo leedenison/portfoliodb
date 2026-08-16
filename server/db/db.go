@@ -404,6 +404,16 @@ type TxDB interface {
 	// legs of one event have to arrive together to be grouped together; what the
 	// group owes is settled from them.
 	CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []Weight, shareCountBasis []*time.Time) error
+	// ListTxs and ListTxsByPortfolio page by group rather than by posting: pageSize
+	// counts groups, a page carries every posting of the groups it covers, and the
+	// postings of one group are contiguous in the result. A group whose legs
+	// straddled a page boundary would reach a client as two partial events, so the
+	// page is a whole number of events instead.
+	//
+	// The filters select postings, not groups. A group is on the page when at least
+	// one of its postings passes them and only the postings that passed are
+	// returned, so a group straddling a period bound contributes its in-period legs
+	// and a portfolio view carries the legs its filters matched.
 	ListTxs(ctx context.Context, userID string, broker *typev1.Broker, account string, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 	ListTxsByPortfolio(ctx context.Context, portfolioID string, broker *typev1.Broker, periodFrom, periodBefore *timestamppb.Timestamp, descending bool, pageSize int32, pageToken string) ([]*apiv1.PortfolioTx, string, error)
 	// ListTxsForExport reads one user's own postings in archive order: by broker,

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/app/components/app-shell";
 import { ErrorAlert } from "@/app/components/error-alert";
@@ -13,6 +14,7 @@ import { qk } from "@/lib/query-keys";
 import { listTxs } from "@/lib/portfolio-api";
 import { getBrokerLabel } from "@/lib/csv/converters";
 import { ACCOUNT_TYPE_LABEL, TX_TYPE_LABEL } from "@/lib/tx-type";
+import { groupTxs, type TxGroup } from "@/lib/tx-groups";
 import { IdentifierType } from "@/gen/type/v1/type_pb";
 import type { PortfolioTx } from "@/gen/api/v1/api_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
@@ -147,8 +149,8 @@ function TxList({ portfolioId }: { portfolioId: string | undefined }) {
                       </th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {txs.length === 0 ? (
+                  {txs.length === 0 ? (
+                    <tbody>
                       <tr>
                         <td
                           colSpan={10}
@@ -157,12 +159,14 @@ function TxList({ portfolioId }: { portfolioId: string | undefined }) {
                           No transactions found.
                         </td>
                       </tr>
-                    ) : (
-                      txs.map((ptx, i) => (
-                        <TxRow key={i} ptx={ptx} />
-                      ))
-                    )}
-                  </tbody>
+                    </tbody>
+                  ) : (
+                    /* One tbody per event, so a group and the legs it expands
+                       to stay one block. */
+                    groupTxs(txs).map((group, i) => (
+                      <TxGroupRows key={group.id || i} group={group} />
+                    ))
+                  )}
                 </table>
               </div>
 
@@ -179,10 +183,51 @@ function TxList({ portfolioId }: { portfolioId: string | undefined }) {
   );
 }
 
-function TxRow({ ptx }: { ptx: PortfolioTx }) {
+/**
+ * One event: the leg it is shown as, and the rest of its legs when the row is
+ * expanded. The principal's details are the group's, so it is not repeated among
+ * the legs below it, and an event with nothing left to show does not expand --
+ * groupTxs has already dropped the legs that only restate the principal.
+ */
+function TxGroupRows({ group }: { group: TxGroup }) {
+  const [open, setOpen] = useState(false);
+  const legs = group.rest;
+  const toggle = legs.length > 0 ? () => setOpen((o) => !o) : undefined;
+
+  if (!group.principal.tx) return null;
+
+  return (
+    <tbody data-testid="tx-group">
+      <TxRow ptx={group.principal} testId="tx-row" onToggle={toggle} />
+      {open &&
+        legs.map((ptx, i) => <TxRow key={i} ptx={ptx} testId="tx-leg-row" leg />)}
+    </tbody>
+  );
+}
+
+/**
+ * A posting as a table row: the group row when `onToggle` is given, one of that
+ * group's other legs when `leg` is set.
+ *
+ * The row is the control. There is no disclosure marker, so a group carries
+ * nothing to say it expands beyond the cursor and the legs appearing; what makes
+ * that reachable without a mouse is the row taking focus and Enter or Space.
+ */
+function TxRow({
+  ptx,
+  testId,
+  leg,
+  onToggle,
+}: {
+  ptx: PortfolioTx;
+  testId: string;
+  leg?: boolean;
+  onToggle?: () => void;
+}) {
   const tx = ptx.tx;
   if (!tx) return null;
 
+  const date = leg ? tx.timestamp : (tx.groupTimestamp ?? tx.timestamp);
   const isSynthetic = !!tx.syntheticPurpose;
   const accountTypeLabel = ACCOUNT_TYPE_LABEL[tx.accountType];
   const ticker = ptx.instrument?.identifiers?.find(
@@ -192,12 +237,31 @@ function TxRow({ ptx }: { ptx: PortfolioTx }) {
   const currency = tx.tradingCurrency || tx.settlementCurrency || "";
 
   return (
-    <tr data-testid="tx-row" data-tx-instrument={label} className={
-      "border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10" +
-      (isSynthetic ? " opacity-60" : "")
-    }>
-      <td className="px-4 py-3 text-text-muted">
-        {tx.timestamp ? timestampDate(tx.timestamp).toLocaleDateString() : "\u2014"}
+    <tr
+      data-testid={testId}
+      data-tx-instrument={label}
+      onClick={onToggle}
+      tabIndex={onToggle ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (!onToggle || (e.key !== "Enter" && e.key !== " ")) return;
+        // Space scrolls the page otherwise, and the row is what it acts on here.
+        e.preventDefault();
+        onToggle();
+      }}
+      className={
+        "border-b border-border/40 transition-colors last:border-0 hover:bg-primary-light/10" +
+        (isSynthetic ? " opacity-60" : "") +
+        (leg ? " bg-primary-dark/3 text-xs" : "") +
+        (onToggle ? " cursor-pointer" : "")
+      }
+    >
+      {/* The event's date on the row standing for it, and each leg's own date
+          below: a group's legs can be dated apart, and the list is ordered by the
+          event's date, so showing the principal's there would order the list by
+          one date and display another. The indent is what marks a leg as sitting
+          under the event above it. */}
+      <td className={(leg ? "pl-10 pr-4" : "px-4") + " py-3 text-text-muted"}>
+        {date ? timestampDate(date).toLocaleDateString() : "\u2014"}
       </td>
       <td className="px-4 py-3 text-text-muted">
         {getBrokerLabel(ptx.broker)}

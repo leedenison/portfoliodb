@@ -741,6 +741,156 @@ func TestListTxs_PeriodBeforeIsExclusive(t *testing.T) {
 	}
 }
 
+// A page of a listing is a whole number of groups: pageSize counts events, and
+// every posting of the events a page covers travels with it, contiguously. A
+// client assembles the page back into events, so a group cut down a page boundary
+// would arrive as two partial ones, neither carrying the legs it takes to say what
+// the event was.
+func TestListTxs_PagesWholeGroups(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, usd := balanceSeed(t, p, "sub|whole-groups")
+	base := time.Date(2025, 6, 2, 14, 30, 0, 0, time.UTC)
+	// Three events an hour apart, each stored with the counterparty the store routes
+	// to balance it, so every group holds two postings. Quantity doubles as an
+	// identity marker, and the counterparty carries its negation.
+	const events = 3
+	for i := 0; i < events; i++ {
+		qty := strconv.Itoa(i + 1)
+		txs := []*apiv1.Tx{{
+			Timestamp:             timestamppb.New(base.Add(time.Duration(i) * time.Hour)),
+			InstrumentDescription: "USD",
+			BrokerTxType:          []typev1.TxType{typev1.TxType_TRANSFER},
+			ResolvedTxType:        typev1.TxType_TRANSFER, Quantity: qty, Account: "A",
+			SettlementCurrency: "USD", TradingCurrency: "USD",
+		}}
+		w := []db.Weight{{Amount: decimal.RequireFromString(qty), Commodity: "cur:USD"}}
+		if err := p.CreateTxGroup(ctx, userID, "IBKR", "A", "", txs, []string{usd}, w, nil); err != nil {
+			t.Fatalf("create tx group %d: %v", i, err)
+		}
+	}
+
+	seen := map[string]bool{}
+	token := ""
+	var last time.Time
+	for pages := 0; ; pages++ {
+		if pages >= events {
+			t.Fatal("paging did not terminate")
+		}
+		// One group per page, which is two postings rather than the one a page size
+		// of 1 would mean if it counted postings.
+		rows, next, err := p.ListTxs(ctx, userID, nil, "", nil, nil, false, 1, token)
+		if err != nil {
+			t.Fatalf("list txs: %v", err)
+		}
+		if len(rows) != 2 {
+			t.Fatalf("page %d: want both legs of one group, got %d postings", pages, len(rows))
+		}
+		id := rows[0].GetTx().GetGroupId()
+		if id == "" {
+			t.Fatal("listed posting carries no group id")
+		}
+		if got := rows[1].GetTx().GetGroupId(); got != id {
+			t.Errorf("page %d: postings from %s and %s, want one group", pages, id, got)
+		}
+		// Every leg carries its group's date, and the pages advance by it: that is
+		// what the row standing for the event shows, so the list is ordered by the
+		// date it displays.
+		at := rows[0].GetTx().GetGroupTimestamp()
+		if at == nil {
+			t.Fatal("listed posting carries no group timestamp")
+		}
+		if got := rows[1].GetTx().GetGroupTimestamp(); got.AsTime() != at.AsTime() {
+			t.Errorf("page %d: legs dated %s and %s, want one event date", pages, at.AsTime(), got.AsTime())
+		}
+		if at.AsTime().Before(last) {
+			t.Errorf("page %d: dated %s, before the page above it at %s", pages, at.AsTime(), last)
+		}
+		last = at.AsTime()
+		if seen[id] {
+			t.Errorf("group %s returned on more than one page", id)
+		}
+		seen[id] = true
+		// The event and the counterparty routed against it, in whichever order the
+		// id tiebreaker put two postings sharing a timestamp.
+		want := map[string]bool{strconv.Itoa(pages + 1): true, strconv.Itoa(-(pages + 1)): true}
+		for _, r := range rows {
+			if !want[r.GetTx().GetQuantity()] {
+				t.Errorf("page %d: carries quantity %s, want the %d event", pages,
+					r.GetTx().GetQuantity(), pages+1)
+			}
+		}
+		if next == "" {
+			break
+		}
+		token = next
+	}
+	if len(seen) != events {
+		t.Errorf("want %d groups across pages, got %d", events, len(seen))
+	}
+}
+
+// A group is on a page when one of its postings passes the filters, and only the
+// postings that passed come back. A portfolio filtered on the instrument therefore
+// shows the leg it matched and not the counterparty balancing it, which is a
+// portfolio saying less than the event it selected. See
+// docs/issues/0108-portfolio-selects-postings-not-events.md.
+func TestListTxsByPortfolio_ShowsOnlyTheMatchedLegs(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	userID, _ := balanceSeed(t, p, "sub|matched-legs")
+	aapl, err := p.EnsureInstrument(ctx, "", "", "", "", "", "",
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "IBKR", Value: "AAPL", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	base := time.Date(2025, 9, 1, 0, 0, 0, 0, time.UTC)
+	// A buy the source reported one-sided: the store routes what it does not account
+	// for to a counterparty in the settlement currency, so the group holds a stock
+	// leg and a cash one.
+	txs := []*apiv1.Tx{{
+		Timestamp: timestamppb.New(base.Add(time.Hour)), InstrumentDescription: "AAPL",
+		BrokerTxType:   []typev1.TxType{typev1.TxType_TRADE_ASSET},
+		ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "10", Account: "A",
+		SettlementCurrency: "USD", TradingCurrency: "USD", UnitPrice: proto.String("190"),
+	}}
+	w := []db.Weight{{Amount: decimal.RequireFromString("-1900"), Commodity: "cur:USD"}}
+	from, to := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{aapl}, w, nil); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	all, _, err := p.ListTxs(ctx, userID, nil, "", nil, nil, false, 50, "")
+	if err != nil {
+		t.Fatalf("ListTxs: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("want the stock leg and the counterparty routed against it, got %d postings", len(all))
+	}
+
+	port, err := p.CreatePortfolio(ctx, userID, "P")
+	if err != nil {
+		t.Fatalf("create portfolio: %v", err)
+	}
+	if err := p.SetPortfolioFilters(ctx, port.GetId(), []db.PortfolioFilter{
+		{FilterType: "instrument", FilterValue: aapl},
+	}); err != nil {
+		t.Fatalf("set filters: %v", err)
+	}
+	got, _, err := p.ListTxsByPortfolio(ctx, port.GetId(), nil, nil, nil, false, 50, "")
+	if err != nil {
+		t.Fatalf("ListTxsByPortfolio: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want only the leg the filter matched, got %d postings", len(got))
+	}
+	if got[0].GetTx().GetInstrumentId() != aapl {
+		t.Errorf("matched leg: want the stock, got instrument %s", got[0].GetTx().GetInstrumentId())
+	}
+	if got[0].GetTx().GetGroupId() == "" {
+		t.Error("listed posting carries no group id")
+	}
+}
+
 // Rows sharing a timestamp must not be skipped or repeated across a page
 // boundary. Ordering by timestamp alone is not a total order, so the id
 // tiebreaker is what makes offset paging stable.

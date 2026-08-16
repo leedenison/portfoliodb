@@ -537,3 +537,89 @@ describe("the source's own cash total", () => {
     expect(result.postings[0]!.settlementAmount).toBeUndefined();
   });
 });
+
+// The CSV converter's rule, applied to the payload the extension reads, so the two
+// readings of a Fidelity export cannot disagree about which charges belong to which
+// trades. The count argument itself is exercised in fidelity-csv.test.ts; what
+// matters here is that this converter feeds it the payload's own fields.
+describe("charge attachment", () => {
+  const dealingFee = (ref: string) => ({
+    accountNumber: "ACC-1",
+    transactionType: "Dealing Fee",
+    assetName: "Cash",
+    isin: "AA00S0000000",
+    units: 0,
+    valuation: 7.5,
+    pricePerUnit: 0,
+    currency: "GBP",
+    status: "Completed",
+    debitCreditIndicator: "DEBIT",
+    referenceId: ref,
+    // The charge clears on its order date; the trade settles two days later.
+    dealDate: "02/06/2026",
+    settlementDate: "02/06/2026",
+  });
+
+  const pointers = (payload: string) =>
+    convertFidelityJson(payload)
+      .postings.flatMap((p) => p.correlations)
+      .filter((c) => c.match.includes(Match.ATTACHES))
+      .map((c) => c.token)
+      .sort();
+
+  it("gives the day's dealing fee to the trade it was levied on", () => {
+    expect(
+      pointers(json({ ...BUY, referenceId: "563000001" }, dealingFee("167000001")))
+    ).toEqual(["563000001"]);
+  });
+
+  // The pointer is a reference into the trade's own series, and declares only that
+  // it attaches -- so the exact-token pass passes over it.
+  it("declares only that it attaches", () => {
+    const fee = convertFidelityJson(
+      json({ ...BUY, referenceId: "563000001" }, dealingFee("167000001"))
+    ).postings.find((p) => p.correlations.some((c) => c.match.includes(Match.ATTACHES)))!;
+    const pointer = fee.correlations.find((c) => c.match.includes(Match.ATTACHES))!;
+    expect(pointer.match).toEqual([Match.ATTACHES]);
+    expect(pointer.scope).toBe(Scope.FILE);
+    expect(fee.correlations.some((c) => c.match.includes(Match.EXACT))).toBe(true);
+  });
+
+  // Buckets are the account as well as the day, and the payload names the account
+  // in accountNumber. A fee never crosses between two of them.
+  it("does not attach across accounts", () => {
+    expect(
+      pointers(
+        json({ ...BUY, accountNumber: "ACC-9", referenceId: "563000001" }, dealingFee("167000001"))
+      )
+    ).toEqual([]);
+  });
+
+  // A cash row carries a pseudo-identifier rather than an ISIN, which is what says
+  // Fidelity charges nothing to deal in it -- so it is not a trade a fee counts
+  // against, and a lone fee beside one has nothing to attach to.
+  it("counts only the trades an ISIN says are chargeable", () => {
+    expect(
+      pointers(
+        json(
+          { ...BUY, isin: "AA00S0000000", assetName: "Cash", referenceId: "563000001" },
+          dealingFee("167000001")
+        )
+      )
+    ).toEqual([]);
+  });
+
+  // A count that happens to balance is a coincidence, so two fees against one
+  // trade say nothing.
+  it("says nothing when the counts disagree", () => {
+    expect(
+      pointers(
+        json(
+          { ...BUY, referenceId: "563000001" },
+          dealingFee("167000001"),
+          dealingFee("167000002")
+        )
+      )
+    ).toEqual([]);
+  });
+});

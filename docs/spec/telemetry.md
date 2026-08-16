@@ -1,91 +1,187 @@
 # Telemetry
 
-## 1. Counters
+## 1. Events
 
-### Overview
+Telemetry is event rows in a `telemetry` schema in the application database, read
+by a Grafana container through a SELECT-only role. See
+[adr/0053](../adr/0053-telemetry-is-run-scoped-event-rows.md) for why, and for what
+replaced the Redis counters.
 
-- **Storage**: Redis. Use a dedicated key prefix so counters can be discovered and separated from session keys (`portfoliodb:session:`). See **Key naming** below.
-- **Semantics**: Each counter is a Redis key; value is an integer. Increment with `INCR`. No TTL; counters persist until explicitly reset or overwritten.
-- **Discovery**: The admin page must **discover** which counters exist (e.g. `SCAN` or `KEYS` on the counter prefix) and show name + value. No hard-coded list of counter names in the UI.
+One rule governs every table below:
 
-### Key naming
+> One row is one completed unit of work, and carries exactly one outcome drawn from
+> a closed, mutually exclusive vocabulary.
 
-- **Prefix**: `portfoliodb:counters:`
-- **Suffixes**: Human-readable, dot-separated names following the convention `<subsystem>.<subsystem>.<subsystem>.<operation>.<outcome>`. Up to 3 subsystems segments, an optional operation and an outcome.  Full key = prefix + suffix.
-  - **Segment 1 - (n - 2) (subsystem)**: The plugin or server subsystem (e.g. `instruments.resolution.totals`, `instruments.description.openai`, `instruments.identification.openfigi`, `instruments.identification.massive`).
-  - **Segment (n - 1) (operation)**: The specific operation or feature within that subsystem (e.g. `ticker_mapping`, `ticker_search`, `ticker_extraction`, `ticker_metadata`).
-  - **Segment (n) (outcome)**: The specific metric or outcome (e.g. `succeeded`, `failed`, `rate_limit`, `prompt_tokens`).
-- See adr/0009-telemetry-and-logging.md for why counters use this convention.
+Where a row has two outcome columns it is because the unit of work has two sequential
+stages, not because two grains share a row. Counts of one grain are never derived by
+adding counts of another; grains relate by foreign key.
 
-### Admin page
+### Shape
 
-- **Location**: `/admin/telemetry`, linked from the admin sidebar.
-- **Behaviour**: Counters are grouped by their dot-separated name segments into a hierarchical layout:
-  - **Section** (segment 1): Full-width heading for each subsystem. Sections are rendered top-to-bottom.
-  - **Card** (segment 2): Within each section, cards are arranged in a responsive two-column grid.
-  - **Card Heading 1** (segment 3): Within each card are a series of ruled headings separating subsections.
-  - **Card Heading 2** (segment 4): Within each main card heading are a series of indented sub-headings separating subsections.
-  - **Entry** (segment 5): At whatever level we terminate (section, card, card heading 1, card heading 2), leaf counter values are listed with the outcome label and right-aligned numeric value.
-- Counter names and grouping are derived dynamically from the keys discovered in Redis; no hard-coded list of counter names or sections in the UI.
-- **Auth**: Admin-only (same as other admin pages).
+```
+run
+├── resolution_key                     one distinct (source, description, hints)
+│     └── identification_attempt       one ResolveWithPlugins call
+│           └── identifier_plugin_call one plugin invocation
+└── description_plugin_call            one plugin invocation over a batch
+```
 
-### Counters
+`description_plugin_call` hangs off the run rather than off a resolution key: one
+`ExtractBatch` call covers many descriptions at once, so it has no single parent key.
+Identifier plugins are called once per plugin per attempt and do nest. This asymmetry
+is forced by the code and must not be flattened away -- it is what made the counters
+it replaces impossible to add up.
 
-1. **Resolution counters** (server/service/ingestion/resolve.go)
+### run
 
-   - `instruments.resolution.totals.description.extraction_failed` -- description extraction failed; using broker-description-only.
-   - `instruments.resolution.totals.description.plugin_error` -- a description plugin returned an error.
-   - `instruments.resolution.totals.description.no_hints` -- plugins were tried but none returned hints.
-   - `instruments.resolution.totals.description.identifier_mismatch` -- TICKER and OPENFIGI_SHARE_CLASS hints resolved to different instruments.
-   - `instruments.resolution.totals.description.attempts` -- description plugins were invoked for a broker description (increment for each description in a batch).
-   - `instruments.resolution.totals.identify.attempts` -- identifier plugins were invoked for a (source, instrument_description) pair.
+One activation of one subsystem. Created before its children and stamped when it ends.
 
-2. **OpenFIGI outcomes** (server/plugins/openfigi/identifier/openfigi.go)
+| column | notes |
+| --- | --- |
+| `id` | referenced by every event row |
+| `kind` | `tx_import`, `user_archive_import`, `system_archive_import`, `price_job`, `grouping_cycle`, `transfer_match_cycle`, `corporate_event_cycle`, `price_fetch_cycle`, `inflation_cycle` |
+| `job_id` | `ingestion_jobs.id` when the run is a job; null for a cycle |
+| `user_id`, `broker`, `source` | null for cycles |
+| `started_at`, `ended_at` | |
+| `outcome` | `success`, `failed`, `incomplete`; null while in flight |
+| `telemetry_incomplete` | a telemetry write failed, so this run's counts understate |
 
-   - **Mapping**
-     - `instruments.identification.openfigi.mapping.attempts` -- mapping was attempted.
-     - `instruments.identification.openfigi.mapping.succeeded` -- mapping returned at least one result.
-     - `instruments.identification.openfigi.mapping.zero_results` -- mapping returned no results (empty data, no API error).
-     - `instruments.identification.openfigi.mapping.rate_limit` -- HTTP 429.
-     - `instruments.identification.openfigi.mapping.failed` -- any other error (non-200, API error message, etc.).
+`incomplete` means the run died. It is stamped by a sweep at service startup over runs
+with no terminal outcome, which is what lets a null outcome mean genuinely running now.
+`telemetry_incomplete` is unrelated to it: the work may have succeeded while its
+telemetry was lost, and a panel should mark such a run rather than trust its counts.
 
-   - **Search**
-     - `instruments.identification.openfigi.search.attempts` -- search was attempted.
-     - `instruments.identification.openfigi.search.succeeded` -- search returned at least one result.
-     - `instruments.identification.openfigi.search.zero_results` -- search returned no results.
-     - `instruments.identification.openfigi.search.rate_limit` -- HTTP 429.
-     - `instruments.identification.openfigi.search.failed` -- any other error.
+### resolution_key
 
-   **Placement**: In `server/plugins/openfigi/identifier/openfigi.go`, after each `Mapping` and `Search` call, increment the appropriate counter. The plugin receives a **counter interface** (injected by the server); it does not depend on Redis directly.
+One distinct `(source, instrument_description, identifier hints)` triple within a run --
+the thing `cacheKeyWithHints` names. **Not** one transaction: many transactions share a
+key and resolve once. A cache hit is not an outcome, because it is not a resolution;
+`tx_count` records the fan-out instead, so a failure affecting 300 rows can be told from
+one affecting 1.
 
-3. **OpenAI description plugin** (server/plugins/openai/description/plugin.go)
+| column | notes |
+| --- | --- |
+| `run_id`, `source`, `description` | |
+| `tx_count` | transactions sharing this key |
+| `had_identifier_hints`, `security_type_hint`, `instrument_kind` | lets a spike be attributed rather than merely noticed |
+| `extraction_outcome` | stage 1, below |
+| `outcome` | stage 2, below |
+| `mismatch_detected` | MIC_TICKER and OPENFIGI_SHARE_CLASS resolved differently |
+| `instrument_id` | null when unresolved |
 
-   - `instruments.description.openai.ticker_extraction.attempted` -- total ticker extractions attempted across all batches (eg. sum of tickers in all batches).
-   - `instruments.description.openai.ticker_extraction.succeeded` -- total ticker extractions that succeeded across all batches (eg. sum of tickers in all batches).
-   - `instruments.description.openai.ticker_extraction.failed` -- total ticker extractions that failed across all batches (eg. sum of tickers in all batches).
-   - `instruments.description.openai.ticker_extraction.model_not_found` -- model not found error (404 or model_not_found).
-   - `instruments.description.openai.ticker_extraction.quota_exceeded` -- quota exceeded error (429 or insufficient_quota).
-   - `instruments.description.openai.ticker_extraction.prompt_tokens` -- prompt token count (uses IncrBy).
-   - `instruments.description.openai.ticker_extraction.completion_tokens` -- completion token count (uses IncrBy).
-   - `instruments.description.openai.ticker_extraction.total_tokens` -- total token count (uses IncrBy).
+`extraction_outcome`: `hints_found`, `no_hints`, `not_attempted_db_hit`,
+`not_attempted_hints_supplied`, `not_attempted_type_filter`, `not_attempted_no_plugins`.
+The `not_attempted_*` members are where skips live. Extraction is skipped for a
+description already resolved by DB lookup, and for one whose every posting names an
+identifier, because extraction exists to find an identifier and is a paid call.
 
-4. **Massive.com plugin** (server/plugins/massive/client/client.go)
+`outcome`: `db_source_description`, `db_identifier_hints`, `identified`,
+`broker_description_only`, `extraction_failed`, `plugin_timeout`, `plugin_unavailable`,
+`conflicting_hints`. The two `db_*` members are distinct lookups -- by stored
+`(source, description)` and by supplied identifier hints -- and conflating them hides
+which path is carrying an import. The three fallback members mirror the messages the
+resolver already records against a row.
 
-   - `instruments.identification.massive.request.succeeded` -- successful API request.
-   - `instruments.identification.massive.request.failed` -- any error (network, status code, decode).
-   - `instruments.identification.massive.request.rate_limit` -- HTTP 429.
+`mismatch_detected` is a flag rather than an outcome. Resolution continues and succeeds
+using MIC_TICKER, so a mismatch is not a terminal state, and modelling it as one would
+make the outcome column non-exhaustive.
 
-### Counter interface (injected into plugins)
+### identification_attempt
 
-- Plugins must **not** depend on Redis. The server injects a small counter interface so that plugins can report metrics without importing Redis or the telemetry implementation (see adr/0009-telemetry-and-logging.md).
-- **Interface**: A single method, e.g. `Incr(name string)` or `Incr(ctx, name string)`, where `name` is the counter suffix (e.g. `instruments.identification.openfigi.mapping.succeeded`). The implementation (in the server or a shared telemetry package) prepends `portfoliodb:counters:` and calls Redis `INCR`.
-- **Wiring**: When the server constructs or invokes plugins (e.g. identifier registry, ingestion worker), it passes an implementation of this interface. The ingestion worker also receives an implementation (backed by the same Redis client) for `instruments.resolution.totals.identify.attempts`. The OpenFIGI plugin receives the interface and calls it from `openfigi.go` after each Mapping/Search.
+One `ResolveWithPlugins` call. A single resolution key produces several: one `primary`,
+two more when the mismatch check runs, and one per level of underlying recursion.
 
-### API for the admin page
+| column | notes |
+| --- | --- |
+| `resolution_key_id` | |
+| `purpose` | `primary`, `mismatch_check`, `underlying` |
+| `depth` | recursion depth; 0 for the first call |
+| `outcome` | `db_short_circuit`, `no_eligible_plugins`, `identified`, `not_identified`, `plugin_timeout`, `plugin_error` |
+| `security_type_hint`, `asset_class`, `had_identifier_hints` | |
 
-- New gRPC (or HTTP) admin-only method that returns a list of `{ name, value }` by scanning Redis for `portfoliodb:counters:*`. Counter names shown in the UI are the key suffixes (the part after the prefix).
+A plugin filtered out by acceptable kind or security type produces no
+`identifier_plugin_call` row, because no call was made. When that filter removes every
+plugin the attempt records `no_eligible_plugins`.
 
----
+### identifier_plugin_call
+
+One plugin invocation within an attempt.
+
+| column | notes |
+| --- | --- |
+| `identification_attempt_id`, `plugin_id` | |
+| `outcome` | `won`, `superseded`, `discarded_inconsistent`, `not_identified`, `rate_limited`, `timeout`, `error`, `skipped_expired` |
+| `retries`, `duration_ms` | |
+
+The first three are all successes and are decided by the orchestrator after every plugin
+has returned: `superseded` lost to a better hint match despite higher precedence, and
+`discarded_inconsistent` was dropped as contradicting the winner. A plugin cannot know
+either, which is why the plugin returns its transport outcome and the orchestrator
+composes the row.
+
+### description_plugin_call
+
+One plugin invocation over a batch.
+
+| column | notes |
+| --- | --- |
+| `run_id`, `plugin_id` | |
+| `batch_size` | items passed to this plugin, after the type filter |
+| `items_with_hints` | items it returned hints for |
+| `outcome` | `hints_returned`, `no_hints`, `error`, `rate_limited`, `quota_exceeded`, `model_not_found` |
+| `prompt_tokens`, `completion_tokens`, `total_tokens` | null for plugins with no token cost |
+| `duration_ms` | |
+
+Description plugins run in precedence order and each sees only the items its
+predecessors failed on, so `batch_size` is a different population per plugin and rates
+are not comparable between them. Identifier plugins run in parallel and every eligible
+plugin is called, so those rates are comparable. Tokens are columns rather than running
+totals, which is what makes the cost of one import answerable.
+
+### Views
+
+One view per table, each flattening its parents in and never fanning out into its
+children -- a view spanning two sibling grains duplicates the parent's rows and makes
+counting it silently wrong.
+
+Judgements are computed columns on the view; selection belongs to the panel. At least:
+
+- `is_import` -- the run kind is one of the three import kinds.
+- `reached_plugins` -- the attempt outcome is neither `db_short_circuit` nor
+  `no_eligible_plugins`.
+
+`reached_plugins` is the denominator for identification failure rate. Using all attempts
+instead makes the rate fall as the instrument table fills, because more resolutions
+short-circuit in the database, which reads as improving identification when nothing has
+changed. A failure-rate panel filters `purpose = 'primary'` as well, or an import
+carrying more dual-hint descriptions inflates the denominator with mismatch-check
+attempts.
+
+### Writing
+
+Writes are synchronous, through a connection pool separate from the application's, and
+confined to `server/db` as all SQL is. They never join the work's transaction: a failed
+import rolls back, and telemetry riding along would erase the diagnostics for the run
+most worth inspecting. A write that fails sets `telemetry_incomplete` on the run and is
+otherwise ignored -- telemetry never fails the work.
+
+Plugins do not write. `Identify` and `ExtractBatch` return a telemetry value alongside
+their result and the orchestrator composes the row, so no plugin depends on the
+telemetry backend or needs a database to unit test.
+
+### Retention
+
+Plain tables, not hypertables: the volume does not warrant Timescale, and foreign keys
+into a hypertable are an avoidable complication. Children cascade from `run`, so
+retention is a delete over `run.started_at`, at **360 days**. Traffic is low and a
+problem may go unnoticed for a long time, so the window is set to outlast the gap
+between a regression landing and someone looking for it.
+
+The schema, its tables, its views and the SELECT-only grants live in
+`server/migrations/005_telemetry.sql`, separate from the application schema because it is
+a separate scope rather than a later change to the same one. The reading role's password
+is not in the migration: the role is created at container init from compose
+environment.
 
 ## 2. Logger
 

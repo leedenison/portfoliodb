@@ -378,12 +378,27 @@ export function convertFidelityToStandard(
     // trade that never happened from claiming a live trade's cash row.
     if (get(statusCol) === "Cancelled") continue;
 
+    // Both dates, because the two columns are two different facts and the row is
+    // the only place they are both stated. The order date is what a trade and the
+    // charges levied on it agree about -- a trade completes T+2 to T+4 while its
+    // dealing fee completes T+0 or T+1 -- so it is what the posting is filed
+    // under; the completion date is when the trade actually happened.
+    const orderDate = parseFidelityDate(get(orderDateCol));
+    if (!orderDate) {
+      errors.push({ rowIndex, field: "Order date", message: "Invalid or missing date" });
+      continue;
+    }
+    // A row still Pending at export time has no completion date, so the order date
+    // stands in for it. That is the source saying it does not yet know when this
+    // settles rather than saying the two coincide, but a required field has to
+    // carry something and the order date is the only date the row states.
     const completionDateStr = get(completionDateCol);
-    const orderDateStr = get(orderDateCol);
-    const dateStr = completionDateStr && completionDateStr !== "Pending" ? completionDateStr : orderDateStr;
-    const date = parseFidelityDate(dateStr);
-    if (!date) {
-      errors.push({ rowIndex, field: "date", message: "Invalid or missing date" });
+    const tradeDate =
+      completionDateStr && completionDateStr !== "Pending"
+        ? parseFidelityDate(completionDateStr)
+        : orderDate;
+    if (!tradeDate) {
+      errors.push({ rowIndex, field: "Completion date", message: "Invalid date" });
       continue;
     }
 
@@ -439,7 +454,9 @@ export function convertFidelityToStandard(
         ? [create(InstrumentRefSchema, { type: IdentifierType.MIC_TICKER, value: ticker })]
         : [];
 
-    const ts = date.getTime();
+    // The window is over the order date, which is what the replace period is
+    // matched against and what a listing orders by.
+    const ts = orderDate.getTime();
     if (ts < minTime) minTime = ts;
     if (ts > maxTime) maxTime = ts;
 
@@ -455,7 +472,8 @@ export function convertFidelityToStandard(
     const correlation = fidelityRefCorrelation(get(refCol));
     postings.push(
       create(PostingSchema, {
-        timestamp: timestampFromDate(date),
+        orderDate: timestampFromDate(orderDate),
+        tradeDate: timestampFromDate(tradeDate),
         instrumentDescription,
         brokerTxType: rowTypes,
         // A money row states CASH. A security row states nothing: the export

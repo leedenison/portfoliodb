@@ -137,7 +137,8 @@ func seedValuationLoad(t testing.TB, p *Postgres, load valuationLoad) (userID, p
 				at = from.Add(before.Sub(from) * time.Duration(j) / time.Duration(load.txsPerInstrument))
 			}
 			txs = append(txs, &apiv1.Tx{
-				Timestamp: timestamppb.New(at), InstrumentDescription: desc,
+				OrderDate: timestamppb.New(at),
+				TradeDate: timestamppb.New(at), InstrumentDescription: desc,
 				BrokerTxType:   []typev1.TxType{typev1.TxType_TRADE_ASSET},
 				ResolvedTxType: typev1.TxType_TRADE_ASSET,
 				Quantity:       "10", Account: "main", TradingCurrency: cur,
@@ -221,10 +222,10 @@ func seedMatchedTransfers(t testing.TB, p *Postgres, userID string, n int, from,
 			t.Fatalf("create transfer group: %v", err)
 		}
 		if _, err := p.q.ExecContext(ctx, `
-			INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+			INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 				instrument_id, broker_tx_type, resolved_tx_type, quantity, account_type,
 				group_id, weight, weight_commodity, share_count_basis, split_adjusted_quantity)
-			SELECT $1::uuid, 'BENCH', $2, $3::timestamptz, 'USD CASH', $4::uuid,
+			SELECT $1::uuid, 'BENCH', $2, $3::timestamptz, $3::timestamptz, 'USD CASH', $4::uuid,
 				ARRAY['TRANSFER'], 'TRANSFER', q, at, $5::uuid, q, 'cur:USD',
 				$3::timestamptz::date, q
 			FROM (VALUES ($6::numeric, 'USER'), (-$6::numeric, 'TRANSFER_CLEARING')) v(q, at)

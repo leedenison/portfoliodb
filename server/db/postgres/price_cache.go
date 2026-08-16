@@ -16,10 +16,10 @@ import (
 func (p *Postgres) HeldRanges(ctx context.Context, opts db.HeldRangesOpts) ([]db.InstrumentDateRanges, error) {
 	rows, err := p.q.QueryContext(ctx, `
 		WITH daily_net AS (
-			SELECT instrument_id, timestamp::date AS tx_date, SUM(quantity) AS day_qty
+			SELECT instrument_id, order_date::date AS tx_date, SUM(quantity) AS day_qty
 			FROM txs
 			WHERE instrument_id IS NOT NULL AND account_type = 'USER'
-			GROUP BY instrument_id, timestamp::date
+			GROUP BY instrument_id, order_date::date
 		)
 		SELECT instrument_id, tx_date,
 			SUM(day_qty) OVER (PARTITION BY instrument_id ORDER BY tx_date) AS eod_pos

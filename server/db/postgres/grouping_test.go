@@ -41,7 +41,8 @@ func newGroupingFixture(t *testing.T, sub string) *groupingFixture {
 func (f *groupingFixture) write(t *testing.T, account string, ts time.Time, qty string, declared []typev1.TxType, cs ...*archivev1.Correlation) {
 	t.Helper()
 	tx := &apiv1.Tx{
-		Timestamp:             timestamppb.New(ts),
+		OrderDate:             timestamppb.New(ts),
+		TradeDate:             timestamppb.New(ts),
 		InstrumentDescription: "GRP",
 		BrokerTxType:          declared,
 		ResolvedTxType:        declared[0],
@@ -64,7 +65,8 @@ func (f *groupingFixture) write(t *testing.T, account string, ts time.Time, qty 
 func (f *groupingFixture) writeWithResidual(t *testing.T, account string, ts time.Time, qty string, declared []typev1.TxType, residual typev1.AccountType) {
 	t.Helper()
 	tx := &apiv1.Tx{
-		Timestamp:             timestamppb.New(ts),
+		OrderDate:             timestamppb.New(ts),
+		TradeDate:             timestamppb.New(ts),
 		InstrumentDescription: "GRP",
 		BrokerTxType:          declared,
 		ResolvedTxType:        declared[0],
@@ -93,7 +95,7 @@ func (f *groupingFixture) residualTypeOf(t *testing.T, account string, ts time.T
 		SELECT r.account_type FROM txs r
 		JOIN txs l ON l.group_id = r.group_id AND l.synthetic_purpose IS NULL
 		WHERE r.user_id = $1::uuid AND r.synthetic_purpose = $2
-		  AND l.account = $3 AND l.timestamp = $4
+		  AND l.account = $3 AND l.order_date = $4
 		LIMIT 1`, f.userID, db.RoutedPurpose, account, ts).Scan(&s)
 	if err != nil {
 		t.Fatalf("read routed counterparty: %v", err)

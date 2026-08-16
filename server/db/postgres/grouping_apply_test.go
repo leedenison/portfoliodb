@@ -146,7 +146,8 @@ func TestApplyGrouping_AssembledGroupRoundsRatherThanImbalances(t *testing.T) {
 	// Money, because the tolerance that matters is the money one.
 	leg := func(qty string) *apiv1.Tx {
 		return &apiv1.Tx{
-			Timestamp: timestamppb.New(at), InstrumentDescription: "USD",
+			OrderDate: timestamppb.New(at),
+			TradeDate: timestamppb.New(at), InstrumentDescription: "USD",
 			BrokerTxType:   []typev1.TxType{typev1.TxType_TRANSFER},
 			ResolvedTxType: typev1.TxType_TRANSFER, Quantity: qty, Account: "A1",
 			SettlementCurrency: "USD", TradingCurrency: "USD",

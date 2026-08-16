@@ -179,7 +179,7 @@ func run(sides []db.TransferSide, part partitioned, opts Opts, taken map[int]boo
 			cands = append(cands, candidate{
 				from: from, to: to,
 				refDistance: distance,
-				dateGap:     gap(sides[from].Timestamp, sides[to].Timestamp),
+				dateGap:     gap(sides[from].OrderDate, sides[to].OrderDate),
 			})
 		}
 	}
@@ -248,7 +248,7 @@ func pairable(a, b db.TransferSide, opts Opts) bool {
 	if a.Broker == b.Broker && strings.EqualFold(a.Account, b.Account) {
 		return false
 	}
-	return gap(a.Timestamp, b.Timestamp) <= opts.Window
+	return gap(a.OrderDate, b.OrderDate) <= opts.Window
 }
 
 // pointerFeasible reports whether one side names the other's account outright.

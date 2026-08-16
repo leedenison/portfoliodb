@@ -12,7 +12,7 @@ import (
 // residualBalanceAgg aggregates the residual postings -- the IMBALANCE,
 // TRANSFER_CLEARING and SOURCE_ROUNDING legs routed to balance groups whose source
 // data was one-sided or disagreed with itself -- across every user. $1/$2 are a
-// half-open [from, before) window over the posting timestamp, either of which may be
+// half-open [from, before) window over the posting order_date, either of which may be
 // NULL for an open bound; $3 restricts to one account type, or is the empty string
 // for all of them.
 //
@@ -44,8 +44,8 @@ const residualBalanceAgg = `
 		-- split are in different denominations and do not sum. See qty_is_zero.
 		SUM(t.split_adjusted_quantity) AS balance,
 		COUNT(*)::int     AS posting_count,
-		MIN(t.timestamp)  AS oldest,
-		MAX(t.timestamp)  AS newest
+		MIN(t.order_date)  AS oldest,
+		MAX(t.order_date)  AS newest
 	FROM txs t
 	LEFT JOIN instruments i ON i.id = t.instrument_id
 	WHERE t.account_type IN ('IMBALANCE', 'TRANSFER_CLEARING', 'SOURCE_ROUNDING')
@@ -53,8 +53,8 @@ const residualBalanceAgg = `
 		-- excludes nothing in practice; it is here so a NULL commodity cannot
 		-- reach the scan.
 		AND t.instrument_id IS NOT NULL
-		AND ($1::timestamptz IS NULL OR t.timestamp >= $1)
-		AND ($2::timestamptz IS NULL OR t.timestamp <  $2)
+		AND ($1::timestamptz IS NULL OR t.order_date >= $1)
+		AND ($2::timestamptz IS NULL OR t.order_date <  $2)
 		AND ($3 = '' OR t.account_type = $3)
 		-- Written as an OR rather than a bare NOT EXISTS so the anti-join is
 		-- skipped entirely for IMBALANCE and SOURCE_ROUNDING, which can never

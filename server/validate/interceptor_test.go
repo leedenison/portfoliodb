@@ -27,7 +27,8 @@ func request(n int) *ingestionv1.UpsertTxsRequest {
 	postings := make([]*archivev1.Posting, n)
 	for i := range postings {
 		postings[i] = &archivev1.Posting{
-			Timestamp:             timestamppb.New(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)),
+			OrderDate:             timestamppb.New(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)),
+			TradeDate:             timestamppb.New(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)),
 			InstrumentDescription: "GBP",
 			Quantity:              "1",
 		}

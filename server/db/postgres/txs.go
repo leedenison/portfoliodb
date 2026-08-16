@@ -29,24 +29,24 @@ const insertPostingSQL = `
 		VALUES ($1, $4, $20)
 		RETURNING id
 	)
-	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+	INSERT INTO txs (user_id, broker, account, order_date, instrument_description,
 	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 settlement_amount, instrument_id, share_count_basis, account_type,
-	                 synthetic_purpose, weight, weight_commodity, group_id)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19, g.id FROM g
+	                 synthetic_purpose, weight, weight_commodity, group_id, trade_date)
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19, g.id, $21 FROM g
 	RETURNING id, group_id
 `
 
 // insertPostingInGroupSQL inserts a tx as a posting of an existing tx group, for
 // the second and subsequent legs of one economic event.
 const insertPostingInGroupSQL = `
-	INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+	INSERT INTO txs (user_id, broker, account, order_date, instrument_description,
 	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
 	                 settlement_amount, instrument_id, share_count_basis, account_type,
-	                 synthetic_purpose, weight, weight_commodity, group_id)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19, $20)
+	                 synthetic_purpose, weight, weight_commodity, group_id, trade_date)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19, $20, $21)
 	RETURNING id
 `
 
@@ -159,7 +159,11 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 		if err != nil {
 			return out, fmt.Errorf("invalid instrument id: %w", err)
 		}
-		ts, err := tsToTime(t.Timestamp)
+		ordered, err := tsToTime(t.OrderDate)
+		if err != nil {
+			return out, err
+		}
+		traded, err := tsToTime(t.TradeDate)
 		if err != nil {
 			return out, err
 		}
@@ -203,21 +207,21 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 			w = weights[i]
 		}
 		// NULL leaves the basis to the insert trigger, which seeds it from the
-		// posting's own timestamp -- the as-traded convention, and what all but a
+		// posting's own trade_date -- the as-traded convention, and what all but a
 		// restating source wants.
 		var basis *time.Time
 		if i < len(shareCountBasis) {
 			basis = shareCountBasis[i]
 		}
 		args := []interface{}{
-			userUUID, broker, acc, ts, t.InstrumentDescription,
+			userUUID, broker, acc, ordered, t.InstrumentDescription,
 			pq.Array(brokerTypes), resolvedStr, nullStr(db.AssetClassToStr(t.GetAssetClassHint())), qty,
 			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullDecimal(price),
 			nullDecimal(settlement), instUUID, basis, acctTypeStr,
 			nullStr(t.GetSyntheticPurpose()), w.Amount, w.Commodity,
 		}
 		var txID, groupID uuid.UUID
-		if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID)...).Scan(&txID, &groupID); err != nil {
+		if err := exec.QueryRowContext(ctx, insertPostingSQL, append(args, jobUUID, traded)...).Scan(&txID, &groupID); err != nil {
 			return out, fmt.Errorf("insert tx: %w", err)
 		}
 		out.postings = append(out.postings, txID)
@@ -294,21 +298,25 @@ func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, j
 }
 
 // txOrderBy returns the ORDER BY clauses for a tx listing, with an id tiebreaker
-// that makes the order total. Timestamps are not unique -- broker statements often
+// that makes the order total. Dates are not unique -- broker statements often
 // supply only a date -- so without a tiebreaker the database is free to return
 // tied rows in any order, and offset paging can then skip or repeat them across a
 // page boundary.
-func txOrderBy(prefix string, descending bool) []string {
+//
+// The date column is named rather than derived from the prefix because the two
+// tables spell it differently: a group carries one timestamp, while a posting
+// carries an order date and a trade date and a listing orders by the first.
+func txOrderBy(dateCol, idCol string, descending bool) []string {
 	dir := ""
 	if descending {
 		dir = " DESC"
 	}
-	return []string{prefix + "timestamp" + dir, prefix + "id" + dir}
+	return []string{dateCol + dir, idCol + dir}
 }
 
 // txListCols are the posting columns a listing returns, which is what txRow scans.
 var txListCols = []string{
-	"t.broker", "t.account", "t.timestamp", "t.instrument_description",
+	"t.broker", "t.account", "t.order_date", "t.instrument_description",
 	"t.broker_tx_type", "t.resolved_tx_type", "t.asset_class_hint", "t.quantity",
 	"t.split_adjusted_quantity", "t.trading_currency", "t.settlement_currency",
 	"t.unit_price", "t.split_adjusted_unit_price", "t.instrument_id",
@@ -334,14 +342,14 @@ func txListBase(broker *typev1.Broker, periodFrom, periodBefore *timestamppb.Tim
 		if err != nil {
 			return qb, fmt.Errorf("period_from: %w", err)
 		}
-		qb = qb.Where(sq.GtOrEq{"t.timestamp": fromT})
+		qb = qb.Where(sq.GtOrEq{"t.order_date": fromT})
 	}
 	if periodBefore != nil {
 		beforeT, err := tsToTime(periodBefore)
 		if err != nil {
 			return qb, fmt.Errorf("period_before: %w", err)
 		}
-		qb = qb.Where(sq.Lt{"t.timestamp": beforeT})
+		qb = qb.Where(sq.Lt{"t.order_date": beforeT})
 	}
 	return qb, nil
 }
@@ -369,7 +377,7 @@ type groupPageRow struct {
 // shows the legs its filters matched rather than the whole event.
 func listTxPage(ctx context.Context, q queryable, base sq.SelectBuilder, descending bool, limit int32, pageToken string) ([]*apiv1.PortfolioTx, string, error) {
 	offset := decodePageToken(pageToken)
-	groupOrder := txOrderBy("g.", descending)
+	groupOrder := txOrderBy("g.timestamp", "g.id", descending)
 	gsql, gargs, err := base.Columns("g.id", "g.timestamp").Distinct().
 		OrderBy(groupOrder...).
 		Limit(uint64(limit + 1)).Offset(uint64(offset)).ToSql()
@@ -397,7 +405,7 @@ func listTxPage(ctx context.Context, q queryable, base sq.SelectBuilder, descend
 	// what asking for one page of one group descending means (adr/0015).
 	tsql, pargs, err := base.Columns(txListCols...).
 		Where(sq.Eq{"t.group_id": ids}).
-		OrderBy(append(groupOrder, txOrderBy("t.", descending)...)...).ToSql()
+		OrderBy(append(groupOrder, txOrderBy("t.order_date", "t.id", descending)...)...).ToSql()
 	if err != nil {
 		return nil, "", fmt.Errorf("build tx page query: %w", err)
 	}
@@ -459,7 +467,8 @@ type exportPosting struct {
 	ID                 string           `db:"id"`
 	GroupID            string           `db:"group_id"`
 	GroupTimestamp     time.Time        `db:"group_timestamp"`
-	Timestamp          time.Time        `db:"timestamp"`
+	OrderDate          time.Time        `db:"order_date"`
+	TradeDate          time.Time        `db:"trade_date"`
 	Account            string           `db:"account"`
 	AccountType        string           `db:"account_type"`
 	BrokerTxTypes      pq.StringArray   `db:"broker_tx_type"`
@@ -504,7 +513,7 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 			return nil, fmt.Errorf("period_from: %w", err)
 		}
 		args = append(args, from)
-		period += fmt.Sprintf("\n\t\t  AND t.timestamp >= $%d", len(args))
+		period += fmt.Sprintf("\n\t\t  AND t.order_date >= $%d", len(args))
 	}
 	if periodBefore != nil {
 		before, err := tsToTime(periodBefore)
@@ -512,11 +521,11 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 			return nil, fmt.Errorf("period_before: %w", err)
 		}
 		args = append(args, before)
-		period += fmt.Sprintf("\n\t\t  AND t.timestamp < $%d", len(args))
+		period += fmt.Sprintf("\n\t\t  AND t.order_date < $%d", len(args))
 	}
 	q := `
 		SELECT t.broker, t.id::text AS id, t.group_id::text AS group_id, g.timestamp AS group_timestamp,
-			t.timestamp, t.account, t.account_type, t.broker_tx_type,
+			t.order_date, t.trade_date, t.account, t.account_type, t.broker_tx_type,
 			COALESCE(t.asset_class_hint, '') AS asset_class_hint, t.instrument_description,
 			COALESCE(best_id.identifier_type, '') AS identifier_type,
 			COALESCE(best_id.value, '') AS value,
@@ -524,11 +533,11 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 			t.quantity, t.unit_price, t.settlement_amount,
 			COALESCE(t.trading_currency, '') AS trading_currency,
 			COALESCE(t.settlement_currency, '') AS settlement_currency,
-			-- A basis equal to the posting's own date is the as-traded
+			-- A basis equal to the posting's own trade date is the as-traded
 			-- convention and says nothing a reader cannot infer. The column is
 			-- NOT NULL and the insert trigger defaults it to that date, so
 			-- selecting it raw would stamp a redundant date onto every posting.
-			CASE WHEN t.share_count_basis = t.timestamp::date THEN NULL
+			CASE WHEN t.share_count_basis = t.trade_date::date THEN NULL
 				ELSE t.share_count_basis END AS share_count_basis
 		FROM txs t
 		JOIN tx_groups g ON g.id = t.group_id
@@ -547,7 +556,7 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 		    WHERE s.group_id = t.group_id
 		      AND s.synthetic_purpose = '` + db.InitializePurpose + `'
 		  )` + period + `
-		ORDER BY t.broker, g.timestamp, g.id, t.timestamp, t.id
+		ORDER BY t.broker, g.timestamp, g.id, t.order_date, t.id
 	`
 	var rows []exportPosting
 	if err := p.q.SelectContext(ctx, &rows, q, args...); err != nil {
@@ -562,7 +571,8 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 			ID:                 r.ID,
 			GroupID:            r.GroupID,
 			GroupTimestamp:     r.GroupTimestamp,
-			Timestamp:          r.Timestamp,
+			OrderDate:          r.OrderDate,
+			TradeDate:          r.TradeDate,
 			Account:            r.Account,
 			AccountType:        r.AccountType,
 			BrokerTxTypes:      r.BrokerTxTypes,
@@ -653,7 +663,7 @@ const routedPurpose = `'RESIDUAL', 'BOUNDARY'`
 // synthetic INITIALIZE posting is the declaration machinery's rather than ingestion's.
 const survivorPredicate = `
 	(t.synthetic_purpose IS NULL OR t.synthetic_purpose NOT IN (` + routedPurpose + `))
-	AND NOT (t.broker = $1 AND t.timestamp >= $2 AND t.timestamp < $3
+	AND NOT (t.broker = $1 AND t.order_date >= $2 AND t.order_date < $3
 	         AND t.synthetic_purpose IS NULL)
 `
 
@@ -664,7 +674,7 @@ const touchedGroups = `
 	FROM txs t
 	WHERE t.user_id = $4
 	  AND t.broker = $1
-	  AND t.timestamp >= $2 AND t.timestamp < $3
+	  AND t.order_date >= $2 AND t.order_date < $3
 	  AND t.synthetic_purpose IS NULL
 `
 
@@ -712,13 +722,14 @@ const deleteTouchedMatchesSQL = `
 `
 
 // repointGroupTimestampsSQL re-dates a group whose first leg the delete took.
-// tx_groups.timestamp is the timestamp of the first posting that named the group and is
-// derived rather than data, so it has to follow the legs that are left.
+// tx_groups.timestamp is the earliest order_date of the postings that name the group
+// and is derived rather than data, so it has to follow the legs that are left. The
+// order date rather than the trade date, because that is what a listing orders by.
 const repointGroupTimestampsSQL = `
 	UPDATE tx_groups g
 	SET timestamp = s.first_timestamp
 	FROM (
-		SELECT group_id, MIN(timestamp) AS first_timestamp
+		SELECT group_id, MIN(order_date) AS first_timestamp
 		FROM txs
 		WHERE group_id = ANY($1)
 		GROUP BY group_id
@@ -742,7 +753,7 @@ const repointGroupTimestampsSQL = `
 const groupResidualsSQL = `
 	SELECT r.group_id, r.weight_commodity, r.residual,
 	       types.resolved_tx_types,
-	       first.timestamp, first.broker_tx_type, first.resolved_tx_type, first.broker, first.account,
+	       first.order_date, first.trade_date, first.broker_tx_type, first.resolved_tx_type, first.broker, first.account,
 	       first.trading_currency, first.settlement_currency,
 	       commodity.instrument_description, commodity.instrument_id
 	FROM (
@@ -757,16 +768,16 @@ const groupResidualsSQL = `
 		FROM txs t WHERE t.group_id = r.group_id
 	) types ON true
 	JOIN LATERAL (
-		SELECT t.timestamp, t.broker_tx_type, t.resolved_tx_type, t.broker, t.account,
+		SELECT t.order_date, t.trade_date, t.broker_tx_type, t.resolved_tx_type, t.broker, t.account,
 		       t.trading_currency, t.settlement_currency
 		FROM txs t WHERE t.group_id = r.group_id
-		ORDER BY t.timestamp, t.id LIMIT 1
+		ORDER BY t.order_date, t.id LIMIT 1
 	) first ON true
 	JOIN LATERAL (
 		SELECT t.instrument_description, t.instrument_id
 		FROM txs t
 		WHERE t.group_id = r.group_id AND t.weight_commodity = r.weight_commodity
-		ORDER BY t.timestamp, t.id LIMIT 1
+		ORDER BY t.order_date, t.id LIMIT 1
 	) commodity ON true
 	ORDER BY r.group_id, r.weight_commodity
 `
@@ -782,7 +793,7 @@ const groupResidualsSQL = `
 // negated in Go: a priced leg weighs at its consideration, and mirroring the quantity
 // would leave the group short by the difference.
 const boundaryCandidatesSQL = `
-	SELECT t.group_id, t.weight, t.weight_commodity, t.timestamp,
+	SELECT t.group_id, t.weight, t.weight_commodity, t.order_date, t.trade_date,
 	       t.broker_tx_type, t.resolved_tx_type, t.broker, t.account,
 	       t.trading_currency, t.settlement_currency, t.instrument_description,
 	       t.instrument_id
@@ -791,7 +802,7 @@ const boundaryCandidatesSQL = `
 	  AND t.synthetic_purpose IS NULL
 	  AND t.account_type = 'USER'
 	  AND t.weight <> 0
-	ORDER BY t.timestamp, t.id
+	ORDER BY t.order_date, t.id
 `
 
 // currencyInstrumentSQL resolves the seeded instrument a money residual is denominated
@@ -811,8 +822,11 @@ type groupResidual struct {
 	// The distinct resolved types of the group's surviving legs, for the
 	// family rule; the first leg's declared set and resolved value are what
 	// the routed counterparty carries.
-	resolvedTypes  pq.StringArray
-	timestamp      time.Time
+	resolvedTypes pq.StringArray
+	// Both dates of the group's earliest leg, since a routed residual is that
+	// group's own event and belongs on the same days as the legs it balances.
+	orderDate      time.Time
+	tradeDate      time.Time
 	brokerTxTypes  pq.StringArray
 	resolvedTxType string
 	broker         string
@@ -826,10 +840,13 @@ type groupResidual struct {
 // boundaryCandidate is one stated posting that names the account its other side sits
 // in, and the attributes the leg mirroring it is built from.
 type boundaryCandidate struct {
-	groupID        uuid.UUID
-	weight         decimal.Decimal
-	commodity      string
-	timestamp      time.Time
+	groupID   uuid.UUID
+	weight    decimal.Decimal
+	commodity string
+	// Both of the mirrored posting's dates, because the leg is that posting's
+	// other side and is the same event on the same days.
+	orderDate      time.Time
+	tradeDate      time.Time
 	brokerTxTypes  pq.StringArray
 	resolvedTxType string
 	broker         string
@@ -855,7 +872,7 @@ func routeBoundaries(ctx context.Context, exec queryable, userUUID uuid.UUID, gr
 	var cands []boundaryCandidate
 	for rows.Next() {
 		var c boundaryCandidate
-		if err := rows.Scan(&c.groupID, &c.weight, &c.commodity, &c.timestamp,
+		if err := rows.Scan(&c.groupID, &c.weight, &c.commodity, &c.orderDate, &c.tradeDate,
 			&c.brokerTxTypes, &c.resolvedTxType, &c.broker, &c.account,
 			&c.trading, &c.settlement, &c.description, &c.instrumentID); err != nil {
 			return fmt.Errorf("boundary candidates: %w", err)
@@ -888,10 +905,10 @@ func routeBoundaries(ctx context.Context, exec queryable, userUUID uuid.UUID, gr
 		}
 		var txID uuid.UUID
 		if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL,
-			userUUID, c.broker, c.account, c.timestamp, desc,
+			userUUID, c.broker, c.account, c.orderDate, desc,
 			c.brokerTxTypes, c.resolvedTxType, nil, amount,
 			trading, settlement, nil, nil, nullUUID(instID), nil, acctType,
-			db.BoundaryPurpose, amount, c.commodity, c.groupID,
+			db.BoundaryPurpose, amount, c.commodity, c.groupID, c.tradeDate,
 		).Scan(&txID); err != nil {
 			return fmt.Errorf("insert boundary posting: %w", err)
 		}
@@ -1066,7 +1083,7 @@ func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 	for rows.Next() {
 		var r groupResidual
 		if err := rows.Scan(&r.groupID, &r.commodity, &r.amount, &r.resolvedTypes,
-			&r.timestamp, &r.brokerTxTypes, &r.resolvedTxType, &r.broker, &r.account,
+			&r.orderDate, &r.tradeDate, &r.brokerTxTypes, &r.resolvedTxType, &r.broker, &r.account,
 			&r.trading, &r.settlement, &r.description, &r.instrumentID); err != nil {
 			return fmt.Errorf("surviving residuals: %w", err)
 		}
@@ -1099,7 +1116,7 @@ func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 		}
 
 		// NULL share_count_basis leaves the insert trigger to seed it from the
-		// posting's own timestamp, and the split-adjusted pair is seeded the same way,
+		// posting's own trade date, and the split-adjusted pair is seeded the same way,
 		// exactly as for an uploaded posting. A routed leg has no source row, so no
 		// correlation and no settlement amount is written for it: it transcribes
 		// nothing, so there is nothing the source said about why it belongs with
@@ -1109,10 +1126,10 @@ func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 		// upload path needs it to hang correlations on.
 		var txID uuid.UUID
 		if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL,
-			userUUID, r.broker, r.account, r.timestamp, desc,
+			userUUID, r.broker, r.account, r.orderDate, desc,
 			r.brokerTxTypes, r.resolvedTxType, nil, amount,
 			trading, settlement, nil, nil, nullUUID(instID), nil, acctType,
-			db.RoutedPurpose, amount, r.commodity, r.groupID,
+			db.RoutedPurpose, amount, r.commodity, r.groupID, r.tradeDate,
 		).Scan(&txID); err != nil {
 			return fmt.Errorf("insert routed posting: %w", err)
 		}

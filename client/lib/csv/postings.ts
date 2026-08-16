@@ -65,7 +65,11 @@ export function currencyHint(currency: string) {
 function moneyLeg(from: Posting, types: TxType[], accountType: AccountType, quantity: Big): Posting {
   const currency = from.settlementCurrency || from.tradingCurrency;
   return create(PostingSchema, {
-    ...(from.timestamp ? { timestamp: clone(TimestampSchema, from.timestamp) } : {}),
+    // Both dates, because a derived leg is another leg of the same record and so
+    // happened on the same days. Cloning one and not the other would leave the
+    // pair disagreeing about an event neither of them is free to date.
+    ...(from.orderDate ? { orderDate: clone(TimestampSchema, from.orderDate) } : {}),
+    ...(from.tradeDate ? { tradeDate: clone(TimestampSchema, from.tradeDate) } : {}),
     correlations: from.correlations.map((c) => clone(CorrelationSchema, c)),
     instrumentDescription: currency,
     brokerTxType: types,

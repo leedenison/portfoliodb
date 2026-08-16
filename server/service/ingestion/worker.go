@@ -360,8 +360,8 @@ func resolveInstruments(ctx context.Context, database db.DB, registry *identifie
 		desc := tx.GetInstrumentDescription()
 		rowIndex := int32(originalIndices[i])
 		var hintsValidAt *time.Time
-		if tx.GetTimestamp() != nil {
-			t := tx.GetTimestamp().AsTime()
+		if tx.GetTradeDate() != nil {
+			t := tx.GetTradeDate().AsTime()
 			hintsValidAt = &t
 		}
 		r, err := Resolve(ctx, database, registry, broker, source, desc, HintsFromTx(tx), identifierHintsFromTx(ctx, tx), cache, rowIndex, counter, extractedHintsCache, hintsValidAt)

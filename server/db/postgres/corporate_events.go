@@ -505,14 +505,14 @@ func (p *Postgres) ListCashDividendsForExport(ctx context.Context) ([]db.ExportC
 func (p *Postgres) HeldEventBearingInstruments(ctx context.Context) ([]db.HeldInstrument, error) {
 	rows, err := p.q.QueryContext(ctx, `
 		WITH direct AS (
-			SELECT t.instrument_id, MIN(t.timestamp)::date AS earliest
+			SELECT t.instrument_id, MIN(t.order_date)::date AS earliest
 			FROM txs t
 			JOIN instruments i ON i.id = t.instrument_id
 			WHERE i.asset_class IN ('STOCK', 'ETF') AND t.account_type = 'USER'
 			GROUP BY t.instrument_id
 		),
 		via_derivative AS (
-			SELECT i.underlying_id AS instrument_id, MIN(t.timestamp)::date AS earliest
+			SELECT i.underlying_id AS instrument_id, MIN(t.order_date)::date AS earliest
 			FROM txs t
 			JOIN instruments i ON i.id = t.instrument_id
 			WHERE i.asset_class IN ('OPTION', 'FUTURE') AND i.underlying_id IS NOT NULL

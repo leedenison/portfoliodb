@@ -50,7 +50,8 @@ func (p posting) tx(at time.Time) *apiv1.Tx {
 		set = []typev1.TxType{p.typ}
 	}
 	return &apiv1.Tx{
-		Timestamp:             timestamppb.New(at),
+		OrderDate:             timestamppb.New(at),
+		TradeDate:             timestamppb.New(at),
 		InstrumentDescription: p.desc,
 		BrokerTxType:          set,
 		// These tests call weights directly, below the pipeline step that

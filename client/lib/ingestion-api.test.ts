@@ -35,7 +35,8 @@ describe("ingestion-api", () => {
       );
 
       const posting = create(PostingSchema, {
-        timestamp: timestampFromDate(new Date("2024-01-15")),
+        orderDate: timestampFromDate(new Date("2024-01-15")),
+        tradeDate: timestampFromDate(new Date("2024-01-15")),
         instrumentDescription: "AAPL",
         brokerTxType: [TxType.TRADE_ASSET],
         quantity: "10",

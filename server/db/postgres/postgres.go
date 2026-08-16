@@ -331,7 +331,8 @@ func (r *holdingRow) toProto() *apiv1.Holding {
 type txRow struct {
 	Broker            string           `db:"broker"`
 	Account           string           `db:"account"`
-	Timestamp         time.Time        `db:"timestamp"`
+	OrderDate         time.Time        `db:"order_date"`
+	TradeDate         time.Time        `db:"trade_date"`
 	InstDesc          string           `db:"instrument_description"`
 	BrokerTxTypes     pq.StringArray   `db:"broker_tx_type"`
 	ResolvedTxType    string           `db:"resolved_tx_type"`
@@ -351,7 +352,8 @@ type txRow struct {
 
 func (r *txRow) toProto() *apiv1.PortfolioTx {
 	tx := &apiv1.Tx{
-		Timestamp:             timeToTs(r.Timestamp),
+		OrderDate:             timeToTs(r.OrderDate),
+		TradeDate:             timeToTs(r.TradeDate),
 		InstrumentDescription: r.InstDesc,
 		BrokerTxType:          db.StrsToTxTypes(r.BrokerTxTypes),
 		ResolvedTxType:        strToTxType(r.ResolvedTxType),

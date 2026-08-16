@@ -153,7 +153,7 @@ describe("convertFidelityJson", () => {
 
   it("falls back to the order date when a transaction has not settled", () => {
     const result = convertFidelityJson(json({ ...SERVICE_FEE, settlementDate: null }));
-    const ts = result.postings[0]!.timestamp!;
+    const ts = result.postings[0]!.orderDate!;
     // dealDate is 03/07/2026, built as local midnight.
     expect(Number(ts.seconds)).toBe(Math.floor(new Date(2026, 6, 3).getTime() / 1000));
   });
@@ -177,9 +177,11 @@ describe("convertFidelityJson", () => {
 
   it("reports a period spanning the rows it parsed", () => {
     const result = convertFidelityJson(json(BUY, SERVICE_FEE));
-    expect(result.periodFrom).toEqual(new Date(2026, 5, 4));
+    // Over the order dates -- BUY deals 02/06, SERVICE_FEE 03/07 -- because that
+    // is the date a posting is filed under and what the replace window covers.
+    expect(result.periodFrom).toEqual(new Date(2026, 5, 2));
     // Exclusive: the day after the last row, so the last row is inside it.
-    expect(result.periodBefore).toEqual(new Date(2026, 6, 9));
+    expect(result.periodBefore).toEqual(new Date(2026, 6, 4));
   });
 
   it("rejects a payload that is not a JSON array", () => {

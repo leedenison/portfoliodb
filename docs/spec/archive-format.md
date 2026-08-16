@@ -588,11 +588,11 @@ stored and where it travels.
 | window | `period_from`, `period_before` | half-open, instants |
 | window | `source` | `"<broker>:<client>:<source>"`; the domain of the fallback description identifier |
 | window | `postings[]` | may be empty, which clears the period |
-| posting | `timestamp`, `instrument_description`, `type`, `quantity` | |
+| posting | `order_date`, `trade_date`, `instrument_description`, `type`, `quantity` | both dates required; a source stating one date writes it to both |
 | posting | `account`, `account_type` | `account_type` absent reads as `ACCOUNT_TYPE_USER` |
 | posting | `identifier_hints[]` | zero or more identifier triples |
 | posting | `unit_price`, `trading_currency`, `settlement_currency` | optional |
-| posting | `share_count_basis` | optional; absent means the posting's own timestamp date |
+| posting | `share_count_basis` | optional; absent means the posting's own `trade_date` |
 | posting | `correlations[]` | zero or more; why this posting might belong with another |
 
 `share_count_basis` is on the posting rather than on the window for the same
@@ -648,7 +648,7 @@ counterparty of its own; it is derived again from the postings that are carried.
 
 **Not carried:** the server UUIDs; `tx_groups.id`, `job_id` and `created_at`,
 which the importing instance generates; `tx_groups.timestamp`, which is the
-timestamp of the first posting that names the group; the split-adjusted quantity
+earliest `order_date` of the postings that name the group; the split-adjusted quantity
 and price and the posting weights, all recomputed; and the synthetic opening
 postings with their counterparties, which follow from the declarations they were
 derived from.

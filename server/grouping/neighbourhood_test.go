@@ -63,7 +63,7 @@ func (s *store) PostingsByDates(_ context.Context, _ string, qs []db.DateQuery, 
 	s.dates = append(s.dates, qs)
 	return s.filter(held, func(p db.GroupingPosting) bool {
 		for _, q := range qs {
-			if p.Account == q.Account && !p.Timestamp.Before(q.From) && p.Timestamp.Before(q.Before) {
+			if p.Account == q.Account && !p.OrderDate.Before(q.From) && p.OrderDate.Before(q.Before) {
 				return true
 			}
 		}

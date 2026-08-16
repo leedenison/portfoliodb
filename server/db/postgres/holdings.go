@@ -45,7 +45,7 @@ func (p *Postgres) ComputeHoldings(ctx context.Context, userID string, broker *t
 		// charges, residuals, in-flight transfers) share the broker account and
 		// would otherwise net against the holding they belong to.
 		Where(sq.Eq{"t.account_type": "USER"}).
-		Where(sq.LtOrEq{"t.timestamp": asOfT}).
+		Where(sq.LtOrEq{"t.order_date": asOfT}).
 		GroupBy("t.broker", "t.account", "t.instrument_id", "i.name").
 		Suffix(holdingClosedTest)
 	if broker != nil {
@@ -92,7 +92,7 @@ func (p *Postgres) ComputeHoldingsForPortfolio(ctx context.Context, portfolioID 
 		FROM txs t
 		INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
 		LEFT JOIN instruments i ON i.id = t.instrument_id
-		WHERE t.timestamp <= $2 AND t.account_type = 'USER'
+		WHERE t.order_date <= $2 AND t.account_type = 'USER'
 		GROUP BY t.broker, t.account, t.instrument_id, i.name
 		`+holdingClosedTest, portUUID, asOfT)
 	if err != nil {

@@ -43,11 +43,11 @@ where `latestBrokerTx` is the timestamp from step 2, or, when the user has no tr
 
 The window deliberately starts before the last known transaction rather than the day after it.
 
-A broker row that is still Pending at export time carries no completion date, so the Fidelity converter dates it by its order date. When the transaction later completes, the same row is re-dated to its completion date, which is **later**. If the replace window began after the last known transaction, the previously stored row (at its order date) would fall outside the window and survive the delete, while the newly exported row (at its completion date) would be inserted inside it -- producing a duplicate.
+A posting is filed under its `order_date` (adr/0051-a-posting-carries-an-order-date-and-a-trade-date.md), and a broker states that date from the moment the row appears. So a row that settles between one sync and the next keeps the date the replace window is matched against, and no longer moves across a window boundary as it completes -- the duplicate this section used to describe cannot arise from settlement alone.
 
-This is a valid-time correction by the source: the broker changes its mind about *when* a transaction happened, after the fact. The overlap therefore exists to prevent duplication, not to close a gap. This gives the sizing rule:
+What remains is a broker correcting a row it has already reported: an order date restated after the fact is a valid-time correction, and a window beginning after the last known transaction would leave the previously stored row outside the delete while the re-dated one is inserted inside it. The overlap exists to absorb that. This gives the sizing rule:
 
-> `lookbackDays` must exceed the longest plausible lag between a transaction's order date and its completion date.
+> `lookbackDays` must exceed the longest plausible lag between a row first appearing and the broker settling on its final order date.
 
 The default is 14 days. Overlap is otherwise free, because ingestion is idempotent by replacement (see adr/0002-transaction-ingestion-model.md).
 

@@ -563,7 +563,8 @@ func TestRecomputeSplitAdjustments_Txs(t *testing.T) {
 		{
 			BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
 			ResolvedTxType:        typev1.TxType_TRADE_ASSET,
-			Timestamp:             ts(2010, 6, 1),
+			OrderDate:             ts(2010, 6, 1),
+			TradeDate:             ts(2010, 6, 1),
 			Quantity:              "100",
 			UnitPrice:             proto.String("280"),
 			InstrumentDescription: "AAPL",
@@ -720,7 +721,8 @@ func TestRecomputeSplitAdjustments_ForwardSplitIsExact(t *testing.T) {
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{{
 		BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
 		ResolvedTxType:        typev1.TxType_TRADE_ASSET,
-		Timestamp:             ts(2010, 6, 1),
+		OrderDate:             ts(2010, 6, 1),
+		TradeDate:             ts(2010, 6, 1),
 		Quantity:              "100",
 		UnitPrice:             proto.String("280"),
 		InstrumentDescription: "AAPL",
@@ -767,7 +769,8 @@ func TestRecomputeSplitAdjustments_ReverseSplitRoundsToDeclaredScale(t *testing.
 	insertTxs(t, p, userID, instID, []*apiv1.Tx{{
 		BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
 		ResolvedTxType:        typev1.TxType_TRADE_ASSET,
-		Timestamp:             ts(2020, 1, 2),
+		OrderDate:             ts(2020, 1, 2),
+		TradeDate:             ts(2020, 1, 2),
 		Quantity:              "100",
 		UnitPrice:             proto.String("280"),
 		InstrumentDescription: "RVRS",
@@ -1004,7 +1007,8 @@ func TestApplyOptionSplit(t *testing.T) {
 	insertTxs(t, p, userID, optID, []*apiv1.Tx{{
 		BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
 		ResolvedTxType:        typev1.TxType_TRADE_ASSET,
-		Timestamp:             ts(2024, 6, 1),
+		OrderDate:             ts(2024, 6, 1),
+		TradeDate:             ts(2024, 6, 1),
 		Quantity:              "1",
 		UnitPrice:             proto.String("150"),
 		InstrumentDescription: "AAPL 250117C00150000",
@@ -1401,10 +1405,10 @@ func insertTxWithBasis(t *testing.T, p *Postgres, userID, instID string, ts time
 	t.Helper()
 	var id string
 	err := p.q.QueryRowContext(context.Background(), `
-		INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 			broker_tx_type, resolved_tx_type, quantity, instrument_id, share_count_basis,
 			weight, weight_commodity, group_id)
-		VALUES ($1::uuid, 'IBKR', '', $2, 'AAPL', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', $3, $4::uuid, $5::date,
+		VALUES ($1::uuid, 'IBKR', '', $2, $2, 'AAPL', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', $3, $4::uuid, $5::date,
 			$3, 'inst:' || $4, $6::uuid)
 		RETURNING id
 	`, userID, ts, qty, instID, basis, newTxGroup(t, p, userID)).Scan(&id)

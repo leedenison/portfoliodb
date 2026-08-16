@@ -45,7 +45,7 @@ func valuationQuery(portfolioMode bool) string {
 		txSource = `
     FROM txs t
     INNER JOIN portfolio_matched_txs m ON m.tx_id = t.id AND m.portfolio_id = $1
-    WHERE t.timestamp::date < $3
+    WHERE t.order_date::date < $3
       AND (t.account_type = 'USER'
            OR EXISTS (SELECT 1 FROM portfolio_in_flight_txs f
                       WHERE f.tx_id = t.id AND f.portfolio_id = $1))`
@@ -56,7 +56,7 @@ func valuationQuery(portfolioMode bool) string {
 		// membership left to ask about and no need for the view.
 		txSource = `
     FROM txs t
-    WHERE t.user_id = $1 AND t.timestamp::date < $3
+    WHERE t.user_id = $1 AND t.order_date::date < $3
       AND (t.account_type = 'USER'
            OR (t.account_type = 'TRANSFER_CLEARING' AND EXISTS (
                SELECT 1 FROM transfer_matches tm
@@ -69,7 +69,7 @@ WITH portfolio_txs AS (
     SELECT
         t.instrument_id,
         t.instrument_description,
-        t.timestamp::date AS tx_date,
+        t.order_date::date AS tx_date,
         SUM(t.split_adjusted_quantity) AS daily_qty,
         -- How many of these postings may have rounded when they were converted
         -- into today's share count, which is what bounds the running position's
@@ -77,7 +77,7 @@ WITH portfolio_txs AS (
         -- its raw one converted by 1/1 and cannot have rounded at all. See
         -- qty_is_zero.
         COUNT(*) FILTER (WHERE t.split_adjusted_quantity <> t.quantity)::int AS daily_inexact` + txSource + `
-    GROUP BY t.instrument_id, t.instrument_description, t.timestamp::date
+    GROUP BY t.instrument_id, t.instrument_description, t.order_date::date
 ),
 -- Merge transactions by instrument_id for identified instruments so that
 -- different descriptions for the same instrument net correctly. Unidentified

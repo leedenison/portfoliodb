@@ -16,7 +16,7 @@ import (
 // an upload.
 const newGroupSQL = `
 	INSERT INTO tx_groups (user_id, timestamp)
-	SELECT $1::uuid, MIN(t.timestamp)
+	SELECT $1::uuid, MIN(t.order_date)
 	FROM txs t WHERE t.id = ANY($2::uuid[])
 	RETURNING id
 `

@@ -75,7 +75,8 @@ describe("api", () => {
         periodBefore: timestampFromDate(before),
         postings: [
           {
-            timestamp: timestampFromDate(new Date("2026-07-10T00:00:00Z")),
+            orderDate: timestampFromDate(new Date("2026-07-10T00:00:00Z")),
+            tradeDate: timestampFromDate(new Date("2026-07-10T00:00:00Z")),
             instrumentDescription: "ISHARES II PLC INRG",
             brokerTxType: [TxType.TRADE_ASSET],
             quantity: "10",

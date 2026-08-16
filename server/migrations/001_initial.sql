@@ -144,9 +144,10 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 --
 -- Share counts: share_count_basis, split_adjusted_quantity, split_adjusted_unit_price.
 -- share_count_basis is the date at which the share count the raw quantity and
--- unit_price are denominated in was current. It defaults to timestamp::date --
+-- unit_price are denominated in was current. It defaults to trade_date::date --
 -- the as-traded assumption, that a broker log line accounts only for events
--- prior to the trade. A source that restates historical rows (a broker's live
+-- prior to the trade, which is why it hangs off the date the trade happened
+-- rather than the date it was ordered. A source that restates historical rows (a broker's live
 -- web UI showing post-split quantities) declares its own on the upload.
 -- See docs/spec/bitemporality.md.
 -- split_adjusted_quantity / split_adjusted_unit_price hold the values that result
@@ -171,7 +172,19 @@ CREATE TABLE txs (
 
   broker                    TEXT NOT NULL,
   account                   TEXT NOT NULL,
-  timestamp                 TIMESTAMPTZ NOT NULL,
+
+  -- When the transaction was ordered, and the date a posting is filed under:
+  -- windows, listings and the grouping rules that bucket on a day all use this
+  -- one. It is the date a trade and the charges levied on it agree about, which
+  -- neither of the dates a broker reports per row is: a trade settles days after
+  -- a charge clears. See
+  -- docs/adr/0051-a-posting-carries-an-order-date-and-a-trade-date.md.
+  order_date                TIMESTAMPTZ NOT NULL,
+  -- When the transaction took effect: a trade executed, a charge was levied,
+  -- money moved. Equal to order_date for a source that reports one date and no
+  -- other, which is a statement that the two coincide rather than that one is
+  -- unknown.
+  trade_date                TIMESTAMPTZ NOT NULL,
 
   instrument_description    TEXT NOT NULL,
   instrument_id             UUID,
@@ -218,7 +231,7 @@ CREATE TABLE txs (
   created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, timestamp);
+CREATE INDEX idx_txs_user_broker_time ON txs (user_id, broker, order_date);
 CREATE INDEX idx_txs_group_id ON txs (group_id);
 
 -- Why a posting might belong with another one, as its source stated it: an
@@ -563,11 +576,11 @@ CREATE INDEX idx_txs_instrument_id ON txs (instrument_id);
 -- routed to balance a group its source data left one-sided -- are a small minority of
 -- txs, and the report that aggregates them reads every one across all users. A partial
 -- index over just those rows answers it without carrying the USER postings that
--- dominate the table. The key is timestamp because the report filters on a time window
+-- dominate the table. The key is order_date because the report filters on a time window
 -- and nothing else on the residual subset; grouping cannot be index-ordered anyway,
 -- because two GROUP BY keys come from the joined instruments table.
 CREATE INDEX idx_txs_residual_postings
-  ON txs (timestamp)
+  ON txs (order_date)
   WHERE account_type IN ('IMBALANCE', 'TRANSFER_CLEARING', 'SOURCE_ROUNDING');
 
 -- At most one INITIALIZE posting per holding per account type. account_type is part of
@@ -940,9 +953,10 @@ CREATE OR REPLACE FUNCTION default_split_adjusted_tx() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
     -- As-traded is the default denomination: a row with no declared basis is
-    -- assumed to be expressed in the share count current on its own date.
+    -- assumed to be expressed in the share count current when the trade
+    -- happened, which is trade_date rather than the date it was ordered.
     IF NEW.share_count_basis IS NULL THEN
-      NEW.share_count_basis := NEW.timestamp::date;
+      NEW.share_count_basis := NEW.trade_date::date;
     END IF;
     IF NEW.split_adjusted_quantity IS NULL THEN
       NEW.split_adjusted_quantity := NEW.quantity;
@@ -1186,8 +1200,8 @@ CREATE OR REPLACE FUNCTION holding_qty_in_basis(
       AND t.instrument_id = p_instrument_id
       AND t.account_type = 'USER'
       AND (p_include_synthetic OR t.synthetic_purpose IS NULL)
-      AND (p_from IS NULL OR t.timestamp >= p_from)
-      AND (p_before IS NULL OR t.timestamp < p_before)
+      AND (p_from IS NULL OR t.order_date >= p_from)
+      AND (p_before IS NULL OR t.order_date < p_before)
     GROUP BY t.share_count_basis
   )
   SELECT COALESCE(SUM(p.q * fb.num * fd.den / (fb.den * fd.num)), 0),

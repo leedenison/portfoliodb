@@ -28,7 +28,7 @@ func security(id string, qty, price, stated string, d int, ref int64) db.Groupin
 	p.UnitPrice = decp(price)
 	p.SettlementAmount = decp(stated)
 	p.InstrumentID = "inst-1"
-	p.Timestamp = day(d)
+	p.OrderDate = day(d)
 	return withRef(p, ref)
 }
 
@@ -38,7 +38,7 @@ func money(id, qty string, d int, ref int64, declared ...typev1.TxType) db.Group
 	p := posting(id, declared...)
 	p.Quantity = dec(qty)
 	p.InstrumentID = "gbp"
-	p.Timestamp = day(d)
+	p.OrderDate = day(d)
 	return withRef(p, ref)
 }
 

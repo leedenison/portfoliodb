@@ -71,7 +71,8 @@ func settled(t *testing.T, p *Postgres, sub string, legs []statedLeg, instByComm
 			account = "ACC-1"
 		}
 		txs[i] = &apiv1.Tx{
-			Timestamp:             timestamppb.New(at),
+			OrderDate:             timestamppb.New(at),
+			TradeDate:             timestamppb.New(at),
 			InstrumentDescription: l.desc,
 			BrokerTxType:          l.types,
 			ResolvedTxType:        resolveSet(l.types),
@@ -297,7 +298,8 @@ func TestSettle_KeepsAttribution(t *testing.T) {
 	userID, usd := balanceSeed(t, p, "sub|settle-attribution")
 	at := time.Date(2025, 3, 1, 12, 0, 0, 0, time.UTC)
 	tx := &apiv1.Tx{
-		Timestamp:             timestamppb.New(at),
+		OrderDate:             timestamppb.New(at),
+		TradeDate:             timestamppb.New(at),
 		InstrumentDescription: "AAPL",
 		BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
 		ResolvedTxType:        typev1.TxType_TRADE_ASSET,
@@ -317,7 +319,7 @@ func TestSettle_KeepsAttribution(t *testing.T) {
 	var group, legGroup string
 	err := p.q.QueryRowContext(context.Background(), `
 		SELECT account, array_to_string(broker_tx_type, ','), resolved_tx_type,
-		       instrument_description, synthetic_purpose, timestamp, group_id::text,
+		       instrument_description, synthetic_purpose, order_date, group_id::text,
 		       (SELECT group_id::text FROM txs WHERE user_id = $1 AND synthetic_purpose IS NULL)
 		FROM txs WHERE user_id = $1 AND synthetic_purpose IS NOT NULL
 	`, userID).Scan(&account, &brokerTypes, &resolved, &desc, &purpose, &ts, &group, &legGroup)
@@ -354,7 +356,8 @@ func TestSettle_UngroupedPostingsAreSettledSeparately(t *testing.T) {
 	at := time.Date(2025, 3, 1, 12, 0, 0, 0, time.UTC)
 	leg := func(qty string) *apiv1.Tx {
 		return &apiv1.Tx{
-			Timestamp: timestamppb.New(at), InstrumentDescription: "USD",
+			OrderDate: timestamppb.New(at),
+			TradeDate: timestamppb.New(at), InstrumentDescription: "USD",
 			BrokerTxType:   []typev1.TxType{typev1.TxType_TRANSFER},
 			ResolvedTxType: typev1.TxType_TRANSFER, Quantity: qty, Account: "ACC-1",
 			SettlementCurrency: "USD", TradingCurrency: "USD",

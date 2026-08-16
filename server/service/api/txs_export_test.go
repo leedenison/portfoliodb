@@ -30,7 +30,8 @@ func exportPostingFixture(broker, groupID, ts string) dbpkg.ExportPosting {
 		Broker:          broker,
 		GroupID:         groupID,
 		GroupTimestamp:  at,
-		Timestamp:       at,
+		OrderDate:       at,
+		TradeDate:       at,
 		Account:         "acct",
 		AccountType:     "USER",
 		BrokerTxTypes:   []string{"TRADE_ASSET"},
@@ -103,7 +104,7 @@ func TestTxWindows_KeepsAGroupsLegsTogether(t *testing.T) {
 	// group it came out of, which is the point.
 	want := []string{"2024-01-15T10:00:00Z", "2024-01-15T10:00:00Z", "2024-01-16T10:00:00Z"}
 	for i, w := range want {
-		if got := postings[i].GetTimestamp().AsTime().Format(time.RFC3339); got != w {
+		if got := postings[i].GetOrderDate().AsTime().Format(time.RFC3339); got != w {
 			t.Fatalf("posting %d timestamp = %q, want %q", i, got, w)
 		}
 	}

@@ -43,11 +43,24 @@ A disposal is not attempted. Fidelity reports gross proceeds, so its stated tota
 equals its cash in exactly and there is nothing to explain -- a fact about the source
 rather than a limitation here.
 
-`alice-fidelity` falls from 617 groups to 613. The yield is low against the number of
-charges these fixtures carry, and the reason is the fixtures: extracted before a
-posting carried two dates, they state one instant in both, which is exactly what a
-charge and its trade disagree about in a real export. `bob-ibkr` is unchanged at 28
-groups, its 22 charges having been grouped by their `FITID` all along.
+`alice-fidelity` falls from 617 groups to 613, and `bob-ibkr` is unchanged at 28, its
+22 charges having been grouped by their `FITID` all along.
 
-`Unbalanced` does not move on any of them, as expected: an `EXPENSE` posting's
-counter-leg is routed into the same group, so attaching one is balance-neutral.
+The fixture yield is low, and the reason is the fixtures rather than the rules: they
+were extracted before a posting carried two dates, so they state one instant in both
+-- which is exactly what a charge and its trade disagree about in a real export. Run
+over the same two exports regenerated with both dates, the two rules together absorb
+**81 of 88 charges (92%)** and **78 of 78 (100%)**, against the 4 the flattened
+fixture captures. So the goldens pin the rules against regression rather than
+measuring what they do.
+
+| | groups before | after | charges absorbed |
+| --- | --- | --- | --- |
+| Fidelity export A | 574 | 493 | 81 |
+| Fidelity export B | 617 | 539 | 78 |
+| Schwab export | 142 | 142 | 0 -- its charges were already grouped by their record's own correlation |
+
+`Unbalanced` moves on none of them -- 78, 88 and 4 before and after -- which is the
+check that attaching is balance-neutral: an `EXPENSE` posting's counter-leg is routed
+into the same group. `Buys`, `Sells` and `Other` are likewise unmoved, so a trade
+that gained its charges is still the same trade.

@@ -54,16 +54,14 @@ import (
 	"github.com/leedenison/portfoliodb/server/service/ingestion"
 	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/transfermatch"
+	"github.com/leedenison/portfoliodb/server/validate"
 	"github.com/leedenison/portfoliodb/server/worker"
 	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 )
 
 // Set via -ldflags at build time.
@@ -319,20 +317,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("protovalidate.New: %v", err)
 	}
-	validateInterceptor := func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		if msg, ok := req.(proto.Message); ok {
-			if err := validator.Validate(msg); err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "%v", err)
-			}
-		}
-		return handler(ctx, req)
-	}
 	svc := grpc.NewServer(
 		grpc.MaxRecvMsgSize(32<<20),
 		grpc.ChainUnaryInterceptor(
 			logger.UnaryErrorInterceptor(serverLogger),
 			auth.UnaryInterceptor(interceptorConfig),
-			validateInterceptor,
+			validate.UnaryInterceptor(validator),
 		),
 		grpc.ChainStreamInterceptor(
 			logger.StreamErrorInterceptor(serverLogger),

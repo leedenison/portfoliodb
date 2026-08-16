@@ -47,25 +47,66 @@ const (
 // Quantities are exact decimals now, so this is no longer absorbing arithmetic
 // error -- it is the disagreement between two figures the source rounded
 // differently, which exactness does not remove. Both beancount and ledger keep a
-// tolerance for the same reason. Inferring it from the scale of the contributing
-// amounts, rather than fixing it, is a change to how residuals get classified and
-// is deliberately not made here.
+// tolerance for the same reason.
 var (
 	moneyTolerance     = decimal.RequireFromString("0.005")
 	commodityTolerance = decimal.New(1, -6)
 )
 
+// PriceScaleFloor is the fewest decimal places a source is taken to have quoted a
+// security price to, whatever the scale of the figure it wrote.
+//
+// It has to be assumed, because the precision is not recoverable. Fidelity strips
+// trailing zeros in its own download: the sample export writes prices at 0, 1 and 2
+// decimal places, with 47.1 and 47.11 in one instrument's series, so a price reading
+// 47.1 means 47.10 and its stated scale understates what was quoted. Reading the
+// scale off the figure instead inflates the bound tenfold on a 1dp price and a
+// hundredfold on a 0dp one, which classifies the same residuals while leaving far
+// more room to swallow a leg that really is missing.
+//
+// A floor rather than a fixed precision, so a source that quotes finer keeps its own:
+// the sample IBKR statements run to 6 decimal places and Schwab to 4, and neither is
+// loosened by this.
+//
+// It is a claim about how brokers quote rather than about any row, in the same class
+// as the converter's own calibrated constants. A source that genuinely quoted to 1dp
+// would get a bound ten times tighter than its error and keep reporting imbalances,
+// which fails safe rather than silently.
+const PriceScaleFloor = 2
+
 // Tolerance returns the residual below which a difference in this commodity reads
 // as the source's own rounding rather than as a leg it omitted.
-func Tolerance(commodity string) decimal.Decimal {
-	if strings.HasPrefix(commodity, CurrencyPrefix) {
+//
+// priceRounding is what the group's own prices could be out by: for each leg whose
+// weight was derived by pricing it into the settlement currency, the units it carried
+// times half the last digit the price was quoted to. Zero for a group holding no such
+// leg, which is every group that moved only money.
+//
+// Two roundings, because there are two figures. A cash amount written to 2dp is out
+// by up to half a cent however large it is, which is the fixed term. A price written
+// to 2dp is out by up to half a penny *per unit*, so on 2676 units it is out by
+// 10.30 -- and a group balances on weight, which is where that lands. Covering only
+// the first reports every large trade as an imbalance.
+//
+// The sum is a worst case: it assumes every leg's price erred in the same direction.
+// So a small missing leg can hide inside the bound of a high-quantity trade, which is
+// the cost of not reporting an artefact of the source's own arithmetic as missing
+// data. See docs/adr/0026-exact-decimals-bounded-by-closure.md.
+func Tolerance(commodity string, priceRounding decimal.Decimal) decimal.Decimal {
+	if !strings.HasPrefix(commodity, CurrencyPrefix) {
+		// An unpriced leg was never converted, so no price rounding reaches a
+		// residual denominated in the security itself.
+		return commodityTolerance
+	}
+	if priceRounding.IsNegative() {
 		return moneyTolerance
 	}
-	return commodityTolerance
+	return moneyTolerance.Add(priceRounding)
 }
 
 // Type returns the account type the residual of amount in commodity is routed to,
-// for a group whose postings resolved to the given tx types.
+// for a group whose postings resolved to the given tx types and whose prices could be
+// out by priceRounding.
 //
 // The tolerance decides the account type, not whether the residual is routed at
 // all: suppressing the small ones would leave the group summing to a small
@@ -74,8 +115,8 @@ func Tolerance(commodity string) decimal.Decimal {
 // the one thing already known about them. A sub-tolerance residual on a journal
 // is rounding too, so SOURCE_ROUNDING beats the transfer case rather than the
 // other way round.
-func Type(commodity string, amount decimal.Decimal, resolved []typev1.TxType) typev1.AccountType {
-	if amount.Abs().LessThan(Tolerance(commodity)) {
+func Type(commodity string, amount, priceRounding decimal.Decimal, resolved []typev1.TxType) typev1.AccountType {
+	if amount.Abs().LessThan(Tolerance(commodity, priceRounding)) {
 		return typev1.AccountType_ACCOUNT_TYPE_SOURCE_ROUNDING
 	}
 	return family(resolved)

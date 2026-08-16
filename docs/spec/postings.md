@@ -382,14 +382,41 @@ carries one residual per commodity however many replaces have reached it.
 
 ### Source rounding
 
-A residual below a **tolerance** -- half a cent for money, `1e-6` otherwise -- takes
-the `SOURCE_ROUNDING` type instead. The tolerance is not a floating-point fudge and
-did not go away when quantities became exact: a broker quoting a price to 4dp and a
-cash amount to 2dp disagrees with itself by a fraction of a cent per trade, and that
-difference is exact and real but is an artefact of how the statement was written
-rather than a leg the converter missed. Inferring the tolerance from the scale of the
-contributing amounts, rather than fixing it, would change which residuals are
-classified this way and has not been done. See
+A residual below a **tolerance** takes the `SOURCE_ROUNDING` type instead. The
+tolerance is not a floating-point fudge and did not go away when quantities became
+exact: a broker quoting a price to one precision and a cash amount to another
+disagrees with itself, and that difference is exact and real but is an artefact of how
+the statement was written rather than a leg the converter missed.
+
+There are two roundings, because there are two figures:
+
+```
+tolerance = half a cent                                         (the cash figure's own rounding)
+          + SUM over converted legs of |units| x half the last digit of the price
+```
+
+A cash amount written to 2dp is out by up to half a cent however large it is. A price
+written to 2dp is out by up to half a penny *per unit*, so a holding of 2,676 units is
+out by 10.30 -- and a group balances on weight, where that lands. A fixed half-cent
+tolerance covers only the first, and so reports every large trade as an imbalance.
+
+A leg contributes only where its weight was derived by pricing it into the settlement
+currency. A cash leg does not: its price of `1` is exact by definition rather than a
+rounded quote, which is what leaves a deposit run's tolerance where it was. A residual
+denominated in a security keeps `1e-6`, since an unpriced leg was never converted.
+
+The price's precision is **assumed, not read**. Fidelity strips trailing zeros in its
+own download -- the sample export writes prices at 0, 1 and 2 decimal places, with
+`47.1` and `47.11` in one instrument's series -- so a stated scale understates what was
+quoted, and reading it off the figure inflates the bound tenfold on a 1dp price. The
+floor is 2 decimal places (`residual.PriceScaleFloor`) and it is a floor rather than a
+fixed precision, so a source quoting finer keeps its own: the sample IBKR statements
+run to 6dp and Schwab to 4dp.
+
+The sum is a worst case, assuming every leg's price erred the same way, so a small
+missing leg can hide inside the bound of a high-quantity trade. That is the cost of
+not reporting the source's own arithmetic as missing data. The bound is never below
+half a cent, so nothing that was rounding becomes an imbalance. See
 adr/0026-exact-decimals-bounded-by-closure.md.
 
 The tolerance decides the **type** of the routed posting, not whether one is written.
@@ -598,10 +625,15 @@ regroup began.
 
 A group the engine assembled is re-routed as a whole group and one a posting left as a
 shortened one, which is the distinction [Source rounding](#source-rounding) turns on.
-The engine pairs money figures that differ by up to the same tolerance the balancer
-rounds at, so a pairing it accepts leaves exactly the difference that reads as the
-source disagreeing with itself; reading that as a missing leg would report every
-correctly paired trade as an imbalance and seed the next cycle from it.
+The engine pairs money figures that differ by up to half a cent, which is the fixed
+half of the tolerance the balancer rounds at and not the whole of it. The two are
+different questions and stay separate: the engine compares two figures the **source
+stated** -- a trade's own total against its cash row -- where no price arithmetic has
+happened and half a cent is the whole of the error, while the balancer compares a
+**derived weight** against a stated figure and so also carries the price's rounding.
+A trade whose stated total matches its cash row exactly can still be 10.30 out by
+weight. Reading either as a missing leg would report correctly paired trades as
+imbalances and seed the next cycle from them.
 
 It runs on an admin RPC, which is how an external cron job gives it a cadence, and
 again when a transaction import commits, so legs that have just landed beside older

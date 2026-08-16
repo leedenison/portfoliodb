@@ -750,8 +750,23 @@ const repointGroupTimestampsSQL = `
 // group it balances, so it stays attributable. commodity is the earliest surviving leg
 // weighing in that commodity, which is where a residual in a security takes its
 // instrument and description from.
+//
+// rounding is what the group's own prices could be out by, which the tolerance that
+// classifies the residual is scaled by. A leg converted into the settlement currency
+// weighs at quantity * price * contract size, so a price quoted to n decimal places
+// carries an error of up to half of the last one per unit; weight / price is the
+// units it was applied to, contract size included, which is why no join to
+// instruments is needed for the multiplier. $2 is residual.PriceScaleFloor, passed in
+// so the assumption has one home rather than being spelled here as well.
+//
+// weight <> quantity is what says a leg converted. A cash leg weighs its own
+// quantity, and its price of 1 is exact by definition rather than a rounded quote, so
+// it contributes nothing -- which is what leaves a deposit run's tolerance where it
+// was. A price of zero contributes nothing either: an option expiring worthless
+// converts at zero, so there is no consideration to have rounded.
 const groupResidualsSQL = `
 	SELECT r.group_id, r.weight_commodity, r.residual,
+	       rounding.price_rounding,
 	       types.resolved_tx_types,
 	       first.order_date, first.trade_date, first.broker_tx_type, first.resolved_tx_type, first.broker, first.account,
 	       first.trading_currency, first.settlement_currency,
@@ -763,6 +778,16 @@ const groupResidualsSQL = `
 		GROUP BY group_id, weight_commodity
 		HAVING SUM(weight) <> 0
 	) r
+	JOIN LATERAL (
+		SELECT COALESCE(SUM(
+			abs(t.weight / t.unit_price)
+			* 0.5 * power(10::numeric, -greatest(scale(t.unit_price), $2::int))
+		), 0) AS price_rounding
+		FROM txs t
+		WHERE t.group_id = r.group_id
+		  AND t.unit_price IS NOT NULL AND t.unit_price <> 0
+		  AND t.weight <> t.quantity
+	) rounding ON true
 	JOIN LATERAL (
 		SELECT array_agg(DISTINCT t.resolved_tx_type) AS resolved_tx_types
 		FROM txs t WHERE t.group_id = r.group_id
@@ -823,6 +848,9 @@ type groupResidual struct {
 	// family rule; the first leg's declared set and resolved value are what
 	// the routed counterparty carries.
 	resolvedTypes pq.StringArray
+	// What the group's own prices could be out by, which scales the tolerance the
+	// residual is classified against. Zero for a group that moved only money.
+	priceRounding decimal.Decimal
 	// Both dates of the group's earliest leg, since a routed residual is that
 	// group's own event and belongs on the same days as the legs it balances.
 	orderDate      time.Time
@@ -976,19 +1004,19 @@ func deleteReplacedPostings(ctx context.Context, exec queryable, userUUID uuid.U
 
 // residualRule classifies what a group has left over. The two differ only in whether
 // a difference small enough to be a rounding is read as one.
-type residualRule func(commodity string, amount decimal.Decimal, resolved []typev1.TxType) typev1.AccountType
+type residualRule func(commodity string, amount, priceRounding decimal.Decimal, resolved []typev1.TxType) typev1.AccountType
 
 // wholeSource is the rule for a group holding every leg its source stated. What is
 // left over is the source's own figures failing to reconcile, so a small enough
 // difference is the source disagreeing with itself. See residual.Type.
-func wholeSource(commodity string, amount decimal.Decimal, resolved []typev1.TxType) typev1.AccountType {
-	return residual.Type(commodity, amount, resolved)
+func wholeSource(commodity string, amount, priceRounding decimal.Decimal, resolved []typev1.TxType) typev1.AccountType {
+	return residual.Type(commodity, amount, priceRounding, resolved)
 }
 
 // legsRemoved is the rule for a group something was taken out of. What is left over
 // is the value of the legs that went rather than two figures rounded differently, so
 // it can be any size and a small one is small by coincidence. See residual.SplitType.
-func legsRemoved(_ string, _ decimal.Decimal, resolved []typev1.TxType) typev1.AccountType {
+func legsRemoved(_ string, _, _ decimal.Decimal, resolved []typev1.TxType) typev1.AccountType {
 	return residual.SplitType(resolved)
 }
 
@@ -1074,7 +1102,7 @@ func settle(ctx context.Context, exec queryable, userUUID uuid.UUID, groupIDs []
 // routeResiduals writes the counterparty that balances each group left unbalanced
 // once its boundary legs are in.
 func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, groupIDs interface{}, rule residualRule) error {
-	rows, err := exec.QueryContext(ctx, groupResidualsSQL, groupIDs)
+	rows, err := exec.QueryContext(ctx, groupResidualsSQL, groupIDs, residual.PriceScaleFloor)
 	if err != nil {
 		return fmt.Errorf("surviving residuals: %w", err)
 	}
@@ -1082,7 +1110,7 @@ func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 	var residuals []groupResidual
 	for rows.Next() {
 		var r groupResidual
-		if err := rows.Scan(&r.groupID, &r.commodity, &r.amount, &r.resolvedTypes,
+		if err := rows.Scan(&r.groupID, &r.commodity, &r.amount, &r.priceRounding, &r.resolvedTypes,
 			&r.orderDate, &r.tradeDate, &r.brokerTxTypes, &r.resolvedTxType, &r.broker, &r.account,
 			&r.trading, &r.settlement, &r.description, &r.instrumentID); err != nil {
 			return fmt.Errorf("surviving residuals: %w", err)
@@ -1096,7 +1124,7 @@ func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 	byCurrency := map[string]uuid.UUID{}
 	for _, r := range residuals {
 		amount := r.amount.Neg()
-		acctType, err := accountTypeToStr(rule(r.commodity, amount, db.StrsToTxTypes(r.resolvedTypes)))
+		acctType, err := accountTypeToStr(rule(r.commodity, amount, r.priceRounding, db.StrsToTxTypes(r.resolvedTypes)))
 		if err != nil {
 			return err
 		}

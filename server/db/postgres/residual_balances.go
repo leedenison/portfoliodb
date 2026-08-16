@@ -21,6 +21,13 @@ import (
 // is the only place that is visible. It is deliberately absent from the dashboard
 // counts below, which ask whether something is wrong.
 //
+// What it measures is the precision of the figures a broker prints rather than the
+// quality of its converter, and since the tolerance came to scale with the price it
+// measures that and little else -- a broker quoting to 2dp leaves a residual
+// proportional to the size of the position, and nothing a converter does changes it.
+// A total that grows here is a statement about the statement, not about this
+// repository. See residual.Tolerance.
+//
 // The commodity is the instrument's name, not its currency: for money the two
 // agree, but a residual left by an unpaired security transfer is a quantity of
 // shares whose instrument currency would render it as money and misstate it.

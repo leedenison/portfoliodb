@@ -390,3 +390,87 @@ func TestSettle_UngroupedPostingsAreSettledSeparately(t *testing.T) {
 	}
 	assertBalanced(t, p, userID)
 }
+
+// priceRoundingSeed stores one trade whose asset leg is priced and whose cash leg is
+// the figure the source stated, so the group is left out by exactly what the printed
+// price fails to reproduce. Returns the routed leg's account type.
+//
+// The weights are the caller's, because that is what the balancer computes and what
+// the residual is a sum of: the asset leg weighs at quantity * price and the cash leg
+// at its own amount, so the gap between them is the whole of what this test is about.
+func priceRoundingSeed(t *testing.T, sub, qty, price, cash string) string {
+	t.Helper()
+	// One group, because the residual this is about is a property of a trade and
+	// its cash leg together. Without a settler each posting is a group of its own
+	// and the whole consideration reads as missing.
+	p := testDBTx(t).WithSettler(oneGroupSettler{})
+	userID, usd := balanceSeed(t, p, sub)
+	ctx := context.Background()
+	inst, err := p.EnsureInstrument(ctx, "STOCK", "", "GBP", "INRG", "", "",
+		[]db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: "F", Value: "INRG", Canonical: false}}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure instrument: %v", err)
+	}
+	at := time.Date(2022, 2, 8, 0, 0, 0, 0, time.UTC)
+	tx := func(desc, quantity string, unitPrice *string) *apiv1.Tx {
+		return &apiv1.Tx{
+			OrderDate: timestamppb.New(at), TradeDate: timestamppb.New(at),
+			InstrumentDescription: desc,
+			BrokerTxType:          []typev1.TxType{typev1.TxType_TRADE_ASSET},
+			ResolvedTxType:        typev1.TxType_TRADE_ASSET,
+			Quantity:              quantity, UnitPrice: unitPrice,
+			Account: "A", SettlementCurrency: "GBP", TradingCurrency: "GBP",
+		}
+	}
+	one := "1"
+	txs := []*apiv1.Tx{tx("INRG", qty, &price), tx("GBP", cash, &one)}
+	weights := []db.Weight{
+		{Amount: decimal.RequireFromString(qty).Mul(decimal.RequireFromString(price)), Commodity: "cur:GBP"},
+		{Amount: decimal.RequireFromString(cash), Commodity: "cur:GBP"},
+	}
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
+		timestamppb.New(at.Add(-time.Hour)), timestamppb.New(at.Add(time.Hour)),
+		txs, []string{inst, usd}, weights, nil); err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	var acct string
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT account_type FROM txs
+		WHERE user_id = $1 AND synthetic_purpose = 'RESIDUAL'
+	`, userID).Scan(&acct); err != nil {
+		t.Fatalf("read routed posting: %v", err)
+	}
+	return acct
+}
+
+// The residual a printed price leaves is the source disagreeing with itself, and it
+// scales with the position: 2676 units of a price written to 2dp can be out by 13.38,
+// and this one is out by 10.30. A fixed half-cent tolerance called every large trade
+// an imbalance.
+func TestSettle_ScalesTheToleranceByThePrice(t *testing.T) {
+	// 2676 * 7.67 = 20524.92 against a stated cash row of 20514.62.
+	got := priceRoundingSeed(t, "sub|price-rounding", "2676", "7.67", "-20514.62")
+	if got != "SOURCE_ROUNDING" {
+		t.Fatalf("routed to %s, want SOURCE_ROUNDING", got)
+	}
+}
+
+// The bound is a bound. Past what the prices could account for, a residual is still a
+// leg the source did not supply however large the position.
+func TestSettle_StillReportsWhatThePricesCannotExplain(t *testing.T) {
+	// The same trade 100 short of its cash row, which no price rounding reaches.
+	got := priceRoundingSeed(t, "sub|price-rounding-big", "2676", "7.67", "-20424.92")
+	if got != "IMBALANCE" {
+		t.Fatalf("routed to %s, want IMBALANCE", got)
+	}
+}
+
+// A small position at the same price has a small bound, so the tolerance has not
+// simply been loosened: it tracks the units the price was applied to.
+func TestSettle_KeepsASmallPositionsToleranceSmall(t *testing.T) {
+	// 10 * 7.67 = 76.70, a cash row 1.00 short. 10 units can only be out by 0.05.
+	got := priceRoundingSeed(t, "sub|price-rounding-small", "10", "7.67", "-75.70")
+	if got != "IMBALANCE" {
+		t.Fatalf("routed to %s, want IMBALANCE", got)
+	}
+}

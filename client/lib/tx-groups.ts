@@ -16,10 +16,10 @@ export interface TxGroup {
   /** The leg the event is shown as. */
   principal: PortfolioTx;
   /**
-   * The remaining legs worth showing: what the source stated first, then what the
-   * server routed to balance the group, each in the order the server returned
-   * them. Empty when the event has nothing to add, in which case it does not
-   * expand.
+   * The remaining legs worth showing, in one order however the page arrived:
+   * what the source stated before what the server routed, and within each the
+   * consideration before the charges levied on it. See compareLegs. Empty when
+   * the event has nothing to add, in which case it does not expand.
    */
   rest: PortfolioTx[];
 }
@@ -91,6 +91,78 @@ function rank(p: PortfolioTx): number {
 }
 
 /**
+ * The order the remaining legs are read in, closest to the principal first.
+ *
+ * A separate table from PRINCIPAL_RANK, and deliberately not the same order,
+ * because the two answer different questions. That one asks which leg speaks for
+ * the event, and cash speaks least: a trade is its asset leg, not the money. This
+ * one asks what to read next given the event, and cash comes first, because it is
+ * the other half of the leg already shown. Reusing one table for both would have
+ * to be wrong for one of them, and the way it was wrong -- a trade's fees printed
+ * above the cash that paid for it -- is not obviously a bug when you see it.
+ *
+ * So: the consideration, then any other principal-shaped leg, then income, then
+ * transfers, then what was levied on the event rather than constituting it. An
+ * internal node ranks with its branch, as above.
+ */
+const LEG_RANK: Record<number, number> = {
+  [TxType.TRADE_CASH]: 1,
+  [TxType.TRADE_ASSET]: 2,
+  [TxType.TRADE]: 2,
+  [TxType.INCOME]: 3,
+  [TxType.DIVIDEND]: 3,
+  [TxType.INTEREST]: 3,
+  [TxType.RETURN_OF_CAPITAL]: 3,
+  [TxType.TRANSFER]: 4,
+  [TxType.TRANSFER_INTERNAL]: 4,
+  [TxType.TRANSFER_EXTERNAL]: 4,
+  [TxType.EXPENSE]: 5,
+  [TxType.TRANSACTION_COST]: 5,
+  [TxType.HOLDING_COST]: 5,
+  [TxType.FINANCING_COST]: 5,
+  [TxType.AMBIGUOUS]: 6,
+  [TxType.TX_TYPE_UNSPECIFIED]: 7,
+};
+
+const LOWEST_LEG_RANK = 8;
+
+function legRank(p: PortfolioTx): number {
+  const t = p.tx?.resolvedTxType;
+  return (t !== undefined ? LEG_RANK[t] : undefined) ?? LOWEST_LEG_RANK;
+}
+
+/**
+ * Orders the legs of one group: what the source stated before what the server
+ * routed, then by the kind of leg, then largest amount first.
+ *
+ * Three keys because each settles a case the one before it leaves open. Stated
+ * before routed is the existing rule and the coarsest: what the event failed to
+ * account for is read after the event. The kind is what puts a trade's cash above
+ * its dealing fee. The magnitude separates two legs of one kind, which is the
+ * common case once charges are grouped with their trade -- a 7.50 dealing fee and
+ * a 1.50 levy are both TRANSACTION_COST, and printing them in whichever order the
+ * page happened to supply is the inconsistency this exists to remove.
+ *
+ * It is not quite total, and cannot be from here: two equal charges of one kind in
+ * one group are indistinguishable in everything a Tx carries -- there is no
+ * posting id on the wire. The sort is stable, so those keep the page's order, and
+ * the page's order is the server's own total one (order_date, then posting id).
+ * The composite is therefore complete and stable across reloads even though this
+ * function cannot name its last key.
+ */
+function compareLegs(a: PortfolioTx, b: PortfolioTx): number {
+  const routedOrder = Number(routed(a)) - Number(routed(b));
+  if (routedOrder !== 0) return routedOrder;
+  const rankOrder = legRank(a) - legRank(b);
+  if (rankOrder !== 0) return rankOrder;
+  const qa = Big(a.tx?.quantity ?? "0").abs();
+  const qb = Big(b.tx?.quantity ?? "0").abs();
+  if (qa.gt(qb)) return -1;
+  if (qb.gt(qa)) return 1;
+  return 0;
+}
+
+/**
  * Whether a is the better leg to show the event as: the stronger type, and
  * between two of the same type the larger amount, which is what separates a
  * trade's commission from the trade. The magnitudes are compared exactly rather
@@ -148,13 +220,9 @@ export function groupTxs(txs: readonly PortfolioTx[]): TxGroup[] {
   }
   return Array.from(byGroup, ([id, postings]) => {
     const principal = principalOf(postings);
-    // Routed legs last. What a source stated is the event; what the server routed
-    // is what the event failed to account for, and reading the stated legs first
-    // is reading the source before the correction. The sort is stable, so the
-    // page's order survives within each.
     const rest = postings
       .filter((p) => p !== principal && p.tx && !derivedFromPrincipal(p))
-      .sort((a, b) => Number(routed(a)) - Number(routed(b)));
+      .sort(compareLegs);
     return { id, principal, rest };
   });
 }

@@ -81,12 +81,25 @@ message Exchange {
 message Tx {
   // Time of the transaction (date or time as provided by broker). Required.
   google.protobuf.Timestamp timestamp = 1 [(buf.validate.field).required = true];
+  // Account (opaque string). Required.
+  string account = 2;
+  // What kind of leg this posting is. Set by the broker converter, which is the only
+  // thing that knows whether a row is the user's cash or the income it came from.
+  // Unset means USER, so an upload that says nothing about kind reads as an ordinary
+  // broker account posting.
+  portfoliodb.type.v1.AccountType account_type = 3 [(buf.validate.field).enum.defined_only = true];
   // Broker's instrument description string. Required.
-  string instrument_description = 2 [(buf.validate.field).string.min_len = 1];
+  string instrument_description = 4 [(buf.validate.field).string.min_len = 1];
+  // Optional external identifier hints (e.g. ISIN, CUSIP, FIGI, MIC_TICKER). When supplied, resolution uses these and does not store (source, description) on the instrument.
+  repeated InstrumentIdentifier identifier_hints = 5;
+  // The asset class the source states for the instrument, as a routing hint.
+  // Unset means no claim. Not authoritative: the canonical class comes from
+  // identifier plugins. See docs/adr/0013-security-type-hint-vs-asset-class.md.
+  portfoliodb.type.v1.AssetClass asset_class_hint = 6 [(buf.validate.field).enum.defined_only = true];
   // The candidate event types the source declared, at whatever specificity it
   // manages. Same semantics as the archive Posting's broker_tx_type: an
   // antichain, weight-neutral, AMBIGUOUS (15) excluded.
-  repeated portfoliodb.type.v1.TxType broker_tx_type = 3 [
+  repeated portfoliodb.type.v1.TxType broker_tx_type = 7 [
     (buf.validate.field).repeated = {
       min_items: 1
       unique: true
@@ -98,11 +111,7 @@ message Tx {
   // Signed quantity as a decimal string: positive for buys/adds, negative for
   // sells/reductions. Exact, because a holding is a sum of these and a group's
   // balance is a sum of their weights.
-  string quantity = 4 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  // Currency in which the instrument is denominated (trading currency, e.g. EUR for SAF). Optional. Passed to plugins as the currency hint. For cash transactions only, set this (same as settlement when user selects one currency).
-  string trading_currency = 5;
-  // Currency used to pay/settle the transaction (e.g. GBP when buying in a UK account). Optional. Set from user input (e.g. Fidelity converter) for all transactions.
-  string settlement_currency = 6;
+  string quantity = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // Unit price as reported by broker. Optional; not used for valuation.
   // Explicitly optional because a declared price of zero is not the same as no
   // price. Balancing converts a purchase or sale to its settlement currency at
@@ -111,13 +120,61 @@ message Tx {
   // and leaves a residual in the security itself. Collapsing the two would let a
   // missing price balance silently. See docs/spec/postings.md.
   // A decimal string, in the trading currency.
-  optional string unit_price = 7 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string unit_price = 9 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  // Currency in which the instrument is denominated (trading currency, e.g. EUR for SAF). Optional. Passed to plugins as the currency hint. For cash transactions only, set this (same as settlement when user selects one currency).
+  string trading_currency = 10;
+  // Currency used to pay/settle the transaction (e.g. GBP when buying in a UK account). Optional. Set from user input (e.g. Fidelity converter) for all transactions.
+  string settlement_currency = 11;
+  // The cash total the source stated for this row, in settlement_currency,
+  // unsigned. Same semantics as the archive Posting's settlement_amount:
+  // transcribed rather than computed, and present only where the posting's own
+  // quantity is not money. Grouping evidence; it has no part in weight or
+  // balance.
+  optional string settlement_amount = 12 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
+  // Why this posting might belong with another one, as the source stated it:
+  // an identifier, what may be compared about it, and over what set of
+  // postings. Set by the broker converter, which is the only thing that knows
+  // how its broker encodes the evidence, and stored.
+  //
+  // The archive message rather than one of this package's own, because a
+  // correlation is written to an archive file and read back from one, and two
+  // declarations would need converting between on every ingest.
+  repeated portfoliodb.archive.v1.Correlation correlations = 13;
   // Resolved instrument id (UUID). Set by identification during ingestion.
-  string instrument_id = 8;
-  // Account (opaque string). Required.
-  string account = 9;
-  // Optional external identifier hints (e.g. ISIN, CUSIP, FIGI, MIC_TICKER). When supplied, resolution uses these and does not store (source, description) on the instrument.
-  repeated InstrumentIdentifier identifier_hints = 10;
+  string instrument_id = 14;
+  // The single value grouping narrowed broker_tx_type to: a leaf where a pass
+  // claimed the posting, the common ancestor of the surviving candidates where
+  // nothing did, AMBIGUOUS for an unresolved cross-branch set. Server-derived;
+  // ignored on upload and always present on the way out.
+  portfoliodb.type.v1.TxType resolved_tx_type = 15 [(buf.validate.field).enum.defined_only = true];
+  // Split-adjusted quantity (quantity * cumulative split factor). Equal to
+  // quantity when no splits exist for the instrument. A decimal string, carrying
+  // the column's declared rounding scale; an exact check reads quantity instead.
+  //
+  // Optional because it is server-computed: an upload leaves it unset and the
+  // database derives it from quantity, so requiring it would make every client
+  // send a value it has no way to know. It is always present on the way out.
+  optional string split_adjusted_quantity = 16 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  // Split-adjusted unit price (unit_price / cumulative split factor). Optional
+  // for the same reason as unit_price, and absent exactly when it is.
+  optional string split_adjusted_unit_price = 17 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  // The economic event this posting is a leg of. Every posting belongs to exactly
+  // one group -- a lone posting is a group of one -- so this is always set on the
+  // way out, and it is what a client assembles a listed page back into events by.
+  //
+  // Server-derived, and rejected on upload for the reason synthetic_purpose is:
+  // grouping owns the partition and rederives it whenever a group changes, so a
+  // source stating one would be stating an answer rather than supplying data.
+  // See docs/adr/0041-server-owns-transaction-grouping.md.
+  string group_id = 18;
+  // The date of the event, which is the earliest of its legs. Server-derived and
+  // output-only like group_id, and the same for every posting of a group.
+  //
+  // It is what a listing orders its groups by, and so what a client shows on the row
+  // standing for the event: a group's legs can be dated apart -- a deposit run
+  // settles over several days -- and showing the leg's own date there would order
+  // the list by one date and display another.
+  google.protobuf.Timestamp group_timestamp = 19;
   // Why the server made this posting, empty on one a source stated. 'RESIDUAL' is
   // what a group's legs did not balance to, routed to an explicit counterparty;
   // 'INITIALIZE' is a synthetic opening balance derived from a holding declaration.
@@ -127,70 +184,7 @@ message Tx {
   // have its row silently discarded. It is what separates derived from stated, since
   // account_type cannot -- a routed residual and a leg a converter read out of a
   // record land in the same account types.
-  string synthetic_purpose = 11;
-  // Split-adjusted quantity (quantity * cumulative split factor). Equal to
-  // quantity when no splits exist for the instrument. A decimal string, carrying
-  // the column's declared rounding scale; an exact check reads quantity instead.
-  //
-  // Optional because it is server-computed: an upload leaves it unset and the
-  // database derives it from quantity, so requiring it would make every client
-  // send a value it has no way to know. It is always present on the way out.
-  optional string split_adjusted_quantity = 12 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  // Split-adjusted unit price (unit_price / cumulative split factor). Optional
-  // for the same reason as unit_price, and absent exactly when it is.
-  optional string split_adjusted_unit_price = 13 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  // The economic event this posting is a leg of. Every posting belongs to exactly
-  // one group -- a lone posting is a group of one -- so this is always set on the
-  // way out, and it is what a client assembles a listed page back into events by.
-  //
-  // Server-derived, and rejected on upload for the reason synthetic_purpose is:
-  // grouping owns the partition and rederives it whenever a group changes, so a
-  // source stating one would be stating an answer rather than supplying data. The
-  // field held group_ref before, an opaque key a converter stamped on the postings
-  // it had decided belonged together, which said the same thing from the side that
-  // cannot know it. See docs/adr/0041-server-owns-transaction-grouping.md.
-  string group_id = 14;
-  // The date of the event, which is the earliest of its legs. Server-derived and
-  // output-only like group_id, and the same for every posting of a group.
-  //
-  // It is what a listing orders its groups by, and so what a client shows on the row
-  // standing for the event: a group's legs can be dated apart -- a deposit run
-  // settles over several days -- and showing the leg's own date there would order
-  // the list by one date and display another.
-  google.protobuf.Timestamp group_timestamp = 22;
-  // What kind of leg this posting is. Set by the broker converter, which is the only
-  // thing that knows whether a row is the user's cash or the income it came from.
-  // Unset means USER, so an upload that says nothing about kind reads as an ordinary
-  // broker account posting.
-  portfoliodb.type.v1.AccountType account_type = 15 [(buf.validate.field).enum.defined_only = true];
-  // 16 was broker_ref and 17 counterparty_account. Both are correlations: the
-  // first a token compared by MATCH_EXACT, the second one compared by
-  // MATCH_ACCOUNT, and both sat on exactly the postings a correlation sits on.
-  reserved 16, 17;
-  // Why this posting might belong with another one, as the source stated it:
-  // an identifier, what may be compared about it, and over what set of
-  // postings. Set by the broker converter, which is the only thing that knows
-  // how its broker encodes the evidence, and stored.
-  //
-  // The archive message rather than one of this package's own, because a
-  // correlation is written to an archive file and read back from one, and two
-  // declarations would need converting between on every ingest.
-  repeated portfoliodb.archive.v1.Correlation correlations = 18;
-  // The single value grouping narrowed broker_tx_type to: a leaf where a pass
-  // claimed the posting, the common ancestor of the surviving candidates where
-  // nothing did, AMBIGUOUS for an unresolved cross-branch set. Server-derived;
-  // ignored on upload and always present on the way out.
-  portfoliodb.type.v1.TxType resolved_tx_type = 19 [(buf.validate.field).enum.defined_only = true];
-  // The asset class the source states for the instrument, as a routing hint.
-  // Unset means no claim. Not authoritative: the canonical class comes from
-  // identifier plugins. See docs/adr/0013-security-type-hint-vs-asset-class.md.
-  portfoliodb.type.v1.AssetClass asset_class_hint = 20 [(buf.validate.field).enum.defined_only = true];
-  // The cash total the source stated for this row, in settlement_currency,
-  // unsigned. Same semantics as the archive Posting's settlement_amount:
-  // transcribed rather than computed, and present only where the posting's own
-  // quantity is not money. Grouping evidence; it has no part in weight or
-  // balance.
-  optional string settlement_amount = 21 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
+  string synthetic_purpose = 20;
 }
 
 // ApiService provides gRPC endpoints for the web front end: portfolio CRUD,
@@ -449,11 +443,11 @@ message ListTxsResponse {
 // Holding is the aggregate quantity of an instrument in a portfolio (or per account for user/portfolio views).
 message Holding {
   portfoliodb.type.v1.Broker broker = 1;
-  string instrument_description = 2;
+  string account = 2;  // account string from txs; holdings are grouped by (broker, account, instrument)
+  string instrument_description = 3;
   // Resolved instrument id (UUID). Set when identification ran for the underlying txs.
   string instrument_id = 4;
   Instrument instrument = 5;  // optional; set when instrument_id was resolved
-  string account = 6;  // account string from txs; holdings are grouped by (broker, account, instrument)
   // The position, in today's share count: a sum of the contributing postings'
   // split_adjusted_quantity, which is the only denomination they share. The raw
   // quantities are each in their own posting's share_count_basis and are not
@@ -463,7 +457,7 @@ message Holding {
   // Exact to the columns' declared rounding scale rather than exact outright,
   // with the bound growing in the number of contributing postings; see
   // spec/performance.md.
-  string split_adjusted_quantity = 7 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  string split_adjusted_quantity = 6 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
 }
 
 message GetHoldingsRequest {
@@ -878,12 +872,12 @@ message EODPriceProto {
   // docs/spec/bitemporality.md. Decimal string.
   optional string adjusted_close = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   optional int64 volume = 9;
-  string data_provider = 10;
+  // The share count the raw values are denominated in, as "YYYY-MM-DD".
+  string share_count_basis = 10;
+  string data_provider = 11;
   // Knowledge time: when this row was last fetched. Staleness only -- it says
   // nothing about the prices themselves.
-  google.protobuf.Timestamp last_fetched_at = 11;
-  // The share count the raw values are denominated in, as "YYYY-MM-DD".
-  string share_count_basis = 13;
+  google.protobuf.Timestamp last_fetched_at = 12;
 }
 
 message ListPricesRequest {

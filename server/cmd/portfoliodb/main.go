@@ -224,7 +224,7 @@ func main() {
 		log.Fatalf("ensure identifier plugin configs: %v", err)
 	}
 	descRegistry := description.NewRegistry()
-	descRegistry.Register(openaidesc.PluginID, openaidesc.NewPlugin(counter, logger.WithCategory(serverLogger, "server/plugins/openai"), newDescriptionHTTPClient()))
+	descRegistry.Register(openaidesc.PluginID, openaidesc.NewPlugin(logger.WithCategory(serverLogger, "server/plugins/openai"), newDescriptionHTTPClient()))
 	descRegistry.Register(cashdesc.PluginID, cashdesc.NewPlugin())
 	if err := ensurePluginConfigs(context.Background(), database, db.PluginCategoryDescription, descRegistry.ListIDs(), func(id string) []byte {
 		if p := descRegistry.Get(id); p != nil {

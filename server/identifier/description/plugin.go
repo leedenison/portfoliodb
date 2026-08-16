@@ -6,6 +6,51 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
+// Outcome is how one ExtractBatch call went. It is the whole of a description
+// plugin call's outcome: unlike identifier plugins, description plugins run in
+// series and the caller adds nothing to what the plugin reports.
+type Outcome string
+
+const (
+	// OutcomeHintsReturned means the plugin extracted hints for at least one item.
+	OutcomeHintsReturned Outcome = "hints_returned"
+	// OutcomeNoHints means the call succeeded and extracted nothing.
+	OutcomeNoHints Outcome = "no_hints"
+	// OutcomeError covers transport, decoding and API errors.
+	OutcomeError Outcome = "error"
+	// OutcomeRateLimited means the upstream service refused the call as too frequent.
+	OutcomeRateLimited Outcome = "rate_limited"
+	// OutcomeQuotaExceeded means the account has no quota left.
+	OutcomeQuotaExceeded Outcome = "quota_exceeded"
+	// OutcomeModelNotFound means the configured model does not exist.
+	OutcomeModelNotFound Outcome = "model_not_found"
+)
+
+// Usage is the token cost of one call, summed over the chunks a plugin split
+// the batch into. Nil for plugins that cost no tokens, which is what keeps the
+// token columns null rather than zero for them.
+type Usage struct {
+	PromptTokens     int64
+	CompletionTokens int64
+	TotalTokens      int64
+}
+
+// Telemetry is what only the plugin knows about one ExtractBatch call. The
+// batch size and the number of items that came back with hints are the
+// caller's to count.
+type Telemetry struct {
+	Outcome Outcome
+	Tokens  *Usage
+}
+
+// Result is what ExtractBatch returns. Hints is keyed by BatchItem.ID; items
+// with nothing extractable may be absent or carry an empty slice. Telemetry is
+// populated on every path, including the error paths.
+type Result struct {
+	Hints     map[string][]identifier.Identifier
+	Telemetry Telemetry
+}
+
 // BatchItem is one item for batch extraction. ID is a short stable key (e.g. hash) used to match responses.
 type BatchItem struct {
 	ID                    string
@@ -30,8 +75,9 @@ type Plugin interface {
 	AcceptableSecurityTypes() map[string]bool
 
 	// ExtractBatch runs extraction on all items. config is the plugin's JSON config (may be nil).
-	// Result map is keyed by BatchItem.ID. Returns (nil, nil) or empty map when nothing could be extracted; no DB access.
-	ExtractBatch(ctx context.Context, config []byte, broker, source string, items []BatchItem) (map[string][]identifier.Identifier, error)
+	// Returns a Result whose Hints are keyed by BatchItem.ID, empty when nothing could be extracted; no DB access.
+	// Result.Telemetry is set on every path and is the plugin's contribution to the description_plugin_call row the caller writes.
+	ExtractBatch(ctx context.Context, config []byte, broker, source string, items []BatchItem) (Result, error)
 
 	// DefaultConfig returns the plugin's default config JSON. The server calls this on startup when no row exists.
 	DefaultConfig() []byte

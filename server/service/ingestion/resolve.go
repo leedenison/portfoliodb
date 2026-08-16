@@ -150,7 +150,7 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 			ingestionLogger().DebugContext(ctx, "description plugin batch skipped (no items with acceptable security type)", "plugin_id", c.PluginID)
 			continue
 		}
-		out, err := p.ExtractBatch(ctx, c.Config, broker, source, filtered)
+		res, err := p.ExtractBatch(ctx, c.Config, broker, source, filtered)
 		if err != nil {
 			if counter != nil {
 				counter.Incr(ctx, "instruments.resolution.totals.description.plugin_error")
@@ -158,6 +158,7 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 			ingestionLogger().DebugContext(ctx, "description plugin batch result: error", "plugin_id", c.PluginID, "err", err)
 			continue
 		}
+		out := res.Hints
 		hasAny := false
 		for id, hints := range out {
 			filteredHints := identification.FilterIdentifierHints(ctx, hints, ingestionLogger())

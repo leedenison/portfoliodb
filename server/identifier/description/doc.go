@@ -16,18 +16,29 @@
 //
 // # ExtractBatch contract
 //
-// The caller invokes enabled plugins in series by descending precedence. The
-// first plugin that returns at least one hint for any item wins; remaining
-// plugins are not called. Each plugin receives config JSON, broker, source, and
-// a slice of [BatchItem] (one per instrument description to extract).
+// The caller invokes enabled plugins in series by descending precedence. Each
+// plugin sees only the items its predecessors failed to extract hints for, so
+// a later plugin is called with the remainder rather than not at all. Each
+// plugin receives config JSON, broker, source, and a slice of [BatchItem] (one
+// per instrument description to extract).
 //
 // Return values:
-//   - (map[BatchItem.ID][]Identifier, nil) on success. The map is keyed by
-//     [BatchItem.ID]; items with no extractable hints may be absent or have an
-//     empty slice.
-//   - (nil, nil) or an empty map when nothing could be extracted.
-//   - (nil, error) on failure (API error, timeout, etc.). The caller logs the
-//     error, increments a plugin_error counter, and tries the next plugin.
+//   - ([Result] with Hints, nil) on success. Hints is keyed by [BatchItem.ID];
+//     items with no extractable hints may be absent or have an empty slice.
+//   - ([Result] with empty Hints, nil) when nothing could be extracted.
+//   - ([Result], error) on failure (API error, timeout, etc.). The caller logs
+//     the error and tries the next plugin.
+//
+// # Telemetry
+//
+// Set [Result.Telemetry] on every return path, errors included. [Outcome] says
+// how the call went, and [Telemetry.Tokens] carries what the call cost, which
+// is what makes the cost of one import answerable. A failure the plugin
+// absorbs -- returning no hints and no error -- must still be reported as the
+// failure it was, or it is indistinguishable from finding nothing. Leave the
+// batch size and the count of items with hints to the caller: it knows both. A
+// plugin never writes telemetry itself and never depends on the telemetry
+// backend.
 //
 // Returned identifiers must have a Type from [identifier.AllowedIdentifierTypes];
 // the caller filters out invalid types at debug log level.
@@ -37,8 +48,9 @@
 // Description plugins extract hints; they do not produce canonical instrument
 // data. They must not access the database. They support native batching via
 // ExtractBatch (identifier plugins process one item at a time). Description
-// plugins are called in series (first wins); identifier plugins are called
-// concurrently with results merged by precedence.
+// plugins are called in series, each on what the previous ones left
+// unresolved; identifier plugins are called concurrently with results merged
+// by precedence.
 //
 // # Security type filtering
 //

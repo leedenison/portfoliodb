@@ -59,8 +59,9 @@ func TestPartition_Exports(t *testing.T) {
 			file:   "alice-fidelity.json",
 			broker: typev1.Broker_FIDELITY,
 			want: exportCounts{
-				Postings: 739, Groups: 617, Unbalanced: 88,
+				Postings: 739, Groups: 613, Unbalanced: 88,
 				Sells: 27, Buys: 59, CashForCash: 10, DepositRuns: 13,
+				Charged: 4,
 			},
 		},
 		{
@@ -77,6 +78,11 @@ func TestPartition_Exports(t *testing.T) {
 			want: exportCounts{
 				Postings: 72, Groups: 28, Unbalanced: 0,
 				Sells: 9, Buys: 13,
+				// Every one of these was already grouped, by the FITID the OFX
+				// parser stamps on each leg it reads out of a record. Groups is
+				// unchanged, which is the assertion that matters: a source that
+				// identifies its own records needs none of the rules above.
+				Charged: 22,
 			},
 		},
 	}
@@ -214,6 +220,18 @@ type exportCounts struct {
 	Buys        int
 	CashForCash int
 	DepositRuns int
+	// Groups holding a charge the engine attached to the event it was levied on.
+	// Counted separately from the kinds above, which it does not change: a buy
+	// that gained its dealing fee is still a buy.
+	//
+	// It is low against the number of charges these exports carry, and the reason
+	// is the fixtures rather than the rules. They were extracted before a posting
+	// carried two dates, so every one of them states its order date and its trade
+	// date as the same instant -- which is what a charge and its trade disagree
+	// about in a real export, and what the day bucket exists to reconcile. What
+	// is pinned here is therefore the cases that survive that flattening, not the
+	// yield on a real file.
+	Charged int
 	// A group none of the above names is the shape of a rules bug, so this is
 	// pinned at zero rather than recorded.
 	Other int
@@ -234,7 +252,7 @@ func count(ps []exportPosting, gs []Group) exportCounts {
 		if !balances(g, byID) {
 			out.Unbalanced++
 		}
-		var transfer, asset, sold bool
+		var transfer, asset, sold, charged bool
 		cashLegs := 0
 		for _, m := range g.Members {
 			switch m.Resolved {
@@ -245,7 +263,12 @@ func count(ps []exportPosting, gs []Group) exportCounts {
 				sold = byID[m.ID].gp.Quantity.IsNegative()
 			case typev1.TxType_TRADE_CASH:
 				cashLegs++
+			case typev1.TxType_TRANSACTION_COST:
+				charged = true
 			}
+		}
+		if charged {
+			out.Charged++
 		}
 		switch {
 		case transfer:

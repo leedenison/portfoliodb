@@ -64,7 +64,7 @@ func DefaultOpts() Opts {
 // the rules, so a variant list is a table and not a restructuring. See
 // docs/adr/0047-grouping-runs-as-precedence-ordered-passes.md.
 func DefaultRules() []Rule {
-	return []Rule{Exact{}, Disposal(), Acquisition(), CashTrade(), Deposit()}
+	return []Rule{Exact{}, Disposal(), Acquisition(), CashTrade(), Deposit(), Attaches{}}
 }
 
 // Member is one posting of a derived group and what the rule that claimed it
@@ -216,6 +216,21 @@ func (s *State) union(a, b string) {
 // while it looks for candidates.
 func (s *State) Taken(id string) bool { return s.claimed[id] }
 
+// Group names the group a posting currently sits in, so a rule can ask whether two
+// postings are already together. The name is the group's lowest member id and means
+// nothing outside this run.
+//
+// Read-only, and the only thing a rule may learn about the partition forming. It is
+// what an attaching rule needs to tell "the token I point at is held by three legs of
+// one event" from "it is held by two postings that are not together", which is the
+// difference between an unambiguous attachment and no attachment at all.
+func (s *State) Group(id string) string {
+	if _, known := s.parent[id]; !known {
+		return ""
+	}
+	return s.find(id)
+}
+
 // Claim records that these postings are legs of one event and resolves each to what
 // the claiming rule concluded. It reports whether the claim was taken.
 //
@@ -255,6 +270,50 @@ func (s *State) Claim(ms ...Member) bool {
 		s.claimed[m.ID] = true
 		s.resolved[m.ID] = m.Resolved
 		s.union(ms[0].ID, m.ID)
+	}
+	return true
+}
+
+// Attach adds postings to the group an anchor already sits in, and resolves each to
+// what the attaching rule concluded. It reports whether the attachment was taken.
+//
+// This is the distinction Claim's comment names as the one it cannot infer: which
+// member is the anchor, and which are the postings being contributed. Claim cannot
+// express it because it treats every member alike and refuses any claim naming a
+// posting that has gone, which is right for a rule proposing a whole grouping and
+// wrong for one adding a leg to somebody else's.
+//
+// It is not a hole in irrevocability. The anchor is read and never written: its
+// group, its resolution and its claimed state all come out unchanged, so nothing an
+// earlier rule decided is disturbed and no posting moves between groups. What is
+// added is a posting that was free, which no rule had decided anything about. That
+// is precisely
+// docs/adr/0048-correlations-declare-their-own-semantics.md's "a later pass may add
+// to the group but may not split it", and the only operation that can do it.
+//
+// A contributor that has already been claimed is refused rather than moved, and the
+// refusal is whole, so a rule cannot half-apply an attachment. An anchor that is
+// itself unclaimed is allowed: it then forms a group with the contributors, which is
+// the same event under a weaker claim rather than a different one.
+func (s *State) Attach(anchorID string, ms ...Member) bool {
+	if len(ms) == 0 {
+		return false
+	}
+	if _, known := s.parent[anchorID]; !known {
+		return false
+	}
+	for _, m := range ms {
+		if _, known := s.parent[m.ID]; !known {
+			return false
+		}
+		if m.ID == anchorID || s.claimed[m.ID] {
+			return false
+		}
+	}
+	for _, m := range ms {
+		s.claimed[m.ID] = true
+		s.resolved[m.ID] = m.Resolved
+		s.union(anchorID, m.ID)
 	}
 	return true
 }

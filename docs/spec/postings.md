@@ -52,7 +52,7 @@ what set of postings. A posting carries however many its source supplies, in
 | `token`        | the identifier as the source wrote it                            |
 | `ordinal`      | the number the token carries, where the converter knew how to take one |
 | `scope`        | `FILE`, `ACCOUNT` or `BROKER` -- exactly one                     |
-| `matches`      | `EXACT`, `ORDINAL`, `ACCOUNT` -- at least one                    |
+| `matches`      | `EXACT`, `ORDINAL`, `ACCOUNT`, `ATTACHES` -- at least one         |
 | `ordinal_span` | how far apart two ordinals can be and still be about one event   |
 
 `scope` and `matches` are two halves of one statement and neither is usable without
@@ -60,9 +60,15 @@ the other: `BROKER` means this user's data for this broker, and `ACCOUNT` is not
 redundant with `FILE`, because an OFX `FITID` is unique within the account while a
 Fidelity export spans accounts. `matches` is a set rather than a choice, because a
 Fidelity reference number is honestly both equality-comparable and ordinally
-comparable. `MATCH_ACCOUNT` is the asymmetric one: the token names *another posting's
-account* rather than a token that posting carries, which is what a source-supplied
-counterparty pointer says.
+comparable. Two of them are asymmetric, and only the bearer carries either. `MATCH_ACCOUNT`
+names *another posting's account* rather than a token that posting carries, which is
+what a source-supplied counterparty pointer says. `MATCH_ATTACHES` names *another
+posting's identifier*, and says the bearer joins whatever group that posting is
+placed in -- a reference rather than a shared key, and additive rather than
+partitioning, since it says nothing about the posting it names. That is what a
+source reporting a subordinate leg as a record of its own says: a charge naming its
+trade, a withheld tax naming its dividend. See
+adr/0052-an-attaching-correlation-is-additive.md.
 
 `FILE` scope is stored as the ingestion job that supplied the correlation, since a
 file has no identity of its own once its postings are rows. An archive import is one
@@ -553,6 +559,13 @@ only where its declared set admits that rule's type, and claiming settles
 what dissolves the circularity of grouping consuming the type as evidence while the
 type depends on the group. See adr/0044-tx-type-is-declared-and-resolved.md and
 [tx-types.md](tx-types.md).
+
+Attaching claims last, and has to. A pointer says nothing about the posting it names,
+so it cannot decide where that posting goes -- only follow it. Running it earlier
+would let a charge claim a trade's asset leg before the trade rules could pair it with
+its cash leg, and strand the cash row. Its rule is the only one that adds to a group
+another rule assembled, through the one engine operation that names an anchor and the
+postings contributed to it.
 
 Exact token equality claims first. A source that states its own grouping states it as
 a shared identifier -- OFX stamps one FITID on every leg of the record it describes --

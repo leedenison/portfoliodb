@@ -917,6 +917,11 @@ const (
 	MatchExact   = "EXACT"
 	MatchOrdinal = "ORDINAL"
 	MatchAccount = "ACCOUNT"
+	// MatchAttaches is a reference to another posting's identifier rather than a
+	// token this posting shares, so the pass consuming it compares the token
+	// against other postings' tokens and concludes only that this posting joins
+	// theirs. See docs/adr/0052-an-attaching-correlation-is-additive.md.
+	MatchAttaches = "ATTACHES"
 )
 
 // The stored forms of the Scope vocabulary, for the passes that ask a correlation

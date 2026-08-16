@@ -87,18 +87,9 @@ func (Exact) Apply(ps []db.GroupingPosting, st *State, _ Opts) {
 			if !c.Declares(db.MatchExact) {
 				continue
 			}
-			k := tokenKey{label: c.Label, token: c.Token, scope: c.Scope}
-			switch c.Scope {
-			case db.ScopeFile:
-				// A file has no identity once its postings are rows, so the job
-				// that supplied the correlation is what its scope names.
-				k.within = p.JobID
-			case db.ScopeAccount:
-				k.within = brokerKey(p.Broker) + "\x00" + p.Account
-			case db.ScopeBroker:
-				k.within = brokerKey(p.Broker)
-			}
-			byToken[k] = append(byToken[k], p)
+			// A file has no identity once its postings are rows, so the job
+			// that supplied the correlation is what its scope names. See keyFor.
+			byToken[keyFor(p, c.Label, c.Token, c.Scope)] = append(byToken[keyFor(p, c.Label, c.Token, c.Scope)], p)
 		}
 	}
 

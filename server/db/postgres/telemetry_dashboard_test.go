@@ -87,9 +87,9 @@ func collect(t *testing.T, path string) []query {
 			List []struct {
 				Name string `json:"name"`
 				Type string `json:"type"`
-				// A query variable holds an object here; a custom variable holds
-				// its comma-joined options as a bare string. Decoding late keeps
-				// both readable by one struct.
+				// A bare string for either kind of variable: a custom variable
+				// holds its comma-joined options, a query variable its SQL.
+				// Decoding late keeps both readable by one struct.
 				Query json.RawMessage `json:"query"`
 			} `json:"list"`
 		} `json:"templating"`
@@ -117,14 +117,18 @@ func collect(t *testing.T, path string) []query {
 		if v.Type != "query" {
 			continue
 		}
-		var q struct {
-			RawSQL string `json:"rawSql"`
+		// A string, not the {rawSql, format} object a panel target uses.
+		// Grafana hands a query variable's query to metricFindQuery, which
+		// assigns it to rawSql itself; an object there reaches postgres as an
+		// object and the picker silently offers nothing. So the shape is part
+		// of what this test checks, not just the SQL inside it.
+		var sql string
+		if err := json.Unmarshal(v.Query, &sql); err != nil {
+			t.Fatalf("variable %s in %s: query must be a SQL string, not an object: %v",
+				v.Name, path, err)
 		}
-		if err := json.Unmarshal(v.Query, &q); err != nil {
-			t.Fatalf("parse variable %s in %s: %v", v.Name, path, err)
-		}
-		if q.RawSQL != "" {
-			out = append(out, query{d.Title, "variable " + v.Name, q.RawSQL})
+		if sql != "" {
+			out = append(out, query{d.Title, "variable " + v.Name, sql})
 		}
 	}
 	return out

@@ -1527,12 +1527,7 @@
           "uid": "portfoliodb-telemetry"
         },
         "definition": "SELECT DISTINCT broker\nFROM telemetry.v_run\nWHERE is_import AND broker IS NOT NULL AND broker <> ''\nORDER BY 1",
-        "query": {
-          "rawQuery": true,
-          "rawSql": "SELECT DISTINCT broker\nFROM telemetry.v_run\nWHERE is_import AND broker IS NOT NULL AND broker <> ''\nORDER BY 1",
-          "editorMode": "code",
-          "format": "table"
-        },
+        "query": "SELECT DISTINCT broker\nFROM telemetry.v_run\nWHERE is_import AND broker IS NOT NULL AND broker <> ''\nORDER BY 1",
         "multi": true,
         "includeAll": true,
         "allValue": null,

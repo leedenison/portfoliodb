@@ -452,6 +452,12 @@ silently until somebody opened a browser. Every panel query and every template v
 query is therefore planned against the real schema by a test in the database layer, which
 also refuses a panel that reads a table instead of a view.
 
+A template variable holds its SQL as a bare string, not the `{rawSql, format}` object a
+panel target holds. Grafana hands the string to the datasource and builds `rawSql` from it
+itself, so an object there arrives at postgres as an object, the query fails and the picker
+offers nothing while every panel around it still draws. The same test refuses the object
+form, because the symptom looks like an empty dashboard rather than a broken one.
+
 ## 3. Logger
 
 ### Overview

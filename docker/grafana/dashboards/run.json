@@ -1412,12 +1412,7 @@
           "uid": "portfoliodb-telemetry"
         },
         "definition": "SELECT\n  to_char(started_at, 'MM-DD HH24:MI') || '  ' || kind\n    || coalesce('  ' || broker, '')\n    || coalesce('  ' || source, '')\n    || '  [' || coalesce(outcome, 'in flight') || ']'\n    || CASE WHEN telemetry_incomplete THEN '  !! TELEMETRY INCOMPLETE' ELSE '' END\n    AS __text,\n  id::text AS __value\nFROM telemetry.v_run\nWHERE '${scope}' = 'all' OR is_import\nORDER BY started_at DESC\nLIMIT 200",
-        "query": {
-          "rawQuery": true,
-          "rawSql": "SELECT\n  to_char(started_at, 'MM-DD HH24:MI') || '  ' || kind\n    || coalesce('  ' || broker, '')\n    || coalesce('  ' || source, '')\n    || '  [' || coalesce(outcome, 'in flight') || ']'\n    || CASE WHEN telemetry_incomplete THEN '  !! TELEMETRY INCOMPLETE' ELSE '' END\n    AS __text,\n  id::text AS __value\nFROM telemetry.v_run\nWHERE '${scope}' = 'all' OR is_import\nORDER BY started_at DESC\nLIMIT 200",
-          "editorMode": "code",
-          "format": "table"
-        },
+        "query": "SELECT\n  to_char(started_at, 'MM-DD HH24:MI') || '  ' || kind\n    || coalesce('  ' || broker, '')\n    || coalesce('  ' || source, '')\n    || '  [' || coalesce(outcome, 'in flight') || ']'\n    || CASE WHEN telemetry_incomplete THEN '  !! TELEMETRY INCOMPLETE' ELSE '' END\n    AS __text,\n  id::text AS __value\nFROM telemetry.v_run\nWHERE '${scope}' = 'all' OR is_import\nORDER BY started_at DESC\nLIMIT 200",
         "multi": false,
         "includeAll": false,
         "allValue": null,

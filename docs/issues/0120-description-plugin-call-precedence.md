@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Record which description plugin ran first
 milestone: M20
 dependencies: [0116]

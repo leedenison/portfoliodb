@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Grafana container reading the telemetry schema
 milestone: M20
 dependencies: [0115]

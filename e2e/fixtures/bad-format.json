@@ -14,7 +14,8 @@
         "source": "Fidelity:web:archive",
         "postings": [
           {
-            "timestamp": "2024-01-15T00:00:00Z",
+            "order_date": "2024-01-15T00:00:00Z",
+            "trade_date": "2024-01-15T00:00:00Z",
             "instrument_description": "AAPL",
             "broker_tx_type": ["NOT_A_TX_TYPE"],
             "quantity": "10"

@@ -195,43 +195,6 @@ export async function resetAndSeedBase(): Promise<void> {
   await seedPluginConfig();
 }
 
-// Query split-adjusted tx values for an instrument identified by
-// (identifier_type, identifier_value). Returns rows ordered by tx date.
-export async function queryTxSplitAdjustments(
-  identifierType: string,
-  identifierValue: string,
-): Promise<
-  Array<{
-    quantity: number;
-    split_adjusted_quantity: number;
-    unit_price: number | null;
-    split_adjusted_unit_price: number | null;
-    timestamp: Date;
-  }>
-> {
-  const c = await getClient();
-  const res = await c.query(
-    `SELECT t.quantity, t.split_adjusted_quantity,
-            t.unit_price, t.split_adjusted_unit_price,
-            t.timestamp
-     FROM txs t
-     JOIN instrument_identifiers ii ON ii.instrument_id = t.instrument_id
-     WHERE ii.identifier_type = $1 AND ii.value = $2
-     ORDER BY t.timestamp`,
-    [identifierType, identifierValue],
-  );
-  return res.rows.map((r: Record<string, unknown>) => ({
-    quantity: Number(r.quantity),
-    split_adjusted_quantity: Number(r.split_adjusted_quantity),
-    unit_price: r.unit_price != null ? Number(r.unit_price) : null,
-    split_adjusted_unit_price:
-      r.split_adjusted_unit_price != null
-        ? Number(r.split_adjusted_unit_price)
-        : null,
-    timestamp: r.timestamp as Date,
-  }));
-}
-
 // Query instrument details by identifier. Returns null if not found.
 export async function queryInstrumentByIdentifier(
   identifierType: string,

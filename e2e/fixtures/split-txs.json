@@ -14,7 +14,8 @@
         "source": "Fidelity:web:archive",
         "postings": [
           {
-            "timestamp": "2024-06-15T00:00:00Z",
+            "order_date": "2024-06-15T00:00:00Z",
+            "trade_date": "2024-06-15T00:00:00Z",
             "instrument_description": "AAPL - Apple Inc.",
             "broker_tx_type": ["TRADE_ASSET"],
             "asset_class_hint": "STOCK",
@@ -30,7 +31,8 @@
             ]
           },
           {
-            "timestamp": "2024-09-15T00:00:00Z",
+            "order_date": "2024-09-15T00:00:00Z",
+            "trade_date": "2024-09-15T00:00:00Z",
             "instrument_description": "AAPL - Apple Inc.",
             "broker_tx_type": ["TRADE_ASSET"],
             "asset_class_hint": "STOCK",
@@ -46,7 +48,8 @@
             ]
           },
           {
-            "timestamp": "2024-06-15T00:00:00Z",
+            "order_date": "2024-06-15T00:00:00Z",
+            "trade_date": "2024-06-15T00:00:00Z",
             "instrument_description": "AAPL 250117C00760000",
             "broker_tx_type": ["TRADE_ASSET"],
             "asset_class_hint": "OPTION",

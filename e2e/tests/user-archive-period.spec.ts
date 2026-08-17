@@ -32,15 +32,17 @@ const DAY_THREE = new Date("2024-03-12T00:00:00Z");
 
 type Posting = {
   account: string;
-  timestamp: Date;
+  order_date: Date;
   quantity: string;
   account_type: string;
 };
 
+// Ordered and filtered by the order date, which is the date a window is scoped
+// by and a posting is filed under.
 async function postings(): Promise<Posting[]> {
   return (await rawQuery(
-    `SELECT account, timestamp, quantity::text AS quantity, account_type
-     FROM txs WHERE user_id = $1 ORDER BY timestamp, account_type`,
+    `SELECT account, order_date, quantity::text AS quantity, account_type
+     FROM txs WHERE user_id = $1 ORDER BY order_date, account_type`,
     [TEST_USER_ID],
   )) as Posting[];
 }
@@ -106,9 +108,7 @@ test.describe("period-scoped user archive", () => {
     // leg and the counterparty routed for that.
     expect(rows).toHaveLength(4);
 
-    const day10 = rows.filter(
-      (r) => new Date(r.timestamp) < DAY_TWO,
-    );
+    const day10 = rows.filter((r) => new Date(r.order_date) < DAY_TWO);
     expect(day10).toHaveLength(2);
     // Compared as numbers: the seeded row keeps the scale raw SQL wrote it with
     // and the routed one does not, which is a trailing zero rather than a value.

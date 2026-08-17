@@ -42,14 +42,14 @@ ON CONFLICT (id) DO NOTHING;
 
 -- The trades. A priced TRADE_ASSET converts, so it weighs its consideration in
 -- the settlement currency: quantity * unit_price.
-INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
                  broker_tx_type, resolved_tx_type, quantity,
                  trading_currency, settlement_currency, unit_price, instrument_id,
                  weight, weight_commodity, group_id)
 VALUES
-  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-15', 'AMZN - Amazon.com Inc.', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 8, 'USD', 'USD', 155.20, 'e2e00000-0000-0000-0000-000000000401', 1241.60, 'cur:USD', 'e2e00000-0000-0000-0000-000000000411'),
-  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-16', 'NVDA - NVIDIA Corp.', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 15, 'USD', 'USD', 560.50, 'e2e00000-0000-0000-0000-000000000402', 8407.50, 'cur:USD', 'e2e00000-0000-0000-0000-000000000412'),
-  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-17', 'TSLA - Tesla Inc.', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 12, 'USD', 'USD', 218.90, 'e2e00000-0000-0000-0000-000000000403', 2626.80, 'cur:USD', 'e2e00000-0000-0000-0000-000000000413')
+  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-15', '2024-01-15', 'AMZN - Amazon.com Inc.', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 8, 'USD', 'USD', 155.20, 'e2e00000-0000-0000-0000-000000000401', 1241.60, 'cur:USD', 'e2e00000-0000-0000-0000-000000000411'),
+  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-16', '2024-01-16', 'NVDA - NVIDIA Corp.', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 15, 'USD', 'USD', 560.50, 'e2e00000-0000-0000-0000-000000000402', 8407.50, 'cur:USD', 'e2e00000-0000-0000-0000-000000000412'),
+  ('e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', '2024-01-17', '2024-01-17', 'TSLA - Tesla Inc.', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 12, 'USD', 'USD', 218.90, 'e2e00000-0000-0000-0000-000000000403', 2626.80, 'cur:USD', 'e2e00000-0000-0000-0000-000000000413')
 ON CONFLICT DO NOTHING;
 
 -- The money that paid for each trade. EQUITY rather than a USER cash row,
@@ -57,11 +57,11 @@ ON CONFLICT DO NOTHING;
 -- postings reach holdings and valuation, so the counterparty cannot show up as a
 -- negative cash balance. No unit price, so it weighs its own quantity in its own
 -- currency and the group sums to zero.
-INSERT INTO txs (user_id, broker, account, timestamp, instrument_description,
+INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
                  broker_tx_type, resolved_tx_type, quantity,
                  trading_currency, settlement_currency, instrument_id, account_type,
                  weight, weight_commodity, group_id)
-SELECT 'e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', v.at::timestamptz, 'USD',
+SELECT 'e2e00000-0000-0000-0000-000000000001', 'FIDELITY', 'ACC-1', v.at::timestamptz, v.at::timestamptz, 'USD',
        ARRAY['TRADE_CASH'], 'TRADE_CASH',
        v.qty, 'USD', 'USD', i.instrument_id, 'EQUITY', v.qty, 'cur:USD', v.group_id::uuid
 FROM (VALUES ('2024-01-15', -1241.60, 'e2e00000-0000-0000-0000-000000000411'),

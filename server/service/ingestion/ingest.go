@@ -35,6 +35,20 @@ type ingestDeps struct {
 	Registry     *identifier.Registry
 	DescRegistry *description.Registry
 	Counter      telemetry.CounterIncrementer
+	// Telemetry and RunID are the run this batch is part of. Either left unset
+	// records nothing: a batch outside a run has nothing to hang its event rows
+	// off, and the writer would reject them.
+	Telemetry db.TelemetryDB
+	RunID     string
+}
+
+// writeDescriptionPluginCall records one ExtractBatch invocation against the run,
+// and does nothing when the batch is not part of one.
+func (d ingestDeps) writeDescriptionPluginCall(ctx context.Context, c db.TelemetryDescriptionPluginCall) {
+	if d.Telemetry == nil || d.RunID == "" {
+		return
+	}
+	d.Telemetry.WriteDescriptionPluginCall(ctx, c)
 }
 
 // ingestParams is one batch of postings and the scope they are stored under.
@@ -152,12 +166,12 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 		return out, nil
 	}
 
-	cache, extractedHints, err := extractDescHints(ctx, deps.DB, deps.DescRegistry, deps.Counter, p.Source, p.Broker, txs)
+	cache, extractedHints, extraction, err := extractDescHints(ctx, deps, p.Source, p.Broker, txs)
 	if err != nil {
 		rep.Errf(-1, "txs", err.Error())
 		return out, fmt.Errorf("extract description hints: %w", err)
 	}
-	instrumentIDs, idErrs, err := resolveInstruments(ctx, deps.DB, deps.Registry, p.Broker, p.Source, deps.Counter, txs, rowIdx, cache, extractedHints, rep)
+	instrumentIDs, idErrs, err := resolveInstruments(ctx, deps, p.Broker, p.Source, txs, rowIdx, cache, extractedHints, extraction, rep)
 	if err != nil {
 		rep.Errf(-1, "instrument_description", err.Error())
 		return out, fmt.Errorf("resolve instruments: %w", err)

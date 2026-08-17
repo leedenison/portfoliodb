@@ -34,7 +34,7 @@ type resolveEntry struct {
 // carrying both prices and corporate events for one instrument identifies it
 // once rather than once per part.
 func importPricePart(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry,
-	part *archivev1.PricePart, pricesAsOf *time.Time, resolveCache map[string]*resolveEntry, rep *archiveimport.PartReporter) (bool, error) {
+	part *archivev1.PricePart, pricesAsOf *time.Time, resolveCache map[string]*resolveEntry, keys *resolutionKeys, rep *archiveimport.PartReporter) (bool, error) {
 	groups := part.GetGroups()
 	total := 0
 	for _, g := range groups {
@@ -44,7 +44,7 @@ func importPricePart(ctx context.Context, database db.DB, pluginRegistry *identi
 
 	var resolved []resolvedGroup
 	for i, g := range groups {
-		instID, err := resolveGroupInstrument(ctx, database, pluginRegistry, resolveCache, g, pricesAsOf)
+		instID, err := resolveGroupInstrument(ctx, database, pluginRegistry, resolveCache, keys, g, pricesAsOf)
 		if err != nil {
 			rep.Errf(i, "instrument", err.Error())
 			rep.Advance(ctx, len(g.GetRows()))
@@ -103,21 +103,21 @@ type resolvedGroup struct {
 // rows is still worth writing: it is the only place they travel for an
 // instrument that was covered and had nothing.
 func resolveGroupInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry,
-	cache map[string]*resolveEntry, g *archivev1.PriceGroup, asOf *time.Time) (string, error) {
+	cache map[string]*resolveEntry, keys *resolutionKeys, g *archivev1.PriceGroup, asOf *time.Time) (string, error) {
 	ref := g.GetInstrument()
 	idType := ref.GetType().String()
 	if !identifier.AllowedIdentifierTypes[idType] {
 		return "", fmt.Errorf("unknown identifier_type %q", idType)
 	}
 
-	key := idType + "\x00" + ref.GetDomain() + "\x00" + ref.GetValue()
-	entry, cached := cache[key]
+	r := identifierRef{Type: idType, Domain: ref.GetDomain(), Value: ref.GetValue()}
+	entry, cached := cache[r.cacheKey()]
 	if !cached {
 		acStr := db.AssetClassToStr(g.GetAssetClass())
 		result, err := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
-			idType, ref.GetDomain(), ref.GetValue(), acStr, g.GetCurrency(), asOf)
+			idType, ref.GetDomain(), ref.GetValue(), acStr, g.GetCurrency(), asOf, keys, r.cacheKey())
 		entry = &resolveEntry{result: result, err: err}
-		cache[key] = entry
+		cache[r.cacheKey()] = entry
 	}
 	if entry.err != nil {
 		return "", entry.err
@@ -331,7 +331,11 @@ func upsertGroups(ctx context.Context, database db.DB, groups []resolvedGroup) e
 // resolveOrIdentifyInstrument finds an instrument by identifier, or creates one.
 // When the resolved instrument's metadata differs from the supplied hints, the
 // returned ResolveResult.HintDiffs will be non-empty.
-func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, idType, domain, value, assetClass, currency string, hintsValidAt *time.Time) (identification.ResolveResult, error) {
+// keys and key stamp the resolution key this identifier was written as. A branch
+// that returns an error leaves the key unstamped, because a resolution that could
+// not run has no outcome to report -- as against one that ran and found nothing,
+// which has several.
+func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, idType, domain, value, assetClass, currency string, hintsValidAt *time.Time, keys *resolutionKeys, key string) (identification.ResolveResult, error) {
 	hint := identifier.Identifier{Type: idType, Domain: domain, Value: value}
 	hints := identifier.Hints{SecurityTypeHint: assetClass, Currency: currency}
 
@@ -346,6 +350,7 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		if err != nil {
 			return identification.ResolveResult{}, fmt.Errorf("identification error for %s %q: %v", idType, value, err)
 		}
+		keys.end(ctx, key, resolutionOutcome(result), result.InstrumentID)
 		return result, nil
 	}
 
@@ -354,6 +359,7 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		return identification.ResolveResult{}, fmt.Errorf("lookup error for %s %q: %v", idType, value, err)
 	}
 	if len(resolved) > 1 {
+		keys.end(ctx, key, db.TelemetryResolutionConflictingHints, "")
 		return identification.ResolveResult{}, fmt.Errorf("ambiguous: multiple instruments match %s %q", idType, value)
 	}
 	if len(resolved) == 1 {
@@ -364,12 +370,17 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		}
 		normMIC := identification.NewDBMICNormalizer(database)
 		diffs := identification.CompareHints(ctx, hints, []identifier.Identifier{hint}, inst, nil, normMIC)
+		keys.end(ctx, key, db.TelemetryResolutionDBIdentifierHints, resolved[0].ID)
 		return identification.ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs}, nil
 	}
 	id, err := ensureWithSuppliedIdentifier(ctx, database, assetClass, currency, idType, domain, value, hintsValidAt)
 	if err != nil {
 		return identification.ResolveResult{}, err
 	}
+	// No plugin resolved it and an instrument was ensured from what the row itself
+	// carried, which is the same shape as the broker-description-only fallback on
+	// the transaction path.
+	keys.end(ctx, key, db.TelemetryResolutionBrokerDescriptionOnly, id)
 	return identification.ResolveResult{InstrumentID: id}, nil
 }
 

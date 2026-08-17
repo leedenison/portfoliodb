@@ -147,7 +147,14 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 
 	switch j.JobType {
 	case db.JobTypeTx:
-		if ok := processTx(ctx, opts.DB, opts.IdentifierRegistry, opts.DescriptionRegistry, opts.Counter, j, detail.UserID); ok {
+		if ok := processTx(ctx, ingestDeps{
+			DB:           opts.DB,
+			Registry:     opts.IdentifierRegistry,
+			DescRegistry: opts.DescriptionRegistry,
+			Counter:      opts.Counter,
+			Telemetry:    tel,
+			RunID:        runID,
+		}, j, detail.UserID); ok {
 			outcome = db.TelemetryOutcomeSuccess
 			if err := recalcAfterIngestion(ctx, opts.DB, detail.UserID); err != nil {
 				log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
@@ -164,7 +171,12 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			pluginutil.Trigger(opts.GroupingTrigger)
 		}
 	case db.JobTypeSystemArchive:
-		res := processSystemImport(ctx, opts.DB, opts.IdentifierRegistry, j)
+		res := processSystemImport(ctx, ingestDeps{
+			DB:        opts.DB,
+			Registry:  opts.IdentifierRegistry,
+			Telemetry: tel,
+			RunID:     runID,
+		}, j)
 		if !res.failed {
 			outcome = db.TelemetryOutcomeSuccess
 		}
@@ -183,6 +195,8 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			Registry:     opts.IdentifierRegistry,
 			DescRegistry: opts.DescriptionRegistry,
 			Counter:      opts.Counter,
+			Telemetry:    tel,
+			RunID:        runID,
 		}
 		res := processUserImport(ctx, deps, j)
 		if !res.failed {
@@ -236,7 +250,8 @@ func finishJob(ctx context.Context, database db.DB, jobID string, status apiv1.J
 // processTx applies a broker upload. userID comes from the job row, which the
 // caller has already read to scope the run, so it is passed in rather than read
 // a second time.
-func processTx(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest, userID string) bool {
+func processTx(ctx context.Context, deps ingestDeps, j *JobRequest, userID string) bool {
+	database := deps.DB
 	payload, err := database.LoadJobPayload(ctx, j.JobID)
 	if err != nil {
 		log.Printf("ingestion job %s: load payload: %v", j.JobID, err)
@@ -265,12 +280,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		return false
 	}
 
-	res, err := ingestBatch(ctx, ingestDeps{
-		DB:           database,
-		Registry:     registry,
-		DescRegistry: descRegistry,
-		Counter:      counter,
-	}, ingestParams{
+	res, err := ingestBatch(ctx, deps, ingestParams{
 		UserID:          userID,
 		Broker:          db.BrokerToStr(w.GetBroker()),
 		Source:          w.GetSource(),
@@ -353,9 +363,13 @@ func filterIgnoredTxs(txs []*apiv1.Tx, broker string, ignored []db.IgnoredAssetC
 // lookup would miss for the whole document and pay for extracting it. The test
 // is over every posting sharing the description, so one posting arriving without
 // a hint still gets the description extracted.
-func extractDescHints(ctx context.Context, database db.DB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, source, broker string, txs []*apiv1.Tx) (map[string]resolveResult, map[string][]identifier.Identifier, error) {
+// It also returns what became of extraction for each distinct (source,
+// description), which is stage one of that description's resolution key.
+func extractDescHints(ctx context.Context, deps ingestDeps, source, broker string, txs []*apiv1.Tx) (map[string]resolveResult, map[string][]identifier.Identifier, map[string]string, error) {
+	database := deps.DB
 	cache := make(map[string]resolveResult)
 	var extractedHintsCache map[string][]identifier.Identifier
+	extraction := make(map[string]string)
 	needsExtraction := make(map[string]bool)
 	for _, tx := range txs {
 		if len(tx.GetIdentifierHints()) == 0 {
@@ -374,10 +388,13 @@ func extractDescHints(ctx context.Context, database db.DB, descRegistry *descrip
 		seen[key] = true
 		id, err := database.FindInstrumentBySourceDescription(ctx, source, desc)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if id != "" {
 			cache[key] = resolveResult{InstrumentID: id}
+			// Extraction exists to find an identifier in a description, and this
+			// one is already resolved, so it is skipped rather than paid for.
+			extraction[key] = db.TelemetryExtractionNotAttemptedDBHit
 		} else if needsExtraction[key] {
 			batchID := shortHashForBatch(key)
 			idByKey[key] = batchID
@@ -389,21 +406,32 @@ func extractDescHints(ctx context.Context, database db.DB, descRegistry *descrip
 		}
 	}
 	if len(batchItems) > 0 {
-		hintsByID, err := runDescriptionPluginsBatch(ctx, database, descRegistry, counter, broker, source, batchItems)
+		hintsByID, itemOutcomes, err := runDescriptionPluginsBatch(ctx, deps, broker, source, batchItems)
 		if err == nil && hintsByID != nil {
 			extractedHintsCache = make(map[string][]identifier.Identifier)
 			for key, id := range idByKey {
 				extractedHintsCache[key] = hintsByID[id]
 			}
 		}
+		for key, id := range idByKey {
+			extraction[key] = itemOutcomes[id]
+		}
 	}
-	return cache, extractedHintsCache, nil
+	return cache, extractedHintsCache, extraction, nil
 }
 
 // resolveInstruments resolves each tx to an instrument ID using the pre-populated
 // cache and extracted hints. Returns the instrument IDs (parallel to txs) and any
 // identification errors collected from the cache.
-func resolveInstruments(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source string, counter telemetry.CounterIncrementer, txs []*apiv1.Tx, originalIndices []int, cache map[string]resolveResult, extractedHintsCache map[string][]identifier.Identifier, rep *archiveimport.PartReporter) ([]string, []db.IdentificationError, error) {
+func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source string, txs []*apiv1.Tx, originalIndices []int, cache map[string]resolveResult, extractedHintsCache map[string][]identifier.Identifier, extraction map[string]string, rep *archiveimport.PartReporter) ([]string, []db.IdentificationError, error) {
+	// Filtered once and reused below, because filtering logs what it discards and
+	// deriving the same list twice would say it twice.
+	txHints := make([][]identifier.Identifier, len(txs))
+	for i, tx := range txs {
+		txHints[i] = identifierHintsFromTx(ctx, tx)
+	}
+	keys := newResolutionKeys(ctx, deps.Telemetry, deps.RunID, source, txs, txHints, extraction)
+
 	instrumentIDs := make([]string, len(txs))
 	for i, tx := range txs {
 		desc := tx.GetInstrumentDescription()
@@ -413,7 +441,7 @@ func resolveInstruments(ctx context.Context, database db.DB, registry *identifie
 			t := tx.GetTradeDate().AsTime()
 			hintsValidAt = &t
 		}
-		r, err := Resolve(ctx, database, registry, broker, source, desc, HintsFromTx(tx), identifierHintsFromTx(ctx, tx), cache, rowIndex, counter, extractedHintsCache, hintsValidAt)
+		r, err := Resolve(ctx, deps.DB, deps.Registry, broker, source, desc, HintsFromTx(tx), txHints[i], cache, rowIndex, deps.Counter, extractedHintsCache, hintsValidAt, keys)
 		if err != nil {
 			return nil, nil, fmt.Errorf("row %d: %w", rowIndex, err)
 		}

@@ -93,6 +93,17 @@ resolver already records against a row.
 using MIC_TICKER, so a mismatch is not a terminal state, and modelling it as one would
 make the outcome column non-exhaustive.
 
+The price and corporate event parts of an archive resolve instruments through the same
+resolver, but from an identifier and no broker description. They still write a key,
+because an identification attempt reaches its run through one. The identifier names it
+-- `description` is `TYPE:DOMAIN:VALUE` and `source` is empty, an archive being no
+broker's export -- and `tx_count` carries the archive groups sharing it, the fan-out
+this grain records whatever the things sharing it are called. `extraction_outcome` is
+`not_attempted_hints_supplied` for the reason a posting carrying an identifier skips
+extraction, and an instrument ensured from the supplied identifier alone is
+`broker_description_only`: no plugin resolved it and the row's own contents are what
+the instrument was built from, which is that member's shape.
+
 ### identification_attempt
 
 One `ResolveWithPlugins` call. A single resolution key produces several: one `primary`,

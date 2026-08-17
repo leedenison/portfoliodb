@@ -36,7 +36,7 @@ func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter 
 			}
 			runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunPriceFetchCycle})
 			outcome := db.TelemetryOutcomeSuccess
-			if err := runCycle(ctx, database, registry, counter, log, workers); err != nil {
+			if err := runCycle(ctx, database, registry, counter, log, workers, tel, runID); err != nil {
 				outcome = db.TelemetryOutcomeFailed
 			}
 			tel.EndRun(ctx, runID, outcome)
@@ -46,13 +46,17 @@ func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter 
 
 // pluginEntry pairs a registered plugin with its config row.
 type pluginEntry struct {
-	id          string
-	plugin      Plugin
-	config      []byte
+	id     string
+	plugin Plugin
+	config []byte
+	// precedence is the configured order the plugins are tried in, higher first.
+	// Carried for telemetry: a plugin skipped by a filter writes no row, so a gap
+	// in the recorded sequence is what says it was skipped.
+	precedence  int
 	maxHistDays *int
 }
 
-func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) error {
+func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry, tel db.TelemetryDB, runID string) error {
 	const name = "price_fetcher"
 	if counter != nil {
 		counter.Incr(ctx, "price_fetcher.cycles")
@@ -87,6 +91,9 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 	if len(allGaps) == 0 {
 		return nil
 	}
+	// Where the FX gaps start, which is the only thing that tells the two apart
+	// once they are one list.
+	fxFrom := len(gaps)
 
 	if workers != nil {
 		workers.SetRunning(name, fmt.Sprintf("Fetching prices for %d instruments", len(allGaps)))
@@ -100,6 +107,11 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		return err
 	}
 	if len(configs) == 0 {
+		// A cycle with work and nowhere to send it looks identical to a quiet one
+		// unless it says so. The instruments are deliberately not loaded for this:
+		// their attributes explain plugin filtering, and no filtering happened.
+		newPriceGaps(ctx, tel, runID, allGaps, fxFrom, nil).
+			endAll(ctx, db.TelemetryGapNoEligiblePlugin)
 		return nil
 	}
 
@@ -113,10 +125,13 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 			id:          cfg.PluginID,
 			plugin:      p,
 			config:      cfg.Config,
+			precedence:  cfg.Precedence,
 			maxHistDays: cfg.MaxHistoryDays,
 		})
 	}
 	if len(plugins) == 0 {
+		newPriceGaps(ctx, tel, runID, allGaps, fxFrom, nil).
+			endAll(ctx, db.TelemetryGapNoEligiblePlugin)
 		return nil
 	}
 
@@ -153,28 +168,39 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		return err
 	}
 
-	processGaps(ctx, database, plugins, allGaps, instByID, blocked, coverage, log)
-	return nil
+	gapsTel := newPriceGaps(ctx, tel, runID, allGaps, fxFrom, instByID)
+	return processGaps(ctx, database, plugins, allGaps, instByID, blocked, coverage, log, gapsTel)
 }
 
 // processGaps iterates instrument gaps and fetches prices from matching plugins.
-func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gaps []db.InstrumentDateRanges, instByID map[string]*db.InstrumentRow, blocked map[string]map[string]bool, coverage map[string]map[string][]db.DateRange, log *slog.Logger) {
+//
+// It returns ctx.Err() when the cycle is cancelled part way. The gaps it never
+// reached stay unstamped, so where it stopped is readable; returning nil instead
+// would stamp the run success and report a cycle that covered three instruments of
+// five hundred as a clean one.
+func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gaps []db.InstrumentDateRanges, instByID map[string]*db.InstrumentRow, blocked map[string]map[string]bool, coverage map[string]map[string][]db.DateRange, log *slog.Logger, gapsTel *priceGaps) error {
 	// One fetch time for the whole cycle, so every row a back-adjusting plugin
 	// returns shares the same share count basis.
 	now := time.Now()
-	for _, ig := range gaps {
+	for i, ig := range gaps {
 		if ctx.Err() != nil {
-			return
+			return ctx.Err()
 		}
 		inst := instByID[ig.InstrumentID]
 		if inst == nil {
 			if log != nil {
 				log.WarnContext(ctx, "price fetch: instrument not found", "id", ig.InstrumentID)
 			}
+			gapsTel.end(ctx, i, db.TelemetryGapInstrumentMissing)
 			continue
 		}
 
 		fetchedByPlugin := false
+		// Whether any plugin got past the filters, and how many rows arrived.
+		// Together with whether anything was actually called they are what
+		// gapOutcome reads, and each distinguishes a case the others cannot.
+		reached := false
+		bars := 0
 		for _, pe := range plugins {
 			if !pluginutil.PluginAccepts(pe.plugin.AcceptableAssetClasses(), pe.plugin.AcceptableExchanges(), pe.plugin.AcceptableCurrencies(), inst) {
 				continue
@@ -193,6 +219,10 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 			if len(ids) == 0 {
 				continue
 			}
+			// Past every filter, so this plugin was a candidate whatever becomes
+			// of it below. None of the four skips above writes a row: no call was
+			// made, and a gap in the recorded precedence is how they read.
+			reached = true
 
 			// Ranges this plugin has already answered for are not put to it
 			// again, whether it returned a series or nothing at all.
@@ -215,13 +245,18 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 						// rediscovering the same gap every cycle. Other plugins
 						// keep their own coverage and are still offered it.
 						coverRange(ctx, database, ig.InstrumentID, pe.id, gap, "history limit", log)
+						gapsTel.call(ctx, i, priceCall(pe, gap, 0, db.TelemetryPriceCallHistoryLimit, nil))
 						continue
 					}
 					if gap.From.Before(cutoff) {
 						// The unreachable head is settled for this plugin even
 						// though the tail is about to be fetched.
-						coverRange(ctx, database, ig.InstrumentID, pe.id,
-							db.DateRange{From: gap.From, Before: cutoff}, "history limit", log)
+						head := db.DateRange{From: gap.From, Before: cutoff}
+						coverRange(ctx, database, ig.InstrumentID, pe.id, head, "history limit", log)
+						// Two rows for two ranges. The head was settled without
+						// asking and the tail is about to be fetched, and a grain
+						// of one range per row is what lets them differ.
+						gapsTel.call(ctx, i, priceCall(pe, head, 0, db.TelemetryPriceCallHistoryLimit, nil))
 						gap.From = cutoff
 					}
 				}
@@ -230,7 +265,9 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 					assetClass = *inst.AssetClass
 				}
 				callCtx, callCancel := context.WithTimeout(ctx, pluginutil.TimeoutFromConfig(pe.config, DefaultPricePluginTimeout))
+				started := time.Now()
 				result, err := pe.plugin.FetchPrices(callCtx, pe.config, pfIDs, assetClass, gap.From, gap.Before)
+				took := time.Since(started)
 				callCancel()
 				if err != nil {
 					var permErr *ErrPermanent
@@ -240,6 +277,7 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 							log.WarnContext(ctx, "price fetch: permanent block",
 								"plugin", pe.id, "instrument", ig.InstrumentID, "reason", permErr.Reason)
 						}
+						gapsTel.call(ctx, i, priceCall(pe, gap, 0, db.TelemetryPriceCallPermanentBlock, &took))
 						allOK = false
 						break // skip remaining ranges, try next plugin
 					}
@@ -249,12 +287,22 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 						// settled for this plugin instead of being asked about
 						// on every cycle forever.
 						coverRange(ctx, database, ig.InstrumentID, pe.id, gap, "no data", log)
+						gapsTel.call(ctx, i, priceCall(pe, gap, 0, db.TelemetryPriceCallNoData, &took))
 						continue
 					}
 					if log != nil {
 						log.WarnContext(ctx, "price fetch: plugin error",
 							"plugin", pe.id, "instrument", ig.InstrumentID, "err", err)
 					}
+					// The provider running out of time and the provider answering
+					// badly need different fixes, and only the deadline can say
+					// which this was. errors.Is rather than a comparison, since a
+					// plugin is free to wrap what its transport returned.
+					outcome := db.TelemetryPriceCallError
+					if errors.Is(err, context.DeadlineExceeded) {
+						outcome = db.TelemetryPriceCallTimeout
+					}
+					gapsTel.call(ctx, i, priceCall(pe, gap, 0, outcome, &took))
 					allOK = false
 					break
 				}
@@ -264,9 +312,15 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 					if log != nil {
 						log.ErrorContext(ctx, "price fetch: upsert", "instrument", ig.InstrumentID, "err", err)
 					}
+					// Ours rather than theirs. Recorded apart from the transport
+					// outcomes so a panel watching provider health is not moved by
+					// our own write failing.
+					gapsTel.call(ctx, i, priceCall(pe, gap, 0, db.TelemetryPriceCallUpsertFailed, &took))
 					allOK = false
 					break
 				}
+				bars += len(result.Bars)
+				gapsTel.call(ctx, i, priceCall(pe, gap, len(result.Bars), db.TelemetryPriceCallBarsReturned, &took))
 			}
 			if allOK {
 				fetchedByPlugin = true
@@ -274,7 +328,22 @@ func processGaps(ctx context.Context, database db.DB, plugins []pluginEntry, gap
 			}
 			// On error, try next plugin for this instrument.
 		}
-		_ = fetchedByPlugin
+		gapsTel.end(ctx, i, gapOutcome(fetchedByPlugin, bars, reached, gapsTel.called(i)))
+	}
+	return nil
+}
+
+// priceCall assembles the telemetry row for one range put to one plugin. The gap
+// and run ids are the ledger's to fill in, since the fetch loop does not hold them.
+func priceCall(pe pluginEntry, r db.DateRange, bars int, outcome string, took *time.Duration) db.TelemetryPricePluginCall {
+	return db.TelemetryPricePluginCall{
+		PluginID:   pe.id,
+		Precedence: pe.precedence,
+		From:       r.From,
+		Before:     r.Before,
+		Bars:       bars,
+		Outcome:    outcome,
+		Duration:   took,
 	}
 }
 

@@ -2068,6 +2068,34 @@ const (
 	TelemetryPluginCallDiscardedInconsistent = "discarded_inconsistent"
 )
 
+// Price gap outcomes. TelemetryGapSettledEmpty is a success and the mirror of
+// broker_description_only: no prices were stored and the gap is nonetheless
+// finished with, because the instrument did not trade over the range or no plugin
+// reaches that far back. Reading it as a failure would put every untraded week
+// into a panel meant to show outages.
+const (
+	TelemetryGapFilled            = "filled"
+	TelemetryGapSettledEmpty      = "settled_empty"
+	TelemetryGapNoEligiblePlugin  = "no_eligible_plugin"
+	TelemetryGapAllPluginsFailed  = "all_plugins_failed"
+	TelemetryGapInstrumentMissing = "instrument_missing"
+)
+
+// Price plugin call outcomes. TelemetryPriceCallNoData is an answer rather than a
+// failure to answer and settles the range for that plugin;
+// TelemetryPriceCallHistoryLimit made no call at all, the plugin's configured
+// reach not extending that far back; and TelemetryPriceCallUpsertFailed is our
+// database rather than the provider's API.
+const (
+	TelemetryPriceCallBarsReturned   = "bars_returned"
+	TelemetryPriceCallNoData         = "no_data"
+	TelemetryPriceCallHistoryLimit   = "history_limit"
+	TelemetryPriceCallPermanentBlock = "permanent_block"
+	TelemetryPriceCallTimeout        = "timeout"
+	TelemetryPriceCallError          = "error"
+	TelemetryPriceCallUpsertFailed   = "upsert_failed"
+)
+
 // TelemetryRun is one activation of one subsystem, as it stands when it starts.
 // JobID is empty for a cycle, as are UserID, Broker and Source, which cycles run
 // without.
@@ -2159,6 +2187,51 @@ type TelemetryDescriptionPluginCall struct {
 	Duration       time.Duration
 }
 
+// TelemetryPriceGap is one instrument a price fetch cycle set out to fill, as it
+// stands before any plugin is put to it. Not one price row and not one provider
+// call: an instrument's outstanding history is put to several plugins over several
+// ranges, and DaysOutstanding records the size of that ask so a cycle that got
+// slower can be told from one that was asked for more.
+//
+// AssetClass, Currency and Exchange are the three fields plugin filtering reads.
+// They are recorded rather than looked up later because they are the inputs to the
+// decision the row explains, and any of them may be empty on an instrument that
+// carries none -- which is itself why a plugin accepted it.
+type TelemetryPriceGap struct {
+	RunID           string
+	InstrumentID    string
+	IsFX            bool
+	AssetClass      string
+	Currency        string
+	Exchange        string
+	DaysOutstanding int
+}
+
+// TelemetryPricePluginCall is one outstanding range put to one plugin, which is
+// one FetchPrices call in every case but history_limit.
+//
+// The range rather than the plugin is the grain: one plugin is asked separately
+// for each range a gap leaves outstanding, and those calls can end differently.
+// Precedence is the plugin's position in the configured order, which is what makes
+// a skipped plugin readable as a gap in the sequence.
+//
+// RunID is not stored on the row -- a call reaches its run through its gap -- and
+// is carried only so a failed write can mark the run.
+type TelemetryPricePluginCall struct {
+	RunID      string
+	GapID      string
+	PluginID   string
+	Precedence int
+	// Half-open [From, Before), as the orchestrator's ranges are. The span in days
+	// is derived by the view rather than carried here.
+	From    time.Time
+	Before  time.Time
+	Bars    int
+	Outcome string
+	// Duration is nil for history_limit, which called nothing and so has no clock.
+	Duration *time.Duration
+}
+
 // TelemetryDB writes the event rows in the telemetry schema.
 //
 // It is deliberately not part of DB. It holds its own connection pool and never
@@ -2189,6 +2262,15 @@ type TelemetryDB interface {
 	WriteIdentificationAttempt(ctx context.Context, a TelemetryIdentificationAttempt) string
 	WriteIdentifierPluginCall(ctx context.Context, c TelemetryIdentifierPluginCall)
 	WriteDescriptionPluginCall(ctx context.Context, c TelemetryDescriptionPluginCall)
+
+	// StartPriceGap creates a price gap and returns its id, for the reason
+	// StartResolutionKey does: its plugin calls reference it, so it must exist
+	// before its own outcome is known.
+	StartPriceGap(ctx context.Context, g TelemetryPriceGap) string
+	// EndPriceGap stamps what became of a gap. A gap left unstamped is a cycle
+	// that died before reaching it, which is what makes where it stopped readable.
+	EndPriceGap(ctx context.Context, runID, gapID, outcome string)
+	WritePricePluginCall(ctx context.Context, c TelemetryPricePluginCall)
 
 	// SweepIncompleteRuns stamps every run left without a terminal outcome as
 	// incomplete, and returns how many it stamped. Called once at startup, before
@@ -2230,6 +2312,12 @@ func (NopTelemetry) WriteIdentificationAttempt(context.Context, TelemetryIdentif
 func (NopTelemetry) WriteIdentifierPluginCall(context.Context, TelemetryIdentifierPluginCall) {}
 
 func (NopTelemetry) WriteDescriptionPluginCall(context.Context, TelemetryDescriptionPluginCall) {}
+
+func (NopTelemetry) StartPriceGap(context.Context, TelemetryPriceGap) string { return "" }
+
+func (NopTelemetry) EndPriceGap(context.Context, string, string, string) {}
+
+func (NopTelemetry) WritePricePluginCall(context.Context, TelemetryPricePluginCall) {}
 
 func (NopTelemetry) SweepIncompleteRuns(context.Context) (int64, error) { return 0, nil }
 

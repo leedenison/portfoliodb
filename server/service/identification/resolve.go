@@ -158,10 +158,64 @@ func FilterIdentifierHints(ctx context.Context, hints []identifier.Identifier, l
 // superseded or discarded as inconsistent -- is decided by winner selection
 // below, once every plugin has returned.
 type pluginResult struct {
-	inst *identifier.Instrument
-	ids  []identifier.Identifier
-	tel  identifier.Telemetry
-	err  error
+	inst  *identifier.Instrument
+	ids   []identifier.Identifier
+	tel   identifier.Telemetry
+	stats callStats
+	err   error
+}
+
+// Attempt is where one ResolveWithPlugins call records itself: the run it belongs
+// to and the resolution key it resolves. Purpose distinguishes the primary call
+// from the two the MIC_TICKER against OPENFIGI_SHARE_CLASS mismatch check makes
+// and from underlying recursion, which are otherwise indistinguishable.
+//
+// Depth is not a field. It is already a parameter of the call, so holding it here
+// too would let the two disagree.
+//
+// The zero Attempt records nothing, which is what a caller outside a run passes.
+type Attempt struct {
+	DB      db.TelemetryDB
+	RunID   string
+	KeyID   string
+	Purpose string
+}
+
+// write records a finished attempt and returns its id, for the plugin calls
+// written under it. The scope fills itself in, so the caller states only what it
+// learned. An empty id is an attempt that was not recorded, and the writer
+// already skips the children of one.
+func (a Attempt) write(ctx context.Context, r db.TelemetryIdentificationAttempt) string {
+	if a.DB == nil || a.KeyID == "" {
+		return ""
+	}
+	r.RunID = a.RunID
+	r.ResolutionKeyID = a.KeyID
+	r.Purpose = a.Purpose
+	return a.DB.WriteIdentificationAttempt(ctx, r)
+}
+
+// writeCall records one plugin invocation under an attempt.
+func (a Attempt) writeCall(ctx context.Context, attemptID, pluginID, outcome string, stats callStats) {
+	if a.DB == nil || attemptID == "" {
+		return
+	}
+	a.DB.WriteIdentifierPluginCall(ctx, db.TelemetryIdentifierPluginCall{
+		RunID:     a.RunID,
+		AttemptID: attemptID,
+		PluginID:  pluginID,
+		Outcome:   outcome,
+		Retries:   stats.Retries,
+		Duration:  stats.Duration,
+	})
+}
+
+// underlying returns the scope an underlying resolution runs under: the same run
+// and the same key, since it is the same description being resolved, but named as
+// the recursion it is.
+func (a Attempt) underlying() Attempt {
+	a.Purpose = db.TelemetryPurposeUnderlying
+	return a
 }
 
 // MICNormalizer maps a MIC to its operating MIC. Returns the input unchanged
@@ -346,12 +400,20 @@ func ResolveWithPlugins(
 	storeSourceDescription bool,
 	fallback FallbackFunc,
 	counter telemetry.CounterIncrementer,
+	tel Attempt,
 	logger *slog.Logger,
 	depth int,
 	hintsValidAt *time.Time,
 ) (ResolveResult, error) {
 	l := resolveLogger(logger)
 	normMIC := NewDBMICNormalizer(database)
+	// What the attempt row states about its inputs. Its outcome and the asset
+	// class it landed on are filled in at each of the returns below.
+	row := db.TelemetryIdentificationAttempt{
+		Depth:              depth,
+		SecurityTypeHint:   hints.SecurityTypeHint,
+		HadIdentifierHints: len(identifierHints) > 0,
+	}
 
 	// Adjust OCC hints for known stock splits before any lookups. identityAsOf
 	// is the market time the resulting hints reflect, and it is what the winner
@@ -370,6 +432,12 @@ func ResolveWithPlugins(
 			Currency:   resolved[0].Currency,
 		}
 		diffs := CompareHints(ctx, hints, identifierHints, inst, nil, normMIC)
+		// No plugin was called, which is why this is its own outcome rather than
+		// an identification with no plugin-call rows under it. It is also why a
+		// failure rate over all attempts falls as the instrument table fills.
+		row.Outcome = db.TelemetryAttemptDBShortCircuit
+		row.AssetClass = resolved[0].AssetClass
+		tel.write(ctx, row)
 		return ResolveResult{InstrumentID: resolved[0].ID, Identified: true, HintDiffs: diffs}, nil
 	}
 
@@ -410,8 +478,8 @@ func ResolveWithPlugins(
 			defer wg.Done()
 			in := inputs[idx]
 			timeout := timeoutFromConfig(in.config.Config)
-			res, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, hints, identifierHints, timeout, PluginRetryBackoff)
-			results[idx] = pluginResult{inst: res.Instrument, ids: res.Identifiers, tel: res.Telemetry, err: err}
+			res, stats, err := callPluginWithRetry(ctx, in.plugin, in.config.Config, broker, source, instrumentDescription, hints, identifierHints, timeout, PluginRetryBackoff)
+			results[idx] = pluginResult{inst: res.Instrument, ids: res.Identifiers, tel: res.Telemetry, stats: stats, err: err}
 		}(i)
 	}
 	wg.Wait()
@@ -426,6 +494,15 @@ func ResolveWithPlugins(
 		} else {
 			l.DebugContext(ctx, "identifier plugin result", "plugin_id", in.config.PluginID, "instrument_description", instrumentDescription, "result", "not_identified")
 		}
+	}
+
+	// One outcome per plugin invocation, seeded with what the plugin reported and
+	// refined below for the ones that succeeded: won, superseded and discarded are
+	// the orchestrator's to decide, and it cannot decide any of them until every
+	// plugin has returned.
+	callOutcomes := make([]string, len(results))
+	for i := range results {
+		callOutcomes[i] = string(results[i].tel.Outcome)
 	}
 
 	// Check whether any meaningful hints are supplied (to avoid vacuous matching).
@@ -473,6 +550,26 @@ func ResolveWithPlugins(
 			"instrument_description", instrumentDescription)
 	}
 
+	// writeAttempt records the attempt and the invocations under it. It is deferred
+	// to the returns below rather than run here, because the winner path resolves
+	// the underlying first and that recursion is a separate attempt: writing this
+	// one now would nest the wrong way round in time.
+	writeAttempt := func(outcome, assetClass string) {
+		row.Outcome = outcome
+		row.AssetClass = assetClass
+		attemptID := tel.write(ctx, row)
+		for i := range results {
+			o := callOutcomes[i]
+			if o == string(identifier.OutcomeIdentified) {
+				// The plugin says it identified something the resolver did not
+				// take as a success. The row records what the resolver saw: won,
+				// superseded and discarded are its words, and this is none of them.
+				o = string(identifier.OutcomeNotIdentified)
+			}
+			tel.writeCall(ctx, attemptID, inputs[i].config.PluginID, o, results[i].stats)
+		}
+	}
+
 	if winner != nil {
 		l.DebugContext(ctx, "identifier plugin chosen", "plugin_id", inputs[winnerIdx].config.PluginID, "instrument_description", instrumentDescription, "instrument_name", winner.inst.Name)
 		seenType := make(map[string]bool)
@@ -483,8 +580,18 @@ func ResolveWithPlugins(
 			if r.err != nil || r.inst == nil {
 				continue
 			}
+			// Decided here rather than recomputed later: consistentWith logs a
+			// warning per mismatch, so asking it twice would say it twice.
 			if i != winnerIdx && !consistentWith(ctx, l, inputs[winnerIdx].config.PluginID, inputs[i].config.PluginID, winner, r, normMIC) {
+				callOutcomes[i] = db.TelemetryPluginCallDiscardedInconsistent
 				continue
+			}
+			if i == winnerIdx {
+				callOutcomes[i] = db.TelemetryPluginCallWon
+			} else {
+				// Identified the same instrument but did not win it. Precedence or
+				// a better hint match put another plugin ahead.
+				callOutcomes[i] = db.TelemetryPluginCallSuperseded
 			}
 			for _, idn := range r.ids {
 				if !seenType[idn.Type] {
@@ -525,7 +632,7 @@ func ResolveWithPlugins(
 			uIdnHints := make([]identifier.Identifier, len(inst.UnderlyingIdentifiers))
 			copy(uIdnHints, inst.UnderlyingIdentifiers)
 			// Underlying resolution: no source description, no fallback needed (use nil).
-			uResult, uErr := ResolveWithPlugins(ctx, database, registry, broker, source, "", uHints, uIdnHints, false, nil, counter, logger, depth+1, nil)
+			uResult, uErr := ResolveWithPlugins(ctx, database, registry, broker, source, "", uHints, uIdnHints, false, nil, counter, tel.underlying(), logger, depth+1, nil)
 			if uErr != nil {
 				l.WarnContext(ctx, "underlying resolution failed", "instrument_description", instrumentDescription, "err", uErr)
 			} else if uResult.InstrumentID != "" {
@@ -566,7 +673,22 @@ func ResolveWithPlugins(
 				l.WarnContext(ctx, "save provider identifiers failed", "instrument_id", id, "err", err)
 			}
 		}
+		writeAttempt(db.TelemetryAttemptIdentified, inst.AssetClass)
 		return ResolveResult{InstrumentID: id, Identified: true, HintDiffs: diffs}, nil
+	}
+
+	// Nothing identified it. A plugin removed by the eligibility filter made no
+	// call, so an attempt that had no eligible plugin left is not a failure to
+	// identify -- it is the denominator a failure rate must exclude.
+	switch {
+	case len(inputs) == 0:
+		writeAttempt(db.TelemetryAttemptNoEligiblePlugins, "")
+	case hadTimeout:
+		writeAttempt(db.TelemetryAttemptPluginTimeout, "")
+	case hadOtherErr:
+		writeAttempt(db.TelemetryAttemptPluginError, "")
+	default:
+		writeAttempt(db.TelemetryAttemptNotIdentified, "")
 	}
 
 	// Unresolved: call fallback if provided.
@@ -630,11 +752,22 @@ func timeoutFromConfig(config []byte) time.Duration {
 	return time.Duration(*c.TimeoutSeconds) * time.Second
 }
 
+// callStats is what only the caller of a plugin knows about the invocation: the
+// retry loop and the clock belong to the resolver, not to the plugin. Duration
+// spans the whole invocation including any retry, because that is what one
+// identifier_plugin_call row describes.
+type callStats struct {
+	Retries  int
+	Duration time.Duration
+}
+
 // callPluginWithRetry calls Identify with exponential backoff retry.
 // ErrNotIdentified is treated as a permanent error (no retry). Each attempt gets its own
 // context timeout derived from the parent so cancellation still propagates.
-func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, timeout, initialBackoff time.Duration) (identifier.Result, error) {
+func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, timeout, initialBackoff time.Duration) (identifier.Result, callStats, error) {
 	var res identifier.Result
+	var calls int
+	started := time.Now()
 
 	bo := backoff.NewExponentialBackOff()
 	bo.InitialInterval = initialBackoff
@@ -642,6 +775,7 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte
 	bCtx := backoff.WithContext(backoff.WithMaxRetries(bo, 1), ctx)
 
 	err := backoff.Retry(func() error {
+		calls++
 		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		var attemptErr error
@@ -655,7 +789,7 @@ func callPluginWithRetry(ctx context.Context, p identifier.Plugin, config []byte
 		return attemptErr
 	}, bCtx)
 
-	return res, err
+	return res, callStats{Retries: calls - 1, Duration: time.Since(started)}, err
 }
 
 // optionFieldsFromIdentifiers extracts strike, expiry, and put/call from the

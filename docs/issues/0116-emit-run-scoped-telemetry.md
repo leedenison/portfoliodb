@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Emit run-scoped telemetry from ingestion, identification and the workers
 milestone: M20
 dependencies: [0114, 0115]

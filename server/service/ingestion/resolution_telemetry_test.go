@@ -382,3 +382,70 @@ func TestExtractionNotAttemptedWithoutPlugins(t *testing.T) {
 		t.Errorf("outcome = %q, want %q", outcomes["item-1"], db.TelemetryExtractionNotAttemptedNoPlugins)
 	}
 }
+
+// TestMismatchCheckProbesAreTheirOwnAttempts pins the two calls the issue names.
+// When extraction returns both a MIC_TICKER and an OPENFIGI_SHARE_CLASS the
+// resolver resolves each separately to see whether they agree; both are real
+// resolutions against real plugins, and until now both were made with a nil
+// counter and were invisible. Naming them mismatch_check is also what stops them
+// inflating the denominator of a failure rate over primary attempts.
+func TestMismatchCheckProbesAreTheirOwnAttempts(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	tel := mock.NewMockTelemetryDB(ctrl)
+	spy := newKeySpy(t, tel)
+
+	var attempts []db.TelemetryIdentificationAttempt
+	tel.EXPECT().WriteIdentificationAttempt(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, a db.TelemetryIdentificationAttempt) string {
+			attempts = append(attempts, a)
+			return "attempt"
+		}).AnyTimes()
+
+	const source, desc = "IBKR:test:statement", "APPLE INC COM"
+	// Both hints already resolve to the same instrument, so every call short
+	// circuits in the database and no plugin is involved.
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "", "AAPL").
+		Return("inst-1", "STOCK", "XNAS", "USD", nil).AnyTimes()
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "OPENFIGI_SHARE_CLASS", "", "BBG000B9XRY4").
+		Return("inst-1", "STOCK", "XNAS", "USD", nil).AnyTimes()
+
+	ctx := context.Background()
+	txs := []*apiv1.Tx{tx(desc)}
+	keys := newResolutionKeys(ctx, tel, "run-1", source, txs, make([][]identifier.Identifier, 1), nil)
+	extracted := map[string][]identifier.Identifier{
+		cacheKey(source, desc): {
+			{Type: "MIC_TICKER", Value: "AAPL"},
+			{Type: "OPENFIGI_SHARE_CLASS", Value: "BBG000B9XRY4"},
+		},
+	}
+
+	if _, err := Resolve(ctx, database, identifier.NewRegistry(), "IBKR", source, desc,
+		identifier.Hints{}, nil, nil, 0, nil, extracted, nil, keys); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if len(attempts) != 3 {
+		t.Fatalf("wrote %d attempts, want 3 -- two probes and the resolution", len(attempts))
+	}
+	byPurpose := map[string]int{}
+	for _, a := range attempts {
+		byPurpose[a.Purpose]++
+	}
+	if byPurpose[db.TelemetryPurposeMismatchCheck] != 2 {
+		t.Errorf("mismatch_check attempts = %d, want 2", byPurpose[db.TelemetryPurposeMismatchCheck])
+	}
+	if byPurpose[db.TelemetryPurposePrimary] != 1 {
+		t.Errorf("primary attempts = %d, want 1", byPurpose[db.TelemetryPurposePrimary])
+	}
+	// The probes must not stamp the key: the resolution that decides it does.
+	if got := spy.ended[desc]; got.Outcome != db.TelemetryResolutionIdentified {
+		t.Errorf("key outcome = %q, want %q from the primary resolution", got.Outcome, db.TelemetryResolutionIdentified)
+	}
+	if spy.ended[desc].MismatchDetected {
+		t.Error("mismatch_detected set for two hints that agreed")
+	}
+}

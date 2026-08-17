@@ -287,7 +287,7 @@ func TestDescriptionPluginCallRows(t *testing.T) {
 			descRegistry.Register("fake", tc.plugin)
 			database.EXPECT().
 				ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryDescription).
-				Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 1}}, nil)
+				Return([]db.PluginConfigRow{{PluginID: "fake", Precedence: 70}}, nil)
 
 			var got db.TelemetryDescriptionPluginCall
 			tel.EXPECT().WriteDescriptionPluginCall(gomock.Any(), gomock.Any()).
@@ -304,6 +304,12 @@ func TestDescriptionPluginCallRows(t *testing.T) {
 			}
 			if got.BatchSize != 1 {
 				t.Errorf("batch_size = %d, want 1", got.BatchSize)
+			}
+			// The plugin's configured precedence, which is what puts the chain
+			// back in order: batch_size cannot, since two plugins handed equal
+			// batches would sort arbitrarily.
+			if got.Precedence != 70 {
+				t.Errorf("precedence = %d, want 70", got.Precedence)
 			}
 			if got.Outcome != tc.wantOut {
 				t.Errorf("outcome = %q, want %q", got.Outcome, tc.wantOut)

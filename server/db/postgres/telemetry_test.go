@@ -390,3 +390,72 @@ func TestPurgeRunsBefore(t *testing.T) {
 		}
 	}
 }
+
+// TestWriteDescriptionPluginCallPrecedence pins the order the chain ran in
+// surviving the write. Without it the rows carry batch sizes whose populations
+// cannot be put back in sequence, and batch_size descending is only a guess at
+// it -- two plugins handed equal batches order arbitrarily.
+func TestWriteDescriptionPluginCallPrecedence(t *testing.T) {
+	tel := testTelemetry(t)
+	ctx := context.Background()
+	runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunTxImport})
+
+	// The narrowing a chain produces: the second plugin sees only what the first
+	// failed on. Both are written with the precedence they ran at.
+	tel.WriteDescriptionPluginCall(ctx, db.TelemetryDescriptionPluginCall{
+		RunID:          runID,
+		PluginID:       "cash",
+		Precedence:     100,
+		BatchSize:      40,
+		ItemsWithHints: 28,
+		Outcome:        "hints_returned",
+		Duration:       time.Millisecond,
+	})
+	tel.WriteDescriptionPluginCall(ctx, db.TelemetryDescriptionPluginCall{
+		RunID:          runID,
+		PluginID:       "openai",
+		Precedence:     50,
+		BatchSize:      12,
+		ItemsWithHints: 9,
+		Outcome:        "hints_returned",
+		Duration:       time.Second,
+	})
+
+	rows, err := tel.db.Query(`
+		SELECT plugin_id, precedence, batch_size
+		FROM telemetry.v_description_plugin_call
+		WHERE run_id = $1::uuid
+		ORDER BY precedence DESC
+	`, runID)
+	if err != nil {
+		t.Fatalf("read v_description_plugin_call: %v", err)
+	}
+	defer rows.Close()
+
+	type call struct {
+		plugin     string
+		precedence int
+		batchSize  int
+	}
+	var got []call
+	for rows.Next() {
+		var c call
+		if err := rows.Scan(&c.plugin, &c.precedence, &c.batchSize); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, c)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+
+	want := []call{{"cash", 100, 40}, {"openai", 50, 12}}
+	if len(got) != len(want) {
+		t.Fatalf("rows = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("row %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}

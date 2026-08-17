@@ -191,12 +191,13 @@ func runDescriptionPluginsBatch(ctx context.Context, deps ingestDeps, broker, so
 		started := time.Now()
 		res, err := p.ExtractBatch(ctx, c.Config, broker, source, filtered)
 		call := db.TelemetryDescriptionPluginCall{
-			RunID:     deps.RunID,
-			PluginID:  c.PluginID,
-			BatchSize: len(filtered),
-			Outcome:   string(res.Telemetry.Outcome),
-			Tokens:    descriptionTokens(res.Telemetry.Tokens),
-			Duration:  time.Since(started),
+			RunID:      deps.RunID,
+			PluginID:   c.PluginID,
+			Precedence: c.Precedence,
+			BatchSize:  len(filtered),
+			Outcome:    string(res.Telemetry.Outcome),
+			Tokens:     descriptionTokens(res.Telemetry.Tokens),
+			Duration:   time.Since(started),
 		}
 		if err != nil {
 			// A plugin that returned an error without saying how it went is not

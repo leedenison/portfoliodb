@@ -188,8 +188,8 @@ func TestTelemetryRetentionCascades(t *testing.T) {
 	}
 	if _, err := p.q.ExecContext(ctx, `
 		INSERT INTO telemetry.description_plugin_call
-			(run_id, plugin_id, batch_size, items_with_hints, outcome, duration_ms)
-		VALUES ($1::uuid, 'openai', 20, 18, 'hints_returned', 900)
+			(run_id, plugin_id, precedence, batch_size, items_with_hints, outcome, duration_ms)
+		VALUES ($1::uuid, 'openai', 100, 20, 18, 'hints_returned', 900)
 	`, oldRun); err != nil {
 		t.Fatalf("seed description plugin call: %v", err)
 	}
@@ -367,8 +367,8 @@ func seedDescriptionCall(t *testing.T, p *Postgres, runID, outcome string) strin
 	var id string
 	err := p.q.QueryRowContext(context.Background(), `
 		INSERT INTO telemetry.description_plugin_call
-			(run_id, plugin_id, batch_size, items_with_hints, outcome, duration_ms)
-		VALUES ($1::uuid, 'openai', 10, 4, $2, 900)
+			(run_id, plugin_id, precedence, batch_size, items_with_hints, outcome, duration_ms)
+		VALUES ($1::uuid, 'openai', 100, 10, 4, $2, 900)
 		RETURNING id
 	`, runID, outcome).Scan(&id)
 	if err != nil {

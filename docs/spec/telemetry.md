@@ -152,6 +152,7 @@ One plugin invocation over a batch.
 | column | notes |
 | --- | --- |
 | `run_id`, `plugin_id` | |
+| `precedence` | where this plugin sat in the chain, higher first |
 | `batch_size` | items passed to this plugin, after the type filter |
 | `items_with_hints` | items it returned hints for |
 | `outcome` | `hints_returned`, `no_hints`, `error`, `rate_limited`, `quota_exceeded`, `model_not_found` |
@@ -163,6 +164,13 @@ predecessors failed on, so `batch_size` is a different population per plugin and
 are not comparable between them. Identifier plugins run in parallel and every eligible
 plugin is called, so those rates are comparable. Tokens are columns rather than running
 totals, which is what makes the cost of one import answerable.
+
+`precedence` is what makes that narrowing readable: without it the order the batches
+shrank in cannot be recovered from the rows, and `batch_size` descending is only a guess
+at it, arbitrary the moment two plugins are handed equal batches. It is the plugin's
+configured precedence rather than an ordinal of the rows written, because a plugin whose
+filtered batch is empty writes no row at all -- so a gap in the sequence means that
+plugin was skipped, which is how a filtered-out identifier plugin already reads.
 
 ### Views
 

@@ -1050,7 +1050,12 @@ message Worker {
   WorkerState state = 2;
   string summary = 3;
   int32 queue_depth = 4;
-  google.protobuf.Timestamp updated_at = 5;
+  // Cycles completed since the service started, resetting with the process. A
+  // cycle that finds no work never reaches WORKER_STATE_RUNNING, so this is the
+  // only thing that tells a cycle that ran and found nothing from one that has
+  // not started.
+  int64 cycles = 5;
+  google.protobuf.Timestamp updated_at = 6;
 }
 
 message ListWorkersRequest {}

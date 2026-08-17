@@ -63,6 +63,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 	defer func() {
 		if workers != nil {
 			workers.SetIdle(name)
+			workers.CycleDone(name)
 		}
 	}()
 

@@ -2,14 +2,13 @@ package pricefetcher
 
 import (
 	"context"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/pluginutil"
-	"github.com/leedenison/portfoliodb/server/telemetry"
+	"github.com/leedenison/portfoliodb/server/worker"
 	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 )
@@ -517,18 +516,6 @@ func TestRunCycle_OtherPluginStillAskedAfterCoverage(t *testing.T) {
 	}
 }
 
-// counterSpy counts Incr calls per key.
-type counterSpy struct {
-	telemetry.NoopCounter
-	cycles atomic.Int64
-}
-
-func (c *counterSpy) Incr(_ context.Context, name string) {
-	if name == "price_fetcher.cycles" {
-		c.cycles.Add(1)
-	}
-}
-
 func TestRunWorker_DebounceCollapsesTriggers(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDB := mock.NewMockDB(ctrl)
@@ -543,14 +530,14 @@ func TestRunWorker_DebounceCollapsesTriggers(t *testing.T) {
 	).Times(2) // expect exactly 2 cycles
 	mockDB.EXPECT().FXGaps(gomock.Any(), gomock.Any()).Return(nil, nil).Times(2)
 
-	counter := &counterSpy{}
+	workers := worker.NewRegistry()
 	trigger := make(chan struct{}, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	done := make(chan struct{})
 	go func() {
-		RunWorker(ctx, mockDB, NewRegistry(), counter, nil, nil, trigger, nil)
+		RunWorker(ctx, mockDB, NewRegistry(), nil, nil, nil, trigger, workers)
 		close(done)
 	}()
 
@@ -573,8 +560,18 @@ func TestRunWorker_DebounceCollapsesTriggers(t *testing.T) {
 	cancel()
 	<-done
 
-	cycles := counter.cycles.Load()
+	cycles := workerCycles(workers, "price_fetcher")
 	if cycles != 2 {
 		t.Errorf("expected exactly 2 cycles (1 running + 1 buffered), got %d", cycles)
 	}
+}
+
+// workerCycles reads the completed-cycle count the registry holds for a worker.
+func workerCycles(reg *worker.Registry, name string) int64 {
+	for _, st := range reg.List() {
+		if st.Name == name {
+			return st.Cycles
+		}
+	}
+	return 0
 }

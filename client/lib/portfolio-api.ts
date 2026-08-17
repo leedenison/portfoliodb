@@ -724,6 +724,8 @@ export interface WorkerRow {
   state: WorkerState;
   summary: string;
   queueDepth: number;
+  /** Cycles completed since the service started. */
+  cycles: number;
   updatedAt?: Date;
 }
 
@@ -740,6 +742,7 @@ export async function listWorkers(): Promise<WorkerRow[]> {
     state: w.state,
     summary: w.summary,
     queueDepth: w.queueDepth,
+    cycles: Number(w.cycles),
     updatedAt: w.updatedAt ? timestampDate(w.updatedAt) : undefined,
   }));
 }

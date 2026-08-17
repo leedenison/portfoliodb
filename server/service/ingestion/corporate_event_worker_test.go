@@ -32,7 +32,7 @@ func runEventPart(t *testing.T, database db.DB, registry *identifier.Registry,
 	part *archivev1.CorporateEventPart, asOf *time.Time) (bool, []*apiv1.ValidationError, error) {
 	t.Helper()
 	rep := archiveimport.NewDetachedReporter()
-	persisted, err := importCorporateEventPart(context.Background(), database, registry, part, asOf, newResolveCache(), rep)
+	persisted, err := importCorporateEventPart(context.Background(), database, registry, part, asOf, newResolveCache(), nil, rep)
 	return persisted, rep.Errors(), err
 }
 

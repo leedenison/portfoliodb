@@ -34,7 +34,7 @@ func runPricePart(t *testing.T, database db.DB, registry *identifier.Registry,
 		at = &v
 	}
 	rep := archiveimport.NewDetachedReporter()
-	persisted, err := importPricePart(context.Background(), database, registry, part, at, newResolveCache(), rep)
+	persisted, err := importPricePart(context.Background(), database, registry, part, at, newResolveCache(), nil, rep)
 	return persisted, rep.Errors(), err
 }
 

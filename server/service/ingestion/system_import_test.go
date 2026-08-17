@@ -95,7 +95,7 @@ func TestProcessSystemImport_RunsPartsInRestoreOrder(t *testing.T) {
 		database.EXPECT().ClearJobPayload(gomock.Any(), j.JobID).Return(nil),
 	)
 
-	processSystemImport(context.Background(), database, identifier.NewRegistry(), j)
+	processSystemImport(context.Background(), ingestDeps{DB: database, Registry: identifier.NewRegistry()}, j)
 
 	want := []string{
 		"INSTRUMENTS:RUNNING", "INSTRUMENTS:SUCCESS",
@@ -161,7 +161,7 @@ func TestProcessSystemImport_FailedPartDoesNotStopTheRest(t *testing.T) {
 	database.EXPECT().SetJobStatus(gomock.Any(), j.JobID, apiv1.JobStatus_FAILED).Return(nil)
 	database.EXPECT().ClearJobPayload(gomock.Any(), j.JobID).Return(nil)
 
-	processSystemImport(context.Background(), database, identifier.NewRegistry(), j)
+	processSystemImport(context.Background(), ingestDeps{DB: database, Registry: identifier.NewRegistry()}, j)
 
 	if failedPart != archivev1.ArchivePart_PRICES {
 		t.Fatalf("failed part = %v, want PRICES", failedPart)
@@ -215,7 +215,7 @@ func TestProcessSystemImport_ResumeSkipsFinishedParts(t *testing.T) {
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 	database.EXPECT().ResetJobPartProgress(gomock.Any(), j.JobID, archivev1.ArchivePart_PRICES).Return(nil)
 
-	processSystemImport(context.Background(), database, identifier.NewRegistry(), j)
+	processSystemImport(context.Background(), ingestDeps{DB: database, Registry: identifier.NewRegistry()}, j)
 }
 
 // A payload that cannot be read is the job's failure rather than any part's,
@@ -235,7 +235,7 @@ func TestProcessSystemImport_UnreadablePayloadFailsTheJob(t *testing.T) {
 		database.EXPECT().ClearJobPayload(gomock.Any(), j.JobID).Return(nil),
 	)
 
-	processSystemImport(context.Background(), database, identifier.NewRegistry(), j)
+	processSystemImport(context.Background(), ingestDeps{DB: database, Registry: identifier.NewRegistry()}, j)
 }
 
 func contains(ss []string, want string) bool {

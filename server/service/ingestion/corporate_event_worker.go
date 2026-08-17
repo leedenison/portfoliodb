@@ -22,7 +22,7 @@ import (
 // and an error only for a hard failure: an event the import could not read is a
 // validation error on a part that still succeeded.
 func importCorporateEventPart(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry,
-	part *archivev1.CorporateEventPart, eventsAsOf *time.Time, resolveCache map[string]*resolveEntry, rep *archiveimport.PartReporter) (bool, error) {
+	part *archivev1.CorporateEventPart, eventsAsOf *time.Time, resolveCache map[string]*resolveEntry, keys *resolutionKeys, rep *archiveimport.PartReporter) (bool, error) {
 	groups := part.GetGroups()
 	total := 0
 	for _, g := range groups {
@@ -35,7 +35,7 @@ func importCorporateEventPart(ctx context.Context, database db.DB, pluginRegistr
 	splitInstruments := make(map[string]bool)
 
 	for gi, g := range groups {
-		instID, gErr := resolveEventGroupInstrument(ctx, database, pluginRegistry, resolveCache, g, eventsAsOf)
+		instID, gErr := resolveEventGroupInstrument(ctx, database, pluginRegistry, resolveCache, keys, g, eventsAsOf)
 		if gErr != nil {
 			// One unresolvable instrument fails its whole group: every event
 			// under it names the same instrument, so none of them can land.
@@ -88,7 +88,7 @@ func importCorporateEventPart(ctx context.Context, database db.DB, pluginRegistr
 	// failure above does not advertise data we did not persist. Per-span
 	// validation errors (a bad date, an empty interval) join the per-event ones.
 	// A hard DB error from the coverage upsert still fails the part.
-	covCount, covErrs, err := writeImportCoverage(ctx, database, groups, resolveCache, pluginRegistry, eventsAsOf)
+	covCount, covErrs, err := writeImportCoverage(ctx, database, groups, resolveCache, keys, pluginRegistry, eventsAsOf)
 	rep.Errs(covErrs)
 	if err != nil {
 		rep.Errf(-1, "coverage", err.Error())
@@ -119,20 +119,20 @@ func importCorporateEventPart(ctx context.Context, database db.DB, pluginRegistr
 // coverage span under it -- invokes the identifier plugins at most once. The
 // asset class passed to the resolver is the group's declared hint, as is asOf,
 // which split-adjusts OCC symbols to the file's declared knowledge time.
-func resolveEventGroupInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, cache map[string]*resolveEntry, g *archivev1.CorporateEventGroup, asOf *time.Time) (string, *apiv1.ValidationError) {
+func resolveEventGroupInstrument(ctx context.Context, database db.DB, pluginRegistry *identifier.Registry, cache map[string]*resolveEntry, keys *resolutionKeys, g *archivev1.CorporateEventGroup, asOf *time.Time) (string, *apiv1.ValidationError) {
 	ref := g.GetInstrument()
 	idType := typev1.IdentifierType_name[int32(ref.GetType())]
 	if !identifier.AllowedIdentifierTypes[idType] {
 		return "", &apiv1.ValidationError{Field: "instrument.type", Message: fmt.Sprintf("unknown identifier type %q", idType)}
 	}
-	key := idType + "\x00" + ref.GetDomain() + "\x00" + ref.GetValue()
-	entry, ok := cache[key]
+	r := identifierRef{Type: idType, Domain: ref.GetDomain(), Value: ref.GetValue()}
+	entry, ok := cache[r.cacheKey()]
 	if !ok {
 		acStr := db.AssetClassToStr(g.GetAssetClass())
 		result, err := resolveOrIdentifyInstrument(ctx, database, pluginRegistry,
-			idType, ref.GetDomain(), ref.GetValue(), acStr, "", asOf)
+			idType, ref.GetDomain(), ref.GetValue(), acStr, "", asOf, keys, r.cacheKey())
 		entry = &resolveEntry{result: result, err: err}
-		cache[key] = entry
+		cache[r.cacheKey()] = entry
 	}
 	if entry.err != nil {
 		return "", &apiv1.ValidationError{Field: "instrument", Message: entry.err.Error()}
@@ -264,7 +264,7 @@ func dividendTypeToString(t archivev1.DividendType) string {
 // A group whose instrument did not resolve is skipped in silence here: the
 // event pass already reported it, and saying so twice would double-count one
 // failure.
-func writeImportCoverage(ctx context.Context, database db.DB, groups []*archivev1.CorporateEventGroup, cache map[string]*resolveEntry, pluginRegistry *identifier.Registry, asOf *time.Time) (int, []*apiv1.ValidationError, error) {
+func writeImportCoverage(ctx context.Context, database db.DB, groups []*archivev1.CorporateEventGroup, cache map[string]*resolveEntry, keys *resolutionKeys, pluginRegistry *identifier.Registry, asOf *time.Time) (int, []*apiv1.ValidationError, error) {
 	var (
 		written int
 		errs    []*apiv1.ValidationError
@@ -273,7 +273,7 @@ func writeImportCoverage(ctx context.Context, database db.DB, groups []*archivev
 		if len(g.GetCoverage()) == 0 {
 			continue
 		}
-		instID, gErr := resolveEventGroupInstrument(ctx, database, pluginRegistry, cache, g, asOf)
+		instID, gErr := resolveEventGroupInstrument(ctx, database, pluginRegistry, cache, keys, g, asOf)
 		if gErr != nil {
 			continue
 		}

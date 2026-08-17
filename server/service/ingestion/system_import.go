@@ -12,7 +12,6 @@ import (
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	"github.com/leedenison/portfoliodb/server/archiveimport"
 	"github.com/leedenison/portfoliodb/server/db"
-	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
 // errUnknownPart is a part row naming something this build cannot apply, which
@@ -42,7 +41,29 @@ type systemImportResult struct {
 // already describes -- an optimisation, not a prerequisite -- and abandoning
 // the rest would throw away work that would otherwise land. Which parts did not
 // apply is what the per-part results are for.
-func processSystemImport(ctx context.Context, database db.DB, registry *identifier.Registry, j *JobRequest) systemImportResult {
+// archiveIdentifierRefs lists the instrument every price and corporate event group
+// names, in document order and with repeats, so a ledger built from it counts the
+// groups sharing each identifier.
+func archiveIdentifierRefs(a *archivev1.SystemArchive) []identifierRef {
+	var refs []identifierRef
+	for _, g := range a.GetPrices().GetGroups() {
+		ref := g.GetInstrument()
+		refs = append(refs, identifierRef{
+			Type: ref.GetType().String(), Domain: ref.GetDomain(), Value: ref.GetValue(),
+		})
+	}
+	for _, g := range a.GetCorporateEvents().GetGroups() {
+		ref := g.GetInstrument()
+		refs = append(refs, identifierRef{
+			Type: ref.GetType().String(), Domain: ref.GetDomain(), Value: ref.GetValue(),
+		})
+	}
+	return refs
+}
+
+func processSystemImport(ctx context.Context, deps ingestDeps, j *JobRequest) systemImportResult {
+	database := deps.DB
+	registry := deps.Registry
 	var out systemImportResult
 
 	payload, err := database.LoadJobPayload(ctx, j.JobID)
@@ -72,6 +93,10 @@ func processSystemImport(ctx context.Context, database db.DB, registry *identifi
 	// the corporate event part is the ordinary case, and resolving it twice means
 	// paying a plugin twice.
 	resolveCache := newResolveCache()
+	// Keys for the identifiers the archive names, counted over the whole document
+	// for the same reason the cache spans it: a price group and a corporate event
+	// group naming the same instrument resolve it once between them.
+	resolveKeys := newIdentifierResolutionKeys(ctx, deps.Telemetry, deps.RunID, archiveIdentifierRefs(&a))
 
 	// Which parts to run comes from the job's own rows rather than from the
 	// document, so a job resumed after a restart skips what already finished.
@@ -102,9 +127,9 @@ func processSystemImport(ctx context.Context, database db.DB, registry *identifi
 		case archivev1.ArchivePart_INSTRUMENTS:
 			_, partErr = archiveimport.InstrumentPart(ctx, database, a.GetInstruments(), rep)
 		case archivev1.ArchivePart_PRICES:
-			out.pricesPersisted, partErr = importPricePart(ctx, database, registry, a.GetPrices(), asOf, resolveCache, rep)
+			out.pricesPersisted, partErr = importPricePart(ctx, database, registry, a.GetPrices(), asOf, resolveCache, resolveKeys, rep)
 		case archivev1.ArchivePart_CORPORATE_EVENTS:
-			out.eventsPersisted, partErr = importCorporateEventPart(ctx, database, registry, a.GetCorporateEvents(), asOf, resolveCache, rep)
+			out.eventsPersisted, partErr = importCorporateEventPart(ctx, database, registry, a.GetCorporateEvents(), asOf, resolveCache, resolveKeys, rep)
 		case archivev1.ArchivePart_INFLATION_INDICES:
 			_, partErr = archiveimport.InflationPart(ctx, database, a.GetInflationIndices(), asOf, rep)
 		case archivev1.ArchivePart_FETCH_BLOCKS:

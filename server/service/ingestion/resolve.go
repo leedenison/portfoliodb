@@ -116,25 +116,62 @@ func batchItemDescByID(items []description.BatchItem, id string) string {
 	return ""
 }
 
+// descriptionTokens renders a plugin's token usage for storage. Nil stays nil,
+// which is what keeps the token columns null rather than zero for a plugin that
+// costs nothing to call.
+func descriptionTokens(u *description.Usage) *db.TelemetryTokens {
+	if u == nil {
+		return nil
+	}
+	return &db.TelemetryTokens{
+		Prompt:     u.PromptTokens,
+		Completion: u.CompletionTokens,
+		Total:      u.TotalTokens,
+	}
+}
+
 // runDescriptionPluginsBatch runs description plugins on all items via ExtractBatch. Only items whose security type is acceptable to a plugin are passed to that plugin. First plugin that returns a non-empty map wins. Result is keyed by BatchItem.ID.
-func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB, descRegistry *description.Registry, counter telemetry.CounterIncrementer, broker, source string, items []description.BatchItem) (map[string][]identifier.Identifier, error) {
-	if descRegistry == nil || len(items) == 0 {
-		return nil, nil
+//
+// It also returns what became of each item, keyed by BatchItem.ID, which is stage
+// one of the item's resolution key. The not-attempted members are the skips: an
+// item no enabled plugin accepted was never put to one, and an installation with
+// no description plugins at all attempts nothing.
+//
+// One description_plugin_call row is written per ExtractBatch call, including the
+// calls that fail: a plugin populates its telemetry on every path, and a call that
+// errored is the one most worth having a row for. The row hangs off the run rather
+// than off a key because one call covers many descriptions at once.
+func runDescriptionPluginsBatch(ctx context.Context, deps ingestDeps, broker, source string, items []description.BatchItem) (map[string][]identifier.Identifier, map[string]string, error) {
+	outcomes := make(map[string]string, len(items))
+	noPlugins := func() map[string]string {
+		for _, item := range items {
+			outcomes[item.ID] = db.TelemetryExtractionNotAttemptedNoPlugins
+		}
+		return outcomes
 	}
-	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryDescription)
+	if deps.DescRegistry == nil || len(items) == 0 {
+		return nil, noPlugins(), nil
+	}
+	configs, err := deps.DB.ListEnabledPluginConfigs(ctx, db.PluginCategoryDescription)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if len(configs) > 0 && counter != nil {
-		counter.IncrBy(ctx, "instruments.resolution.totals.description.attempts", int64(len(items)))
+	if len(configs) > 0 && deps.Counter != nil {
+		deps.Counter.IncrBy(ctx, "instruments.resolution.totals.description.attempts", int64(len(items)))
 	}
 	resolved := make(map[string]bool)
+	// attempted is an item that reached at least one plugin. One that reached none
+	// was excluded by every plugin's type filter, which is a skip rather than a
+	// failure to find anything.
+	attempted := make(map[string]bool)
+	anyPlugin := false
 	merged := make(map[string][]identifier.Identifier)
 	for _, c := range configs {
-		p := descRegistry.Get(c.PluginID)
+		p := deps.DescRegistry.Get(c.PluginID)
 		if p == nil {
 			continue
 		}
+		anyPlugin = true
 		acceptableKinds := p.AcceptableInstrumentKinds()
 		acceptableTypes := p.AcceptableSecurityTypes()
 		var filtered []description.BatchItem
@@ -144,16 +181,32 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 			}
 			if identifier.ShouldAttemptPlugin(acceptableKinds, acceptableTypes, item.Hints.InstrumentKind, item.Hints.SecurityTypeHint) {
 				filtered = append(filtered, item)
+				attempted[item.ID] = true
 			}
 		}
 		if len(filtered) == 0 {
 			ingestionLogger().DebugContext(ctx, "description plugin batch skipped (no items with acceptable security type)", "plugin_id", c.PluginID)
 			continue
 		}
+		started := time.Now()
 		res, err := p.ExtractBatch(ctx, c.Config, broker, source, filtered)
+		call := db.TelemetryDescriptionPluginCall{
+			RunID:     deps.RunID,
+			PluginID:  c.PluginID,
+			BatchSize: len(filtered),
+			Outcome:   string(res.Telemetry.Outcome),
+			Tokens:    descriptionTokens(res.Telemetry.Tokens),
+			Duration:  time.Since(started),
+		}
 		if err != nil {
-			if counter != nil {
-				counter.Incr(ctx, "instruments.resolution.totals.description.plugin_error")
+			// A plugin that returned an error without saying how it went is not
+			// meant to happen, but the row is worth more than the exactness here.
+			if call.Outcome == "" {
+				call.Outcome = string(description.OutcomeError)
+			}
+			deps.writeDescriptionPluginCall(ctx, call)
+			if deps.Counter != nil {
+				deps.Counter.Incr(ctx, "instruments.resolution.totals.description.plugin_error")
 			}
 			ingestionLogger().DebugContext(ctx, "description plugin batch result: error", "plugin_id", c.PluginID, "err", err)
 			continue
@@ -166,8 +219,10 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 				merged[id] = filteredHints
 				resolved[id] = true
 				hasAny = true
+				call.ItemsWithHints++
 			}
 		}
+		deps.writeDescriptionPluginCall(ctx, call)
 		if hasAny {
 			for id, hints := range out {
 				if len(hints) > 0 {
@@ -178,13 +233,26 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 			ingestionLogger().DebugContext(ctx, "description plugin batch result: no hints", "plugin_id", c.PluginID, "batch_ids", batchItemIDs(filtered))
 		}
 	}
+	if !anyPlugin {
+		return nil, noPlugins(), nil
+	}
+	for _, item := range items {
+		switch {
+		case resolved[item.ID]:
+			outcomes[item.ID] = db.TelemetryExtractionHintsFound
+		case attempted[item.ID]:
+			outcomes[item.ID] = db.TelemetryExtractionNoHints
+		default:
+			outcomes[item.ID] = db.TelemetryExtractionNotAttemptedTypeFilter
+		}
+	}
 	if len(merged) > 0 {
-		return merged, nil
+		return merged, outcomes, nil
 	}
-	if counter != nil {
-		counter.Incr(ctx, "instruments.resolution.totals.description.no_hints")
+	if deps.Counter != nil {
+		deps.Counter.Incr(ctx, "instruments.resolution.totals.description.no_hints")
 	}
-	return nil, nil
+	return nil, outcomes, nil
 }
 
 // Resolve resolves (source, instrumentDescription) to an instrument_id using the batch cache, then (when no client
@@ -194,10 +262,14 @@ func runDescriptionPluginsBatch(ctx context.Context, database db.PluginConfigDB,
 // When client supplies identifier_hints, resolution is by identifiers only and (source, description) is not persisted
 // to the DB as a BROKER_DESCRIPTION identifier (though results are still cached in the in-memory batch cache).
 // hints are optional (exchange, currency, MIC, security type). counter is optional; when non-nil and plugins are invoked, instrument.identify.attempts is incremented.
-func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, rowIndex int32, counter telemetry.CounterIncrementer, extractedHintsCache map[string][]identifier.Identifier, hintsValidAt *time.Time) (resolveResult, error) {
+func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, rowIndex int32, counter telemetry.CounterIncrementer, extractedHintsCache map[string][]identifier.Identifier, hintsValidAt *time.Time, keys *resolutionKeys) (resolveResult, error) {
 	key := cacheKeyWithHints(source, instrumentDescription, identifierHints)
 	if cache != nil {
 		if r, ok := cache[key]; ok {
+			// A hit nothing in this batch resolved is the pre-pass's DB lookup by
+			// (source, description). One this batch did resolve has already
+			// stamped its key, and the first stamp is the one that stands.
+			keys.end(ctx, key, db.TelemetryResolutionDBSourceDescription, r.InstrumentID)
 			return r, nil
 		}
 	}
@@ -213,6 +285,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			return resolveResult{}, err
 		}
 		if len(ids) > 1 {
+			keys.end(ctx, key, db.TelemetryResolutionConflictingHints, "")
 			return resolveResult{}, fmt.Errorf("conflicting identifier hints resolve to different instruments")
 		}
 		if len(ids) == 1 {
@@ -220,10 +293,11 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			if cache != nil {
 				cache[key] = r
 			}
+			keys.end(ctx, key, db.TelemetryResolutionDBIdentifierHints, r.InstrumentID)
 			return r, nil
 		}
 		// No DB hit: call identifier plugins with hints; do not persist (source, description) as BROKER_DESCRIPTION.
-		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, counter, false, hintsValidAt)
+		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, counter, false, hintsValidAt, keys)
 	}
 
 	// Path B: no client hints -- use pre-extracted description hints, then identifier plugins.
@@ -252,6 +326,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 		if cache != nil {
 			cache[key] = r
 		}
+		keys.end(ctx, key, db.TelemetryResolutionExtractionFailed, instID)
 		return r, nil
 	}
 
@@ -261,9 +336,11 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	tickerHints := hintsByType(extractedHints, "MIC_TICKER")
 	figiHints := hintsByType(extractedHints, "OPENFIGI_SHARE_CLASS")
 	if len(tickerHints) > 0 && len(figiHints) > 0 {
-		// Resolve with nil cache and nil counter so we don't pollute cache or double-count identify attempts.
-		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, tickerHints, nil, key, rowIndex, nil, true, hintsValidAt)
-		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, figiHints, nil, key, rowIndex, nil, true, hintsValidAt)
+		// Resolve with nil cache, nil counter and no key ledger: these two are
+		// probes, so they must not pollute the cache, double-count identify
+		// attempts, or stamp the key before the resolution that decides it.
+		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, tickerHints, nil, key, rowIndex, nil, true, hintsValidAt, nil)
+		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, figiHints, nil, key, rowIndex, nil, true, hintsValidAt, nil)
 		idByTicker := resultByTicker.InstrumentID
 		idByFigi := resultByFigi.InstrumentID
 		// Consider "unresolved" (broker-description-only) as empty for mismatch check
@@ -271,6 +348,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			if counter != nil {
 				counter.Incr(ctx, "instruments.resolution.totals.description.identifier_mismatch")
 			}
+			keys.mismatch(key)
 			ingestionLogger().ErrorContext(ctx, "MIC_TICKER and OPENFIGI_SHARE_CLASS resolved to different instruments; using MIC_TICKER",
 				"source", source, "instrument_description", instrumentDescription,
 				"instrument_id_by_ticker", idByTicker, "instrument_id_by_figi", idByFigi)
@@ -279,7 +357,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	}
 
 	// Resolve by (validated) hints; always store (source, description) when ensuring.
-	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, counter, true, hintsValidAt)
+	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, counter, true, hintsValidAt, keys)
 }
 
 // hintDiffsSummary formats hint diffs as a readable string (e.g. "Currency: USD->EUR, ISIN: US037->US038").
@@ -311,7 +389,7 @@ func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identif
 
 // resolveWithIdentifierPlugins delegates to the shared identification package and wraps the result
 // in ingestion-specific resolveResult with cache and error handling.
-func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, key string, rowIndex int32, counter telemetry.CounterIncrementer, storeSourceDescription bool, hintsValidAt *time.Time) (resolveResult, error) {
+func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, key string, rowIndex int32, counter telemetry.CounterIncrementer, storeSourceDescription bool, hintsValidAt *time.Time, keys *resolutionKeys) (resolveResult, error) {
 	// Ingestion-specific fallback: broker-description-only instrument.
 	fallback := func(ctx context.Context, database db.DB) (string, error) {
 		return database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "",
@@ -345,5 +423,6 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 	if cache != nil {
 		cache[key] = r
 	}
+	keys.end(ctx, key, resolutionOutcome(result), r.InstrumentID)
 	return r, nil
 }

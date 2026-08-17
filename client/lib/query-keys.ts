@@ -23,7 +23,6 @@ export const qk = {
   unhandledCorporateEventCount: () => ["unhandled-corporate-event-count"] as const,
   corporateEventSplits: () => ["corporate-event-splits"] as const,
   priceFetchBlocks: () => ["price-fetch-blocks"] as const,
-  telemetryCounters: () => ["telemetry-counters"] as const,
   holdings: (portfolioId?: string) => ["holdings", portfolioId ?? null] as const,
   displayCurrency: () => ["display-currency"] as const,
   valuation: (portfolioId: string | undefined, dateFrom: string, dateBefore: string, currency: string) =>

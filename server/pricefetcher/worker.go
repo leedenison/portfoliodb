@@ -9,7 +9,6 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/pluginutil"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/worker"
 )
 
@@ -18,7 +17,7 @@ const DefaultPricePluginTimeout = 60 * time.Second
 // RunWorker processes price fetch cycles triggered via the trigger channel.
 // It blocks until ctx is cancelled. Each signal on trigger runs one cycle;
 // rapid signals are debounced (buffered channel of size 1).
-func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, tel db.TelemetryDB, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+func RunWorker(ctx context.Context, database db.DB, registry *Registry, tel db.TelemetryDB, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
 	if tel == nil {
 		tel = db.NopTelemetry{}
 	}
@@ -36,7 +35,7 @@ func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter 
 			}
 			runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunPriceFetchCycle})
 			outcome := db.TelemetryOutcomeSuccess
-			if err := runCycle(ctx, database, registry, counter, log, workers, tel, runID); err != nil {
+			if err := runCycle(ctx, database, registry, log, workers, tel, runID); err != nil {
 				outcome = db.TelemetryOutcomeFailed
 			}
 			tel.EndRun(ctx, runID, outcome)
@@ -56,11 +55,8 @@ type pluginEntry struct {
 	maxHistDays *int
 }
 
-func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry, tel db.TelemetryDB, runID string) error {
+func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog.Logger, workers *worker.Registry, tel db.TelemetryDB, runID string) error {
 	const name = "price_fetcher"
-	if counter != nil {
-		counter.Incr(ctx, "price_fetcher.cycles")
-	}
 	defer func() {
 		if workers != nil {
 			workers.SetIdle(name)

@@ -167,7 +167,7 @@ func TestCycleRecordsWhatItWasAskedFor(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register("eodhd", &fetchStub{idTypes: []string{"SEDOL"}})
 
-	if err := runCycle(context.Background(), mockDB, reg, nil, nil, nil, tel, "run-1"); err != nil {
+	if err := runCycle(context.Background(), mockDB, reg, nil, nil, tel, "run-1"); err != nil {
 		t.Fatalf("runCycle: %v", err)
 	}
 
@@ -234,7 +234,7 @@ func TestCycleRecordsAFilledGap(t *testing.T) {
 		}},
 	}.expect(mockDB)
 
-	if err := runCycle(context.Background(), mockDB, reg, nil, nil, nil, tel, "run-1"); err != nil {
+	if err := runCycle(context.Background(), mockDB, reg, nil, nil, tel, "run-1"); err != nil {
 		t.Fatalf("runCycle: %v", err)
 	}
 
@@ -289,7 +289,7 @@ func TestCycleRecordsAnEmptyAnswerAsSettled(t *testing.T) {
 		}},
 	}.expect(mockDB)
 
-	if err := runCycle(context.Background(), mockDB, reg, nil, nil, nil, tel, "run-1"); err != nil {
+	if err := runCycle(context.Background(), mockDB, reg, nil, nil, tel, "run-1"); err != nil {
 		t.Fatalf("runCycle: %v", err)
 	}
 
@@ -333,7 +333,7 @@ func TestCycleRecordsAHistoryLimitWithoutADuration(t *testing.T) {
 		}},
 	}.expect(mockDB)
 
-	if err := runCycle(context.Background(), mockDB, reg, nil, nil, nil, tel, "run-1"); err != nil {
+	if err := runCycle(context.Background(), mockDB, reg, nil, nil, tel, "run-1"); err != nil {
 		t.Fatalf("runCycle: %v", err)
 	}
 
@@ -375,7 +375,7 @@ func TestCycleRecordsAPluginFailure(t *testing.T) {
 		}},
 	}.expect(mockDB)
 
-	if err := runCycle(context.Background(), mockDB, reg, nil, nil, nil, tel, "run-1"); err != nil {
+	if err := runCycle(context.Background(), mockDB, reg, nil, nil, tel, "run-1"); err != nil {
 		t.Fatalf("runCycle: %v", err)
 	}
 
@@ -406,7 +406,7 @@ func TestCycleWithNoPluginRecordsEveryGap(t *testing.T) {
 		configs: nil,
 	}.expect(mockDB)
 
-	if err := runCycle(context.Background(), mockDB, NewRegistry(), nil, nil, nil, tel, "run-1"); err != nil {
+	if err := runCycle(context.Background(), mockDB, NewRegistry(), nil, nil, tel, "run-1"); err != nil {
 		t.Fatalf("runCycle: %v", err)
 	}
 
@@ -452,7 +452,7 @@ func TestCancelledCycleStopsAndLeavesTheRestUnstamped(t *testing.T) {
 		},
 	}.expect(mockDB)
 
-	err := runCycle(ctx, mockDB, reg, nil, nil, nil, tel, "run-1")
+	err := runCycle(ctx, mockDB, reg, nil, nil, tel, "run-1")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("runCycle err = %v, want context.Canceled so the run is not stamped success", err)
 	}

@@ -36,7 +36,7 @@ func TestRunCycle_WritesThePairsItFinds(t *testing.T) {
 			return len(ms), nil
 		})
 
-	_ = runCycle(ctx, mockDB, nil, nil, nil)
+	_ = runCycle(ctx, mockDB, nil, nil)
 }
 
 // TestRunCycle_ReadsEveryUser verifies the pass is whole-corpus rather than scoped to
@@ -50,7 +50,7 @@ func TestRunCycle_ReadsEveryUser(t *testing.T) {
 	mockDB.EXPECT().ListUnmatchedTransferSides(gomock.Any(), db.TransferSideOpts{UserID: ""}).
 		Return(nil, nil)
 
-	_ = runCycle(context.Background(), mockDB, nil, nil, nil)
+	_ = runCycle(context.Background(), mockDB, nil, nil)
 }
 
 // TestRunCycle_WritesNothingWhenNothingPairs verifies a corpus of unmatchable sides
@@ -64,7 +64,7 @@ func TestRunCycle_WritesNothingWhenNothingPairs(t *testing.T) {
 		Return([]db.TransferSide{side("g-isa", "AS10000001", "-19599", 0, "553113055")}, nil)
 	// No CreateTransferMatches call is expected: gomock fails the test if one comes.
 
-	_ = runCycle(context.Background(), mockDB, nil, nil, nil)
+	_ = runCycle(context.Background(), mockDB, nil, nil)
 }
 
 // TestRunCycle_SurvivesAReadError verifies a failing cycle returns rather than
@@ -77,7 +77,7 @@ func TestRunCycle_SurvivesAReadError(t *testing.T) {
 	mockDB.EXPECT().ListUnmatchedTransferSides(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("connection reset"))
 
-	_ = runCycle(context.Background(), mockDB, nil, nil, nil)
+	_ = runCycle(context.Background(), mockDB, nil, nil)
 }
 
 // TestRunCycle_SurvivesAWriteError verifies the same for the write half.
@@ -93,5 +93,5 @@ func TestRunCycle_SurvivesAWriteError(t *testing.T) {
 	mockDB.EXPECT().CreateTransferMatches(gomock.Any(), gomock.Any()).
 		Return(0, errors.New("deadlock detected"))
 
-	_ = runCycle(context.Background(), mockDB, nil, nil, nil)
+	_ = runCycle(context.Background(), mockDB, nil, nil)
 }

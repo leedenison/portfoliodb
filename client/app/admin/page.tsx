@@ -65,12 +65,6 @@ const dashboardCards: {
     description: "Background worker status and manual fetch triggers.",
   },
   {
-    id: "telemetry",
-    title: "Telemetry",
-    href: "/admin/telemetry",
-    description: "View Redis-backed counters (portfoliodb:counters:*).",
-  },
-  {
     id: "tools",
     title: "Authentication",
     href: "/admin/tools",

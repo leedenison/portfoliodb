@@ -177,7 +177,7 @@ func TestResolveWithPlugins_DBHit(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, Attempt{}, nil, 0, nil)
+		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, Attempt{}, nil, 0, nil)
+		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestResolveWithPlugins_StampsIdentityAsOfOnPluginSuccess(t *testing.T) {
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, Attempt{}, nil, 0, nil); err != nil {
+		false, nil, Attempt{}, nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
 }
@@ -285,7 +285,7 @@ func TestResolveWithPlugins_NoStampOnFallback(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "src", "desc", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		true, fallback, nil, Attempt{}, nil, 0, nil)
+		true, fallback, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestResolveWithPlugins_AllPluginsFail_Fallback(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "XYZ"}},
-		false, fallback, nil, Attempt{}, nil, 0, nil)
+		false, fallback, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -367,7 +367,7 @@ func TestResolveWithPlugins_Timeout_SetsHadTimeout(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "SLOW"}},
-		false, fallback, nil, Attempt{}, nil, 0, nil)
+		false, fallback, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestResolveWithPlugins_NilFallback_ReturnsEmpty(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "XYZ"}},
-		false, nil, nil, Attempt{}, nil, 0, nil)
+		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"IBKR", source, desc, identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: desc}},
-		true, nil, nil, Attempt{}, nil, 0, nil)
+		true, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -488,7 +488,7 @@ func TestResolveWithPlugins_PluginError_SetsHadError(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "BAD"}},
-		false, fallback, nil, Attempt{}, nil, 0, nil)
+		false, fallback, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -779,7 +779,7 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, Attempt{}, nil, 0, nil)
+		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -1003,7 +1003,7 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, Attempt{}, nil, 0, nil)
+		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -1179,7 +1179,7 @@ func TestResolveWithPlugins_HintMatchPrefersLowerPrecedence(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{Currency: "GBX"},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}},
-		false, nil, nil, Attempt{}, nil, 0, nil)
+		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -1230,7 +1230,7 @@ func TestResolveWithPlugins_NoHintMatch_FallsBackToPrecedence(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{Currency: "GBX"},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, Attempt{}, nil, 0, nil)
+		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -1277,7 +1277,7 @@ func TestResolveWithPlugins_NoHints_PurePrecedence(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, Attempt{}, nil, 0, nil)
+		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -1322,7 +1322,7 @@ func TestResolveWithPlugins_AllMatch_HighestPrecedenceWins(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{Currency: "GBX"},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}},
-		false, nil, nil, Attempt{}, nil, 0, nil)
+		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -1369,7 +1369,7 @@ func TestResolveWithPlugins_SparseResultDoesNotVacuouslyMatch(t *testing.T) {
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{Currency: "GBX"},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Domain: "XLON", Value: "BA"}},
-		false, nil, nil, Attempt{}, nil, 0, nil)
+		false, nil, Attempt{}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}

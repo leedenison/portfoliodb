@@ -13,7 +13,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/txtype"
 )
 
@@ -33,7 +32,6 @@ type ingestDeps struct {
 	DB           db.DB
 	Registry     *identifier.Registry
 	DescRegistry *description.Registry
-	Counter      telemetry.CounterIncrementer
 	// Telemetry and RunID are the run this batch is part of. Either left unset
 	// records nothing: a batch outside a run has nothing to hang its event rows
 	// off, and the writer would reject them.

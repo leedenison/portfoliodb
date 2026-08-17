@@ -162,7 +162,7 @@ func TestRunCycle_FXGapsProcessed(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), fxInstID, pluginID, gomock.Any(), from, to, gomock.Any()).Return(nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil, db.NopTelemetry{}, "")
+	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
 	if stub.calls != 1 {
 		t.Errorf("expected 1 FetchPrices call for FX gap, got %d", stub.calls)
@@ -244,7 +244,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 		},
 	}, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil, db.NopTelemetry{}, "")
+	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
 	if stub.calls != 0 {
 		t.Errorf("expected 0 FetchPrices calls for blocked plugin, got %d", stub.calls)
@@ -289,7 +289,7 @@ func TestRunCycle_ErrPermanentCreatesBlock(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().CreatePriceFetchBlock(gomock.Any(), instID, pluginID, "ticker not found").Return(nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil, db.NopTelemetry{}, "")
+	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
 	if stub.calls != 1 {
 		t.Errorf("expected 1 FetchPrices call, got %d", stub.calls)
@@ -343,7 +343,7 @@ func TestRunCycle_MaxHistoryTruncation(t *testing.T) {
 	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, nil, from, cutoff, gomock.Any()).Return(nil)
 	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, gomock.Any(), cutoff, to, gomock.Any()).Return(nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil, db.NopTelemetry{}, "")
+	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
 	if stub.calls != 1 {
 		t.Errorf("expected 1 FetchPrices call (truncated), got %d", stub.calls)
@@ -393,7 +393,7 @@ func TestRunCycle_MaxHistorySkipsOldGap(t *testing.T) {
 	// rather than being asked about again every cycle.
 	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, nil, from, to, gomock.Any()).Return(nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil, db.NopTelemetry{}, "")
+	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
 	if stub.calls != 0 {
 		t.Errorf("expected 0 FetchPrices calls for gap older than max history, got %d", stub.calls)
@@ -429,7 +429,7 @@ func TestRunCycle_NoDataRecordsCoverage(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, pluginID, nil, from, to, gomock.Any()).Return(nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil, db.NopTelemetry{}, "")
+	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
 	if stub.calls != 1 {
 		t.Errorf("expected 1 FetchPrices call, got %d", stub.calls)
@@ -465,7 +465,7 @@ func TestRunCycle_CoveredRangeNotRefetched(t *testing.T) {
 		{ID: instID, AssetClass: strPtr("STOCK"), Identifiers: []db.IdentifierInput{{Type: "MIC_TICKER", Value: "AAPL"}}},
 	}, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil, db.NopTelemetry{}, "")
+	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
 	if stub.calls != 0 {
 		t.Errorf("expected no FetchPrices call for an already covered range, got %d", stub.calls)
@@ -506,7 +506,7 @@ func TestRunCycle_OtherPluginStillAskedAfterCoverage(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().UpsertPricesForRange(gomock.Any(), instID, freshID, gomock.Any(), from, to, gomock.Any()).Return(nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil, db.NopTelemetry{}, "")
+	_ = runCycle(ctx, mockDB, reg, nil, nil, db.NopTelemetry{}, "")
 
 	if covered.calls != 0 {
 		t.Errorf("covered plugin should not be asked again, got %d calls", covered.calls)
@@ -537,7 +537,7 @@ func TestRunWorker_DebounceCollapsesTriggers(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunWorker(ctx, mockDB, NewRegistry(), nil, nil, nil, trigger, workers)
+		RunWorker(ctx, mockDB, NewRegistry(), nil, nil, trigger, workers)
 		close(done)
 	}()
 

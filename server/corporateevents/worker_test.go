@@ -224,7 +224,7 @@ func TestRunCycle_OptionPassRunsWithNoPluginsEnabled(t *testing.T) {
 	}}, nil)
 	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).Return(nil)
 
-	_ = runCycle(ctx, mockDB, NewRegistry(), nil, nil, nil)
+	_ = runCycle(ctx, mockDB, NewRegistry(), nil, nil)
 }
 
 // TestRunCycle_OptionPassRunsWithNothingHeld verifies the same for the other
@@ -237,7 +237,7 @@ func TestRunCycle_OptionPassRunsWithNothingHeld(t *testing.T) {
 	mockDB.EXPECT().HeldEventBearingInstruments(gomock.Any()).Return(nil, nil)
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, NewRegistry(), nil, nil, nil)
+	_ = runCycle(ctx, mockDB, NewRegistry(), nil, nil)
 }
 
 func TestRunCycle_EmptyResultRecordsCoverage(t *testing.T) {
@@ -293,7 +293,7 @@ func TestRunCycle_EmptyResultRecordsCoverage(t *testing.T) {
 	// The option pass runs once per cycle regardless of what landed.
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil)
+	_ = runCycle(ctx, mockDB, reg, nil, nil)
 
 	if highPrec.calls != 1 {
 		t.Errorf("high plugin: expected 1 call, got %d", highPrec.calls)
@@ -346,7 +346,7 @@ func TestRunCycle_SplitsLandTriggerRecompute(t *testing.T) {
 	// The option pass runs once for the cycle, across all underlyings.
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil)
+	_ = runCycle(ctx, mockDB, reg, nil, nil)
 
 	if plugin.calls != 1 {
 		t.Errorf("expected 1 call, got %d", plugin.calls)
@@ -401,7 +401,7 @@ func TestRunCycle_OptionPassRunsWithoutSplitsLanding(t *testing.T) {
 		Splits: []db.StockSplit{split(instID, date(2025, 1, 15), "1", "2")},
 	}}, nil)
 	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).Return(nil)
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil)
+	_ = runCycle(ctx, mockDB, reg, nil, nil)
 }
 
 // TestRunCycle_PermanentErrorCreatesBlock verifies that ErrPermanent results
@@ -452,7 +452,7 @@ func TestRunCycle_PermanentErrorCreatesBlock(t *testing.T) {
 	// The option pass runs once per cycle regardless of what landed.
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil)
+	_ = runCycle(ctx, mockDB, reg, nil, nil)
 
 	if failing.calls != 1 || good.calls != 1 {
 		t.Errorf("expected both plugins called once, got broken=%d good=%d", failing.calls, good.calls)
@@ -523,7 +523,7 @@ func TestRunCycle_SpecialDividendRoutedToUnhandled(t *testing.T) {
 	// The option pass runs once per cycle regardless of what landed.
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil)
+	_ = runCycle(ctx, mockDB, reg, nil, nil)
 }
 
 // TestRunCycle_BlockedPluginSkipped verifies that fetch blocks are honored.
@@ -563,7 +563,7 @@ func TestRunCycle_BlockedPluginSkipped(t *testing.T) {
 	// The option pass runs once per cycle regardless of what landed.
 	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(nil, nil)
 
-	_ = runCycle(ctx, mockDB, reg, nil, nil, nil)
+	_ = runCycle(ctx, mockDB, reg, nil, nil)
 
 	if plugin.calls != 0 {
 		t.Errorf("expected 0 calls, got %d", plugin.calls)

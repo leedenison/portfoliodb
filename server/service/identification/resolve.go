@@ -13,7 +13,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
 	"github.com/leedenison/portfoliodb/server/identifier"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 )
 
 const (
@@ -399,7 +398,6 @@ func ResolveWithPlugins(
 	identifierHints []identifier.Identifier,
 	storeSourceDescription bool,
 	fallback FallbackFunc,
-	counter telemetry.CounterIncrementer,
 	tel Attempt,
 	logger *slog.Logger,
 	depth int,
@@ -459,9 +457,6 @@ func ResolveWithPlugins(
 			continue
 		}
 		inputs = append(inputs, pluginInput{config: c, plugin: p})
-	}
-	if len(inputs) > 0 && counter != nil {
-		counter.Incr(ctx, "instruments.resolution.totals.identify.attempts")
 	}
 	if len(inputs) == 0 {
 		l.DebugContext(ctx, "instrument resolution: no enabled identifier plugins", "source", source, "instrument_description", instrumentDescription)
@@ -632,7 +627,7 @@ func ResolveWithPlugins(
 			uIdnHints := make([]identifier.Identifier, len(inst.UnderlyingIdentifiers))
 			copy(uIdnHints, inst.UnderlyingIdentifiers)
 			// Underlying resolution: no source description, no fallback needed (use nil).
-			uResult, uErr := ResolveWithPlugins(ctx, database, registry, broker, source, "", uHints, uIdnHints, false, nil, counter, tel.underlying(), logger, depth+1, nil)
+			uResult, uErr := ResolveWithPlugins(ctx, database, registry, broker, source, "", uHints, uIdnHints, false, nil, tel.underlying(), logger, depth+1, nil)
 			if uErr != nil {
 				l.WarnContext(ctx, "underlying resolution failed", "instrument_description", instrumentDescription, "err", uErr)
 			} else if uResult.InstrumentID != "" {

@@ -89,6 +89,8 @@ existed to prevent. Plugins consequently stop depending on a telemetry interface
 ## Consequences
 
 The counters half of 0009 is superseded; the logging half stands. The Redis counter
-infrastructure is retained but is left with no defined counters. The admin telemetry page
-and the RPC behind it lose their subject matter, and what becomes of them is settled
-separately.
+infrastructure is retained but is left with no defined counters and no callers, so that
+reintroducing a counter is a matter of calling it rather than rebuilding it. The admin
+telemetry page and the `ListTelemetryCounters` RPC behind it lost their subject matter and
+are removed, and the prefix scan that only ever served that page goes with them. Nothing
+in the SPA reports telemetry: it is read in Grafana.

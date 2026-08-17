@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/leedenison/portfoliodb/server/db"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/worker"
 	"github.com/shopspring/decimal"
 )
@@ -22,7 +21,7 @@ var gapStart = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 // RunWorker processes inflation fetch cycles triggered via the trigger channel.
 // It blocks until ctx is cancelled. Each signal on trigger runs one cycle;
 // rapid signals are debounced (buffered channel of size 1).
-func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, tel db.TelemetryDB, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+func RunWorker(ctx context.Context, database db.DB, registry *Registry, tel db.TelemetryDB, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
 	if tel == nil {
 		tel = db.NopTelemetry{}
 	}
@@ -40,7 +39,7 @@ func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter 
 			}
 			runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunInflationCycle})
 			outcome := db.TelemetryOutcomeSuccess
-			if err := runCycle(ctx, database, registry, counter, log, workers); err != nil {
+			if err := runCycle(ctx, database, registry, log, workers); err != nil {
 				outcome = db.TelemetryOutcomeFailed
 			}
 			tel.EndRun(ctx, runID, outcome)
@@ -55,11 +54,8 @@ type pluginEntry struct {
 	config []byte
 }
 
-func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) error {
+func runCycle(ctx context.Context, database db.DB, registry *Registry, log *slog.Logger, workers *worker.Registry) error {
 	const name = "inflation_fetcher"
-	if counter != nil {
-		counter.Incr(ctx, "inflation_fetcher.cycles")
-	}
 	defer func() {
 		if workers != nil {
 			workers.SetIdle(name)

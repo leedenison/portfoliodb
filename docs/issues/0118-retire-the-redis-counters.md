@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Retire the Redis counters and the admin telemetry page
 milestone: M20
 dependencies: [0116, 0117]

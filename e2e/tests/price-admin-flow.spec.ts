@@ -70,10 +70,6 @@ test.describe("admin navigation", () => {
 
     await page.goto("/admin/plugins/price");
     await expect(page.getByRole("heading", { name: "Price" })).toBeVisible();
-
-    // Telemetry page.
-    await page.goto("/admin/telemetry");
-    await expect(page.getByRole("heading", { name: "Telemetry" })).toBeVisible();
   });
 });
 

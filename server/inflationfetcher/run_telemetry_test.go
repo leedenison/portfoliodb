@@ -47,7 +47,7 @@ func TestCycleOpensARun(t *testing.T) {
 			trigger := make(chan struct{}, 1)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			go RunWorker(ctx, mockDB, NewRegistry(), nil, tel, nil, trigger, nil)
+			go RunWorker(ctx, mockDB, NewRegistry(), tel, nil, trigger, nil)
 			trigger <- struct{}{}
 			<-ended
 

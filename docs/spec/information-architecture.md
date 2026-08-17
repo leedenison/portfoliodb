@@ -26,10 +26,10 @@ The informantion architecture describes key concepts for users (and admin users)
     - **Prices** are the shared price data for instruments.  Admin users are primarily interested in the periods of time for which we have price data for a given instrument.  They are also interested in retrieval failures and whether there are periods of time for which we have been unable to fetch price data for a given instrument.
  * **Plugins** cover the integration with external services for providing instrument identity, price data and corporate events.  Plugins should be organised by type and each plugin should be presented separately.
     - **Configuration** is the configuration for each plugin including the enabled switch and precedence.  Precedence is an ordering someone chose rather than something that can be reconstructed, so it belongs in the archive; carrying it also carries live API keys, which is why including it is a deliberate choice rather than the default.
-    - **Telemetry** covers counters for paths specific to a particular plugin.
+    - **Telemetry** for a plugin -- how often it was called, how it ended and what it cost -- is event rows in the `telemetry` schema read through Grafana rather than anything the SPA shows.
  * **Diagnostics** cover the information and tools which allow the admin user to maintain the system.
     - **Logs** provide a history of notable events (eg. errors, restarts, etc) that have occurred on the system.
-    - **Telemetry** provides counters for notable events which can be viewed in aggregate (eg. uploads (successes and failures), 5xx errors, etc).  These can be presented as a history over time as well as a current snapshot.
+    - **Telemetry** is run-scoped event rows in the `telemetry` schema, read through Grafana rather than through the SPA.  One row is one completed unit of work carrying one outcome, so what happened during a particular import is answerable rather than merely counted; see telemetry.md.
     - **Tools** provide debugging and diagnostic tools (eg. ID Token creation for use with scripts).
 
 ## User Navigation
@@ -122,7 +122,6 @@ Admin pages live under `/admin` and use a dedicated layout with a left sidebar. 
 | **Plugins** | Inflation | `/admin/plugins/inflation` | Active |
 | **Diagnostics** | Imbalance | `/admin/imbalance` | Active |
 | **Diagnostics** | Logs | `/admin/logs` | Disabled |
-| **Diagnostics** | Telemetry | `/admin/telemetry` | Active |
 | **Diagnostics** | Workers | `/admin/workers` | Active |
 | **Diagnostics** | Authentication | `/admin/tools` | Active |
 
@@ -131,8 +130,8 @@ Admin pages live under `/admin` and use a dedicated layout with a left sidebar. 
  * **Dashboard** is the admin landing page and should provide a dashboard-style summary with quick links to the most important admin functions, including the Archive.
  * **Archive** (`/admin/archive`) is the one place the system archive is produced and consumed.  It sits at the top level rather than inside a section because the data it carries spans all three of them.  It offers a menu of what to include; a part left out is absent from the file, and a part included but holding nothing is written empty, which records that the export asked and there was nothing.  Plugin config is the one part not ticked by default: it carries live API keys, which makes the file a secret and changes where it can safely be kept, so including it is a deliberate choice rather than one inherited from a default.  An import is applied on the server, so it finishes whether or not the page stays open, and it reports a result per part: how much was applied, and which rows were rejected.  No user data is reachable from this page.
  * **Reference Data** groups Instruments, Prices, Corporate Events and Inflation.  These are the data stewardship pages the admin visits most frequently.  They show what the instance holds and its health; producing or restoring a file is done from the Archive rather than from any of them, so there is one way to do it rather than several.
- * **Plugins** lists individual plugin types: Identifier (`/admin/plugins/identifier`), Description (`/admin/plugins/description`), Price (`/admin/plugins/price`) and Inflation (`/admin/plugins/inflation`).  Each plugin page shows configuration and telemetry for that plugin type.  All are active.
- * **Diagnostics** groups Imbalance, Logs, Telemetry, Workers and Authentication.  Telemetry (`/admin/telemetry`), Workers (`/admin/workers`) and Authentication (`/admin/tools`) are active; Logs is disabled until implemented.
+ * **Plugins** lists individual plugin types: Identifier (`/admin/plugins/identifier`), Description (`/admin/plugins/description`), Price (`/admin/plugins/price`) and Inflation (`/admin/plugins/inflation`).  Each plugin page shows configuration for that plugin type; how the plugin has been behaving is read in Grafana.  All are active.
+ * **Diagnostics** groups Imbalance, Logs, Workers and Authentication.  Workers (`/admin/workers`) and Authentication (`/admin/tools`) are active; Logs is disabled until implemented.  Telemetry is not among them: it is read in Grafana, not here.
  * **Imbalance** (`/admin/imbalance`) reports the residual and transfer-clearing balances left in non-asset accounts, aggregated across all users and grouped by broker, account, commodity and the event that left them.  It is an admin surface because it measures how lossy each broker converter is rather than what is in any one portfolio, and it carries no user identity.  The per-user view of the same data belongs with user alerts.  Its transfers view lists the transfers whose second side has not arrived; a matched pair is settled and is excluded.
  * **Workers** (`/admin/workers`) lists each background worker with its state, what it is doing, its queue depth and the number of cycles it has completed since the service started.  The cycle count resets with the process and is there because a worker's state alone cannot answer whether it has run: a cycle that finds no work never leaves idle, so a worker that has just run and found nothing is indistinguishable from one that has not started.  Each worker that can be triggered by hand offers a trigger control.
  * Section headers (Reference Data, Plugins, Diagnostics) are non-clickable labels that organise the sidebar visually.

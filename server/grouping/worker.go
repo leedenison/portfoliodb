@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"github.com/leedenison/portfoliodb/server/db"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/worker"
 )
 
@@ -25,7 +24,7 @@ const name = "grouping"
 // clock in this process. The ingestion worker fires it after a tx import commits, so
 // legs that have just landed beside older ones are joined without waiting for the
 // next tick.
-func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, tel db.TelemetryDB, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+func RunWorker(ctx context.Context, database db.DB, tel db.TelemetryDB, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
 	if tel == nil {
 		tel = db.NopTelemetry{}
 	}
@@ -42,7 +41,7 @@ func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterInc
 			}
 			runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunGroupingCycle})
 			outcome := db.TelemetryOutcomeSuccess
-			if err := runCycle(ctx, database, counter, log, workers); err != nil {
+			if err := runCycle(ctx, database, log, workers); err != nil {
 				outcome = db.TelemetryOutcomeFailed
 			}
 			tel.EndRun(ctx, runID, outcome)
@@ -56,10 +55,7 @@ func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterInc
 // It writes only its disagreements, so a cycle that repartitions nothing writes
 // nothing -- which is what lets it run over a region far wider than any upload
 // without churning ids for postings nobody touched.
-func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) error {
-	if counter != nil {
-		counter.Incr(ctx, "grouping.cycles")
-	}
+func runCycle(ctx context.Context, database db.DB, log *slog.Logger, workers *worker.Registry) error {
 	defer func() {
 		if workers != nil {
 			workers.SetIdle(name)
@@ -84,10 +80,6 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 	if workers != nil {
 		workers.SetRunning(name, fmt.Sprintf("Grouping from %d postings", len(seeds)))
 	}
-	if counter != nil {
-		counter.IncrBy(ctx, "grouping.seeds", int64(len(seeds)))
-	}
-
 	total := Divergence{}
 	// A user whose derivation fails does not stop the others -- one user's
 	// neighbourhoods have nothing to do with another's -- but the cycle still
@@ -113,12 +105,6 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 		}
 	}
 
-	if counter != nil {
-		counter.IncrBy(ctx, "grouping.groups", int64(total.Groups))
-		counter.IncrBy(ctx, "grouping.agreed", int64(total.Agreed))
-		counter.IncrBy(ctx, "grouping.joined", int64(total.Joined))
-		counter.IncrBy(ctx, "grouping.split", int64(total.Split))
-	}
 	if log != nil {
 		// Logged whether or not anything differs, so a cycle that changed nothing is
 		// visible as such rather than inferred from silence.

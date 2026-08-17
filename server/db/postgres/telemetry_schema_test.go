@@ -246,6 +246,7 @@ func TestTelemetryReaderRoleIsSelectOnly(t *testing.T) {
 		"telemetry.v_identification_attempt",
 		"telemetry.v_identifier_plugin_call",
 		"telemetry.v_description_plugin_call",
+		"telemetry.v_instrument_label",
 	} {
 		var canSelect, canInsert, canUpdate, canDelete bool
 		err := p.q.QueryRowContext(ctx, `
@@ -321,4 +322,308 @@ func TestTelemetryVocabulariesAreClosed(t *testing.T) {
 			t.Error("identifier plugin call accepted an outcome outside its vocabulary")
 		}
 	})
+}
+
+// seedKeyWithOutcome inserts a resolution key carrying a given stage 2 outcome,
+// which may be empty for a key whose run died before it resolved.
+func seedKeyWithOutcome(t *testing.T, p *Postgres, runID, outcome string, txCount int) string {
+	t.Helper()
+	var oc any
+	if outcome != "" {
+		oc = outcome
+	}
+	var id string
+	err := p.q.QueryRowContext(context.Background(), `
+		INSERT INTO telemetry.resolution_key
+			(run_id, source, description, tx_count, had_identifier_hints, outcome)
+		VALUES ($1::uuid, 'FIDELITY_CSV', 'APPLE INC COM', $2, FALSE, $3)
+		RETURNING id
+	`, runID, txCount, oc).Scan(&id)
+	if err != nil {
+		t.Fatalf("seed key with outcome %q: %v", outcome, err)
+	}
+	return id
+}
+
+// seedIdentifierCall inserts an identifier plugin call under an attempt.
+func seedIdentifierCall(t *testing.T, p *Postgres, attemptID, outcome string) string {
+	t.Helper()
+	var id string
+	err := p.q.QueryRowContext(context.Background(), `
+		INSERT INTO telemetry.identifier_plugin_call
+			(identification_attempt_id, plugin_id, outcome, retries, duration_ms)
+		VALUES ($1::uuid, 'openfigi', $2, 0, 12)
+		RETURNING id
+	`, attemptID, outcome).Scan(&id)
+	if err != nil {
+		t.Fatalf("seed identifier call %q: %v", outcome, err)
+	}
+	return id
+}
+
+// seedDescriptionCall inserts a description plugin call under a run.
+func seedDescriptionCall(t *testing.T, p *Postgres, runID, outcome string) string {
+	t.Helper()
+	var id string
+	err := p.q.QueryRowContext(context.Background(), `
+		INSERT INTO telemetry.description_plugin_call
+			(run_id, plugin_id, batch_size, items_with_hints, outcome, duration_ms)
+		VALUES ($1::uuid, 'openai', 10, 4, $2, 900)
+		RETURNING id
+	`, runID, outcome).Scan(&id)
+	if err != nil {
+		t.Fatalf("seed description call %q: %v", outcome, err)
+	}
+	return id
+}
+
+// TestTelemetryViews_Resolved pins which key outcomes count as having ended with
+// an identifier. broker_description_only is the member worth staring at: an
+// instrument exists, so instrument_id is not null, and nothing identified it.
+// A panel listing what went wrong in an import has to include it, which is why
+// this judgement cannot be replaced by a null check on instrument_id.
+func TestTelemetryViews_Resolved(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "tx_import", time.Now())
+
+	cases := []struct {
+		outcome  string
+		resolved bool
+	}{
+		{"db_source_description", true},
+		{"db_identifier_hints", true},
+		{"identified", true},
+		{"broker_description_only", false},
+		{"extraction_failed", false},
+		{"plugin_timeout", false},
+		{"plugin_unavailable", false},
+		{"conflicting_hints", false},
+		// Never stamped: the run died before the key resolved. Not resolved, and
+		// not null either, or the row would drop out of both this column and its
+		// negation and go unnoticed by every panel.
+		{"", false},
+	}
+	for _, c := range cases {
+		name := c.outcome
+		if name == "" {
+			name = "not_stamped"
+		}
+		t.Run(name, func(t *testing.T) {
+			id := seedKeyWithOutcome(t, p, runID, c.outcome, 1)
+			var got bool
+			if err := p.q.QueryRowContext(ctx,
+				`SELECT resolved FROM telemetry.v_resolution_key WHERE id = $1::uuid`, id,
+			).Scan(&got); err != nil {
+				t.Fatalf("select v_resolution_key: %v", err)
+			}
+			if got != c.resolved {
+				t.Errorf("resolved for %q = %v, want %v", c.outcome, got, c.resolved)
+			}
+		})
+	}
+}
+
+// TestTelemetryViews_HadAttempt separates a key that never asked a plugin
+// anything from one that asked and was told nothing. Four of the five paths that
+// stamp a key return before identification is reached, so no attempt is ordinary
+// rather than a fault, and the two are the first thing to tell apart in a key
+// that did not resolve.
+func TestTelemetryViews_HadAttempt(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "tx_import", time.Now())
+
+	without := seedKeyWithOutcome(t, p, runID, "db_source_description", 1)
+	with := seedKeyWithOutcome(t, p, runID, "identified", 1)
+	seedAttempt(t, p, with, "primary", "identified", 0)
+
+	for _, c := range []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{"no attempt", without, false},
+		{"one attempt", with, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var got bool
+			if err := p.q.QueryRowContext(ctx,
+				`SELECT had_attempt FROM telemetry.v_resolution_key WHERE id = $1::uuid`, c.id,
+			).Scan(&got); err != nil {
+				t.Fatalf("select v_resolution_key: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("had_attempt = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestTelemetryViews_TransportFailed pins the line between the API breaking and
+// the API not knowing. not_identified is a completed call with an empty answer
+// and must stay out of it, or a plugin that works and finds nothing reads as a
+// plugin that is down.
+func TestTelemetryViews_TransportFailed(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "tx_import", time.Now())
+	keyID := seedResolutionKey(t, p, runID)
+	attemptID := seedAttempt(t, p, keyID, "primary", "identified", 0)
+
+	cases := []struct {
+		outcome string
+		failed  bool
+	}{
+		{"won", false},
+		{"superseded", false},
+		{"discarded_inconsistent", false},
+		{"not_identified", false},
+		{"skipped_expired", false},
+		{"rate_limited", true},
+		{"timeout", true},
+		{"error", true},
+	}
+	for _, c := range cases {
+		t.Run(c.outcome, func(t *testing.T) {
+			id := seedIdentifierCall(t, p, attemptID, c.outcome)
+			var got bool
+			if err := p.q.QueryRowContext(ctx,
+				`SELECT transport_failed FROM telemetry.v_identifier_plugin_call WHERE id = $1::uuid`, id,
+			).Scan(&got); err != nil {
+				t.Fatalf("select v_identifier_plugin_call: %v", err)
+			}
+			if got != c.failed {
+				t.Errorf("transport_failed for %s = %v, want %v", c.outcome, got, c.failed)
+			}
+		})
+	}
+}
+
+// TestTelemetryViews_CallFailed keeps no_hints out of the failure bucket. A
+// description plugin that ran, answered, and had nothing to offer is not broken,
+// and counting it as broken would bury the calls that genuinely were.
+func TestTelemetryViews_CallFailed(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "tx_import", time.Now())
+
+	cases := []struct {
+		outcome string
+		failed  bool
+	}{
+		{"hints_returned", false},
+		{"no_hints", false},
+		{"error", true},
+		{"rate_limited", true},
+		{"quota_exceeded", true},
+		{"model_not_found", true},
+	}
+	for _, c := range cases {
+		t.Run(c.outcome, func(t *testing.T) {
+			id := seedDescriptionCall(t, p, runID, c.outcome)
+			var got bool
+			if err := p.q.QueryRowContext(ctx,
+				`SELECT call_failed FROM telemetry.v_description_plugin_call WHERE id = $1::uuid`, id,
+			).Scan(&got); err != nil {
+				t.Fatalf("select v_description_plugin_call: %v", err)
+			}
+			if got != c.failed {
+				t.Errorf("call_failed for %s = %v, want %v", c.outcome, got, c.failed)
+			}
+		})
+	}
+}
+
+// TestTelemetryViews_RunRollupsDoNotMultiply is the test a JOIN would fail. The
+// run below has two resolution keys and two description plugin calls, which are
+// sibling grains: joining v_run to both would produce four rows and report each
+// count as twice what it is. The rollups are scalar subqueries for that reason,
+// and the seeded attempts are here so that a join through the key side would be
+// wrong by a second factor as well.
+func TestTelemetryViews_RunRollupsDoNotMultiply(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "tx_import", time.Now())
+
+	first := seedKeyWithOutcome(t, p, runID, "identified", 3)
+	seedKeyWithOutcome(t, p, runID, "broker_description_only", 5)
+	seedAttempt(t, p, first, "primary", "identified", 0)
+	seedAttempt(t, p, first, "mismatch_check", "identified", 0)
+	seedDescriptionCall(t, p, runID, "hints_returned")
+	seedDescriptionCall(t, p, runID, "no_hints")
+
+	var rows, keyCount, keyTxCount, descCount int
+	err := p.q.QueryRowContext(ctx, `
+		SELECT count(*), max(key_count), max(key_tx_count), max(description_call_count)
+		FROM telemetry.v_run WHERE id = $1::uuid
+	`, runID).Scan(&rows, &keyCount, &keyTxCount, &descCount)
+	if err != nil {
+		t.Fatalf("select v_run: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("v_run rows = %d, want 1", rows)
+	}
+	if keyCount != 2 {
+		t.Errorf("key_count = %d, want 2", keyCount)
+	}
+	// The fan-out the keys carry, not the number of keys: 3 + 5.
+	if keyTxCount != 8 {
+		t.Errorf("key_tx_count = %d, want 8", keyTxCount)
+	}
+	if descCount != 2 {
+		t.Errorf("description_call_count = %d, want 2", descCount)
+	}
+}
+
+// TestTelemetryViews_RunRollupsAreZeroNotNull keeps a quiet run readable. A cycle
+// that found no work still opens a run, and a panel dividing by its key count
+// should see 0 rather than a null that silently drops the row.
+func TestTelemetryViews_RunRollupsAreZeroNotNull(t *testing.T) {
+	p := testDBTx(t)
+	runID := seedRun(t, p, "grouping_cycle", time.Now())
+
+	var keyCount, keyTxCount, descCount int
+	err := p.q.QueryRowContext(context.Background(), `
+		SELECT key_count, key_tx_count, description_call_count
+		FROM telemetry.v_run WHERE id = $1::uuid
+	`, runID).Scan(&keyCount, &keyTxCount, &descCount)
+	if err != nil {
+		t.Fatalf("select v_run: %v", err)
+	}
+	if keyCount != 0 || keyTxCount != 0 || descCount != 0 {
+		t.Errorf("rollups for an empty run = (%d, %d, %d), want all 0",
+			keyCount, keyTxCount, descCount)
+	}
+}
+
+// TestTelemetryReaderReadsLabelsWithoutReachingPublic pins the one place the
+// telemetry schema reads outside itself, and the mechanism that makes it safe.
+// A view runs with its owner's privileges, so the reading role can turn an
+// instrument id into a name through telemetry.v_instrument_label while holding
+// no privilege on instruments itself. If that ever stops being true, the fix is
+// not to grant on instruments.
+//
+// SET LOCAL ROLE rather than a second connection: the reader is a NOLOGIN group
+// role, and the transaction is rolled back, so the role reverts with it.
+func TestTelemetryReaderReadsLabelsWithoutReachingPublic(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	if _, err := p.q.ExecContext(ctx, `SET LOCAL ROLE telemetry_reader`); err != nil {
+		t.Fatalf("set role: %v", err)
+	}
+
+	var n int
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT count(*) FROM telemetry.v_instrument_label`,
+	).Scan(&n); err != nil {
+		t.Fatalf("telemetry_reader cannot read v_instrument_label: %v", err)
+	}
+
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT count(*) FROM instruments`,
+	).Scan(&n); err == nil {
+		t.Error("telemetry_reader can read instruments directly; the view indirection is not what is granting access")
+	}
 }

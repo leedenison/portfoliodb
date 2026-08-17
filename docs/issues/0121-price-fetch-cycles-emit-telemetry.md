@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Price fetch cycles emit run-scoped telemetry
 milestone: M20
 dependencies: [0116, 0117]

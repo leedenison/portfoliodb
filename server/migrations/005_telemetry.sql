@@ -221,6 +221,112 @@ CREATE TABLE telemetry.description_plugin_call (
 CREATE INDEX idx_telemetry_description_plugin_call_run
   ON telemetry.description_plugin_call (run_id);
 
+-- One instrument a price fetch cycle set out to fill, which is one entry in the gap
+-- list PriceGaps and FXGaps produce between them.
+--
+-- Not one price row and not one provider call: a single instrument's outstanding
+-- history is put to several plugins over several ranges. days_outstanding is the size
+-- of that ask, and is the denominator every rate here wants -- without it a cycle that
+-- got slower cannot be told from one that was asked for more, which is the first
+-- question about a cycle whose duration moved.
+--
+-- Like run and resolution_key the row is created before its children and stamped when
+-- the instrument is done with, so a null outcome means the same thing it means there:
+-- not stamped. Rows are written for the whole gap list up front, so a cycle that died
+-- part way leaves the instruments it never reached unstamped, and where it stopped is
+-- readable rather than lost.
+--
+-- asset_class, currency and exchange are the three fields the orchestrator filters
+-- plugins on. They are recorded rather than looked up through v_instrument_label
+-- because they are the inputs to a decision this row explains: an instrument whose
+-- asset class is corrected later would otherwise rewrite the reason a plugin was
+-- skipped a year ago.
+CREATE TABLE telemetry.price_gap (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id        UUID NOT NULL REFERENCES telemetry.run (id) ON DELETE CASCADE,
+  -- Not a foreign key, for the reason run.job_id is not one: telemetry outlives the
+  -- work it describes, and a deleted instrument must not take the diagnostics
+  -- explaining it. v_instrument_label is where a panel turns this into a name.
+  instrument_id UUID NOT NULL,
+  -- Price gaps and FX gaps are fetched by one loop over a concatenated list, and are
+  -- indistinguishable from there on. The flag is what keeps them apart, and they are
+  -- not the same size of problem: a missing rate breaks valuation for every instrument
+  -- denominated in that currency, not for one.
+  is_fx         BOOLEAN NOT NULL,
+  asset_class   TEXT,
+  currency      TEXT,
+  exchange      TEXT,
+  -- Days outstanding when the cycle picked the gap up, summed over its ranges. This is
+  -- what shrinks cycle over cycle while coverage recording is working, and what stops
+  -- shrinking when it is not.
+  days_outstanding INT NOT NULL,
+  -- settled_empty is a success and must not be read as a failure: every outstanding
+  -- range was closed by coverage without bars, because the instrument did not trade
+  -- then or no plugin reaches that far back. The gap is settled and will not be asked
+  -- about again, which is the whole purpose of recording empty coverage.
+  --
+  -- A settled_empty gap with no price_plugin_call rows under it is the one shape worth
+  -- hunting: every plugin had already covered every range, so the gap recurs in the
+  -- gap list every cycle forever while no plugin will ever fill it.
+  outcome       TEXT CHECK (outcome IN ('filled', 'settled_empty', 'no_eligible_plugin',
+                                        'all_plugins_failed', 'instrument_missing'))
+);
+
+CREATE INDEX idx_telemetry_price_gap_run ON telemetry.price_gap (run_id);
+-- The panel asking whether one instrument ever prices reads this way, and it is the
+-- question a hole in a portfolio valuation turns into.
+CREATE INDEX idx_telemetry_price_gap_instrument ON telemetry.price_gap (instrument_id);
+
+-- One outstanding range put to one plugin, which is one FetchPrices call in every case
+-- but history_limit.
+--
+-- The range rather than the plugin is the grain because one plugin is asked separately
+-- for each range a gap leaves outstanding, and those calls can end differently: a head
+-- the plugin cannot reach, a middle it answers, a tail that times out. Collapsing them
+-- to one row per (gap, plugin) would force one outcome onto three answers, which is the
+-- rule at the top of this file broken.
+--
+-- Plugins are tried in precedence order until one covers the gap, so a gap normally has
+-- rows from fewer plugins than are configured. precedence is what makes that readable,
+-- for the reason it is recorded on description_plugin_call: a plugin filtered out by
+-- asset class, exchange or currency, blocked for this instrument, or holding no
+-- identifier it supports, writes no row at all, so a gap in the sequence means skipped.
+--
+-- There is deliberately no row for a range a plugin had already covered. Recording the
+-- absence of work would make the table grow with the catalogue rather than with what
+-- was done; the same (instrument, plugin, range) recurring across cycles is the better
+-- signal that coverage recording has stopped working, and it is positive evidence.
+CREATE TABLE telemetry.price_plugin_call (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  price_gap_id UUID NOT NULL REFERENCES telemetry.price_gap (id) ON DELETE CASCADE,
+  plugin_id    TEXT NOT NULL,
+  precedence   INT NOT NULL,
+  -- Half-open [range_from, range_before), as the orchestrator's ranges are. The
+  -- span in days is not stored: it is the subtraction of these two, and a column
+  -- holding it could disagree with the range it came from.
+  range_from   DATE NOT NULL,
+  range_before DATE NOT NULL,
+  -- Bars the plugin returned, 0 for every outcome but bars_returned. A plugin that
+  -- answered with an empty series records no_data instead, so this is never the way to
+  -- tell an empty answer from a failed one.
+  bars         INT NOT NULL,
+  -- no_data is an answer, not a failure to answer: the range is settled for this plugin
+  -- and never asked again. history_limit is the one member that made no call -- the
+  -- plugin's configured reach does not extend that far back, so the range is settled
+  -- without asking. upsert_failed is our database rather than the provider's API, and
+  -- is separate for the reason transport failure is separate from not_identified: the
+  -- two need different fixes.
+  outcome      TEXT NOT NULL CHECK (outcome IN ('bars_returned', 'no_data', 'history_limit',
+                                                'permanent_block', 'timeout', 'error',
+                                                'upsert_failed')),
+  -- Null for history_limit, which called nothing and so has no clock, for the reason a
+  -- plugin costing no tokens writes null rather than zero.
+  duration_ms  INT
+);
+
+CREATE INDEX idx_telemetry_price_plugin_call_gap
+  ON telemetry.price_plugin_call (price_gap_id);
+
 -- Views.
 --
 -- One per table, each flattening its parents in and never fanning out into its
@@ -270,7 +376,14 @@ SELECT
   (SELECT coalesce(sum(k.tx_count), 0) FROM telemetry.resolution_key k
      WHERE k.run_id = r.id) AS key_tx_count,
   (SELECT count(*) FROM telemetry.description_plugin_call c
-     WHERE c.run_id = r.id) AS description_call_count
+     WHERE c.run_id = r.id) AS description_call_count,
+  -- How big a price fetch cycle was. Instruments rather than days, because the
+  -- instrument is what the run dashboard drills into and what a hole in a
+  -- valuation is traced back to; v_price_gap.days_outstanding carries the other
+  -- measure at the grain that owns it. Zero for every other run kind, as
+  -- key_count is for this one.
+  (SELECT count(*) FROM telemetry.price_gap g
+     WHERE g.run_id = r.id) AS gap_count
 FROM telemetry.run r;
 
 CREATE VIEW telemetry.v_resolution_key AS
@@ -435,6 +548,88 @@ SELECT
   r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
 FROM telemetry.description_plugin_call c
 JOIN telemetry.run r ON r.id = c.run_id;
+
+CREATE VIEW telemetry.v_price_gap AS
+SELECT
+  g.id,
+  g.run_id,
+  g.instrument_id,
+  g.is_fx,
+  g.asset_class,
+  g.currency,
+  g.exchange,
+  g.days_outstanding,
+  g.outcome,
+  -- The gap is dealt with and will not be back. settled_empty is deliberately
+  -- inside it: a range no plugin can fill is settled once that is recorded, and
+  -- counting it as a failure would make an untraded week look like an outage.
+  --
+  -- The complement is the column a panel wants -- a gap that recurs every cycle,
+  -- costing discovery work and leaving a hole in valuation. A null outcome is not
+  -- settled either, hence the explicit null handling rather than a bare IN, which
+  -- would yield null and drop the row out of both this column and its negation.
+  g.outcome IS NOT NULL AND g.outcome IN ('filled', 'settled_empty') AS settled,
+  -- Whether any plugin was asked at all. Filters, fetch blocks, missing identifiers
+  -- and existing coverage each return before FetchPrices is called, so no call is an
+  -- ordinary case rather than a fault, and telling "never asked" from "asked and
+  -- failed" is the first question about a gap that did not fill. EXISTS rather than a
+  -- join: this view stays one row per gap.
+  EXISTS (SELECT 1 FROM telemetry.price_plugin_call c
+            WHERE c.price_gap_id = g.id) AS had_call,
+  r.kind       AS run_kind,
+  r.started_at AS run_started_at,
+  r.outcome    AS run_outcome,
+  r.telemetry_incomplete AS run_telemetry_incomplete,
+  -- Constant false while price_fetch_cycle is the only kind that fills gaps. Carried
+  -- because every view here carries it, so a panel written against one grain does not
+  -- have to remember which grains are the exception.
+  r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
+FROM telemetry.price_gap g
+JOIN telemetry.run r ON r.id = g.run_id;
+
+CREATE VIEW telemetry.v_price_plugin_call AS
+SELECT
+  c.id,
+  c.price_gap_id,
+  c.plugin_id,
+  c.precedence,
+  c.range_from,
+  c.range_before,
+  -- Derived rather than stored, so it cannot disagree with the range above it.
+  -- DATE minus DATE is a whole number of days in postgres, which is the
+  -- resolution a fetch range has.
+  (c.range_before - c.range_from) AS days,
+  c.bars,
+  c.outcome,
+  c.duration_ms,
+  -- The call did not complete. no_data is deliberately outside it, for the reason
+  -- not_identified is outside the identifier plugin's transport_failed: the provider
+  -- having nothing and the provider being unreachable are different events with
+  -- different fixes. history_limit is outside it because nothing was called, and
+  -- permanent_block because it is a durable fact about the pair rather than an
+  -- incident -- it creates a fetch block, so it happens once and never again.
+  c.outcome IN ('timeout', 'error') AS transport_failed,
+  -- Ours rather than theirs. Separate from transport_failed so a panel watching
+  -- provider health is not moved by our own write failing, and so that a burst of
+  -- these reads as what it is.
+  c.outcome = 'upsert_failed' AS write_failed,
+  g.instrument_id AS gap_instrument_id,
+  g.is_fx         AS gap_is_fx,
+  g.asset_class   AS gap_asset_class,
+  g.currency      AS gap_currency,
+  g.exchange      AS gap_exchange,
+  g.days_outstanding AS gap_days_outstanding,
+  g.outcome       AS gap_outcome,
+  g.outcome IS NOT NULL AND g.outcome IN ('filled', 'settled_empty') AS gap_settled,
+  r.id         AS run_id,
+  r.kind       AS run_kind,
+  r.started_at AS run_started_at,
+  r.outcome    AS run_outcome,
+  r.telemetry_incomplete AS run_telemetry_incomplete,
+  r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
+FROM telemetry.price_plugin_call c
+JOIN telemetry.price_gap g ON g.id = c.price_gap_id
+JOIN telemetry.run r ON r.id = g.run_id;
 
 -- The one thing here that reads outside the telemetry schema.
 --

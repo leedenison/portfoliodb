@@ -23,7 +23,9 @@ run
 ├── resolution_key                     one distinct (source, description, hints)
 │     └── identification_attempt       one ResolveWithPlugins call
 │           └── identifier_plugin_call one plugin invocation
-└── description_plugin_call            one plugin invocation over a batch
+├── description_plugin_call            one plugin invocation over a batch
+└── price_gap                          one instrument a cycle set out to fill
+      └── price_plugin_call            one outstanding range put to one plugin
 ```
 
 `description_plugin_call` hangs off the run rather than off a resolution key: one
@@ -172,6 +174,84 @@ configured precedence rather than an ordinal of the rows written, because a plug
 filtered batch is empty writes no row at all -- so a gap in the sequence means that
 plugin was skipped, which is how a filtered-out identifier plugin already reads.
 
+### price_gap
+
+One instrument a price fetch cycle set out to fill, which is one entry in the gap list
+`PriceGaps` and `FXGaps` produce between them. Created before its children and stamped
+when the instrument is done with.
+
+| column | notes |
+| --- | --- |
+| `run_id` | |
+| `instrument_id` | not a foreign key, for the reason `run.job_id` is not one |
+| `is_fx` | the gap came from `FXGaps` rather than `PriceGaps` |
+| `asset_class`, `currency`, `exchange` | the three fields plugin filtering reads |
+| `days_outstanding` | days the gap covered when the cycle picked it up, summed over its ranges |
+| `outcome` | `filled`, `settled_empty`, `no_eligible_plugin`, `all_plugins_failed`, `instrument_missing`; null while in flight |
+
+Not one price row and not one provider call: a single instrument's outstanding history is
+put to several plugins over several ranges. `days_outstanding` is the size of that ask and
+the denominator every rate here wants -- without it a cycle that got slower cannot be told
+from one that was asked for more, which is the first question about a cycle whose duration
+moved. It is also what shrinks cycle over cycle while coverage recording is working, and
+what stops shrinking when it is not.
+
+Rows are written for the whole gap list up front, so a cycle that died part way leaves the
+instruments it never reached unstamped and where it stopped stays readable. A null outcome
+therefore means what a null run outcome means.
+
+`settled_empty` is a success. Every outstanding range was closed by coverage without bars,
+because the instrument did not trade then or no plugin reaches that far back, and the gap
+will not be asked about again -- which is the whole purpose of recording empty coverage. A
+`settled_empty` gap with no `price_plugin_call` rows beneath it is the shape worth hunting:
+every plugin had already covered every range, so the gap recurs in the gap list every cycle
+while no plugin will ever fill it.
+
+`asset_class`, `currency` and `exchange` are recorded rather than read live through
+`v_instrument_label`, because they are the inputs to the decision this row explains. An
+instrument whose asset class is corrected later would otherwise rewrite the reason a plugin
+was skipped a year ago.
+
+### price_plugin_call
+
+One outstanding range put to one plugin, which is one `FetchPrices` call in every case but
+`history_limit`.
+
+| column | notes |
+| --- | --- |
+| `price_gap_id`, `plugin_id` | |
+| `precedence` | where this plugin sat in the order, higher first |
+| `range_from`, `range_before` | half-open, as the orchestrator's ranges are |
+| `bars` | rows the plugin returned; 0 for every outcome but `bars_returned` |
+| `outcome` | `bars_returned`, `no_data`, `history_limit`, `permanent_block`, `timeout`, `error`, `upsert_failed` |
+| `duration_ms` | null for `history_limit`, which called nothing |
+
+The range rather than the plugin is the grain because one plugin is asked separately for
+each range a gap leaves outstanding, and those calls can end differently -- a head the
+plugin cannot reach, a middle it answers, a tail that times out. One row per (gap, plugin)
+would force one outcome onto three answers.
+
+Plugins are tried in order until one covers the gap, so a gap normally has rows from fewer
+plugins than are configured. `precedence` makes that readable for the reason it does on
+`description_plugin_call`: a plugin filtered out by asset class, exchange or currency,
+blocked for this instrument, or holding no identifier it supports writes no row at all, so
+a gap in the sequence means skipped.
+
+There is deliberately no row for a range a plugin had already covered. Recording the
+absence of work would make the table grow with the catalogue rather than with what was
+done, and the same (instrument, plugin, range) recurring across cycles is the better signal
+that coverage recording has stopped working -- it is positive evidence rather than an
+absence.
+
+The span in days is not a column. `v_price_plugin_call` derives it by subtracting the two
+dates, so it cannot disagree with the range it came from. `days_outstanding` on the gap is
+a different matter and is stored: it sums ranges the gap no longer holds by the time
+anything is written.
+
+`no_data` is an answer and not a failure to answer: the range is settled for that plugin
+and never asked again. `upsert_failed` is our database rather than the provider's API, and
+is a separate member for the reason transport failure is separate from `not_identified`.
+
 ### Views
 
 One view per table, each flattening its parents in and never fanning out into its
@@ -190,6 +270,10 @@ outcome list into a dashboard. They are:
 | `had_attempt` | key | the key produced at least one identification attempt |
 | `transport_failed` | identifier call | the call did not complete |
 | `call_failed` | description call | the call produced no answer |
+| `settled` (`gap_settled` on the call) | price gap, price call | the gap is dealt with and will not recur |
+| `had_call` | price gap | the gap reached at least one `FetchPrices` call |
+| `transport_failed` | price call | the call did not complete |
+| `write_failed` | price call | our own upsert failed, not the provider |
 
 `reached_plugins` is the denominator for identification failure rate. Using all attempts
 instead makes the rate fall as the instrument table fills, because more resolutions
@@ -213,11 +297,23 @@ Four of the five paths that stamp a key return before `ResolveWithPlugins` is ca
 no attempt is ordinary rather than a fault.
 
 `transport_failed` and `call_failed` both draw the line at the call completing.
-`not_identified` and `no_hints` stay outside them: an empty answer is an answer, and
-counting it as a fault makes a plugin that correctly knew nothing read as a plugin that
-is down.
+`not_identified`, `no_hints` and a price call's `no_data` stay outside them: an empty
+answer is an answer, and counting it as a fault makes a plugin that correctly knew nothing
+read as a plugin that is down. A price call's `history_limit` is outside it because nothing
+was called, and `permanent_block` because it is a durable fact about the (instrument,
+plugin) pair rather than an incident -- it creates a fetch block, so it happens once and
+never again. `write_failed` is separate so a panel watching provider health is not moved by
+our own write failing.
 
-`v_run` also carries `key_count`, `key_tx_count` and `description_call_count`. These are
+`settled` and `had_call` are the price-gap parallels of `resolved` and `had_attempt`, and
+the reasoning is the same. `settled` includes `settled_empty`, because a range no plugin can
+fill is dealt with once that is recorded and counting it as a failure would make an untraded
+week look like an outage; the complement is the column a panel wants, being the gaps that
+come back every cycle. `had_call` separates a gap that never asked from one that asked and
+was told nothing -- filters, fetch blocks, missing identifiers and existing coverage each
+return before `FetchPrices`, so no call is ordinary rather than a fault.
+
+`v_run` also carries `key_count`, `key_tx_count`, `description_call_count` and `gap_count`. These are
 scalar subqueries, one per child table, and they are the only sanctioned way for a view
 to reach into a second child. The rule above forbids a view *fanning out* into two
 sibling grains, because that repeats the parent once per child and makes counting it
@@ -233,6 +329,11 @@ null for every cycle, which is a column meaning a different thing per row and th
 confusion this schema exists to end. The imported file's own row count is not available
 at all: `run.job_id` is not a foreign key and `ingestion_jobs` is outside the reading
 role, both by design.
+
+`gap_count` is how big a price fetch cycle was, counted in instruments rather than days
+because the instrument is what a hole in a valuation is traced back to;
+`v_price_gap.days_outstanding` carries the other measure at the grain that owns it. It is
+zero for every other run kind, as `key_count` is for a cycle.
 
 ### Naming an instrument
 

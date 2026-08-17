@@ -318,11 +318,25 @@ its dashboards provisioned from files under `docker/grafana`. Dashboards are rea
 the browser: an edit saved there would live in the container volume and drift from the
 repository unnoticed.
 
-There are two, over the same tables. One is scoped by a run picker, for reading a single
-import during manual testing; the other buckets over time, for drift. Panels select from
-the views and carry no definitions of their own -- `where is_import and reached_plugins`,
-never a repeated list of excluded outcomes. A judgement a panel needs and the views do not
-carry is a gap in the views.
+There are two, over the same tables. **Telemetry: one run** is scoped by a run picker,
+for reading a single import during manual testing; **Telemetry: drift** buckets over
+time, for noticing that something changed. The drift dashboard's run table links each row
+through to the run dashboard, which is what makes the pair a workflow rather than two
+pictures.
+
+Panels select from the views and carry no definitions of their own -- `where is_import
+and reached_plugins`, never a repeated list of excluded outcomes. A judgement a panel
+needs and the views do not carry is a gap in the views.
+
+Two consequences of the grains bind every panel. A view spanning two sibling child grains
+duplicates the parent, so a panel wanting per-run child counts reads `v_run`'s rollups and
+never a join. And a child view has no timestamp of its own, so a panel bucketing one over
+time uses `run_started_at`, the run's start; `started_at` exists only on `v_run`.
+
+The dashboards are SQL in files no compiler reads, so a renamed column would break them
+silently until somebody opened a browser. Every panel query and every template variable
+query is therefore planned against the real schema by a test in the database layer, which
+also refuses a panel that reads a table instead of a view.
 
 ## 3. Logger
 

@@ -301,10 +301,11 @@ CREATE TABLE telemetry.price_plugin_call (
   price_gap_id UUID NOT NULL REFERENCES telemetry.price_gap (id) ON DELETE CASCADE,
   plugin_id    TEXT NOT NULL,
   precedence   INT NOT NULL,
-  -- Half-open [range_from, range_before), as the orchestrator's ranges are.
+  -- Half-open [range_from, range_before), as the orchestrator's ranges are. The
+  -- span in days is not stored: it is the subtraction of these two, and a column
+  -- holding it could disagree with the range it came from.
   range_from   DATE NOT NULL,
   range_before DATE NOT NULL,
-  days         INT NOT NULL,
   -- Bars the plugin returned, 0 for every outcome but bars_returned. A plugin that
   -- answered with an empty series records no_data instead, so this is never the way to
   -- tell an empty answer from a failed one.
@@ -594,7 +595,10 @@ SELECT
   c.precedence,
   c.range_from,
   c.range_before,
-  c.days,
+  -- Derived rather than stored, so it cannot disagree with the range above it.
+  -- DATE minus DATE is a whole number of days in postgres, which is the
+  -- resolution a fetch range has.
+  (c.range_before - c.range_from) AS days,
   c.bars,
   c.outcome,
   c.duration_ms,

@@ -343,9 +343,9 @@ func TestTelemetryVocabulariesAreClosed(t *testing.T) {
 		gapID := seedPriceGap(t, p, seedRun(t, p, "price_fetch_cycle", time.Now()), "filled", 10)
 		if _, err := p.q.ExecContext(context.Background(), `
 			INSERT INTO telemetry.price_plugin_call
-				(price_gap_id, plugin_id, precedence, range_from, range_before, days,
+				(price_gap_id, plugin_id, precedence, range_from, range_before,
 				 bars, outcome, duration_ms)
-			VALUES ($1::uuid, 'eodhd', 100, DATE '2026-01-01', DATE '2026-01-11', 10,
+			VALUES ($1::uuid, 'eodhd', 100, DATE '2026-01-01', DATE '2026-01-11',
 			        0, 'already_covered', 12)
 		`, gapID); err == nil {
 			t.Error("price plugin call accepted an outcome outside its vocabulary")
@@ -381,9 +381,9 @@ func seedPriceCall(t *testing.T, p *Postgres, gapID, pluginID, outcome string) s
 	var id string
 	err := p.q.QueryRowContext(context.Background(), `
 		INSERT INTO telemetry.price_plugin_call
-			(price_gap_id, plugin_id, precedence, range_from, range_before, days,
+			(price_gap_id, plugin_id, precedence, range_from, range_before,
 			 bars, outcome, duration_ms)
-		VALUES ($1::uuid, $2, 100, DATE '2026-01-01', DATE '2026-01-11', 10, 0, $3, 40)
+		VALUES ($1::uuid, $2, 100, DATE '2026-01-01', DATE '2026-01-11', 0, $3, 40)
 		RETURNING id
 	`, gapID, pluginID, outcome).Scan(&id)
 	if err != nil {
@@ -896,9 +896,9 @@ func TestTelemetryPriceCallDurationIsNullable(t *testing.T) {
 	var id string
 	if err := p.q.QueryRowContext(ctx, `
 		INSERT INTO telemetry.price_plugin_call
-			(price_gap_id, plugin_id, precedence, range_from, range_before, days,
+			(price_gap_id, plugin_id, precedence, range_from, range_before,
 			 bars, outcome, duration_ms)
-		VALUES ($1::uuid, 'eodhd', 100, DATE '2026-01-01', DATE '2026-01-11', 10,
+		VALUES ($1::uuid, 'eodhd', 100, DATE '2026-01-01', DATE '2026-01-11',
 		        0, 'history_limit', NULL)
 		RETURNING id
 	`, gapID).Scan(&id); err != nil {
@@ -913,5 +913,26 @@ func TestTelemetryPriceCallDurationIsNullable(t *testing.T) {
 	}
 	if duration != nil {
 		t.Errorf("duration_ms = %d, want null", *duration)
+	}
+}
+
+// TestTelemetryViews_PriceCallDaysAreDerived pins that the span of a fetch range
+// is the subtraction of its own two dates rather than a stored number that could
+// drift from them.
+func TestTelemetryViews_PriceCallDaysAreDerived(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	gapID := seedPriceGap(t, p, seedRun(t, p, "price_fetch_cycle", time.Now()), "filled", 10)
+	id := seedPriceCall(t, p, gapID, "eodhd", "bars_returned")
+
+	var days int
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT days FROM telemetry.v_price_plugin_call WHERE id = $1::uuid`, id,
+	).Scan(&days); err != nil {
+		t.Fatalf("select v_price_plugin_call: %v", err)
+	}
+	// The seed's half-open [2026-01-01, 2026-01-11).
+	if days != 10 {
+		t.Errorf("days = %d, want 10", days)
 	}
 }

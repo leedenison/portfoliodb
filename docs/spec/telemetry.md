@@ -222,7 +222,6 @@ One outstanding range put to one plugin, which is one `FetchPrices` call in ever
 | `price_gap_id`, `plugin_id` | |
 | `precedence` | where this plugin sat in the order, higher first |
 | `range_from`, `range_before` | half-open, as the orchestrator's ranges are |
-| `days` | |
 | `bars` | rows the plugin returned; 0 for every outcome but `bars_returned` |
 | `outcome` | `bars_returned`, `no_data`, `history_limit`, `permanent_block`, `timeout`, `error`, `upsert_failed` |
 | `duration_ms` | null for `history_limit`, which called nothing |
@@ -243,6 +242,11 @@ absence of work would make the table grow with the catalogue rather than with wh
 done, and the same (instrument, plugin, range) recurring across cycles is the better signal
 that coverage recording has stopped working -- it is positive evidence rather than an
 absence.
+
+The span in days is not a column. `v_price_plugin_call` derives it by subtracting the two
+dates, so it cannot disagree with the range it came from. `days_outstanding` on the gap is
+a different matter and is stored: it sums ranges the gap no longer holds by the time
+anything is written.
 
 `no_data` is an answer and not a failure to answer: the range is settled for that plugin
 and never asked again. `upsert_failed` is our database rather than the provider's API, and

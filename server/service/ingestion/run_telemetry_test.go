@@ -13,7 +13,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"go.uber.org/mock/gomock"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // expectRun records the run a job opens and the outcome it is stamped with, and
@@ -78,17 +77,12 @@ func TestJobRunStampsSuccess(t *testing.T) {
 	tel := mock.NewMockTelemetryDB(ctrl)
 	registry := identifier.NewRegistry()
 
-	// One posting the ignore rules drop, which is the shortest path to a job that
-	// stores nothing and still succeeds.
+	// A window carrying no postings and no period, which is the shortest path to
+	// a job that stores nothing and still succeeds.
 	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
 		Window: &archivev1.TxWindow{
 			Broker: typev1.Broker_IBKR,
 			Source: "IBKR:test:statement",
-			Postings: []*archivev1.Posting{{
-				OrderDate: timestamppb.Now(), TradeDate: timestamppb.Now(),
-				InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER},
-				AssetClassHint: typev1.AssetClass_CASH, Quantity: "1",
-			}},
 		},
 	})
 	j := &JobRequest{JobID: "job-2", JobType: db.JobTypeTx}
@@ -97,8 +91,6 @@ func TestJobRunStampsSuccess(t *testing.T) {
 	database.EXPECT().GetJob(gomock.Any(), "job-2").Return(
 		&db.JobDetail{Status: apiv1.JobStatus_RUNNING, UserID: "user-1"}, nil)
 	database.EXPECT().LoadJobPayload(gomock.Any(), "job-2").Return(payload, nil)
-	database.EXPECT().ListIgnoredAssetClasses(gomock.Any(), "user-1").Return(
-		[]db.IgnoredAssetClass{{Broker: "IBKR", AssetClass: "CASH"}}, nil)
 	database.EXPECT().ListHoldingDeclarations(gomock.Any(), "user-1").Return(nil, nil)
 	database.EXPECT().SetJobStatus(gomock.Any(), "job-2", apiv1.JobStatus_SUCCESS).Return(nil)
 	database.EXPECT().ClearJobPayload(gomock.Any(), "job-2").Return(nil)

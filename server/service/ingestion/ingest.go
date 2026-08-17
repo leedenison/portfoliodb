@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -116,44 +115,24 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 	for _, tx := range p.Txs {
 		tx.ResolvedTxType = txtype.Resolve(tx.GetBrokerTxType())
 	}
-	// A rule this reader cannot load is not a reason to reject the batch: the
-	// filter narrows what is stored, and storing more than asked is better than
-	// storing nothing.
-	ignoredClasses, err := deps.DB.ListIgnoredAssetClasses(ctx, p.UserID)
-	if err != nil {
-		log.Printf("ingest: load ignored asset classes: %v", err)
-		ignoredClasses = nil
-	}
-	// Drop whatever the user's ignore rules cover. Where the caller declared the
-	// total, a dropped posting still counts as processed: its total is what the
-	// file carried, and a job that ended below its own total would read as
-	// unfinished.
-	txs, filteredIdx := filterIgnoredTxs(p.Txs, p.Broker, ignoredClasses)
-	if p.TotalDeclared {
-		rep.Advance(ctx, len(p.Txs)-len(txs))
-	}
+	txs := p.Txs
 	replacing := p.PeriodFrom != nil && p.PeriodBefore != nil
 	// A batch handed no postings at all, over a period, is an instruction to
 	// clear that period -- which is what an archive window holding no groups
 	// says, and the reason a window states its period rather than having one
 	// inferred from its groups.
-	//
-	// A batch whose postings were all filtered out is not the same statement.
-	// Nothing asked for those rows to be removed; a filter decided this instance
-	// does not store them, and acting on that by emptying the period would
-	// delete rows the file never mentioned.
-	clearing := replacing && len(p.Txs) == 0
+	clearing := replacing && len(txs) == 0
 	if len(txs) == 0 && !clearing {
 		return out, nil
 	}
 	if !p.TotalDeclared {
 		rep.Total(ctx, len(txs))
 	}
-	rowIdx := make([]int, len(filteredIdx))
-	for i, f := range filteredIdx {
-		rowIdx[i] = f
-		if p.RowIndices != nil && f < len(p.RowIndices) {
-			rowIdx[i] = p.RowIndices[f]
+	rowIdx := make([]int, len(txs))
+	for i := range txs {
+		rowIdx[i] = i
+		if p.RowIndices != nil && i < len(p.RowIndices) {
+			rowIdx[i] = p.RowIndices[i]
 		}
 	}
 
@@ -194,9 +173,8 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 		return out, errBatchRejected
 	}
 	// Balance every group by routing whatever its postings leave over to an
-	// explicit counterparty. This runs after filtering, so a dropped leg cannot
-	// contribute a residual, and after resolution, because telling a currency
-	// commodity from a security one is a property of the instrument.
+	// explicit counterparty. This runs after resolution, because telling a
+	// currency commodity from a security one is a property of the instrument.
 	balanceInsts := balanceInstruments(instByID)
 	// The neutrality check needs the contract size, which is why it runs here
 	// rather than with the shape checks in ValidateTxs.
@@ -210,12 +188,11 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 	// transaction, so a group is never observed unbalanced and an upload cannot
 	// disagree with a replace about what a group owes.
 	txWeights := weights(txs, instrumentIDs, balanceInsts)
-	basis := filterBasis(p.ShareCountBasis, filteredIdx)
 
 	if replacing {
-		err = deps.DB.ReplaceTxsInPeriod(ctx, p.UserID, p.Broker, p.JobID, p.PeriodFrom, p.PeriodBefore, txs, instrumentIDs, txWeights, basis)
+		err = deps.DB.ReplaceTxsInPeriod(ctx, p.UserID, p.Broker, p.JobID, p.PeriodFrom, p.PeriodBefore, txs, instrumentIDs, txWeights, p.ShareCountBasis)
 	} else {
-		err = deps.DB.CreateTxGroup(ctx, p.UserID, p.Broker, txs[0].GetAccount(), p.JobID, txs, instrumentIDs, txWeights, basis)
+		err = deps.DB.CreateTxGroup(ctx, p.UserID, p.Broker, txs[0].GetAccount(), p.JobID, txs, instrumentIDs, txWeights, p.ShareCountBasis)
 	}
 	if err != nil {
 		rep.Errf(-1, "txs", err.Error())
@@ -224,19 +201,4 @@ func ingestBatch(ctx context.Context, deps ingestDeps, p ingestParams, rep *arch
 	out.Stored = len(txs)
 	out.InstrumentIDs = instrumentIDs
 	return out, nil
-}
-
-// filterBasis narrows a per-row basis slice to the rows that survived
-// filtering, so it stays parallel to the postings actually being stored.
-func filterBasis(basis []*time.Time, filteredIdx []int) []*time.Time {
-	if len(basis) == 0 {
-		return nil
-	}
-	out := make([]*time.Time, len(filteredIdx))
-	for i, f := range filteredIdx {
-		if f < len(basis) {
-			out[i] = basis[f]
-		}
-	}
-	return out
 }

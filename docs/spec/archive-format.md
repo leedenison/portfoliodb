@@ -510,15 +510,15 @@ server.
 
 `UserArchive` has the same shape as the system archive and the same rules about
 present-but-empty versus absent. Sections are written in restore order:
-preferences first, because which asset classes are ignored changes what a later
-transaction import keeps; declarations last, because a checked declaration is
-compared against what the transactions add up to.
+preferences first, because a setting is what a later part is read against;
+declarations last, because a checked declaration is compared against what the
+transactions add up to.
 
 ```json
 {"envelope": {"format_version": 1, "exported_at": "2026-07-30T00:00:00Z",
               "source_instance": "portfoliodb.example.com",
               "kind": "USER"},
- "preferences": {"display_currency": "GBP", "ignored_asset_classes": {"rules": []}},
+ "preferences": {"display_currency": "GBP"},
  "txs": {"windows": [...]},
  "declarations": {"statements": [...]}}
 ```
@@ -528,20 +528,10 @@ therefore a feature rather than an accident.
 
 ### Preferences
 
-`display_currency` is ISO 4217. `ignored_asset_classes` is wrapped in a message
-rather than being a bare list, so that "the user has no rules" -- an empty
-`rules`, which import applies -- stays distinguishable from "the file does not
-state them", which import ignores. Each rule is `{broker, account, asset_class}`,
-where an empty `account` means every account for that broker.
-
-The two settings apply independently: a currency the file spells wrongly does not
-stop the rules landing, and vice versa. A rule the reader cannot use -- an
-unknown broker, an unknown asset class -- rejects the **whole**
-`ignored_asset_classes` setting rather than just that rule, and leaves the stored
-rules alone. Setting ignore rules replaces the set and deletes the transactions
-and declarations that set covers, so applying the rules a reader could read would
-delete on the strength of a file it could not read, and leave the user with a set
-they never wrote.
+`display_currency` is ISO 4217. Absent means the file does not state it and the
+importing instance's stored value is left alone. A currency the file spells
+wrongly is a validation error against the setting rather than a failed part, and
+leaves the stored value alone.
 
 A restored `display_currency` triggers an FX price fetch, once for the whole
 import, exactly as setting one through the UI does per change. Without it a
@@ -759,9 +749,9 @@ reader walks them in that order:
   Inflation indices and plugin configuration reference nothing, and plugin
   configuration is written last because it is what makes a document a secret.
 - **User:** preferences, then transactions, then declarations. Preferences first
-  because ignored asset classes change what a transaction import keeps;
-  declarations last because a checked declaration is compared against what the
-  transactions add up to.
+  because a setting is what a later part is read against; declarations last
+  because a checked declaration is compared against what the transactions add up
+  to.
 
 `ArchivePart` numbers the parts in two blocks, the system parts and then the
 user parts, because no part belongs to both documents. Within a block the values

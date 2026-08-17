@@ -37,26 +37,3 @@ func HintsFromTx(tx *apiv1.Tx) identifier.Hints {
 		SecurityTypeHint: hint,
 	}
 }
-
-// TxIgnored returns whether a transaction should be ignored based on the user's
-// ignore rules, by the asset class the source stated. A hintless row matches no
-// rule at ingest; if it resolves to an ignored class it is removed when the
-// rules are next applied to stored data.
-func TxIgnored(tx *apiv1.Tx, broker string, ignored []db.IgnoredAssetClass) bool {
-	if tx.GetAssetClassHint() == typev1.AssetClass_ASSET_CLASS_UNSPECIFIED {
-		return false
-	}
-	hint := db.AssetClassToStr(tx.GetAssetClassHint())
-	for _, rule := range ignored {
-		if rule.Broker != broker {
-			continue
-		}
-		if rule.Account != "" && rule.Account != tx.GetAccount() {
-			continue
-		}
-		if rule.AssetClass == hint {
-			return true
-		}
-	}
-	return false
-}

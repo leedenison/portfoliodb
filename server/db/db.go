@@ -71,7 +71,6 @@ type DB interface {
 	PriceFetchBlockDB
 	EODPriceListDB
 	HoldingDeclarationDB
-	IgnoredAssetClassDB
 	InflationIndexDB
 	CorporateEventDB
 	ResidualBalanceDB
@@ -1323,14 +1322,6 @@ type InstrumentDB interface {
 	LookupOperatingMIC(ctx context.Context, mic string) (string, error)
 }
 
-// IgnoredAssetClass is one ignore rule: skip tx types mapping to this asset class for
-// the given broker (and optionally account). Account="" means all accounts.
-type IgnoredAssetClass struct {
-	Broker     string
-	Account    string // empty = all accounts for broker
-	AssetClass string
-}
-
 // InflationIndex is a single monthly inflation index value.
 type InflationIndex struct {
 	Currency     string
@@ -1362,20 +1353,6 @@ type InflationIndexDB interface {
 	// [dateFrom, dateBefore) range filters on month, and a nil bound is
 	// open-ended. Returns (rows, nextPageToken, totalCount, error).
 	ListInflationIndices(ctx context.Context, currency string, dateFrom, dateBefore *time.Time, pageSize int, pageToken string) ([]InflationIndex, string, int, error)
-}
-
-// IgnoredAssetClassDB manages per-broker/account asset class ignore rules.
-type IgnoredAssetClassDB interface {
-	// ListIgnoredAssetClasses returns all ignore rules for the user.
-	ListIgnoredAssetClasses(ctx context.Context, userID string) ([]IgnoredAssetClass, error)
-	// SetIgnoredAssetClasses replaces all ignore rules for the user and deletes
-	// matching txs, synthetic INITIALIZE txs, and holding declarations atomically.
-	// A tx matches when its instrument's asset class matches a rule; a tx whose
-	// instrument is unresolved matches nothing.
-	SetIgnoredAssetClasses(ctx context.Context, userID string, rules []IgnoredAssetClass) error
-	// CountIgnoredTxs returns the number of regular txs and holding declarations
-	// that would be deleted if the given rules were applied (net new vs current).
-	CountIgnoredTxs(ctx context.Context, userID string, rules []IgnoredAssetClass) (txCount int32, declCount int32, err error)
 }
 
 // StockSplit is a single stock split row. SplitFrom and SplitTo are the raw

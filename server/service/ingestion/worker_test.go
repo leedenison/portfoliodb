@@ -13,7 +13,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"testing"
-	"time"
 )
 
 // marshalPayload serializes an UpsertTxsRequest for test fixtures.
@@ -26,14 +25,13 @@ func marshalPayload(t *testing.T, req *ingestionv1.UpsertTxsRequest) []byte {
 	return b
 }
 
-// expectLoadPayload sets up LoadJobPayload + ClearJobPayload + GetJob(userID) + ListIgnoredAssetClasses mocks.
+// expectLoadPayload sets up LoadJobPayload + ClearJobPayload + GetJob(userID) mocks.
 func expectLoadPayload(database *mock.MockDB, jobID, userID string, payload []byte) {
 	database.EXPECT().LoadJobPayload(gomock.Any(), jobID).Return(payload, nil)
 	database.EXPECT().ClearJobPayload(gomock.Any(), jobID).Return(nil)
 	database.EXPECT().GetJob(gomock.Any(), jobID).Return(
 		&db.JobDetail{Status: apiv1.JobStatus_RUNNING, UserID: userID}, nil,
 	)
-	database.EXPECT().ListIgnoredAssetClasses(gomock.Any(), userID).Return(nil, nil)
 }
 
 func TestProcessBulk_AppendsIdentificationErrorsWhenBrokerDescriptionOnly(t *testing.T) {
@@ -177,120 +175,6 @@ func TestProcessBulk_BatchCache_ResolvesSameDescriptionOnce(t *testing.T) {
 		Return(nil)
 
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
-}
-
-func TestProcessBulk_DropsIgnoredTxs(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	database := mock.NewMockDB(ctrl)
-	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	registry := identifier.NewRegistry()
-
-	ctx := context.Background()
-	from := timestamppb.Now()
-	before := timestamppb.Now()
-	// Both legs carry the record's own reference, which is what the store puts them
-	// back together by once they are stored.
-	ref := []*archivev1.Correlation{{
-		Token: "ref-1", Scope: typev1.Scope_SCOPE_FILE,
-		Match: []typev1.Match{typev1.Match_MATCH_EXACT},
-	}}
-	postings := []*archivev1.Posting{
-		{OrderDate: from,
-			TradeDate: from, InstrumentDescription: "AAPL", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, Quantity: "10", Account: "", Correlations: ref},
-		// The ignore rules match the stated asset class, so the cash journal
-		// carries the CASH claim the broker's file made.
-		{OrderDate: from,
-			TradeDate: from, InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "1", Account: "", Correlations: ref},
-	}
-	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
-		Window: &archivev1.TxWindow{
-			Broker:       typev1.Broker_IBKR,
-			Source:       "IBKR:test:statement",
-			PeriodFrom:   from,
-			PeriodBefore: before,
-			Postings:     postings,
-		},
-	})
-	j := &JobRequest{JobID: "job-ignored", JobType: "tx"}
-
-	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-ignored", apiv1.JobStatus_RUNNING).
-		Return(nil)
-	database.EXPECT().LoadJobPayload(gomock.Any(), "job-ignored").Return(payload, nil)
-	database.EXPECT().ClearJobPayload(gomock.Any(), "job-ignored").Return(nil)
-	database.EXPECT().GetJob(gomock.Any(), "job-ignored").Return(
-		&db.JobDetail{Status: apiv1.JobStatus_RUNNING, UserID: "user-1"}, nil,
-	)
-	database.EXPECT().ListIgnoredAssetClasses(gomock.Any(), "user-1").Return(
-		[]db.IgnoredAssetClass{{Broker: "IBKR", AssetClass: "CASH"}}, nil,
-	)
-	database.EXPECT().
-		SetJobTotalCount(gomock.Any(), "job-ignored", int32(1)).
-		Return(nil)
-	database.EXPECT().
-		FindInstrumentBySourceDescription(gomock.Any(), "IBKR:test:statement", "AAPL").
-		Return("", nil)
-	database.EXPECT().
-		EnsureInstrument(gomock.Any(), "", "", "", "AAPL", gomock.Any(), gomock.Any(), gomock.Any(), "", nil, nil, nil).
-		Return("aapl-id", nil)
-	database.EXPECT().
-		IncrJobProcessedCount(gomock.Any(), "job-ignored").
-		Return(nil)
-	database.EXPECT().
-		AppendIdentificationErrors(gomock.Any(), "job-ignored", gomock.Any()).
-		Return(nil)
-	database.EXPECT().
-		ListInstrumentsByIDs(gomock.Any(), []string{"aapl-id"}).
-		Return([]*db.InstrumentRow{{ID: "aapl-id"}}, nil)
-	database.EXPECT().
-		ReplaceTxsInPeriod(gomock.Any(), "user-1", "IBKR", "job-ignored", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, _ string, _, _ *timestamppb.Timestamp, storedTxs []*apiv1.Tx, ids []string, ws []db.Weight, _ []*time.Time) error {
-			supplied := userPostings(storedTxs)
-			if len(supplied) != 1 || supplied[0].InstrumentDescription != "AAPL" || supplied[0].GetResolvedTxType() != typev1.TxType_TRADE_ASSET {
-				t.Errorf("ReplaceTxsInPeriod called with %d supplied txs, expected 1 (AAPL TRADE_ASSET)", len(supplied))
-			}
-			// Dropping a leg must not lose the surviving leg's evidence, which is
-			// what the store partitions on once the postings are down.
-			if got := supplied[0].GetCorrelations(); len(got) != 1 || got[0].GetToken() != "ref-1" {
-				t.Errorf("correlations after dropping a leg: want the row's own token, got %v", got)
-			}
-			if len(ids) != len(storedTxs) {
-				t.Errorf("instrument ids (%d) and txs (%d) must stay parallel", len(ids), len(storedTxs))
-			}
-			// Weights are appended in two steps -- the supplied postings, then the
-			// routed ones -- so a slice that has fallen out of step is the failure
-			// mode worth pinning.
-			if len(ws) != len(storedTxs) {
-				t.Errorf("weights (%d) and txs (%d) must stay parallel", len(ws), len(storedTxs))
-			}
-			return nil
-		})
-	database.EXPECT().
-		InstrumentsWithSplits(gomock.Any(), gomock.Any()).
-		Return(nil, nil)
-	database.EXPECT().
-		ListHoldingDeclarations(gomock.Any(), "user-1").
-		Return(nil, nil)
-	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-ignored", apiv1.JobStatus_SUCCESS).
-		Return(nil)
-
-	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
-}
-
-// userPostings returns the postings the upload supplied, dropping the
-// counterparties routing added to balance their groups.
-func userPostings(txs []*apiv1.Tx) []*apiv1.Tx {
-	var out []*apiv1.Tx
-	for _, t := range txs {
-		if t.GetAccountType() == typev1.AccountType_ACCOUNT_TYPE_UNSPECIFIED ||
-			t.GetAccountType() == typev1.AccountType_ACCOUNT_TYPE_USER {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 // strPtr returns a pointer to s, for use in InstrumentRow.AssetClass.
@@ -614,46 +498,6 @@ func TestProcessBulk_TransferToStockAllowed(t *testing.T) {
 		Return(nil, nil)
 	database.EXPECT().
 		SetJobStatus(gomock.Any(), "job-transfer-stock", apiv1.JobStatus_SUCCESS).
-		Return(nil)
-
-	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)
-}
-
-func TestProcessSingle_DropsIgnoredTx(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	database := mock.NewMockDB(ctrl)
-	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
-	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	registry := identifier.NewRegistry()
-
-	ctx := context.Background()
-	payload := marshalPayload(t, &ingestionv1.UpsertTxsRequest{
-		Window: &archivev1.TxWindow{
-			Broker: typev1.Broker_IBKR,
-			Source: "IBKR:test:statement",
-			Postings: []*archivev1.Posting{{OrderDate: timestamppb.Now(),
-				TradeDate: timestamppb.Now(), InstrumentDescription: "GBP", BrokerTxType: []typev1.TxType{typev1.TxType_TRANSFER}, AssetClassHint: typev1.AssetClass_CASH, Quantity: "1", Account: ""}},
-		},
-	})
-	j := &JobRequest{JobID: "job-single-ignored", JobType: "tx"}
-
-	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-single-ignored", apiv1.JobStatus_RUNNING).
-		Return(nil)
-	database.EXPECT().LoadJobPayload(gomock.Any(), "job-single-ignored").Return(payload, nil)
-	database.EXPECT().ClearJobPayload(gomock.Any(), "job-single-ignored").Return(nil)
-	database.EXPECT().GetJob(gomock.Any(), "job-single-ignored").Return(
-		&db.JobDetail{Status: apiv1.JobStatus_RUNNING, UserID: "user-1"}, nil,
-	)
-	database.EXPECT().ListIgnoredAssetClasses(gomock.Any(), "user-1").Return(
-		[]db.IgnoredAssetClass{{Broker: "IBKR", AssetClass: "CASH"}}, nil,
-	)
-	database.EXPECT().
-		ListHoldingDeclarations(gomock.Any(), "user-1").
-		Return(nil, nil)
-	database.EXPECT().
-		SetJobStatus(gomock.Any(), "job-single-ignored", apiv1.JobStatus_SUCCESS).
 		Return(nil)
 
 	processJob(ctx, WorkerOptions{DB: database, IdentifierRegistry: registry}, j)

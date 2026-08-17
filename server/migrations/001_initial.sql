@@ -1262,18 +1262,6 @@ CREATE TRIGGER trg_default_declaration_share_count_basis
   BEFORE INSERT ON holding_declarations
   FOR EACH ROW EXECUTE FUNCTION default_declaration_share_count_basis();
 
--- Ignored asset classes: skip tx types mapping to these asset classes during ingestion.
--- account = '' means all accounts for the broker; otherwise a specific broker+account pair.
-CREATE TABLE ignored_asset_classes (
-  user_id     UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  broker      TEXT NOT NULL,
-  account     TEXT NOT NULL DEFAULT '',
-  asset_class TEXT NOT NULL,
-  PRIMARY KEY (user_id, broker, account, asset_class)
-);
-
-CREATE INDEX idx_ignored_asset_classes_user ON ignored_asset_classes (user_id);
-
 -- qty_is_zero is a null-safe test for a closed position, applied to a sum of
 -- split_adjusted_quantity. Raw quantities cannot be summed at all: each is
 -- denominated in its own row's share_count_basis, so a buy recorded before a

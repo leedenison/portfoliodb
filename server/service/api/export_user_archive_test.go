@@ -11,7 +11,6 @@ import (
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
-	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
 	dbpkg "github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/testutil"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -71,11 +70,10 @@ func (e *exportUserStreamMock) preferences() *archivev1.PreferencePart {
 }
 
 // exportPreferences runs a preferences-only export over the given stored state.
-func exportPreferences(t *testing.T, currency string, rules []dbpkg.IgnoredAssetClass) *exportUserStreamMock {
+func exportPreferences(t *testing.T, currency string) *exportUserStreamMock {
 	t.Helper()
 	srv, mockDB := newAPIServerWithMock(t)
 	mockDB.EXPECT().GetDisplayCurrency(gomock.Any(), "user-1").Return(currency, nil)
-	mockDB.EXPECT().ListIgnoredAssetClasses(gomock.Any(), "user-1").Return(rules, nil)
 	stream := &exportUserStreamMock{ctx: authCtx("user-1", "sub|1")}
 	if err := srv.ExportUserArchive(&apiv1.ExportUserArchiveRequest{
 		Parts: []archivev1.ArchivePart{archivev1.ArchivePart_PREFERENCES},
@@ -89,7 +87,7 @@ func exportPreferences(t *testing.T, currency string, rules []dbpkg.IgnoredAsset
 // clock for the whole document, and the part_begin marker precedes the part
 // even though the part travels as a single message.
 func TestExportUserArchive_StreamGrammar(t *testing.T) {
-	stream := exportPreferences(t, "GBP", nil)
+	stream := exportPreferences(t, "GBP")
 	want := []string{"envelope", "begin:PREFERENCES", "preferences"}
 	if got := stream.shape(); !equalStrings(got, want) {
 		t.Fatalf("stream = %v, want %v", got, want)
@@ -103,55 +101,12 @@ func TestExportUserArchive_StreamGrammar(t *testing.T) {
 	}
 }
 
-// Broker and asset class are enums in the file and strings in the column, so
-// the export has to spell them the archive's way.
-func TestExportUserArchive_Preferences_SpellsTheEnums(t *testing.T) {
-	stream := exportPreferences(t, "GBP", []dbpkg.IgnoredAssetClass{
-		{Broker: "IBKR", Account: "U123", AssetClass: "OPTION"},
-	})
-	part := stream.preferences()
+// The display currency is always stated, because it is always known: it is a
+// NOT NULL column.
+func TestExportUserArchive_Preferences_CarriesTheDisplayCurrency(t *testing.T) {
+	part := exportPreferences(t, "GBP").preferences()
 	if part.GetDisplayCurrency() != "GBP" {
 		t.Fatalf("display_currency = %q", part.GetDisplayCurrency())
-	}
-	rules := part.GetIgnoredAssetClasses().GetRules()
-	if len(rules) != 1 {
-		t.Fatalf("rules = %v, want 1", rules)
-	}
-	if rules[0].GetBroker() != typev1.Broker_IBKR {
-		t.Fatalf("broker = %s", rules[0].GetBroker())
-	}
-	if rules[0].GetAssetClass() != typev1.AssetClass_OPTION {
-		t.Fatalf("asset_class = %s", rules[0].GetAssetClass())
-	}
-	if rules[0].GetAccount() != "U123" {
-		t.Fatalf("account = %q", rules[0].GetAccount())
-	}
-}
-
-// A user with no rules has an empty set rather than an unstated one. The empty
-// container is what says so: an absent one would tell an importer to leave the
-// stored rules alone, which is the opposite instruction.
-func TestExportUserArchive_Preferences_NoRulesIsPresentAndEmpty(t *testing.T) {
-	part := exportPreferences(t, "USD", nil).preferences()
-	if part.IgnoredAssetClasses == nil {
-		t.Fatal("ignored_asset_classes absent, want present and empty")
-	}
-	if len(part.GetIgnoredAssetClasses().GetRules()) != 0 {
-		t.Fatalf("rules = %v, want none", part.GetIgnoredAssetClasses().GetRules())
-	}
-}
-
-// A rule naming a broker this build has no enum value for is dropped: no
-// importer could apply it, and BROKER_UNSPECIFIED would fail validation on the
-// way back in and take the whole setting with it.
-func TestExportUserArchive_Preferences_SkipsUnmappableRules(t *testing.T) {
-	part := exportPreferences(t, "GBP", []dbpkg.IgnoredAssetClass{
-		{Broker: "DEFUNCTBROKER", Account: "", AssetClass: "STOCK"},
-		{Broker: "FIDELITY", Account: "", AssetClass: "OPTION"},
-	}).preferences()
-	rules := part.GetIgnoredAssetClasses().GetRules()
-	if len(rules) != 1 || rules[0].GetBroker() != typev1.Broker_FIDELITY {
-		t.Fatalf("rules = %v, want only the FIDELITY rule", rules)
 	}
 }
 
@@ -192,12 +147,11 @@ func TestExportUserArchive_DBError_Internal(t *testing.T) {
 }
 
 // Both parts in one request travel in restore order, whatever order they were
-// asked for in: preferences before transactions, because which asset classes are
-// ignored changes what a transaction import keeps.
+// asked for in: preferences before transactions, so a reader applies the file in
+// the order the file is written.
 func TestExportUserArchive_PartsTravelInRestoreOrder(t *testing.T) {
 	srv, mockDB := newAPIServerWithMock(t)
 	mockDB.EXPECT().GetDisplayCurrency(gomock.Any(), "user-1").Return("GBP", nil)
-	mockDB.EXPECT().ListIgnoredAssetClasses(gomock.Any(), "user-1").Return(nil, nil)
 	mockDB.EXPECT().ListTxsForExport(gomock.Any(), "user-1", gomock.Any(), gomock.Any()).Return([]dbpkg.ExportPosting{
 		exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"),
 	}, nil)

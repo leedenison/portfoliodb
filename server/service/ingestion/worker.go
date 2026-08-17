@@ -337,20 +337,6 @@ func recomputeSplitAdjustedTxs(ctx context.Context, database db.DB, instrumentID
 	}
 }
 
-// filterIgnoredTxs returns only txs not matching an ignore rule, along with their original indices.
-func filterIgnoredTxs(txs []*apiv1.Tx, broker string, ignored []db.IgnoredAssetClass) ([]*apiv1.Tx, []int) {
-	var filtered []*apiv1.Tx
-	var indices []int
-	for i, tx := range txs {
-		if TxIgnored(tx, broker, ignored) {
-			continue
-		}
-		filtered = append(filtered, tx)
-		indices = append(indices, i)
-	}
-	return filtered, indices
-}
-
 // extractDescHints looks up each distinct (source, description) in DB and runs
 // batch description extraction for misses. Returns a resolve cache pre-populated
 // with DB hits and an extracted hints cache keyed by cacheKey(source, desc).

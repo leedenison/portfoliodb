@@ -285,11 +285,6 @@ service ApiService {
   // Display currency preference.
   rpc GetDisplayCurrency(GetDisplayCurrencyRequest) returns (GetDisplayCurrencyResponse);
   rpc SetDisplayCurrency(SetDisplayCurrencyRequest) returns (SetDisplayCurrencyResponse);
-  // Ignored asset classes: skip tx types mapping to these classes during ingestion.
-  rpc GetIgnoredAssetClasses(GetIgnoredAssetClassesRequest) returns (GetIgnoredAssetClassesResponse);
-  rpc SetIgnoredAssetClasses(SetIgnoredAssetClassesRequest) returns (SetIgnoredAssetClassesResponse);
-  rpc CountIgnoredTxs(CountIgnoredTxsRequest) returns (CountIgnoredTxsResponse);
-
   // Price gaps (admin-only). Returns date ranges where prices are needed but not cached.
   rpc ListPriceGaps(ListPriceGapsRequest) returns (ListPriceGapsResponse);
 
@@ -1062,34 +1057,6 @@ message ListWorkersRequest {}
 
 message ListWorkersResponse {
   repeated Worker workers = 1;
-}
-
-// Ignored asset classes: per-broker/account rules to skip tx types during ingestion.
-message IgnoredAssetClassRule {
-  string broker = 1;
-  string account = 2;      // empty = all accounts for broker
-  portfoliodb.type.v1.AssetClass asset_class = 3;
-}
-
-message GetIgnoredAssetClassesRequest {}
-
-message GetIgnoredAssetClassesResponse {
-  repeated IgnoredAssetClassRule rules = 1;
-}
-
-message SetIgnoredAssetClassesRequest {
-  repeated IgnoredAssetClassRule rules = 1;
-}
-
-message SetIgnoredAssetClassesResponse {}
-
-message CountIgnoredTxsRequest {
-  repeated IgnoredAssetClassRule rules = 1;
-}
-
-message CountIgnoredTxsResponse {
-  int32 tx_count = 1;
-  int32 declaration_count = 2;
 }
 
 // ListPriceGaps returns date ranges where prices are needed but not cached.

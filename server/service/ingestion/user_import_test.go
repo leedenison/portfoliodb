@@ -17,8 +17,8 @@ import (
 	"github.com/leedenison/portfoliodb/server/db/mock"
 )
 
-// userArchivePayload is a document stating both settings, which is enough to
-// watch the part run.
+// userArchivePayload is a document stating the display currency, which is
+// enough to watch the part run.
 func userArchivePayload(t *testing.T) []byte {
 	t.Helper()
 	b, err := proto.Marshal(&archivev1.UserArchive{
@@ -29,12 +29,6 @@ func userArchivePayload(t *testing.T) []byte {
 		},
 		Preferences: &archivev1.PreferencePart{
 			DisplayCurrency: proto.String("GBP"),
-			IgnoredAssetClasses: &archivev1.IgnoredAssetClasses{
-				Rules: []*archivev1.IgnoredAssetClassRule{{
-					Broker:     typev1.Broker_IBKR,
-					AssetClass: typev1.AssetClass_OPTION,
-				}},
-			},
 		},
 	})
 	if err != nil {
@@ -71,7 +65,6 @@ func TestProcessUserImport_AppliesPreferencesForTheJobsUser(t *testing.T) {
 		Parts:  partRows(archivev1.ArchivePart_PREFERENCES),
 	}, nil).AnyTimes()
 	database.EXPECT().SetDisplayCurrency(gomock.Any(), "user-7", "GBP").Return(nil)
-	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any()).Return(nil)
 
 	var transitions []string
 	database.EXPECT().SetJobPartStatus(gomock.Any(), j.JobID, gomock.Any(), gomock.Any()).
@@ -98,7 +91,7 @@ func TestProcessUserImport_NoCurrencyEarnsNoNudge(t *testing.T) {
 	j := &JobRequest{JobID: "job-ua-2", JobType: db.JobTypeUserArchive}
 	payload, err := proto.Marshal(&archivev1.UserArchive{
 		Envelope:    &archivev1.Envelope{FormatVersion: 1, ExportedAt: timestamppb.Now(), Kind: archivev1.ArchiveKind_USER},
-		Preferences: &archivev1.PreferencePart{IgnoredAssetClasses: &archivev1.IgnoredAssetClasses{}},
+		Preferences: &archivev1.PreferencePart{},
 	})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -107,7 +100,6 @@ func TestProcessUserImport_NoCurrencyEarnsNoNudge(t *testing.T) {
 	database.EXPECT().GetJob(gomock.Any(), j.JobID).Return(&db.JobDetail{
 		UserID: "user-7", Parts: partRows(archivev1.ArchivePart_PREFERENCES),
 	}, nil).AnyTimes()
-	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any()).Return(nil)
 	database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	if res := processUserImport(context.Background(), ingestDeps{DB: database}, j); res.displayCurrencySet {
@@ -160,7 +152,6 @@ func TestProcessUserImport_ResetsPartialProgressOnRerun(t *testing.T) {
 	}, nil).AnyTimes()
 	database.EXPECT().ResetJobPartProgress(gomock.Any(), j.JobID, archivev1.ArchivePart_PREFERENCES).Return(nil)
 	database.EXPECT().SetDisplayCurrency(gomock.Any(), "user-7", "GBP").Return(nil)
-	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any()).Return(nil)
 	database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	processUserImport(context.Background(), ingestDeps{DB: database}, j)
@@ -213,7 +204,6 @@ func TestProcessUserImport_JobCountersAreTheSumOverParts(t *testing.T) {
 		}, nil),
 	)
 	database.EXPECT().SetDisplayCurrency(gomock.Any(), "user-7", "GBP").Return(nil)
-	database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), "user-7", gomock.Any()).Return(nil)
 	database.EXPECT().SetJobTotalCount(gomock.Any(), j.JobID, int32(2)).Return(nil)
 	database.EXPECT().SetJobProcessedCount(gomock.Any(), j.JobID, int32(2)).Return(nil)
 
@@ -235,8 +225,8 @@ func TestProcessJob_UserArchive_NudgesThePriceFetcherOnlyForACurrency(t *testing
 			wantNudged: true,
 		},
 		{
-			name:       "rules only",
-			part:       &archivev1.PreferencePart{IgnoredAssetClasses: &archivev1.IgnoredAssetClasses{}},
+			name:       "nothing stated",
+			part:       &archivev1.PreferencePart{},
 			wantNudged: false,
 		},
 	}
@@ -256,7 +246,6 @@ func TestProcessJob_UserArchive_NudgesThePriceFetcherOnlyForACurrency(t *testing
 				UserID: "user-7", Parts: partRows(archivev1.ArchivePart_PREFERENCES),
 			}, nil).AnyTimes()
 			database.EXPECT().SetDisplayCurrency(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-			database.EXPECT().SetIgnoredAssetClasses(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 			trigger := make(chan struct{}, 1)

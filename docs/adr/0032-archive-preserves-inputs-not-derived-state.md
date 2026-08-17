@@ -10,8 +10,7 @@ Data falls into three tiers.
 
 **Tier 1, irreplaceable.** External or human input that exists nowhere else:
 `txs`, `holding_declarations`, `portfolios` and `portfolio_filters`,
-`ignored_asset_classes` and `users.display_currency`,
-`plugin_config`, the `reason` on `price_fetch_blocks` and
+`users.display_currency`, `plugin_config`, the `reason` on `price_fetch_blocks` and
 `corporate_event_fetch_blocks`, `unhandled_corporate_events.resolved`, and
 hand-recovered price rows for instruments no provider still carries.
 

@@ -144,56 +144,23 @@ func (s *Server) ExportUserArchive(req *apiv1.ExportUserArchiveRequest, stream a
 }
 
 // sendPreferencePart sends the user's settings as one whole-part message. The
-// part is two settings rather than a list of rows, so there is nothing to
-// stream and nothing to group by.
+// part is a setting rather than a list of rows, so there is nothing to stream
+// and nothing to group by.
 //
-// Both settings are always stated, because both are always known: the display
-// currency is a NOT NULL column and a user with no ignore rules has an empty
-// set rather than an unstated one. The empty IgnoredAssetClasses container is
-// what says so -- an absent one would tell an importer to leave the stored
-// rules alone, which is the opposite instruction.
+// The display currency is always stated, because it is always known: it is a
+// NOT NULL column.
 func (s *Server) sendPreferencePart(ctx context.Context, userID string, stream apiv1.ApiService_ExportUserArchiveServer) error {
 	currency, err := s.db.GetDisplayCurrency(ctx, userID)
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
-	rules, err := s.db.ListIgnoredAssetClasses(ctx, userID)
-	if err != nil {
-		return status.Error(codes.Internal, err.Error())
-	}
-	part := &archivev1.PreferencePart{
-		IgnoredAssetClasses: &archivev1.IgnoredAssetClasses{Rules: archiveIgnoredRules(rules)},
-	}
+	part := &archivev1.PreferencePart{}
 	if currency != "" {
 		part.DisplayCurrency = proto.String(currency)
 	}
 	return stream.Send(&apiv1.ExportUserArchiveResponse{
 		Item: &apiv1.ExportUserArchiveResponse_Preferences{Preferences: part},
 	})
-}
-
-// archiveIgnoredRules turns stored ignore rules into their archive form.
-//
-// A stored broker or asset class this build has no enum value for is dropped
-// rather than written as UNSPECIFIED: no importer could apply the rule, and an
-// UNSPECIFIED enum would fail validation on the way back in, taking the whole
-// setting with it.
-func archiveIgnoredRules(rules []db.IgnoredAssetClass) []*archivev1.IgnoredAssetClassRule {
-	out := make([]*archivev1.IgnoredAssetClassRule, 0, len(rules))
-	for _, r := range rules {
-		broker := db.StrToBroker(r.Broker)
-		assetClass := db.StrToAssetClass(r.AssetClass)
-		if broker == 0 || assetClass == 0 {
-			log.Printf("user archive export: skipping ignore rule (broker %q, asset class %q): not a known value", r.Broker, r.AssetClass)
-			continue
-		}
-		out = append(out, &archivev1.IgnoredAssetClassRule{
-			Broker:     broker,
-			Account:    r.Account,
-			AssetClass: assetClass,
-		})
-	}
-	return out
 }
 
 // sendTxPart streams one window per broker, each nesting its groups.

@@ -28,7 +28,6 @@ export const qk = {
   displayCurrency: () => ["display-currency"] as const,
   valuation: (portfolioId: string | undefined, dateFrom: string, dateBefore: string, currency: string) =>
     ["valuation", portfolioId ?? null, dateFrom, dateBefore, currency] as const,
-  ignoredAssetClasses: () => ["ignored-asset-classes"] as const,
   holdingDeclarations: () => ["holding-declarations"] as const,
   brokersAndAccounts: () => ["brokers-and-accounts"] as const,
   // Called with no arguments to invalidate every search/filter variant.

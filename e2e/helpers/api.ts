@@ -6,7 +6,6 @@ import { createClient } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-node";
 import { ApiService, JobStatus, type GetJobResponse } from "../gen/api/v1/api_pb";
 import { ArchiveKind, ArchivePart } from "../gen/archive/v1/common_pb";
-import { AssetClass } from "../gen/type/v1/type_pb";
 import { CorporateEventGroupSchema, type CorporateEventGroup } from "../gen/archive/v1/corporate_events_pb";
 import { PriceGroupSchema } from "../gen/archive/v1/prices_pb";
 import type { TxWindow } from "../gen/archive/v1/txs_pb";
@@ -60,22 +59,6 @@ export async function importSystemArchive(
   const headers = { Cookie: `${COOKIE_NAME}=${sessionId}` };
   const resp = await client.importSystemArchive({ archive }, { headers });
   return resp.jobId;
-}
-
-/**
- * Replace the caller's ignore rules.
- *
- * Written through the RPC rather than through SQL, so what a later export reads
- * is the shape the API stores rather than one this test invented.
- */
-export async function setIgnoredAssetClasses(
-  sessionId: string,
-  rules: { broker: string; account: string; assetClass: AssetClass }[],
-): Promise<void> {
-  await client.setIgnoredAssetClasses(
-    { rules },
-    { headers: { Cookie: `${COOKIE_NAME}=${sessionId}` } },
-  );
 }
 
 /** Import a whole user archive document and wait for the job to complete. */

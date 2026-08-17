@@ -6,7 +6,7 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { DateSchema } from "@/gen/google/type/date_pb";
 import type { Date as ProtoDate } from "@/gen/google/type/date_pb";
-import { GetPortfolioValuationRequestSchema, GetPortfolioValuationResponseSchema, CreatePortfolioRequestSchema, CreatePortfolioResponseSchema, DeletePortfolioRequestSchema, GetHoldingsRequestSchema, GetHoldingsResponseSchema, GetJobRequestSchema, GetJobResponseSchema, GetPortfolioRequestSchema, GetPortfolioResponseSchema, GetPortfolioFiltersRequestSchema, GetPortfolioFiltersResponseSchema, ListBrokersAndAccountsRequestSchema, ListBrokersAndAccountsResponseSchema, ListDescriptionPluginsRequestSchema, ListDescriptionPluginsResponseSchema, ListIdentifierPluginsRequestSchema, ListIdentifierPluginsResponseSchema, ListPriceFetchBlocksRequestSchema, ListPriceFetchBlocksResponseSchema, DeletePriceFetchBlockRequestSchema, ListPricesRequestSchema, ListPricesResponseSchema, ExportSystemArchiveRequestSchema, ExportSystemArchiveResponseSchema, ImportSystemArchiveRequestSchema, ImportSystemArchiveResponseSchema, ExportUserArchiveRequestSchema, ExportUserArchiveResponseSchema, ImportUserArchiveRequestSchema, ImportUserArchiveResponseSchema, ListPricePluginsRequestSchema, ListPricePluginsResponseSchema, ListInstrumentsRequestSchema, ListInstrumentsResponseSchema, ListJobsRequestSchema, ListJobsResponseSchema, ListPortfoliosRequestSchema, ListPortfoliosResponseSchema, ListTelemetryCountersRequestSchema, ListTelemetryCountersResponseSchema, ListTxsRequestSchema, ListTxsResponseSchema, SetPortfolioFiltersRequestSchema, UpdateDescriptionPluginRequestSchema, UpdateDescriptionPluginResponseSchema, UpdateIdentifierPluginRequestSchema, UpdateIdentifierPluginResponseSchema, UpdatePricePluginRequestSchema, UpdatePricePluginResponseSchema, UpdatePortfolioRequestSchema, UpdatePortfolioResponseSchema, ReorderPluginsRequestSchema, CreateHoldingDeclarationRequestSchema, CreateHoldingDeclarationResponseSchema, UpdateHoldingDeclarationRequestSchema, UpdateHoldingDeclarationResponseSchema, DeleteHoldingDeclarationRequestSchema, ListHoldingDeclarationsRequestSchema, ListHoldingDeclarationsResponseSchema, ListWorkersRequestSchema, ListWorkersResponseSchema, GetDisplayCurrencyRequestSchema, GetDisplayCurrencyResponseSchema, SetDisplayCurrencyRequestSchema, SetDisplayCurrencyResponseSchema, GetIgnoredAssetClassesRequestSchema, GetIgnoredAssetClassesResponseSchema, SetIgnoredAssetClassesRequestSchema, CountIgnoredTxsRequestSchema, CountIgnoredTxsResponseSchema, IgnoredAssetClassRuleSchema, ListInflationIndicesRequestSchema, ListInflationIndicesResponseSchema, ListInflationPluginsRequestSchema, ListInflationPluginsResponseSchema, UpdateInflationPluginRequestSchema, UpdateInflationPluginResponseSchema, TriggerInflationFetchRequestSchema, TriggerPriceFetchRequestSchema, CountUnhandledCorporateEventsRequestSchema, CountUnhandledCorporateEventsResponseSchema, ListUnhandledCorporateEventsRequestSchema, ListUnhandledCorporateEventsResponseSchema, ResolveUnhandledCorporateEventRequestSchema, ListResidualBalancesRequestSchema, ListResidualBalancesResponseSchema, CountResidualBalancesRequestSchema, CountResidualBalancesResponseSchema, JobStatus, WorkerState } from "@/gen/api/v1/api_pb";
+import { GetPortfolioValuationRequestSchema, GetPortfolioValuationResponseSchema, CreatePortfolioRequestSchema, CreatePortfolioResponseSchema, DeletePortfolioRequestSchema, GetHoldingsRequestSchema, GetHoldingsResponseSchema, GetJobRequestSchema, GetJobResponseSchema, GetPortfolioRequestSchema, GetPortfolioResponseSchema, GetPortfolioFiltersRequestSchema, GetPortfolioFiltersResponseSchema, ListBrokersAndAccountsRequestSchema, ListBrokersAndAccountsResponseSchema, ListDescriptionPluginsRequestSchema, ListDescriptionPluginsResponseSchema, ListIdentifierPluginsRequestSchema, ListIdentifierPluginsResponseSchema, ListPriceFetchBlocksRequestSchema, ListPriceFetchBlocksResponseSchema, DeletePriceFetchBlockRequestSchema, ListPricesRequestSchema, ListPricesResponseSchema, ExportSystemArchiveRequestSchema, ExportSystemArchiveResponseSchema, ImportSystemArchiveRequestSchema, ImportSystemArchiveResponseSchema, ExportUserArchiveRequestSchema, ExportUserArchiveResponseSchema, ImportUserArchiveRequestSchema, ImportUserArchiveResponseSchema, ListPricePluginsRequestSchema, ListPricePluginsResponseSchema, ListInstrumentsRequestSchema, ListInstrumentsResponseSchema, ListJobsRequestSchema, ListJobsResponseSchema, ListPortfoliosRequestSchema, ListPortfoliosResponseSchema, ListTelemetryCountersRequestSchema, ListTelemetryCountersResponseSchema, ListTxsRequestSchema, ListTxsResponseSchema, SetPortfolioFiltersRequestSchema, UpdateDescriptionPluginRequestSchema, UpdateDescriptionPluginResponseSchema, UpdateIdentifierPluginRequestSchema, UpdateIdentifierPluginResponseSchema, UpdatePricePluginRequestSchema, UpdatePricePluginResponseSchema, UpdatePortfolioRequestSchema, UpdatePortfolioResponseSchema, ReorderPluginsRequestSchema, CreateHoldingDeclarationRequestSchema, CreateHoldingDeclarationResponseSchema, UpdateHoldingDeclarationRequestSchema, UpdateHoldingDeclarationResponseSchema, DeleteHoldingDeclarationRequestSchema, ListHoldingDeclarationsRequestSchema, ListHoldingDeclarationsResponseSchema, ListWorkersRequestSchema, ListWorkersResponseSchema, GetDisplayCurrencyRequestSchema, GetDisplayCurrencyResponseSchema, SetDisplayCurrencyRequestSchema, SetDisplayCurrencyResponseSchema, ListInflationIndicesRequestSchema, ListInflationIndicesResponseSchema, ListInflationPluginsRequestSchema, ListInflationPluginsResponseSchema, UpdateInflationPluginRequestSchema, UpdateInflationPluginResponseSchema, TriggerInflationFetchRequestSchema, TriggerPriceFetchRequestSchema, CountUnhandledCorporateEventsRequestSchema, CountUnhandledCorporateEventsResponseSchema, ListUnhandledCorporateEventsRequestSchema, ListUnhandledCorporateEventsResponseSchema, ResolveUnhandledCorporateEventRequestSchema, ListResidualBalancesRequestSchema, ListResidualBalancesResponseSchema, CountResidualBalancesRequestSchema, CountResidualBalancesResponseSchema, JobStatus, WorkerState } from "@/gen/api/v1/api_pb";
 import { AccountType, AssetClass } from "@/gen/type/v1/type_pb";
 import { ArchivePart } from "@/gen/archive/v1/common_pb";
 import type { SystemArchive, UserArchive } from "@/gen/archive/v1/archive_pb";
@@ -742,62 +742,6 @@ export async function listWorkers(): Promise<WorkerRow[]> {
     queueDepth: w.queueDepth,
     updatedAt: w.updatedAt ? timestampDate(w.updatedAt) : undefined,
   }));
-}
-
-// Ignored asset classes
-
-export interface IgnoredAssetClassRule {
-  broker: string;
-  account: string; // empty = all accounts for broker
-  assetClass: AssetClass;
-}
-
-export async function getIgnoredAssetClasses(): Promise<IgnoredAssetClassRule[]> {
-  const base = getBaseUrl();
-  const req = create(GetIgnoredAssetClassesRequestSchema, {});
-  const resBytes = await unaryFetch(base, ApiServicePrefix + "GetIgnoredAssetClasses", toBinary(GetIgnoredAssetClassesRequestSchema, req), {
-    credentials: "include",
-  });
-  const res = fromBinary(GetIgnoredAssetClassesResponseSchema, resBytes);
-  return (res.rules ?? []).map((r) => ({
-    broker: r.broker,
-    account: r.account,
-    assetClass: r.assetClass,
-  }));
-}
-
-export async function setIgnoredAssetClasses(rules: IgnoredAssetClassRule[]): Promise<void> {
-  const base = getBaseUrl();
-  const req = create(SetIgnoredAssetClassesRequestSchema, {
-    rules: rules.map((r) =>
-      create(IgnoredAssetClassRuleSchema, {
-        broker: r.broker,
-        account: r.account,
-        assetClass: r.assetClass,
-      })
-    ),
-  });
-  await unaryFetch(base, ApiServicePrefix + "SetIgnoredAssetClasses", toBinary(SetIgnoredAssetClassesRequestSchema, req), {
-    credentials: "include",
-  });
-}
-
-export async function countIgnoredTxs(rules: IgnoredAssetClassRule[]): Promise<{ txCount: number; declarationCount: number }> {
-  const base = getBaseUrl();
-  const req = create(CountIgnoredTxsRequestSchema, {
-    rules: rules.map((r) =>
-      create(IgnoredAssetClassRuleSchema, {
-        broker: r.broker,
-        account: r.account,
-        assetClass: r.assetClass,
-      })
-    ),
-  });
-  const resBytes = await unaryFetch(base, ApiServicePrefix + "CountIgnoredTxs", toBinary(CountIgnoredTxsRequestSchema, req), {
-    credentials: "include",
-  });
-  const res = fromBinary(CountIgnoredTxsResponseSchema, resBytes);
-  return { txCount: res.txCount, declarationCount: res.declarationCount };
 }
 
 // ---------------------------------------------------------------------------

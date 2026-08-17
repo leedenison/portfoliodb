@@ -173,7 +173,6 @@ export function userPartCounts(archive: UserArchive): { label: string; count: nu
   if (archive.preferences) {
     let count = 0;
     if (archive.preferences.displayCurrency !== undefined) count++;
-    if (archive.preferences.ignoredAssetClasses !== undefined) count++;
     out.push({ label: "preference settings", count });
   }
   if (archive.txs) {

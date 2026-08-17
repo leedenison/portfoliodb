@@ -130,9 +130,9 @@ and 0049 both promise.
 
 **The warning is a client-side preflight.** Nothing in the ingestion path gates a
 commit today: `UpsertTxs` queues a job and returns a `job_id`, and `JobStatus` has no
-state a user acknowledges. The precedent to follow is `CountIgnoredTxs`, a read-only
-count the client calls before the mutating call to raise a confirm dialog. So a
-read-only RPC takes the window's broker and period, plus any `SCOPE_USER` tokens the
+state a user acknowledges. So the shape is a read-only count the client calls
+before the mutating call, to raise a confirm dialog: a read-only RPC takes the
+window's broker and period, plus any `SCOPE_USER` tokens the
 payload itself carries, and returns the assertions that would be destroyed together
 with how many postings *outside* the window lose a correlation -- that last number
 being the part a person will not expect. The upload modal calls it after the

@@ -34,11 +34,9 @@ import {
   rawQuery,
   seedFixture,
 } from "../helpers/db";
-import { setDisplayCurrency, setIgnoredAssetClasses } from "../helpers/api";
-import { AssetClass } from "../gen/type/v1/type_pb";
+import { setDisplayCurrency } from "../helpers/api";
 
 const CURRENCY = "GBP";
-const RULE = { broker: "IBKR", account: "U123", assetClass: AssetClass.OPTION };
 
 test.beforeAll(async () => {
   await resetAndSeedBase();
@@ -55,7 +53,6 @@ test.describe("user archive page", () => {
   test.beforeAll(async () => {
     sessionId = await seedSession("user");
     await setDisplayCurrency(sessionId, CURRENCY);
-    await setIgnoredAssetClasses(sessionId, [RULE]);
   });
 
   // Three balanced groups under one broker: a priced TRADE_ASSET and the EQUITY
@@ -91,16 +88,12 @@ test.describe("user archive page", () => {
     await download.saveAs(exported);
     const doc = JSON.parse(await readFile(exported, "utf8"));
 
-    // The envelope says which of the two archives this is, and the settings are
-    // carried with their values -- not merely present and empty, which is what
-    // an export that silently dropped them would also look like.
+    // The envelope says which of the two archives this is, and the setting is
+    // carried with its value -- not merely present and empty, which is what an
+    // export that silently dropped it would also look like.
     expect(doc.envelope.kind).toBe("USER");
     expect(doc.envelope.format_version).toBe(1);
     expect(doc.preferences.display_currency).toBe(CURRENCY);
-    // Broker and asset class are enums in the file and strings in the column.
-    expect(doc.preferences.ignored_asset_classes.rules).toEqual([
-      { broker: "IBKR", account: "U123", asset_class: "OPTION" },
-    ]);
     // No system data reaches a user archive, and a part left out of the menu is
     // absent rather than present and empty.
     expect(doc.instruments).toBeUndefined();
@@ -108,12 +101,9 @@ test.describe("user archive page", () => {
     expect(doc.txs).toBeUndefined();
     expect(doc.declarations).toBeUndefined();
 
-    // Put both settings back to what they were, so what lands afterwards came
-    // from the file rather than from what was already there.
+    // Put the setting back to what it was, so what lands afterwards came from
+    // the file rather than from what was already there.
     await rawQuery(`UPDATE users SET display_currency = 'USD' WHERE id = $1`, [
-      TEST_USER_ID,
-    ]);
-    await rawQuery(`DELETE FROM ignored_asset_classes WHERE user_id = $1`, [
       TEST_USER_ID,
     ]);
 
@@ -121,9 +111,9 @@ test.describe("user archive page", () => {
     await page
       .locator("input[aria-label='Choose archive file']")
       .setInputFiles(exported);
-    // Preferences counts settings rather than rows, so the preview says two.
+    // Preferences counts settings rather than rows, so the preview says one.
     await expect(page.locator("[data-testid='archive-import']")).toContainText(
-      "Carries 2 preference settings",
+      "Carries 1 preference settings",
     );
     await page.locator("[data-testid='start-archive-import']").click();
 
@@ -132,8 +122,8 @@ test.describe("user archive page", () => {
     await expect(parts.getByText("Done")).toHaveCount(1, {
       timeout: TIMEOUT_SLOW,
     });
-    // Both settings applied, none rejected.
-    await expect(parts).toContainText("2 / 2");
+    // The setting applied, none rejected.
+    await expect(parts).toContainText("1 / 1");
 
     // What the page said happened, checked against what is stored.
     const users = (await rawQuery(
@@ -141,14 +131,6 @@ test.describe("user archive page", () => {
       [TEST_USER_ID],
     )) as { display_currency: string }[];
     expect(users[0].display_currency).toBe(CURRENCY);
-
-    const rules = (await rawQuery(
-      `SELECT broker, account, asset_class FROM ignored_asset_classes WHERE user_id = $1`,
-      [TEST_USER_ID],
-    )) as { broker: string; account: string; asset_class: string }[];
-    expect(rules).toEqual([
-      { broker: "IBKR", account: "U123", asset_class: "OPTION" },
-    ]);
   });
 
   test("exports the user's transactions and imports them back", async ({
@@ -462,9 +444,6 @@ test.describe("user archive page", () => {
     await rawQuery(`UPDATE users SET display_currency = 'USD' WHERE id = $1`, [
       TEST_USER_ID,
     ]);
-    await rawQuery(`DELETE FROM ignored_asset_classes WHERE user_id = $1`, [
-      TEST_USER_ID,
-    ]);
     await rawQuery(`DELETE FROM holding_declarations WHERE user_id = $1`, [
       TEST_USER_ID,
     ]);
@@ -477,7 +456,7 @@ test.describe("user archive page", () => {
     // Each part counts the unit it reports progress against: settings,
     // postings, declarations.
     await expect(page.locator("[data-testid='archive-import']")).toContainText(
-      "Carries 2 preference settings, 6 postings, 3 holding declarations.",
+      "Carries 1 preference settings, 6 postings, 3 holding declarations.",
     );
     await page.locator("[data-testid='start-archive-import']").click();
 
@@ -490,7 +469,7 @@ test.describe("user archive page", () => {
     expect(
       await parts.locator("tbody tr td:first-child").allTextContents(),
     ).toEqual(["Preferences", "Transactions", "Holding declarations"]);
-    await expect(parts).toContainText("2 / 2");
+    await expect(parts).toContainText("1 / 1");
     await expect(parts).toContainText("6 / 6");
     await expect(parts).toContainText("3 / 3");
 
@@ -499,24 +478,11 @@ test.describe("user archive page", () => {
     // portfolio start date is rejected, and a user whose transactions have been
     // deleted has no start date at all, so the part would have failed whole had
     // it been applied before them.
-    //
-    // The preferences-first guarantee is not observable here, and is not
-    // manufactured: an instance cannot hold postings its own ignored asset
-    // class rules cover, so no self-consistent export carries both. That
-    // ordering stays covered in server/service/ingestion/user_import_test.go.
     const users = (await rawQuery(
       `SELECT display_currency FROM users WHERE id = $1`,
       [TEST_USER_ID],
     )) as { display_currency: string }[];
     expect(users[0].display_currency).toBe(CURRENCY);
-
-    const rules = (await rawQuery(
-      `SELECT broker, account, asset_class FROM ignored_asset_classes WHERE user_id = $1`,
-      [TEST_USER_ID],
-    )) as { broker: string; account: string; asset_class: string }[];
-    expect(rules).toEqual([
-      { broker: "IBKR", account: "U123", asset_class: "OPTION" },
-    ]);
 
     // The postings the file carried, in the three groups the correlations put
     // back together, with nothing routed on top.

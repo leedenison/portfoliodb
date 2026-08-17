@@ -233,16 +233,12 @@ describe("assembleUserArchive", () => {
         {
           item: {
             case: "preferences",
-            value: {
-              displayCurrency: "GBP",
-              ignoredAssetClasses: { rules: [{ broker: 2, account: "U123", assetClass: 5 }] },
-            },
+            value: { displayCurrency: "GBP" },
           },
         },
       ),
     );
     expect(doc.preferences?.displayCurrency).toBe("GBP");
-    expect(doc.preferences?.ignoredAssetClasses?.rules).toHaveLength(1);
   });
 
   // Transactions arrive a window at a time, so the assembler accumulates them

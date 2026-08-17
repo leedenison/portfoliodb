@@ -262,11 +262,6 @@ service ApiService {
   // EOD prices (admin-only). Browse cached price data.
   rpc ListPrices(ListPricesRequest) returns (ListPricesResponse);
 
-  // Price export/import (admin-only). Export streams the price part of an admin
-
-  // Telemetry counters (admin-only). Returns counters discovered from Redis (portfoliodb:counters:*).
-  rpc ListTelemetryCounters(ListTelemetryCountersRequest) returns (ListTelemetryCountersResponse);
-
   // Delete telemetry runs past the retention window, cascading to the event rows
   // beneath them (admin-only). Synchronous, and returns what it deleted: unlike
   // the Trigger RPCs there is no worker behind this, and nothing in the service
@@ -852,17 +847,6 @@ message DeletePriceFetchBlockRequest {
 }
 
 message DeletePriceFetchBlockResponse {}
-
-message ListTelemetryCountersRequest {}
-
-message TelemetryCounter {
-  string name = 1;
-  int64 value = 2;
-}
-
-message ListTelemetryCountersResponse {
-  repeated TelemetryCounter counters = 1;
-}
 
 message PurgeTelemetryRequest {}
 

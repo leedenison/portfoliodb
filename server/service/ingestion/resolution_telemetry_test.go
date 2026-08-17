@@ -430,7 +430,7 @@ func TestMismatchCheckProbesAreTheirOwnAttempts(t *testing.T) {
 	}
 
 	if _, err := Resolve(ctx, database, identifier.NewRegistry(), "IBKR", source, desc,
-		identifier.Hints{}, nil, nil, 0, nil, extracted, nil, keys); err != nil {
+		identifier.Hints{}, nil, nil, 0, extracted, nil, keys); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 

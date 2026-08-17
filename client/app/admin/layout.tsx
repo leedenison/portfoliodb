@@ -37,7 +37,6 @@ const adminNav: NavItem[] = [
     children: [
       { href: "/admin/imbalance", label: "Imbalance" },
       { href: "/admin/logs", label: "Logs", disabled: true },
-      { href: "/admin/telemetry", label: "Telemetry" },
       { href: "/admin/workers", label: "Workers" },
       { href: "/admin/tools", label: "Authentication" },
     ],

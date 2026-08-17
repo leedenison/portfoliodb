@@ -12,7 +12,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
 	"github.com/leedenison/portfoliodb/server/service/identification"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 	"log/slog"
 	"slices"
 	"strings"
@@ -156,9 +155,6 @@ func runDescriptionPluginsBatch(ctx context.Context, deps ingestDeps, broker, so
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(configs) > 0 && deps.Counter != nil {
-		deps.Counter.IncrBy(ctx, "instruments.resolution.totals.description.attempts", int64(len(items)))
-	}
 	resolved := make(map[string]bool)
 	// attempted is an item that reached at least one plugin. One that reached none
 	// was excluded by every plugin's type filter, which is a skip rather than a
@@ -206,9 +202,6 @@ func runDescriptionPluginsBatch(ctx context.Context, deps ingestDeps, broker, so
 				call.Outcome = string(description.OutcomeError)
 			}
 			deps.writeDescriptionPluginCall(ctx, call)
-			if deps.Counter != nil {
-				deps.Counter.Incr(ctx, "instruments.resolution.totals.description.plugin_error")
-			}
 			ingestionLogger().DebugContext(ctx, "description plugin batch result: error", "plugin_id", c.PluginID, "err", err)
 			continue
 		}
@@ -250,9 +243,6 @@ func runDescriptionPluginsBatch(ctx context.Context, deps ingestDeps, broker, so
 	if len(merged) > 0 {
 		return merged, outcomes, nil
 	}
-	if deps.Counter != nil {
-		deps.Counter.Incr(ctx, "instruments.resolution.totals.description.no_hints")
-	}
 	return nil, outcomes, nil
 }
 
@@ -262,8 +252,8 @@ func runDescriptionPluginsBatch(ctx context.Context, deps ingestDeps, broker, so
 // (hints from description plugins) before calling Resolve; see the pre-pass in process().
 // When client supplies identifier_hints, resolution is by identifiers only and (source, description) is not persisted
 // to the DB as a BROKER_DESCRIPTION identifier (though results are still cached in the in-memory batch cache).
-// hints are optional (exchange, currency, MIC, security type). counter is optional; when non-nil and plugins are invoked, instrument.identify.attempts is incremented.
-func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, rowIndex int32, counter telemetry.CounterIncrementer, extractedHintsCache map[string][]identifier.Identifier, hintsValidAt *time.Time, keys *resolutionKeys) (resolveResult, error) {
+// hints are optional (exchange, currency, MIC, security type).
+func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, rowIndex int32, extractedHintsCache map[string][]identifier.Identifier, hintsValidAt *time.Time, keys *resolutionKeys) (resolveResult, error) {
 	key := cacheKeyWithHints(source, instrumentDescription, identifierHints)
 	if cache != nil {
 		if r, ok := cache[key]; ok {
@@ -298,7 +288,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			return r, nil
 		}
 		// No DB hit: call identifier plugins with hints; do not persist (source, description) as BROKER_DESCRIPTION.
-		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, counter, false, hintsValidAt, keys, db.TelemetryPurposePrimary)
+		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, false, hintsValidAt, keys, db.TelemetryPurposePrimary)
 	}
 
 	// Path B: no client hints -- use pre-extracted description hints, then identifier plugins.
@@ -310,10 +300,8 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	}
 	if len(extractedHints) == 0 {
 		// Extraction failed: ensure broker-description-only and record error.
-		// Identifier plugins are never called in this path, so no Redis counters and no OpenFIGI.
-		if counter != nil {
-			counter.Incr(ctx, "instruments.resolution.totals.description.extraction_failed")
-		}
+		// Identifier plugins are never called in this path, so no identification
+		// attempt is opened and OpenFIGI is never reached.
 		ingestionLogger().InfoContext(ctx, "instrument resolution: description extraction failed, using broker description only", "source", source, "instrument_description", instrumentDescription)
 		instID, ensureErr := database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "", []db.IdentifierInput{{Type: "BROKER_DESCRIPTION", Domain: source, Value: instrumentDescription, Canonical: false}}, "", nil, nil, nil)
 		if ensureErr != nil {
@@ -332,25 +320,23 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	}
 
 	// When extraction returned both MIC_TICKER and OPENFIGI_SHARE_CLASS, resolve each separately and validate they match.
-	// If they resolve to different instruments, increment counter, log error, and use MIC_TICKER.
+	// If they resolve to different instruments, record the mismatch on the key, log
+	// the error, and use MIC_TICKER.
 	hintsToUse := extractedHints
 	tickerHints := hintsByType(extractedHints, "MIC_TICKER")
 	figiHints := hintsByType(extractedHints, "OPENFIGI_SHARE_CLASS")
 	if len(tickerHints) > 0 && len(figiHints) > 0 {
-		// Resolve with nil cache and nil counter: these two are probes, so they
-		// must not pollute the cache or double-count identify attempts. They do
-		// record an attempt each, named for what they are -- the pair is real work
-		// against real plugins, and calling them mismatch_check is what stops them
-		// inflating the denominator of a failure rate over primary attempts.
-		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, tickerHints, nil, key, rowIndex, nil, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
-		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, figiHints, nil, key, rowIndex, nil, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
+		// Resolve with a nil cache: these two are probes, so they must not pollute
+		// it. They do record an attempt each, named for what they are -- the pair
+		// is real work against real plugins, and calling them mismatch_check is
+		// what stops them inflating the denominator of a failure rate over primary
+		// attempts.
+		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, tickerHints, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
+		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, figiHints, nil, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
 		idByTicker := resultByTicker.InstrumentID
 		idByFigi := resultByFigi.InstrumentID
 		// Consider "unresolved" (broker-description-only) as empty for mismatch check
 		if idByTicker != "" && idByFigi != "" && idByTicker != idByFigi {
-			if counter != nil {
-				counter.Incr(ctx, "instruments.resolution.totals.description.identifier_mismatch")
-			}
 			keys.mismatch(key)
 			ingestionLogger().ErrorContext(ctx, "MIC_TICKER and OPENFIGI_SHARE_CLASS resolved to different instruments; using MIC_TICKER",
 				"source", source, "instrument_description", instrumentDescription,
@@ -360,7 +346,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	}
 
 	// Resolve by (validated) hints; always store (source, description) when ensuring.
-	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, counter, true, hintsValidAt, keys, db.TelemetryPurposePrimary)
+	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, true, hintsValidAt, keys, db.TelemetryPurposePrimary)
 }
 
 // hintDiffsSummary formats hint diffs as a readable string (e.g. "Currency: USD->EUR, ISIN: US037->US038").
@@ -395,7 +381,7 @@ func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identif
 // purpose names the attempt this call records. Only the primary one stamps the
 // key: the mismatch-check probes run against the same key and would otherwise
 // stamp it with their own answer before the resolution that decides it.
-func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, key string, rowIndex int32, counter telemetry.CounterIncrementer, storeSourceDescription bool, hintsValidAt *time.Time, keys *resolutionKeys, purpose string) (resolveResult, error) {
+func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, key string, rowIndex int32, storeSourceDescription bool, hintsValidAt *time.Time, keys *resolutionKeys, purpose string) (resolveResult, error) {
 	// Ingestion-specific fallback: broker-description-only instrument.
 	fallback := func(ctx context.Context, database db.DB) (string, error) {
 		return database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "",
@@ -403,7 +389,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 			"", nil, nil, nil)
 	}
 
-	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, storeSourceDescription, fallback, counter, keys.attempt(key, purpose), ingestionLogger(), 0, hintsValidAt)
+	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, storeSourceDescription, fallback, keys.attempt(key, purpose), ingestionLogger(), 0, hintsValidAt)
 	if err != nil {
 		return resolveResult{}, err
 	}

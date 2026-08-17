@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"github.com/leedenison/portfoliodb/server/db"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/worker"
 )
 
@@ -27,7 +26,7 @@ const name = "transfer_match"
 // just landed does not wait for the next tick. Neither is redundant: a cadence alone
 // would leave a just-imported transfer reported as unmatched until it came round,
 // and the ingestion nudge alone would never retry a cycle that failed.
-func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, tel db.TelemetryDB, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+func RunWorker(ctx context.Context, database db.DB, tel db.TelemetryDB, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
 	if tel == nil {
 		tel = db.NopTelemetry{}
 	}
@@ -44,7 +43,7 @@ func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterInc
 			}
 			runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunTransferMatchCycle})
 			outcome := db.TelemetryOutcomeSuccess
-			if err := runCycle(ctx, database, counter, log, workers); err != nil {
+			if err := runCycle(ctx, database, log, workers); err != nil {
 				outcome = db.TelemetryOutcomeFailed
 			}
 			tel.EndRun(ctx, runID, outcome)
@@ -59,10 +58,7 @@ func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterInc
 // arrived is not necessarily in the import being processed. The read is bounded by
 // the partial index over residual postings and by the anti-join, so a corpus with
 // nothing outstanding costs one query.
-func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) error {
-	if counter != nil {
-		counter.Incr(ctx, "transfer_match.cycles")
-	}
+func runCycle(ctx context.Context, database db.DB, log *slog.Logger, workers *worker.Registry) error {
 	defer func() {
 		if workers != nil {
 			workers.SetIdle(name)
@@ -83,10 +79,6 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 	if workers != nil {
 		workers.SetRunning(name, fmt.Sprintf("Matching %d transfer sides", len(sides)))
 	}
-	if counter != nil {
-		counter.IncrBy(ctx, "transfer_match.sides", int64(len(sides)))
-	}
-
 	matches := Match(sides, DefaultOpts())
 	if len(matches) == 0 {
 		return nil
@@ -97,11 +89,6 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 			log.ErrorContext(ctx, "transfer match: create matches", "err", err)
 		}
 		return err
-	}
-	if counter != nil {
-		// Pairs, not sides, which is why this is not called ".matched": next to
-		// ".sides" a reader would divide one by the other and get half the ratio.
-		counter.IncrBy(ctx, "transfer_match.pairs", int64(written))
 	}
 	if log != nil {
 		// The residue is the point of the number, not a shortfall: a deposit from

@@ -63,9 +63,10 @@ that residue, then score the plugin on the residue alone.
 That residue is also the hardest case. An unlisted fund is named `M&G European Index
 Tracker`, with no symbol anywhere in it, so the plugin is being asked for the case
 where there is nothing to extract and something has to be known. Report it as its own
-bucket rather than blended into one hit rate. The existing token counters
-(`instruments.description.openai.ticker_extraction.prompt_tokens` and its siblings)
-make the price per resolution measurable, so state accuracy and cost together.
+bucket rather than blended into one hit rate. The token columns on
+`telemetry.description_plugin_call` (`prompt_tokens`, `completion_tokens`,
+`total_tokens`) make the price per resolution measurable, so state accuracy and cost
+together.
 
 **Ground truth sources.** The Fidelity JSON export gives the cleanest pairing:
 extension/src/brokers/fidelity-json.ts reads `assetName` alongside `isin` and `sedol`

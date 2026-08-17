@@ -1,3 +1,8 @@
+// Package telemetry holds the Redis counter machinery. It deliberately has no
+// callers: telemetry is run-scoped event rows in the telemetry schema, read by
+// Grafana, and no counter is defined any more. What is kept here is the
+// mechanism, so that reintroducing a counter is a matter of calling it rather
+// than rebuilding it. See adr/0053-telemetry-is-run-scoped-event-rows.md.
 package telemetry
 
 import "context"

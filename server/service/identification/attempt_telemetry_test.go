@@ -91,7 +91,7 @@ func TestAttemptDBShortCircuit(t *testing.T) {
 	_, err := ResolveWithPlugins(context.Background(), database, identifier.NewRegistry(),
 		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, scope(tel), nil, 0, nil)
+		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestAttemptNoEligiblePlugins(t *testing.T) {
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, scope(tel), nil, 0, nil)
+		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{Currency: "USD"},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, scope(tel), nil, 0, nil)
+		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestPluginTransportOutcomePassesThrough(t *testing.T) {
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, scope(tel), nil, 0, nil)
+		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestPluginCallCountsRetries(t *testing.T) {
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "MIC_TICKER", Value: "AAPL"}},
-		false, nil, nil, scope(tel), nil, 0, nil); err != nil {
+		false, nil, scope(tel), nil, 0, nil); err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}
 
@@ -361,7 +361,7 @@ func TestUnderlyingRecursionIsItsOwnAttempt(t *testing.T) {
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},
 		[]identifier.Identifier{{Type: "OCC", Value: "AAPL240315C00100000"}},
-		false, nil, nil, scope(tel), nil, 0, nil)
+		false, nil, scope(tel), nil, 0, nil)
 	if err != nil {
 		t.Fatalf("ResolveWithPlugins: %v", err)
 	}

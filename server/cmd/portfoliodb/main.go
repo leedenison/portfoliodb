@@ -52,7 +52,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/service/api"
 	authservice "github.com/leedenison/portfoliodb/server/service/auth"
 	"github.com/leedenison/portfoliodb/server/service/ingestion"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/transfermatch"
 	"github.com/leedenison/portfoliodb/server/validate"
 	"github.com/leedenison/portfoliodb/server/worker"
@@ -155,8 +154,6 @@ func main() {
 	extendTTL := 72 * time.Hour
 	sessionStore := session.NewRedisStore(rdb, "portfoliodb:session:", extendTTL)
 
-	counterPrefix := "portfoliodb:counters:"
-	counter := telemetry.NewRedisCounter(rdb, counterPrefix)
 	inner := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level:     slog.LevelDebug,
 		AddSource: false,
@@ -311,7 +308,6 @@ func main() {
 		Queue:                 queue,
 		IdentifierRegistry:    pluginRegistry,
 		DescriptionRegistry:   descRegistry,
-		Counter:               counter,
 		TelemetryDB:           telemetryDB,
 		Logger:                ingestionLogger,
 		PriceTrigger:          priceTrigger,
@@ -320,11 +316,11 @@ func main() {
 		GroupingTrigger:       groupingTrigger,
 		Workers:               workers,
 	})
-	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, telemetryDB, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
-	go inflationfetcher.RunWorker(ctx, database, inflationRegistry, counter, telemetryDB, logger.WithCategory(serverLogger, "server/inflationfetcher"), inflationTrigger, workers)
-	go corporateevents.RunWorker(ctx, database, corporateEventRegistry, counter, telemetryDB, logger.WithCategory(serverLogger, "server/corporateevents"), corporateEventTrigger, workers)
-	go transfermatch.RunWorker(ctx, database, counter, telemetryDB, logger.WithCategory(serverLogger, "server/transfermatch"), transferMatchTrigger, workers)
-	go grouping.RunWorker(ctx, database, counter, telemetryDB, logger.WithCategory(serverLogger, "server/grouping"), groupingTrigger, workers)
+	go pricefetcher.RunWorker(ctx, database, priceRegistry, telemetryDB, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
+	go inflationfetcher.RunWorker(ctx, database, inflationRegistry, telemetryDB, logger.WithCategory(serverLogger, "server/inflationfetcher"), inflationTrigger, workers)
+	go corporateevents.RunWorker(ctx, database, corporateEventRegistry, telemetryDB, logger.WithCategory(serverLogger, "server/corporateevents"), corporateEventTrigger, workers)
+	go transfermatch.RunWorker(ctx, database, telemetryDB, logger.WithCategory(serverLogger, "server/transfermatch"), transferMatchTrigger, workers)
+	go grouping.RunWorker(ctx, database, telemetryDB, logger.WithCategory(serverLogger, "server/grouping"), groupingTrigger, workers)
 	// Stamp the runs a previous process left unfinished. This has to happen before
 	// the re-enqueue below, which opens runs of its own that must not be swept, and
 	// it is what lets a run with no outcome mean one running now.
@@ -371,8 +367,6 @@ func main() {
 	authv1.RegisterAuthServiceServer(svc, authServer)
 	apiv1.RegisterApiServiceServer(svc, api.NewServer(api.ServerConfig{
 		DB:                     database,
-		Redis:                  rdb,
-		CounterPrefix:          counterPrefix,
 		TelemetryDB:            telemetryDB,
 		PluginRegistry:         pluginRegistry,
 		DescRegistry:           descRegistry,

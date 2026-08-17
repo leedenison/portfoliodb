@@ -10,7 +10,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/inflationfetcher"
 	"github.com/leedenison/portfoliodb/server/pricefetcher"
 	"github.com/leedenison/portfoliodb/server/worker"
-	"github.com/redis/go-redis/v9"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -21,8 +20,6 @@ type JobEnqueuer func(jobID, jobType string) error
 type Server struct {
 	apiv1.UnimplementedApiServiceServer
 	db                     db.DB
-	rdb                    *redis.Client
-	counterPrefix          string
 	telemetryDB            db.TelemetryDB
 	pluginRegistry         *identifier.Registry
 	descRegistry           *description.Registry
@@ -41,8 +38,6 @@ type Server struct {
 // ServerConfig configures the API server.
 type ServerConfig struct {
 	DB                     db.DB
-	Redis                  *redis.Client
-	CounterPrefix          string
 	TelemetryDB            db.TelemetryDB             // optional; when set, PurgeTelemetry deletes past the retention window
 	PluginRegistry         *identifier.Registry       // optional; enables display_name in identifier plugin list
 	DescRegistry           *description.Registry      // optional; enables display_name in description plugin list
@@ -62,8 +57,6 @@ type ServerConfig struct {
 func NewServer(cfg ServerConfig) *Server {
 	return &Server{
 		db:                     cfg.DB,
-		rdb:                    cfg.Redis,
-		counterPrefix:          cfg.CounterPrefix,
 		telemetryDB:            cfg.TelemetryDB,
 		pluginRegistry:         cfg.PluginRegistry,
 		descRegistry:           cfg.DescRegistry,

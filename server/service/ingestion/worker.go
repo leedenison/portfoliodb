@@ -11,7 +11,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"github.com/leedenison/portfoliodb/server/identifier/description"
 	"github.com/leedenison/portfoliodb/server/pluginutil"
-	"github.com/leedenison/portfoliodb/server/telemetry"
 	"github.com/leedenison/portfoliodb/server/worker"
 	"google.golang.org/protobuf/proto"
 	"log"
@@ -25,9 +24,9 @@ import (
 var ingestionLog *slog.Logger
 
 // WorkerOptions configures RunWorker. All fields except DB and Queue are
-// optional: a nil Counter, TelemetryDB, Logger, Trigger, or Registry is treated
-// as "not set" and the worker degrades gracefully (no telemetry, default logger,
-// no downstream nudge).
+// optional: a nil TelemetryDB, Logger, Trigger, or Registry is treated as "not
+// set" and the worker degrades gracefully (no telemetry, default logger, no
+// downstream nudge).
 type WorkerOptions struct {
 	// DB is the database abstraction the worker reads jobs from and writes
 	// results to. Required.
@@ -41,8 +40,6 @@ type WorkerOptions struct {
 	// DescriptionRegistry is the description plugin registry used to
 	// extract identifier hints from broker descriptions.
 	DescriptionRegistry *description.Registry
-	// Counter is an optional metrics counter; nil disables telemetry.
-	Counter telemetry.CounterIncrementer
 	// TelemetryDB records a run per job and the event rows beneath it; nil
 	// disables recording. It is separate from DB because it holds its own pool
 	// and must never join the work's transaction.
@@ -151,7 +148,6 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			DB:           opts.DB,
 			Registry:     opts.IdentifierRegistry,
 			DescRegistry: opts.DescriptionRegistry,
-			Counter:      opts.Counter,
 			Telemetry:    tel,
 			RunID:        runID,
 		}, j, detail.UserID); ok {
@@ -194,7 +190,6 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			DB:           opts.DB,
 			Registry:     opts.IdentifierRegistry,
 			DescRegistry: opts.DescriptionRegistry,
-			Counter:      opts.Counter,
 			Telemetry:    tel,
 			RunID:        runID,
 		}
@@ -427,7 +422,7 @@ func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source str
 			t := tx.GetTradeDate().AsTime()
 			hintsValidAt = &t
 		}
-		r, err := Resolve(ctx, deps.DB, deps.Registry, broker, source, desc, HintsFromTx(tx), txHints[i], cache, rowIndex, deps.Counter, extractedHintsCache, hintsValidAt, keys)
+		r, err := Resolve(ctx, deps.DB, deps.Registry, broker, source, desc, HintsFromTx(tx), txHints[i], cache, rowIndex, extractedHintsCache, hintsValidAt, keys)
 		if err != nil {
 			return nil, nil, fmt.Errorf("row %d: %w", rowIndex, err)
 		}

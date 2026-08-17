@@ -6,9 +6,7 @@ import (
 	"time"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
-	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/testutil"
-	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 )
 
@@ -106,27 +104,4 @@ func TestTriggers_AdminOnly(t *testing.T) {
 			}
 		})
 	}
-}
-
-// ListTelemetryCounters reads Redis, and an instance with none configured reports
-// no counters rather than failing. That is the whole of what can be checked here:
-// the scan and decode want a Redis to scan, which this package has no fake for.
-func TestListTelemetryCounters_NoRedis(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	t.Cleanup(func() { ctrl.Finish() })
-	srv := NewServer(ServerConfig{DB: mock.NewMockDB(ctrl)})
-
-	resp, err := srv.ListTelemetryCounters(adminCtx("admin-1", "sub|admin"), &apiv1.ListTelemetryCountersRequest{})
-	if err != nil {
-		t.Fatalf("ListTelemetryCounters: %v", err)
-	}
-	if len(resp.GetCounters()) != 0 {
-		t.Errorf("counters: got %d, want none", len(resp.GetCounters()))
-	}
-}
-
-func TestListTelemetryCounters_AdminOnly(t *testing.T) {
-	srv, _ := newAPIServerWithMock(t)
-	_, err := srv.ListTelemetryCounters(authCtx("user-1", "sub|1"), &apiv1.ListTelemetryCountersRequest{})
-	testutil.RequireGRPCCode(t, err, codes.PermissionDenied)
 }

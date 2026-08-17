@@ -303,6 +303,43 @@ func TestWriteUnderAMissingParentMarksTheRun(t *testing.T) {
 // TestPurgeRunsBefore pins retention being a delete over started_at that cascades,
 // so nothing has to know the table list, and a run inside the window keeps
 // everything under it.
+// TestSweepIncompleteRuns pins what makes a null outcome readable. A run left
+// unstamped by a process that died is indistinguishable from one running now
+// until the sweep at the next startup stamps it, and a run that already reached a
+// terminal outcome must not be restamped by it.
+func TestSweepIncompleteRuns(t *testing.T) {
+	tel := testTelemetry(t)
+	ctx := context.Background()
+
+	died := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunTxImport})
+	finished := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunGroupingCycle})
+	tel.EndRun(ctx, finished, db.TelemetryOutcomeSuccess)
+
+	swept, err := tel.SweepIncompleteRuns(ctx)
+	if err != nil {
+		t.Fatalf("SweepIncompleteRuns: %v", err)
+	}
+	if swept != 1 {
+		t.Errorf("swept = %d, want 1", swept)
+	}
+
+	outcome, endedAt, _ := scanRun(t, tel, died)
+	if outcome.String != db.TelemetryOutcomeIncomplete {
+		t.Errorf("outcome of a run that died = %q, want %q", outcome.String, db.TelemetryOutcomeIncomplete)
+	}
+	// The run ended when its process died, which nothing recorded. Stamping now()
+	// would date it to this startup and give the view a duration measuring how
+	// long the service was down.
+	if endedAt.Valid {
+		t.Error("the sweep stamped an ended_at it cannot know")
+	}
+
+	outcome, _, _ = scanRun(t, tel, finished)
+	if outcome.String != db.TelemetryOutcomeSuccess {
+		t.Errorf("the sweep restamped a finished run as %q", outcome.String)
+	}
+}
+
 func TestPurgeRunsBefore(t *testing.T) {
 	tel := testTelemetry(t)
 	ctx := context.Background()

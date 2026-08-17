@@ -25,6 +25,10 @@ type userImportResult struct {
 	declarationsStored bool
 	// userID is whose archive this was, for the recalc a stored posting earns.
 	userID string
+	// failed says the job ended FAILED, which is what the run records. It is the
+	// import's own verdict rather than a re-read of the job row, so the two
+	// cannot drift.
+	failed bool
 }
 
 // processUserImport applies the parts of a user archive in restore order,
@@ -42,12 +46,14 @@ func processUserImport(ctx context.Context, deps ingestDeps, j *JobRequest) user
 	if err != nil {
 		log.Printf("user archive job %s: load payload: %v", j.JobID, err)
 		failWholeJob(ctx, database, j.JobID, "payload", err.Error())
+		out.failed = true
 		return out
 	}
 	var a archivev1.UserArchive
 	if err := proto.Unmarshal(payload, &a); err != nil {
 		log.Printf("user archive job %s: unmarshal payload: %v", j.JobID, err)
 		failWholeJob(ctx, database, j.JobID, "payload", err.Error())
+		out.failed = true
 		return out
 	}
 
@@ -57,6 +63,7 @@ func processUserImport(ctx context.Context, deps ingestDeps, j *JobRequest) user
 	if err != nil {
 		log.Printf("user archive job %s: read parts: %v", j.JobID, err)
 		failWholeJob(ctx, database, j.JobID, "job", err.Error())
+		out.failed = true
 		return out
 	}
 
@@ -121,6 +128,7 @@ func processUserImport(ctx context.Context, deps ingestDeps, j *JobRequest) user
 	if anyFailed {
 		status = apiv1.JobStatus_FAILED
 	}
+	out.failed = anyFailed
 	finishJob(ctx, database, j.JobID, status)
 	return out
 }

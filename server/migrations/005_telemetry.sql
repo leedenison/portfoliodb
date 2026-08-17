@@ -52,7 +52,7 @@ CREATE SCHEMA telemetry;
 CREATE TABLE telemetry.run (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   kind       TEXT NOT NULL CHECK (kind IN ('tx_import', 'user_archive_import',
-                                           'system_archive_import', 'price_job',
+                                           'system_archive_import',
                                            'grouping_cycle', 'transfer_match_cycle',
                                            'corporate_event_cycle', 'price_fetch_cycle',
                                            'inflation_cycle')),
@@ -242,7 +242,8 @@ SELECT
   r.outcome,
   r.telemetry_incomplete,
   r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import,
-  -- Null while the run is in flight, which is the same thing outcome says.
+  -- Null while the run is in flight, and null for a run stamped incomplete: the
+  -- sweep knows the process died but not when, so there is no end to measure to.
   (EXTRACT(EPOCH FROM (r.ended_at - r.started_at)) * 1000)::BIGINT AS duration_ms
 FROM telemetry.run r;
 

@@ -531,8 +531,14 @@ type JobPartResult struct {
 // JobDetail is everything GetJob knows about one job. UserID is empty when no
 // such job exists, which is how a caller distinguishes "not found" from an error.
 type JobDetail struct {
-	Status               apiv1.JobStatus
-	UserID               string
+	Status apiv1.JobStatus
+	UserID string
+	// Broker and Source are what the job was created against, and are empty for
+	// an archive import, which names neither. They are read back rather than
+	// taken from the payload so that a job whose payload will not load still
+	// says whose upload it was.
+	Broker               string
+	Source               string
 	TotalCount           int32
 	ProcessedCount       int32
 	ValidationErrors     []*apiv1.ValidationError // errors with no part of their own
@@ -1986,7 +1992,6 @@ const (
 	TelemetryRunTxImport            = "tx_import"
 	TelemetryRunUserArchiveImport   = "user_archive_import"
 	TelemetryRunSystemArchiveImport = "system_archive_import"
-	TelemetryRunPriceJob            = "price_job"
 	TelemetryRunGroupingCycle       = "grouping_cycle"
 	TelemetryRunTransferMatchCycle  = "transfer_match_cycle"
 	TelemetryRunCorporateEventCycle = "corporate_event_cycle"
@@ -2183,9 +2188,47 @@ type TelemetryDB interface {
 	WriteIdentifierPluginCall(ctx context.Context, c TelemetryIdentifierPluginCall)
 	WriteDescriptionPluginCall(ctx context.Context, c TelemetryDescriptionPluginCall)
 
+	// SweepIncompleteRuns stamps every run left without a terminal outcome as
+	// incomplete, and returns how many it stamped. Called once at startup, before
+	// any work begins: a run with no outcome is then either one this process is
+	// running now or one whose process died, and the sweep is what tells the two
+	// apart. It returns an error for the reason PurgeRunsBefore does.
+	SweepIncompleteRuns(ctx context.Context) (int64, error)
+
 	// PurgeRunsBefore deletes runs started before cutoff, cascading to their event
 	// rows, and returns how many runs went. Unlike the writes it returns an error,
 	// because it is the work its caller was asked to do rather than telemetry
 	// alongside other work.
 	PurgeRunsBefore(ctx context.Context, cutoff time.Time) (int64, error)
 }
+
+// NopTelemetry is a TelemetryDB that records nothing, for a build or a test with
+// no telemetry pool behind it.
+//
+// It exists so that no code below the wiring point tests a handle for nil. Its
+// StartRun yields an empty id, and the writer contract already skips a row whose
+// parent id is empty, so an entire subtree of calls costs one comparison each and
+// writes nothing.
+type NopTelemetry struct{}
+
+var _ TelemetryDB = NopTelemetry{}
+
+func (NopTelemetry) StartRun(context.Context, TelemetryRun) string { return "" }
+
+func (NopTelemetry) EndRun(context.Context, string, string) {}
+
+func (NopTelemetry) StartResolutionKey(context.Context, TelemetryResolutionKey) string { return "" }
+
+func (NopTelemetry) EndResolutionKey(context.Context, string, TelemetryResolutionKeyOutcome) {}
+
+func (NopTelemetry) WriteIdentificationAttempt(context.Context, TelemetryIdentificationAttempt) string {
+	return ""
+}
+
+func (NopTelemetry) WriteIdentifierPluginCall(context.Context, TelemetryIdentifierPluginCall) {}
+
+func (NopTelemetry) WriteDescriptionPluginCall(context.Context, TelemetryDescriptionPluginCall) {}
+
+func (NopTelemetry) SweepIncompleteRuns(context.Context) (int64, error) { return 0, nil }
+
+func (NopTelemetry) PurgeRunsBefore(context.Context, time.Time) (int64, error) { return 0, nil }

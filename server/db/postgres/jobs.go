@@ -89,8 +89,8 @@ func (p *Postgres) GetJob(ctx context.Context, jobID string) (*db.JobDetail, err
 	var d db.JobDetail
 	var statusStr string
 	var jobUserID uuid.UUID
-	err = p.q.QueryRowContext(ctx, `SELECT status, user_id, total_count, processed_count FROM ingestion_jobs WHERE id = $1`, jobUUID).
-		Scan(&statusStr, &jobUserID, &d.TotalCount, &d.ProcessedCount)
+	err = p.q.QueryRowContext(ctx, `SELECT status, user_id, COALESCE(broker, ''), COALESCE(source, ''), total_count, processed_count FROM ingestion_jobs WHERE id = $1`, jobUUID).
+		Scan(&statusStr, &jobUserID, &d.Broker, &d.Source, &d.TotalCount, &d.ProcessedCount)
 	if err == sql.ErrNoRows {
 		// No such job. UserID stays empty, which is how the caller tells this
 		// apart from a failure to read one that exists.

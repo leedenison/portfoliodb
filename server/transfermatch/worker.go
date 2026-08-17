@@ -27,7 +27,10 @@ const name = "transfer_match"
 // just landed does not wait for the next tick. Neither is redundant: a cadence alone
 // would leave a just-imported transfer reported as unmatched until it came round,
 // and the ingestion nudge alone would never retry a cycle that failed.
-func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, tel db.TelemetryDB, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+	if tel == nil {
+		tel = db.NopTelemetry{}
+	}
 	if workers != nil {
 		workers.SetIdle(name)
 	}
@@ -39,7 +42,12 @@ func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterInc
 			if !ok {
 				return
 			}
-			runCycle(ctx, database, counter, log, workers)
+			runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunTransferMatchCycle})
+			outcome := db.TelemetryOutcomeSuccess
+			if err := runCycle(ctx, database, counter, log, workers); err != nil {
+				outcome = db.TelemetryOutcomeFailed
+			}
+			tel.EndRun(ctx, runID, outcome)
 		}
 	}
 }
@@ -51,7 +59,7 @@ func RunWorker(ctx context.Context, database db.DB, counter telemetry.CounterInc
 // arrived is not necessarily in the import being processed. The read is bounded by
 // the partial index over residual postings and by the anti-join, so a corpus with
 // nothing outstanding costs one query.
-func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) {
+func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) error {
 	if counter != nil {
 		counter.Incr(ctx, "transfer_match.cycles")
 	}
@@ -66,10 +74,10 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 		if log != nil {
 			log.ErrorContext(ctx, "transfer match: list sides", "err", err)
 		}
-		return
+		return err
 	}
 	if len(sides) == 0 {
-		return
+		return nil
 	}
 	if workers != nil {
 		workers.SetRunning(name, fmt.Sprintf("Matching %d transfer sides", len(sides)))
@@ -80,14 +88,14 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 
 	matches := Match(sides, DefaultOpts())
 	if len(matches) == 0 {
-		return
+		return nil
 	}
 	written, err := database.CreateTransferMatches(ctx, matches)
 	if err != nil {
 		if log != nil {
 			log.ErrorContext(ctx, "transfer match: create matches", "err", err)
 		}
-		return
+		return err
 	}
 	if counter != nil {
 		// Pairs, not sides, which is why this is not called ".matched": next to
@@ -100,4 +108,5 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 		log.InfoContext(ctx, "transfer match",
 			"sides", len(sides), "matched", written, "unmatched", len(sides)-written*2)
 	}
+	return nil
 }

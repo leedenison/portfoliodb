@@ -26,6 +26,10 @@ var errUnknownPart = errors.New("this build cannot apply that archive part")
 type systemImportResult struct {
 	pricesPersisted bool
 	eventsPersisted bool
+	// failed says the job ended FAILED, which is what the run records. It is the
+	// import's own verdict rather than a re-read of the job row, so the two
+	// cannot drift.
+	failed bool
 }
 
 // processSystemImport applies the parts of a system archive in restore order,
@@ -45,12 +49,14 @@ func processSystemImport(ctx context.Context, database db.DB, registry *identifi
 	if err != nil {
 		log.Printf("system archive job %s: load payload: %v", j.JobID, err)
 		failWholeJob(ctx, database, j.JobID, "payload", err.Error())
+		out.failed = true
 		return out
 	}
 	var a archivev1.SystemArchive
 	if err := proto.Unmarshal(payload, &a); err != nil {
 		log.Printf("system archive job %s: unmarshal payload: %v", j.JobID, err)
 		failWholeJob(ctx, database, j.JobID, "payload", err.Error())
+		out.failed = true
 		return out
 	}
 
@@ -73,6 +79,7 @@ func processSystemImport(ctx context.Context, database db.DB, registry *identifi
 	if err != nil {
 		log.Printf("system archive job %s: read parts: %v", j.JobID, err)
 		failWholeJob(ctx, database, j.JobID, "job", err.Error())
+		out.failed = true
 		return out
 	}
 
@@ -138,6 +145,7 @@ func processSystemImport(ctx context.Context, database db.DB, registry *identifi
 	if anyFailed {
 		status = apiv1.JobStatus_FAILED
 	}
+	out.failed = anyFailed
 	finishJob(ctx, database, j.JobID, status)
 	return out
 }

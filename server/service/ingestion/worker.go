@@ -25,8 +25,8 @@ import (
 var ingestionLog *slog.Logger
 
 // WorkerOptions configures RunWorker. All fields except DB and Queue are
-// optional: a nil Counter, Logger, Trigger, or Registry is treated as "not
-// set" and the worker degrades gracefully (no telemetry, default logger,
+// optional: a nil Counter, TelemetryDB, Logger, Trigger, or Registry is treated
+// as "not set" and the worker degrades gracefully (no telemetry, default logger,
 // no downstream nudge).
 type WorkerOptions struct {
 	// DB is the database abstraction the worker reads jobs from and writes
@@ -43,6 +43,10 @@ type WorkerOptions struct {
 	DescriptionRegistry *description.Registry
 	// Counter is an optional metrics counter; nil disables telemetry.
 	Counter telemetry.CounterIncrementer
+	// TelemetryDB records a run per job and the event rows beneath it; nil
+	// disables recording. It is separate from DB because it holds its own pool
+	// and must never join the work's transaction.
+	TelemetryDB db.TelemetryDB
 	// Logger is the slog logger for ingestion-side logging; nil falls back
 	// to slog.Default().
 	Logger *slog.Logger
@@ -97,13 +101,55 @@ func RunWorker(ctx context.Context, opts WorkerOptions) {
 	}
 }
 
+// telemetryRunKind maps a job type onto the run kind that describes it. An empty
+// return is a job type this build does not know, which opens no run: the
+// vocabulary is closed, so there is no kind to file it under.
+func telemetryRunKind(jobType string) string {
+	switch jobType {
+	case db.JobTypeTx:
+		return db.TelemetryRunTxImport
+	case db.JobTypeSystemArchive:
+		return db.TelemetryRunSystemArchiveImport
+	case db.JobTypeUserArchive:
+		return db.TelemetryRunUserArchiveImport
+	}
+	return ""
+}
+
 func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 	_ = opts.DB.SetJobStatus(ctx, j.JobID, apiv1.JobStatus_RUNNING)
 
+	tel := opts.TelemetryDB
+	if tel == nil {
+		tel = db.NopTelemetry{}
+	}
+	// The job row, not the payload, is what the run's scope comes from. A job
+	// whose payload will not load or unmarshal still leaves a run recording whose
+	// upload it was and that it failed, which is the case most worth seeing.
+	var detail db.JobDetail
+	if d, err := opts.DB.GetJob(ctx, j.JobID); err == nil && d != nil {
+		detail = *d
+	}
+	var runID string
+	if kind := telemetryRunKind(j.JobType); kind != "" {
+		runID = tel.StartRun(ctx, db.TelemetryRun{
+			Kind:   kind,
+			JobID:  j.JobID,
+			UserID: detail.UserID,
+			Broker: detail.Broker,
+			Source: detail.Source,
+		})
+	}
+	// Failed unless something below says otherwise, so a path that returns without
+	// deciding is recorded as the failure it is rather than as a success.
+	outcome := db.TelemetryOutcomeFailed
+	defer func() { tel.EndRun(ctx, runID, outcome) }()
+
 	switch j.JobType {
 	case db.JobTypeTx:
-		if ok, userID := processTx(ctx, opts.DB, opts.IdentifierRegistry, opts.DescriptionRegistry, opts.Counter, j); ok {
-			if err := recalcAfterIngestion(ctx, opts.DB, userID); err != nil {
+		if ok := processTx(ctx, opts.DB, opts.IdentifierRegistry, opts.DescriptionRegistry, opts.Counter, j, detail.UserID); ok {
+			outcome = db.TelemetryOutcomeSuccess
+			if err := recalcAfterIngestion(ctx, opts.DB, detail.UserID); err != nil {
 				log.Printf("ingestion job %s: recalc INITIALIZE txs: %v", j.JobID, err)
 			}
 			// The corporate event fetcher is not nudged because splits are
@@ -119,6 +165,9 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 		}
 	case db.JobTypeSystemArchive:
 		res := processSystemImport(ctx, opts.DB, opts.IdentifierRegistry, j)
+		if !res.failed {
+			outcome = db.TelemetryOutcomeSuccess
+		}
 		// Nudged once for the whole import rather than per part. Instruments
 		// trigger nothing: an imported instrument has no holdings yet, so it
 		// opens no price gap.
@@ -136,6 +185,9 @@ func processJob(ctx context.Context, opts WorkerOptions, j *JobRequest) {
 			Counter:      opts.Counter,
 		}
 		res := processUserImport(ctx, deps, j)
+		if !res.failed {
+			outcome = db.TelemetryOutcomeSuccess
+		}
 		// Nudged once for the whole import rather than per part.
 		//
 		// Restored postings earn what a broker upload earns: the pads a
@@ -181,24 +233,21 @@ func finishJob(ctx context.Context, database db.DB, jobID string, status apiv1.J
 	_ = database.ClearJobPayload(ctx, jobID)
 }
 
-func processTx(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest) (bool, string) {
-	// Look up userID from the job row.
-	var userID string
-	if d, err := database.GetJob(ctx, j.JobID); err == nil {
-		userID = d.UserID
-	}
-
+// processTx applies a broker upload. userID comes from the job row, which the
+// caller has already read to scope the run, so it is passed in rather than read
+// a second time.
+func processTx(ctx context.Context, database db.DB, registry *identifier.Registry, descRegistry *description.Registry, counter telemetry.CounterIncrementer, j *JobRequest, userID string) bool {
 	payload, err := database.LoadJobPayload(ctx, j.JobID)
 	if err != nil {
 		log.Printf("ingestion job %s: load payload: %v", j.JobID, err)
 		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
-		return false, ""
+		return false
 	}
 	var req ingestionv1.UpsertTxsRequest
 	if err := proto.Unmarshal(payload, &req); err != nil {
 		log.Printf("ingestion job %s: unmarshal payload: %v", j.JobID, err)
 		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
-		return false, ""
+		return false
 	}
 
 	// A tx job has no part rows, so its reporter is the unscoped kind: it writes
@@ -213,7 +262,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 		rep.Flush(ctx)
 		log.Printf("ingestion job %s: %v", j.JobID, err)
 		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
-		return false, ""
+		return false
 	}
 
 	res, err := ingestBatch(ctx, ingestDeps{
@@ -241,7 +290,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	if err != nil {
 		log.Printf("ingestion job %s: %v", j.JobID, err)
 		finishJob(ctx, database, j.JobID, apiv1.JobStatus_FAILED)
-		return false, ""
+		return false
 	}
 
 	// Recompute split-adjusted values for instruments that have split rows.
@@ -249,7 +298,7 @@ func processTx(ctx context.Context, database db.DB, registry *identifier.Registr
 	recomputeSplitAdjustedTxs(ctx, database, res.InstrumentIDs)
 
 	finishJob(ctx, database, j.JobID, apiv1.JobStatus_SUCCESS)
-	return true, userID
+	return true
 }
 
 // recomputeSplitAdjustedTxs checks which of the given instrument IDs have

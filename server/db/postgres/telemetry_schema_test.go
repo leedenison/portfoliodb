@@ -74,7 +74,6 @@ func TestTelemetryViews_IsImport(t *testing.T) {
 		{"tx_import", true},
 		{"user_archive_import", true},
 		{"system_archive_import", true},
-		{"price_job", false},
 		{"grouping_cycle", false},
 		{"transfer_match_cycle", false},
 		{"corporate_event_cycle", false},

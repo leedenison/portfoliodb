@@ -1,0 +1,5 @@
+# Nothing is provisioned here. The directory has to exist because this mount
+# shadows the image's own provisioning directory and Grafana logs an error for
+# each subdirectory it cannot read, and the file has to be .yaml because the
+# alerting provisioner warns about any other suffix it finds.
+apiVersion: 1

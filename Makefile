@@ -60,7 +60,8 @@ build: $(STAMP_DIR)/generate
 google-finance-cli: $(STAMP_DIR)/generate
 	$(COMPOSE_TOOLS) sh -c 'CGO_ENABLED=0 go build -o bin/google-finance-cli ./cli/google'
 
-# Full stack (Postgres 5432, Redis 6379, portfoliodb, Envoy, client SPA) for local dev. SPA at localhost:8080.
+# Full stack (Postgres 5432, Redis 6379, portfoliodb, Envoy, client SPA, Grafana) for local dev.
+# SPA at localhost:8080, telemetry dashboards at localhost:3000.
 # Uses dev override: source mounts, host UID/GID, Air + next dev for live-reload.
 run: $(STAMP_DIR)/generate
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) $(COMPOSE_DEV) up -d --build
@@ -230,7 +231,7 @@ help:
 	@echo "  make generate           Run protobuf + mock codegen (auto-skipped if up-to-date)"
 	@echo ""
 	@echo "Development:"
-	@echo "  make run                Start dev stack (Postgres, Redis, gRPC, Envoy, Next.js)"
+	@echo "  make run                Start dev stack (Postgres, Redis, gRPC, Envoy, Next.js, Grafana)"
 	@echo "  make logs               Tail portfoliodb service logs"
 	@echo "  make stop               Stop dev stack"
 	@echo "  make build              Build server binary"

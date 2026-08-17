@@ -1,0 +1,27 @@
+# The telemetry schema, read as the SELECT-only login created by
+# docker/postgres/init/10-telemetry-reader.sh.
+#
+# Grafana expands ${VAR} in a provisioning file from its own environment, which
+# is what lets the credentials come from compose while this file stays in the
+# repository. The uid is fixed because the dashboards reference it by uid: a
+# generated one would change on every fresh volume and orphan every panel.
+apiVersion: 1
+
+datasources:
+  - name: Telemetry
+    uid: portfoliodb-telemetry
+    type: postgres
+    url: postgres:5432
+    user: ${TELEMETRY_READER_USER}
+    isDefault: true
+    editable: false
+    jsonData:
+      database: portfoliodb
+      sslmode: disable
+      postgresVersion: 1600
+      # The telemetry tables are plain tables, not hypertables, even though the
+      # image carries the extension. Claiming otherwise here makes Grafana emit
+      # time_bucket() against tables that have no such index.
+      timescaledb: false
+    secureJsonData:
+      password: ${TELEMETRY_READER_PASSWORD}

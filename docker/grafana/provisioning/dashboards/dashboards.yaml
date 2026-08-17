@@ -1,0 +1,17 @@
+# Dashboards are files in the repository and nothing else. allowUiUpdates is
+# false so a panel edited in the browser cannot be saved: the change would live
+# in the container volume and drift from the repository silently. To change a
+# panel, edit it in the UI, export the JSON and commit it.
+apiVersion: 1
+
+providers:
+  - name: portfoliodb
+    folder: PortfolioDB
+    type: file
+    allowUiUpdates: false
+    updateIntervalSeconds: 10
+    options:
+      # Outside /var/lib/grafana, which is a named volume; a bind mount beneath
+      # it would be shadowed.
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false

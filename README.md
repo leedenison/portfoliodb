@@ -51,6 +51,10 @@ make run
 
 The gRPC server listens on `localhost:50051` behind Envoy on `http://localhost:8080` for gRPC-Web.
 
+Grafana serves the telemetry dashboards on `http://localhost:3000`, bound to loopback only. Sign in with **GRAFANA_ADMIN_USER** / **GRAFANA_ADMIN_PASSWORD** (`admin` / `portfoliodb` unless set in `.env`). Its datasource reads the `telemetry` schema through a SELECT-only login named by **TELEMETRY_READER_USER** / **TELEMETRY_READER_PASSWORD** (both `telemetry` by default).
+
+That login is created by `docker/postgres/init/10-telemetry-reader.sh`, which the Postgres entrypoint runs only on an empty data directory. The dev stack keeps its database across `make stop` / `make run`, so a stack that predates Grafana needs `make clean-docker` (or `docker volume rm portfoliodb-dev_postgres_data`) once before the datasource can connect.
+
 **GOOGLE_OAUTH_CLIENT_ID** is required for Auth (server uses it to verify Google ID tokens). Create a **OAuth 2.0 Client ID** (Web application) in [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
 
 **DB_INITIALISE_SCRIPT** (optional) — Path to a SQL file run against the database after Postgres is up, when you use `make run`. Set it in `.env` (e.g. `DB_INITIALISE_SCRIPT=local/dev-init.sql`). Use it to load seed data, create test users, or run one-off migrations. If unset or the file is missing, the step is skipped. 

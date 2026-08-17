@@ -459,3 +459,157 @@ func TestWriteDescriptionPluginCallPrecedence(t *testing.T) {
 		}
 	}
 }
+
+// TestWritePriceGapNest walks the price grains end to end, so that a column
+// renamed under the writer fails here rather than in front of someone reading a
+// dashboard. The call view flattens both parents in, which is what lets one row
+// answer what a plugin was asked, about which instrument, in which run.
+func TestWritePriceGapNest(t *testing.T) {
+	tel := testTelemetry(t)
+	ctx := context.Background()
+
+	runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunPriceFetchCycle})
+	instID := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+	gapID := tel.StartPriceGap(ctx, db.TelemetryPriceGap{
+		RunID:           runID,
+		InstrumentID:    instID,
+		AssetClass:      "STOCK",
+		Currency:        "USD",
+		Exchange:        "XNAS",
+		DaysOutstanding: 420,
+	})
+	if gapID == "" {
+		t.Fatal("StartPriceGap returned no id")
+	}
+	took := 1500 * time.Millisecond
+	tel.WritePricePluginCall(ctx, db.TelemetryPricePluginCall{
+		RunID:      runID,
+		GapID:      gapID,
+		PluginID:   "eodhd",
+		Precedence: 70,
+		From:       time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		Before:     time.Date(2024, 1, 11, 0, 0, 0, 0, time.UTC),
+		Bars:       7,
+		Outcome:    db.TelemetryPriceCallBarsReturned,
+		Duration:   &took,
+	})
+	tel.EndPriceGap(ctx, runID, gapID, db.TelemetryGapFilled)
+	tel.EndRun(ctx, runID, db.TelemetryOutcomeSuccess)
+
+	var (
+		pluginID, callOutcome, gapOutcome, runKind, assetClass, currency, exchange string
+		precedence, days, bars, durationMS, daysOutstanding                        int
+		transportFailed, writeFailed, gapSettled, isFX                             bool
+	)
+	err := tel.db.QueryRow(`
+		SELECT plugin_id, precedence, days, bars, outcome, duration_ms,
+		       transport_failed, write_failed,
+		       gap_outcome, gap_settled, gap_is_fx, gap_asset_class, gap_currency,
+		       gap_exchange, gap_days_outstanding, run_kind
+		FROM telemetry.v_price_plugin_call WHERE run_id = $1::uuid
+	`, runID).Scan(&pluginID, &precedence, &days, &bars, &callOutcome, &durationMS,
+		&transportFailed, &writeFailed, &gapOutcome, &gapSettled, &isFX,
+		&assetClass, &currency, &exchange, &daysOutstanding, &runKind)
+	if err != nil {
+		t.Fatalf("read v_price_plugin_call: %v", err)
+	}
+	if pluginID != "eodhd" || callOutcome != db.TelemetryPriceCallBarsReturned {
+		t.Errorf("call = (%s, %s), want (eodhd, bars_returned)", pluginID, callOutcome)
+	}
+	if precedence != 70 || bars != 7 || durationMS != 1500 {
+		t.Errorf("precedence, bars, duration_ms = (%d, %d, %d), want (70, 7, 1500)",
+			precedence, bars, durationMS)
+	}
+	// Derived from the range rather than stored, so it cannot disagree with it.
+	if days != 10 {
+		t.Errorf("days = %d, want the 10 the range spans", days)
+	}
+	if transportFailed || writeFailed {
+		t.Errorf("a call that returned bars is marked failed (transport=%v, write=%v)",
+			transportFailed, writeFailed)
+	}
+	if gapOutcome != db.TelemetryGapFilled || !gapSettled || isFX {
+		t.Errorf("gap = (%s, settled=%v, fx=%v), want (filled, true, false)",
+			gapOutcome, gapSettled, isFX)
+	}
+	if assetClass != "STOCK" || currency != "USD" || exchange != "XNAS" {
+		t.Errorf("gap attributes = (%s, %s, %s), want (STOCK, USD, XNAS)",
+			assetClass, currency, exchange)
+	}
+	if daysOutstanding != 420 || runKind != db.TelemetryRunPriceFetchCycle {
+		t.Errorf("gap days_outstanding, run kind = (%d, %s), want (420, price_fetch_cycle)",
+			daysOutstanding, runKind)
+	}
+
+	// The instrument is readable through the label view rather than joined into
+	// the grain views, and the gap holds the id that reaches it.
+	var storedInst string
+	if err := tel.db.QueryRow(
+		`SELECT instrument_id::text FROM telemetry.v_price_gap WHERE id = $1::uuid`, gapID,
+	).Scan(&storedInst); err != nil {
+		t.Fatalf("read v_price_gap: %v", err)
+	}
+	if storedInst != instID {
+		t.Errorf("instrument_id = %s, want %s", storedInst, instID)
+	}
+}
+
+// TestWritePricePluginCallNullDuration pins the one outcome that made no call.
+// Zero would average into a latency panel as a plugin answering instantly, which
+// is the same reason a plugin costing no tokens writes null rather than zero.
+func TestWritePricePluginCallNullDuration(t *testing.T) {
+	tel := testTelemetry(t)
+	ctx := context.Background()
+	runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunPriceFetchCycle})
+	gapID := tel.StartPriceGap(ctx, db.TelemetryPriceGap{
+		RunID:           runID,
+		InstrumentID:    "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+		DaysOutstanding: 30,
+	})
+	tel.WritePricePluginCall(ctx, db.TelemetryPricePluginCall{
+		RunID:    runID,
+		GapID:    gapID,
+		PluginID: "eodhd",
+		From:     time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC),
+		Before:   time.Date(2019, 2, 1, 0, 0, 0, 0, time.UTC),
+		Outcome:  db.TelemetryPriceCallHistoryLimit,
+	})
+
+	var duration sql.NullInt64
+	if err := tel.db.QueryRow(
+		`SELECT duration_ms FROM telemetry.v_price_plugin_call WHERE run_id = $1::uuid`, runID,
+	).Scan(&duration); err != nil {
+		t.Fatalf("read v_price_plugin_call: %v", err)
+	}
+	if duration.Valid {
+		t.Errorf("duration_ms = %d, want null for a call that never happened", duration.Int64)
+	}
+}
+
+// TestUnstampedPriceGapIsNotSettled pins that a gap the cycle never reached does
+// not read as dealt with. It must appear in the complement of settled, or a cycle
+// killed part way would look like one that finished.
+func TestUnstampedPriceGapIsNotSettled(t *testing.T) {
+	tel := testTelemetry(t)
+	ctx := context.Background()
+	runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunPriceFetchCycle})
+	gapID := tel.StartPriceGap(ctx, db.TelemetryPriceGap{
+		RunID:           runID,
+		InstrumentID:    "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+		DaysOutstanding: 30,
+	})
+
+	var settled, hadCall bool
+	var outcome sql.NullString
+	if err := tel.db.QueryRow(
+		`SELECT outcome, settled, had_call FROM telemetry.v_price_gap WHERE id = $1::uuid`, gapID,
+	).Scan(&outcome, &settled, &hadCall); err != nil {
+		t.Fatalf("read v_price_gap: %v", err)
+	}
+	if outcome.Valid {
+		t.Errorf("outcome = %q, want null on a gap that was never stamped", outcome.String)
+	}
+	if settled || hadCall {
+		t.Errorf("settled, had_call = (%v, %v), want both false", settled, hadCall)
+	}
+}

@@ -234,3 +234,62 @@ func (t *Telemetry) PurgeRunsBefore(ctx context.Context, cutoff time.Time) (int6
 	}
 	return res.RowsAffected()
 }
+
+// StartPriceGap implements db.TelemetryDB.
+func (t *Telemetry) StartPriceGap(ctx context.Context, g db.TelemetryPriceGap) string {
+	runID, ok := t.parent(ctx, g.RunID, g.RunID, "start price gap")
+	if !ok {
+		return ""
+	}
+	var id uuid.UUID
+	err := t.db.QueryRowContext(ctx, `
+		INSERT INTO telemetry.price_gap
+			(run_id, instrument_id, is_fx, asset_class, currency, exchange,
+			 days_outstanding)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id
+	`, runID, t.optUUID(g.InstrumentID, "start price gap"), g.IsFX,
+		nullStr(g.AssetClass), nullStr(g.Currency), nullStr(g.Exchange),
+		g.DaysOutstanding).Scan(&id)
+	if err != nil {
+		t.fail(ctx, g.RunID, "start price gap", err)
+		return ""
+	}
+	return id.String()
+}
+
+// EndPriceGap implements db.TelemetryDB.
+func (t *Telemetry) EndPriceGap(ctx context.Context, runID, gapID, outcome string) {
+	id, ok := t.parent(ctx, runID, gapID, "end price gap")
+	if !ok {
+		return
+	}
+	if _, err := t.db.ExecContext(ctx, `
+		UPDATE telemetry.price_gap SET outcome = $2 WHERE id = $1
+	`, id, outcome); err != nil {
+		t.fail(ctx, runID, "end price gap", err)
+	}
+}
+
+// WritePricePluginCall implements db.TelemetryDB.
+func (t *Telemetry) WritePricePluginCall(ctx context.Context, c db.TelemetryPricePluginCall) {
+	gapID, ok := t.parent(ctx, c.RunID, c.GapID, "write price plugin call")
+	if !ok {
+		return
+	}
+	// Null rather than zero for a call that never happened, so a history-limited
+	// range does not average into the latency panel as an instant answer.
+	var duration any
+	if c.Duration != nil {
+		duration = ms(*c.Duration)
+	}
+	if _, err := t.db.ExecContext(ctx, `
+		INSERT INTO telemetry.price_plugin_call
+			(price_gap_id, plugin_id, precedence, range_from, range_before, bars,
+			 outcome, duration_ms)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, gapID, c.PluginID, c.Precedence, c.From, c.Before, c.Bars, c.Outcome,
+		duration); err != nil {
+		t.fail(ctx, c.RunID, "write price plugin call", err)
+	}
+}

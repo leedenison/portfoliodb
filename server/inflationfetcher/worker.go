@@ -22,7 +22,10 @@ var gapStart = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 // RunWorker processes inflation fetch cycles triggered via the trigger channel.
 // It blocks until ctx is cancelled. Each signal on trigger runs one cycle;
 // rapid signals are debounced (buffered channel of size 1).
-func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, tel db.TelemetryDB, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+	if tel == nil {
+		tel = db.NopTelemetry{}
+	}
 	const name = "inflation_fetcher"
 	if workers != nil {
 		workers.SetIdle(name)
@@ -35,7 +38,12 @@ func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter 
 			if !ok {
 				return
 			}
-			runCycle(ctx, database, registry, counter, log, workers)
+			runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunInflationCycle})
+			outcome := db.TelemetryOutcomeSuccess
+			if err := runCycle(ctx, database, registry, counter, log, workers); err != nil {
+				outcome = db.TelemetryOutcomeFailed
+			}
+			tel.EndRun(ctx, runID, outcome)
 		}
 	}
 }
@@ -47,7 +55,7 @@ type pluginEntry struct {
 	config []byte
 }
 
-func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) {
+func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) error {
 	const name = "inflation_fetcher"
 	if counter != nil {
 		counter.Incr(ctx, "inflation_fetcher.cycles")
@@ -63,13 +71,13 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if log != nil {
 			log.ErrorContext(ctx, "inflation fetch: display currencies", "err", err)
 		}
-		return
+		return err
 	}
 	if len(currencies) == 0 {
 		if log != nil {
 			log.InfoContext(ctx, "inflation fetch: no display currencies configured, skipping")
 		}
-		return
+		return nil
 	}
 
 	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryInflation)
@@ -77,13 +85,13 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if log != nil {
 			log.ErrorContext(ctx, "inflation fetch: list configs", "err", err)
 		}
-		return
+		return err
 	}
 	if len(configs) == 0 {
 		if log != nil {
 			log.InfoContext(ctx, "inflation fetch: no enabled inflation plugins, skipping")
 		}
-		return
+		return nil
 	}
 
 	var plugins []pluginEntry
@@ -102,7 +110,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		})
 	}
 	if len(plugins) == 0 {
-		return
+		return nil
 	}
 
 	if workers != nil {
@@ -110,6 +118,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 	}
 
 	processCurrencies(ctx, database, plugins, currencies, log)
+	return nil
 }
 
 func processCurrencies(ctx context.Context, database db.DB, plugins []pluginEntry, currencies []string, log *slog.Logger) {

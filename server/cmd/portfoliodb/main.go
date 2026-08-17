@@ -312,6 +312,7 @@ func main() {
 		IdentifierRegistry:    pluginRegistry,
 		DescriptionRegistry:   descRegistry,
 		Counter:               counter,
+		TelemetryDB:           telemetryDB,
 		Logger:                ingestionLogger,
 		PriceTrigger:          priceTrigger,
 		CorporateEventTrigger: corporateEventTrigger,
@@ -319,11 +320,19 @@ func main() {
 		GroupingTrigger:       groupingTrigger,
 		Workers:               workers,
 	})
-	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
-	go inflationfetcher.RunWorker(ctx, database, inflationRegistry, counter, logger.WithCategory(serverLogger, "server/inflationfetcher"), inflationTrigger, workers)
-	go corporateevents.RunWorker(ctx, database, corporateEventRegistry, counter, logger.WithCategory(serverLogger, "server/corporateevents"), corporateEventTrigger, workers)
-	go transfermatch.RunWorker(ctx, database, counter, logger.WithCategory(serverLogger, "server/transfermatch"), transferMatchTrigger, workers)
-	go grouping.RunWorker(ctx, database, counter, logger.WithCategory(serverLogger, "server/grouping"), groupingTrigger, workers)
+	go pricefetcher.RunWorker(ctx, database, priceRegistry, counter, telemetryDB, logger.WithCategory(serverLogger, "server/pricefetcher"), priceTrigger, workers)
+	go inflationfetcher.RunWorker(ctx, database, inflationRegistry, counter, telemetryDB, logger.WithCategory(serverLogger, "server/inflationfetcher"), inflationTrigger, workers)
+	go corporateevents.RunWorker(ctx, database, corporateEventRegistry, counter, telemetryDB, logger.WithCategory(serverLogger, "server/corporateevents"), corporateEventTrigger, workers)
+	go transfermatch.RunWorker(ctx, database, counter, telemetryDB, logger.WithCategory(serverLogger, "server/transfermatch"), transferMatchTrigger, workers)
+	go grouping.RunWorker(ctx, database, counter, telemetryDB, logger.WithCategory(serverLogger, "server/grouping"), groupingTrigger, workers)
+	// Stamp the runs a previous process left unfinished. This has to happen before
+	// the re-enqueue below, which opens runs of its own that must not be swept, and
+	// it is what lets a run with no outcome mean one running now.
+	if swept, err := telemetryDB.SweepIncompleteRuns(ctx); err != nil {
+		log.Printf("telemetry: sweep incomplete runs: %v", err)
+	} else if swept > 0 {
+		log.Printf("telemetry: stamped %d run(s) incomplete", swept)
+	}
 	// Re-enqueue incomplete jobs from a previous run.
 	if pending, err := database.ListPendingJobs(ctx); err == nil {
 		for _, p := range pending {

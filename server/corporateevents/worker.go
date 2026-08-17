@@ -28,7 +28,10 @@ const (
 // RunWorker processes corporate event fetch cycles triggered via the trigger
 // channel. It blocks until ctx is cancelled. Each signal on trigger runs one
 // cycle; rapid signals are debounced via a buffered channel of size 1.
-func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, tel db.TelemetryDB, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+	if tel == nil {
+		tel = db.NopTelemetry{}
+	}
 	const name = "corporate_event_fetcher"
 	if workers != nil {
 		workers.SetIdle(name)
@@ -41,7 +44,12 @@ func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter 
 			if !ok {
 				return
 			}
-			runCycle(ctx, database, registry, counter, log, workers)
+			runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunCorporateEventCycle})
+			outcome := db.TelemetryOutcomeSuccess
+			if err := runCycle(ctx, database, registry, counter, log, workers); err != nil {
+				outcome = db.TelemetryOutcomeFailed
+			}
+			tel.EndRun(ctx, runID, outcome)
 		}
 	}
 }
@@ -53,7 +61,7 @@ type pluginEntry struct {
 	config []byte
 }
 
-func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) {
+func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) error {
 	const name = "corporate_event_fetcher"
 	if counter != nil {
 		counter.Incr(ctx, "corporate_event_fetcher.cycles")
@@ -88,10 +96,10 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if log != nil {
 			log.ErrorContext(ctx, "corporate event fetch: held instruments", "err", err)
 		}
-		return
+		return err
 	}
 	if len(held) == 0 {
-		return
+		return nil
 	}
 
 	configs, err := database.ListEnabledPluginConfigs(ctx, db.PluginCategoryCorporateEvent)
@@ -99,10 +107,10 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if log != nil {
 			log.ErrorContext(ctx, "corporate event fetch: list configs", "err", err)
 		}
-		return
+		return err
 	}
 	if len(configs) == 0 {
-		return
+		return nil
 	}
 	var plugins []pluginEntry
 	for _, cfg := range configs {
@@ -113,7 +121,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		plugins = append(plugins, pluginEntry{id: cfg.PluginID, plugin: p, config: cfg.Config})
 	}
 	if len(plugins) == 0 {
-		return
+		return nil
 	}
 
 	if workers != nil {
@@ -129,14 +137,14 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if log != nil {
 			log.ErrorContext(ctx, "corporate event fetch: load blocks", "err", err)
 		}
-		return
+		return err
 	}
 	instRows, err := database.ListInstrumentsByIDs(ctx, instIDs)
 	if err != nil {
 		if log != nil {
 			log.ErrorContext(ctx, "corporate event fetch: load instruments", "err", err)
 		}
-		return
+		return err
 	}
 	instByID := make(map[string]*db.InstrumentRow, len(instRows))
 	for _, r := range instRows {
@@ -147,7 +155,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if log != nil {
 			log.ErrorContext(ctx, "corporate event fetch: load coverage", "err", err)
 		}
-		return
+		return err
 	}
 	coverageByInst := make(map[string][]db.CorporateEventCoverage, len(coverage))
 	for _, c := range coverage {
@@ -158,7 +166,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 	endBefore := time.Now().UTC().Truncate(db.Day).AddDate(0, 0, DefaultLookaheadDays+1)
 	for _, h := range held {
 		if ctx.Err() != nil {
-			return
+			return nil
 		}
 		inst := instByID[h.InstrumentID]
 		if inst == nil {
@@ -167,6 +175,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		processInstrument(ctx, database, plugins, inst, h.EarliestTxDate, endBefore,
 			coverageByInst[h.InstrumentID], blocked[h.InstrumentID], log)
 	}
+	return nil
 }
 
 // processInstrument fills the missing date intervals for one instrument by

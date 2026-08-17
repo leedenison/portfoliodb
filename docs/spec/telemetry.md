@@ -39,7 +39,7 @@ One activation of one subsystem. Created before its children and stamped when it
 | column | notes |
 | --- | --- |
 | `id` | referenced by every event row |
-| `kind` | `tx_import`, `user_archive_import`, `system_archive_import`, `price_job`, `grouping_cycle`, `transfer_match_cycle`, `corporate_event_cycle`, `price_fetch_cycle`, `inflation_cycle` |
+| `kind` | `tx_import`, `user_archive_import`, `system_archive_import`, `grouping_cycle`, `transfer_match_cycle`, `corporate_event_cycle`, `price_fetch_cycle`, `inflation_cycle` |
 | `job_id` | `ingestion_jobs.id` when the run is a job; null for a cycle |
 | `user_id`, `broker`, `source` | null for cycles |
 | `started_at`, `ended_at` | |
@@ -48,8 +48,15 @@ One activation of one subsystem. Created before its children and stamped when it
 
 `incomplete` means the run died. It is stamped by a sweep at service startup over runs
 with no terminal outcome, which is what lets a null outcome mean genuinely running now.
+The sweep leaves `ended_at` null, because the run ended when its process died and
+nothing recorded when that was; a run stamped `incomplete` therefore has no duration.
 `telemetry_incomplete` is unrelated to it: the work may have succeeded while its
 telemetry was lost, and a panel should mark such a run rather than trust its counts.
+
+The three import kinds are the three ingestion job types. The five cycle kinds are the
+five triggered workers, and a cycle that finds no work still opens a run and stamps it
+`success`: it ran, and a run table with holes in it is harder to read than one with
+quiet rows.
 
 ### resolution_key
 

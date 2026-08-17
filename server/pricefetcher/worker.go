@@ -18,7 +18,10 @@ const DefaultPricePluginTimeout = 60 * time.Second
 // RunWorker processes price fetch cycles triggered via the trigger channel.
 // It blocks until ctx is cancelled. Each signal on trigger runs one cycle;
 // rapid signals are debounced (buffered channel of size 1).
-func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, tel db.TelemetryDB, log *slog.Logger, trigger <-chan struct{}, workers *worker.Registry) {
+	if tel == nil {
+		tel = db.NopTelemetry{}
+	}
 	const name = "price_fetcher"
 	if workers != nil {
 		workers.SetIdle(name)
@@ -31,7 +34,12 @@ func RunWorker(ctx context.Context, database db.DB, registry *Registry, counter 
 			if !ok {
 				return
 			}
-			runCycle(ctx, database, registry, counter, log, workers)
+			runID := tel.StartRun(ctx, db.TelemetryRun{Kind: db.TelemetryRunPriceFetchCycle})
+			outcome := db.TelemetryOutcomeSuccess
+			if err := runCycle(ctx, database, registry, counter, log, workers); err != nil {
+				outcome = db.TelemetryOutcomeFailed
+			}
+			tel.EndRun(ctx, runID, outcome)
 		}
 	}
 }
@@ -44,7 +52,7 @@ type pluginEntry struct {
 	maxHistDays *int
 }
 
-func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) {
+func runCycle(ctx context.Context, database db.DB, registry *Registry, counter telemetry.CounterIncrementer, log *slog.Logger, workers *worker.Registry) error {
 	const name = "price_fetcher"
 	if counter != nil {
 		counter.Incr(ctx, "price_fetcher.cycles")
@@ -62,7 +70,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if log != nil {
 			log.ErrorContext(ctx, "price fetch: gaps", "err", err)
 		}
-		return
+		return err
 	}
 
 	fxGaps, err := database.FXGaps(ctx, opts)
@@ -70,14 +78,14 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if log != nil {
 			log.ErrorContext(ctx, "price fetch: fx gaps", "err", err)
 		}
-		return
+		return err
 	}
 
 	allGaps := make([]db.InstrumentDateRanges, 0, len(gaps)+len(fxGaps))
 	allGaps = append(allGaps, gaps...)
 	allGaps = append(allGaps, fxGaps...)
 	if len(allGaps) == 0 {
-		return
+		return nil
 	}
 
 	if workers != nil {
@@ -89,10 +97,10 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if log != nil {
 			log.ErrorContext(ctx, "price fetch: list configs", "err", err)
 		}
-		return
+		return err
 	}
 	if len(configs) == 0 {
-		return
+		return nil
 	}
 
 	var plugins []pluginEntry
@@ -109,7 +117,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		})
 	}
 	if len(plugins) == 0 {
-		return
+		return nil
 	}
 
 	// Batch-load blocked (instrument, plugin) pairs.
@@ -119,7 +127,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if log != nil {
 			log.ErrorContext(ctx, "price fetch: load blocks", "err", err)
 		}
-		return
+		return err
 	}
 
 	// Batch-load all instruments for the gaps
@@ -128,7 +136,7 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if log != nil {
 			log.ErrorContext(ctx, "price fetch: load instruments", "err", err)
 		}
-		return
+		return err
 	}
 	instByID := make(map[string]*db.InstrumentRow, len(instRows))
 	for _, r := range instRows {
@@ -142,10 +150,11 @@ func runCycle(ctx context.Context, database db.DB, registry *Registry, counter t
 		if log != nil {
 			log.ErrorContext(ctx, "price fetch: load coverage", "err", err)
 		}
-		return
+		return err
 	}
 
 	processGaps(ctx, database, plugins, allGaps, instByID, blocked, coverage, log)
+	return nil
 }
 
 // processGaps iterates instrument gaps and fetches prices from matching plugins.

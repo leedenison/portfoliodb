@@ -210,6 +210,21 @@ func (t *Telemetry) WriteDescriptionPluginCall(ctx context.Context, c db.Telemet
 	}
 }
 
+// SweepIncompleteRuns implements db.TelemetryDB.
+//
+// ended_at is deliberately left null. The run ended when its process died, which
+// is a time nobody recorded; stamping now() would date it to this startup and
+// give the view a duration measuring how long the service was down.
+func (t *Telemetry) SweepIncompleteRuns(ctx context.Context) (int64, error) {
+	res, err := t.db.ExecContext(ctx, `
+		UPDATE telemetry.run SET outcome = $1 WHERE outcome IS NULL
+	`, db.TelemetryOutcomeIncomplete)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // PurgeRunsBefore implements db.TelemetryDB.
 func (t *Telemetry) PurgeRunsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
 	res, err := t.db.ExecContext(ctx,

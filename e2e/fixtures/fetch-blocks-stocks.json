@@ -14,7 +14,8 @@
         "source": "Fidelity:web:archive",
         "postings": [
           {
-            "timestamp": "2024-02-01T00:00:00Z",
+            "order_date": "2024-02-01T00:00:00Z",
+            "trade_date": "2024-02-01T00:00:00Z",
             "instrument_description": "AMZN - Amazon.com Inc.",
             "broker_tx_type": ["TRADE_ASSET"],
             "asset_class_hint": "STOCK",
@@ -29,7 +30,8 @@
             ]
           },
           {
-            "timestamp": "2024-02-02T00:00:00Z",
+            "order_date": "2024-02-02T00:00:00Z",
+            "trade_date": "2024-02-02T00:00:00Z",
             "instrument_description": "NVDA - NVIDIA Corp.",
             "broker_tx_type": ["TRADE_ASSET"],
             "asset_class_hint": "STOCK",
@@ -44,7 +46,8 @@
             ]
           },
           {
-            "timestamp": "2024-02-03T00:00:00Z",
+            "order_date": "2024-02-03T00:00:00Z",
+            "trade_date": "2024-02-03T00:00:00Z",
             "instrument_description": "TSLA - Tesla Inc.",
             "broker_tx_type": ["TRADE_ASSET"],
             "asset_class_hint": "STOCK",

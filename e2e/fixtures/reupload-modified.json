@@ -14,7 +14,8 @@
         "source": "Fidelity:web:archive",
         "postings": [
           {
-            "timestamp": "2024-01-15T00:00:00Z",
+            "order_date": "2024-01-15T00:00:00Z",
+            "trade_date": "2024-01-15T00:00:00Z",
             "instrument_description": "AAPL - Apple Inc.",
             "broker_tx_type": ["TRADE_ASSET"],
             "asset_class_hint": "STOCK",
@@ -23,7 +24,8 @@
             "unit_price": "185.5"
           },
           {
-            "timestamp": "2024-01-16T00:00:00Z",
+            "order_date": "2024-01-16T00:00:00Z",
+            "trade_date": "2024-01-16T00:00:00Z",
             "instrument_description": "MSFT - Microsoft Corp.",
             "broker_tx_type": ["TRADE_ASSET"],
             "asset_class_hint": "STOCK",
@@ -32,7 +34,8 @@
             "unit_price": "398.2"
           },
           {
-            "timestamp": "2024-01-17T00:00:00Z",
+            "order_date": "2024-01-17T00:00:00Z",
+            "trade_date": "2024-01-17T00:00:00Z",
             "instrument_description": "AMZN - Amazon.com Inc.",
             "broker_tx_type": ["TRADE_ASSET"],
             "asset_class_hint": "STOCK",

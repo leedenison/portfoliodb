@@ -68,6 +68,16 @@ Prefer smaller, focused PRs to reduce review burden:
 
 Smaller PRs are easier to review, less likely to introduce bugs, and create cleaner git history.
 
+### Before opening a PR
+
+Run `make e2e-test` and get it passing, alongside `make check` and `make test`.
+CI runs neither the e2e suite nor anything that would notice it rotting, so a
+break there is invisible until someone runs it by hand.
+
+A spec that fails for a reason the change did not cause is still a result to
+act on: say so in the PR description, with the evidence that it fails on an
+unmodified tree.
+
 ### Merging
 
 Always squash: `gh pr merge <n> --squash`. **Never pass `--delete-branch`.** The

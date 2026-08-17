@@ -175,9 +175,9 @@ test.describe("user archive page", () => {
       tokens.set(cs[0].token, (tokens.get(cs[0].token) ?? 0) + 1);
     }
     expect([...tokens.values()]).toEqual([2, 2, 2]);
-    // Order within a group carries no meaning -- the legs of a trade share a
-    // timestamp, so nothing stored distinguishes them -- and neither the file
-    // nor a reader depends on it.
+    // Order within a group carries no meaning -- the legs of a trade share both
+    // of their dates, so nothing stored distinguishes them -- and neither the
+    // file nor a reader depends on it.
     const first = postings.find(
       (p) =>
         typeof p.instrument_description === "string" &&
@@ -234,7 +234,7 @@ test.describe("user archive page", () => {
     const restored = (await rawQuery(
       `SELECT t.instrument_description, t.broker_tx_type, t.resolved_tx_type, t.quantity,
               t.unit_price, t.account_type, t.weight, t.weight_commodity, t.group_id
-       FROM txs t WHERE t.user_id = $1 ORDER BY t.timestamp, t.account_type`,
+       FROM txs t WHERE t.user_id = $1 ORDER BY t.order_date, t.account_type`,
       [TEST_USER_ID],
     )) as {
       instrument_description: string;
@@ -489,7 +489,7 @@ test.describe("user archive page", () => {
     const restored = (await rawQuery(
       `SELECT instrument_description, quantity, account_type, group_id FROM txs
        WHERE user_id = $1 AND synthetic_purpose IS NULL
-       ORDER BY timestamp, account_type`,
+       ORDER BY order_date, account_type`,
       [TEST_USER_ID],
     )) as {
       instrument_description: string;

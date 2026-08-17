@@ -225,11 +225,32 @@ a separate scope rather than a later change to the same one.
 
 The reading role's password is not in the migration, which rules out the migration
 creating the login the dashboard uses. So the migration creates `telemetry_reader`, a
-NOLOGIN group role holding SELECT and nothing else, and the login role is created at
-container init from compose environment and granted membership of it. The privileges are
-then reviewed in the repository and the password never is.
+NOLOGIN group role holding SELECT and nothing else, and the login role is created by
+`docker/postgres/init/10-telemetry-reader.sh` from compose environment and granted
+membership of it. The privileges are then reviewed in the repository and the password
+never is.
 
-## 2. Logger
+That script runs from the Postgres entrypoint, on an empty data directory, before the
+service has connected and so before the migration has run. It therefore creates
+`telemetry_reader` itself; the migration guards its own `CREATE ROLE` on `pg_roles` and
+adds only the grants. The apparent duplication is what the ordering costs. The test and
+e2e stacks mount no init script and take the role from the migration alone, which is why
+the privilege test needs no login to run against.
+
+## 2. Dashboards
+
+Grafana runs as a container in the dev stack, bound to loopback, with its datasource and
+its dashboards provisioned from files under `docker/grafana`. Dashboards are read only in
+the browser: an edit saved there would live in the container volume and drift from the
+repository unnoticed.
+
+There are two, over the same tables. One is scoped by a run picker, for reading a single
+import during manual testing; the other buckets over time, for drift. Panels select from
+the views and carry no definitions of their own -- `where is_import and reached_plugins`,
+never a repeated list of excluded outcomes. A judgement a panel needs and the views do not
+carry is a gap in the views.
+
+## 3. Logger
 
 ### Overview
 

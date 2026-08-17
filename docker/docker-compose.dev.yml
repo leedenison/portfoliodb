@@ -15,6 +15,13 @@ services:
   postgres:
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Creates the login Grafana reads telemetry with. Runs only on an empty
+      # data directory, and postgres_data above outlives make stop, so an
+      # existing stack needs `make clean-docker` once before it fires.
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    environment:
+      TELEMETRY_READER_USER: ${TELEMETRY_READER_USER:-telemetry}
+      TELEMETRY_READER_PASSWORD: ${TELEMETRY_READER_PASSWORD:-telemetry}
     cpus: 2
     mem_limit: 2g
     memswap_limit: 2g
@@ -91,5 +98,41 @@ services:
     memswap_limit: 4g
     pids_limit: 512
 
+  # Reads the telemetry schema through the SELECT-only login, with its datasource
+  # and dashboards provisioned from docker/grafana. Nothing here is configured in
+  # the browser: a dashboard edited there cannot be saved.
+  grafana:
+    image: grafana/grafana:11.6.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      # Not 'admin', which Grafana treats as unset and prompts to change on first
+      # login, which a provisioned dev container should not need to do.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-portfoliodb}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # A dev container should not phone home.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # Read by provisioning/datasources/telemetry.yaml, which is what keeps the
+      # password out of a file in the repository.
+      TELEMETRY_READER_USER: ${TELEMETRY_READER_USER:-telemetry}
+      TELEMETRY_READER_PASSWORD: ${TELEMETRY_READER_PASSWORD:-telemetry}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    # Loopback only, unlike every other service here. Those publish on all
+    # interfaces so a phone on the LAN can reach the SPA; this one reads the
+    # whole telemetry schema and has no reason to leave the machine.
+    ports:
+      - "127.0.0.1:3000:3000"
+    cpus: 1
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 256
+
 volumes:
   postgres_data:
+  grafana_data:

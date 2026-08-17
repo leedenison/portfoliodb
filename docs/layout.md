@@ -139,3 +139,7 @@ Go code for the PortfolioDB command line tools.
 
 - **docker/**
   Docker Compose files (dev, test, e2e), Envoy configs, and per-component Dockerfiles in `docker/server/` and `docker/client/`.
+- **docker/grafana/**
+  Grafana's provisioned datasource and dashboard provider under `provisioning/`, and the dashboard JSON under `dashboards/`. Both are mounted read only; a dashboard edited in the browser cannot be saved, so these files are the only source.
+- **docker/postgres/init/**
+  Scripts run by the Postgres entrypoint on an empty data directory. Creates the login Grafana reads the telemetry schema with; the privileges themselves are granted by `server/migrations/005_telemetry.sql`.

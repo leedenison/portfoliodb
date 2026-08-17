@@ -1,0 +1,3 @@
+Grafana reads every subdirectory of its provisioning path and logs an error for
+each one missing. This mount shadows the image's own provisioning directory, so
+the ones we provision nothing into have to exist anyway, empty.

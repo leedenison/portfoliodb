@@ -244,7 +244,23 @@ SELECT
   r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import,
   -- Null while the run is in flight, and null for a run stamped incomplete: the
   -- sweep knows the process died but not when, so there is no end to measure to.
-  (EXTRACT(EPOCH FROM (r.ended_at - r.started_at)) * 1000)::BIGINT AS duration_ms
+  (EXTRACT(EPOCH FROM (r.ended_at - r.started_at)) * 1000)::BIGINT AS duration_ms,
+  -- How big was this run. Scalar subqueries, one per child table, because a join
+  -- to two sibling grains would multiply both counts -- the failure the one view
+  -- per table rule exists to prevent. An aggregate is not that failure: it
+  -- duplicates no row, and v_run stays one row per run. Anything reaching into a
+  -- second child must be written this way, never as a second JOIN.
+  (SELECT count(*) FROM telemetry.resolution_key k
+     WHERE k.run_id = r.id) AS key_count,
+  -- Transactions that needed resolution, not rows in the imported file: a row
+  -- naming no instrument never becomes a key. This is the denominator every rate
+  -- over resolution keys wants, and the closest thing to an import's size that
+  -- the schema records -- ingestion_jobs is out of the reading role's reach by
+  -- design, so the file's own row count is not available here.
+  (SELECT coalesce(sum(k.tx_count), 0) FROM telemetry.resolution_key k
+     WHERE k.run_id = r.id) AS key_tx_count,
+  (SELECT count(*) FROM telemetry.description_plugin_call c
+     WHERE c.run_id = r.id) AS description_call_count
 FROM telemetry.run r;
 
 CREATE VIEW telemetry.v_resolution_key AS
@@ -261,6 +277,30 @@ SELECT
   k.outcome,
   k.mismatch_detected,
   k.instrument_id,
+  -- The key ended holding a real identifier, from wherever it came.
+  --
+  -- broker_description_only is deliberately outside it: nothing identified the
+  -- instrument and the row's own contents are all it was built from, which is a
+  -- failure for a transaction import however ordinary it looks. It is also the
+  -- expected outcome for an archive run, which is why a panel charting the
+  -- complement of this column splits by run kind rather than blending the two --
+  -- an archive sits at its own high level and drifts against itself.
+  --
+  -- instrument_id IS NOT NULL is not the same test and must not be substituted:
+  -- an archive key ensured from a supplied identifier has an instrument and
+  -- identified nothing. A key whose outcome was never stamped is not resolved
+  -- either, hence the explicit null handling rather than a bare IN, which would
+  -- yield null and drop the row out of both this column and its negation.
+  k.outcome IS NOT NULL AND k.outcome IN ('db_source_description',
+                                          'db_identifier_hints',
+                                          'identified') AS resolved,
+  -- Whether identification was reached at all. Four of the five paths that stamp
+  -- a key return before ResolveWithPlugins is called, so no attempt is the normal
+  -- case rather than a fault, and telling "never asked" from "asked and failed"
+  -- is the first question about a key that did not resolve. EXISTS rather than a
+  -- join: this view stays one row per key.
+  EXISTS (SELECT 1 FROM telemetry.identification_attempt a
+            WHERE a.resolution_key_id = k.id) AS had_attempt,
   r.kind       AS run_kind,
   r.job_id     AS run_job_id,
   r.user_id    AS run_user_id,
@@ -294,6 +334,9 @@ SELECT
   k.description AS key_description,
   k.tx_count    AS key_tx_count,
   k.outcome     AS key_outcome,
+  k.outcome IS NOT NULL AND k.outcome IN ('db_source_description',
+                                          'db_identifier_hints',
+                                          'identified') AS key_resolved,
   k.mismatch_detected AS key_mismatch_detected,
   r.id         AS run_id,
   r.kind       AS run_kind,
@@ -317,6 +360,12 @@ SELECT
   c.outcome,
   c.retries,
   c.duration_ms,
+  -- The call did not complete. Distinct from not_identified, which is the call
+  -- completing and the answer being no, and from the three orchestrator-decided
+  -- successes above it. The API breaking and the API not knowing are different
+  -- events with different fixes, and a panel counting plugin failures means this
+  -- one. skipped_expired is outside it: nothing was called.
+  c.outcome IN ('rate_limited', 'timeout', 'error') AS transport_failed,
   a.purpose      AS attempt_purpose,
   a.depth        AS attempt_depth,
   a.outcome      AS attempt_outcome,
@@ -329,6 +378,9 @@ SELECT
   k.description AS key_description,
   k.tx_count    AS key_tx_count,
   k.outcome     AS key_outcome,
+  k.outcome IS NOT NULL AND k.outcome IN ('db_source_description',
+                                          'db_identifier_hints',
+                                          'identified') AS key_resolved,
   r.id         AS run_id,
   r.kind       AS run_kind,
   r.job_id     AS run_job_id,
@@ -352,6 +404,11 @@ SELECT
   c.batch_size,
   c.items_with_hints,
   c.outcome,
+  -- The call did not produce an answer. no_hints is deliberately outside it: an
+  -- empty answer is an answer, and counting it as a fault would make a plugin
+  -- that correctly recognised it knew nothing look broken.
+  c.outcome IN ('error', 'rate_limited', 'quota_exceeded',
+                'model_not_found') AS call_failed,
   c.prompt_tokens,
   c.completion_tokens,
   c.total_tokens,
@@ -367,6 +424,41 @@ SELECT
   r.kind IN ('tx_import', 'user_archive_import', 'system_archive_import') AS is_import
 FROM telemetry.description_plugin_call c
 JOIN telemetry.run r ON r.id = c.run_id;
+
+-- The one thing here that reads outside the telemetry schema.
+--
+-- A resolution key records instrument_id and nothing readable, so no panel can
+-- say which instrument a description landed on -- which is the question asked
+-- after every manual import, because "APPLE INC COM" resolving to the wrong
+-- listing looks identical to it resolving to the right one in a bare UUID.
+--
+-- Recording a label at write time was rejected: the readable instrument is two
+-- frames below the write site and deliberately discarded, and three of the five
+-- paths that stamp a key never hold one at all, so the column would be null
+-- exactly where identification was most interesting.
+--
+-- So the lookup lives here instead. A view runs with its owner's privileges, not
+-- its caller's, so granting SELECT on this view lets the reading role resolve a
+-- UUID to a name while still holding no USAGE on public and no privilege on
+-- instruments. That is the point of the indirection: one narrow window, reviewed
+-- in this file, rather than a grant on the application schema.
+--
+-- It is a live lookup and not a recorded fact. An instrument renamed today
+-- changes what a panel says about a run from last year. That is the right
+-- trade for a label -- the recorded facts are the outcome columns, and they do
+-- not move -- but it is why nothing here is joined into the views above.
+--
+-- instruments.name is already the readable form: a trigger keeps it at the
+-- preferred identifier, ticker first, falling back through OCC and the broker
+-- description to the id itself. See 001_initial.sql.
+CREATE VIEW telemetry.v_instrument_label AS
+SELECT
+  i.id,
+  i.name        AS label,
+  i.exchange,
+  i.asset_class,
+  i.currency
+FROM instruments i;
 
 -- The reading role.
 --

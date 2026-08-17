@@ -170,11 +170,18 @@ One view per table, each flattening its parents in and never fanning out into it
 children -- a view spanning two sibling grains duplicates the parent's rows and makes
 counting it silently wrong.
 
-Judgements are computed columns on the view; selection belongs to the panel. At least:
+Judgements are computed columns on the view; selection belongs to the panel. A judgement
+a panel needs and no view carries is a gap in the views, not a licence to inline an
+outcome list into a dashboard. They are:
 
-- `is_import` -- the run kind is one of the three import kinds.
-- `reached_plugins` -- the attempt outcome is neither `db_short_circuit` nor
-  `no_eligible_plugins`.
+| column | on | meaning |
+| --- | --- | --- |
+| `is_import` | every view | the run kind is one of the three import kinds |
+| `reached_plugins` | attempt, identifier call | the attempt outcome is neither `db_short_circuit` nor `no_eligible_plugins` |
+| `resolved` (`key_resolved` on children) | key, attempt, identifier call | the key ended holding a real identifier |
+| `had_attempt` | key | the key produced at least one identification attempt |
+| `transport_failed` | identifier call | the call did not complete |
+| `call_failed` | description call | the call produced no answer |
 
 `reached_plugins` is the denominator for identification failure rate. Using all attempts
 instead makes the rate fall as the instrument table fills, because more resolutions
@@ -182,6 +189,65 @@ short-circuit in the database, which reads as improving identification when noth
 changed. A failure-rate panel filters `purpose = 'primary'` as well, or an import
 carrying more dual-hint descriptions inflates the denominator with mismatch-check
 attempts.
+
+`resolved` covers `db_source_description`, `db_identifier_hints` and `identified`, and
+deliberately excludes `broker_description_only`: nothing identified that instrument and
+the row's own contents are all it was built from, which is a failure for a transaction
+import however ordinary it looks. It is the expected outcome for an archive run, so a
+panel charting the complement splits by run kind rather than blending the two. A null
+outcome counts as not resolved rather than as null, or an unstamped key would drop out of
+both the column and its negation. `instrument_id IS NOT NULL` is not the same test and is
+not a substitute: an archive key ensured from a supplied identifier has an instrument and
+identified nothing.
+
+`had_attempt` separates a key that never asked from one that asked and was told nothing.
+Four of the five paths that stamp a key return before `ResolveWithPlugins` is called, so
+no attempt is ordinary rather than a fault.
+
+`transport_failed` and `call_failed` both draw the line at the call completing.
+`not_identified` and `no_hints` stay outside them: an empty answer is an answer, and
+counting it as a fault makes a plugin that correctly knew nothing read as a plugin that
+is down.
+
+`v_run` also carries `key_count`, `key_tx_count` and `description_call_count`. These are
+scalar subqueries, one per child table, and they are the only sanctioned way for a view
+to reach into a second child. The rule above forbids a view *fanning out* into two
+sibling grains, because that repeats the parent once per child and makes counting it
+wrong; an aggregate repeats nothing and `v_run` stays one row per run. A panel wanting
+per-run child counts uses these and never a join.
+
+`key_tx_count` is transactions that needed resolution, not rows in the imported file: a
+row naming no instrument never becomes a key. It is the closest thing to an import's size
+the schema holds, and it is the denominator every rate over resolution keys wants. A
+transaction count on `run` itself is deliberately not recorded -- it would mean postings
+for one import kind, heterogeneous rows processed for another, nothing for the third and
+null for every cycle, which is a column meaning a different thing per row and the grain
+confusion this schema exists to end. The imported file's own row count is not available
+at all: `run.job_id` is not a foreign key and `ingestion_jobs` is outside the reading
+role, both by design.
+
+### Naming an instrument
+
+A resolution key records `instrument_id` and nothing readable, which leaves no panel able
+to say which instrument a description landed on -- the question asked after every manual
+import, since a description resolving to the wrong listing looks identical to it
+resolving to the right one in a bare UUID.
+
+Recording a label when the key is stamped was rejected: the readable instrument is two
+frames below the write site and deliberately discarded, and three of the five paths that
+stamp a key never hold one, so the column would be null exactly where identification was
+most interesting.
+
+So `telemetry.v_instrument_label` is a lookup instead. A view runs with its owner's
+privileges rather than its caller's, so granting SELECT on it lets the reading role turn
+an id into a name while still holding no privilege on `instruments` and no USAGE on
+`public`. That indirection is the point: one narrow window, reviewed in the migration,
+rather than a grant on the application schema. It is the only place the telemetry schema
+reads outside itself.
+
+It is a live lookup and not a recorded fact -- an instrument renamed today changes what a
+panel says about a run from last year -- which is why it is a separate view and is joined
+by a panel rather than folded into the views above.
 
 ### Writing
 

@@ -425,6 +425,11 @@ time, for noticing that something changed. The drift dashboard's run table links
 through to the run dashboard, which is what makes the pair a workflow rather than two
 pictures.
 
+The **Broker** picker is import scoped and applies to the resolution and description
+panels alone. The run panels ignore it because a price fetch cycle dying matters as much
+as an import doing so, and the price panels because a cycle runs on nobody's behalf and
+names no broker to filter on.
+
 Panels select from the views and carry no definitions of their own -- `where is_import
 and reached_plugins`, never a repeated list of excluded outcomes. A judgement a panel
 needs and the views do not carry is a gap in the views.
@@ -433,6 +438,14 @@ Two consequences of the grains bind every panel. A view spanning two sibling chi
 duplicates the parent, so a panel wanting per-run child counts reads `v_run`'s rollups and
 never a join. And a child view has no timestamp of its own, so a panel bucketing one over
 time uses `run_started_at`, the run's start; `started_at` exists only on `v_run`.
+
+The price panels answer the question a cycle's duration cannot. Both dashboards carry a
+**Price fetching** section: on the drift dashboard the gap outcome mix, the unsettled rate
+split on `is_fx`, time spent per plugin and transport failures; on the run dashboard the
+gap outcomes, the days of history the cycle was handed, and a table of the gaps that did
+not settle joined to `v_instrument_label` so a hole in a valuation names an instrument
+rather than a UUID. Time per plugin is summed rather than averaged, because attributing a
+cycle's duration is what it is for.
 
 The dashboards are SQL in files no compiler reads, so a renamed column would break them
 silently until somebody opened a browser. Every panel query and every template variable

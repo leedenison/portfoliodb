@@ -195,6 +195,16 @@ CREATE TABLE telemetry.description_plugin_call (
   id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   run_id    UUID NOT NULL REFERENCES telemetry.run (id) ON DELETE CASCADE,
   plugin_id TEXT NOT NULL,
+  -- Where this plugin sat in the chain, higher first. This is what makes the
+  -- population differences above readable: without it the order the batches
+  -- narrowed in cannot be recovered from the rows, and batch_size is only a
+  -- guess at it.
+  --
+  -- The plugin's configured precedence rather than a loop index, because a
+  -- plugin whose filtered batch is empty writes no row at all. A gap in the
+  -- sequence therefore means that plugin was skipped, which is how a
+  -- filtered-out identifier plugin already reads.
+  precedence INT NOT NULL,
   -- Items passed to this plugin, after the type filter.
   batch_size       INT NOT NULL,
   -- Items it returned hints for.
@@ -401,6 +411,7 @@ SELECT
   c.id,
   c.run_id,
   c.plugin_id,
+  c.precedence,
   c.batch_size,
   c.items_with_hints,
   c.outcome,

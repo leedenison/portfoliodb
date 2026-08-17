@@ -2146,10 +2146,12 @@ type TelemetryTokens struct {
 //
 // BatchSize is a different population per plugin -- description plugins run in
 // precedence order and each sees only the items its predecessors failed on -- so
-// rates are not comparable between them.
+// rates are not comparable between them. Precedence is what makes that order
+// readable afterwards, higher first.
 type TelemetryDescriptionPluginCall struct {
 	RunID          string
 	PluginID       string
+	Precedence     int
 	BatchSize      int
 	ItemsWithHints int
 	Outcome        string

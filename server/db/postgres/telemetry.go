@@ -201,10 +201,10 @@ func (t *Telemetry) WriteDescriptionPluginCall(ctx context.Context, c db.Telemet
 	}
 	if _, err := t.db.ExecContext(ctx, `
 		INSERT INTO telemetry.description_plugin_call
-			(run_id, plugin_id, batch_size, items_with_hints, outcome,
+			(run_id, plugin_id, precedence, batch_size, items_with_hints, outcome,
 			 prompt_tokens, completion_tokens, total_tokens, duration_ms)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, runID, c.PluginID, c.BatchSize, c.ItemsWithHints, c.Outcome,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, runID, c.PluginID, c.Precedence, c.BatchSize, c.ItemsWithHints, c.Outcome,
 		prompt, completion, total, ms(c.Duration)); err != nil {
 		t.fail(ctx, c.RunID, "write description plugin call", err)
 	}

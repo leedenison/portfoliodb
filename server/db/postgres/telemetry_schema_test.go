@@ -322,6 +322,74 @@ func TestTelemetryVocabulariesAreClosed(t *testing.T) {
 			t.Error("identifier plugin call accepted an outcome outside its vocabulary")
 		}
 	})
+
+	t.Run("price gap outcome", func(t *testing.T) {
+		p := testDBTx(t)
+		runID := seedRun(t, p, "price_fetch_cycle", time.Now())
+		// 'skipped' is the tempting member and is deliberately absent: a gap no
+		// plugin was eligible for and one every plugin failed on need different
+		// fixes, so the vocabulary names which.
+		if _, err := p.q.ExecContext(context.Background(), `
+			INSERT INTO telemetry.price_gap
+				(run_id, instrument_id, is_fx, days_outstanding, outcome)
+			VALUES ($1::uuid, gen_random_uuid(), FALSE, 10, 'skipped')
+		`, runID); err == nil {
+			t.Error("price gap accepted an outcome outside its vocabulary")
+		}
+	})
+
+	t.Run("price plugin call outcome", func(t *testing.T) {
+		p := testDBTx(t)
+		gapID := seedPriceGap(t, p, seedRun(t, p, "price_fetch_cycle", time.Now()), "filled", 10)
+		if _, err := p.q.ExecContext(context.Background(), `
+			INSERT INTO telemetry.price_plugin_call
+				(price_gap_id, plugin_id, precedence, range_from, range_before, days,
+				 bars, outcome, duration_ms)
+			VALUES ($1::uuid, 'eodhd', 100, DATE '2026-01-01', DATE '2026-01-11', 10,
+			        0, 'already_covered', 12)
+		`, gapID); err == nil {
+			t.Error("price plugin call accepted an outcome outside its vocabulary")
+		}
+	})
+}
+
+// seedPriceGap inserts a price gap under a run and returns its id. An empty
+// outcome is a gap the cycle never reached.
+func seedPriceGap(t *testing.T, p *Postgres, runID, outcome string, days int) string {
+	t.Helper()
+	var oc any
+	if outcome != "" {
+		oc = outcome
+	}
+	var id string
+	err := p.q.QueryRowContext(context.Background(), `
+		INSERT INTO telemetry.price_gap
+			(run_id, instrument_id, is_fx, asset_class, currency, exchange,
+			 days_outstanding, outcome)
+		VALUES ($1::uuid, gen_random_uuid(), FALSE, 'STOCK', 'USD', 'XNAS', $2, $3)
+		RETURNING id
+	`, runID, days, oc).Scan(&id)
+	if err != nil {
+		t.Fatalf("seed price gap %q: %v", outcome, err)
+	}
+	return id
+}
+
+// seedPriceCall inserts a price plugin call under a gap.
+func seedPriceCall(t *testing.T, p *Postgres, gapID, pluginID, outcome string) string {
+	t.Helper()
+	var id string
+	err := p.q.QueryRowContext(context.Background(), `
+		INSERT INTO telemetry.price_plugin_call
+			(price_gap_id, plugin_id, precedence, range_from, range_before, days,
+			 bars, outcome, duration_ms)
+		VALUES ($1::uuid, $2, 100, DATE '2026-01-01', DATE '2026-01-11', 10, 0, $3, 40)
+		RETURNING id
+	`, gapID, pluginID, outcome).Scan(&id)
+	if err != nil {
+		t.Fatalf("seed price call %q: %v", outcome, err)
+	}
+	return id
 }
 
 // seedKeyWithOutcome inserts a resolution key carrying a given stage 2 outcome,
@@ -552,17 +620,28 @@ func TestTelemetryViews_RunRollupsDoNotMultiply(t *testing.T) {
 	seedAttempt(t, p, first, "mismatch_check", "identified", 0)
 	seedDescriptionCall(t, p, runID, "hints_returned")
 	seedDescriptionCall(t, p, runID, "no_hints")
+	// A fourth child grain under the same run. Two gaps, one carrying two calls,
+	// so a join rather than a scalar subquery would multiply the key counts by
+	// three and the gap count by two.
+	gapID := seedPriceGap(t, p, runID, "filled", 30)
+	seedPriceGap(t, p, runID, "settled_empty", 5)
+	seedPriceCall(t, p, gapID, "eodhd", "bars_returned")
+	seedPriceCall(t, p, gapID, "massive", "no_data")
 
-	var rows, keyCount, keyTxCount, descCount int
+	var rows, keyCount, keyTxCount, descCount, gapCount int
 	err := p.q.QueryRowContext(ctx, `
-		SELECT count(*), max(key_count), max(key_tx_count), max(description_call_count)
+		SELECT count(*), max(key_count), max(key_tx_count), max(description_call_count),
+		       max(gap_count)
 		FROM telemetry.v_run WHERE id = $1::uuid
-	`, runID).Scan(&rows, &keyCount, &keyTxCount, &descCount)
+	`, runID).Scan(&rows, &keyCount, &keyTxCount, &descCount, &gapCount)
 	if err != nil {
 		t.Fatalf("select v_run: %v", err)
 	}
 	if rows != 1 {
 		t.Errorf("v_run rows = %d, want 1", rows)
+	}
+	if gapCount != 2 {
+		t.Errorf("gap_count = %d, want 2", gapCount)
 	}
 	if keyCount != 2 {
 		t.Errorf("key_count = %d, want 2", keyCount)
@@ -583,17 +662,17 @@ func TestTelemetryViews_RunRollupsAreZeroNotNull(t *testing.T) {
 	p := testDBTx(t)
 	runID := seedRun(t, p, "grouping_cycle", time.Now())
 
-	var keyCount, keyTxCount, descCount int
+	var keyCount, keyTxCount, descCount, gapCount int
 	err := p.q.QueryRowContext(context.Background(), `
-		SELECT key_count, key_tx_count, description_call_count
+		SELECT key_count, key_tx_count, description_call_count, gap_count
 		FROM telemetry.v_run WHERE id = $1::uuid
-	`, runID).Scan(&keyCount, &keyTxCount, &descCount)
+	`, runID).Scan(&keyCount, &keyTxCount, &descCount, &gapCount)
 	if err != nil {
 		t.Fatalf("select v_run: %v", err)
 	}
-	if keyCount != 0 || keyTxCount != 0 || descCount != 0 {
-		t.Errorf("rollups for an empty run = (%d, %d, %d), want all 0",
-			keyCount, keyTxCount, descCount)
+	if keyCount != 0 || keyTxCount != 0 || descCount != 0 || gapCount != 0 {
+		t.Errorf("rollups for an empty run = (%d, %d, %d, %d), want all 0",
+			keyCount, keyTxCount, descCount, gapCount)
 	}
 }
 
@@ -625,5 +704,214 @@ func TestTelemetryReaderReadsLabelsWithoutReachingPublic(t *testing.T) {
 		`SELECT count(*) FROM instruments`,
 	).Scan(&n); err == nil {
 		t.Error("telemetry_reader can read instruments directly; the view indirection is not what is granting access")
+	}
+}
+
+// TestTelemetryViews_Settled pins which gap outcomes mean the gap is dealt with.
+// settled_empty is the member worth staring at, and is the mirror image of
+// broker_description_only above: no prices were stored, and the gap is
+// nonetheless finished with. Reading it as a failure would put every untraded
+// week and every pre-IPO range into a panel meant to show outages.
+func TestTelemetryViews_Settled(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "price_fetch_cycle", time.Now())
+
+	cases := []struct {
+		outcome string
+		settled bool
+	}{
+		{"filled", true},
+		{"settled_empty", true},
+		{"no_eligible_plugin", false},
+		{"all_plugins_failed", false},
+		{"instrument_missing", false},
+		// A gap the cycle died before reaching. Not settled, and it must not
+		// vanish from both the column and its negation.
+		{"", false},
+	}
+	for _, c := range cases {
+		name := c.outcome
+		if name == "" {
+			name = "unstamped"
+		}
+		t.Run(name, func(t *testing.T) {
+			id := seedPriceGap(t, p, runID, c.outcome, 10)
+			var got bool
+			if err := p.q.QueryRowContext(ctx,
+				`SELECT settled FROM telemetry.v_price_gap WHERE id = $1::uuid`, id,
+			).Scan(&got); err != nil {
+				t.Fatalf("select v_price_gap: %v", err)
+			}
+			if got != c.settled {
+				t.Errorf("settled for %q = %v, want %v", c.outcome, got, c.settled)
+			}
+		})
+	}
+}
+
+// TestTelemetryViews_HadCall separates a gap that never asked a plugin from one
+// that asked and got nothing. Four paths -- the plugin filter, a fetch block, no
+// supported identifier, and a range already covered -- return before FetchPrices,
+// so no call is the ordinary case and not a fault.
+func TestTelemetryViews_HadCall(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "price_fetch_cycle", time.Now())
+
+	asked := seedPriceGap(t, p, runID, "all_plugins_failed", 10)
+	seedPriceCall(t, p, asked, "eodhd", "error")
+	never := seedPriceGap(t, p, runID, "no_eligible_plugin", 10)
+
+	for _, c := range []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{"asked", asked, true},
+		{"never asked", never, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var got bool
+			if err := p.q.QueryRowContext(ctx,
+				`SELECT had_call FROM telemetry.v_price_gap WHERE id = $1::uuid`, c.id,
+			).Scan(&got); err != nil {
+				t.Fatalf("select v_price_gap: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("had_call = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestTelemetryViews_PriceTransportFailed pins where the line falls between the
+// provider being unreachable and the provider having nothing. no_data is the
+// member a panel most easily gets wrong: it is the expected answer for a range an
+// instrument did not trade in, and counting it as a transport failure would make
+// every delisted holding look like an outage.
+//
+// upsert_failed sits outside transport_failed and alone in write_failed, because
+// it is our database and not the provider's API.
+func TestTelemetryViews_PriceTransportFailed(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	gapID := seedPriceGap(t, p, seedRun(t, p, "price_fetch_cycle", time.Now()), "filled", 10)
+
+	cases := []struct {
+		outcome   string
+		transport bool
+		write     bool
+	}{
+		{"timeout", true, false},
+		{"error", true, false},
+		{"bars_returned", false, false},
+		{"no_data", false, false},
+		{"history_limit", false, false},
+		{"permanent_block", false, false},
+		{"upsert_failed", false, true},
+	}
+	for _, c := range cases {
+		t.Run(c.outcome, func(t *testing.T) {
+			id := seedPriceCall(t, p, gapID, "eodhd", c.outcome)
+			var transport, write bool
+			if err := p.q.QueryRowContext(ctx, `
+				SELECT transport_failed, write_failed
+				FROM telemetry.v_price_plugin_call WHERE id = $1::uuid
+			`, id).Scan(&transport, &write); err != nil {
+				t.Fatalf("select v_price_plugin_call: %v", err)
+			}
+			if transport != c.transport {
+				t.Errorf("transport_failed for %q = %v, want %v", c.outcome, transport, c.transport)
+			}
+			if write != c.write {
+				t.Errorf("write_failed for %q = %v, want %v", c.outcome, write, c.write)
+			}
+		})
+	}
+}
+
+// TestTelemetryViews_PriceGapDoesNotFanOut keeps the gap view one row per gap
+// however many plugins were put to it. A gap asked of three plugins is one gap,
+// and a view that returned it three times would make every count over
+// days_outstanding silently treble.
+func TestTelemetryViews_PriceGapDoesNotFanOut(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	gapID := seedPriceGap(t, p, seedRun(t, p, "price_fetch_cycle", time.Now()), "filled", 30)
+	seedPriceCall(t, p, gapID, "eodhd", "no_data")
+	seedPriceCall(t, p, gapID, "massive", "bars_returned")
+	seedPriceCall(t, p, gapID, "massive", "history_limit")
+
+	var rows, days int
+	if err := p.q.QueryRowContext(ctx, `
+		SELECT count(*), coalesce(sum(days_outstanding), 0)
+		FROM telemetry.v_price_gap WHERE id = $1::uuid
+	`, gapID).Scan(&rows, &days); err != nil {
+		t.Fatalf("select v_price_gap: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("v_price_gap rows = %d, want 1", rows)
+	}
+	if days != 30 {
+		t.Errorf("summed days_outstanding = %d, want 30", days)
+	}
+}
+
+// TestTelemetryPriceGapCascades pins that a gap and its calls go with their run,
+// so retention stays a delete from one table.
+func TestTelemetryPriceGapCascades(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	runID := seedRun(t, p, "price_fetch_cycle", time.Now())
+	gapID := seedPriceGap(t, p, runID, "filled", 10)
+	seedPriceCall(t, p, gapID, "eodhd", "bars_returned")
+
+	if _, err := p.q.ExecContext(ctx,
+		`DELETE FROM telemetry.run WHERE id = $1::uuid`, runID); err != nil {
+		t.Fatalf("delete run: %v", err)
+	}
+
+	for _, tbl := range []string{"price_gap", "price_plugin_call"} {
+		var n int
+		if err := p.q.QueryRowContext(ctx,
+			`SELECT count(*) FROM telemetry.`+tbl,
+		).Scan(&n); err != nil {
+			t.Fatalf("count %s: %v", tbl, err)
+		}
+		if n != 0 {
+			t.Errorf("%s still holds %d rows after its run went", tbl, n)
+		}
+	}
+}
+
+// TestTelemetryPriceCallDurationIsNullable pins that history_limit can record no
+// duration. It made no call, and a zero would average into the latency panel as a
+// plugin that answered instantly.
+func TestTelemetryPriceCallDurationIsNullable(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+	gapID := seedPriceGap(t, p, seedRun(t, p, "price_fetch_cycle", time.Now()), "settled_empty", 10)
+
+	var id string
+	if err := p.q.QueryRowContext(ctx, `
+		INSERT INTO telemetry.price_plugin_call
+			(price_gap_id, plugin_id, precedence, range_from, range_before, days,
+			 bars, outcome, duration_ms)
+		VALUES ($1::uuid, 'eodhd', 100, DATE '2026-01-01', DATE '2026-01-11', 10,
+		        0, 'history_limit', NULL)
+		RETURNING id
+	`, gapID).Scan(&id); err != nil {
+		t.Fatalf("insert history_limit call with a null duration: %v", err)
+	}
+
+	var duration *int
+	if err := p.q.QueryRowContext(ctx,
+		`SELECT duration_ms FROM telemetry.v_price_plugin_call WHERE id = $1::uuid`, id,
+	).Scan(&duration); err != nil {
+		t.Fatalf("select v_price_plugin_call: %v", err)
+	}
+	if duration != nil {
+		t.Errorf("duration_ms = %d, want null", *duration)
 	}
 }

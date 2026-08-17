@@ -108,6 +108,7 @@ export default function AdminWorkersPage() {
               <th className="py-2 pr-4 font-medium">State</th>
               <th className="py-2 pr-4 font-medium">Summary</th>
               <th className="py-2 pr-4 font-medium">Queue</th>
+              <th className="py-2 pr-4 font-medium">Cycles</th>
               <th className="py-2 pr-4 font-medium">Updated</th>
               <th className="py-2 font-medium" />
             </tr>
@@ -120,6 +121,7 @@ export default function AdminWorkersPage() {
                   <span
                     data-worker-name={w.name}
                     data-worker-state={stateLabel(w.state).toLowerCase()}
+                    data-worker-cycles={w.cycles}
                     className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${stateBadge(w.state)}`}
                   >
                     {stateLabel(w.state)}
@@ -127,6 +129,7 @@ export default function AdminWorkersPage() {
                 </td>
                 <td className="py-2 pr-4 text-text-muted">{w.summary || "\u2014"}</td>
                 <td className="py-2 pr-4 tabular-nums text-text-secondary">{w.queueDepth}</td>
+                <td className="py-2 pr-4 tabular-nums text-text-secondary">{w.cycles}</td>
                 <td className="py-2 pr-4 text-text-muted">
                   {w.updatedAt ? w.updatedAt.toLocaleTimeString() : "\u2014"}
                 </td>

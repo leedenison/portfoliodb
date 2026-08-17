@@ -39,6 +39,7 @@ func (s *Server) ListWorkers(ctx context.Context, _ *apiv1.ListWorkersRequest) (
 			State:      workerStateToProto(st.State),
 			Summary:    st.Summary,
 			QueueDepth: int32(st.QueueDepth),
+			Cycles:     st.Cycles,
 			UpdatedAt:  timestamppb.New(st.UpdatedAt),
 		}
 	}

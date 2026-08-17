@@ -2,11 +2,10 @@ import { test, expect } from "@playwright/test";
 import { TIMEOUT_SLOW } from "../helpers/timeouts";
 import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB } from "../helpers/db";
-import { waitForWorkersIdle } from "../helpers/workers";
+import { waitForWorkersIdle, getWorkerCycles, waitForWorkerCycle } from "../helpers/workers";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { uploadArchiveAndWait } from "../helpers/upload";
 import { triggerCorporateEventFetch, importCorporateEventsAndWait } from "../helpers/api";
-import { getCounter, closeCountersRedis } from "../helpers/counters";
 import { JobStatus } from "../gen/api/v1/api_pb";
 import { AssetClass, IdentifierType } from "../gen/type/v1/type_pb";
 
@@ -29,7 +28,6 @@ test.describe("stock split: tx uploaded before split", () => {
   });
 
   test.afterAll(async () => {
-    await closeCountersRedis();
     await closeRedis();
     await closeDB();
     await unloadCassette();
@@ -74,12 +72,9 @@ test.describe("stock split: tx uploaded before split", () => {
     await expect(legs.first()).toBeVisible();
 
     // Trigger the corporate event fetcher — EODHD returns a 4:1 split.
-    const cyclesBefore = await getCounter("corporate_event_fetcher.cycles");
+    const cyclesBefore = await getWorkerCycles(browser, "corporate_event_fetcher");
     await triggerCorporateEventFetch(adminSession);
-    await expect(async () => {
-      const cycles = await getCounter("corporate_event_fetcher.cycles");
-      expect(cycles).toBeGreaterThan(cyclesBefore);
-    }).toPass({ timeout: 30_000 });
+    await waitForWorkerCycle(browser, "corporate_event_fetcher", cyclesBefore);
     await waitForWorkersIdle(browser);
 
     // After the split: verify via transactions page.
@@ -148,7 +143,6 @@ test.describe("stock split: split uploaded before tx", () => {
   });
 
   test.afterAll(async () => {
-    await closeCountersRedis();
     await closeRedis();
     await closeDB();
     await unloadCassette();
@@ -189,12 +183,9 @@ test.describe("stock split: split uploaded before tx", () => {
     });
 
     // Trigger the fetcher to record coverage and process option splits.
-    const cyclesBefore = await getCounter("corporate_event_fetcher.cycles");
+    const cyclesBefore = await getWorkerCycles(browser, "corporate_event_fetcher");
     await triggerCorporateEventFetch(adminSession);
-    await expect(async () => {
-      const cycles = await getCounter("corporate_event_fetcher.cycles");
-      expect(cycles).toBeGreaterThan(cyclesBefore);
-    }).toPass({ timeout: 30_000 });
+    await waitForWorkerCycle(browser, "corporate_event_fetcher", cyclesBefore);
     await waitForWorkersIdle(browser);
 
     // Verify via transactions page — same final state as case 1.

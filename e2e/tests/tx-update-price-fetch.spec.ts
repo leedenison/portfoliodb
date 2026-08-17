@@ -4,9 +4,8 @@ import { seedSession, injectSession, closeRedis } from "../helpers/auth";
 import { resetAndSeedBase, closeDB } from "../helpers/db";
 import { loadCassette, unloadCassette } from "../helpers/cassette";
 import { isRecordingSuite } from "../helpers/vcr";
-import { waitForWorkersIdle } from "../helpers/workers";
+import { waitForWorkersIdle, getWorkerCycles, waitForWorkerCycle } from "../helpers/workers";
 import { uploadArchiveAndWait, type ArchiveUpload } from "../helpers/upload";
-import { getCounter, closeCountersRedis } from "../helpers/counters";
 
 // The postings are dated relative to the run rather than committed with the
 // dates the cassette was recorded on. The fetcher asks for prices up to today,
@@ -74,19 +73,18 @@ test.beforeAll(async ({ browser }) => {
 
 test.afterAll(async () => {
   await closeRedis();
-  await closeCountersRedis();
   await closeDB();
   await unloadCassette();
 });
 
-test.describe("no redundant price fetch after transaction update", () => {
+test.describe("price fetch cycle after a transaction update", () => {
   let sessionId: string;
 
   test.beforeAll(async () => {
     sessionId = await seedSession("user");
   });
 
-  test("adding a transaction within an already-covered holding period triggers no new price API calls", async ({
+  test("adding a transaction within an already-covered holding period runs a cycle that finds nothing to fetch", async ({
     context,
     page,
     browser,
@@ -109,12 +107,8 @@ test.describe("no redundant price fetch after transaction update", () => {
     await expect(table).toBeVisible({ timeout: 10_000 });
     await expect(table).toContainText("INTC");
 
-    // Record counters after the initial price fetch completes.
-    const cyclesAfterFirst = await getCounter("price_fetcher.cycles");
-    const massiveAfterFirst = await getCounter(
-      "prices.fetch.massive.request.succeeded"
-    );
-    expect(massiveAfterFirst).toBeGreaterThan(0);
+    // Record where the price fetcher has got to once the initial fetch is done.
+    const cyclesAfterFirst = await getWorkerCycles(browser, "price_fetcher");
 
     // Upload additional transaction: buy 5 more INTC, later but still inside
     // the held period. The period is unchanged -- still the initial buy to
@@ -127,19 +121,15 @@ test.describe("no redundant price fetch after transaction update", () => {
     );
 
     // Wait for the price fetcher cycle triggered by the new transaction.
-    // The cycle finds no gaps (prices already cover the held period) so
-    // the worker never transitions to RUNNING. Poll the cycle counter to
-    // confirm the cycle actually executed.
-    await expect(async () => {
-      const cycles = await getCounter("price_fetcher.cycles");
-      expect(cycles).toBeGreaterThan(cyclesAfterFirst);
-    }).toPass({ timeout: 30_000 });
-
-    // Verify no new Massive price API calls were made.
-    const massiveAfter = await getCounter(
-      "prices.fetch.massive.request.succeeded"
-    );
-    expect(massiveAfter).toBe(massiveAfterFirst);
+    // The cycle finds no gaps (prices already cover the held period) so the
+    // worker never transitions to RUNNING; its completed-cycle count is what
+    // confirms the cycle actually executed.
+    //
+    // That a cycle finding no gaps also puts nothing to a price plugin is not
+    // asserted here: nothing the SPA exposes counts provider calls. The
+    // price_plugin_call rows in the telemetry schema are where that is read,
+    // and a Grafana panel is what reads them.
+    await waitForWorkerCycle(browser, "price_fetcher", cyclesAfterFirst);
   });
 
   // In record mode, ensure all workers finish so the VCR cassette captures

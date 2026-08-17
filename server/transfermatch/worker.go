@@ -66,6 +66,7 @@ func runCycle(ctx context.Context, database db.DB, counter telemetry.CounterIncr
 	defer func() {
 		if workers != nil {
 			workers.SetIdle(name)
+			workers.CycleDone(name)
 		}
 	}()
 

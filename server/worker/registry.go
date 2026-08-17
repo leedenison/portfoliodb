@@ -19,7 +19,12 @@ type Status struct {
 	State      State
 	Summary    string
 	QueueDepth int
-	UpdatedAt  time.Time
+	// Cycles counts the cycles this worker has completed since the process
+	// started, whatever each one found to do. A cycle with no work never
+	// reaches Running, so this is the only thing that distinguishes one that
+	// has run and found nothing from one that has not started.
+	Cycles    int64
+	UpdatedAt time.Time
 }
 
 // Registry tracks the runtime status of background workers.
@@ -51,6 +56,15 @@ func (r *Registry) SetIdle(name string) {
 	s := r.getOrCreate(name)
 	s.State = Idle
 	s.Summary = ""
+	s.UpdatedAt = time.Now()
+}
+
+// CycleDone records that the named worker finished a cycle.
+func (r *Registry) CycleDone(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s := r.getOrCreate(name)
+	s.Cycles++
 	s.UpdatedAt = time.Now()
 }
 

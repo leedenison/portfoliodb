@@ -27,7 +27,7 @@
       "datasource": null,
       "options": {
         "mode": "markdown",
-        "content": "Every panel here reads one view, and every judgement it selects on\n(`resolved`, `had_attempt`, `reached_plugins`, `transport_failed`, `call_failed`,\n`is_import`) is a column defined once in `server/migrations/005_telemetry.sql`. Adding a\npanel that spells out a list of outcomes instead means the views are missing a judgement;\nadd it there.\n\nTwo rules the grains impose. **Never join two child grains under one run** -- a run joined\nto both resolution keys and description plugin calls repeats itself once per pair and\nreports both counts as multiples of themselves; `v_run` carries `key_count`,\n`key_tx_count` and `description_call_count` for that reason. **Counts of one grain are\nnever added to counts of another**: a key is not a transaction, an attempt is not a key,\nand `tx_count` is the only fan-out any of them records."
+        "content": "Every panel here reads one view, and every judgement it selects on\n(`resolved`, `had_attempt`, `reached_plugins`, `transport_failed`, `call_failed`,\n`settled`, `had_call`, `write_failed`, `is_import`) is a column defined once in `server/migrations/005_telemetry.sql`. Adding a\npanel that spells out a list of outcomes instead means the views are missing a judgement;\nadd it there.\n\nTwo rules the grains impose. **Never join two child grains under one run** -- a run joined\nto both resolution keys and description plugin calls repeats itself once per pair and\nreports both counts as multiples of themselves; `v_run` carries `key_count`,\n`key_tx_count`, `description_call_count` and `gap_count` for that reason. **Counts of one grain are\nnever added to counts of another**: a key is not a transaction, an attempt is not a key,\na price gap is not a plugin call, and `tx_count` is the only fan-out any of them\nrecords. `days_outstanding` is the price side's measure of size and belongs to the\ngap, never summed across the calls beneath it."
       },
       "gridPos": {
         "h": 6,
@@ -54,7 +54,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  kind,\n  broker,\n  source,\n  started_at,\n  ended_at,\n  outcome,\n  duration_ms,\n  telemetry_incomplete,\n  key_count,\n  key_tx_count,\n  description_call_count\nFROM telemetry.v_run\nWHERE id = '${run}'::uuid",
+          "rawSql": "SELECT\n  kind,\n  broker,\n  source,\n  started_at,\n  ended_at,\n  outcome,\n  duration_ms,\n  telemetry_incomplete,\n  key_count,\n  key_tx_count,\n  description_call_count,\n  gap_count\nFROM telemetry.v_run\nWHERE id = '${run}'::uuid",
           "refId": "A"
         }
       ],
@@ -1017,6 +1017,352 @@
         "y": 60
       },
       "id": 18
+    },
+    {
+      "type": "row",
+      "title": "Price fetching",
+      "collapsed": false,
+      "id": 19,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 67
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Gap outcomes",
+      "description": "What became of each instrument this cycle set out to price. settled_empty is a success sitting next to filled: the range was closed without bars because the instrument did not trade then or no plugin reaches that far back, and it will not be asked about again. '(not stamped)' is an instrument the cycle died before reaching.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "portfoliodb-telemetry"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "portfoliodb-telemetry"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  coalesce(outcome, '(not stamped)') AS outcome,\n  count(*) AS gaps\nFROM telemetry.v_price_gap\nWHERE run_id = '${run}'::uuid\nGROUP BY 1\nORDER BY 2 DESC",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "showUnfilled": true,
+        "valueMode": "color",
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "maxVizHeight": 300,
+        "namePlacement": "auto",
+        "sizing": "auto",
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "color": {
+            "mode": "continuous-BlPu"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 9,
+        "x": 0,
+        "y": 68
+      },
+      "id": 20
+    },
+    {
+      "type": "stat",
+      "title": "Days of history asked for",
+      "description": "Summed over the gaps, which is the size of the ask this cycle was handed. Read the cycle's duration against this before calling it slow: a cycle asked for ten years of a new holding is not the same cycle as one topping up yesterday.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "portfoliodb-telemetry"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "portfoliodb-telemetry"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT coalesce(sum(days_outstanding), 0) AS \"days outstanding\"\nFROM telemetry.v_price_gap\nWHERE run_id = '${run}'::uuid",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "text": {}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 9,
+        "y": 68
+      },
+      "id": 21
+    },
+    {
+      "type": "stat",
+      "title": "Gaps that did not settle",
+      "description": "Counts the table below, and is the number that should be zero on a healthy cycle. These recur every cycle until something changes.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "portfoliodb-telemetry"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "portfoliodb-telemetry"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS \"unsettled gaps\"\nFROM telemetry.v_price_gap\nWHERE run_id = '${run}'::uuid\n  AND NOT settled",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "text": {}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 9,
+        "x": 15,
+        "y": 68
+      },
+      "id": 22
+    },
+    {
+      "type": "table",
+      "title": "Gaps that did not settle",
+      "description": "The panel to read when a valuation has a hole in it. Ordered by the size of the ask, so the instrument missing the most history is first. had_call separates a gap no plugin would take -- filtered out, blocked, or holding no identifier any of them supports -- from one that was asked and got nothing back, and those two have different fixes.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "portfoliodb-telemetry"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "portfoliodb-telemetry"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  i.label AS instrument,\n  g.is_fx,\n  g.asset_class,\n  g.currency,\n  g.exchange,\n  g.days_outstanding,\n  coalesce(g.outcome, '(not reached)') AS outcome,\n  g.had_call\nFROM telemetry.v_price_gap g\nLEFT JOIN telemetry.v_instrument_label i ON i.id = g.instrument_id\nWHERE g.run_id = '${run}'::uuid\n  AND NOT g.settled\nORDER BY g.days_outstanding DESC, i.label",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 75
+      },
+      "id": 23
+    },
+    {
+      "type": "table",
+      "title": "Price plugin calls",
+      "description": "Where this cycle's time went, which is the question its duration cannot answer. One row per (plugin, outcome), because a plugin's fast no_data and its slow fetch averaged together describe neither. history_limit calls contribute no duration: they made no call, so they are counted and not timed.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "portfoliodb-telemetry"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "portfoliodb-telemetry"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  plugin_id,\n  outcome,\n  count(*)                  AS calls,\n  sum(days)                 AS days,\n  sum(bars)                 AS bars,\n  round(avg(duration_ms))   AS avg_ms,\n  max(duration_ms)          AS max_ms,\n  sum(duration_ms)          AS total_ms\nFROM telemetry.v_price_plugin_call\nWHERE run_id = '${run}'::uuid\nGROUP BY 1, 2\nORDER BY total_ms DESC NULLS LAST, plugin_id",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "noValue",
+                "value": "n/a"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 84
+      },
+      "id": 24
     }
   ],
   "preload": false,

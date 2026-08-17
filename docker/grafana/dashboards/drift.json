@@ -27,7 +27,7 @@
       "datasource": null,
       "options": {
         "mode": "markdown",
-        "content": "Every panel reads one view and selects on judgements defined once in\n`server/migrations/005_telemetry.sql`. Child views carry no timestamp of their own, so\ntheir time axis is `run_started_at` -- the run's start -- and never `started_at`, which\nexists only on `v_run`.\n\nThe import-scoped panels filter `is_import` and honour the **Broker** picker; the run\npanels do not, because a price fetch cycle dying matters as much as an import doing so.\nNever join two child grains under one run: use `v_run`'s rollups."
+        "content": "Every panel reads one view and selects on judgements defined once in\n`server/migrations/005_telemetry.sql`. Child views carry no timestamp of their own, so\ntheir time axis is `run_started_at` -- the run's start -- and never `started_at`, which\nexists only on `v_run`.\n\nThe import-scoped panels filter `is_import` and honour the **Broker** picker; the run\nand price panels do not, because a price fetch cycle dying matters as much as an\nimport doing so, and a cycle names no broker to filter on in the first place.\nNever join two child grains under one run: use `v_run`'s rollups."
       },
       "gridPos": {
         "h": 5,
@@ -1134,6 +1134,378 @@
         "y": 57
       },
       "id": 17
+    },
+    {
+      "type": "row",
+      "title": "Price fetching",
+      "collapsed": false,
+      "id": 18,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 65
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Gap outcome mix",
+      "description": "Stacked to 100%, because the mix is the signal and the volume is not: how many instruments needed prices is a fact about the portfolio, and which way they ended is a fact about the fetching. settled_empty is a success and sits with filled -- a range no plugin can supply is dealt with once that is recorded. Every run kind, and no Broker picker: a price fetch cycle runs on nobody's behalf and names no broker, so filtering by one would empty this panel.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "portfoliodb-telemetry"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "portfoliodb-telemetry"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  coalesce(outcome, '(not stamped)') AS metric,\n  count(*) AS value\nFROM telemetry.v_price_gap\nWHERE $__timeFilter(run_started_at)\nGROUP BY 1, 2\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "percent"
+            }
+          },
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 66
+      },
+      "id": 19
+    },
+    {
+      "type": "timeseries",
+      "title": "Gaps that did not settle, by kind",
+      "description": "The gaps that will be back next cycle, costing discovery work and leaving a hole in valuation. Split on is_fx rather than blended, because the two are not the same size of problem: a missing rate breaks valuation for every instrument denominated in that currency, while a missing quote breaks one. Blended, a single stuck FX pair disappears into the instrument line.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "portfoliodb-telemetry"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "portfoliodb-telemetry"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  CASE WHEN is_fx THEN 'fx' ELSE 'instrument' END AS metric,\n  count(*) FILTER (WHERE NOT settled)::numeric / nullif(count(*), 0) AS value\nFROM telemetry.v_price_gap\nWHERE $__timeFilter(run_started_at)\nGROUP BY 1, 2\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "percentunit",
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1,
+          "max": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 66
+      },
+      "id": 20
+    },
+    {
+      "type": "timeseries",
+      "title": "Time spent by plugin",
+      "description": "Where a cycle's duration went, which the run duration panel above can only say has moved. Stacking is legitimate here for the reason it is on Tokens: one grain, an additive quantity, no cross-population rate. A history_limit call writes a null duration and contributes nothing rather than a zero, which is correct -- it made no call.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "portfoliodb-telemetry"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "portfoliodb-telemetry"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  plugin_id AS metric,\n  sum(duration_ms) AS value\nFROM telemetry.v_price_plugin_call\nWHERE $__timeFilter(run_started_at)\nGROUP BY 1, 2\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "ms",
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 74
+      },
+      "id": 21
+    },
+    {
+      "type": "timeseries",
+      "title": "Price plugin transport failures",
+      "description": "Calls that did not complete -- timed out or errored. Deliberately not no_data, which is a completed call whose answer was that the instrument did not trade then: the provider being down and the provider having nothing need different fixes, and counting the second here would make every delisted holding look like an outage. permanent_block is outside it too, being a durable fact about the pair that happens once.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "portfoliodb-telemetry"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "portfoliodb-telemetry"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(run_started_at,$__interval),\n  plugin_id AS metric,\n  count(*) FILTER (WHERE transport_failed) AS value\nFROM telemetry.v_price_plugin_call\nWHERE $__timeFilter(run_started_at)\nGROUP BY 1, 2\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "none",
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 74
+      },
+      "id": 22
     }
   ],
   "preload": false,

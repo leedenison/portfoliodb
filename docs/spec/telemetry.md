@@ -121,6 +121,14 @@ A plugin filtered out by acceptable kind or security type produces no
 `identifier_plugin_call` row, because no call was made. When that filter removes every
 plugin the attempt records `no_eligible_plugins`.
 
+`asset_class` is the class the attempt landed on, against `security_type_hint`, which is
+the class it was asked about. An attempt that identified nothing has no class to record.
+
+A resolution that fails outright -- a database read that errored rather than a plugin
+that found nothing -- writes no attempt row. `outcome` is not nullable, and there is no
+member for a unit of work that did not complete; the run's own outcome is where that
+failure shows.
+
 ### identifier_plugin_call
 
 One plugin invocation within an attempt.

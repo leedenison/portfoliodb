@@ -130,6 +130,21 @@ func (k *resolutionKeys) end(ctx context.Context, key, outcome, instrumentID str
 	})
 }
 
+// attempt returns the scope one ResolveWithPlugins call over this key records
+// itself under. A caller with no ledger gets the zero Attempt, which records
+// nothing.
+func (k *resolutionKeys) attempt(key, purpose string) identification.Attempt {
+	if k == nil {
+		return identification.Attempt{}
+	}
+	return identification.Attempt{
+		DB:      k.tel,
+		RunID:   k.runID,
+		KeyID:   k.ids[key],
+		Purpose: purpose,
+	}
+}
+
 // resolutionOutcome names what became of a resolution that reached the identifier
 // plugins. The three fallback members mirror the messages the resolver already
 // records against a row, so a key's outcome and the row's message cannot disagree.

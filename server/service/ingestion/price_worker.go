@@ -346,7 +346,7 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 		result, err := identification.ResolveWithPlugins(ctx, database, pluginRegistry,
 			"", "", "", hints,
 			[]identifier.Identifier{hint},
-			false, fallback, nil, nil, 0, hintsValidAt)
+			false, fallback, nil, keys.attempt(key, db.TelemetryPurposePrimary), nil, 0, hintsValidAt)
 		if err != nil {
 			return identification.ResolveResult{}, fmt.Errorf("identification error for %s %q: %v", idType, value, err)
 		}

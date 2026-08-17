@@ -297,7 +297,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 			return r, nil
 		}
 		// No DB hit: call identifier plugins with hints; do not persist (source, description) as BROKER_DESCRIPTION.
-		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, counter, false, hintsValidAt, keys)
+		return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, cache, key, rowIndex, counter, false, hintsValidAt, keys, db.TelemetryPurposePrimary)
 	}
 
 	// Path B: no client hints -- use pre-extracted description hints, then identifier plugins.
@@ -336,11 +336,13 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	tickerHints := hintsByType(extractedHints, "MIC_TICKER")
 	figiHints := hintsByType(extractedHints, "OPENFIGI_SHARE_CLASS")
 	if len(tickerHints) > 0 && len(figiHints) > 0 {
-		// Resolve with nil cache, nil counter and no key ledger: these two are
-		// probes, so they must not pollute the cache, double-count identify
-		// attempts, or stamp the key before the resolution that decides it.
-		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, tickerHints, nil, key, rowIndex, nil, true, hintsValidAt, nil)
-		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, figiHints, nil, key, rowIndex, nil, true, hintsValidAt, nil)
+		// Resolve with nil cache and nil counter: these two are probes, so they
+		// must not pollute the cache or double-count identify attempts. They do
+		// record an attempt each, named for what they are -- the pair is real work
+		// against real plugins, and calling them mismatch_check is what stops them
+		// inflating the denominator of a failure rate over primary attempts.
+		resultByTicker, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, tickerHints, nil, key, rowIndex, nil, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
+		resultByFigi, _ := resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, figiHints, nil, key, rowIndex, nil, true, hintsValidAt, keys, db.TelemetryPurposeMismatchCheck)
 		idByTicker := resultByTicker.InstrumentID
 		idByFigi := resultByFigi.InstrumentID
 		// Consider "unresolved" (broker-description-only) as empty for mismatch check
@@ -357,7 +359,7 @@ func Resolve(ctx context.Context, database db.DB, registry *identifier.Registry,
 	}
 
 	// Resolve by (validated) hints; always store (source, description) when ensuring.
-	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, counter, true, hintsValidAt, keys)
+	return resolveWithIdentifierPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, hintsToUse, cache, key, rowIndex, counter, true, hintsValidAt, keys, db.TelemetryPurposePrimary)
 }
 
 // hintDiffsSummary formats hint diffs as a readable string (e.g. "Currency: USD->EUR, ISIN: US037->US038").
@@ -389,7 +391,10 @@ func hintsByType(hints []identifier.Identifier, typ string) []identifier.Identif
 
 // resolveWithIdentifierPlugins delegates to the shared identification package and wraps the result
 // in ingestion-specific resolveResult with cache and error handling.
-func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, key string, rowIndex int32, counter telemetry.CounterIncrementer, storeSourceDescription bool, hintsValidAt *time.Time, keys *resolutionKeys) (resolveResult, error) {
+// purpose names the attempt this call records. Only the primary one stamps the
+// key: the mismatch-check probes run against the same key and would otherwise
+// stamp it with their own answer before the resolution that decides it.
+func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry *identifier.Registry, broker, source, instrumentDescription string, hints identifier.Hints, identifierHints []identifier.Identifier, cache map[string]resolveResult, key string, rowIndex int32, counter telemetry.CounterIncrementer, storeSourceDescription bool, hintsValidAt *time.Time, keys *resolutionKeys, purpose string) (resolveResult, error) {
 	// Ingestion-specific fallback: broker-description-only instrument.
 	fallback := func(ctx context.Context, database db.DB) (string, error) {
 		return database.EnsureInstrument(ctx, "", "", "", instrumentDescription, "", "",
@@ -397,7 +402,7 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 			"", nil, nil, nil)
 	}
 
-	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, storeSourceDescription, fallback, counter, ingestionLogger(), 0, hintsValidAt)
+	result, err := identification.ResolveWithPlugins(ctx, database, registry, broker, source, instrumentDescription, hints, identifierHints, storeSourceDescription, fallback, counter, keys.attempt(key, purpose), ingestionLogger(), 0, hintsValidAt)
 	if err != nil {
 		return resolveResult{}, err
 	}
@@ -423,6 +428,8 @@ func resolveWithIdentifierPlugins(ctx context.Context, database db.DB, registry 
 	if cache != nil {
 		cache[key] = r
 	}
-	keys.end(ctx, key, resolutionOutcome(result), r.InstrumentID)
+	if purpose == db.TelemetryPurposePrimary {
+		keys.end(ctx, key, resolutionOutcome(result), r.InstrumentID)
+	}
 	return r, nil
 }

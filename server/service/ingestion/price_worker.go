@@ -377,10 +377,10 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 // whose identifier no plugin resolved. The row's identifier is stored exactly as
 // supplied -- in particular an OCC symbol is NOT split-adjusted here, because the
 // adjustment ResolveWithPlugins performs applies to its own hint list, not to the
-// value this fallback closes over. The identity therefore reflects the market as
-// of the request's declared exported_at, and identityAsOf records that. Leaving
-// it NULL would tell the retroactive option-split pass that the identity predates
-// every split, and it would re-apply splits already baked into the supplied OCC.
+// value this fallback closes over. The name therefore became correct at the
+// request's declared exported_at, and the identifier's valid_from records that.
+// Leaving it NULL would tell the retroactive option-split pass that the name
+// predates every split, and it would restate a symbol already carrying them.
 // A request with no exported_at is being taken at face value as current (the
 // caller has already warned that OCC symbols will not be split-adjusted), so the
 // vintage is now.
@@ -409,8 +409,13 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 		}
 	}
 
+	validFrom := identityAsOf
+	if validFrom == nil {
+		now := time.Now()
+		validFrom = &now
+	}
 	id, err := database.EnsureInstrument(ctx, assetClass, "", currency, "", "", "",
-		[]db.IdentifierInput{{Type: idType, Domain: domain, Value: value, Canonical: true}},
+		[]db.IdentifierInput{{Type: idType, Domain: domain, Value: value, Canonical: true, ValidFrom: db.VintageDate(validFrom)}},
 		underlyingID, nil, nil, optFields)
 	if err != nil {
 		return "", err

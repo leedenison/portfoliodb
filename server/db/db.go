@@ -589,6 +589,19 @@ type IdentifierInput struct {
 	ValidBefore *time.Time
 }
 
+// VintageDate reduces a vintage to the date an identifier's validity is stated
+// in. The bounds are dates (see docs/adr/0018-half-open-date-intervals.md), and
+// what a vintage decides -- which side of an ex_date a name was stated on -- is
+// a day rather than an instant. A nil vintage stays nil, meaning the name
+// predates everything known about it.
+func VintageDate(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	d := t.UTC().Truncate(24 * time.Hour)
+	return &d
+}
+
 // ProviderIdentifierInput is a provider-specific identifier for an instrument.
 // Identifier types are free-form strings specific to the provider (e.g.
 // "SEGMENT_MIC_TICKER", "EODHD_EXCH_CODE", "FIGI").
@@ -1274,15 +1287,6 @@ type InstrumentDB interface {
 	// ListInstruments returns instruments sorted alphabetically by display name (ticker, then name, then broker description). If search is non-empty, only instruments with at least one identifier value matching (case-insensitive substring) are returned. If assetClasses is non-empty, only instruments with matching asset_class are returned. Returns (rows, totalCount, nextPageToken, error).
 	ListInstruments(ctx context.Context, search string, assetClasses []string, pageSize int32, pageToken string) ([]*InstrumentRow, int32, string, error)
 
-	// DeleteInstrumentIdentifier removes a single identifier row by
-	// (instrument_id, identifier_type, value). Returns nil when no row exists.
-	DeleteInstrumentIdentifier(ctx context.Context, instrumentID, identifierType, value string) error
-	// DeleteInstrumentIdentifiersByType removes every identifier of the given
-	// type for an instrument, whatever its value or domain. Use it when a type
-	// is single-valued for the instrument and is being replaced, so the write
-	// does not depend on knowing the value currently stored. Returns nil when no
-	// row exists.
-	DeleteInstrumentIdentifiersByType(ctx context.Context, instrumentID, identifierType string) error
 	// InsertInstrumentIdentifier inserts a single identifier row.
 	InsertInstrumentIdentifier(ctx context.Context, instrumentID string, input IdentifierInput) error
 	// MergeInstrumentFromArchive fills in what an existing instrument does not
@@ -1293,8 +1297,6 @@ type InstrumentDB interface {
 	MergeInstrumentFromArchive(ctx context.Context, instrumentID string, in InstrumentMerge) error
 	// UpdateInstrumentStrike updates the strike on an existing option instrument.
 	UpdateInstrumentStrike(ctx context.Context, instrumentID string, strike decimal.Decimal) error
-	// UpdateInstrumentName updates the name on an existing instrument.
-	UpdateInstrumentName(ctx context.Context, instrumentID, name string) error
 	// UpdateIdentityAsOf sets identity_as_of = now() on an existing instrument.
 	// Call only when the identity has genuinely been re-derived from current
 	// market data; an incidental touch must leave the column alone.
@@ -1451,17 +1453,28 @@ type UnhandledCorporateEvent struct {
 	CreatedAt    time.Time
 }
 
-// OptionSplitParams bundles the mutations needed to adjust a single option
-// contract after a stock split on its underlying.
+// OptionMint is one name a split gives an option contract, and the ex_date it
+// became correct on. The strike is derived from the option's stored strike by
+// the cumulative factor up to that split, so no rounded value ever feeds
+// another (see docs/adr/0028-cumulative-split-factor-is-an-exact-rational.md).
+type OptionMint struct {
+	ExDate time.Time
+	OCC    IdentifierInput
+	Strike decimal.Decimal
+}
+
+// OptionSplitParams bundles the mutations needed to restate a single option
+// contract for the stock splits pending on its underlying.
 type OptionSplitParams struct {
 	InstrumentID string
 	// OldOCCValue is the symbol the caller read. It is reported, not acted on:
-	// every OCC identifier on the instrument is replaced regardless, so the write
+	// every OCC identifier still in force is closed regardless, so the write
 	// converges even if the stored symbol has moved on since the read.
 	OldOCCValue string
-	NewOCC      IdentifierInput
-	NewStrike   decimal.Decimal
-	NewName     string
+	// Mints is one name per pending split, ordered by ex_date, and never empty.
+	// Every name is written, not just the last: skipping the ones in between
+	// would leave a window in which the contract has no recorded identity.
+	Mints []OptionMint
 }
 
 // CorporateEventDB provides storage for stock splits, cash dividends, fetch
@@ -1570,13 +1583,18 @@ type CorporateEventDB interface {
 	// least one stock_splits row.
 	InstrumentsWithSplits(ctx context.Context, instrumentIDs []string) ([]string, error)
 
-	// ApplyOptionSplit atomically adjusts an option contract for a stock
-	// split on its underlying: replaces the OCC identifier, updates the
-	// strike and name, recomputes split-adjusted tx values, and advances
-	// identity_as_of. All mutations run in a single transaction so partial
-	// failure cannot leave the option inconsistent. No derived split row is
-	// written on the option -- split_factor_at resolves splits through the
-	// underlying_id FK.
+	// ApplyOptionSplit atomically restates an option contract for the stock
+	// splits pending on its underlying: closes the OCC symbol still in force at
+	// the first ex_date, mints one row per split from that ex_date, updates the
+	// strike, and recomputes split-adjusted tx values. The name is left to the
+	// trigger, which derives it from the identifier still in force. All
+	// mutations run in a single transaction so partial failure cannot leave the
+	// option inconsistent. No derived split row is written on the option --
+	// split_factor_at resolves splits through the underlying_id FK.
+	//
+	// A minted name another instrument already holds absorbs that instrument
+	// rather than failing: it is a duplicate created while the split was
+	// unknown, and rolling back would leave this option pending forever.
 	ApplyOptionSplit(ctx context.Context, params OptionSplitParams) error
 
 	// InsertUnhandledCorporateEvent stores a corporate event that requires

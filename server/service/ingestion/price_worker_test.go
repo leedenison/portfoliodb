@@ -2,6 +2,7 @@ package ingestion
 
 import (
 	"context"
+	"fmt"
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
@@ -308,7 +309,7 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 	// The key assertion: EnsureInstrument must receive "FX" and "EUR".
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "FX", "", "EUR", "", "", "",
-			[]db.IdentifierInput{{Type: "FX_PAIR", Domain: "", Value: "EURGBP", Canonical: true}},
+			namesDated{want: []db.IdentifierInput{{Type: "FX_PAIR", Domain: "", Value: "EURGBP", Canonical: true}}},
 			"", nil, nil, nil).
 		Return("inst-eurgbp", nil)
 	// No exported_at, so the vintage is now.
@@ -329,6 +330,44 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 // TestProcessPriceImport_OptionFallbackResolvesUnderlying verifies that when
 // identifier plugins fail for an option OCC symbol, the fallback parses the
 // underlying ticker from the OCC and resolves it via DB lookup.
+// namesDated matches the identifier list EnsureInstrument is handed: the names
+// themselves, plus the date they became correct. A nil from means "today",
+// which is what a vintage of now reduces to and what a literal in the expectation
+// could not name.
+type namesDated struct {
+	want []db.IdentifierInput
+	from *time.Time
+}
+
+func (m namesDated) Matches(x any) bool {
+	got, ok := x.([]db.IdentifierInput)
+	if !ok || len(got) != len(m.want) {
+		return false
+	}
+	from := m.from
+	if from == nil {
+		now := time.Now()
+		from = db.VintageDate(&now)
+	}
+	for i, w := range m.want {
+		w.ValidFrom = from
+		if got[i].Type != w.Type || got[i].Domain != w.Domain || got[i].Value != w.Value ||
+			got[i].Canonical != w.Canonical || got[i].ValidBefore != nil ||
+			got[i].ValidFrom == nil || !got[i].ValidFrom.Equal(*w.ValidFrom) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m namesDated) String() string {
+	when := "today"
+	if m.from != nil {
+		when = m.from.Format("2006-01-02")
+	}
+	return fmt.Sprintf("%v valid from %s", m.want, when)
+}
+
 func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -364,7 +403,7 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 	// EnsureInstrument must receive the underlying ID and option fields.
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "",
-			[]db.IdentifierInput{{Type: "OCC", Domain: "", Value: "NVDA240315P00510000", Canonical: true}},
+			namesDated{want: []db.IdentifierInput{{Type: "OCC", Domain: "", Value: "NVDA240315P00510000", Canonical: true}}},
 			"inst-nvda", nil, nil, gomock.Not(gomock.Nil())).
 		Return("inst-opt", nil)
 	// No exported_at on the request, so the supplied OCC is taken at face value
@@ -421,7 +460,10 @@ func TestProcessPriceImport_OptionFallbackStampsExportedAt(t *testing.T) {
 		Return("inst-nvda", "STOCK", "XNAS", "USD", nil)
 	database.EXPECT().
 		EnsureInstrument(gomock.Any(), "OPTION", "", "USD", "", "", "",
-			[]db.IdentifierInput{{Type: "OCC", Domain: "", Value: "NVDA240315P00510000", Canonical: true}},
+			namesDated{
+				want: []db.IdentifierInput{{Type: "OCC", Domain: "", Value: "NVDA240315P00510000", Canonical: true}},
+				from: db.VintageDate(&exportedAt),
+			},
 			"inst-nvda", nil, nil, gomock.Not(gomock.Nil())).
 		Return("inst-opt", nil)
 

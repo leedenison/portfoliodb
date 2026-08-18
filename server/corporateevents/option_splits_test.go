@@ -23,16 +23,17 @@ func date(year int, month time.Month, day int) time.Time {
 	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
 }
 
-// makeOption builds an InstrumentRow for an option with the given OCC, strike,
-// and identity_as_of -- the point in market time the stored identity reflects.
-func makeOption(id, occ string, strike float64, identityAsOf time.Time) *db.InstrumentRow {
+// makeOption builds an InstrumentRow for an option whose OCC symbol became
+// correct on validFrom -- the vintage of whatever supplied it, or the ex_date of
+// a split that minted it.
+func makeOption(id, occ string, strike float64, validFrom time.Time) *db.InstrumentRow {
 	opt := makeOptionUnidentified(id, occ, strike)
-	opt.IdentityAsOf = timePtr(identityAsOf)
+	opt.Identifiers[0].ValidFrom = timePtr(validFrom)
 	return opt
 }
 
-// makeOptionUnidentified builds an option whose identity_as_of is NULL, meaning
-// the identity predates every split.
+// makeOptionUnidentified builds an option whose OCC has no valid_from, meaning
+// the name predates everything known about it.
 func makeOptionUnidentified(id, occ string, strike float64) *db.InstrumentRow {
 	expiry := date(2025, 1, 17)
 	putCall := "C"
@@ -60,8 +61,8 @@ func split(underlyingID string, exDate time.Time, from, to string) db.StockSplit
 
 // Which splits are pending for an option is decided by the SQL predicate in
 // ListPendingOptionSplits, not by this package -- see the integration tests in
-// server/db/postgres for identity_as_of against ex_date. These tests cover what
-// the pass does with the work list it is handed.
+// server/db/postgres for the OCC row's valid_from against ex_date. These tests
+// cover what the pass does with the work list it is handed.
 
 func TestProcessPendingOptionSplits_SingleSplit(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -84,11 +85,17 @@ func TestProcessPendingOptionSplits_SingleSplit(t *testing.T) {
 			if p.OldOCCValue != "AAPL  250117C00200000" {
 				t.Errorf("old OCC = %q", p.OldOCCValue)
 			}
-			if p.NewOCC.Value != "AAPL250117C00100000" {
-				t.Errorf("new OCC = %q, want AAPL250117C00100000", p.NewOCC.Value)
+			if len(p.Mints) != 1 {
+				t.Fatalf("mints = %d, want 1", len(p.Mints))
 			}
-			if p.NewStrike.String() != "100" {
-				t.Errorf("new strike = %v, want 100", p.NewStrike)
+			if p.Mints[0].OCC.Value != "AAPL250117C00100000" {
+				t.Errorf("minted OCC = %q, want AAPL250117C00100000", p.Mints[0].OCC.Value)
+			}
+			if p.Mints[0].Strike.String() != "100" {
+				t.Errorf("minted strike = %v, want 100", p.Mints[0].Strike)
+			}
+			if !p.Mints[0].ExDate.Equal(date(2025, 1, 15)) {
+				t.Errorf("minted from %v, want the ex_date 2025-01-15", p.Mints[0].ExDate)
 			}
 			return nil
 		})
@@ -99,11 +106,12 @@ func TestProcessPendingOptionSplits_SingleSplit(t *testing.T) {
 	}
 }
 
-// TestProcessPendingOptionSplits_CompoundsMultipleSplits covers the bug the
-// per-split loop had: the option row is read once, so applying two splits in
-// sequence divided the ORIGINAL strike twice and inserted an OCC identifier per
-// split, leaving the option carrying both. Adjusting once by the cumulative
-// factor is correct by construction.
+// TestProcessPendingOptionSplits_CompoundsMultipleSplits covers what two pending
+// splits produce: one name per split, each derived from the option's stored
+// strike by the cumulative factor up to that split, so no rounded value feeds
+// another. The names in between are minted rather than skipped -- a file
+// exported in that window states one, and without the row it would have nothing
+// to resolve to.
 func TestProcessPendingOptionSplits_CompoundsMultipleSplits(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -120,14 +128,31 @@ func TestProcessPendingOptionSplits_CompoundsMultipleSplits(t *testing.T) {
 			},
 		}}, nil)
 
-	// Exactly one call: strike 400 / (2 * 4) = 50.
+	// One call carrying both names: 400/2 = 200 from the first ex_date, and
+	// 400/(2*4) = 50 from the second.
 	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, p db.OptionSplitParams) error {
-			if p.NewStrike.String() != "50" {
-				t.Errorf("new strike = %v, want 50 (400 / (2*4))", p.NewStrike)
+			if len(p.Mints) != 2 {
+				t.Fatalf("mints = %d, want one per split", len(p.Mints))
 			}
-			if p.NewOCC.Value != "AAPL250117C00050000" {
-				t.Errorf("new OCC = %q, want AAPL250117C00050000", p.NewOCC.Value)
+			want := []struct {
+				exDate time.Time
+				occ    string
+				strike string
+			}{
+				{date(2024, 6, 1), "AAPL250117C00200000", "200"},
+				{date(2024, 9, 1), "AAPL250117C00050000", "50"},
+			}
+			for i, w := range want {
+				if !p.Mints[i].ExDate.Equal(w.exDate) {
+					t.Errorf("mint %d ex_date = %v, want %v", i, p.Mints[i].ExDate, w.exDate)
+				}
+				if p.Mints[i].OCC.Value != w.occ {
+					t.Errorf("mint %d OCC = %q, want %q", i, p.Mints[i].OCC.Value, w.occ)
+				}
+				if p.Mints[i].Strike.String() != w.strike {
+					t.Errorf("mint %d strike = %v, want %v", i, p.Mints[i].Strike, w.strike)
+				}
 			}
 			if p.OldOCCValue != "AAPL  250117C00400000" {
 				t.Errorf("old OCC = %q, want the original", p.OldOCCValue)
@@ -140,8 +165,49 @@ func TestProcessPendingOptionSplits_CompoundsMultipleSplits(t *testing.T) {
 	}
 }
 
+// TestProcessPendingOptionSplits_RestatesFromTheNameInForce: a restated option
+// keeps the symbol it traded under before the ex_date, so the row set has more
+// than one OCC in it. Building the next name from a closed one would restate a
+// split that had already been applied.
+func TestProcessPendingOptionSplits_RestatesFromTheNameInForce(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDB(ctrl)
+	ctx := context.Background()
+
+	// Already restated once for a 2:1: the 400-strike name is closed and the
+	// 200-strike one is in force. The closed row is listed first to make the
+	// point that order is not what decides it.
+	opt := makeOption("opt-history", "AAPL250117C00200000", 200.0, date(2024, 6, 1))
+	opt.Identifiers = append([]db.IdentifierInput{{
+		Type: "OCC", Value: "AAPL250117C00400000", Canonical: true,
+		ValidBefore: timePtr(date(2024, 6, 1)),
+	}}, opt.Identifiers...)
+
+	mockDB.EXPECT().ListPendingOptionSplits(gomock.Any(), "").Return(
+		[]db.PendingOptionSplits{{
+			Option: opt,
+			Splits: []db.StockSplit{split("und-history", date(2024, 9, 1), "1", "2")},
+		}}, nil)
+
+	mockDB.EXPECT().ApplyOptionSplit(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, p db.OptionSplitParams) error {
+			if p.OldOCCValue != "AAPL250117C00200000" {
+				t.Errorf("old OCC = %q, want the one in force", p.OldOCCValue)
+			}
+			if len(p.Mints) != 1 || p.Mints[0].OCC.Value != "AAPL250117C00100000" {
+				t.Errorf("mints = %+v, want just AAPL250117C00100000", p.Mints)
+			}
+			return nil
+		})
+
+	if adjusted := ProcessPendingOptionSplits(ctx, mockDB, "", nil); len(adjusted) != 1 {
+		t.Fatalf("adjusted = %d options, want 1", len(adjusted))
+	}
+}
+
 // TestProcessPendingOptionSplits_ApplyFailureNotReported verifies a failed
-// adjustment is not counted as done. identity_as_of is advanced inside
+// restatement is not counted as done. The OCC symbol in force is closed inside
 // ApplyOptionSplit's transaction, so a failure leaves the option pending and the
 // next cycle retries it -- the retry half of issue 0055.
 func TestProcessPendingOptionSplits_ApplyFailureNotReported(t *testing.T) {
@@ -194,7 +260,8 @@ func TestProcessPendingOptionSplits_OneFailureDoesNotBlockOthers(t *testing.T) {
 // TestProcessPendingOptionSplits_NonWholeSplitBlocksOption verifies a split we
 // cannot apply stops the whole option rather than being skipped over. Applying
 // the splits either side of it would produce a strike matching no real contract,
-// and leaving identity_as_of untouched keeps the option pending for a later run.
+// and leaving the OCC symbol in force where it is keeps the option pending for a
+// later run.
 func TestProcessPendingOptionSplits_NonWholeSplitBlocksOption(t *testing.T) {
 	tests := []struct {
 		name      string

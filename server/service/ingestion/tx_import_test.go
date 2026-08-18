@@ -15,6 +15,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/archiveimport"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/db/mock"
+	"github.com/leedenison/portfoliodb/server/identifier"
 )
 
 func archivePosting(desc, qty string, txType typev1.TxType) *archivev1.Posting {
@@ -343,30 +344,38 @@ func TestImportTxPart_WeighsASplitGroupsShortfall(t *testing.T) {
 // The document's envelope says when its data was current, and its transaction
 // part's identifiers are stated as of that moment. Every window is resolved
 // against the one vintage: knowledge time that differs between one file's own
-// windows is not knowledge time.
+// windows is not knowledge time. The observable is the date the resolved name
+// is written under -- the envelope's, never the posting's own trade date.
 func TestImportTxPart_ResolvesAgainstTheEnvelopeVintage(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().FindInstrumentBySourceDescription(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
 	database.EXPECT().FindInstrumentByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", "", "", nil).AnyTimes()
 	database.EXPECT().FindInstrumentByTypeAndValue(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
-	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("inst-1", nil).AnyTimes()
 	database.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	database.EXPECT().AppendIdentificationErrors(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().InstrumentsWithSplits(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	database.EXPECT().ReplaceTxsInPeriod(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	database.EXPECT().SplitsByUnderlyingTicker(gomock.Any(), "AAPL").
-		Return([]db.StockSplit{{ExDate: mustParseDay("2024-08-01"), SplitFrom: "1", SplitTo: "4"}}, nil).AnyTimes()
 
-	// The OCC as resolution decided to spell it, once the vintage has been read.
-	var looked []string
-	database.EXPECT().FindInstrumentWithMetaByIdentifier(gomock.Any(), "OCC", "", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, value string) (string, string, string, string, error) {
-			looked = append(looked, value)
-			return "", "", "", "", nil
+	registry := identifier.NewRegistry()
+	registry.Register("local", &fakePlugin{
+		inst: &identifier.Instrument{AssetClass: "OPTION", Currency: "USD"},
+		ids:  []identifier.Identifier{{Type: "OCC", Value: "AAPL250117C00760000"}},
+	})
+	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
+		Return([]db.PluginConfigRow{{PluginID: "local", Precedence: 10}}, nil).AnyTimes()
+
+	var validFrom []*time.Time
+	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+			for _, idn := range idns {
+				validFrom = append(validFrom, idn.ValidFrom)
+			}
+			return "inst-1", nil
 		}).AnyTimes()
 
 	option := archivePosting("AAPL 250117C00760000", "1", typev1.TxType_TRADE_ASSET)
@@ -381,13 +390,16 @@ func TestImportTxPart_ResolvesAgainstTheEnvelopeVintage(t *testing.T) {
 		Postings:     []*archivev1.Posting{option},
 	}}}
 
-	// Exported after the ex_date, so the file already carries the restated strike
-	// and the stored contract is the one that symbol names.
 	asOf := mustParseDay("2024-09-01")
-	if _, err := importTxPart(context.Background(), ingestDeps{DB: database}, "user-1", "job-tx", part, &asOf, archiveimport.NewDetachedReporter()); err != nil {
+	if _, err := importTxPart(context.Background(), ingestDeps{DB: database, Registry: registry}, "user-1", "job-tx", part, &asOf, archiveimport.NewDetachedReporter()); err != nil {
 		t.Fatalf("importTxPart: %v", err)
 	}
-	if len(looked) != 1 || looked[0] != "AAPL250117C00760000" {
-		t.Errorf("OCC looked up = %v, want [AAPL250117C00760000]", looked)
+	if len(validFrom) == 0 {
+		t.Fatal("no identifier was written")
+	}
+	for _, got := range validFrom {
+		if got == nil || !got.Equal(asOf) {
+			t.Errorf("valid_from = %v, want the envelope vintage %v", got, asOf)
+		}
 	}
 }

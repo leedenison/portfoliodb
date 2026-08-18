@@ -1581,10 +1581,6 @@ type CorporateEventDB interface {
 	// identifier priority order.
 	ListCashDividendsForExport(ctx context.Context) ([]ExportCashDividend, error)
 
-	// SplitsByUnderlyingTicker returns stock splits for the instrument matching
-	// the given MIC_TICKER, ordered ascending by ex_date. Used by split-aware
-	// identification to adjust pre-split OCC identifiers.
-	SplitsByUnderlyingTicker(ctx context.Context, ticker string) ([]StockSplit, error)
 	// InstrumentsWithSplits returns the subset of instrumentIDs that have at
 	// least one stock_splits row.
 	InstrumentsWithSplits(ctx context.Context, instrumentIDs []string) ([]string, error)

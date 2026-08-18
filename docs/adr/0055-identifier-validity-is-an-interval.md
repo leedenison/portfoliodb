@@ -71,16 +71,28 @@ achieve.
 
 ## Consequences
 
-- **Rebasing an OCC hint mostly stops being necessary.** With both names stored,
-  a post-split symbol matches the row minted for it and a pre-split symbol
-  matches the row closed at the ex_date, by value. `AdjustOCCForKnownSplits`
-  exists to make a hint of one vintage match a row of another, and that is the
-  problem the interval removes. What survives is the pass that mints the new
-  name. Issue 0126 retires the rest.
+- **Rebasing an OCC hint stops being necessary.** With both names stored, a
+  post-split symbol matches the row minted for it and a pre-split symbol matches
+  the row closed at the ex_date, by value. `AdjustOCCForKnownSplits` exists to
+  make a hint of one vintage match a row of another, and that is the problem the
+  interval removes. What survives is the pass that mints the new name. Issue
+  0126 retires the rest.
+- **A hint now reaches a provider at its stated vintage.** Rebasing carried a
+  hint forward before any lookup, so a plugin was always asked about a symbol as
+  it stands today. It is now asked about the symbol the file spelled. For a
+  contract already stored that costs nothing, because the DB short circuit
+  matches the retained row before any plugin is called. For one that is not, the
+  provider is asked about a symbol that a split may since have handed to another
+  strike on the same ladder -- the collision the exclusion constraint above
+  exists for. That is the same question as choosing between two holders of one
+  value, which is [0122](../issues/0122-resolve-identity-as-of-a-date.md), and
+  rebasing only ever masked it for splits that were already known.
 - **A vintage is still needed, for a narrower reason.** Two instruments can hold
   the same value over disjoint intervals, so a lookup by value alone can be
-  ambiguous. Options never are -- both names belong to one contract -- but a
-  reused ticker is exactly that, which is the question
+  ambiguous. A reused ticker is the obvious case, and the strike ladder above is
+  the other one -- the two names of a single contract are never ambiguous, but
+  the name one contract gives up is the name its neighbour takes. Which of them a
+  value denoted on a given date is the question
   [0122](../issues/0122-resolve-identity-as-of-a-date.md) asks.
 - **A NULL `valid_from` is the old NULL stamp.** It means the name predates
   every split and every split reaches it, which over-restates an option for

@@ -10,7 +10,6 @@ import (
 
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/leedenison/portfoliodb/server/derivative"
-	"github.com/leedenison/portfoliodb/server/service/identification"
 	"github.com/shopspring/decimal"
 )
 
@@ -64,7 +63,7 @@ func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingI
 		factors := make([]factor, 0, len(p.Splits))
 		unhandled := false
 		for _, s := range p.Splits {
-			if !identification.IsWholeForwardSplit(s.SplitFrom, s.SplitTo) {
+			if !IsWholeForwardSplit(s.SplitFrom, s.SplitTo) {
 				key := s.InstrumentID + "\x00" + s.ExDate.Format(time.RFC3339)
 				b, ok := blocked[key]
 				if !ok {
@@ -100,6 +99,21 @@ func ProcessPendingOptionSplits(ctx context.Context, database db.DB, underlyingI
 		insertUnhandledUnderlyingSplit(ctx, database, b.split.InstrumentID, b.options, b.split, "non-standard split ratio", log)
 	}
 	return adjusted
+}
+
+// IsWholeForwardSplit returns true if the split factor (split_to/split_from)
+// is a whole number > 1 (e.g. 2:1, 4:1, 10:1).
+func IsWholeForwardSplit(splitFrom, splitTo string) bool {
+	from, okF := new(big.Rat).SetString(splitFrom)
+	to, okT := new(big.Rat).SetString(splitTo)
+	if !okF || !okT || from.Sign() <= 0 || to.Sign() <= 0 {
+		return false
+	}
+	ratio := new(big.Rat).Quo(to, from)
+	if !ratio.IsInt() {
+		return false
+	}
+	return ratio.Cmp(new(big.Rat).SetInt64(1)) > 0
 }
 
 // factor is one pending split and the cumulative rational over every pending

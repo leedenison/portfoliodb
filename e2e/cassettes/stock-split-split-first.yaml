@@ -103,10 +103,11 @@ interactions:
 
     # --- Phase 2: Stock + Option CSV upload ---
     # Stock: AAPL found in DB from import → no plugin calls.
-    # Option: AdjustOCCForKnownSplits adjusts OCC from 760→190 strike.
-    #   Then OpenFIGI resolves the post-split OCC.
+    # Option: the file names the contract as of its own export, which precedes
+    #   the ex_date, so OpenFIGI is asked about the pre-split OCC. The 190 strike
+    #   is minted later, by the retroactive option-split pass.
 
-    # OpenFIGI: resolve post-split option by adjusted OCC
+    # OpenFIGI: resolve pre-split option by OCC
     - id: 3
       request:
         proto: HTTP/1.1
@@ -114,7 +115,7 @@ interactions:
         proto_minor: 1
         content_length: 59
         host: api.openfigi.com
-        body: '[{"idType":"OCC_SYMBOL","idValue":"AAPL  250117C00190000"}]'
+        body: '[{"idType":"OCC_SYMBOL","idValue":"AAPL  250117C00760000"}]'
         headers:
             Content-Type:
                 - application/json
@@ -130,7 +131,7 @@ interactions:
             - chunked
         content_length: -1
         uncompressed: true
-        body: '[{"data":[{"figi":"BBG01SPLIT02","name":"January 25 Calls on AAPL US","ticker":"AAPL 01/17/25 C190","exchCode":"US","compositeFIGI":"BBG01SPLIT02","securityType":"Equity Option","marketSector":"Equity","shareClassFIGI":null,"securityType2":"Option","securityDescription":"AAPL US 01/17/25 C190"}]}]'
+        body: '[{"data":[{"figi":"BBG01SPLIT01","name":"January 25 Calls on AAPL US","ticker":"AAPL 01/17/25 C760","exchCode":"US","compositeFIGI":"BBG01SPLIT01","securityType":"Equity Option","marketSector":"Equity","shareClassFIGI":null,"securityType2":"Option","securityDescription":"AAPL US 01/17/25 C760"}]}]'
         headers:
             Content-Type:
                 - application/json; charset=utf-8
@@ -222,7 +223,7 @@ interactions:
                 - REDACTED
             sort:
                 - asc
-        url: https://api.massive.com/v2/aggs/ticker/O:AAPL250117C00190000/range/1/day/2024-06-15/2024-12-31?adjusted=false&apiKey=REDACTED&sort=asc
+        url: https://api.massive.com/v2/aggs/ticker/O:AAPL250117C00760000/range/1/day/2024-06-15/2024-12-31?adjusted=false&apiKey=REDACTED&sort=asc
         method: GET
       response:
         proto: HTTP/1.1
@@ -232,7 +233,7 @@ interactions:
             - chunked
         content_length: -1
         uncompressed: true
-        body: '{"ticker":"O:AAPL250117C00190000","queryCount":0,"resultsCount":0,"adjusted":false,"results":[],"status":"OK","request_id":"test","count":0}'
+        body: '{"ticker":"O:AAPL250117C00760000","queryCount":0,"resultsCount":0,"adjusted":false,"results":[],"status":"OK","request_id":"test","count":0}'
         headers:
             Content-Type:
                 - application/json
@@ -279,7 +280,7 @@ interactions:
         content_length: 0
         host: api.massive.com
         form: {adjusted: ["false"], apiKey: ["REDACTED"], sort: ["asc"]}
-        url: https://api.massive.com/v2/aggs/ticker/O:AAPL250117C00190000/range/1/day/2025-01-01/2025-07-19?adjusted=false&apiKey=REDACTED&sort=asc
+        url: https://api.massive.com/v2/aggs/ticker/O:AAPL250117C00760000/range/1/day/2025-01-01/2025-07-19?adjusted=false&apiKey=REDACTED&sort=asc
         method: GET
       response: &massive_opt_price_resp
         proto: HTTP/1.1
@@ -288,7 +289,7 @@ interactions:
         transfer_encoding: [chunked]
         content_length: -1
         uncompressed: true
-        body: '{"ticker":"O:AAPL250117C00190000","queryCount":0,"resultsCount":0,"adjusted":false,"results":[],"status":"OK","request_id":"test","count":0}'
+        body: '{"ticker":"O:AAPL250117C00760000","queryCount":0,"resultsCount":0,"adjusted":false,"results":[],"status":"OK","request_id":"test","count":0}'
         headers: {Content-Type: ["application/json"]}
         status: 200 OK
         code: 200

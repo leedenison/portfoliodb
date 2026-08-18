@@ -575,36 +575,6 @@ func (p *Postgres) HeldEventBearingInstruments(ctx context.Context) ([]db.HeldIn
 	return out, rows.Err()
 }
 
-// SplitsByUnderlyingTicker implements db.CorporateEventDB. The ticker names the
-// instrument that answers to it now: a caller asking which splits reached a
-// symbol is asking about the security currently listed under it, not one that
-// has since given the symbol up.
-func (p *Postgres) SplitsByUnderlyingTicker(ctx context.Context, ticker string) ([]db.StockSplit, error) {
-	rows, err := p.q.QueryContext(ctx, `
-		SELECT ss.instrument_id, ss.ex_date, ss.split_from, ss.split_to, ss.data_provider, ss.first_known_at
-		FROM stock_splits ss
-		JOIN instrument_identifiers ii ON ii.instrument_id = ss.instrument_id
-		WHERE ii.identifier_type = 'MIC_TICKER' AND ii.value = $1
-		  AND ii.valid_before IS NULL
-		ORDER BY ss.ex_date
-	`, ticker)
-	if err != nil {
-		return nil, fmt.Errorf("splits by underlying ticker: %w", err)
-	}
-	defer rows.Close()
-	var out []db.StockSplit
-	for rows.Next() {
-		var s db.StockSplit
-		var instUUID uuid.UUID
-		if err := rows.Scan(&instUUID, &s.ExDate, &s.SplitFrom, &s.SplitTo, &s.DataProvider, &s.FirstKnownAt); err != nil {
-			return nil, fmt.Errorf("splits by underlying ticker scan: %w", err)
-		}
-		s.InstrumentID = instUUID.String()
-		out = append(out, s)
-	}
-	return out, rows.Err()
-}
-
 // InstrumentsWithSplits implements db.CorporateEventDB. Returns instruments
 // that have splits directly or via their underlying (for derivatives).
 func (p *Postgres) InstrumentsWithSplits(ctx context.Context, instrumentIDs []string) ([]string, error) {

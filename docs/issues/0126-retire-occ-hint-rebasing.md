@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 title: Retire OCC hint rebasing from identification
 milestone: M21
 dependencies: [0125]

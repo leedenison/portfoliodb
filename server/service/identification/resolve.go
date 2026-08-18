@@ -435,11 +435,6 @@ func ResolveWithPlugins(
 		HadIdentifierHints: len(identifierHints) > 0,
 	}
 
-	// Adjust OCC hints for known stock splits before any lookups. hintsNamedAt
-	// is the market time the resulting hints reflect, and it is what the winner
-	// path dates the names it writes from; nil means now.
-	identifierHints, hintsNamedAt := AdjustOCCForKnownSplits(ctx, database, identifierHints, hintsValidAt, nil)
-
 	// If all hints already resolve to one instrument in DB, use it (avoids plugin call).
 	resolved, err := ResolveByHintsDBOnly(ctx, database, identifierHints)
 	if err != nil {
@@ -622,16 +617,20 @@ func ResolveWithPlugins(
 				})
 			}
 		}
-		// A plugin has just identified this instrument, so the names it gave
-		// back became correct as of the hints it was asked about: now, unless an
-		// OCC hint could not be rebased onto today, in which case the plugin was
-		// asked about the contract as it stood at hintsNamedAt and answered
-		// about that one. Only names this path writes carry it; a name already
-		// stored keeps the valid_from it was written with, because when a name
-		// became correct is a market fact and re-seeing it is not evidence of a
-		// new one. The broker-description-only fallback below derives nothing
-		// from the market and writes no dated name at all.
-		namedAt := hintsNamedAt
+		// A plugin answers about the instrument it was named, so the names it
+		// gives back are only as current as the hint that named it: the vintage
+		// of the file the hints came from, and now for a caller that states
+		// none. That matters most for an OCC, which a split restates -- a
+		// pre-split symbol resolves to the contract, and the name written for it
+		// is correct as of that export rather than of today, which is what
+		// leaves the option pending for the retroactive restatement.
+		//
+		// Only names this path writes carry it; a name already stored keeps the
+		// valid_from it was written with, because when a name became correct is a
+		// market fact and re-seeing it is not evidence of a new one. The
+		// broker-description-only fallback below derives nothing from the market
+		// and writes no dated name at all.
+		namedAt := hintsValidAt
 		if namedAt == nil {
 			now := time.Now()
 			namedAt = &now

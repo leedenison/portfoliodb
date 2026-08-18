@@ -136,9 +136,11 @@ test.describe("stock split: tx uploaded before split", () => {
 // Case 2: Split imported BEFORE transactions are uploaded.
 //
 // Import the AAPL 4:1 split via ImportCorporateEvents (no coverage).
-// Then upload stock + option txs. AdjustOCCForKnownSplits adjusts the
-// option OCC during identification. Trigger the fetcher so it records
-// coverage and runs processOptionSplits.
+// Then upload stock + option txs. Knowing the split changes nothing about
+// identification: the file names the contract as of its own export, which
+// precedes the ex_date, so the option is stored under the pre-split symbol
+// dated from that export. Trigger the fetcher so it records coverage and runs
+// processOptionSplits, which is what mints the post-split name.
 // ---------------------------------------------------------------------------
 test.describe("stock split: split uploaded before tx", () => {
   let userSession: string;

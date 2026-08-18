@@ -313,7 +313,6 @@ func TestProcessPriceImport_FallbackPassesAssetClassAndCurrency(t *testing.T) {
 			"", nil, nil, nil).
 		Return("inst-eurgbp", nil)
 	// No exported_at, so the vintage is now.
-	database.EXPECT().UpdateIdentityAsOf(gomock.Any(), "inst-eurgbp").Return(nil)
 	database.EXPECT().
 		UpsertPrices(gomock.Any(), gomock.Any()).
 		Return(nil)
@@ -408,7 +407,6 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 		Return("inst-opt", nil)
 	// No exported_at on the request, so the supplied OCC is taken at face value
 	// as current and the vintage is now.
-	database.EXPECT().UpdateIdentityAsOf(gomock.Any(), "inst-opt").Return(nil)
 	database.EXPECT().
 		UpsertPrices(gomock.Any(), gomock.Any()).
 		Return(nil)
@@ -422,16 +420,17 @@ func TestProcessPriceImport_OptionFallbackResolvesUnderlying(t *testing.T) {
 	}
 }
 
-// TestProcessPriceImport_OptionFallbackStampsExportedAt is the regression test
+// TestProcessPriceImport_OptionFallbackDatesFromExportedAt is the regression test
 // for the price-import half of issue 0055. The fallback stores the supplied OCC
 // verbatim -- ResolveWithPlugins split-adjusts its own hint list, not the value
-// this path closes over -- so the identity reflects the market as of the
-// request's exported_at, and that is what must be stamped.
+// this path closes over -- so the name became correct as of the request's
+// exported_at, and that is the date it must carry. The namesDated matcher above
+// is where the assertion lives.
 //
-// Leaving identity_as_of NULL would tell the retroactive option-split pass that
-// the identity predates every split, and it would re-apply splits already baked
-// into the stored OCC, dividing the strike a second time.
-func TestProcessPriceImport_OptionFallbackStampsExportedAt(t *testing.T) {
+// An undated name would tell the retroactive option-split pass that it predates
+// every split, and the pass would restate a symbol already carrying them,
+// dividing the strike a second time.
+func TestProcessPriceImport_OptionFallbackDatesFromExportedAt(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -466,9 +465,6 @@ func TestProcessPriceImport_OptionFallbackStampsExportedAt(t *testing.T) {
 			},
 			"inst-nvda", nil, nil, gomock.Not(gomock.Nil())).
 		Return("inst-opt", nil)
-
-	// The assertion: the file's declared vintage, not now() and not NULL.
-	database.EXPECT().SetIdentityAsOf(gomock.Any(), "inst-opt", exportedAt).Return(nil)
 
 	database.EXPECT().UpsertPrices(gomock.Any(), gomock.Any()).Return(nil)
 

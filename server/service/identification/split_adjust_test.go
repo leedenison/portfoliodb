@@ -204,7 +204,7 @@ func TestAdjustOCCForKnownSplits_NonOCCHintUnchanged(t *testing.T) {
 }
 
 // TestAdjustOCCForKnownSplits_Vintage covers the market time the returned
-// hints reflect, which is what the caller stamps as identity_as_of. A rebased
+// hints reflect, which is what the caller dates its names from. A rebased
 // hint reflects now; one left alone still reflects its own vintage, and a split
 // learned of later must find it that way or the retroactive option adjustment is
 // skipped for a symbol that never had it.

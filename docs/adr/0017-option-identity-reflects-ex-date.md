@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0055
+---
+
 # Option split adjustment keys off ex_date, not knowledge time
 
 When a split lands on an option's underlying, the option's OCC symbol and strike

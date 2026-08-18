@@ -19,10 +19,11 @@ import (
 // a non-empty value restricts the sweep to one underlying.
 //
 // The work list comes from the database, not from the caller: which splits an
-// option still needs is a function of its identity_as_of against each split's
-// ex_date, not of which splits happened to arrive in this fetch cycle. That
-// makes the pass idempotent, safe to run on every cycle, and self-retrying --
-// an option whose adjustment failed is simply still pending next time.
+// option still needs is a function of its OCC symbol's own valid_from against
+// each split's ex_date, not of which splits happened to arrive in this fetch
+// cycle. That makes the pass idempotent, safe to run on every cycle, and
+// self-retrying -- an option whose restatement failed is simply still pending
+// next time.
 //
 // Each option is adjusted once, by the cumulative factor of all its pending
 // splits, in a single transaction. Applying them one at a time against a row

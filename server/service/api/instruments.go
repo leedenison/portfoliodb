@@ -8,7 +8,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/leedenison/portfoliodb/proto/api/v1"
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
@@ -110,9 +109,6 @@ func archiveInstrument(row *db.InstrumentRow) *archivev1.Instrument {
 	// nothing and only a split-adjusted deliverable writes a value.
 	if !row.ContractMultiplier.Equal(decimal.NewFromInt(1)) {
 		out.ContractMultiplier = proto.String(decStr(row.ContractMultiplier))
-	}
-	if row.IdentityAsOf != nil {
-		out.IdentityAsOf = timestamppb.New(*row.IdentityAsOf)
 	}
 	return out
 }

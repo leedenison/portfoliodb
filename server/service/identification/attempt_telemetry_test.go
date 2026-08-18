@@ -204,7 +204,6 @@ func TestPluginCallOutcomesAreComposed(t *testing.T) {
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
 		gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("inst-1", nil)
-	database.EXPECT().UpdateIdentityAsOf(gomock.Any(), "inst-1").Return(nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{Currency: "USD"},
@@ -360,7 +359,6 @@ func TestUnderlyingRecursionIsItsOwnAttempt(t *testing.T) {
 	database.EXPECT().EnsureInstrument(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
 		gomock.Any(), gomock.Any(), gomock.Any(), "underlying-id", gomock.Any(), gomock.Any(), gomock.Any()).
 		Return("opt-id", nil)
-	database.EXPECT().UpdateIdentityAsOf(gomock.Any(), "opt-id").Return(nil)
 
 	_, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{},

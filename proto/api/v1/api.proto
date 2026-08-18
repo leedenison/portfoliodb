@@ -70,10 +70,6 @@ message Instrument {
   // of 1. A non-standard split leaves a fraction here (3:2 gives 1.5), and it
   // multiplies a posting's weight, so it stays exact.
   optional string contract_multiplier = 17 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  // The point in market time this identity reflects. Carried on export and
-  // restored on import so a round trip does not make an already-adjusted option
-  // look unadjusted. Unset means the identity predates every split.
-  google.protobuf.Timestamp identity_as_of = 18;
 }
 
 // Exchange is ISO 10383 MIC reference data for an instrument's exchange.

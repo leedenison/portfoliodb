@@ -193,7 +193,6 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().UpdateIdentityAsOf(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
@@ -231,10 +230,12 @@ func TestResolveWithPlugins_PluginSuccess(t *testing.T) {
 	}
 }
 
-// TestResolveWithPlugins_StampsIdentityAsOfOnPluginSuccess pins half of the
-// write discipline behind issue 0055: a plugin identification derives the
-// identity from current market data, so identity_as_of advances to now.
-func TestResolveWithPlugins_StampsIdentityAsOfOnPluginSuccess(t *testing.T) {
+// TestResolveWithPlugins_DatesNamesOnPluginSuccess pins half of the write
+// discipline behind issue 0055: a plugin identification derives the names from
+// current market data, so each one it writes becomes correct as of today. An
+// undated name would tell the retroactive option-split pass that it predates
+// every split.
+func TestResolveWithPlugins_DatesNamesOnPluginSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -251,10 +252,21 @@ func TestResolveWithPlugins_StampsIdentityAsOfOnPluginSuccess(t *testing.T) {
 	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
+	// The assertion: the name the plugin gave back is written dated today.
+	now := time.Now()
 	database.EXPECT().EnsureInstrument(gomock.Any(), "STOCK", "XNAS", "USD", "Apple Inc.", "", "", gomock.Any(), "", nil, nil, nil).
-		Return("new-id", nil)
-	// The assertion: exactly one stamp, on the instrument that was identified.
-	database.EXPECT().UpdateIdentityAsOf(gomock.Any(), "new-id").Return(nil).Times(1)
+		DoAndReturn(func(_ context.Context, _, _, _, _, _, _ string, idns []db.IdentifierInput, _ string, _, _ *time.Time, _ *db.OptionFields) (string, error) {
+			if len(idns) != 1 {
+				t.Fatalf("identifiers = %v, want just the ISIN", idns)
+			}
+			if idns[0].ValidFrom == nil || !idns[0].ValidFrom.Equal(*db.VintageDate(&now)) {
+				t.Errorf("ISIN valid_from = %v, want today", idns[0].ValidFrom)
+			}
+			if idns[0].ValidBefore != nil {
+				t.Errorf("ISIN valid_before = %v, want the name left in force", idns[0].ValidBefore)
+			}
+			return "new-id", nil
+		}).Times(1)
 
 	if _, err := ResolveWithPlugins(context.Background(), database, registry,
 		"", "", "", identifier.Hints{SecurityTypeHint: identifier.SecurityTypeHintStock},
@@ -264,11 +276,12 @@ func TestResolveWithPlugins_StampsIdentityAsOfOnPluginSuccess(t *testing.T) {
 	}
 }
 
-// TestResolveWithPlugins_NoStampOnFallback pins the other half: when no plugin
-// identifies the instrument, the fallback creates a broker-description-only row
-// that reflects no market state, so identity_as_of must be left alone. Stamping
-// here is what used to disarm the retroactive option-split guard.
-func TestResolveWithPlugins_NoStampOnFallback(t *testing.T) {
+// TestResolveWithPlugins_NoDatedNameOnFallback pins the other half: when no
+// plugin identifies the instrument, the caller's fallback creates a
+// broker-description-only row that reflects no market state. This path must
+// write no name of its own, dated or otherwise -- dating one is what used to
+// disarm the retroactive option-split guard.
+func TestResolveWithPlugins_NoDatedNameOnFallback(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
@@ -281,8 +294,8 @@ func TestResolveWithPlugins_NoStampOnFallback(t *testing.T) {
 	database.EXPECT().FindInstrumentByTickerIgnoringSeparators(gomock.Any(), "AAPL").Return("", nil).AnyTimes()
 	database.EXPECT().ListEnabledPluginConfigs(gomock.Any(), db.PluginCategoryIdentifier).
 		Return([]db.PluginConfigRow{{PluginID: "test", Precedence: 10}}, nil)
-	// No UpdateIdentityAsOf expectation: the strict controller fails the test if
-	// the fallback path stamps.
+	// No EnsureInstrument expectation: the strict controller fails the test if
+	// this path writes a name rather than leaving it to the fallback.
 
 	fallback := func(_ context.Context, _ db.DB) (string, error) { return "fallback-id", nil }
 	result, err := ResolveWithPlugins(context.Background(), database, registry,
@@ -420,7 +433,6 @@ func TestResolveWithPlugins_StoreSourceDescription(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().UpdateIdentityAsOf(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
@@ -745,7 +757,6 @@ func TestResolveWithPlugins_InconsistentPluginExcluded(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().UpdateIdentityAsOf(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
@@ -966,7 +977,6 @@ func TestResolveWithPlugins_ConsistentPluginsMerged(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	database := mock.NewMockDB(ctrl)
-	database.EXPECT().UpdateIdentityAsOf(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := identifier.NewRegistry()
@@ -1148,7 +1158,6 @@ func resolveWithPluginsTestSetup(t *testing.T) (*gomock.Controller, *mock.MockDB
 		func(_ context.Context, mic string) (string, error) { return mic, nil },
 	).AnyTimes()
 	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	database.EXPECT().UpdateIdentityAsOf(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	return ctrl, database
 }
 

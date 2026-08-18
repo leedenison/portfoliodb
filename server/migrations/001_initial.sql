@@ -387,20 +387,6 @@ CREATE TABLE instruments (
   -- Deliverable multiplier: 1 = standard (100 shares/contract). Non-standard
   -- splits (e.g. 3:2) may set this to 1.5 meaning 150 shares/contract.
   contract_multiplier NUMERIC NOT NULL DEFAULT 1,
-  -- The point in market time the stored identity reflects: the state the OCC
-  -- symbol, strike and contract terms were derived from. Moves only on genuine
-  -- re-derivation -- plugin identification, or a retroactive option split
-  -- adjustment -- never on an incidental EnsureInstrument touch. Compared
-  -- against stock_splits.ex_date to decide whether an option still needs
-  -- retroactive adjustment: providers list the pre-split OCC symbol until the
-  -- ex_date, so an identity derived before then does not reflect the split.
-  -- NULL means the identity predates every split. Bounded by expiry: a split
-  -- restates only the contracts listed on its effective date, so a split with
-  -- ex_date after expiry never reached this contract. See
-  -- docs/spec/bitemporality.md,
-  -- docs/adr/0017-option-identity-reflects-ex-date.md and
-  -- docs/adr/0036-expired-options-are-not-restated.md.
-  identity_as_of TIMESTAMPTZ,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT chk_underlying_required CHECK (
     (asset_class IN ('OPTION','FUTURE') AND underlying_id IS NOT NULL)

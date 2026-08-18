@@ -229,13 +229,21 @@ order the list is written in carries no meaning.
 | `name` | optional; advisory, see below |
 | `currency` | ISO 4217 |
 | `exchange_mic` | optional; ISO 10383 |
-| `identifiers[]` | at least one; `{type, value, domain, canonical}` |
+| `identifiers[]` | at least one; `{type, value, domain, canonical, valid_from, valid_before}` |
 | `provider_identifiers[]` | `{provider, identifier_type, value, domain}`; `identifier_type` is the provider's own vocabulary, not `IdentifierType` |
 | `underlying` | optional; an identifier triple naming an instrument in the same part |
 | `cik`, `sic_code` | optional |
 | `valid_from`, `valid_before` | optional; half-open, either bound open-ended |
 | `strike`, `expiry`, `put_call`, `contract_multiplier` | optional; options only |
-| `identity_as_of` | optional; the point in market time the identity reflects |
+
+An identifier's `valid_from` and `valid_before` are the half-open interval in
+market time the name was correct for the instrument, and both are optional: an
+absent `valid_before` means it is the name the instrument wears now. They travel
+because nothing recomputes them, and because an option restated for a split holds
+both the symbol it traded under before the ex_date and the one minted for it. A
+file that dropped them would leave an already-restated option looking unrestated,
+and would leave a file exported before the split naming a symbol the importing
+instance has never heard of.
 
 `name` is advisory because the importing instance recomputes it from the
 identifiers. It survives only where no ticker-like identifier exists to derive

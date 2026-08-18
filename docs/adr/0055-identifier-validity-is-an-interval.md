@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Identifier validity is an interval on the identifier

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
@@ -118,9 +117,9 @@ func InstrumentPart(ctx context.Context, database db.DB, part *archivev1.Instrum
 type importInstKey struct{ typ, value, domain string }
 
 // ensureArchiveInstrument ensures one archive instrument, restoring the values
-// nothing recomputes: the option terms, the deliverable multiplier, the identity
-// vintage, the interval each name was correct over, and the provider identifiers
-// the lookups produced. It returns "" when
+// nothing recomputes: the option terms, the deliverable multiplier, the interval
+// each name was correct over, and the provider identifiers the lookups
+// produced. It returns "" when
 // it reported a problem rather than storing anything.
 func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev1.Instrument,
 	underlyingID string, i int, seenKeys map[string]struct{}, rep *PartReporter) string {
@@ -186,9 +185,6 @@ func ensureArchiveInstrument(ctx context.Context, database db.DB, inst *archivev
 			return fail("contract_multiplier: " + err.Error())
 		}
 	}
-	if err := restoreIdentityAsOf(ctx, database, id, inst.GetIdentityAsOf()); err != nil {
-		return fail("identity_as_of: " + err.Error())
-	}
 	return id
 }
 
@@ -214,18 +210,6 @@ func restoreProviderIdentifiers(ctx context.Context, database db.DB, instrumentI
 		})
 	}
 	return database.SaveProviderIdentifiers(ctx, instrumentID, in)
-}
-
-// restoreIdentityAsOf carries an exported identity_as_of back onto an imported
-// instrument. Without it a round trip would leave the column NULL and an option
-// that had already been split-adjusted would look unadjusted to the retroactive
-// adjustment pass, which would adjust it a second time. A payload with no
-// identity_as_of leaves the stored value alone.
-func restoreIdentityAsOf(ctx context.Context, database db.DB, instrumentID string, ts *timestamppb.Timestamp) error {
-	if instrumentID == "" || ts == nil || !ts.IsValid() {
-		return nil
-	}
-	return database.SetIdentityAsOf(ctx, instrumentID, ts.AsTime())
 }
 
 // archiveOptionFields reads the denormalized OCC components off an archive

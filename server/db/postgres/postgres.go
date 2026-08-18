@@ -266,7 +266,6 @@ type instrumentRow struct {
 	Expiry              *time.Time       `db:"expiry"`
 	PutCall             *string          `db:"put_call"`
 	ContractMultiplier  decimal.Decimal  `db:"contract_multiplier"`
-	IdentityAsOf        *time.Time       `db:"identity_as_of"`
 	ExchangeName        *string          `db:"exchange_name"`
 	ExchangeAcronym     *string          `db:"exchange_acronym"`
 	ExchangeCountryCode *string          `db:"exchange_country_code"`
@@ -294,7 +293,6 @@ func (r *instrumentRow) toDBRow() *db.InstrumentRow {
 		Expiry:              r.Expiry,
 		PutCall:             r.PutCall,
 		ContractMultiplier:  r.ContractMultiplier,
-		IdentityAsOf:        r.IdentityAsOf,
 		ExchangeName:        r.ExchangeName,
 		ExchangeAcronym:     r.ExchangeAcronym,
 		ExchangeCountryCode: r.ExchangeCountryCode,

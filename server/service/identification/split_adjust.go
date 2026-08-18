@@ -31,8 +31,8 @@ import (
 // far forward as it can go -- today, or expiry for a contract that is no longer
 // listed -- but only across splits already stored. A split we have not yet
 // learned of leaves the hint at its original vintage, which is what this reports
-// so the caller can stamp identity_as_of honestly. See
-// adr/0017-option-identity-reflects-ex-date.md.
+// so the caller can date the names it writes honestly. See
+// adr/0055-identifier-validity-is-an-interval.md.
 func AdjustOCCForKnownSplits(ctx context.Context, database db.CorporateEventDB, hints []identifier.Identifier, hintsValidAt *time.Time, timer *clock.Timer) ([]identifier.Identifier, *time.Time) {
 	if hintsValidAt == nil {
 		return hints, nil

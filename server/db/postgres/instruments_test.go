@@ -1188,3 +1188,198 @@ func TestFindInstrumentByTickerIgnoringSeparators(t *testing.T) {
 		t.Errorf("ambiguous BRK.B -> %q, %v; want empty", got, err)
 	}
 }
+
+// day is a midnight-UTC date bound, the form every identifier validity interval
+// takes (see docs/adr/0018-half-open-date-intervals.md).
+func day(y int, m time.Month, d int) *time.Time {
+	t := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	return &t
+}
+
+// findIdentifier returns the identifier with the given type and value, or nil.
+func findIdentifier(row *db.InstrumentRow, idType, value string) *db.IdentifierInput {
+	for i := range row.Identifiers {
+		if row.Identifiers[i].Type == idType && row.Identifiers[i].Value == value {
+			return &row.Identifiers[i]
+		}
+	}
+	return nil
+}
+
+// TestInstrumentIdentifiers_OverlapExcluded pins the constraint that replaced the
+// global unique index. Two instruments may hold one value over disjoint
+// intervals -- a 2:1 split makes one option's new OCC symbol another's old one --
+// but never over overlapping ones.
+func TestInstrumentIdentifiers_OverlapExcluded(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	idA, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "OCC", Value: "XYZ250117C00100000", Canonical: true, ValidBefore: day(2024, 6, 10)},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure A: %v", err)
+	}
+	idB, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "ISIN", Value: "US0000000001", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure B: %v", err)
+	}
+
+	// B takes the name up where A gave it up. The intervals abut, so they do not
+	// overlap and both rows stand.
+	if err := p.InsertInstrumentIdentifier(ctx, idB, db.IdentifierInput{
+		Type: "OCC", Value: "XYZ250117C00100000", Canonical: true, ValidFrom: day(2024, 6, 10),
+	}); err != nil {
+		t.Fatalf("insert abutting identifier: %v", err)
+	}
+
+	// A third claim overlapping either of them is refused.
+	err = p.InsertInstrumentIdentifier(ctx, idA, db.IdentifierInput{
+		Type: "OCC", Value: "XYZ250117C00100000", Canonical: true, ValidFrom: day(2024, 8, 1),
+	})
+	if err == nil {
+		t.Fatal("overlapping identifier accepted, want exclusion violation")
+	}
+	if !isIdentifierConflict(err) {
+		t.Errorf("overlap error = %v, want an identifier conflict", err)
+	}
+}
+
+// TestFindInstrumentByIdentifier_PrefersNameInForce covers what retained history
+// does to a lookup by value: the name in force wins, and a value only ever held
+// in the past still resolves, which is what lets a broker file exported before a
+// split find the contract it names.
+func TestFindInstrumentByIdentifier_PrefersNameInForce(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	// The two holders are built directly rather than through EnsureInstrument,
+	// which resolves a value to whoever has ever held it and so would hand the
+	// second one back the first. Telling them apart by date is issue 0122.
+	past, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "ISIN", Value: "US0000000003", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure past holder: %v", err)
+	}
+	if err := p.InsertInstrumentIdentifier(ctx, past, db.IdentifierInput{
+		Type: "MIC_TICKER", Domain: "XNAS", Value: "REUSED", Canonical: true, ValidBefore: day(2020, 1, 1),
+	}); err != nil {
+		t.Fatalf("insert closed ticker: %v", err)
+	}
+
+	// Only a closed row exists, so it is the answer.
+	got, err := p.FindInstrumentByIdentifier(ctx, "MIC_TICKER", "XNAS", "REUSED")
+	if err != nil {
+		t.Fatalf("find with only a closed row: %v", err)
+	}
+	if got != past {
+		t.Errorf("find with only a closed row = %q, want %q", got, past)
+	}
+
+	current, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "ISIN", Value: "US0000000004", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure current holder: %v", err)
+	}
+	if err := p.InsertInstrumentIdentifier(ctx, current, db.IdentifierInput{
+		Type: "MIC_TICKER", Domain: "XNAS", Value: "REUSED", Canonical: true, ValidFrom: day(2020, 1, 1),
+	}); err != nil {
+		t.Fatalf("insert open ticker: %v", err)
+	}
+
+	got, err = p.FindInstrumentByIdentifier(ctx, "MIC_TICKER", "XNAS", "REUSED")
+	if err != nil {
+		t.Fatalf("find with both rows: %v", err)
+	}
+	if got != current {
+		t.Errorf("find with both rows = %q, want the current holder %q", got, current)
+	}
+
+	gotID, _, _, _, err := p.FindInstrumentWithMetaByIdentifier(ctx, "MIC_TICKER", "XNAS", "REUSED")
+	if err != nil {
+		t.Fatalf("find with meta: %v", err)
+	}
+	if gotID != current {
+		t.Errorf("find with meta = %q, want the current holder %q", gotID, current)
+	}
+}
+
+// TestMergeInstruments_CarriesIdentifierHistory: a merge moves the loser's names
+// to the survivor with their intervals intact. Dropping the bounds would re-open
+// a name the loser had already given up, which the exclusion constraint would
+// then refuse against whoever holds it now.
+func TestMergeInstruments_CarriesIdentifierHistory(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	survivor, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "ISIN", Value: "US0000000002", Canonical: true},
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "KEEP", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure survivor: %v", err)
+	}
+	loser, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "CUSIP", Value: "000000001", Canonical: true},
+		{Type: "OCC", Value: "OLD250117C00100000", Canonical: true, ValidBefore: day(2024, 6, 10)},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure loser: %v", err)
+	}
+	if survivor == loser {
+		t.Fatal("survivor and loser should be different instruments")
+	}
+
+	// Naming both instruments at once merges them; the survivor is the older of
+	// two rows holding the same number of identifiers.
+	got, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "ISIN", Value: "US0000000002", Canonical: true},
+		{Type: "CUSIP", Value: "000000001", Canonical: true},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("merging ensure: %v", err)
+	}
+	if got != survivor {
+		t.Fatalf("merge survivor = %q, want %q", got, survivor)
+	}
+
+	row, err := p.GetInstrument(ctx, survivor)
+	if err != nil || row == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	moved := findIdentifier(row, "OCC", "OLD250117C00100000")
+	if moved == nil {
+		t.Fatal("the loser's closed OCC did not move to the survivor")
+	}
+	if moved.ValidBefore == nil || !moved.ValidBefore.Equal(*day(2024, 6, 10)) {
+		t.Errorf("moved identifier valid_before = %v, want 2024-06-10", moved.ValidBefore)
+	}
+}
+
+// TestRecomputeInstrumentName_IgnoresClosedIdentifier: the derived name is what
+// the instrument is called now. Without the validity filter the priority order
+// would still reach a name the instrument has given up -- here a MIC_TICKER,
+// which outranks everything.
+func TestRecomputeInstrumentName_IgnoresClosedIdentifier(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	id, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
+		{Type: "MIC_TICKER", Domain: "XNAS", Value: "GONE", Canonical: true, ValidBefore: day(2024, 6, 10)},
+		{Type: "OCC", Value: "NOW250117C00050000", Canonical: true, ValidFrom: day(2024, 6, 10)},
+	}, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	row, err := p.GetInstrument(ctx, id)
+	if err != nil || row == nil || row.Name == nil {
+		t.Fatalf("GetInstrument: %v", err)
+	}
+	if *row.Name != "NOW250117C00050000" {
+		t.Errorf("name = %q, want the name still in force %q", *row.Name, "NOW250117C00050000")
+	}
+}

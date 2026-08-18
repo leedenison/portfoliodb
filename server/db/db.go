@@ -573,11 +573,20 @@ type JobDB interface {
 // IdentifierInput is a single (type, domain, value) for EnsureInstrument.
 // Domain is empty or nil for broker-description and for identifiers that have no domain (e.g. ISIN, CUSIP).
 // Canonical is false only for broker-description identifiers; true for standard identifiers (ISIN, CUSIP, etc.).
+//
+// ValidFrom and ValidBefore are the half-open interval in market time the name
+// was correct for the instrument: ValidFrom is the vintage of the source that
+// supplied it or the ex_date of the split that minted it, and a nil ValidBefore
+// means it is the name the instrument wears now. Both are dates; a caller
+// holding a timestamp truncates it. See
+// docs/adr/0055-identifier-validity-is-an-interval.md.
 type IdentifierInput struct {
-	Type      string
-	Domain    string // empty or NULL for no domain
-	Value     string
-	Canonical bool // default true when not set for backward compat
+	Type        string
+	Domain      string // empty or NULL for no domain
+	Value       string
+	Canonical   bool // default true when not set for backward compat
+	ValidFrom   *time.Time
+	ValidBefore *time.Time
 }
 
 // ProviderIdentifierInput is a provider-specific identifier for an instrument.

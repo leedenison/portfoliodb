@@ -188,6 +188,7 @@ fx_instruments AS (
     INNER JOIN instrument_identifiers fx_ii
         ON fx_ii.identifier_type = 'FX_PAIR'
         AND fx_ii.value = inst.currency || 'USD'
+        AND fx_ii.valid_before IS NULL
     WHERE inst.id = ANY(SELECT DISTINCT instrument_id FROM cumulative WHERE instrument_id IS NOT NULL)
       AND inst.currency IS NOT NULL
       AND inst.currency != 'USD'
@@ -198,6 +199,7 @@ display_fx_instrument AS (
     FROM instrument_identifiers ii
     WHERE ii.identifier_type = 'FX_PAIR'
       AND ii.value = $4 || 'USD'
+      AND ii.valid_before IS NULL
       AND $4 != 'USD'
 ),
 -- Every instrument this query needs a price series for.

@@ -400,10 +400,10 @@ func loadIdentifiers(ctx context.Context, q queryable, ids []uuid.UUID, rows []*
 	}
 	inClause, args := inClauseUUIDs(ids)
 	idRows, err := q.QueryContext(ctx, fmt.Sprintf(`
-		SELECT instrument_id, identifier_type, domain, value, canonical
+		SELECT instrument_id, identifier_type, domain, value, canonical, valid_from, valid_before
 		FROM instrument_identifiers
 		WHERE instrument_id IN (%s)
-		ORDER BY instrument_id
+		ORDER BY instrument_id, valid_before IS NULL DESC, valid_before DESC
 	`, inClause), args...)
 	if err != nil {
 		return err
@@ -418,12 +418,19 @@ func loadIdentifiers(ctx context.Context, q queryable, ids []uuid.UUID, rows []*
 		var idType, val string
 		var domain sql.NullString
 		var canonical bool
-		if err := idRows.Scan(&instID, &idType, &domain, &val, &canonical); err != nil {
+		var validFrom, validBefore sql.NullTime
+		if err := idRows.Scan(&instID, &idType, &domain, &val, &canonical, &validFrom, &validBefore); err != nil {
 			return err
 		}
 		idn := db.IdentifierInput{Type: idType, Value: val, Canonical: canonical}
 		if domain.Valid {
 			idn.Domain = domain.String
+		}
+		if validFrom.Valid {
+			idn.ValidFrom = &validFrom.Time
+		}
+		if validBefore.Valid {
+			idn.ValidBefore = &validBefore.Time
 		}
 		if r := byID[instID.String()]; r != nil {
 			r.Identifiers = append(r.Identifiers, idn)

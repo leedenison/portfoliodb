@@ -280,6 +280,7 @@ func (p *Postgres) FXGaps(ctx context.Context, opts db.HeldRangesOpts) ([]db.Ins
 		INNER JOIN instrument_identifiers fx_ii
 			ON fx_ii.identifier_type = 'FX_PAIR'
 			AND fx_ii.value = i.currency || 'USD'
+			AND fx_ii.valid_before IS NULL
 		WHERE i.id = ANY($1::uuid[])
 			AND i.currency IS NOT NULL
 			AND i.currency != 'USD'
@@ -394,7 +395,7 @@ func (p *Postgres) addDisplayCurrencyNeeds(
 	fxRows, err := p.q.QueryContext(ctx, `
 		SELECT value, instrument_id::text
 		FROM instrument_identifiers
-		WHERE identifier_type = 'FX_PAIR' AND value = ANY($1)
+		WHERE identifier_type = 'FX_PAIR' AND value = ANY($1) AND valid_before IS NULL
 	`, pq.Array(displayCurrencyFXValues(displayCurrencies)))
 	if err != nil {
 		return fmt.Errorf("fx gaps: display fx lookup: %w", err)

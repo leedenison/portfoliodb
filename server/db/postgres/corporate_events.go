@@ -543,13 +543,17 @@ func (p *Postgres) HeldEventBearingInstruments(ctx context.Context) ([]db.HeldIn
 	return out, rows.Err()
 }
 
-// SplitsByUnderlyingTicker implements db.CorporateEventDB.
+// SplitsByUnderlyingTicker implements db.CorporateEventDB. The ticker names the
+// instrument that answers to it now: a caller asking which splits reached a
+// symbol is asking about the security currently listed under it, not one that
+// has since given the symbol up.
 func (p *Postgres) SplitsByUnderlyingTicker(ctx context.Context, ticker string) ([]db.StockSplit, error) {
 	rows, err := p.q.QueryContext(ctx, `
 		SELECT ss.instrument_id, ss.ex_date, ss.split_from, ss.split_to, ss.data_provider, ss.first_known_at
 		FROM stock_splits ss
 		JOIN instrument_identifiers ii ON ii.instrument_id = ss.instrument_id
 		WHERE ii.identifier_type = 'MIC_TICKER' AND ii.value = $1
+		  AND ii.valid_before IS NULL
 		ORDER BY ss.ex_date
 	`, ticker)
 	if err != nil {

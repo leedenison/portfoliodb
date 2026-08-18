@@ -1,6 +1,7 @@
 ---
 status: open
 title: Resolve instrument identity as of a date, not as of now
+dependencies: [0125]
 ---
 
 Identifier resolution asks providers what a ticker means today, but a portfolio

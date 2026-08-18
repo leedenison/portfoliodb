@@ -106,7 +106,7 @@ func transferFixtureAt(t *testing.T, p *Postgres, userID string, s transferSpec)
 		{Amount: decimal.RequireFromString(s.qty), Commodity: "inst:" + s.instID},
 		{Amount: decimal.RequireFromString(negate(t, s.qty)), Commodity: "inst:" + s.instID},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", f, b, txs, ids, ws, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", f, b, txs, ids, ws); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 	// The departure's clearing leg is positive: the account's own leg is negative
@@ -297,7 +297,7 @@ func TestTransferMatches_CascadeOnReupload(t *testing.T) {
 	// Replacing the period deletes both sides' groups, so both links and postings go.
 	base := time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC)
 	f, b := timestamppb.New(base), timestamppb.New(base.Add(24*time.Hour))
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", f, b, nil, nil, nil, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "", f, b, nil, nil, nil); err != nil {
 		t.Fatalf("replace with nothing: %v", err)
 	}
 	matches, err := p.ListTransferMatches(ctx, userID)

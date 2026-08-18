@@ -159,7 +159,7 @@ func TestApplyGrouping_AssembledGroupRoundsRatherThanImbalances(t *testing.T) {
 	if err := p.ReplaceTxsInPeriod(ctx, userID, "FIDELITY", "",
 		timestamppb.New(at.Add(-time.Hour)), timestamppb.New(at.Add(time.Hour)),
 		[]*apiv1.Tx{leg("1000.003"), leg("-1000")}, []string{usd, usd},
-		[]db.Weight{weight("1000.003"), weight("-1000")}, nil); err != nil {
+		[]db.Weight{weight("1000.003"), weight("-1000")}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 

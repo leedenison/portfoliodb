@@ -194,14 +194,6 @@ message Posting {
   // between the two figures stays visible as the group's SOURCE_ROUNDING
   // residual rather than being absorbed here.
   optional string settlement_amount = 12 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
-  // The share count this posting's quantity and unit price are denominated in,
-  // as "YYYY-MM-DD". Absent means this posting's own trade_date -- the
-  // as-traded convention a broker log follows, since a log line accounts only
-  // for events prior to the trade, and what an ordinary export writes. Set it
-  // only for a source that restates a historical row in current share terms,
-  // such as a broker web view showing post-split quantities against pre-split
-  // trades. See docs/spec/bitemporality.md.
-  optional string share_count_basis = 13 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
   // Why this posting might belong with another one, as the source stated it.
   //
   // This is what the partition is derived from, on the way in and on every cycle
@@ -210,9 +202,13 @@ message Posting {
   // the server derived, which transcribes nothing and so correlates with nothing.
   // A rebuild from an archive has nothing else to group on, which is why it is
   // carried and stored rather than consumed at ingest.
-  repeated Correlation correlations = 14;
+  repeated Correlation correlations = 13;
   // When the transaction this posting came from took effect: the date a trade
   // executed, or a charge was levied, or money moved.
+  //
+  // It is also the share count this posting's quantity and unit price are
+  // denominated in: a posting is stated as traded, and a source holding it on any
+  // other basis converts before it uploads. See docs/spec/bitemporality.md.
   //
   // Required, and duplicated from order_date by a source that reports one date
   // and no other. Duplicating rather than leaving it unset is deliberate: a
@@ -222,5 +218,5 @@ message Posting {
   //
   // What each source puts here: a Fidelity export its Completion date, an OFX
   // statement its DTTRADE, a Schwab CSV its single date column.
-  google.protobuf.Timestamp trade_date = 15 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp trade_date = 14 [(buf.validate.field).required = true];
 }

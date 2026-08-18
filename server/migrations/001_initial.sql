@@ -142,16 +142,15 @@ CREATE INDEX idx_tx_groups_job_id ON tx_groups (job_id);
 -- See docs/adr/0029-posting-weight-is-stored.md and
 -- docs/adr/0024-group-balance-is-checked-on-weight.md.
 --
--- Share counts: share_count_basis, split_adjusted_quantity, split_adjusted_unit_price.
--- share_count_basis is the date at which the share count the raw quantity and
--- unit_price are denominated in was current. It defaults to trade_date::date --
--- the as-traded assumption, that a broker log line accounts only for events
--- prior to the trade, which is why it hangs off the date the trade happened
--- rather than the date it was ordered. A source that restates historical rows (a broker's live
--- web UI showing post-split quantities) declares its own on the upload.
+-- Share counts: split_adjusted_quantity, split_adjusted_unit_price.
+-- quantity and unit_price are denominated in the share count current on
+-- trade_date -- the date the trade happened, rather than the date it was
+-- ordered. That is a convention rather than a stored fact: a source holding its
+-- data on any other basis converts before it uploads, so there is no per-row
+-- declaration to read and no way for a row to describe itself wrongly.
 -- See docs/spec/bitemporality.md.
 -- split_adjusted_quantity / split_adjusted_unit_price hold the values that result
--- from applying every stock split with ex_date > share_count_basis for the tx's
+-- from applying every stock split with ex_date > trade_date for the tx's
 -- instrument. They equal the raw quantity/unit_price when no later split exists.
 -- They are recomputed idempotently from the raw columns whenever splits change
 -- (see RecomputeTxSplitAdjustments).
@@ -224,7 +223,6 @@ CREATE TABLE txs (
   weight                    NUMERIC NOT NULL,
   weight_commodity          TEXT NOT NULL,
 
-  share_count_basis         DATE NOT NULL,
   split_adjusted_quantity   NUMERIC(38, 12) NOT NULL,
   split_adjusted_unit_price NUMERIC(38, 12),
 
@@ -726,13 +724,12 @@ WHERE t.account_type = 'TRANSFER_CLEARING'
 -- holidays) simply have no row. Valuation carries the last close forward over
 -- them at read time, bounded by price_coverage, so the filled series is derived
 -- from (bars, coverage) rather than stored alongside them.
--- share_count_basis is the date at which the share count the raw OHLCV is
--- denominated in was current. It is declared by whoever supplied the row -- as
--- price_date for an as-traded series, or the fetch date for a provider that
--- back-adjusts -- and is never inferred from last_fetched_at. It defaults to
--- price_date, the as-traded assumption. See docs/spec/bitemporality.md.
--- The split_adjusted_* columns hold OHLCV after applying every stock split with
--- ex_date > share_count_basis for this instrument. They equal the raw values when
+-- The raw OHLCV is denominated in the share count current on price_date: a bar is
+-- the market as it printed that day, so a plugin asks its provider for unadjusted
+-- output and a file states unadjusted values. That is a convention rather than a
+-- stored fact; see docs/spec/bitemporality.md.
+-- split_adjusted_* hold the values that result from applying every split with
+-- ex_date > price_date for this instrument. They equal the raw values when
 -- no later split exists. close (NOT NULL) implies split_adjusted_close (NOT NULL);
 -- the others are NULL iff their raw counterpart is NULL. Volume is adjusted in
 -- the opposite direction (more shares trade in adjusted-share terms).
@@ -760,7 +757,6 @@ CREATE TABLE eod_prices (
   volume                 BIGINT,
   split_adjusted_volume  BIGINT,
   data_provider          TEXT        NOT NULL,
-  share_count_basis      DATE        NOT NULL,
   -- Staleness only: when this row was last fetched. It carries no meaning about
   -- the prices themselves. See docs/spec/bitemporality.md.
   last_fetched_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -952,12 +948,6 @@ CREATE UNIQUE INDEX idx_unhandled_ce_dedup
 CREATE OR REPLACE FUNCTION default_split_adjusted_tx() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    -- As-traded is the default denomination: a row with no declared basis is
-    -- assumed to be expressed in the share count current when the trade
-    -- happened, which is trade_date rather than the date it was ordered.
-    IF NEW.share_count_basis IS NULL THEN
-      NEW.share_count_basis := NEW.trade_date::date;
-    END IF;
     IF NEW.split_adjusted_quantity IS NULL THEN
       NEW.split_adjusted_quantity := NEW.quantity;
     END IF;
@@ -1060,9 +1050,6 @@ BEGIN
   IF TG_OP = 'INSERT' THEN
     -- As-traded is the default denomination: a bar with no declared basis is
     -- assumed to be expressed in the share count current on its own date.
-    IF NEW.share_count_basis IS NULL THEN
-      NEW.share_count_basis := NEW.price_date;
-    END IF;
     IF NEW.split_adjusted_open IS NULL THEN
       NEW.split_adjusted_open := NEW.open;
     END IF;
@@ -1163,7 +1150,7 @@ $$;
 -- window, converted into a single share count basis, together with the two numbers
 -- a caller needs to bound the rounding in that conversion.
 --
--- Postings are grouped by their own share_count_basis and summed before conversion,
+-- Postings are grouped by their own trade_date and summed before conversion,
 -- so the division happens once per distinct basis rather than once per posting. That
 -- is what makes the bound stateable: each group converts by an exact rational
 -- (num_b * den_d) / (den_b * num_d) -- the row's own factor to today divided by the
@@ -1192,7 +1179,7 @@ CREATE OR REPLACE FUNCTION holding_qty_in_basis(
   OUT inexact_bases INT
 ) LANGUAGE sql STABLE AS $$
   WITH per_basis AS (
-    SELECT t.share_count_basis AS basis, SUM(t.quantity) AS q, COUNT(*)::int AS n
+    SELECT t.trade_date::date AS basis, SUM(t.quantity) AS q, COUNT(*)::int AS n
     FROM txs t
     WHERE t.user_id = p_user_id
       AND t.broker = p_broker
@@ -1202,7 +1189,7 @@ CREATE OR REPLACE FUNCTION holding_qty_in_basis(
       AND (p_include_synthetic OR t.synthetic_purpose IS NULL)
       AND (p_from IS NULL OR t.order_date >= p_from)
       AND (p_before IS NULL OR t.order_date < p_before)
-    GROUP BY t.share_count_basis
+    GROUP BY t.trade_date::date
   )
   SELECT COALESCE(SUM(p.q * fb.num * fd.den / (fb.den * fd.num)), 0),
          COALESCE(SUM(p.n), 0)::int,
@@ -1215,13 +1202,10 @@ $$;
 -- Holding declarations: user-provided statement of known holding quantity at a date.
 -- Holdings are computed aggregates identified by (broker, account, instrument_id).
 --
--- share_count_basis is the date at which the share count declared_qty is denominated
--- in was current. It defaults to as_of_date: a user reading a quantity off a
--- statement of that date means the share count current then. A user reading today's
--- holdings screen means today's, and says so. Without the declaration stating which,
--- it and the postings it is reconciled against can be in different units, and a
--- correct portfolio disagrees with itself by the split factor.
--- See docs/spec/bitemporality.md.
+-- declared_qty is denominated in the share count current on as_of_date: the
+-- assertion is about a date, so it is stated in the terms of that date, and a
+-- person reading a current holdings view converts before entering it. See
+-- docs/spec/bitemporality.md.
 --
 -- The unique key carries as_of_date, so a holding may hold several declarations at
 -- different dates. The earliest is the pad: it generates the INITIALIZE transaction
@@ -1239,7 +1223,6 @@ CREATE TABLE holding_declarations (
   instrument_id     UUID NOT NULL REFERENCES instruments(id),
   declared_qty      NUMERIC NOT NULL,
   as_of_date        DATE NOT NULL,
-  share_count_basis DATE NOT NULL,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, broker, account, instrument_id, as_of_date)
@@ -1249,22 +1232,10 @@ CREATE TABLE holding_declarations (
 -- table -- the API, an integration test, a psql session -- lands on the same
 -- denomination. It is an insert-time decision: once a declaration states its basis,
 -- moving as_of_date does not restate it.
-CREATE OR REPLACE FUNCTION default_declaration_share_count_basis() RETURNS TRIGGER AS $$
-BEGIN
-  IF NEW.share_count_basis IS NULL THEN
-    NEW.share_count_basis := NEW.as_of_date;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_default_declaration_share_count_basis
-  BEFORE INSERT ON holding_declarations
-  FOR EACH ROW EXECUTE FUNCTION default_declaration_share_count_basis();
 
 -- qty_is_zero is a null-safe test for a closed position, applied to a sum of
 -- split_adjusted_quantity. Raw quantities cannot be summed at all: each is
--- denominated in its own row's share_count_basis, so a buy recorded before a
+-- denominated in the share count current on its own trade_date, so a buy recorded before a
 -- split and a sell recorded after it are in different units and adding them
 -- scales the total by part of the split factor. The split-adjusted column is
 -- already converted to today's share count, so the sum is in one denomination.

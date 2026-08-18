@@ -135,7 +135,7 @@ func TestTxWindows_CarriesRoutedResiduals(t *testing.T) {
 func TestPosting_OptionalFieldsWrittenOnlyWhenHeld(t *testing.T) {
 	bare := posting(exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z"))
 	if bare.UnitPrice != nil || bare.TradingCurrency != nil || bare.SettlementCurrency != nil ||
-		bare.ShareCountBasis != nil || len(bare.GetCorrelations()) != 0 {
+		len(bare.GetCorrelations()) != 0 {
 		t.Fatalf("bare posting states an absent field: %v", bare)
 	}
 
@@ -195,18 +195,6 @@ func TestPosting_CarriesCorrelationsAsStored(t *testing.T) {
 	// anyway would invent an ordering the source does not have.
 	if pointer.Ordinal != nil || pointer.OrdinalSpan != nil {
 		t.Errorf("pointer states an ordinal: %v/%v", pointer.Ordinal, pointer.OrdinalSpan)
-	}
-}
-
-// The basis is written only where it differs from the posting's own date. The
-// query reports as-traded as nil, which is what the great majority of postings
-// are, and stamping a redundant date on every one of them would say nothing.
-func TestPosting_ShareCountBasisOnlyWhenRestated(t *testing.T) {
-	r := exportPostingFixture("FIDELITY", "g1", "2024-01-15T10:00:00Z")
-	basis := mustTime(t, "2025-07-01T00:00:00Z")
-	r.ShareCountBasis = &basis
-	if got := posting(r).GetShareCountBasis(); got != "2025-07-01" {
-		t.Fatalf("share_count_basis = %q, want 2025-07-01", got)
 	}
 }
 

@@ -73,8 +73,8 @@ func testDBTx(t *testing.T) *Postgres {
 // owes, and the store settling every group it is handed would otherwise put a
 // routed leg beside every seed row. The tests that are about balancing state their
 // weights, which is what makes them about it.
-func createTx(ctx context.Context, p *Postgres, userID, broker, account, jobID string, tx *apiv1.Tx, instrumentID string, shareCountBasis *time.Time) error {
-	return p.CreateTxGroup(ctx, userID, broker, account, jobID, []*apiv1.Tx{tx}, []string{instrumentID}, weightlessFor([]string{instrumentID}), []*time.Time{shareCountBasis})
+func createTx(ctx context.Context, p *Postgres, userID, broker, account, jobID string, tx *apiv1.Tx, instrumentID string, _ *time.Time) error {
+	return p.CreateTxGroup(ctx, userID, broker, account, jobID, []*apiv1.Tx{tx}, []string{instrumentID}, weightlessFor([]string{instrumentID}))
 }
 
 // oneGroupSettler puts everything a write stored into one group, standing in for an

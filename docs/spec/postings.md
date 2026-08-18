@@ -23,7 +23,7 @@ A posting carries two dates, both required.
 `order_date` is when the transaction was ordered, and is the date the posting is
 filed under: windows, listings, valuation and the grouping rules that bucket on a day
 all use this one. `trade_date` is when it took effect -- a trade executed, a charge
-was levied, money moved -- and is what `share_count_basis` defaults from, since the
+was levied, money moved -- and is the share count the posting is denominated in, since the
 as-traded convention is about when the trade happened.
 
 Two dates rather than one because a broker dates a charge by when it cleared and a

@@ -3,7 +3,6 @@ package ingestion
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -45,23 +44,22 @@ func importTxPart(ctx context.Context, deps ingestDeps, userID, jobID string, pa
 			rep.Errf(offset, "broker", fmt.Sprintf("unknown broker %q", w.GetBroker()))
 			return stored, fmt.Errorf("window names broker %q", w.GetBroker())
 		}
-		txs, basis, rowIdx, err := windowTxs(w, offset, rep)
+		txs, rowIdx, err := windowTxs(w, offset, rep)
 		if err != nil {
 			return stored, err
 		}
 		offset += len(txs)
 
 		res, err := ingestBatch(ctx, deps, ingestParams{
-			UserID:          userID,
-			Broker:          broker,
-			Source:          w.GetSource(),
-			JobID:           jobID,
-			Txs:             txs,
-			ShareCountBasis: basis,
-			PeriodFrom:      w.GetPeriodFrom(),
-			PeriodBefore:    w.GetPeriodBefore(),
-			RowIndices:      rowIdx,
-			TotalDeclared:   true,
+			UserID:        userID,
+			Broker:        broker,
+			Source:        w.GetSource(),
+			JobID:         jobID,
+			Txs:           txs,
+			PeriodFrom:    w.GetPeriodFrom(),
+			PeriodBefore:  w.GetPeriodBefore(),
+			RowIndices:    rowIdx,
+			TotalDeclared: true,
 		}, rep)
 		if err != nil {
 			return stored, err
@@ -82,45 +80,15 @@ func importTxPart(ctx context.Context, deps ingestDeps, userID, jobID string, pa
 // Nothing about grouping travels: the postings go over flat and the store
 // partitions them from the evidence they carry, which is the same answer a fresh
 // upload of the same records would get.
-func windowTxs(w *archivev1.TxWindow, offset int, rep *archiveimport.PartReporter) ([]*apiv1.Tx, []*time.Time, []int, error) {
+func windowTxs(w *archivev1.TxWindow, offset int, rep *archiveimport.PartReporter) ([]*apiv1.Tx, []int, error) {
 	var txs []*apiv1.Tx
-	var basis []*time.Time
 	var rowIdx []int
-	anyBasis := false
 	for _, pos := range w.GetPostings() {
 		row := offset + len(txs)
-		b, err := postingBasis(pos)
-		if err != nil {
-			rep.Errf(row, "share_count_basis", err.Error())
-			return nil, nil, nil, fmt.Errorf("posting %d: %w", row, err)
-		}
-		if b != nil {
-			anyBasis = true
-		}
 		txs = append(txs, archiveTx(pos))
-		basis = append(basis, b)
 		rowIdx = append(rowIdx, row)
 	}
-	// A window that restates nothing carries no basis slice at all, which is
-	// what leaves every posting to the insert trigger and its own date.
-	if !anyBasis {
-		basis = nil
-	}
-	return txs, basis, rowIdx, nil
-}
-
-// postingBasis parses a restated share count basis. Absent is nil, which the
-// store reads as the posting's own trade date.
-func postingBasis(p *archivev1.Posting) (*time.Time, error) {
-	b := p.GetShareCountBasis()
-	if b == "" {
-		return nil, nil
-	}
-	parsed, err := time.Parse("2006-01-02", b)
-	if err != nil {
-		return nil, fmt.Errorf("invalid date %q: want YYYY-MM-DD", b)
-	}
-	return &parsed, nil
+	return txs, rowIdx, nil
 }
 
 // archiveTx converts one archive posting into the ingestion form.

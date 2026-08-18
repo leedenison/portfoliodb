@@ -29,7 +29,7 @@ the split adjustment's declared rounding scale (see
 [Share count](#share-count) below), so the position is exact to that scale rather
 than exact outright, with the bound growing in the number of contributing
 postings. Summing the raw column instead is not an option: each posting is
-denominated in its own `share_count_basis`, and postings recorded either side of
+denominated on its own `trade_date`, and postings recorded either side of
 a split do not add.
 
 In the value that rounding is immaterial and is tolerated. It is tracked in one

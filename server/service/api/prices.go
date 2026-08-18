@@ -9,7 +9,6 @@ import (
 	"github.com/leedenison/portfoliodb/server/db"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -44,7 +43,6 @@ func (s *Server) ListPrices(ctx context.Context, req *apiv1.ListPricesRequest) (
 			Close:                 decStr(r.Close),
 			DataProvider:          r.DataProvider,
 			LastFetchedAt:         timestamppb.New(r.LastFetchedAt),
-			ShareCountBasis:       r.ShareCountBasis.Format("2006-01-02"),
 		}
 		p.Open = decStrPtr(r.Open)
 		p.High = decStrPtr(r.High)
@@ -139,9 +137,6 @@ func priceRow(r db.ExportPriceRow) *archivev1.PriceRow {
 	row := &archivev1.PriceRow{
 		PriceDate: r.PriceDate.Format("2006-01-02"),
 		Close:     decStr(r.Close),
-	}
-	if r.ShareCountBasis != nil {
-		row.ShareCountBasis = proto.String(r.ShareCountBasis.Format("2006-01-02"))
 	}
 	row.Open = decStrPtr(r.Open)
 	row.High = decStrPtr(r.High)

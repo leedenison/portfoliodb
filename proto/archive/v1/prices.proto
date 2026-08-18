@@ -42,29 +42,19 @@ message PriceGroup {
 message PriceRow {
   // Valid time: the trading date this bar describes.
   string price_date = 1 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
-  // The share count this bar's values are denominated in, as "YYYY-MM-DD".
-  // Absent means the bar's own price_date -- the as-traded convention, and what
-  // an ordinary export writes. Set it only for a back-adjusted bar, where it is
-  // the date the provider adjusted to. Getting this wrong is not an error but a
-  // wrong number: a back-adjusted bar read as as-traded is adjusted a second
-  // time. It is stated per bar rather than per group because eod_prices stores
-  // it per bar, so one instrument can hold a restated stretch and an as-traded
-  // one.
-  // See docs/spec/bitemporality.md.
-  optional string share_count_basis = 2 [(buf.validate.field).string.pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
   // OHLC are decimal strings in the group's currency, as the source supplied
   // them. Export and import are a round-trip pair, and a row that does not
   // reimport identically is a bug; trailing zeroes are the only thing not
   // preserved, since "1.50" and "1.5" are the same price.
-  optional string open = 3 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  optional string high = 4 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  optional string low = 5 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  string close = 6 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string open = 2 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string high = 3 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string low = 4 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  string close = 5 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // The provider's own adjusted close, on the provider's basis and typically
   // including dividend adjustment. Never an input to valuation; it exists to
   // cross-check the split-adjusted close PortfolioDB derives for itself, which
   // is why that derived value is not carried.
-  optional string adjusted_close = 7 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
+  optional string adjusted_close = 6 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   // protojson writes a 64-bit integer as a quoted string: "1234567".
-  optional int64 volume = 8;
+  optional int64 volume = 7;
 }

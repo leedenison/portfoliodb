@@ -267,7 +267,7 @@ func processTx(ctx context.Context, deps ingestDeps, j *JobRequest, userID strin
 	// The payload is an archive window, so a broker upload and an archive
 	// document are read by the same code above the ingestion pipeline.
 	w := req.GetWindow()
-	txs, basis, rowIdx, err := windowTxs(w, 0, rep)
+	txs, rowIdx, err := windowTxs(w, 0, rep)
 	if err != nil {
 		rep.Flush(ctx)
 		log.Printf("ingestion job %s: %v", j.JobID, err)
@@ -276,13 +276,12 @@ func processTx(ctx context.Context, deps ingestDeps, j *JobRequest, userID strin
 	}
 
 	res, err := ingestBatch(ctx, deps, ingestParams{
-		UserID:          userID,
-		Broker:          db.BrokerToStr(w.GetBroker()),
-		Source:          w.GetSource(),
-		JobID:           j.JobID,
-		Txs:             txs,
-		ShareCountBasis: basis,
-		RowIndices:      rowIdx,
+		UserID:     userID,
+		Broker:     db.BrokerToStr(w.GetBroker()),
+		Source:     w.GetSource(),
+		JobID:      j.JobID,
+		Txs:        txs,
+		RowIndices: rowIdx,
 		// Both bounds present makes this a replacement rather than an append.
 		// CreateTx wraps its one posting in a window with no period, which is
 		// where the two paths diverge.

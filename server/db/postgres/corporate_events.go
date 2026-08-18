@@ -676,7 +676,8 @@ func (p *Postgres) ApplyOptionSplit(ctx context.Context, params db.OptionSplitPa
 // RecomputeSplitAdjustments implements db.CorporateEventDB. Two UPDATEs (one
 // for eod_prices, one for txs) recompute the split_adjusted_* columns from raw
 // values multiplied by the cumulative split factor for splits with ex_date
-// strictly after the row's share_count_basis. Idempotent: factor is recomputed
+// strictly after the row's own date -- a posting's trade_date, a price row's
+// price_date. Idempotent: factor is recomputed
 // from scratch each call. When instrumentID is empty, every instrument with at least one
 // stock_splits row is recomputed in the same transaction.
 func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID string) error {
@@ -719,7 +720,7 @@ func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID s
 			FROM (
 				SELECT p.instrument_id, p.price_date, f.num, f.den
 				FROM eod_prices p,
-					LATERAL split_factor_at(p.instrument_id, p.share_count_basis) f
+					LATERAL split_factor_at(p.instrument_id, p.price_date) f
 				WHERE p.instrument_id %s
 			) f
 			WHERE ep.instrument_id = f.instrument_id
@@ -742,7 +743,7 @@ func (p *Postgres) RecomputeSplitAdjustments(ctx context.Context, instrumentID s
 			FROM (
 				SELECT x.id, f.num, f.den
 				FROM txs x,
-					LATERAL split_factor_at(x.instrument_id, x.share_count_basis) f
+					LATERAL split_factor_at(x.instrument_id, x.trade_date::date) f
 				WHERE x.instrument_id IS NOT NULL
 				  AND x.instrument_id %s
 			) f

@@ -54,29 +54,9 @@ type DailyBar struct {
 	AdjustedClose *decimal.Decimal
 }
 
-// ShareCountBasis states which share count a plugin's bars are denominated in.
-// It cannot be inferred from the fetch: an as-traded series is expressed in the
-// share count current on each bar's own date, while a back-adjusted series is
-// expressed in the share count current when the provider answered. Plugins
-// declare it so the storage layer never has to assume.
-// See docs/spec/bitemporality.md.
-type ShareCountBasis int
-
-const (
-	// AsTraded means each bar is denominated in the share count current on its
-	// own date. This is what a provider returns when asked for unadjusted data.
-	AsTraded ShareCountBasis = iota
-	// AsOfFetch means the provider back-adjusted the whole series to the share
-	// count current when it answered.
-	AsOfFetch
-)
-
 // FetchResult holds the bars returned by a plugin for a single request.
 type FetchResult struct {
 	Bars []DailyBar
-	// ShareCountBasis defaults to AsTraded, which is correct for every plugin
-	// that requests unadjusted data.
-	ShareCountBasis ShareCountBasis
 }
 
 // Identifier is a minimal (type, domain, value) tuple passed to plugins.

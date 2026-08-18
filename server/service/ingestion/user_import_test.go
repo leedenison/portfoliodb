@@ -316,7 +316,7 @@ func TestProcessUserImport_DeclarationsPartStoresAndEarnsTheRecalc(t *testing.T)
 		Return("inst-a", nil)
 	database.EXPECT().
 		UpsertHoldingDeclaration(gomock.Any(), "user-7", "FIDELITY", "Z1", "inst-a", "100",
-			gomock.Any(), gomock.Any()).
+			gomock.Any()).
 		Return(nil)
 
 	res := processUserImport(context.Background(), ingestDeps{DB: database}, j)

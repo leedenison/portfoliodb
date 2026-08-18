@@ -517,7 +517,6 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 	volumes := make([]*int64, len(prices))
 	providers := make([]string, len(prices))
 	fetchedAts := make([]time.Time, len(prices))
-	bases := make([]time.Time, len(prices))
 	adjCloses := make([]*decimal.Decimal, len(prices))
 	now := time.Now()
 
@@ -536,23 +535,15 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 		} else {
 			fetchedAts[i] = now
 		}
-		// Undeclared basis means as-traded: denominated in the share count
-		// current on the bar's own date.
-		if pr.ShareCountBasis != nil {
-			bases[i] = *pr.ShareCountBasis
-		} else {
-			bases[i] = pr.PriceDate
-		}
 	}
 
 	_, err := exec.ExecContext(ctx, `
-		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, last_fetched_at, share_count_basis, adjusted_close)
+		INSERT INTO eod_prices (instrument_id, price_date, open, high, low, close, volume, data_provider, last_fetched_at, adjusted_close)
 		SELECT unnest($1::uuid[]), unnest($2::date[]), unnest($3::numeric[]),
 			unnest($4::numeric[]), unnest($5::numeric[]),
 			unnest($6::numeric[]), unnest($7::bigint[]),
 			unnest($8::text[]),
-			unnest($9::timestamptz[]), unnest($10::date[]),
-			unnest($11::numeric[])
+			unnest($9::timestamptz[]), unnest($10::numeric[])
 		ON CONFLICT (instrument_id, price_date) DO UPDATE SET
 			open = EXCLUDED.open,
 			high = EXCLUDED.high,
@@ -561,14 +552,11 @@ func upsertPrices(ctx context.Context, exec queryable, prices []db.EODPrice) err
 			volume = EXCLUDED.volume,
 			data_provider = EXCLUDED.data_provider,
 			last_fetched_at = EXCLUDED.last_fetched_at,
-			-- Basis travels with the raw values it describes; restating one
-			-- without the other would leave the row self-inconsistent.
-			share_count_basis = EXCLUDED.share_count_basis,
 			adjusted_close = EXCLUDED.adjusted_close
 	`, pq.Array(instIDs), pq.Array(dates), pq.Array(opens),
 		pq.Array(highs), pq.Array(lows), pq.Array(closes),
 		pq.Array(volumes), pq.Array(providers),
-		pq.Array(fetchedAts), pq.Array(bases), pq.Array(adjCloses))
+		pq.Array(fetchedAts), pq.Array(adjCloses))
 	if err != nil {
 		return fmt.Errorf("upsert prices: %w", err)
 	}

@@ -61,9 +61,8 @@ func systemFixture() *archivev1.SystemArchive {
 					// A back-adjusted bar, which is the only kind that states a
 					// basis. Its presence beside an as-traded bar in one group is
 					// what the field being on the row rather than the group buys.
-					PriceDate:       "2024-01-16",
-					ShareCountBasis: proto.String("2024-06-10"),
-					Close:           "18.59",
+					PriceDate: "2024-01-16",
+					Close:     "18.59",
 				}},
 			}},
 		},

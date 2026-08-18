@@ -103,9 +103,9 @@ func TestListBrokersAndAccounts_excludesNonUser(t *testing.T) {
 	if _, err := p.q.ExecContext(ctx, `
 		INSERT INTO txs (user_id, broker, account, order_date, trade_date, instrument_description,
 		                 broker_tx_type, resolved_tx_type, quantity, split_adjusted_quantity,
-		                 share_count_basis, account_type, weight, weight_commodity, group_id)
-		VALUES ($1, 'IBKR', 'A', now(), now(), 'X', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 1, 1, current_date, 'USER', 1, 'desc:X', $2::uuid),
-		       ($1, 'IBKR', 'CLEARING', now(), now(), 'X', ARRAY['TRANSFER'], 'TRANSFER', 1, 1, current_date, 'TRANSFER_CLEARING', 1, 'desc:X', $2::uuid)
+		                 account_type, weight, weight_commodity, group_id)
+		VALUES ($1, 'IBKR', 'A', now(), now(), 'X', ARRAY['TRADE_ASSET'], 'TRADE_ASSET', 1, 1, 'USER', 1, 'desc:X', $2::uuid),
+		       ($1, 'IBKR', 'CLEARING', now(), now(), 'X', ARRAY['TRANSFER'], 'TRANSFER', 1, 1, 'TRANSFER_CLEARING', 1, 'desc:X', $2::uuid)
 	`, userID, newTxGroup(t, p, userID)); err != nil {
 		t.Fatalf("insert txs: %v", err)
 	}

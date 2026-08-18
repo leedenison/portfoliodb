@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"go.uber.org/mock/gomock"
-	"google.golang.org/protobuf/proto"
 
 	archivev1 "github.com/leedenison/portfoliodb/proto/archive/v1"
 	typev1 "github.com/leedenison/portfoliodb/proto/type/v1"
@@ -37,9 +36,8 @@ func expectStartDate(t *testing.T, database *mock.MockDB) {
 
 func decl(value, qty string, basis *string) *archivev1.Declaration {
 	return &archivev1.Declaration{
-		Instrument:      &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: value, Domain: "XNAS"},
-		DeclaredQty:     qty,
-		ShareCountBasis: basis,
+		Instrument:  &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: value, Domain: "XNAS"},
+		DeclaredQty: qty,
 	}
 }
 
@@ -81,11 +79,11 @@ func TestDeclarationPart_WritesEveryRow(t *testing.T) {
 	expectResolve(database, "MSFT", "inst-m")
 	database.EXPECT().
 		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-a", "100",
-			day(t, "2024-01-31"), day(t, "2024-01-31")).
+			day(t, "2024-01-31")).
 		Return(nil)
 	database.EXPECT().
 		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-m", "50",
-			day(t, "2024-01-31"), day(t, "2024-01-31")).
+			day(t, "2024-01-31")).
 		Return(nil)
 
 	n := applyDeclarations(t, database, rep, declarationPart(
@@ -99,26 +97,6 @@ func TestDeclarationPart_WritesEveryRow(t *testing.T) {
 	}
 }
 
-// A quantity read off a record of the statement's date is in the share count
-// current then, so an absent basis is that date. A basis the file states is
-// used as stated.
-func TestDeclarationPart_DefaultsShareCountBasisToTheStatementDate(t *testing.T) {
-	database, rep := newPartTest(t)
-	expectStartDate(t, database)
-	expectResolve(database, "AAPL", "inst-a")
-	database.EXPECT().
-		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-a", "100",
-			day(t, "2024-01-31"), day(t, "2026-08-13")).
-		Return(nil)
-
-	applyDeclarations(t, database, rep, declarationPart(
-		statement("Z1", "2024-01-31", decl("AAPL", "100", proto.String("2026-08-13"))),
-	))
-}
-
-// A declaration the system cannot name has nothing to pad and nothing to check,
-// so the row is rejected. Its siblings still land: a rejected row does not fail
-// the part.
 func TestDeclarationPart_RejectsAnUnresolvableInstrument(t *testing.T) {
 	database, rep := newPartTest(t)
 	expectStartDate(t, database)
@@ -126,7 +104,7 @@ func TestDeclarationPart_RejectsAnUnresolvableInstrument(t *testing.T) {
 	expectResolve(database, "MSFT", "inst-m")
 	database.EXPECT().
 		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-m", "50",
-			day(t, "2024-01-31"), day(t, "2024-01-31")).
+			day(t, "2024-01-31")).
 		Return(nil)
 
 	n := applyDeclarations(t, database, rep, declarationPart(
@@ -169,7 +147,7 @@ func TestDeclarationPart_RowIndicesRunAcrossTheWholePart(t *testing.T) {
 	expectResolve(database, "GONE", "")
 	database.EXPECT().
 		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-a", "100",
-			gomock.Any(), gomock.Any()).
+			gomock.Any()).
 		Return(nil)
 
 	applyDeclarations(t, database, rep, declarationPart(
@@ -208,7 +186,7 @@ func TestDeclarationPart_LeavesWhatTheFileDoesNotNameAlone(t *testing.T) {
 	expectResolve(database, "AAPL", "inst-a")
 	database.EXPECT().
 		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-a", "100",
-			gomock.Any(), gomock.Any()).
+			gomock.Any()).
 		Return(nil)
 
 	applyDeclarations(t, database, rep, declarationPart(
@@ -248,7 +226,7 @@ func TestDeclarationPart_AWriteFailureFailsThePart(t *testing.T) {
 	expectResolve(database, "AAPL", "inst-a")
 	database.EXPECT().
 		UpsertHoldingDeclaration(gomock.Any(), "user-1", "FIDELITY", "Z1", "inst-a", "100",
-			gomock.Any(), gomock.Any()).
+			gomock.Any()).
 		Return(errors.New("disk on fire"))
 
 	_, err := DeclarationPart(context.Background(), database, "user-1",

@@ -26,15 +26,15 @@ var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 const insertPostingSQL = `
 	WITH g AS (
 		INSERT INTO tx_groups (user_id, timestamp, job_id)
-		VALUES ($1, $4, $20)
+		VALUES ($1, $4, $19)
 		RETURNING id
 	)
 	INSERT INTO txs (user_id, broker, account, order_date, instrument_description,
 	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
-	                 settlement_amount, instrument_id, share_count_basis, account_type,
+	                 settlement_amount, instrument_id, account_type,
 	                 synthetic_purpose, weight, weight_commodity, group_id, trade_date)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19, g.id, $21 FROM g
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, g.id, $20 FROM g
 	RETURNING id, group_id
 `
 
@@ -44,9 +44,9 @@ const insertPostingInGroupSQL = `
 	INSERT INTO txs (user_id, broker, account, order_date, instrument_description,
 	                 broker_tx_type, resolved_tx_type, asset_class_hint,
 	                 quantity, trading_currency, settlement_currency, unit_price,
-	                 settlement_amount, instrument_id, share_count_basis, account_type,
+	                 settlement_amount, instrument_id, account_type,
 	                 synthetic_purpose, weight, weight_commodity, group_id, trade_date)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::date, $16, $17, $18, $19, $20, $21)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 	RETURNING id
 `
 
@@ -67,7 +67,7 @@ type written struct {
 }
 
 // ReplaceTxsInPeriod implements db.TxDB.
-func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time) error {
+func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID string, periodFrom, periodBefore *timestamppb.Timestamp, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -96,7 +96,7 @@ func (p *Postgres) ReplaceTxsInPeriod(ctx context.Context, userID, broker, jobID
 		// A group the replace cut has lost legs, so what it fails to balance to is
 		// their value and can be any size.
 		touched.addAll(cut, true)
-		written, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, shareCountBasis, "")
+		written, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, "")
 		if err != nil {
 			return err
 		}
@@ -150,9 +150,9 @@ func (p *Postgres) groupWritten(ctx context.Context, exec queryable, userUUID uu
 // postings carry, once they are stored. A posting alone in a group is the shape a
 // partition is derived over rather than a claim that it is a whole event.
 //
-// weights and shareCountBasis are parallel to txs, or nil when the caller has
+// weights is parallel to txs, or nil when the caller has
 // none. See db.TxDB for what a missing entry in either means.
-func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time, account string) (written, error) {
+func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, broker string, jobUUID interface{}, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, account string) (written, error) {
 	var out written
 	for i, t := range txs {
 		instUUID, err := uuid.Parse(instrumentIDs[i])
@@ -206,18 +206,11 @@ func insertPostings(ctx context.Context, exec queryable, userUUID uuid.UUID, bro
 		if i < len(weights) {
 			w = weights[i]
 		}
-		// NULL leaves the basis to the insert trigger, which seeds it from the
-		// posting's own trade_date -- the as-traded convention, and what all but a
-		// restating source wants.
-		var basis *time.Time
-		if i < len(shareCountBasis) {
-			basis = shareCountBasis[i]
-		}
 		args := []interface{}{
 			userUUID, broker, acc, ordered, t.InstrumentDescription,
 			pq.Array(brokerTypes), resolvedStr, nullStr(db.AssetClassToStr(t.GetAssetClassHint())), qty,
 			nullStr(t.TradingCurrency), nullStr(t.SettlementCurrency), nullDecimal(price),
-			nullDecimal(settlement), instUUID, basis, acctTypeStr,
+			nullDecimal(settlement), instUUID, acctTypeStr,
 			nullStr(t.GetSyntheticPurpose()), w.Amount, w.Commodity,
 		}
 		var txID, groupID uuid.UUID
@@ -274,7 +267,7 @@ func insertCorrelations(ctx context.Context, exec queryable, txID uuid.UUID, job
 // partition. What it keeps from the old behaviour is the balance: whatever it does
 // not account for is routed to a counterparty, so a manual entry that balances
 // against nothing is still a group the invariant can reach.
-func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight, shareCountBasis []*time.Time) error {
+func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, jobID string, txs []*apiv1.Tx, instrumentIDs []string, weights []db.Weight) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -285,7 +278,7 @@ func (p *Postgres) CreateTxGroup(ctx context.Context, userID, broker, account, j
 	}
 	return p.runInTx(ctx, func(exec queryable) error {
 		var touched settleSet
-		w, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, shareCountBasis, account)
+		w, err := insertPostings(ctx, exec, userUUID, broker, jobUUID, txs, instrumentIDs, weights, account)
 		if err != nil {
 			return fmt.Errorf("create tx group: %w", err)
 		}
@@ -482,7 +475,6 @@ type exportPosting struct {
 	TradingCurrency    string           `db:"trading_currency"`
 	SettlementCurrency string           `db:"settlement_currency"`
 	SettlementAmount   *decimal.Decimal `db:"settlement_amount"`
-	ShareCountBasis    *time.Time       `db:"share_count_basis"`
 }
 
 // ListTxsForExport implements db.TxDB.
@@ -532,13 +524,7 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 			COALESCE(best_id.domain, '') AS domain,
 			t.quantity, t.unit_price, t.settlement_amount,
 			COALESCE(t.trading_currency, '') AS trading_currency,
-			COALESCE(t.settlement_currency, '') AS settlement_currency,
-			-- A basis equal to the posting's own trade date is the as-traded
-			-- convention and says nothing a reader cannot infer. The column is
-			-- NOT NULL and the insert trigger defaults it to that date, so
-			-- selecting it raw would stamp a redundant date onto every posting.
-			CASE WHEN t.share_count_basis = t.trade_date::date THEN NULL
-				ELSE t.share_count_basis END AS share_count_basis
+			COALESCE(t.settlement_currency, '') AS settlement_currency
 		FROM txs t
 		JOIN tx_groups g ON g.id = t.group_id
 		` + bestIdentifierJoinOn("LEFT JOIN", "t.instrument_id", "best_id") + `
@@ -586,7 +572,6 @@ func (p *Postgres) ListTxsForExport(ctx context.Context, userID string, periodFr
 			TradingCurrency:    r.TradingCurrency,
 			SettlementCurrency: r.SettlementCurrency,
 			SettlementAmount:   r.SettlementAmount,
-			ShareCountBasis:    r.ShareCountBasis,
 		}
 	}
 	// A second pass rather than an aggregate in the scan above: the postings are
@@ -690,8 +675,7 @@ const touchedGroups = `
 // The legs that survive are left exactly as they are, on the group they were already
 // in. Nothing is rewritten, so nothing derived is derived again: the stored weight that
 // carries the balance (docs/adr/0029-posting-weight-is-stored.md), the split adjustment
-// carrying any corporate action since ingest, and a restating source's
-// share_count_basis.
+// carrying any corporate action since ingest.
 const deleteReplacedPostingsSQL = `
 	WITH touched AS (` + touchedGroups + `)
 	DELETE FROM txs t
@@ -935,7 +919,7 @@ func routeBoundaries(ctx context.Context, exec queryable, userUUID uuid.UUID, gr
 		if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL,
 			userUUID, c.broker, c.account, c.orderDate, desc,
 			c.brokerTxTypes, c.resolvedTxType, nil, amount,
-			trading, settlement, nil, nil, nullUUID(instID), nil, acctType,
+			trading, settlement, nil, nil, nullUUID(instID), acctType,
 			db.BoundaryPurpose, amount, c.commodity, c.groupID, c.tradeDate,
 		).Scan(&txID); err != nil {
 			return fmt.Errorf("insert boundary posting: %w", err)
@@ -1143,9 +1127,9 @@ func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 			instID, desc, trading, settlement = &id, code, &code, &code
 		}
 
-		// NULL share_count_basis leaves the insert trigger to seed it from the
-		// posting's own trade date, and the split-adjusted pair is seeded the same way,
-		// exactly as for an uploaded posting. A routed leg has no source row, so no
+		// The split-adjusted pair is seeded from the raw values by the insert
+		// trigger, exactly as for an uploaded posting. A routed leg has no source
+		// row, so no
 		// correlation and no settlement amount is written for it: it transcribes
 		// nothing, so there is nothing the source said about why it belongs with
 		// anything, and no figure of the source's to carry. It says so in
@@ -1156,7 +1140,7 @@ func routeResiduals(ctx context.Context, exec queryable, userUUID uuid.UUID, gro
 		if err := exec.QueryRowContext(ctx, insertPostingInGroupSQL,
 			userUUID, r.broker, r.account, r.orderDate, desc,
 			r.brokerTxTypes, r.resolvedTxType, nil, amount,
-			trading, settlement, nil, nil, nullUUID(instID), nil, acctType,
+			trading, settlement, nil, nil, nullUUID(instID), acctType,
 			db.RoutedPurpose, amount, r.commodity, r.groupID, r.tradeDate,
 		).Scan(&txID); err != nil {
 			return fmt.Errorf("insert routed posting: %w", err)

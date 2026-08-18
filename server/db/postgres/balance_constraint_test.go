@@ -204,7 +204,7 @@ func TestTxGroupBalance_SplitRecomputeIsNotAffected(t *testing.T) {
 			Quantity: "-1000", SettlementCurrency: "USD", TradingCurrency: "USD"},
 	}
 	ws := []db.Weight{{Amount: decf(1000), Commodity: "cur:USD"}, {Amount: decf(-1000), Commodity: "cur:USD"}}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, usd}, ws, nil); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{instID, usd}, ws); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 	if _, err := p.q.ExecContext(ctx, `

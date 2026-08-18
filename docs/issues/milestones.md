@@ -20,6 +20,7 @@
 - **M18** - One place that says what needs a person's attention, replacing the per-problem admin cards.
 - **M19** - Lots, cost basis and realised gains.
 - **M20** - Telemetry is run-scoped event rows in Postgres read by Grafana, replacing the Redis counters.
+- **M21** - Instrument identity is time-varying: an identifier carries a validity interval, so a split mints a name rather than rewriting one and a historical export still resolves.
 
 ## Unscheduled
 

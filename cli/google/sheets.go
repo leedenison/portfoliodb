@@ -19,7 +19,6 @@ import (
 	"golang.org/x/oauth2"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
-	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -213,15 +212,20 @@ func parseOutputValues(values [][]any) ([]*archivev1.PriceGroup, []string, error
 // the second return value of the caller; here we just skip bad rows.
 //
 // GOOGLEFINANCE returns split-adjusted historical closes, so every bar read here
-// is back-adjusted as of the day it was fetched, and every row says so. Left
-// unsaid, the server would store them as as-traded and RecomputeSplitAdjustments
-// would divide the pre-split ones by the split factor a second time. See
-// docs/issues/0057-price-share-count-basis.md.
+// is back-adjusted as of the day it was fetched. A bar's share count basis is now
+// fixed by convention at its own price_date -- as traded -- and there is no
+// longer a field to say otherwise, so a bar before a split in the imported range
+// is stored as though it were as-traded and RecomputeSplitAdjustments divides it
+// by the split factor a second time.
+//
+// Converting back needs the split history, which this command cannot see: the
+// API exposes no splits, and GOOGLEFINANCE has no unadjusted attribute to ask
+// for instead. runImport warns before submitting, and the gap is
+// docs/issues/0127-google-finance-prices-are-back-adjusted.md. See
+// docs/adr/0054-share-count-basis-is-a-convention.md for the convention itself.
 func parseOutputData(values [][]any) ([]*archivev1.PriceGroup, []string) {
 	var groups []*archivev1.PriceGroup
 	var warnings []string
-
-	basis := time.Now().UTC().Format("2006-01-02")
 
 	headers := values[0]
 	debugf("header row has %d cells", len(headers))
@@ -279,9 +283,8 @@ func parseOutputData(values [][]any) ([]*archivev1.PriceGroup, []string) {
 			}
 
 			rows = append(rows, &archivev1.PriceRow{
-				PriceDate:       priceDate,
-				ShareCountBasis: proto.String(basis),
-				Close:           closeVal.String(),
+				PriceDate: priceDate,
+				Close:     closeVal.String(),
 			})
 		}
 		debugf("    col %d: %d prices parsed", col, len(rows))

@@ -156,6 +156,16 @@ func runImport(ctx, rpcCtx context.Context, sheetsSrv *sheets.Service, apiClient
 	}
 	fmt.Fprintf(os.Stderr, "Parsed %d prices for %d instrument(s).\n", rowCount, len(groups))
 
+	// GOOGLEFINANCE back-adjusts historical closes and PortfolioDB stores prices
+	// as traded, with no field left for a file to say which it holds. Nothing
+	// here can convert them back -- the API exposes no split history -- so the
+	// discrepancy is stated rather than hidden. See
+	// docs/issues/0127-google-finance-prices-are-back-adjusted.md.
+	fmt.Fprintf(os.Stderr, "\n  Warning: GOOGLEFINANCE returns split-adjusted closes, and PortfolioDB\n")
+	fmt.Fprintf(os.Stderr, "  stores prices as traded. Any instrument that split inside the imported\n")
+	fmt.Fprintf(os.Stderr, "  range will be wrong by the split factor for bars before the ex_date.\n")
+	fmt.Fprintf(os.Stderr, "  Check docs/issues/0127 before relying on this data.\n\n")
+
 	// Query current price gaps and attach them as each group's coverage, so the
 	// server fills non-trading day gaps.
 	attachCoverage(groups, buildCoverage(rpcCtx, apiClient))

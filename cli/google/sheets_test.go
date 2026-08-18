@@ -177,11 +177,9 @@ func TestParseOutputData(t *testing.T) {
 	if stock.GetAssetClass() != typev1.AssetClass_STOCK {
 		t.Fatalf("expected STOCK, got %s", stock.GetAssetClass())
 	}
-	// GOOGLEFINANCE back-adjusts, so every bar says which share count it is
-	// denominated in. Silence would read as as-traded and be adjusted twice.
-	if row.ShareCountBasis == nil {
-		t.Fatal("expected a share_count_basis on every bar")
-	}
+	// A bar carries its date and its close and nothing about which share count it
+	// is denominated in: that is fixed by convention at the bar's own price_date.
+	// See docs/adr/0054-share-count-basis-is-a-convention.md.
 }
 
 func TestParseOutputData_AllNA(t *testing.T) {

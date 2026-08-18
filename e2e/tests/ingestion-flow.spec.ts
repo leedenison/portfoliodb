@@ -19,6 +19,13 @@ test.afterAll(async () => {
 });
 
 test.describe("archive ingestion flow", () => {
+  // The exported_at field below shows the local calendar day of the envelope's
+  // instant, so the day it reads depends on the browser's zone. The document
+  // states UTC instants and this path takes its window from the document rather
+  // than from local midnights, so pinning UTC fixes the assertion without
+  // changing what the upload does.
+  test.use({ timezoneId: "UTC" });
+
   let sessionId: string;
 
   test.beforeAll(async () => {
@@ -63,6 +70,13 @@ test.describe("archive ingestion flow", () => {
       page.locator("[data-testid='upload-parse-preview']")
     ).toContainText("3 posting(s)");
 
+    // The vintage the upload will state. A document dates itself, so the field
+    // shows the envelope's exported_at rather than today: the identifiers in the
+    // file are the ones its export was written against.
+    await expect(page.locator("[data-testid='upload-exported-at']")).toHaveValue(
+      "2026-08-01"
+    );
+
     // Click Upload.
     await page.locator("[data-testid='btn-upload-submit']").click();
 
@@ -99,6 +113,49 @@ test.describe("archive ingestion flow", () => {
       await waitForWorkersIdle(browser, { timeoutMs: TIMEOUT_SLOW });
     });
   }
+});
+
+// A broker file that dates nothing still has to state a vintage, because the
+// identifiers in it are as of its export and an OCC hint is rebased from there.
+// The upload offers the last day the file covers -- the earliest date an export
+// could honestly claim -- and lets it be corrected. Nothing is uploaded here: the
+// question is what the modal proposes.
+test.describe("upload vintage for a file that dates nothing", () => {
+  // The field shows a local calendar day and the converter builds the window from
+  // local midnights, so the two agree in any single zone; pinning one keeps the
+  // expected day written down rather than computed.
+  test.use({ timezoneId: "UTC" });
+
+  let sessionId: string;
+
+  test.beforeAll(async () => {
+    sessionId = await seedSession("user");
+  });
+
+  test("offers the last day the file covers", async ({ context, page }) => {
+    await injectSession(context, sessionId);
+
+    await page.goto("/uploads");
+    await page.locator("[data-testid='btn-upload-transactions']").click();
+    await expect(page.locator("[data-testid='upload-modal']")).toBeVisible();
+    await page.getByRole("button", { name: "Next" }).click();
+
+    // A Fidelity CSV: no envelope, and the download states no export date.
+    await page.locator("#upload-format").selectOption("fidelity-csv");
+    await page.locator("#fidelity-currency").selectOption("GBP");
+    await page
+      .locator("#upload-file")
+      .setInputFiles(path.resolve(__dirname, "../fixtures/fidelity-two-trades.csv"));
+
+    await expect(page.locator("[data-testid='upload-parse-preview']")).toBeVisible();
+    // The window runs to the day after the last order date, so 21 Jan 2026 is the
+    // last day it covers and the earliest date this file could claim.
+    await expect(page.locator("[data-testid='upload-exported-at']")).toHaveValue("2026-01-21");
+
+    // And it is the user's to correct, for a file that has been sitting on disk.
+    await page.locator("[data-testid='upload-exported-at']").fill("2026-02-10");
+    await expect(page.locator("[data-testid='upload-exported-at']")).toHaveValue("2026-02-10");
+  });
 });
 
 test.describe("upload validation errors", () => {

@@ -93,6 +93,18 @@ describe("sync", () => {
     );
   });
 
+  // The extension drove the broker's export moments ago, so the identifiers in
+  // it are the ones the broker lists now. Without a stated vintage the server
+  // would stamp the upload anyway, but the run's own clock is what this path
+  // actually knows.
+  it("states the run's own time as the vintage of the export", async () => {
+    await run();
+    const req = upsertTxs.mock.calls[0]![2] as { exportedAt: { seconds: bigint } };
+    expect(Number(req.exportedAt.seconds)).toBe(
+      Math.floor(new Date("2026-07-27T09:00:00Z").getTime() / 1000)
+    );
+  });
+
   it("sends the source string the web client already uses", async () => {
     await run();
     const req = upsertTxs.mock.calls[0]![2] as { window: { source: string } };

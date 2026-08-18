@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dayAfter, dayBefore } from "./dates";
+import { dayAfter, dayBefore, fromDayInput, toDayInput } from "./dates";
 
 describe("dayAfter", () => {
   it("advances one day", () => {
@@ -40,5 +40,26 @@ describe("dayBefore", () => {
 
   it("inverts dayAfter", () => {
     expect(dayBefore(dayAfter("2024-02-29"))).toBe("2024-02-29");
+  });
+});
+
+describe("toDayInput / fromDayInput", () => {
+  it("shows the local calendar day of an instant", () => {
+    expect(toDayInput(new Date(2024, 6, 1))).toBe("2024-07-01");
+    expect(toDayInput(new Date(2024, 0, 9))).toBe("2024-01-09");
+  });
+
+  it("reads a day back as local midnight", () => {
+    expect(fromDayInput("2024-07-01")).toEqual(new Date(2024, 6, 1));
+  });
+
+  it("round trips a local calendar date", () => {
+    const at = new Date(2024, 11, 31);
+    expect(fromDayInput(toDayInput(at))).toEqual(at);
+  });
+
+  it("treats empty and malformed input as no date", () => {
+    expect(fromDayInput("")).toBeUndefined();
+    expect(fromDayInput("01/07/2024")).toBeUndefined();
   });
 });

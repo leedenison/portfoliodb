@@ -39,6 +39,8 @@ function buildOfx({
   acctId = "U123",
   dtStart = "20260101",
   dtEnd = "20260401",
+  dtServer = "",
+  dtAsOf = "",
   transactions = "",
   secList = "",
 }: {
@@ -46,6 +48,8 @@ function buildOfx({
   acctId?: string;
   dtStart?: string;
   dtEnd?: string;
+  dtServer?: string;
+  dtAsOf?: string;
   transactions?: string;
   secList?: string;
 }): string {
@@ -54,11 +58,12 @@ DATA:OFXSGML
 VERSION:102
 
 <OFX>
-  <SIGNONMSGSRSV1><SONRS><STATUS><CODE>0</CODE></STATUS></SONRS></SIGNONMSGSRSV1>
+  <SIGNONMSGSRSV1><SONRS><STATUS><CODE>0</CODE></STATUS>${dtServer ? `<DTSERVER>${dtServer}</DTSERVER>` : ""}</SONRS></SIGNONMSGSRSV1>
   <INVSTMTMSGSRSV1>
     <INVSTMTTRNRS>
       <INVSTMTRS>
         <CURDEF>${curdef}
+        ${dtAsOf ? `<DTASOF>${dtAsOf}</DTASOF>` : ""}
         <INVACCTFROM><BROKERID>4705</BROKERID><ACCTID>${acctId}</ACCTID></INVACCTFROM>
         <INVTRANLIST>
           <DTSTART>${dtStart}
@@ -93,6 +98,50 @@ function buyStockTx({
     <BUYTYPE>BUY
   </BUYSTOCK>`;
 }
+
+// The file's own statement of when it was written. It is the vintage of the
+// SECLIST, so an OCC symbol in the file is as of here and not as of any
+// transaction's DTTRADE -- which is what stops a symbol the broker had already
+// restated being restated a second time on the way in.
+describe("parseOfxStatement vintage", () => {
+  it("reads DTSERVER as when the file was written", () => {
+    const { exportedAt } = parseOfxStatement(
+      buildOfx({ dtServer: "20260405105730.265[-4:EDT]", transactions: buyStockTx({}) }),
+    );
+
+    expect(exportedAt?.toISOString()).toBe("2026-04-05T14:57:30.000Z");
+  });
+
+  // A file that omits the signon's clock still dates the statement it answers
+  // with, and that is a closer bound than the moment of the upload.
+  it("falls back to the statement's DTASOF", () => {
+    const { exportedAt } = parseOfxStatement(
+      buildOfx({ dtAsOf: "20260403202000.000[-4:EDT]", transactions: buyStockTx({}) }),
+    );
+
+    expect(exportedAt?.toISOString()).toBe("2026-04-04T00:20:00.000Z");
+  });
+
+  it("prefers DTSERVER over DTASOF", () => {
+    const { exportedAt } = parseOfxStatement(
+      buildOfx({
+        dtServer: "20260405105730.265[-4:EDT]",
+        dtAsOf: "20260403202000.000[-4:EDT]",
+        transactions: buyStockTx({}),
+      }),
+    );
+
+    expect(exportedAt?.toISOString()).toBe("2026-04-05T14:57:30.000Z");
+  });
+
+  // Nothing is invented from the transactions: what to do about a file that
+  // dates nothing is the uploader's decision, not the converter's.
+  it("states nothing when the file dates neither", () => {
+    const { exportedAt } = parseOfxStatement(buildOfx({ transactions: buyStockTx({}) }));
+
+    expect(exportedAt).toBeUndefined();
+  });
+});
 
 function sellStockTx({
   fitId = "2",

@@ -70,10 +70,18 @@ document carries, so an upload describes itself. See
 | `window.period_from`, `window.period_before` | The **requested** window from step 3 -- not the minimum and maximum of the parsed rows. |
 | `window.postings` | The converted postings. |
 | `filename` | A synthetic name identifying the run, e.g. `fidelity-ext-2026-07-27.json`. |
+| `exported_at` | The moment the run was invoked, or the vintage the export states where it states one. |
 
-Two of these need care.
+Three of these need care.
 
 **The period must be the requested window.** Ingestion replaces every transaction for the user and broker within `[period_from, period_before)`. Sending the parsed row range instead would shrink the window to the transactions that still exist, so a transaction cancelled by the broker since the last sync would never be deleted -- which is the main reason to re-fetch an overlapping period at all.
+
+**The vintage is the run.** `exported_at` is the point in market time the file's
+identifiers are stated as of -- an option is named by the symbol current at the
+export, not the one it wore on each trade date. The extension drives the broker's
+own export UI seconds beforehand, so the run's clock is the honest answer, and an
+export that dates itself overrides it because the broker is the one saying what it
+holds. See [bitemporality.md](bitemporality.md#share-count-basis).
 
 **The source string is reused, not invented.** `source` is the cache key for instrument resolution. A new source string for extension uploads would miss the cache and force fresh calls to paid identification plugins for descriptions that have already been resolved. `filename` is the field that distinguishes extension runs from manual uploads in the job list.
 

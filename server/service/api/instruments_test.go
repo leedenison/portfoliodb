@@ -187,15 +187,20 @@ func TestExportSystemArchive_Instruments_CarriesWhatNothingRecomputes(t *testing
 	srv, db := newAPIServerWithMock(t)
 	expiry := time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC)
 	validFrom := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
-	identityAsOf := time.Date(2025, 6, 2, 14, 30, 0, 0, time.UTC)
+	namedFrom := time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC)
 	strike := decimal.RequireFromString("150.5")
 	rows := []*dbpkg.InstrumentRow{
 		{ID: "id-1", AssetClass: strPtr("OPTION"), Currency: strPtr("USD"),
 			CIK: strPtr("0000320193"), SICCode: strPtr("3571"),
 			ValidFrom: &validFrom, Expiry: &expiry, Strike: &strike, PutCall: strPtr("C"),
-			ContractMultiplier:         decimal.RequireFromString("1.5"),
-			IdentityAsOf:               &identityAsOf,
-			Identifiers:                []dbpkg.IdentifierInput{{Type: "OCC", Value: "AAPL  260116C00150500", Canonical: true}},
+			ContractMultiplier: decimal.RequireFromString("1.5"),
+			// The symbol the contract traded under before a split, and the one
+			// it wears now. Both travel, or a file exported before the split
+			// would name a symbol the importing instance has never heard of.
+			Identifiers: []dbpkg.IdentifierInput{
+				{Type: "OCC", Value: "AAPL260116C00301000", Canonical: true, ValidBefore: &namedFrom},
+				{Type: "OCC", Value: "AAPL260116C00150500", Canonical: true, ValidFrom: &namedFrom},
+			},
 			UnderlyingIdentifierType:   strPtr("MIC_TICKER"),
 			UnderlyingIdentifierValue:  strPtr("AAPL"),
 			UnderlyingIdentifierDomain: strPtr("XNAS"),
@@ -219,8 +224,15 @@ func TestExportSystemArchive_Instruments_CarriesWhatNothingRecomputes(t *testing
 	if inst.GetContractMultiplier() != "1.5" {
 		t.Fatalf("contract_multiplier = %q", inst.GetContractMultiplier())
 	}
-	if !inst.GetIdentityAsOf().AsTime().Equal(identityAsOf) {
-		t.Fatalf("identity_as_of = %v", inst.GetIdentityAsOf().AsTime())
+	idns := inst.GetIdentifiers()
+	if len(idns) != 2 {
+		t.Fatalf("identifiers = %v, want both the name given up and the one in force", idns)
+	}
+	if idns[0].GetValidBefore() != "2024-06-10" || idns[0].ValidFrom != nil {
+		t.Fatalf("the given-up name = %v", idns[0])
+	}
+	if idns[1].GetValidFrom() != "2024-06-10" || idns[1].ValidBefore != nil {
+		t.Fatalf("the name in force = %v", idns[1])
 	}
 	// The underlying is named by identifier, not nested and not by UUID.
 	u := inst.GetUnderlying()

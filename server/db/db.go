@@ -1117,7 +1117,6 @@ type InstrumentRow struct {
 	Expiry              *time.Time       // denormalized from OCC; NULL for non-options
 	PutCall             *string          // "C" or "P"; NULL for non-options
 	ContractMultiplier  decimal.Decimal  // deliverable multiplier; 1 = standard
-	IdentityAsOf        *time.Time       // point in market time the stored identity reflects; NULL predates every split
 	Identifiers         []IdentifierInput
 	ProviderIdentifiers []ProviderIdentifierInput // provider-specific identifiers
 	ExchangeName        *string                   // read-only; from exchanges JOIN
@@ -1297,16 +1296,6 @@ type InstrumentDB interface {
 	MergeInstrumentFromArchive(ctx context.Context, instrumentID string, in InstrumentMerge) error
 	// UpdateInstrumentStrike updates the strike on an existing option instrument.
 	UpdateInstrumentStrike(ctx context.Context, instrumentID string, strike decimal.Decimal) error
-	// UpdateIdentityAsOf sets identity_as_of = now() on an existing instrument.
-	// Call only when the identity has genuinely been re-derived from current
-	// market data; an incidental touch must leave the column alone.
-	UpdateIdentityAsOf(ctx context.Context, instrumentID string) error
-	// SetIdentityAsOf advances identity_as_of to an explicit time, for a caller
-	// that knows the vintage of the identity it supplied -- an instrument import
-	// restoring an exported value, or a price import declaring exported_at. The
-	// column only ever moves forward: a lower value is ignored, so a stale file
-	// cannot re-expose an already-adjusted option to the split pass.
-	SetIdentityAsOf(ctx context.Context, instrumentID string, t time.Time) error
 	// SetContractMultiplier sets the deliverable multiplier on an existing
 	// instrument. Separate from EnsureInstrument because the multiplier is not an
 	// option term -- a future carries one too -- and because an import restoring
@@ -1494,15 +1483,16 @@ type CorporateEventDB interface {
 	// check ListStockSplits first.
 	DeleteStockSplit(ctx context.Context, instrumentID string, exDate time.Time) error
 
-	// ListPendingOptionSplits returns every option whose stored identity
-	// predates an effective split on its underlying, with the splits that still
-	// need applying, ordered ascending by ex_date. underlyingID == "" covers
-	// every option; a non-empty value restricts the sweep to one underlying.
+	// ListPendingOptionSplits returns every option whose OCC symbol in force
+	// became correct before an effective split on its underlying, with the
+	// splits that still need applying, ordered ascending by ex_date.
+	// underlyingID == "" covers every option; a non-empty value restricts the
+	// sweep to one underlying.
 	//
 	// This is the work list for the retroactive option split pass. It is derived
-	// from identity_as_of against ex_date rather than from which splits happened
-	// to arrive in the current fetch cycle, so the pass is idempotent, safe to
-	// run every cycle, and retries anything a previous run failed to apply.
+	// from that name's valid_from against ex_date rather than from which splits
+	// happened to arrive in the current fetch cycle, so the pass is idempotent,
+	// safe to run every cycle, and retries anything a previous run failed.
 	ListPendingOptionSplits(ctx context.Context, underlyingID string) ([]PendingOptionSplits, error)
 
 	// UpsertCashDividends inserts or updates the supplied cash_dividends rows.

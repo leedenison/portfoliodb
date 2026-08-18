@@ -128,9 +128,6 @@ func instrumentRowToProto(row *db.InstrumentRow) *apiv1.Instrument {
 	if row.ValidBefore != nil {
 		out.ValidBefore = timestamppb.New(*row.ValidBefore)
 	}
-	if row.IdentityAsOf != nil {
-		out.IdentityAsOf = timestamppb.New(*row.IdentityAsOf)
-	}
 	if row.CIK != nil {
 		out.Cik = *row.CIK
 	}

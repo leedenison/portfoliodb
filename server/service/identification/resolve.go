@@ -435,10 +435,10 @@ func ResolveWithPlugins(
 		HadIdentifierHints: len(identifierHints) > 0,
 	}
 
-	// Adjust OCC hints for known stock splits before any lookups. identityAsOf
+	// Adjust OCC hints for known stock splits before any lookups. hintsNamedAt
 	// is the market time the resulting hints reflect, and it is what the winner
-	// path stamps; nil means now.
-	identifierHints, identityAsOf := AdjustOCCForKnownSplits(ctx, database, identifierHints, hintsValidAt, nil)
+	// path dates the names it writes from; nil means now.
+	identifierHints, hintsNamedAt := AdjustOCCForKnownSplits(ctx, database, identifierHints, hintsValidAt, nil)
 
 	// If all hints already resolve to one instrument in DB, use it (avoids plugin call).
 	resolved, err := ResolveByHintsDBOnly(ctx, database, identifierHints)
@@ -625,12 +625,13 @@ func ResolveWithPlugins(
 		// A plugin has just identified this instrument, so the names it gave
 		// back became correct as of the hints it was asked about: now, unless an
 		// OCC hint could not be rebased onto today, in which case the plugin was
-		// asked about the contract as it stood at identityAsOf and answered
+		// asked about the contract as it stood at hintsNamedAt and answered
 		// about that one. Only names this path writes carry it; a name already
 		// stored keeps the valid_from it was written with, because when a name
 		// became correct is a market fact and re-seeing it is not evidence of a
-		// new one.
-		namedAt := identityAsOf
+		// new one. The broker-description-only fallback below derives nothing
+		// from the market and writes no dated name at all.
+		namedAt := hintsNamedAt
 		if namedAt == nil {
 			now := time.Now()
 			namedAt = &now
@@ -678,26 +679,6 @@ func ResolveWithPlugins(
 		id, err := database.EnsureInstrument(ctx, inst.AssetClass, inst.Exchange, inst.Currency, inst.Name, inst.CIK, inst.SICCode, identifiers, underlyingID, validFrom, validBefore, optFields)
 		if err != nil {
 			return ResolveResult{}, err
-		}
-		// A plugin has just identified this instrument, so the stored identity
-		// reflects the market as of the hints it was given: now, unless an OCC
-		// hint could not be rebased onto today, in which case the plugin was
-		// asked about a contract as it stood at identityAsOf and answered about
-		// that one. This is the only resolution path that stamps: the
-		// broker-description-only fallback below derives nothing from the market
-		// and must leave the column alone, or it would disarm the option-split
-		// guard.
-		var stampErr error
-		if identityAsOf != nil {
-			// SetIdentityAsOf only moves the column forward, so a re-resolution
-			// of an option already adjusted for the split cannot be dragged back
-			// and re-adjusted.
-			stampErr = database.SetIdentityAsOf(ctx, id, *identityAsOf)
-		} else {
-			stampErr = database.UpdateIdentityAsOf(ctx, id)
-		}
-		if stampErr != nil {
-			l.WarnContext(ctx, "update identity_as_of failed", "instrument_id", id, "err", stampErr)
 		}
 		if len(providerIDs) > 0 {
 			if err := database.SaveProviderIdentifiers(ctx, id, providerIDs); err != nil {

@@ -4,7 +4,6 @@ package portfoliodb.archive.v1;
 
 import "archive/v1/common.proto";
 import "buf/validate/validate.proto";
-import "google/protobuf/timestamp.proto";
 import "type/v1/type.proto";
 
 option go_package = "github.com/leedenison/portfoliodb/proto/archive/v1;archivev1";
@@ -57,11 +56,6 @@ message Instrument {
   // split leaves a fraction here -- 3:2 gives 1.5 -- and it multiplies a
   // posting's weight, so it stays exact.
   optional string contract_multiplier = 15 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
-  // The point in market time this identity reflects. Restored on import so that
-  // a round trip cannot make an already-adjusted option look unadjusted; absent
-  // means the identity predates every split.
-  // See docs/adr/0017-option-identity-reflects-ex-date.md.
-  optional google.protobuf.Timestamp identity_as_of = 16;
 }
 
 // ProviderIdentifier is one provider-scoped identifier for an instrument.

@@ -251,43 +251,34 @@ func TestEnsureInstrument_WithUnderlyingAndValidDates(t *testing.T) {
 	}
 }
 
-// TestEnsureInstrument_LeavesIdentityAsOfAlone pins the write discipline behind
-// issue 0055: EnsureInstrument must never move identity_as_of, on create or on
-// match. Bumping it on an incidental touch is what used to make an option look
-// already-adjusted and permanently skip an adjustment it needed. Only genuine
-// re-derivation -- plugin identification, or ApplyOptionSplit -- advances it.
-func TestEnsureInstrument_LeavesIdentityAsOfAlone(t *testing.T) {
+// TestEnsureInstrument_LeavesNameDatesAlone pins the write discipline behind
+// issue 0055, now that it lives on the name: EnsureInstrument must never move an
+// identifier's valid_from on a match. Treating a re-sighting as evidence that
+// the name became correct today is what used to make an option look
+// already-restated and permanently skip a restatement it needed. When a name
+// became correct is a market fact; seeing it again is not a new one.
+func TestEnsureInstrument_LeavesNameDatesAlone(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	idns := []db.IdentifierInput{{Type: "ISIN", Value: "US4581401001", Canonical: true}}
+	idns := []db.IdentifierInput{{Type: "ISIN", Value: "US4581401001", Canonical: true, ValidFrom: day(2024, 1, 1)}}
 	id, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Intel", "", "", idns, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-
-	// Creating the row must not claim the identity reflects any market state.
 	row, err := p.GetInstrument(ctx, id)
 	if err != nil || row == nil {
 		t.Fatalf("GetInstrument: %v", err)
 	}
-	if row.IdentityAsOf != nil {
-		t.Errorf("identity_as_of after create = %v, want nil", row.IdentityAsOf)
+	stored := findIdentifier(row, "ISIN", "US4581401001")
+	if stored == nil || stored.ValidFrom == nil || !stored.ValidFrom.Equal(*day(2024, 1, 1)) {
+		t.Fatalf("valid_from after create = %v, want 2024-01-01", stored)
 	}
 
-	// A genuine re-derivation stamps it.
-	if err := p.UpdateIdentityAsOf(ctx, id); err != nil {
-		t.Fatalf("UpdateIdentityAsOf: %v", err)
-	}
-	row, err = p.GetInstrument(ctx, id)
-	if err != nil || row == nil || row.IdentityAsOf == nil {
-		t.Fatalf("identity_as_of not stamped: %v", err)
-	}
-	stamped := *row.IdentityAsOf
-
-	// A later incidental EnsureInstrument matching the same identifier must
-	// leave the stamp exactly where it was.
-	again, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Intel", "", "", idns, "", nil, nil, nil)
+	// The same identifier stated again with a later vintage matches rather than
+	// inserting, and the stored bound must not move.
+	later := []db.IdentifierInput{{Type: "ISIN", Value: "US4581401001", Canonical: true, ValidFrom: day(2025, 6, 1)}}
+	again, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Intel", "", "", later, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("re-ensure: %v", err)
 	}
@@ -295,65 +286,56 @@ func TestEnsureInstrument_LeavesIdentityAsOfAlone(t *testing.T) {
 		t.Fatalf("re-ensure returned %q, want %q", again, id)
 	}
 	row, err = p.GetInstrument(ctx, id)
-	if err != nil || row == nil || row.IdentityAsOf == nil {
+	if err != nil || row == nil {
 		t.Fatalf("GetInstrument after re-ensure: %v", err)
 	}
-	if !row.IdentityAsOf.Equal(stamped) {
-		t.Errorf("identity_as_of moved on incidental touch: got %v, want %v", *row.IdentityAsOf, stamped)
+	stored = findIdentifier(row, "ISIN", "US4581401001")
+	if stored == nil || stored.ValidFrom == nil || !stored.ValidFrom.Equal(*day(2024, 1, 1)) {
+		t.Errorf("valid_from moved on an incidental touch: got %v, want 2024-01-01", stored)
+	}
+	if n := len(row.Identifiers); n != 1 {
+		t.Errorf("identifiers = %d, want the one row restated rather than a second", n)
 	}
 }
 
-// TestSetIdentityAsOf_RoundTrip covers the instrument-import path: an exported
-// identity_as_of must be restorable, or a round trip would leave an
-// already-adjusted option looking unadjusted.
-func TestSetIdentityAsOf_RoundTrip(t *testing.T) {
+// TestMergeInstrumentFromArchive_RestoresNameDates covers the archive round
+// trip: a file states the interval each name was correct over, and an import
+// that dropped it would leave an already-restated option looking unrestated and
+// lose the symbol the contract traded under before the split.
+func TestMergeInstrumentFromArchive_RestoresNameDates(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
-	id, err := p.EnsureInstrument(ctx, "STOCK", "XNAS", "USD", "Cisco", "", "", []db.IdentifierInput{
-		{Type: "ISIN", Value: "US17275R1023", Canonical: true},
-	}, "", nil, nil, nil)
+	idns := []db.IdentifierInput{
+		{Type: "OCC", Value: "CSCO250117C00060000", Canonical: true, ValidBefore: day(2024, 6, 10)},
+		{Type: "OCC", Value: "CSCO250117C00030000", Canonical: true, ValidFrom: day(2024, 6, 10)},
+	}
+	id, err := p.EnsureInstrument(ctx, "", "", "USD", "", "", "", idns, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-
-	want := time.Date(2024, 6, 10, 12, 0, 0, 0, time.UTC)
-	if err := p.SetIdentityAsOf(ctx, id, want); err != nil {
-		t.Fatalf("SetIdentityAsOf: %v", err)
+	if err := p.MergeInstrumentFromArchive(ctx, id, db.InstrumentMerge{Identifiers: idns}); err != nil {
+		t.Fatalf("merge: %v", err)
 	}
+
 	row, err := p.GetInstrument(ctx, id)
-	if err != nil || row == nil || row.IdentityAsOf == nil {
+	if err != nil || row == nil {
 		t.Fatalf("GetInstrument: %v", err)
 	}
-	if !row.IdentityAsOf.Equal(want) {
-		t.Errorf("identity_as_of = %v, want %v", *row.IdentityAsOf, want)
+	if n := len(row.Identifiers); n != 2 {
+		t.Fatalf("identifiers = %d, want 2 -- the merge restated them rather than duplicating", n)
 	}
-
-	// The column only moves forward. A stale file must not drag the stamp back
-	// and re-expose an already-adjusted option to the split pass.
-	older := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
-	if err := p.SetIdentityAsOf(ctx, id, older); err != nil {
-		t.Fatalf("SetIdentityAsOf older: %v", err)
+	closed := findIdentifier(row, "OCC", "CSCO250117C00060000")
+	if closed == nil || closed.ValidBefore == nil || !closed.ValidBefore.Equal(*day(2024, 6, 10)) {
+		t.Errorf("the given-up name = %v, want it closed at 2024-06-10", closed)
 	}
-	row, err = p.GetInstrument(ctx, id)
-	if err != nil || row == nil || row.IdentityAsOf == nil {
-		t.Fatalf("GetInstrument after older: %v", err)
+	open := findIdentifier(row, "OCC", "CSCO250117C00030000")
+	if open == nil || open.ValidFrom == nil || !open.ValidFrom.Equal(*day(2024, 6, 10)) || open.ValidBefore != nil {
+		t.Errorf("the name in force = %v, want it open from 2024-06-10", open)
 	}
-	if !row.IdentityAsOf.Equal(want) {
-		t.Errorf("identity_as_of regressed to %v, want %v", *row.IdentityAsOf, want)
-	}
-
-	// A newer vintage does advance it.
-	newer := time.Date(2025, 3, 4, 0, 0, 0, 0, time.UTC)
-	if err := p.SetIdentityAsOf(ctx, id, newer); err != nil {
-		t.Fatalf("SetIdentityAsOf newer: %v", err)
-	}
-	row, err = p.GetInstrument(ctx, id)
-	if err != nil || row == nil || row.IdentityAsOf == nil {
-		t.Fatalf("GetInstrument after newer: %v", err)
-	}
-	if !row.IdentityAsOf.Equal(newer) {
-		t.Errorf("identity_as_of = %v, want %v", *row.IdentityAsOf, newer)
+	// The name in force is the one the trigger derives from.
+	if row.Name == nil || *row.Name != "CSCO250117C00030000" {
+		t.Errorf("name = %v, want the name in force", row.Name)
 	}
 }
 

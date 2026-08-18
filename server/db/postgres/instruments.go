@@ -329,7 +329,7 @@ func (p *Postgres) GetInstrument(ctx context.Context, instrumentID string) (*db.
 	err = p.q.GetContext(ctx, &r, `
 		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_before,
 		       i.cik, i.sic_code,
-		       i.strike, i.expiry, i.put_call, i.contract_multiplier, i.identity_as_of,
+		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 		FROM instruments i
 		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
@@ -402,7 +402,7 @@ func (p *Postgres) ListInstrumentsForExport(ctx context.Context, exchangeFilter 
 		)
 		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id,
 		       i.valid_from, i.valid_before, i.cik, i.sic_code,
-		       i.strike, i.expiry, i.put_call, i.contract_multiplier, i.identity_as_of,
+		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code,
 		       u_id.identifier_type AS underlying_identifier_type,
 		       u_id.value AS underlying_identifier_value,
@@ -458,7 +458,7 @@ func (p *Postgres) ListInstrumentsByIDs(ctx context.Context, ids []string) ([]*d
 	err := p.q.SelectContext(ctx, &irows, fmt.Sprintf(`
 		SELECT i.id, i.asset_class, i.exchange_mic, i.currency, i.name, i.exchange, i.underlying_id, i.valid_from, i.valid_before,
 		       i.cik, i.sic_code,
-		       i.strike, i.expiry, i.put_call, i.contract_multiplier, i.identity_as_of,
+		       i.strike, i.expiry, i.put_call, i.contract_multiplier,
 		       e.name AS exchange_name, e.acronym AS exchange_acronym, e.country_code AS exchange_country_code
 		FROM instruments i
 		LEFT JOIN exchanges e ON e.mic = i.exchange_mic
@@ -567,9 +567,6 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 			expiry = optionFields.Expiry
 			putCall = optionFields.PutCall
 		}
-		// identity_as_of is left NULL: creating a row is not evidence that its
-		// identity reflects any particular market state. The plugin resolution
-		// path stamps it explicitly once identification has actually succeeded.
 		err := exec.QueryRowContext(ctx, `
 			INSERT INTO instruments (asset_class, exchange_mic, currency, name, cik, sic_code, underlying_id, valid_from, valid_before, strike, expiry, put_call)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -606,10 +603,10 @@ func (p *Postgres) EnsureInstrument(ctx context.Context, assetClass, exchangeMIC
 }
 
 // updateInstrumentOnMatch optionally sets underlying_id and option fields on an
-// existing instrument. It deliberately leaves identity_as_of alone: matching an
-// existing instrument is not a re-derivation of its identity, and bumping the
-// column here is what used to disarm the retroactive option-split guard. Callers
-// that genuinely re-derive identity call UpdateIdentityAsOf themselves.
+// existing instrument. It writes no identifier, which is what leaves each name's
+// valid_from where it was: matching an existing instrument is not evidence that
+// any of its names became correct today, and moving them is what used to disarm
+// the retroactive option-split guard.
 func updateInstrumentOnMatch(ctx context.Context, exec queryable, id uuid.UUID, underlyingID *uuid.UUID, optionFields *db.OptionFields) error {
 	if optionFields != nil {
 		_, err := exec.ExecContext(ctx, `
@@ -680,7 +677,7 @@ func (p *Postgres) ListInstruments(ctx context.Context, search string, assetClas
 	q, args, err := psql.Select(
 		"i.id", "i.asset_class", "i.exchange_mic", "i.currency", "i.name", "i.exchange", "i.underlying_id", "i.valid_from", "i.valid_before",
 		"i.cik", "i.sic_code",
-		"i.strike", "i.expiry", "i.put_call", "i.contract_multiplier", "i.identity_as_of",
+		"i.strike", "i.expiry", "i.put_call", "i.contract_multiplier",
 		"e.name AS exchange_name", "e.acronym AS exchange_acronym", "e.country_code AS exchange_country_code",
 	).
 		From("instruments i").
@@ -827,37 +824,6 @@ func (p *Postgres) UpdateInstrumentStrike(ctx context.Context, instrumentID stri
 	_, err = p.q.ExecContext(ctx, `UPDATE instruments SET strike = $2 WHERE id = $1`, uid, strike)
 	if err != nil {
 		return fmt.Errorf("update instrument strike: %w", err)
-	}
-	return nil
-}
-
-// UpdateIdentityAsOf implements db.InstrumentDB.
-func (p *Postgres) UpdateIdentityAsOf(ctx context.Context, instrumentID string) error {
-	uid, err := uuid.Parse(instrumentID)
-	if err != nil {
-		return fmt.Errorf("update identity_as_of: invalid id: %w", err)
-	}
-	_, err = p.q.ExecContext(ctx, `UPDATE instruments SET identity_as_of = now() WHERE id = $1`, uid)
-	if err != nil {
-		return fmt.Errorf("update identity_as_of: %w", err)
-	}
-	return nil
-}
-
-// SetIdentityAsOf implements db.InstrumentDB.
-// The column only ever moves forward. A caller supplying a vintage cannot know
-// whether EnsureInstrument created the row or matched an existing one, and
-// dragging the stamp backwards onto an already-adjusted option would re-expose
-// it to the retroactive split pass. GREATEST ignores a NULL left-hand side, so
-// an unstamped row takes the supplied value.
-func (p *Postgres) SetIdentityAsOf(ctx context.Context, instrumentID string, t time.Time) error {
-	uid, err := uuid.Parse(instrumentID)
-	if err != nil {
-		return fmt.Errorf("set identity_as_of: invalid id: %w", err)
-	}
-	_, err = p.q.ExecContext(ctx, `UPDATE instruments SET identity_as_of = GREATEST(identity_as_of, $2) WHERE id = $1`, uid, t)
-	if err != nil {
-		return fmt.Errorf("set identity_as_of: %w", err)
 	}
 	return nil
 }

@@ -384,7 +384,7 @@ func resolveOrIdentifyInstrument(ctx context.Context, database db.DB, pluginRegi
 // A request with no exported_at is being taken at face value as current (the
 // caller has already warned that OCC symbols will not be split-adjusted), so the
 // vintage is now.
-func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClass, currency, idType, domain, value string, identityAsOf *time.Time) (string, error) {
+func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClass, currency, idType, domain, value string, namedAt *time.Time) (string, error) {
 	slog.Debug("creating instrument from price import with supplied identifier only",
 		"identifier_type", idType, "identifier_domain", domain, "identifier_value", value,
 		"asset_class", assetClass, "currency", currency)
@@ -409,7 +409,7 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 		}
 	}
 
-	validFrom := identityAsOf
+	validFrom := namedAt
 	if validFrom == nil {
 		now := time.Now()
 		validFrom = &now
@@ -419,13 +419,6 @@ func ensureWithSuppliedIdentifier(ctx context.Context, database db.DB, assetClas
 		underlyingID, nil, nil, optFields)
 	if err != nil {
 		return "", err
-	}
-	if identityAsOf != nil {
-		if err := database.SetIdentityAsOf(ctx, id, *identityAsOf); err != nil {
-			return "", fmt.Errorf("set identity_as_of: %w", err)
-		}
-	} else if err := database.UpdateIdentityAsOf(ctx, id); err != nil {
-		return "", fmt.Errorf("update identity_as_of: %w", err)
 	}
 	return id, nil
 }

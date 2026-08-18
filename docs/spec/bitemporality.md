@@ -40,7 +40,7 @@ clock every read API means by "as of".
 | `cash_dividends` | `ex_date`, `pay_date`, `record_date`, `declaration_date` | Four distinct points in the dividend's life. `declaration_date` is when the issuer announced it -- the world's knowledge time, but PortfolioDB's valid time, because what we know is that the announcement happened on that date. |
 | `holding_declarations` | `as_of_date` | The date the user's declaration refers to. |
 | `instruments` | `valid_from`, `valid_before`, `expiry` | When the instrument was tradeable. Descriptive only for `valid_from` / `valid_before` -- see [Instrument identity](#instrument-identity) below. |
-| `instruments` | `identity_as_of` | The point in market time the stored identity reflects -- see [Instrument identity](#instrument-identity) below. |
+| `instrument_identifiers` | `valid_from`, `valid_before` | The interval a name was correct for the instrument -- see [Instrument identity](#instrument-identity) below. |
 | `price_coverage` | `covered_from`, `covered_before` | The valid-time interval a plugin was asked about for prices. |
 | `corporate_event_coverage` | `covered_from`, `covered_before` | The valid-time interval a plugin was asked about. |
 | `inflation_indices` | `month` | The month the index value describes. |
@@ -57,30 +57,47 @@ inside adapters for external providers that demand it
 
 ### Instrument identity
 
-Instrument identity is the deliberate exception: it is current state, not a
-time-varying fact. `instrument_identifiers` carries no validity interval, so an
-identifier resolves to whichever instrument holds it now rather than to the one
-that held it on the transaction's date, and ticker reuse is not representable.
-`instruments.valid_from` and `valid_before` describe when the instrument was
-tradeable and no query filters on them. A merge deletes the loser outright,
-leaving no record of what was believed before
-(see adr/0004-instrument-resolution-and-merge.md).
+A name is valid over an interval, not for all time. `instrument_identifiers`
+carries a half-open `[valid_from, valid_before)` in **market** time: `valid_from`
+is when the name became correct for the instrument -- the vintage of the source
+that supplied it, or the `ex_date` of the split that minted it -- and a NULL
+`valid_before` means it is the name the instrument wears now. It is valid time
+rather than knowledge time, and it is compared against `stock_splits.ex_date`,
+never against a knowledge time
+(see adr/0055-identifier-validity-is-an-interval.md).
 
-`identity_as_of` is the one exception, and it is valid time rather than knowledge
-time: it records the point in **market** time the stored identity reflects, which
-is what an option's OCC symbol and strike are a function of. It is stamped at
-derivation and moves only on genuine re-derivation -- a plugin identification, or
-a retroactive option split adjustment. An incidental `EnsureInstrument` match
-must leave it alone. NULL means the identity predates every split. It is compared
-against `stock_splits.ex_date`, never against a knowledge time
-(see adr/0017-option-identity-reflects-ex-date.md).
+The interval is per name because names do not move together: an OCC symbol
+encodes a strike and is restated by a split, an ISIN is not, a
+`BROKER_DESCRIPTION` never was. A split closes the OCC symbol at its `ex_date`
+and mints the adjusted one from it, so a broker file exported either side of the
+split resolves to the same contract.
+
+A name only ever gets its bounds when it is written. Matching an existing
+instrument is not evidence that any of its names became correct today, so an
+incidental `EnsureInstrument` touch must leave them alone -- moving a `valid_from`
+forward is what would tell the option-split pass that a symbol already reflects a
+split it was derived before.
 
 Derivation does not imply the present. A plugin answers about the contract it was
-named, so an identity resolved from an OCC hint is only as current as that hint:
-`now()` when the hint was rebased onto today for every known split, and the
-hint's own vintage when a split we had not yet learned of left it alone. Stamping
-`now()` regardless would mark such an identity as already reflecting a split its
-symbol was derived before.
+named, so a name resolved from an OCC hint is only as current as that hint: today
+when the hint was rebased across every known split, and the hint's own vintage
+when a split we had not yet learned of left it alone.
+
+**Uniqueness is interval-aware.** A name denotes one instrument at a time, stated
+as a GIST exclusion constraint on overlapping validity rather than as a unique
+index. The case that forces it is not ticker reuse but two options on one
+underlying: a 2:1 split halves every strike, so the 100-strike call's new symbol
+is character-for-character the 50-strike's old one.
+
+**What is still current state.** A lookup by value alone takes the name in force,
+falling back to the most recently closed one, so a pre-split symbol still
+resolves. Asking what a value denoted on a given date is
+[0122](../issues/0122-resolve-identity-as-of-a-date.md), not this.
+`instruments.valid_from` and `valid_before` describe when the instrument was
+tradeable and no query filters on them. A merge still deletes the loser outright,
+leaving no record of what was believed before, though the loser's names travel to
+the survivor with their intervals intact
+(see adr/0004-instrument-resolution-and-merge.md).
 
 ## Knowledge time
 
@@ -186,10 +203,11 @@ the split chain -- stay exact and can be recomputed from at any time.
 
 ## Rules
 
-1. **Every stored fact records its valid time**, except instrument identity,
-   which is current state (see [Instrument identity](#instrument-identity)).
-   Knowledge time is recorded wherever the source can revise the fact, except
-   for inflation index values (see [Knowledge time](#knowledge-time)).
+1. **Every stored fact records its valid time**, instrument identity included:
+   a name carries the interval it was correct over
+   (see [Instrument identity](#instrument-identity)). Knowledge time is recorded
+   wherever the source can revise the fact, except for inflation index values
+   (see [Knowledge time](#knowledge-time)).
 2. **A knowledge-time column is named for what it means** -- `first_known_at` or
    `last_fetched_at`, never the ambiguous `fetched_at`. A `first_known_at` never
    moves forward: revising the fact leaves it alone, and on conflict it takes
@@ -230,7 +248,7 @@ passed. It is normal, not exceptional.
 | Trigger | Restates | Recompute |
 | --- | --- | --- |
 | A new split arrives, or a stored split's `ex_date` crosses today | `split_adjusted_*` on every price and tx for the instrument | `RecomputeSplitAdjustments` per instrument, plus a daily blanket pass for crossings -- see [corporate-events.md](corporate-events.md#daily-scheduler-planned) |
-| A split arrives for an option's underlying, or a stored one's `ex_date` crosses today | The OCC symbol, strike and contract terms of the options listed on the ex_date | `ProcessPendingOptionSplits`, driven by `identity_as_of` vs `ex_date`, bounded at the option's `expiry` |
+| A split arrives for an option's underlying, or a stored one's `ex_date` crosses today | The OCC symbol, strike and contract terms of the options listed on the ex_date | `ProcessPendingOptionSplits`, driven by the OCC symbol's `valid_from` vs `ex_date`, bounded at the option's `expiry` |
 | A bulk upload replaces a period | Every transaction in that broker and period | Holdings and valuation follow from the transaction set; nothing is materialised |
 | A transaction earlier than the current earliest arrives, or history between the start date and a declaration changes | The derived INITIALIZE transaction | See [fixed-point.md](fixed-point.md) |
 | Instrument identity changes or two instruments merge | Which transactions roll up to which instrument | Holdings and valuation follow; the prior identity is not retained -- see [identifiers.md](identifiers.md) |

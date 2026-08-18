@@ -456,9 +456,9 @@ message Holding {
   Instrument instrument = 5;  // optional; set when instrument_id was resolved
   // The position, in today's share count: a sum of the contributing postings'
   // split_adjusted_quantity, which is the only denomination they share. The raw
-  // quantities are each denominated on their own posting's trade date and are
-  // not summable at all, so no as-traded figure is reported here; the
-  // transaction list carries them per posting. See spec/bitemporality.md.
+  // quantities are each in their own posting's share_count_basis and are not
+  // summable at all, so no as-traded figure is reported here; the transaction
+  // list carries them per posting. See spec/bitemporality.md.
   //
   // Exact to the columns' declared rounding scale rather than exact outright,
   // with the bound growing in the number of contributing postings; see
@@ -874,10 +874,12 @@ message EODPriceProto {
   // docs/spec/bitemporality.md. Decimal string.
   optional string adjusted_close = 8 [(buf.validate.field).string.pattern = "^-?[0-9]+(\\.[0-9]+)?$"];
   optional int64 volume = 9;
-  string data_provider = 10;
+  // The share count the raw values are denominated in, as "YYYY-MM-DD".
+  string share_count_basis = 10;
+  string data_provider = 11;
   // Knowledge time: when this row was last fetched. Staleness only -- it says
   // nothing about the prices themselves.
-  google.protobuf.Timestamp last_fetched_at = 11;
+  google.protobuf.Timestamp last_fetched_at = 12;
 }
 
 message ListPricesRequest {
@@ -943,26 +945,31 @@ message HoldingDeclaration {
   Instrument instrument = 5;  // optional; populated when listing
   string declared_qty = 6;           // numeric string to preserve precision
   google.type.Date as_of_date = 7;
+  // The date at which the share count declared_qty is denominated in was current.
+  // as_of_date means the quantity was read off a record of that date; today means it
+  // was read off a current holdings view. Always populated on read.
+  // See docs/spec/bitemporality.md.
+  google.type.Date share_count_basis = 8;
   // Read-only; derived from the declaration dates for this holding.
-  DeclarationKind kind = 8;
-  // What the transactions add up to at as_of_date, denominated on that date, including
+  DeclarationKind kind = 9;
+  // What the transactions add up to at as_of_date, in share_count_basis, including
   // the holding's pad. Numeric string. Read-only, and recomputed on every read, so
   // it follows an ingestion, an instrument merge or a split recompute with nothing
   // to invalidate. See docs/spec/fixed-point.md#verification.
-  string computed_qty = 9;
+  string computed_qty = 10;
   // computed_qty - declared_qty. Numeric string; positive means the transactions
   // account for more than was declared. Read-only.
-  string delta = 10;
+  string delta = 11;
   // How far delta may stray from zero before it means something. Numeric string,
   // derived from the rounding scale of the split conversion and the number of share
   // count bases that contribute one; zero when no split falls in the window, which
   // is the common case. Read-only.
-  string tolerance = 11;
+  string tolerance = 12;
   // Whether the declaration reconciles: abs(delta) <= tolerance. Always true for a
   // pad, which is made true by construction. Read-only.
-  bool matched = 12;
+  bool matched = 13;
   // How many postings the computed quantity was summed from. Read-only.
-  int32 posting_count = 13;
+  int32 posting_count = 14;
 }
 
 message ListHoldingDeclarationsRequest {}
@@ -977,6 +984,8 @@ message CreateHoldingDeclarationRequest {
   string instrument_id = 3 [(buf.validate.field).string.min_len = 1];
   string declared_qty = 4 [(buf.validate.field).string.min_len = 1];    // numeric string
   google.type.Date as_of_date = 5 [(buf.validate.field).required = true];
+  // Optional; unset means as_of_date, the as-traded assumption.
+  google.type.Date share_count_basis = 6;
 }
 
 message CreateHoldingDeclarationResponse {
@@ -987,6 +996,8 @@ message UpdateHoldingDeclarationRequest {
   string id = 1 [(buf.validate.field).string.min_len = 1];
   string declared_qty = 2 [(buf.validate.field).string.min_len = 1];    // numeric string
   google.type.Date as_of_date = 3 [(buf.validate.field).required = true];
+  // Optional; unset means as_of_date, the as-traded assumption.
+  google.type.Date share_count_basis = 4;
 }
 
 message UpdateHoldingDeclarationResponse {

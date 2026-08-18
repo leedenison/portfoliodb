@@ -316,7 +316,7 @@ func TestProcessUserImport_DeclarationsPartStoresAndEarnsTheRecalc(t *testing.T)
 		Return("inst-a", nil)
 	database.EXPECT().
 		UpsertHoldingDeclaration(gomock.Any(), "user-7", "FIDELITY", "Z1", "inst-a", "100",
-			gomock.Any()).
+			gomock.Any(), gomock.Any()).
 		Return(nil)
 
 	res := processUserImport(context.Background(), ingestDeps{DB: database}, j)
@@ -340,7 +340,7 @@ func TestProcessUserImport_TxPartResolvesAgainstTheEnvelopeVintage(t *testing.T)
 	database.EXPECT().ListInstrumentsByIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	database.EXPECT().AppendIdentificationErrors(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().InstrumentsWithSplits(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	database.EXPECT().ReplaceTxsInPeriod(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	database.EXPECT().ReplaceTxsInPeriod(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().SetJobPartStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	database.EXPECT().SplitsByUnderlyingTicker(gomock.Any(), "AAPL").
 		Return([]db.StockSplit{{ExDate: mustParseDay("2024-08-01"), SplitFrom: "1", SplitTo: "4"}}, nil).AnyTimes()

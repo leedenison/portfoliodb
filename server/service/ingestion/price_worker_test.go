@@ -11,6 +11,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/db/mock"
 	"github.com/leedenison/portfoliodb/server/identifier"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"strings"
 	"testing"
@@ -102,6 +103,59 @@ func TestProcessPriceImport_AcceptsValidIdentifierType(t *testing.T) {
 	}
 }
 
+// The basis is stated per bar, so one group carries an as-traded stretch and a
+// back-adjusted one. A bar that omits it is denominated in its own date, which
+// is what the NOT NULL column defaults to.
+func TestProcessPriceImport_CarriesShareCountBasis(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	database := mock.NewMockDB(ctrl)
+	database.EXPECT().LookupOperatingMIC(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, mic string) (string, error) { return mic, nil }).AnyTimes()
+	database.EXPECT().SaveProviderIdentifiers(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	registry := identifier.NewRegistry()
+
+	part := pricePart(&archivev1.PriceGroup{
+		Instrument: &archivev1.InstrumentRef{Type: typev1.IdentifierType_MIC_TICKER, Value: "NVDA", Domain: "XNAS"},
+		Rows: []*archivev1.PriceRow{
+			{PriceDate: "2024-01-15", Close: "48.0"},
+			{PriceDate: "2024-01-16", ShareCountBasis: proto.String("2024-06-10"), Close: "4.8"},
+		},
+	})
+
+	database.EXPECT().
+		FindInstrumentWithMetaByIdentifier(gomock.Any(), "MIC_TICKER", "XNAS", "NVDA").
+		Return("inst-nvda", "", "XNAS", "", nil)
+
+	var captured []db.EODPrice
+	database.EXPECT().
+		UpsertPrices(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, prices []db.EODPrice) error {
+			captured = prices
+			return nil
+		})
+
+	persisted, _, err := runPricePart(t, database, registry, part, nil)
+	if err != nil {
+		t.Fatalf("importPricePart: %v", err)
+	}
+	if !persisted {
+		t.Fatal("expected persisted=true after a successful upsert")
+	}
+	if len(captured) != 2 {
+		t.Fatalf("expected 2 bars, got %d", len(captured))
+	}
+	if captured[0].ShareCountBasis != nil {
+		t.Errorf("expected the as-traded bar to carry no basis, got %v", captured[0].ShareCountBasis)
+	}
+	want := time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC)
+	if captured[1].ShareCountBasis == nil || !captured[1].ShareCountBasis.Equal(want) {
+		t.Errorf("expected basis 2024-06-10, got %v", captured[1].ShareCountBasis)
+	}
+}
+
+// A span holding no bars is the one thing rows cannot say: the provider was
+// asked about those dates and had nothing. It has to reach the coverage table
+// even though there is nothing to upsert alongside it.
 func TestProcessPriceImport_CoverageWithNoRows(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

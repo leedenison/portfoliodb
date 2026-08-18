@@ -53,4 +53,10 @@ stores it per bar, and it now travels on the export as well as the import. The
 `cli/google` importer sets it, which fixes the live GOOGLEFINANCE case. No
 interim CSV header was built.
 
+Retired and restored since: #468 removed the field in favour of a per-row-kind
+convention, which reopened exactly the bug above -- `cli/google` relays
+GOOGLEFINANCE's restatement and cannot invert it, so it had nothing left to
+declare. The field is back on all three tables. See
+adr/0056-a-relaying-source-cannot-convert-back.md.
+
 See docs/spec/bitemporality.md.

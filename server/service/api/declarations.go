@@ -11,6 +11,7 @@ import (
 	"github.com/leedenison/portfoliodb/server/auth"
 	"github.com/leedenison/portfoliodb/server/db"
 	"github.com/shopspring/decimal"
+	"google.golang.org/genproto/googleapis/type/date"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -59,13 +60,14 @@ const declarationScale = -12
 // the caller: only the list populates it.
 func declarationToProto(r *db.HoldingDeclarationRow) *apiv1.HoldingDeclaration {
 	out := &apiv1.HoldingDeclaration{
-		Id:           r.ID,
-		Broker:       r.Broker,
-		Account:      r.Account,
-		InstrumentId: r.InstrumentID,
-		DeclaredQty:  r.DeclaredQty,
-		AsOfDate:     timeToDate(r.AsOfDate),
-		Kind:         r.Kind,
+		Id:              r.ID,
+		Broker:          r.Broker,
+		Account:         r.Account,
+		InstrumentId:    r.InstrumentID,
+		DeclaredQty:     r.DeclaredQty,
+		AsOfDate:        timeToDate(r.AsOfDate),
+		ShareCountBasis: timeToDate(r.ShareCountBasis),
+		Kind:            r.Kind,
 	}
 	if r.Verified == nil {
 		return out
@@ -153,7 +155,7 @@ func (s *Server) padAfterWrite(ctx context.Context, userID, broker, account, ins
 	if pad == nil {
 		return holdingPad{}, nil
 	}
-	init, err := s.computeInitializeValues(ctx, userID, broker, account, instrumentID, pad.DeclaredQty, pad.AsOfDate, startDate)
+	init, err := s.computeInitializeValues(ctx, userID, broker, account, instrumentID, pad.DeclaredQty, pad.AsOfDate, pad.ShareCountBasis, startDate)
 	if err != nil {
 		return holdingPad{}, err
 	}
@@ -168,6 +170,17 @@ func (p holdingPad) kindOf(asOfDate time.Time) apiv1.DeclarationKind {
 	return apiv1.DeclarationKind_DECLARATION_KIND_ASSERT
 }
 
+// shareCountBasis reads the declared denomination from a request, falling back to
+// as_of_date. That is the as-traded assumption -- a quantity read off a record of
+// some date is in the share count current then -- and it matches the default the
+// holding_declarations trigger applies. See docs/spec/bitemporality.md.
+func shareCountBasis(d *date.Date, asOfDate time.Time) time.Time {
+	if d == nil {
+		return asOfDate
+	}
+	return dateToTime(d)
+}
+
 // CreateHoldingDeclaration creates a declaration and computes the INITIALIZE tx.
 func (s *Server) CreateHoldingDeclaration(ctx context.Context, req *apiv1.CreateHoldingDeclarationRequest) (*apiv1.CreateHoldingDeclarationResponse, error) {
 	u, authErr := auth.RequireUser(ctx)
@@ -175,6 +188,7 @@ func (s *Server) CreateHoldingDeclaration(ctx context.Context, req *apiv1.Create
 		return nil, authErr
 	}
 	asOfDate := dateToTime(req.GetAsOfDate())
+	basis := shareCountBasis(req.GetShareCountBasis(), asOfDate)
 	if _, err := strconv.ParseFloat(req.GetDeclaredQty(), 64); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid declared_qty: %v", err)
 	}
@@ -196,13 +210,13 @@ func (s *Server) CreateHoldingDeclaration(ctx context.Context, req *apiv1.Create
 	// The new declaration joins whatever the holding already has, and the earliest of
 	// the set is the pad -- so a declaration earlier than the current pad takes over
 	// from it, and a later one is an assertion that generates nothing.
-	pending := &db.HoldingDeclarationRow{DeclaredQty: req.GetDeclaredQty(), AsOfDate: asOfDate}
+	pending := &db.HoldingDeclarationRow{DeclaredQty: req.GetDeclaredQty(), AsOfDate: asOfDate, ShareCountBasis: basis}
 	pad, err := s.padAfterWrite(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), "", pending, *startDate)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
 	}
 
-	row, err := s.db.CreateDeclarationWithInitializeTx(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, *pad.init)
+	row, err := s.db.CreateDeclarationWithInitializeTx(ctx, u.ID, req.GetBroker(), req.GetAccount(), req.GetInstrumentId(), req.GetDeclaredQty(), asOfDate, basis, *pad.init)
 	if err != nil {
 		if errors.Is(err, db.ErrDuplicate) {
 			return nil, status.Error(codes.AlreadyExists, "a declaration for this holding already exists at that date")
@@ -249,16 +263,17 @@ func (s *Server) UpdateHoldingDeclaration(ctx context.Context, req *apiv1.Update
 	// An update that says nothing about denomination keeps the one the declaration
 	// already has, rather than re-deriving it from a moved as_of_date: restating the
 	// units of a quantity the user did not touch would silently change what they said.
+	basis := shareCountBasis(req.GetShareCountBasis(), existing.ShareCountBasis)
 
 	// Moving as_of_date can hand the pad to a sibling or take it from one, so the pad
 	// is recomputed from the holding as it will stand, not from this row alone.
-	pending := &db.HoldingDeclarationRow{DeclaredQty: req.GetDeclaredQty(), AsOfDate: asOfDate}
+	pending := &db.HoldingDeclarationRow{DeclaredQty: req.GetDeclaredQty(), AsOfDate: asOfDate, ShareCountBasis: basis}
 	pad, err := s.padAfterWrite(ctx, u.ID, existing.Broker, existing.Account, existing.InstrumentID, existing.ID, pending, *startDate)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "compute INITIALIZE tx: %v", err)
 	}
 
-	row, err := s.db.UpdateDeclarationWithInitializeTx(ctx, req.GetId(), req.GetDeclaredQty(), asOfDate, u.ID, existing.Broker, existing.Account, existing.InstrumentID, *pad.init)
+	row, err := s.db.UpdateDeclarationWithInitializeTx(ctx, req.GetId(), req.GetDeclaredQty(), asOfDate, basis, u.ID, existing.Broker, existing.Account, existing.InstrumentID, *pad.init)
 	if err != nil {
 		if errors.Is(err, db.ErrDuplicate) {
 			return nil, status.Error(codes.AlreadyExists, "a declaration for this holding already exists at that date")
@@ -312,7 +327,7 @@ func (s *Server) DeleteHoldingDeclaration(ctx context.Context, req *apiv1.Delete
 // computeInitializeValues computes the pad that makes declaredQty true at asOfDate.
 // basis is the declaration's denomination: the running balance is converted into it
 // and the pad is written in it, so the subtraction has both sides in one share count.
-func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, account, instrumentID, declaredQtyStr string, asOfDate time.Time, startDate time.Time) (db.InitializeTx, error) {
+func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, account, instrumentID, declaredQtyStr string, asOfDate, basis time.Time, startDate time.Time) (db.InitializeTx, error) {
 	// declared_qty is a decimal string on the wire and a NUMERIC column, so it
 	// never has to become a float. The subtraction below is exact, which is what
 	// makes the resulting pad reconcile to the declaration rather than to within
@@ -323,20 +338,14 @@ func (s *Server) computeInitializeValues(ctx context.Context, userID, broker, ac
 	}
 	startDay := startDate.Truncate(24 * time.Hour)
 	dayAfterAsOf := asOfDate.AddDate(0, 0, 1)
-	// The pad is a posting dated at the portfolio start, so it is denominated
-	// there. The declaration is denominated on the date it asserts, so its
-	// quantity is the one number that has to be carried across.
-	runningBalance, err := s.db.ComputeRunningBalance(ctx, userID, broker, account, instrumentID, startDay, dayAfterAsOf, startDay)
+	runningBalance, err := s.db.ComputeRunningBalance(ctx, userID, broker, account, instrumentID, startDay, dayAfterAsOf, basis)
 	if err != nil {
 		return db.InitializeTx{}, fmt.Errorf("compute running balance: %w", err)
 	}
-	declaredQty, err = s.db.ConvertQtyToBasis(ctx, instrumentID, declaredQty, asOfDate, startDay)
-	if err != nil {
-		return db.InitializeTx{}, fmt.Errorf("convert declared_qty to the pad's basis: %w", err)
-	}
 	initQty := declaredQty.Sub(runningBalance)
 	return db.InitializeTx{
-		Timestamp: startDay,
-		Quantity:  initQty,
+		Timestamp:       startDay,
+		Quantity:        initQty,
+		ShareCountBasis: basis,
 	}, nil
 }

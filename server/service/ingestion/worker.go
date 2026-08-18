@@ -267,7 +267,7 @@ func processTx(ctx context.Context, deps ingestDeps, j *JobRequest, userID strin
 	// The payload is an archive window, so a broker upload and an archive
 	// document are read by the same code above the ingestion pipeline.
 	w := req.GetWindow()
-	txs, rowIdx, err := windowTxs(w, 0, rep)
+	txs, basis, rowIdx, err := windowTxs(w, 0, rep)
 	if err != nil {
 		rep.Flush(ctx)
 		log.Printf("ingestion job %s: %v", j.JobID, err)
@@ -276,12 +276,13 @@ func processTx(ctx context.Context, deps ingestDeps, j *JobRequest, userID strin
 	}
 
 	res, err := ingestBatch(ctx, deps, ingestParams{
-		UserID:     userID,
-		Broker:     db.BrokerToStr(w.GetBroker()),
-		Source:     w.GetSource(),
-		JobID:      j.JobID,
-		Txs:        txs,
-		RowIndices: rowIdx,
+		UserID:          userID,
+		Broker:          db.BrokerToStr(w.GetBroker()),
+		Source:          w.GetSource(),
+		JobID:           j.JobID,
+		Txs:             txs,
+		ShareCountBasis: basis,
+		RowIndices:      rowIdx,
 		// The upload's own statement of when its identifiers were current. The
 		// handler stamps its clock when the uploader said nothing, so this is
 		// only nil for a payload written before the field existed.
@@ -411,7 +412,7 @@ func extractDescHints(ctx context.Context, deps ingestDeps, source, broker strin
 // exportedAt is the vintage every posting's identifier hints are stated as of,
 // and it is one value for the batch rather than one per row: a file names an
 // option under the symbol current when the file was written, not under the one
-// the contract wore on each trade date. See docs/adr/0054-share-count-basis-is-a-convention.md
+// the contract wore on each trade date. See docs/adr/0055-identifier-validity-is-an-interval.md
 // for the convention and docs/spec/bitemporality.md for where it is recorded.
 func resolveInstruments(ctx context.Context, deps ingestDeps, broker, source string, txs []*apiv1.Tx, originalIndices []int, cache map[string]resolveResult, extractedHintsCache map[string][]identifier.Identifier, extraction map[string]string, exportedAt *time.Time, rep *archiveimport.PartReporter) ([]string, []db.IdentificationError, error) {
 	// Filtered once and reused below, because filtering logs what it discards and

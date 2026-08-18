@@ -13,7 +13,7 @@ import (
 
 // holdingClosedTest drops the holdings that are closed. It reads the
 // split-adjusted sum because that is the only one denominated in a single share
-// count: raw quantity is in the share count of its own trade_date, so a buy recorded
+// count: raw quantity is in its own row's share_count_basis, so a buy recorded
 // before a split and a sell recorded after it are in different units, and their
 // sum is neither zero when the position closed nor the position when it did not.
 //

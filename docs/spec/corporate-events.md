@@ -121,7 +121,7 @@ Both products are exact, and callers multiply by `num` before dividing by `den` 
 the single division comes last. That ordering is what keeps the exact part exact
 for as long as possible; see adr/0028-cumulative-split-factor-is-an-exact-rational.md.
 
-The reference date `R` is the row's **share count basis** -- the date at which the share count its raw values are denominated in was current. It is fixed by the kind of row rather than declared: a posting's `trade_date`, a price bar's `price_date`, a declaration's `as_of_date`. See [bitemporality.md](bitemporality.md#share-count-basis).
+The reference date `R` is the row's **share count basis** -- the date at which the share count its raw values are denominated in was current. It is declared by whoever supplied the row and stored on the row itself, not inferred from when the row was fetched; see [bitemporality.md](bitemporality.md#share-count-basis).
 
 The `ex_date <= current_date` clause is the future-date guard: without it a future-dated split pulled in by the lookahead would scale every prior row the moment it was fetched, even though the user still holds pre-split shares trading at pre-split prices. Future-dated splits instead sit inert until their ex_date passes, at which point the next recompute picks them up -- see [Daily scheduler](#daily-scheduler-planned) and adr/0005-corporate-events-design.md.
 

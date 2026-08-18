@@ -43,7 +43,7 @@ func TestEnsureInstrument_mergeWhenMultipleInstrumentsMatch(t *testing.T) {
 		{OrderDate: ts2,
 			TradeDate: ts2, InstrumentDescription: "StockB", BrokerTxType: []typev1.TxType{typev1.TxType_TRADE_ASSET}, ResolvedTxType: typev1.TxType_TRADE_ASSET, Quantity: "5", Account: ""},
 	}
-	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, nil)
+	err = p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, nil, nil)
 	if err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
@@ -801,7 +801,7 @@ func TestMergeInstruments_RewritesWeightCommodity(t *testing.T) {
 		{Amount: decf(-10), Commodity: "inst:" + idA},
 		{Amount: decf(10), Commodity: "inst:" + idB},
 	}
-	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, ws); err != nil {
+	if err := p.ReplaceTxsInPeriod(ctx, userID, "IBKR", "", from, to, txs, []string{idA, idB}, ws, nil); err != nil {
 		t.Fatalf("replace txs: %v", err)
 	}
 
@@ -1298,9 +1298,14 @@ func TestMergeInstruments_CarriesIdentifierHistory(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()
 
+	// Three identifiers against the loser's two, so the survivor is settled by the
+	// first sort key. The rows are written in one transaction and `created_at`
+	// defaults to now(), which is transaction time, so a tie on the count would
+	// tie on the age as well and leave the winner to the id.
 	survivor, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "ISIN", Value: "US0000000002", Canonical: true},
 		{Type: "MIC_TICKER", Domain: "XNAS", Value: "KEEP", Canonical: true},
+		{Type: "SEDOL", Value: "0000002", Canonical: true},
 	}, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure survivor: %v", err)
@@ -1316,8 +1321,8 @@ func TestMergeInstruments_CarriesIdentifierHistory(t *testing.T) {
 		t.Fatal("survivor and loser should be different instruments")
 	}
 
-	// Naming both instruments at once merges them; the survivor is the older of
-	// two rows holding the same number of identifiers.
+	// Naming both instruments at once merges them; the survivor is the row
+	// holding more identifiers.
 	got, err := p.EnsureInstrument(ctx, "", "", "", "", "", "", []db.IdentifierInput{
 		{Type: "ISIN", Value: "US0000000002", Canonical: true},
 		{Type: "CUSIP", Value: "000000001", Canonical: true},

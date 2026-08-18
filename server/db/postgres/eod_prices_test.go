@@ -272,6 +272,41 @@ func TestListPricesForExport_OHLCVFields(t *testing.T) {
 	}
 }
 
+// A basis equal to the bar's own date is the as-traded convention the column
+// defaults to, and the export reports it as absent so a file does not restate
+// it on every row. Only a restated bar carries a value.
+func TestListPricesForExport_ShareCountBasis(t *testing.T) {
+	p := testDBTx(t)
+	ctx := context.Background()
+
+	instID := setupTickerInstrument(t, p, "NVDA")
+	basis := d(2024, 6, 10)
+	if err := p.UpsertPrices(ctx, []db.EODPrice{
+		{InstrumentID: instID, PriceDate: d(2024, 1, 15), Close: decf(48), DataProvider: "test"},
+		{InstrumentID: instID, PriceDate: d(2024, 1, 16), Close: decf(4), DataProvider: "test", ShareCountBasis: &basis},
+	}); err != nil {
+		t.Fatalf("upsert prices: %v", err)
+	}
+
+	rows, err := p.ListPricesForExport(ctx)
+	if err != nil {
+		t.Fatalf("list prices for export: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0].ShareCountBasis != nil {
+		t.Errorf("expected as-traded bar to report no basis, got %v", rows[0].ShareCountBasis)
+	}
+	if rows[1].ShareCountBasis == nil || !rows[1].ShareCountBasis.Equal(basis) {
+		t.Errorf("expected basis 2024-06-10, got %v", rows[1].ShareCountBasis)
+	}
+}
+
+// Two venues can list the same ticker, so the identifier value alone does not
+// name an instrument. A consumer that breaks groups on a key change needs the
+// rows for one instrument to arrive together, which they do not if the domain
+// is left out of the ordering.
 func TestListPricesForExport_OrdersByDomain(t *testing.T) {
 	p := testDBTx(t)
 	ctx := context.Background()

@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -149,12 +150,20 @@ func pickSurvivor(ctx context.Context, q queryable, ids []uuid.UUID) (uuid.UUID,
 	if len(cands) == 0 {
 		return uuid.Nil, fmt.Errorf("no instruments found for ids")
 	}
-	// Sort by n desc, created_at asc (more identifiers wins, then older wins)
+	// Sort by n desc, created_at asc (more identifiers wins, then older wins),
+	// then by id so the order is total. Two rows written in one transaction share
+	// a created_at, because the column defaults to now() and that is transaction
+	// time, so the first two keys can both tie; without a third the winner is
+	// whatever order the rows came back in, and a merge would pick a different
+	// survivor depending on the table's page layout.
 	sort.Slice(cands, func(i, j int) bool {
 		if cands[i].n != cands[j].n {
 			return cands[i].n > cands[j].n
 		}
-		return cands[i].createdAt.Before(cands[j].createdAt)
+		if !cands[i].createdAt.Equal(cands[j].createdAt) {
+			return cands[i].createdAt.Before(cands[j].createdAt)
+		}
+		return bytes.Compare(cands[i].id[:], cands[j].id[:]) < 0
 	})
 	return cands[0].id, nil
 }

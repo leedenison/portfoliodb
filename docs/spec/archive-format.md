@@ -108,7 +108,7 @@ readers is silent. The price CSV needs four rules to rebuild nesting from
 flatness -- at most one global declaration, a specific one overrides rather than
 adds, several specifics all apply, a partial identifier is an error -- plus two
 cases the export must always write out in full. The cost of getting one of them
-wrong is not an error but a wrong number: a quantity stated on the wrong basis reads as
+wrong is not an error but a wrong number: a missing share count basis reads as
 as-traded, and back-adjusted prices are then adjusted a second time.
 
 Full reasoning: `docs/adr/0035-archive-nests-by-aggregate-root.md`.
@@ -188,7 +188,7 @@ Every archive is one protojson object whose first member is the envelope:
   Imported price rows and coverage record it as `last_fetched_at`, and corporate
   events with no `first_known_at` of their own fall back to it. It says nothing
   about which share count a value is denominated in; that is
-  fixed by convention per row kind, and it is a different question entirely.
+  `share_count_basis`, and it is a different question entirely.
 - `source_instance` is an opaque label for whatever produced the file, for a
   reader's benefit only. Nothing keys off it.
 - `kind` is `SYSTEM` or `USER`. The document's message
@@ -283,6 +283,7 @@ a file.
 | group | `currency` | ISO 4217; validation hint |
 | group | `coverage[]` | half-open intervals |
 | row | `price_date` | |
+| row | `share_count_basis` | optional; absent means the row's own `price_date`, which is as-traded |
 | row | `open`, `high`, `low`, `adjusted_close`, `volume` | optional |
 | row | `close` | |
 
@@ -293,10 +294,10 @@ a file.
  "rows": [{"price_date": "2024-01-15", "close": "185.9", "volume": "48088700"}]}
 ```
 
-A row is denominated in the share count current on its own `price_date`, which
-is what an unadjusted series holds and what an export writes. A source with a
-back-adjusted series converts before writing the file rather than declaring what
-it did; see [bitemporality.md](bitemporality.md#share-count-basis).
+`share_count_basis` is on the row because `eod_prices` stores it there: one
+instrument can hold a back-adjusted stretch beside an as-traded one, and both
+travel in the one group. A row that omits it is denominated in the share count
+current on its own `price_date`, which is what an ordinary export writes.
 
 That group is what the price CSV spelled as a `# coverage=` comment line plus a
 row, and it is why the comment syntax goes. Coverage is a field of the group it
@@ -310,11 +311,9 @@ covered but has no rows is simply a group with an empty `rows`.
 originating data provider, because an import records every row and every span
 against the `import` sentinel, so provenance cannot survive a round trip.
 
-The price CSV had no way to say which share count a row was in, so a
-back-adjusted series exported and reimported came back as as-traded and was
-adjusted a second time. The archive closes that by fixing the basis rather than
-carrying it: every row is on its `price_date` and a source that holds otherwise
-converts first.
+`share_count_basis` on the row is new. The price CSV could state it on import
+but not on export, so a back-adjusted series exported and reimported came back
+as as-traded and was adjusted a second time.
 
 ### Corporate events
 
@@ -369,7 +368,7 @@ from can answer for.
 `base_year` is on the row rather than on the group because a rebasing changes it
 partway through a series and both halves travel in the one group. Reading a
 rebased value against the wrong base is not an error but a wrong number, which
-is the same reason a price row's denomination is pinned to its `price_date`.
+is the same reason `share_count_basis` sits on a price row.
 
 Inflation indices are expensive to reacquire rather than irreplaceable, with one
 wrinkle: a revision replaces its predecessor in place and leaves no record, so a
@@ -591,13 +590,15 @@ stored and where it travels.
 | posting | `account`, `account_type` | `account_type` absent reads as `ACCOUNT_TYPE_USER` |
 | posting | `identifier_hints[]` | zero or more identifier triples |
 | posting | `unit_price`, `trading_currency`, `settlement_currency` | optional |
+| posting | `share_count_basis` | optional; absent means the posting's own `trade_date` |
 | posting | `correlations[]` | zero or more; why this posting might belong with another |
 
-A posting's `quantity` and `unit_price` are denominated in the share count
-current on its own `trade_date`. That is a convention rather than a field: a
-source holding its data on any other basis converts before it writes the file,
-so there is nothing to state and nothing a reader has to interpret. See
-[bitemporality.md](bitemporality.md#share-count-basis).
+`share_count_basis` is on the posting rather than on the window for the same
+reason it is on a price row rather than on its group: a window-wide value can
+only say "one date for everything", which cannot express the ordinary case,
+where every posting is as-traded and so carries a different basis from its
+neighbours. Absent is what an ordinary export writes, and the importing instance
+takes the posting's own date.
 
 A posting's `identifier_hints` are **not** on that basis. An identifier moves
 under a split where a quantity is merely denominated by one -- an OCC symbol
@@ -681,6 +682,7 @@ rather than in the request, because an archive has to be self-describing.
 | statement | `broker`, `account`, `as_of_date` | |
 | declaration | `instrument` | identifier triple |
 | declaration | `declared_qty` | signed decimal |
+| declaration | `share_count_basis` | optional; absent means the statement's `as_of_date` |
 
 **Absence is not deletion**, and this is the one place the archive deliberately
 differs from the transaction part. A declaration missing from an imported file is
@@ -882,6 +884,5 @@ Points a hand-written file usually gets wrong:
 - `before` is exclusive. A span ending on the last day of 2024 has
   `"before": "2025-01-01"`.
 - Omit a field rather than writing an empty string or a zero for it.
-- State a price row in the share count current on its own `price_date`, and a
-  posting on its `trade_date`. A back-adjusted source converts before writing;
-  writing the restated number makes the value wrong by the split factor.
+- Set `share_count_basis` on a price row only for a back-adjusted bar. Setting it
+  where the bar is as-traded makes the price wrong by the split factor.

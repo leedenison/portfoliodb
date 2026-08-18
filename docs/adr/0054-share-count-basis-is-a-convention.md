@@ -1,4 +1,16 @@
+---
+status: superseded by ADR-0056
+---
+
 # Share count basis is a convention, not a field
+
+Superseded by [0056](0056-a-relaying-source-cannot-convert-back.md), which puts
+`share_count_basis` back on all three tables. The decision below turns on every
+restating source being able to convert back, and that is false for a source
+which relays someone else's restatement rather than performing its own. The
+identifier half of the convention -- that a file names an instrument as of its
+`exported_at` -- is not affected and stands; see
+[0055](0055-identifier-validity-is-an-interval.md).
 
 A quantity of shares is meaningless without knowing which share count it is expressed in:
 a 2:1 split makes "100 shares at $50" and "200 shares at $25" the same holding. So

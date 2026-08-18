@@ -50,7 +50,7 @@ function systemFixture() {
           coverage: [{ from: "2024-01-01", before: "2024-01-17" }],
           rows: [
             { priceDate: "2024-01-15", close: "185.9", volume: 48088700n },
-            { priceDate: "2024-01-16", close: "18.59" },
+            { priceDate: "2024-01-16", shareCountBasis: "2024-06-10", close: "18.59" },
           ],
         },
       ],

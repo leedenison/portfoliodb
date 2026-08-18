@@ -23,8 +23,9 @@ func declDate(t *testing.T, s string) time.Time {
 	return d
 }
 
-// exportDecl builds one stored export row.
-func exportDecl(t *testing.T, broker, account, value, qty, asOf string) dbpkg.ExportDeclaration {
+// exportDecl builds one stored export row. basis is written only where it
+// differs from asOf, which is what the query itself does.
+func exportDecl(t *testing.T, broker, account, value, qty, asOf, basis string) dbpkg.ExportDeclaration {
 	t.Helper()
 	row := dbpkg.ExportDeclaration{
 		Broker:           broker,
@@ -34,6 +35,10 @@ func exportDecl(t *testing.T, broker, account, value, qty, asOf string) dbpkg.Ex
 		IdentifierDomain: "XNAS",
 		DeclaredQty:      decimal.RequireFromString(qty),
 		AsOfDate:         declDate(t, asOf),
+	}
+	if basis != "" {
+		b := declDate(t, basis)
+		row.ShareCountBasis = &b
 	}
 	return row
 }
@@ -67,10 +72,10 @@ func (e *exportUserStreamMock) statements() []*archivev1.Statement {
 // rows sharing those becomes one message and a change in either cuts a new one.
 func TestExportUserArchive_CutsStatementsOnAccountAndDate(t *testing.T) {
 	stream := exportDeclarations(t, []dbpkg.ExportDeclaration{
-		exportDecl(t, "FIDELITY", "Z1", "AAPL", "100", "2024-01-31"),
-		exportDecl(t, "FIDELITY", "Z1", "MSFT", "50", "2024-01-31"),
-		exportDecl(t, "FIDELITY", "Z1", "AAPL", "120", "2024-02-29"),
-		exportDecl(t, "FIDELITY", "Z2", "AAPL", "7", "2024-02-29"),
+		exportDecl(t, "FIDELITY", "Z1", "AAPL", "100", "2024-01-31", ""),
+		exportDecl(t, "FIDELITY", "Z1", "MSFT", "50", "2024-01-31", ""),
+		exportDecl(t, "FIDELITY", "Z1", "AAPL", "120", "2024-02-29", ""),
+		exportDecl(t, "FIDELITY", "Z2", "AAPL", "7", "2024-02-29", ""),
 	})
 
 	want := []string{
@@ -95,15 +100,35 @@ func TestExportUserArchive_CutsStatementsOnAccountAndDate(t *testing.T) {
 	}
 }
 
+// A basis equal to the statement's own date is what an absent one already
+// means, so writing it would stamp a redundant date onto every row.
+func TestExportUserArchive_WritesShareCountBasisOnlyWhenItDiffers(t *testing.T) {
+	stream := exportDeclarations(t, []dbpkg.ExportDeclaration{
+		exportDecl(t, "FIDELITY", "Z1", "AAPL", "100", "2024-01-31", ""),
+		exportDecl(t, "FIDELITY", "Z1", "MSFT", "50", "2024-01-31", "2026-08-13"),
+	})
+
+	decls := stream.statements()[0].GetDeclarations()
+	if decls[0].ShareCountBasis != nil {
+		t.Fatalf("share_count_basis = %q, want absent", decls[0].GetShareCountBasis())
+	}
+	if got := decls[1].GetShareCountBasis(); got != "2026-08-13" {
+		t.Fatalf("share_count_basis = %q, want 2026-08-13", got)
+	}
+}
+
+// A row this build cannot name in a file would fail validation on the way back
+// in and take its whole statement with it, so it is dropped instead. A
+// statement left with nothing is not sent at all.
 func TestExportUserArchive_SkipsDeclarationsItCannotName(t *testing.T) {
-	noIdentifier := exportDecl(t, "FIDELITY", "Z1", "AAPL", "100", "2024-01-31")
+	noIdentifier := exportDecl(t, "FIDELITY", "Z1", "AAPL", "100", "2024-01-31", "")
 	noIdentifier.IdentifierType, noIdentifier.IdentifierValue, noIdentifier.IdentifierDomain = "", "", ""
-	unknownBroker := exportDecl(t, "NOT_A_BROKER", "Z9", "MSFT", "5", "2024-01-31")
+	unknownBroker := exportDecl(t, "NOT_A_BROKER", "Z9", "MSFT", "5", "2024-01-31", "")
 
 	stream := exportDeclarations(t, []dbpkg.ExportDeclaration{
 		noIdentifier,
 		unknownBroker,
-		exportDecl(t, "FIDELITY", "Z1", "MSFT", "50", "2024-01-31"),
+		exportDecl(t, "FIDELITY", "Z1", "MSFT", "50", "2024-01-31", ""),
 	})
 
 	sts := stream.statements()
@@ -133,7 +158,7 @@ func TestExportUserArchive_DeclarationsPartPresentWhenEmpty(t *testing.T) {
 func TestExportUserArchive_PeriodDoesNotScopeDeclarations(t *testing.T) {
 	srv, mockDB := newAPIServerWithMock(t)
 	rows := []dbpkg.ExportDeclaration{
-		exportDecl(t, "FIDELITY", "Z1", "AAPL", "100", "2019-01-31"),
+		exportDecl(t, "FIDELITY", "Z1", "AAPL", "100", "2019-01-31", ""),
 	}
 	// Called with the user alone: no bounds are passed through.
 	mockDB.EXPECT().ListHoldingDeclarationsForExport(gomock.Any(), "user-1").Return(rows, nil)

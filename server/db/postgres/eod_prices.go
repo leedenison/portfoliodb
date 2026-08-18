@@ -51,6 +51,7 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 		"ep.instrument_id", "i.name AS display_name",
 		"ep.price_date", "ep.open", "ep.high", "ep.low", "ep.close", "ep.adjusted_close",
 		"ep.volume", "ep.data_provider", "ep.last_fetched_at",
+		"ep.share_count_basis",
 	).
 		From("eod_prices ep").
 		Join("instruments i ON i.id = ep.instrument_id").
@@ -76,7 +77,7 @@ func (p *Postgres) ListPrices(ctx context.Context, search string, dateFrom, date
 		if err := rows.Scan(
 			&r.InstrumentID, &r.InstrumentDisplayName,
 			&r.PriceDate, &open, &high, &low, &r.Close, &adjClose,
-			&volume, &r.DataProvider, &r.LastFetchedAt,
+			&volume, &r.DataProvider, &r.LastFetchedAt, &r.ShareCountBasis,
 		); err != nil {
 			return nil, 0, "", err
 		}
@@ -118,6 +119,7 @@ type exportPriceRow struct {
 	AssetClass       string           `db:"asset_class"`
 	Currency         string           `db:"currency"`
 	PriceDate        time.Time        `db:"price_date"`
+	ShareCountBasis  *time.Time       `db:"share_count_basis"`
 	Open             *decimal.Decimal `db:"open"`
 	High             *decimal.Decimal `db:"high"`
 	Low              *decimal.Decimal `db:"low"`
@@ -133,7 +135,13 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 			COALESCE(i.asset_class, '') AS asset_class,
 			COALESCE(i.currency, '') AS currency,
 			ep.price_date, ep.open, ep.high, ep.low, ep.close,
-			ep.adjusted_close, ep.volume
+			ep.adjusted_close, ep.volume,
+			-- A basis equal to the bar's own date is the as-traded convention
+			-- and says nothing a reader cannot infer. The column is NOT NULL
+			-- and defaults to price_date, so selecting it raw would stamp a
+			-- redundant date onto every bar in the file.
+			CASE WHEN ep.share_count_basis = ep.price_date THEN NULL
+				ELSE ep.share_count_basis END AS share_count_basis
 		FROM eod_prices ep
 		JOIN instruments i ON i.id = ep.instrument_id
 		` + bestIdentifierJoin + `
@@ -152,6 +160,7 @@ func (p *Postgres) ListPricesForExport(ctx context.Context) ([]db.ExportPriceRow
 			AssetClass:       r.AssetClass,
 			Currency:         r.Currency,
 			PriceDate:        r.PriceDate,
+			ShareCountBasis:  r.ShareCountBasis,
 			Open:             r.Open,
 			High:             r.High,
 			Low:              r.Low,
